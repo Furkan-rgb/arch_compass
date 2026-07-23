@@ -6,19 +6,23 @@ atlas of a Python repository. It produces an evidence-checked recommendation, al
 trade-offs, future scenarios, an implementation outline, and an ADR in JSON and Markdown.
 
 ArchCompass never imports or modifies an analysed repository. Repository analysis is optional:
-greenfield and brownfield consultations run through the same advisory workflow.
+greenfield and brownfield consultations run through the same advisory workflow. Brownfield
+evidence is accepted only while its persisted atlas still matches the repository.
 
 ## V1 capabilities
 
-- Append-only architecture cases and immutable consultation runs in SQLite.
-- Versioned Python AST repository atlases with nodes, edges, separate metric dimensions, and
-  objective obscurity signals.
-- Section-aware Markdown policy indexing and retrieval through `sqlite-vec`.
-- Bounded progressive atlas queries; the model never receives the full source tree.
+- Append-only architecture cases and immutable successful or failed consultation runs in SQLite.
+- Immutable Python AST atlases with typed queries, separate metric dimensions, freshness checks,
+  and objective obscurity signals.
+- Persistent workspace policy sources and section-aware, exact unique-policy retrieval through
+  `sqlite-vec`.
+- Validated concern clusters and bounded focused packets; the model never receives the complete
+  atlas or source tree.
 - Configurable Ollama chat and embedding adapters with validated structured outputs.
 - Deterministic fake providers for tests and evaluations.
-- Evidence validation with one constrained repair attempt.
-- Typer CLI with Markdown and JSON reports.
+- Classified, claim-supported recommendation prose with one constrained evidence-repair pass.
+- A Typer CLI backed by application services, with lossless Markdown and structured JSON reports.
+- Schema-v2 outputs with compatibility upgrades for stored schema-v1 cases, runs, and reports.
 
 V1 does not modify code, comment on pull requests, expose a web UI, monitor repositories,
 perform runtime tracing, or calculate a universal complexity score.
@@ -40,8 +44,10 @@ uv sync --locked
 uv run archcompass init
 ```
 
-The repository's `config/models.yaml` is the single source for provider identity, model names,
-embedding dimensions, timeouts, and consultation limits. The default expects:
+`init` copies the packaged default configuration to the workspace's `config/models.yaml` and
+does not overwrite an existing file. That workspace file (or an explicit `--models-config`
+path) owns provider identity, model names, embedding dimensions, timeouts, retrieval limits, and
+consultation evidence budgets. The packaged default expects:
 
 ```bash
 ollama pull gemma4:12b
@@ -52,6 +58,17 @@ ArchCompass does not pull models automatically. Before each consultation, prefli
 policy index when it is missing and rebuilds it when the policy corpus or embedding configuration
 has changed. A matching index is reused without calling the embedding model. Use
 `uv run archcompass policies rebuild` only when you explicitly want a new immutable index version.
+
+Additional policy files or directories can be registered persistently:
+
+```bash
+uv run archcompass policies sources add /path/to/team-policies
+uv run archcompass policies sources list
+uv run archcompass policies rebuild
+```
+
+`policies rebuild --source PATH` also registers `PATH` before rebuilding. Repository-local
+policies are included only for that repository and are not registered globally.
 
 ## Quick start
 
@@ -66,12 +83,22 @@ uv run archcompass advise <case-id>
 For an existing Python repository:
 
 ```bash
-uv run archcompass repo index /path/to/repository
-uv run archcompass atlas summary /path/to/repository
-uv run archcompass atlas hotspots /path/to/repository \
+uv run archcompass --workspace /path/to/archcompass-workspace init
+uv run archcompass --workspace /path/to/archcompass-workspace \
+  repo index /path/to/repository
+uv run archcompass --workspace /path/to/archcompass-workspace \
+  atlas summary /path/to/repository
+uv run archcompass --workspace /path/to/archcompass-workspace \
+  atlas hotspots /path/to/repository \
   --metric reverse-dependency-reach
-uv run archcompass advise <case-id> --repo /path/to/repository
+uv run archcompass --workspace /path/to/archcompass-workspace \
+  advise <case-id> --repo /path/to/repository
 ```
+
+The ArchCompass workspace must not equal or sit inside the analysed repository. State and report
+writers remain inside that validated workspace and reject traversal and symlink escapes. If
+repository contents or its Git commit change after indexing, atlas queries and advice reject the
+stale version and direct you to run `repo index` again.
 
 Reports are printed and saved as `reports/<run-id>.md` and `reports/<run-id>.json`.
 Use `--json` to print structured output.

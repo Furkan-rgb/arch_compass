@@ -10,15 +10,18 @@ import typer
 import yaml
 from pydantic import ValidationError
 
-from archcompass.bootstrap import Runtime, build_runtime
-from archcompass.configuration import DEFAULT_CONFIG_TEXT
-from archcompass.domain.atlas import HotspotsQuery, NodeDetailsQuery, RepositorySummaryQuery
-from archcompass.domain.case import ArchitectureCase, CaseUpdate
-from archcompass.domain.errors import (
-    ArchCompassError,
-    CaseNotFoundError,
-    ConfigurationError,
+from archcompass.application.safety import (
+    validate_workspace_repository_separation,
 )
+from archcompass.bootstrap import (
+    Runtime,
+    build_runtime,
+)
+from archcompass.bootstrap import (
+    initialize_workspace as initialize_workspace_runtime,
+)
+from archcompass.domain.case import ArchitectureCase, CaseUpdate
+from archcompass.domain.errors import ArchCompassError
 
 app = typer.Typer(
     name="archcompass",
@@ -26,11 +29,13 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 policies_app = typer.Typer(help="Build and inspect architectural policies.")
+policy_sources_app = typer.Typer(help="Register persistent workspace policy sources.")
 repo_app = typer.Typer(help="Index a Python repository.")
 atlas_app = typer.Typer(help="Query repository atlases.")
 case_app = typer.Typer(help="Create and revise architecture cases.")
 run_app = typer.Typer(help="Inspect immutable consultation runs.")
 app.add_typer(policies_app, name="policies")
+policies_app.add_typer(policy_sources_app, name="sources")
 app.add_typer(repo_app, name="repo")
 app.add_typer(atlas_app, name="atlas")
 app.add_typer(case_app, name="case")
@@ -50,6 +55,20 @@ class CLIState:
                 self.workspace, models_config=self.models_config
             )
         return self._runtime
+
+    def runtime_for_repository(self, repository: Path) -> Runtime:
+        if self._runtime is None:
+            self._runtime = build_runtime(
+                self.workspace,
+                models_config=self.models_config,
+                repository=repository,
+            )
+        else:
+            validate_workspace_repository_separation(self.workspace, repository)
+        return self._runtime
+
+    def set_runtime(self, runtime: Runtime) -> None:
+        self._runtime = runtime
 
 
 @app.callback()
@@ -75,15 +94,13 @@ def root_callback(
 def initialize(context: typer.Context) -> None:
     """Create missing workspace configuration and database without overwriting files."""
     state = _state(context)
-    config_path = state.models_config or state.workspace / "config" / "models.yaml"
-    created: list[Path] = []
-    if not config_path.exists():
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(DEFAULT_CONFIG_TEXT, encoding="utf-8")
-        created.append(config_path)
-    runtime = build_runtime(state.workspace, models_config=config_path)
-    typer.echo(f"Workspace ready: {runtime.workspace}")
-    for path in created:
+    result = initialize_workspace_runtime(
+        state.workspace,
+        models_config=state.models_config,
+    )
+    state.set_runtime(result.runtime)
+    typer.echo(f"Workspace ready: {result.runtime.workspace}")
+    for path in result.created_paths:
         typer.echo(f"Created {path}")
 
 
@@ -100,42 +117,59 @@ def policies_rebuild(
     ] = None,
 ) -> None:
     runtime = _state(context).runtime
-    sources = [*runtime.policy_sources, *(source or [])]
-    if repo is not None:
-        sources.append(repo.expanduser().resolve() / ".archcompass" / "policies")
-    version = runtime.policy_store.rebuild(sources)
+    version = runtime.policy_service.rebuild(
+        sources=source,
+        repository_root=repo,
+    )
     typer.echo(version.model_dump_json(indent=2))
 
 
 @policies_app.command("list")
 def policies_list(context: typer.Context) -> None:
-    for policy in _state(context).runtime.policy_store.list_policies():
+    for policy in _state(context).runtime.policy_service.list_policies():
         typer.echo(f"{policy.id}\t{policy.scope}\t{policy.strength}\t{policy.title}")
 
 
 @policies_app.command("show")
 def policies_show(context: typer.Context, policy_id: str) -> None:
-    policy = _state(context).runtime.policy_store.get_policy(policy_id)
+    policy = _state(context).runtime.policy_service.get_policy(policy_id)
     typer.echo(policy.model_dump_json(indent=2))
+
+
+@policy_sources_app.command("add")
+def policy_sources_add(context: typer.Context, source: Path) -> None:
+    registration = _state(context).runtime.policy_service.add_source(source)
+    typer.echo(registration.model_dump_json(indent=2))
+
+
+@policy_sources_app.command("remove")
+def policy_sources_remove(context: typer.Context, source: Path) -> None:
+    removed = _state(context).runtime.policy_service.remove_source(source)
+    if not removed:
+        raise typer.BadParameter(f"Policy source is not registered: {source}")
+    typer.echo(f"Removed {source.expanduser().resolve(strict=False)}")
+
+
+@policy_sources_app.command("list")
+def policy_sources_list(context: typer.Context) -> None:
+    registrations = _state(context).runtime.policy_service.list_sources()
+    typer.echo(
+        json.dumps(
+            [item.model_dump(mode="json") for item in registrations],
+            indent=2,
+        )
+    )
 
 
 @repo_app.command("index")
 def repo_index(context: typer.Context, path: Path) -> None:
-    runtime = _state(context).runtime
-    atlas = runtime.analyzer.analyze(path)
-    runtime.atlas_repository.save(atlas)
-    typer.echo(atlas.version.model_dump_json(indent=2))
+    version = _state(context).runtime_for_repository(path).repository_service.index(path)
+    typer.echo(version.model_dump_json(indent=2))
 
 
 @atlas_app.command("summary")
 def atlas_summary(context: typer.Context, path: Path) -> None:
-    runtime = _state(context).runtime
-    atlas = runtime.atlas_repository.latest_for_path(path)
-    if atlas is None:
-        raise typer.BadParameter(f"No indexed atlas exists for {path}")
-    result = runtime.query_service.execute(
-        atlas, RepositorySummaryQuery(kind="repository_summary", limit=30)
-    )
+    result = _state(context).runtime_for_repository(path).atlas_service.summary(path)
     typer.echo(result.model_dump_json(indent=2))
 
 
@@ -145,12 +179,9 @@ def atlas_inspect(
     path: Path,
     node: Annotated[str, typer.Option("--node", help="Stable atlas node ID.")],
 ) -> None:
-    runtime = _state(context).runtime
-    atlas = runtime.atlas_repository.latest_for_path(path)
-    if atlas is None:
-        raise typer.BadParameter(f"No indexed atlas exists for {path}")
-    result = runtime.query_service.execute(
-        atlas, NodeDetailsQuery(kind="node_details", node_id=node)
+    result = _state(context).runtime_for_repository(path).atlas_service.inspect(
+        path,
+        node,
     )
     typer.echo(result.model_dump_json(indent=2))
 
@@ -163,12 +194,9 @@ def atlas_hotspots(
         str, typer.Option("--metric", help="One documented metric field name.")
     ] = "reverse_dependency_reach",
 ) -> None:
-    runtime = _state(context).runtime
-    atlas = runtime.atlas_repository.latest_for_path(path)
-    if atlas is None:
-        raise typer.BadParameter(f"No indexed atlas exists for {path}")
-    result = runtime.query_service.execute(
-        atlas, HotspotsQuery(kind="hotspots", metric=metric, limit=20)
+    result = _state(context).runtime_for_repository(path).atlas_service.hotspots(
+        path,
+        metric,
     )
     typer.echo(result.model_dump_json(indent=2))
 
@@ -223,27 +251,24 @@ def advise(
         bool, typer.Option("--json", help="Print the structured report.")
     ] = False,
 ) -> None:
-    runtime = _state(context).runtime
-    atlas = None
-    if repo is not None:
-        atlas = runtime.atlas_repository.latest_for_path(repo)
-        if atlas is None:
-            raise typer.BadParameter(f"No indexed atlas exists for {repo}")
-    run = runtime.workflow.advise(case_id, atlas=atlas)
-    reports = runtime.workspace / "reports"
-    reports.mkdir(parents=True, exist_ok=True)
+    state = _state(context)
+    runtime = (
+        state.runtime_for_repository(repo)
+        if repo is not None
+        else state.runtime
+    )
+    run = runtime.advice_service.advise(
+        case_id,
+        repository_root=repo,
+    )
     if run.report is None or run.markdown_report is None:
         raise RuntimeError("Successful consultation did not produce a report")
-    (reports / f"{run.run_id}.json").write_text(
-        run.report.model_dump_json(indent=2) + "\n", encoding="utf-8"
-    )
-    (reports / f"{run.run_id}.md").write_text(run.markdown_report, encoding="utf-8")
     typer.echo(run.report.model_dump_json(indent=2) if as_json else run.markdown_report)
 
 
 @run_app.command("show")
 def run_show(context: typer.Context, run_id: str) -> None:
-    run = _state(context).runtime.run_repository.get(run_id)
+    run = _state(context).runtime.run_service.show(run_id)
     typer.echo(run.model_dump_json(indent=2))
 
 
@@ -263,6 +288,6 @@ def _read_yaml(path: Path) -> object:
 def main() -> None:
     try:
         app()
-    except (ValidationError, ArchCompassError, ConfigurationError, CaseNotFoundError) as error:
+    except (ValidationError, ArchCompassError) as error:
         typer.echo(f"Error: {error}", err=True)
         raise typer.Exit(code=2) from error

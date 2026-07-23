@@ -25,6 +25,10 @@ class AtlasNotFoundError(ArchCompassError):
     pass
 
 
+class StaleAtlasError(ArchCompassError):
+    """Stored repository evidence no longer matches the repository."""
+
+
 class AtlasQueryValidationError(ArchCompassError):
     pass
 
@@ -51,4 +55,3 @@ class ModelOutputValidationError(ArchCompassError):
 
 class EvidenceReferenceError(ArchCompassError):
     pass
-

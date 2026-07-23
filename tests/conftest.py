@@ -24,6 +24,7 @@ def fake_config_text() -> str:
     timeout_seconds: 1
 retrieval:
   top_k: 6
+  max_sections_per_policy: 3
 consultation:
   max_zoom_iterations: 3
   max_queries_per_iteration: 8
@@ -38,4 +39,3 @@ def runtime(tmp_path: Path, fake_config_text: str) -> Runtime:
     config_path.parent.mkdir(parents=True)
     config_path.write_text(fake_config_text, encoding="utf-8")
     return build_runtime(tmp_path)
-

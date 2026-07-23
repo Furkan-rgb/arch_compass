@@ -26,10 +26,12 @@ are valid outcomes.
 ## Product principles
 
 - One evolving `ArchitectureCase` owns case-specific facts.
-- A deterministic `RepositoryAtlas` owns objective repository structure.
-- A reusable `PolicyCorpus` owns normative guidance.
-- An immutable `ConsultationRun` records how one recommendation was produced.
-- Important claims identify their classification and evidence.
+- A deterministic, immutable `RepositoryAtlas` owns objective repository structure and is rejected
+  when its repository identity becomes stale.
+- A reusable `PolicyCorpus` and persistent workspace source registry own normative guidance.
+- An immutable successful or failed `ConsultationRun` records how one recommendation was produced.
+- Important claims identify their classification and evidence; substantive conclusions cite
+  supporting claim IDs.
 - Local complication may contain system-wide complexity; metrics remain separate.
 
 ## V1 non-goals
@@ -41,4 +43,3 @@ enforcement, and any universal maintainability or complexity score.
 
 Interfaces are narrow enough to permit later adapters, but V1 contains no unused extension
 platform.
-

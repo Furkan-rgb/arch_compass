@@ -1,20 +1,21 @@
 """Stable application ports."""
 
+from archcompass.ports.atlas import (
+    AtlasQueryService,
+    RepositoryAnalyzer,
+    SourceReader,
+)
+from archcompass.ports.models import EmbeddingProvider
+from archcompass.ports.policies import PolicyIndex, PolicyRetriever
+from archcompass.ports.reasoning import FocusedReasoningProvider
 from archcompass.ports.repositories import (
     AtlasRepository,
     CaseRepository,
     ConsultationCommitRepository,
     ConsultationRunRepository,
 )
-from archcompass.ports.services import (
-    AtlasQueryService,
-    EmbeddingProvider,
-    PolicyIndex,
-    PolicyRetriever,
-    ReasoningProvider,
-    RepositoryAnalyzer,
-    SourceReader,
-)
+
+ReasoningProvider = FocusedReasoningProvider
 
 __all__ = [
     "AtlasQueryService",
@@ -23,6 +24,7 @@ __all__ = [
     "ConsultationCommitRepository",
     "ConsultationRunRepository",
     "EmbeddingProvider",
+    "FocusedReasoningProvider",
     "PolicyIndex",
     "PolicyRetriever",
     "ReasoningProvider",

@@ -34,8 +34,10 @@ def test_invented_evidence_is_rejected() -> None:
     )
     alternatives = provider.generate_alternatives(context, [])
     scenarios = provider.evaluate_scenarios(context, alternatives, [])
+    forces = provider.discover_design_forces(context)
+    clusters = provider.cluster_design_forces(context, forces)
     report = provider.synthesize_recommendation(
-        case, context, [], alternatives, scenarios, []
+        case, context, forces, clusters, [], alternatives, scenarios, []
     )
     bad = Claim(
         text="Invented observation",
@@ -48,9 +50,7 @@ def test_invented_evidence_is_rejected() -> None:
             "evidence_appendix": [bad],
         }
     )
-    errors = validate_report_evidence(
-        report, allowed_nodes={}, allowed_policy_ids=set()
-    )
+    errors = validate_report_evidence(report, allowed_nodes={}, allowed_policy_ids=set())
     assert any("unknown atlas node" in error for error in errors)
 
     repaired = repair_report_evidence(
@@ -61,8 +61,67 @@ def test_invented_evidence_is_rejected() -> None:
 
     assert repaired.repository_observations == []
     assert repaired.evidence_appendix == []
-    assert validate_report_evidence(
+    final_errors = validate_report_evidence(
         repaired,
         allowed_nodes={},
         allowed_policy_ids=set(),
-    ) == []
+    )
+    assert final_errors == ["Supported statement has no supporting claim IDs"]
+
+
+def test_invented_policy_ids_are_removed() -> None:
+    provider = DeterministicReasoningProvider()
+    case = ArchitectureCase(
+        title="Policy evidence",
+        problem_statement="Validate policy citations.",
+        desired_outcome="Keep only retrieved guidance.",
+    )
+    context = GlobalContext(
+        case_id=case.case_id,
+        revision=1,
+        title=case.title,
+        problem=case.problem_statement,
+        desired_outcome=case.desired_outcome,
+        goals=[],
+        constraints=[],
+        future_changes=[],
+        non_goals=[],
+        confirmed_facts=[],
+        assumptions=[],
+    )
+    alternatives = provider.generate_alternatives(context, [])
+    scenarios = provider.evaluate_scenarios(context, alternatives, [])
+    forces = provider.discover_design_forces(context)
+    clusters = provider.cluster_design_forces(context, forces)
+    report = provider.synthesize_recommendation(
+        case, context, forces, clusters, [], alternatives, scenarios, []
+    )
+    invented = Claim(
+        text="An invented policy applies.",
+        classification=ClaimClassification.POLICY_GUIDANCE,
+        policy_ids=["policy-invented"],
+    )
+    report = report.model_copy(
+        update={
+            "relevant_policies": [invented],
+            "evidence_appendix": [*report.evidence_appendix, invented],
+        }
+    )
+
+    errors = validate_report_evidence(
+        report,
+        allowed_nodes={},
+        allowed_policy_ids=set(),
+    )
+    repaired = repair_report_evidence(
+        report,
+        allowed_nodes={},
+        allowed_policy_ids=set(),
+    )
+
+    assert any("policy that was not retrieved" in error for error in errors)
+    assert repaired.relevant_policies == []
+    assert all(
+        "policy-invented" not in claim.policy_ids
+        for claim in repaired.evidence_appendix
+    )

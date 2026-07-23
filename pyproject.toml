@@ -58,6 +58,8 @@ pythonVersion = "3.12"
 typeCheckingMode = "strict"
 include = ["src"]
 exclude = ["tests/fixtures", "eval/cases"]
+venvPath = "."
+venv = ".venv"
 reportMissingTypeStubs = false
 reportUnknownMemberType = false
 

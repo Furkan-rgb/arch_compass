@@ -45,14 +45,14 @@ def test_live_embedding_model_contract(live_config: AppConfig) -> None:
     assert vectors[0] != vectors[1]
 
 
-def test_live_greenfield_consultation_end_to_end(
+def test_live_audiobook_greenfield_consultation(
     tmp_path: Path,
     live_config_path: Path,
 ) -> None:
     runtime = build_runtime(tmp_path, models_config=live_config_path)
     assert runtime.policy_store.current_version() is None
     case_data = yaml.safe_load(
-        Path("eval/cases/premature-abstraction/case.yaml").read_text(encoding="utf-8")
+        Path("eval/cases/audiobook-greenfield/case.yaml").read_text(encoding="utf-8")
     )
     revision = runtime.case_service.create(ArchitectureCase.model_validate(case_data))
 
@@ -80,4 +80,14 @@ def test_live_greenfield_consultation_end_to_end(
     assert run.report.adr.decision
     assert run.markdown_report is not None
     assert run.report.adr.title in run.markdown_report
+    assert {
+        "policy_preflight",
+        "discover_design_forces",
+        "cluster_design_forces",
+        "generate_alternatives",
+        "evaluate_scenarios",
+        "synthesize_recommendation",
+        "rendering",
+    } <= set(run.stage_timings)
+    assert all(duration >= 0 for duration in run.stage_timings.values())
     assert runtime.case_service.show(revision.case_id).revision == 2

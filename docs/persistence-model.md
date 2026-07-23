@@ -13,12 +13,20 @@ embedded in the package and applied explicitly during initialization.
 - `policy_index_versions`: immutable corpus/model/dimension identity.
 - `policies`, `policy_chunks`: original validated policy data by index version.
 - `policy_vector_rows`: stable relational mapping to dimension-specific `vec0` rows.
-- `consultation_runs`: immutable complete execution and report record.
+- `policy_source_registrations`: canonical persistent workspace policy-source paths.
+- `consultation_runs`: immutable successful or failed execution and report record.
 
 Case append uses optimistic revision matching in the same transaction as the new snapshot.
 Atlas and policy rebuilds always insert new version rows. Old consultations continue to reference
-the exact evidence versions they used.
+the exact evidence versions they used. A successful consultation inserts its run and next case
+revision atomically. Once a valid input case is loaded, a terminal workflow failure is stored as a
+failed run with its partial audit data and never advances the case.
 
 ArchCompass state defaults to `<workspace>/.archcompass/archcompass.db`; analysed repositories are
-never used as persistence destinations by indexing or advice commands.
+never used as persistence destinations by indexing or advice commands. The workspace may not
+equal or be contained by an analysed repository. Database and report paths are revalidated inside
+the workspace and reject traversal or symlink escapes.
 
+Migration `002_policy_source_registrations.sql` adds the source registry without replacing
+existing tables. Stored schema-v1 case and run JSON remains readable through model upgrade
+validators; new case, atlas, policy-index, report, and run output uses schema version 2.

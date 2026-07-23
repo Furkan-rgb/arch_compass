@@ -12,7 +12,7 @@ from archcompass.domain.atlas import (
 )
 from archcompass.domain.errors import AtlasQueryValidationError, PathValidationError
 
-FIXTURE = Path("tests/fixtures/provider_leakage").resolve()
+FIXTURE = Path("eval/cases/provider-leakage/repository").resolve()
 
 
 def test_ast_atlas_contains_structure_edges_metrics_and_signals(runtime) -> None:
@@ -77,4 +77,3 @@ def test_queries_validate_ids_and_bound_source(runtime) -> None:
         runtime.query_service._source_reader.excerpt(
             FIXTURE, "../outside.py", 1, 1, max_lines=1
         )
-

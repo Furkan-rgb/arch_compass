@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from importlib.resources import files
 from pathlib import Path
 
 import yaml
@@ -11,27 +12,14 @@ from pydantic import Field, ValidationError
 from archcompass.domain.base import DomainModel, canonical_json, stable_id
 from archcompass.domain.errors import ConfigurationError
 
-DEFAULT_CONFIG_TEXT = """models:
-  reasoning:
-    provider: ollama
-    model: gemma4:12b
-    base_url: http://127.0.0.1:11434
-    temperature: 0.0
-    timeout_seconds: 180
-  embedding:
-    provider: ollama
-    model: embeddinggemma
-    base_url: http://127.0.0.1:11434
-    dimensions: 768
-    timeout_seconds: 60
-retrieval:
-  top_k: 6
-consultation:
-  max_zoom_iterations: 3
-  max_queries_per_iteration: 8
-  max_query_results: 30
-  max_excerpt_lines: 80
-"""
+
+def default_config_text() -> str:
+    """Return the packaged default model configuration."""
+    return files("archcompass.resources").joinpath("models.yaml").read_text(encoding="utf-8")
+
+
+# Backwards-compatible import for callers that previously consumed the template.
+DEFAULT_CONFIG_TEXT = default_config_text()
 
 
 class ReasoningModelConfig(DomainModel):
@@ -57,6 +45,7 @@ class ModelsConfig(DomainModel):
 
 class RetrievalConfig(DomainModel):
     top_k: int = Field(default=6, ge=1, le=100)
+    max_sections_per_policy: int = Field(default=3, ge=1, le=3)
 
 
 class ConsultationConfig(DomainModel):

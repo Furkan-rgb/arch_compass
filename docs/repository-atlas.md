@@ -3,7 +3,9 @@
 ## Construction
 
 The Python analyzer resolves and validates the root, ignores symlinks and common generated or
-environment directories, reads candidate files, and parses Python with the built-in `ast` module.
+environment directories, and reads every discovered Python/configuration file exactly once into
+an in-memory snapshot. The same bytes are used for the content fingerprint and built-in `ast`
+parsing, so an atlas never combines an identity from one read with structure from another.
 Analysed code is never imported or executed.
 
 Nodes represent repositories, packages, modules, test modules, configuration files/modules,
@@ -16,9 +18,28 @@ and `configures`. V1 emits only relationships it can resolve conservatively. Eac
 confidence and a source location where available. Calls without one resolvable internal target
 become `unresolved-call` signals instead of invented edges.
 
+Calls, references, statements, branches, and imports are attributed to their lexical owner.
+Walking a module, class, or callable treats nested class/function definitions as opaque, so a
+nested callable's behavior is not charged to its parent. Test relationships come from resolved
+test calls and internal imports.
+
 Version identity records the canonical root, repository identity, Git commit when available,
 content fingerprint, parser version, and analysis-configuration hash. An explicit rebuild always
-creates a new version.
+creates a new immutable version.
+
+## Freshness and workspace safety
+
+Before brownfield advice and application-level atlas queries, ArchCompass recomputes the
+repository content fingerprint and Git commit identity. Source excerpts perform the same check
+before reading code. A mismatch raises `StaleAtlasError` and instructs the caller to run
+`archcompass repo index <repository>`; old versions are usable only while their evidence identity
+still matches.
+
+The selected ArchCompass workspace must not equal or be contained by the analysed repository.
+Explicit repository arguments are checked before runtime construction, and every atlas root
+resolved from a case or persisted version is checked again before use. This prevents SQLite state
+or reports from being written into the repository. Indexing, queries, and advice never modify the
+analysed repository.
 
 ## Query model
 
@@ -26,6 +47,10 @@ Supported queries include repository and subsystem summaries, node details, dire
 and dependants, forward and reverse neighbourhoods, known callers, interface implementations,
 related tests, shortest dependency paths, cycles, metric hotspots, token-based node search, and
 bounded excerpts.
+
+Every result has typed fields for node summaries, metric values, relationships, test IDs,
+signals, and excerpts in addition to its bounded summary and node IDs. Hotspot metric values
+include deterministic ranks. Unsupported metric names and unknown node IDs are rejected.
 
 Progressive zoom is:
 
@@ -51,4 +76,3 @@ traversal.
 
 Confidence describes static resolution quality; it is not a probability that the architecture is
 good.
-

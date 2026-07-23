@@ -5,6 +5,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
 from archcompass.presentation.cli.app import app
 
 runner = CliRunner()
@@ -52,7 +53,7 @@ def test_cli_commands_cover_local_workflow(tmp_path: Path, fake_config_text: str
     )
     assert updated.exit_code == 0
 
-    fixture = Path("tests/fixtures/provider_leakage").resolve()
+    fixture = Path("eval/cases/provider-leakage/repository").resolve()
     indexed = runner.invoke(app, [*common, "repo", "index", str(fixture)])
     assert indexed.exit_code == 0, indexed.output
     assert runner.invoke(
@@ -113,3 +114,59 @@ def test_advise_prepares_missing_policy_index(
     listed = runner.invoke(app, [*common, "policies", "list"])
     assert listed.exit_code == 0, listed.output
     assert "delay-premature-abstraction" in listed.output
+
+
+def test_cli_policy_source_registry_is_persistent(
+    tmp_path: Path,
+    fake_config_text: str,
+) -> None:
+    workspace = tmp_path / "workspace"
+    initialized = runner.invoke(app, ["--workspace", str(workspace), "init"])
+    assert initialized.exit_code == 0, initialized.output
+    (workspace / "config" / "models.yaml").write_text(
+        fake_config_text,
+        encoding="utf-8",
+    )
+    source = tmp_path / "team-policies"
+    source.mkdir()
+    template = (BUNDLED_POLICY_SOURCE / "contain-dependencies.md").read_text(
+        encoding="utf-8"
+    )
+    (source / "team-containment.md").write_text(
+        template.replace(
+            "id: contain-dependencies",
+            "id: team-containment",
+            1,
+        ).replace("scope: general", "scope: organisation", 1),
+        encoding="utf-8",
+    )
+    common = ["--workspace", str(workspace)]
+
+    rebuilt = runner.invoke(
+        app,
+        [*common, "policies", "rebuild", "--source", str(source)],
+    )
+    listed_sources = runner.invoke(
+        app,
+        [*common, "policies", "sources", "list"],
+    )
+    shown = runner.invoke(
+        app,
+        [*common, "policies", "show", "team-containment"],
+    )
+    removed = runner.invoke(
+        app,
+        [*common, "policies", "sources", "remove", str(source)],
+    )
+    listed_after_remove = runner.invoke(
+        app,
+        [*common, "policies", "sources", "list"],
+    )
+
+    assert rebuilt.exit_code == 0, rebuilt.output
+    assert listed_sources.exit_code == 0, listed_sources.output
+    assert str(source.resolve()) in listed_sources.output
+    assert shown.exit_code == 0, shown.output
+    assert '"scope": "organisation"' in shown.output
+    assert removed.exit_code == 0, removed.output
+    assert str(source.resolve()) not in listed_after_remove.output

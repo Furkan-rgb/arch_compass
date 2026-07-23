@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, cast
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from archcompass.domain.base import DomainModel, new_id, utc_now
+
+
+def _mapping(value: object) -> dict[str, object] | None:
+    if not isinstance(value, Mapping):
+        return None
+    source = cast(Mapping[object, object], value)
+    return {str(key): item for key, item in source.items()}
 
 
 class StatementKind(StrEnum):
@@ -27,20 +35,21 @@ class CaseStatement(DomainModel):
 
 
 class RepositoryReference(DomainModel):
-    root_path: str
+    root_path: str = Field(min_length=1)
     atlas_version_id: str | None = None
 
 
 class CaseAlternative(DomainModel):
     id: str = Field(default_factory=lambda: new_id("alt"))
-    title: str
-    summary: str
+    title: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
 
 
 class RecommendationState(DomainModel):
-    summary: str
-    rationale: str
+    summary: str = Field(min_length=1)
+    rationale: str = Field(min_length=1)
     run_id: str | None = None
+    disposition: str | None = None
 
 
 class ConfidenceLevel(StrEnum):
@@ -51,10 +60,11 @@ class ConfidenceLevel(StrEnum):
 
 class Confidence(DomainModel):
     level: ConfidenceLevel
-    rationale: str
+    rationale: str = Field(min_length=1)
 
 
 class ArchitectureCase(DomainModel):
+    schema_version: Literal[2] = 2
     case_id: str = Field(default_factory=lambda: new_id("case"))
     title: str = Field(min_length=1)
     problem_statement: str = Field(min_length=1)
@@ -73,9 +83,7 @@ class ArchitectureCase(DomainModel):
     design_forces: list[CaseStatement] = Field(default_factory=list[CaseStatement])
     repository: RepositoryReference | None = None
     referenced_policy_ids: list[str] = Field(default_factory=list[str])
-    candidate_alternatives: list[CaseAlternative] = Field(
-        default_factory=list[CaseAlternative]
-    )
+    candidate_alternatives: list[CaseAlternative] = Field(default_factory=list[CaseAlternative])
     current_recommendation: RecommendationState | None = None
     confidence: Confidence | None = None
     reversal_conditions: list[str] = Field(default_factory=list[str])
@@ -83,6 +91,38 @@ class ArchitectureCase(DomainModel):
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
     revision: int = Field(default=1, ge=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def upgrade_schema_v1(cls, value: object) -> object:
+        data = _mapping(value)
+        if data is None:
+            return value
+        data["schema_version"] = 2
+        return data
+
+    @model_validator(mode="after")
+    def validate_statement_kinds(self) -> ArchitectureCase:
+        expected = (
+            ("confirmed_facts", self.confirmed_facts, StatementKind.FACT),
+            (
+                "derived_constraints",
+                self.derived_constraints,
+                StatementKind.DERIVED_CONSTRAINT,
+            ),
+            ("assumptions", self.assumptions, StatementKind.ASSUMPTION),
+            (
+                "unresolved_questions",
+                self.unresolved_questions,
+                StatementKind.QUESTION,
+            ),
+            ("design_forces", self.design_forces, StatementKind.FORCE),
+        )
+        for field, statements, kind in expected:
+            wrong = [statement.id for statement in statements if statement.kind != kind]
+            if wrong:
+                raise ValueError(f"{field} contains statements with the wrong kind: {wrong}")
+        return self
 
 
 class CaseUpdate(DomainModel):
@@ -109,6 +149,31 @@ class CaseUpdate(DomainModel):
     reversal_conditions: list[str] | None = None
     revisit_triggers: list[str] | None = None
 
+    @model_validator(mode="after")
+    def validate_statement_kinds(self) -> CaseUpdate:
+        expected = (
+            ("confirmed_facts", self.confirmed_facts, StatementKind.FACT),
+            (
+                "derived_constraints",
+                self.derived_constraints,
+                StatementKind.DERIVED_CONSTRAINT,
+            ),
+            ("assumptions", self.assumptions, StatementKind.ASSUMPTION),
+            (
+                "unresolved_questions",
+                self.unresolved_questions,
+                StatementKind.QUESTION,
+            ),
+            ("design_forces", self.design_forces, StatementKind.FORCE),
+        )
+        for field, statements, kind in expected:
+            if statements is None:
+                continue
+            wrong = [statement.id for statement in statements if statement.kind != kind]
+            if wrong:
+                raise ValueError(f"{field} contains statements with the wrong kind: {wrong}")
+        return self
+
 
 class CaseRevision(DomainModel):
     case_id: str
@@ -118,3 +183,13 @@ class CaseRevision(DomainModel):
     actor: str
     created_at: datetime = Field(default_factory=utc_now)
     origin_run_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_snapshot_identity(self) -> CaseRevision:
+        if self.snapshot.case_id != self.case_id:
+            raise ValueError("Case revision snapshot must have the same case ID")
+        if self.snapshot.revision != self.revision:
+            raise ValueError("Case revision snapshot must have the same revision number")
+        if self.event_type == "consultation" and self.origin_run_id is None:
+            raise ValueError("Consultation revisions require an originating run ID")
+        return self

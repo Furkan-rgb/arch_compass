@@ -8,6 +8,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from hashlib import sha256
+from itertools import pairwise
 from pathlib import Path
 
 from archcompass.adapters.repository.graph import (
@@ -29,6 +30,7 @@ from archcompass.domain.atlas import (
     MetricProfile,
     NodeType,
     ObscuritySignal,
+    RepositoryContentIdentity,
     SourceLocation,
 )
 from archcompass.domain.base import canonical_json, stable_id
@@ -64,12 +66,31 @@ class ParsedModule:
     import_aliases: dict[str, str] = field(default_factory=dict[str, str])
 
 
+@dataclass(frozen=True)
+class SnapshotFile:
+    path: Path
+    relative_path: str
+    content: bytes
+
+    def text(self) -> str:
+        return self.content.decode("utf-8")
+
+
+@dataclass(frozen=True)
+class RepositorySnapshot:
+    root: Path
+    python_files: tuple[SnapshotFile, ...]
+    configuration_files: tuple[SnapshotFile, ...]
+    content_fingerprint: str
+    git_commit_sha: str | None
+
+
 class PythonAstRepositoryAnalyzer:
     def analyze(self, root: Path) -> Atlas:
-        canonical_root = self._validate_root(root)
-        python_files, config_files = self._discover_files(canonical_root)
-        fingerprint = self._fingerprint(canonical_root, [*python_files, *config_files])
-        git_sha = self._git_sha(canonical_root)
+        snapshot = self._snapshot(root)
+        canonical_root = snapshot.root
+        python_files = snapshot.python_files
+        config_files = snapshot.configuration_files
         repository_identity = stable_id("repo", str(canonical_root))
         analysis_config_hash = stable_id(
             "analysis",
@@ -84,8 +105,8 @@ class PythonAstRepositoryAnalyzer:
         version = AtlasVersion(
             repository_identity=repository_identity,
             root_path=str(canonical_root),
-            git_commit_sha=git_sha,
-            content_fingerprint=fingerprint,
+            git_commit_sha=snapshot.git_commit_sha,
+            content_fingerprint=snapshot.content_fingerprint,
             parser_version=PARSER_VERSION,
             analysis_config_hash=analysis_config_hash,
         )
@@ -104,14 +125,18 @@ class PythonAstRepositoryAnalyzer:
         edges: list[AtlasEdge] = []
         signals: list[ObscuritySignal] = []
 
-        package_nodes = self._create_packages(canonical_root, python_files, root_node)
+        package_nodes = self._create_packages(
+            canonical_root, [item.path for item in python_files], root_node
+        )
         for package in package_nodes.values():
             nodes[package.atlas_id] = package
             edges.append(self._edge(package.parent_id, package.atlas_id, EdgeType.CONTAINS))
 
         modules: list[ParsedModule] = []
-        for path in python_files:
-            parsed = self._parse_module(canonical_root, path, package_nodes, root_node, signals)
+        for source_file in python_files:
+            parsed = self._parse_module(
+                canonical_root, source_file, package_nodes, root_node, signals
+            )
             modules.append(parsed)
             nodes[parsed.node.atlas_id] = parsed.node
             edges.append(self._edge(parsed.node.parent_id, parsed.node.atlas_id, EdgeType.CONTAINS))
@@ -119,9 +144,11 @@ class PythonAstRepositoryAnalyzer:
                 nodes[symbol.atlas_id] = symbol
                 edges.append(self._edge(symbol.parent_id, symbol.atlas_id, EdgeType.CONTAINS))
 
-        for path in config_files:
-            relative = path.relative_to(canonical_root).as_posix()
+        for source_file in config_files:
+            path = source_file.path
+            relative = source_file.relative_path
             parent = self._parent_for_path(path, canonical_root, package_nodes, root_node)
+            source = source_file.text()
             node = self._node(
                 path=relative,
                 name=path.name,
@@ -129,7 +156,7 @@ class PythonAstRepositoryAnalyzer:
                 kind=NodeType.CONFIGURATION,
                 parent_id=parent.atlas_id,
                 start=1,
-                end=max(1, len(path.read_text(encoding="utf-8").splitlines())),
+                end=max(1, len(source.splitlines())),
                 public=None,
                 docstring=False,
                 language="configuration",
@@ -154,12 +181,45 @@ class PythonAstRepositoryAnalyzer:
         edges = self._deduplicate_edges(edges)
         self._add_duplicate_constant_signals(modules, signals)
         metrics = self._compute_metrics(nodes, edges, modules)
+        signals.extend(self._cycle_signals(nodes, edges, modules))
         return Atlas(
             version=version,
             nodes=sorted(nodes.values(), key=lambda item: item.atlas_id),
             edges=sorted(edges, key=lambda item: item.edge_id),
             metrics=sorted(metrics, key=lambda item: item.node_id),
             signals=sorted(signals, key=lambda item: (item.node_id, item.code, item.message)),
+        )
+
+    def current_identity(self, root: Path) -> RepositoryContentIdentity:
+        snapshot = self._snapshot(root)
+        return RepositoryContentIdentity(
+            root_path=str(snapshot.root),
+            content_fingerprint=snapshot.content_fingerprint,
+            git_commit_sha=snapshot.git_commit_sha,
+        )
+
+    def _snapshot(self, root: Path) -> RepositorySnapshot:
+        canonical_root = self._validate_root(root)
+        python_paths, config_paths = self._discover_files(canonical_root)
+        files = tuple(
+            SnapshotFile(
+                path=path,
+                relative_path=path.relative_to(canonical_root).as_posix(),
+                content=path.read_bytes(),
+            )
+            for path in sorted([*python_paths, *config_paths])
+        )
+        python_path_set = set(python_paths)
+        python_files = tuple(item for item in files if item.path in python_path_set)
+        configuration_files = tuple(
+            item for item in files if item.path not in python_path_set
+        )
+        return RepositorySnapshot(
+            root=canonical_root,
+            python_files=python_files,
+            configuration_files=configuration_files,
+            content_fingerprint=self._fingerprint(files),
+            git_commit_sha=self._git_sha(canonical_root),
         )
 
     @staticmethod
@@ -189,12 +249,12 @@ class PythonAstRepositoryAnalyzer:
         return sorted(python_files), sorted(config_files)
 
     @staticmethod
-    def _fingerprint(root: Path, paths: list[Path]) -> str:
+    def _fingerprint(files: tuple[SnapshotFile, ...]) -> str:
         digest = sha256()
-        for path in sorted(paths):
-            digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        for source_file in files:
+            digest.update(source_file.relative_path.encode("utf-8"))
             digest.update(b"\0")
-            digest.update(path.read_bytes())
+            digest.update(source_file.content)
             digest.update(b"\0")
         return digest.hexdigest()
 
@@ -245,13 +305,14 @@ class PythonAstRepositoryAnalyzer:
     def _parse_module(
         self,
         root: Path,
-        path: Path,
+        source_file: SnapshotFile,
         packages: dict[str, AtlasNode],
         root_node: AtlasNode,
         signals: list[ObscuritySignal],
     ) -> ParsedModule:
-        relative = path.relative_to(root).as_posix()
-        source = path.read_text(encoding="utf-8")
+        path = source_file.path
+        relative = source_file.relative_path
+        source = source_file.text()
         try:
             tree = ast.parse(source, filename=relative, type_comments=True)
         except SyntaxError as error:
@@ -335,7 +396,7 @@ class PythonAstRepositoryAnalyzer:
                     )
                     for item in statement.body
                 )
-                qualified = f"{parsed.qualified_name}.{statement.name}"
+                qualified = f"{parent.qualified_name}.{statement.name}"
                 node = self._node(
                     path=parsed.relative_path,
                     name=statement.name,
@@ -359,7 +420,7 @@ class PythonAstRepositoryAnalyzer:
                 qualified = f"{parent.qualified_name}.{statement.name}"
                 is_test = (
                     statement.name.startswith("test_")
-                    or parent.node_type == NodeType.TEST_MODULE
+                    or parsed.node.node_type == NodeType.TEST_MODULE
                 )
                 node = self._node(
                     path=parsed.relative_path,
@@ -369,7 +430,7 @@ class PythonAstRepositoryAnalyzer:
                         NodeType.TEST_FUNCTION
                         if is_test
                         else NodeType.METHOD
-                        if class_name is not None
+                        if parent.node_type in {NodeType.CLASS, NodeType.INTERFACE}
                         else NodeType.FUNCTION
                     ),
                     parent_id=parent.atlas_id,
@@ -388,6 +449,13 @@ class PythonAstRepositoryAnalyzer:
                             statement.lineno,
                         )
                     )
+                self._collect_symbols(
+                    parsed,
+                    statement.body,
+                    node,
+                    class_name=None,
+                    signals=signals,
+                )
 
     def _collect_local_signals(
         self, parsed: ParsedModule, signals: list[ObscuritySignal]
@@ -451,6 +519,22 @@ class PythonAstRepositoryAnalyzer:
                             line=statement.lineno,
                         )
                         edges.append(import_edge)
+                        if module.node.node_type == NodeType.TEST_MODULE:
+                            edges.append(
+                                import_edge.model_copy(
+                                    update={
+                                        "edge_id": stable_id(
+                                            "edge",
+                                            module.node.atlas_id,
+                                            target.node.atlas_id,
+                                            EdgeType.TESTS,
+                                            module.relative_path,
+                                            str(statement.lineno),
+                                        ),
+                                        "edge_type": EdgeType.TESTS,
+                                    }
+                                )
+                            )
                         if module.node.node_type == NodeType.CONFIGURATION:
                             edges.append(
                                 import_edge.model_copy(
@@ -479,6 +563,22 @@ class PythonAstRepositoryAnalyzer:
                         line=statement.lineno,
                     )
                     edges.append(import_edge)
+                    if module.node.node_type == NodeType.TEST_MODULE:
+                        edges.append(
+                            import_edge.model_copy(
+                                update={
+                                    "edge_id": stable_id(
+                                        "edge",
+                                        module.node.atlas_id,
+                                        target.node.atlas_id,
+                                        EdgeType.TESTS,
+                                        module.relative_path,
+                                        str(statement.lineno),
+                                    ),
+                                    "edge_type": EdgeType.TESTS,
+                                }
+                            )
+                        )
                     if module.node.node_type == NodeType.CONFIGURATION:
                         edges.append(
                             import_edge.model_copy(
@@ -504,7 +604,8 @@ class PythonAstRepositoryAnalyzer:
             ast_node = self._ast_for_node(module, source_node)
             if ast_node is None:
                 continue
-            for item in ast.walk(ast_node):
+            scoped_nodes = list(self._lexical_nodes(ast_node))
+            for item in scoped_nodes:
                 if isinstance(item, ast.Call):
                     dotted = self._dotted(item.func)
                     target, confidence = self._resolve_symbol(
@@ -572,7 +673,7 @@ class PythonAstRepositoryAnalyzer:
                                     line=base.lineno,
                                 )
                             )
-            for item in ast.walk(ast_node):
+            for item in scoped_nodes:
                 if not isinstance(item, ast.Name) or not isinstance(item.ctx, ast.Load):
                     continue
                 target, confidence = self._resolve_symbol(
@@ -602,28 +703,30 @@ class PythonAstRepositoryAnalyzer:
         module_graph: dict[str, set[str]] = {
             module_id: set() for module_id in module_ids
         }
+        impact_graph: dict[str, set[str]] = {
+            module_id: set() for module_id in module_ids
+        }
         for edge in edges:
-            if edge.edge_type != EdgeType.IMPORTS:
+            if edge.edge_type not in {EdgeType.IMPORTS, EdgeType.CALLS}:
                 continue
             source = self._owning_module(nodes[edge.source_id], module_for_path)
             target = self._owning_module(nodes[edge.target_id], module_for_path)
             if source and target and source != target:
-                module_graph[source].add(target)
+                impact_graph[source].add(target)
+                if edge.edge_type == EdgeType.IMPORTS:
+                    module_graph[source].add(target)
         reverse = reverse_graph(module_graph)
+        impact_reverse = reverse_graph(impact_graph)
         components = strongly_connected_components(module_graph)
         component_by_node = {
             node_id: component for component in components for node_id in component
         }
-        outgoing: defaultdict[str, set[str]] = defaultdict(set)
-        incoming: defaultdict[str, set[str]] = defaultdict(set)
         call_outgoing: defaultdict[str, set[str]] = defaultdict(set)
         call_incoming: defaultdict[str, set[str]] = defaultdict(set)
         test_targets: defaultdict[str, set[str]] = defaultdict(set)
         implementations: defaultdict[str, set[str]] = defaultdict(set)
         config_targets: defaultdict[str, set[str]] = defaultdict(set)
         for edge in edges:
-            outgoing[edge.source_id].add(edge.target_id)
-            incoming[edge.target_id].add(edge.source_id)
             if edge.edge_type == EdgeType.CALLS:
                 call_outgoing[edge.source_id].add(edge.target_id)
                 call_incoming[edge.target_id].add(edge.source_id)
@@ -647,6 +750,9 @@ class PythonAstRepositoryAnalyzer:
             backward: set[str] = (
                 reachable(reverse, owner) if owner else set[str]()
             )
+            affected: set[str] = (
+                reachable(impact_reverse, owner) if owner else set[str]()
+            )
             component = component_by_node.get(owner or "", [])
             associated_tests: set[str | None] = {
                 self._owning_module(nodes[test_id], module_for_path)
@@ -654,10 +760,31 @@ class PythonAstRepositoryAnalyzer:
             }
             reverse_tests: set[str] = {
                 candidate
-                for candidate in backward
+                for candidate in affected
                 if nodes[candidate].node_type == NodeType.TEST_MODULE
             }
             local = self._local_metrics(node, syntax, parsed, call_outgoing, call_incoming)
+            representative_path = self._representative_call_path(
+                call_outgoing, node.atlas_id
+            )
+            affected_modules = {*affected, *([owner] if owner else [])}
+            crossed_interfaces = {
+                edge.target_id
+                for edge in edges
+                if edge.edge_type == EdgeType.CALLS
+                and self._owning_module(nodes[edge.source_id], module_for_path)
+                in affected_modules
+                and self._owning_module(nodes[edge.target_id], module_for_path)
+                in affected_modules
+                and nodes[edge.target_id].is_public
+                and nodes[edge.target_id].node_type
+                in {
+                    NodeType.CLASS,
+                    NodeType.FUNCTION,
+                    NodeType.INTERFACE,
+                    NodeType.METHOD,
+                }
+            }
             profiles.append(
                 MetricProfile(
                     node_id=node.atlas_id,
@@ -684,21 +811,17 @@ class PythonAstRepositoryAnalyzer:
                         transitively_affected_test_modules=len(reverse_tests),
                     ),
                     change_amplification=ChangeAmplificationMetrics(
-                        likely_affected_modules=len(backward),
-                        public_interfaces_crossed=sum(
-                            1 for candidate in backward if nodes[candidate].is_public
-                        ),
+                        likely_affected_modules=len(affected),
+                        public_interfaces_crossed=len(crossed_interfaces),
                         coordinated_implementations=len(implementations[node.atlas_id]),
                         configuration_locations=len(config_targets[node.atlas_id]),
                         reverse_neighbourhood_tests=len(reverse_tests),
                     ),
                     cognitive_scope=CognitiveScopeMetrics(
                         dependency_neighbourhood_modules=len(forward | backward),
-                        symbols_in_representative_path=min(len(forward) + 1, 20),
-                        abstraction_boundaries=sum(
-                            1
-                            for candidate in outgoing[node.atlas_id]
-                            if nodes[candidate].node_type == NodeType.INTERFACE
+                        symbols_in_representative_path=len(representative_path),
+                        abstraction_boundaries=self._abstraction_crossings(
+                            representative_path, nodes
                         ),
                         related_configuration_locations=len(config_targets[node.atlas_id]),
                         local_control_flow_complexity=local.branch_count,
@@ -707,6 +830,93 @@ class PythonAstRepositoryAnalyzer:
                 )
             )
         return profiles
+
+    @staticmethod
+    def _cycle_signals(
+        nodes: dict[str, AtlasNode],
+        edges: list[AtlasEdge],
+        modules: list[ParsedModule],
+    ) -> list[ObscuritySignal]:
+        module_ids = {module.node.atlas_id for module in modules}
+        graph = {node_id: set[str]() for node_id in module_ids}
+        import_edges: list[AtlasEdge] = []
+        for edge in edges:
+            if (
+                edge.edge_type == EdgeType.IMPORTS
+                and edge.source_id in module_ids
+                and edge.target_id in module_ids
+                and edge.source_id != edge.target_id
+            ):
+                graph[edge.source_id].add(edge.target_id)
+                import_edges.append(edge)
+        signals: list[ObscuritySignal] = []
+        for component in strongly_connected_components(graph):
+            if len(component) < 2:
+                continue
+            names = ", ".join(sorted(nodes[node_id].qualified_name for node_id in component))
+            component_ids = set(component)
+            for node_id in component:
+                location = next(
+                    (
+                        edge.location
+                        for edge in sorted(import_edges, key=lambda item: item.edge_id)
+                        if edge.source_id == node_id and edge.target_id in component_ids
+                    ),
+                    None,
+                )
+                signals.append(
+                    ObscuritySignal(
+                        code="cyclic-dependency",
+                        message=f"Module participates in an import cycle: {names}",
+                        node_id=node_id,
+                        location=location,
+                    )
+                )
+        return signals
+
+    @staticmethod
+    def _representative_call_path(
+        graph: dict[str, set[str]], start: str, *, limit: int = 20
+    ) -> list[str]:
+        paths: list[list[str]] = [[start]]
+        seen = {start}
+        best = [start]
+        while paths:
+            path = paths.pop(0)
+            if len(path) > len(best) or (
+                len(path) == len(best) and tuple(path) < tuple(best)
+            ):
+                best = path
+            if len(path) >= limit:
+                continue
+            for target in sorted(graph.get(path[-1], set())):
+                if target in seen:
+                    continue
+                seen.add(target)
+                paths.append([*path, target])
+        return best
+
+    @staticmethod
+    def _abstraction_crossings(
+        path: list[str], nodes: dict[str, AtlasNode]
+    ) -> int:
+        def interface_owner(node_id: str) -> str | None:
+            cursor = nodes.get(node_id)
+            while cursor is not None:
+                if cursor.node_type == NodeType.INTERFACE:
+                    return cursor.atlas_id
+                cursor = nodes.get(cursor.parent_id or "")
+            return None
+
+        crossings = 0
+        for source_id, target_id in pairwise(path):
+            source_owner = interface_owner(source_id)
+            target_owner = interface_owner(target_id)
+            if source_owner != target_owner and (
+                source_owner is not None or target_owner is not None
+            ):
+                crossings += 1
+        return crossings
 
     def _local_metrics(
         self,
@@ -722,7 +932,8 @@ class PythonAstRepositoryAnalyzer:
                 if node.end_line
                 else 0
             )
-        statements = sum(isinstance(item, ast.stmt) for item in ast.walk(syntax))
+        scoped_nodes = list(self._lexical_nodes(syntax))
+        statements = sum(isinstance(item, ast.stmt) for item in scoped_nodes)
         branches = sum(
             isinstance(
                 item,
@@ -737,7 +948,7 @@ class PythonAstRepositoryAnalyzer:
                     ast.match_case,
                 ),
             )
-            for item in ast.walk(syntax)
+            for item in scoped_nodes
         )
         parameters = 0
         if isinstance(syntax, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -758,12 +969,12 @@ class PythonAstRepositoryAnalyzer:
             if hasattr(syntax, "body")
             else 0
         )
-        imports = {
-            alias.name
-            for item in ast.walk(syntax)
-            if isinstance(item, (ast.Import, ast.ImportFrom))
-            for alias in item.names
-        }
+        imports: set[str] = set()
+        for item in scoped_nodes:
+            if isinstance(item, ast.Import):
+                imports.update(alias.name for alias in item.names)
+            elif isinstance(item, ast.ImportFrom):
+                imports.add(f"{'.' * item.level}{item.module or ''}")
         return LocalStructuralMetrics(
             physical_lines=(node.end_line or 0) - (node.start_line or 1) + 1
             if node.end_line
@@ -791,14 +1002,33 @@ class PythonAstRepositoryAnalyzer:
             ast.Match,
         )
 
-        def depth(node: ast.AST, current: int) -> int:
+        scope_boundaries = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+
+        def depth(node: ast.AST, current: int, *, root: bool = False) -> int:
+            if not root and isinstance(node, scope_boundaries):
+                return current
             next_current = current + 1 if isinstance(node, control) else current
             child_depths = (
                 depth(child, next_current) for child in ast.iter_child_nodes(node)
             )
             return max([next_current, *child_depths])
 
-        return depth(syntax, 0)
+        return depth(syntax, 0, root=True)
+
+    @staticmethod
+    def _lexical_nodes(syntax: ast.AST) -> Iterable[ast.AST]:
+        """Walk one lexical body while treating nested definitions as opaque."""
+        boundaries = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        if isinstance(syntax, (ast.Module, *boundaries)):
+            stack: list[ast.AST] = list(reversed(syntax.body))
+        else:
+            stack = list(reversed(list(ast.iter_child_nodes(syntax))))
+        while stack:
+            node = stack.pop()
+            yield node
+            if isinstance(node, boundaries):
+                continue
+            stack.extend(reversed(list(ast.iter_child_nodes(node))))
 
     @staticmethod
     def _module_name(relative_path: str) -> str:

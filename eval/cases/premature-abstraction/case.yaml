@@ -1,8 +1,11 @@
 title: Premature abstraction
-problem_statement: One implementation provides one local behavior, but a factory and provider registry are proposed.
-desired_outcome: Avoid new concepts unless they reduce present complexity.
+problem_statement: A TaskLabelFormatter interface, TaskLabelFormatterFactory, provider registry, and runtime configuration key are proposed to replace one directly called local formatter.
+desired_outcome: Keep the single behavior local unless credible independent variation makes an abstraction reduce present complexity.
 expected_future_changes: []
 confirmed_facts:
-  - text: There is one implementation and no credible future variation.
+  - text: The repository contains exactly one task-label formatting implementation.
     kind: fact
-
+  - text: No second formatting implementation or runtime selection requirement exists.
+    kind: fact
+  - text: There is no credible planned variation that would justify a factory, interface, registry, or configuration.
+    kind: fact

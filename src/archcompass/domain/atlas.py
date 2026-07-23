@@ -128,6 +128,7 @@ class ObscuritySignal(DomainModel):
 
 
 class AtlasVersion(DomainModel):
+    schema_version: int = Field(default=2, ge=1, le=2)
     version_id: str = Field(default_factory=lambda: new_id("atlas"))
     repository_identity: str
     root_path: str
@@ -139,11 +140,18 @@ class AtlasVersion(DomainModel):
 
 
 class Atlas(DomainModel):
+    schema_version: int = Field(default=2, ge=1, le=2)
     version: AtlasVersion
     nodes: list[AtlasNode]
     edges: list[AtlasEdge]
     metrics: list[MetricProfile]
     signals: list[ObscuritySignal] = Field(default_factory=list[ObscuritySignal])
+
+
+class RepositoryContentIdentity(DomainModel):
+    root_path: str
+    content_fingerprint: str
+    git_commit_sha: str | None = None
 
 
 class RepositorySummaryQuery(DomainModel):
@@ -238,8 +246,33 @@ class SourceExcerpt(DomainModel):
     text: str
 
 
+class AtlasNodeSummary(DomainModel):
+    node_id: str
+    qualified_name: str
+    node_type: NodeType
+    path: str
+    location: SourceLocation | None = None
+    is_public: bool | None = None
+
+
+class AtlasMetricValue(DomainModel):
+    node_id: str
+    metric: str
+    value: int | float
+    rank: int | None = Field(default=None, ge=1)
+
+
 class AtlasQueryResult(DomainModel):
     query: AtlasQuery
     node_ids: list[str] = Field(default_factory=list[str])
     summary: str = ""
+    node_summaries: list[AtlasNodeSummary] = Field(
+        default_factory=list[AtlasNodeSummary]
+    )
+    metric_values: list[AtlasMetricValue] = Field(
+        default_factory=list[AtlasMetricValue]
+    )
+    relationships: list[AtlasEdge] = Field(default_factory=list[AtlasEdge])
+    test_ids: list[str] = Field(default_factory=list[str])
+    signals: list[ObscuritySignal] = Field(default_factory=list[ObscuritySignal])
     excerpts: list[SourceExcerpt] = Field(default_factory=list[SourceExcerpt])

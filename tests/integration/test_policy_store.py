@@ -7,6 +7,7 @@ import pytest
 
 from archcompass.adapters.models.deterministic import DeterministicEmbeddingProvider
 from archcompass.adapters.persistence.database import SQLiteDatabase
+from archcompass.adapters.retrieval.policy_markdown import parse_policy
 from archcompass.adapters.retrieval.policy_store import SQLitePolicyStore
 from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
 from archcompass.domain.errors import PolicyFormatError
@@ -26,6 +27,15 @@ class CountingEmbeddingProvider:
     def embed(self, texts: list[str]) -> list[list[float]]:
         self.calls += 1
         return self._delegate.embed(texts)
+
+
+class TiedEmbeddingProvider:
+    @property
+    def identity(self) -> tuple[str, str, int]:
+        return ("fake", "tied-v1", 4)
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[1.0, 0.0, 0.0, 0.0] for _ in texts]
 
 
 def test_policy_index_is_versioned_and_retrievable(runtime) -> None:
@@ -89,3 +99,55 @@ def test_policy_preflight_rejects_an_empty_corpus(tmp_path: Path) -> None:
         store.ensure_current([tmp_path / "missing"])
 
     assert embeddings.calls == 0
+
+
+def test_retrieval_returns_exact_unique_top_k_under_tied_embeddings(
+    tmp_path: Path,
+) -> None:
+    database = SQLiteDatabase(tmp_path / "archcompass.db")
+    database.initialize()
+    store = SQLitePolicyStore(
+        database,
+        TiedEmbeddingProvider(),
+        max_sections_per_policy=3,
+    )
+    version = store.rebuild([BUNDLED_POLICY_SOURCE])
+
+    results = store.retrieve("all distances tie", top_k=10, version_id=version.version_id)
+    all_policy_ids = [
+        policy.id for policy in store.list_policies(version.version_id)
+    ]
+
+    assert [result.policy.id for result in results] == sorted(all_policy_ids)[:10]
+    assert len({result.policy.id for result in results}) == 10
+    assert all(1 <= len(result.chunks) <= 3 for result in results)
+
+
+def test_retrieval_ranking_deduplicates_normalized_sections() -> None:
+    policy, chunks = parse_policy(
+        BUNDLED_POLICY_SOURCE / "hide-implementation-details.md"
+    )
+    duplicate = chunks[0].model_copy(
+        update={
+            "chunk_id": "duplicate-section",
+            "section": chunks[0].section.swapcase(),
+        }
+    )
+
+    ranked = SQLitePolicyStore._rank_policies(
+        [
+            (policy, chunks[0], 0.2),
+            (policy, duplicate, 0.1),
+            (policy, chunks[1], 0.3),
+            (policy, chunks[2], 0.4),
+            (policy, chunks[3], 0.5),
+        ],
+        section_limit=3,
+    )
+
+    assert len(ranked) == 1
+    assert len(ranked[0].chunks) == 3
+    assert len(
+        {" ".join(chunk.section.split()).casefold() for chunk in ranked[0].chunks}
+    ) == 3
+    assert duplicate in ranked[0].chunks

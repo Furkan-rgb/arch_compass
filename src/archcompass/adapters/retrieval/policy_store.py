@@ -16,13 +16,22 @@ from archcompass.domain.policy import (
     PolicyScope,
     RetrievedPolicy,
 )
-from archcompass.ports.services import EmbeddingProvider
+from archcompass.ports.models import EmbeddingProvider
 
 
 class SQLitePolicyStore:
-    def __init__(self, database: SQLiteDatabase, embeddings: EmbeddingProvider) -> None:
+    def __init__(
+        self,
+        database: SQLiteDatabase,
+        embeddings: EmbeddingProvider,
+        *,
+        max_sections_per_policy: int = 3,
+    ) -> None:
+        if not 1 <= max_sections_per_policy <= 3:
+            raise ValueError("max_sections_per_policy must be between one and three")
         self._database = database
         self._embeddings = embeddings
+        self._max_sections_per_policy = max_sections_per_policy
 
     def rebuild(self, sources: list[Path]) -> PolicyIndexVersion:
         parsed = load_policy_sources(sources)
@@ -165,57 +174,141 @@ class SQLitePolicyStore:
         return PolicyDocument.model_validate_json(row["policy_json"])
 
     def retrieve(
-        self, query: str, *, top_k: int, version_id: str | None = None
+        self,
+        query: str,
+        *,
+        top_k: int,
+        version_id: str | None = None,
+        max_sections_per_policy: int | None = None,
     ) -> list[RetrievedPolicy]:
+        if top_k < 1:
+            raise ValueError("top_k must be at least one")
+        section_limit = (
+            self._max_sections_per_policy
+            if max_sections_per_policy is None
+            else max_sections_per_policy
+        )
+        if not 1 <= section_limit <= 3:
+            raise ValueError("max_sections_per_policy must be between one and three")
         version = self._resolve_version(version_id)
         vector = self._embeddings.embed([query])[0]
         if len(vector) != version.dimensions:
             raise ValueError("Query embedding dimension differs from the policy index")
         table = self._vector_table(version.dimensions, version.version_id)
-        candidate_count = max(top_k * 4, top_k)
+        candidates: list[tuple[PolicyDocument, PolicyChunk, float]] = []
+        seen_rowids: set[int] = set()
         with self._database.connect(load_vectors=True) as connection:
-            nearest = connection.execute(
-                f"""
-                SELECT rowid, distance FROM {table}
-                WHERE embedding MATCH ?
-                ORDER BY distance LIMIT ?
-                """,
-                (self._serialize(vector), candidate_count),
-            ).fetchall()
-            candidates: list[tuple[PolicyDocument, PolicyChunk, float]] = []
-            for row in nearest:
-                joined = connection.execute(
-                    """
-                    SELECT p.policy_json, c.chunk_json
-                    FROM policy_vector_rows v
-                    JOIN policy_chunks c
-                      ON c.version_id = v.version_id AND c.chunk_id = v.chunk_id
-                    JOIN policies p
-                      ON p.version_id = c.version_id AND p.policy_id = c.policy_id
-                    WHERE v.rowid = ? AND v.version_id = ?
-                    """,
-                    (int(row["rowid"]), version.version_id),
-                ).fetchone()
-                if joined is None:
-                    continue
-                candidates.append(
-                    (
-                        PolicyDocument.model_validate_json(joined["policy_json"]),
-                        PolicyChunk.model_validate_json(joined["chunk_json"]),
-                        float(row["distance"]),
+            total_chunks = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM policy_vector_rows WHERE version_id = ?",
+                    (version.version_id,),
+                ).fetchone()[0]
+            )
+            if total_chunks == 0:
+                return []
+            window = min(total_chunks, max(top_k * section_limit, top_k))
+            while True:
+                nearest = sorted(
+                    connection.execute(
+                        f"""
+                        SELECT rowid, distance FROM {table}
+                        WHERE embedding MATCH ?
+                        ORDER BY distance LIMIT ?
+                        """,
+                        (self._serialize(vector), window),
+                    ).fetchall(),
+                    key=lambda row: (float(row["distance"]), int(row["rowid"])),
+                )
+                for row in nearest:
+                    rowid = int(row["rowid"])
+                    if rowid in seen_rowids:
+                        continue
+                    seen_rowids.add(rowid)
+                    joined = connection.execute(
+                        """
+                        SELECT p.policy_json, c.chunk_json
+                        FROM policy_vector_rows v
+                        JOIN policy_chunks c
+                          ON c.version_id = v.version_id AND c.chunk_id = v.chunk_id
+                        JOIN policies p
+                          ON p.version_id = c.version_id AND p.policy_id = c.policy_id
+                        WHERE v.rowid = ? AND v.version_id = ?
+                        """,
+                        (rowid, version.version_id),
+                    ).fetchone()
+                    if joined is None:
+                        continue
+                    candidates.append(
+                        (
+                            PolicyDocument.model_validate_json(joined["policy_json"]),
+                            PolicyChunk.model_validate_json(joined["chunk_json"]),
+                            float(row["distance"]),
+                        )
+                    )
+                ranked = self._rank_policies(candidates, section_limit=section_limit)
+                exhausted = len(nearest) >= total_chunks
+                if len(ranked) >= top_k:
+                    cutoff = ranked[top_k - 1].distance
+                    farthest = float(nearest[-1]["distance"])
+                    if exhausted or farthest > cutoff:
+                        return ranked[:top_k]
+                if exhausted:
+                    return ranked
+                next_window = min(total_chunks, max(window * 2, window + 1))
+                if next_window == window:
+                    return ranked[:top_k]
+                window = next_window
+
+    @staticmethod
+    def _rank_policies(
+        candidates: list[tuple[PolicyDocument, PolicyChunk, float]],
+        *,
+        section_limit: int,
+    ) -> list[RetrievedPolicy]:
+        unique_sections: dict[
+            tuple[str, str], tuple[PolicyDocument, PolicyChunk, float]
+        ] = {}
+        for policy, chunk, distance in candidates:
+            section_key = " ".join(chunk.section.split()).casefold()
+            key = (policy.id, section_key)
+            existing = unique_sections.get(key)
+            if existing is None or (
+                distance,
+                chunk.ordinal,
+                chunk.chunk_id,
+            ) < (
+                existing[2],
+                existing[1].ordinal,
+                existing[1].chunk_id,
+            ):
+                unique_sections[key] = (policy, chunk, distance)
+
+        grouped: dict[str, list[tuple[PolicyDocument, PolicyChunk, float]]] = {}
+        for candidate in unique_sections.values():
+            grouped.setdefault(candidate[0].id, []).append(candidate)
+
+        by_policy: list[RetrievedPolicy] = []
+        for policy_id in sorted(grouped):
+            matches = sorted(
+                grouped[policy_id],
+                key=lambda item: (
+                    item[2],
+                    " ".join(item[1].section.split()).casefold(),
+                    item[1].ordinal,
+                    item[1].chunk_id,
+                ),
+            )
+            if matches:
+                policy = matches[0][0]
+                selected = matches[:section_limit]
+                by_policy.append(
+                    RetrievedPolicy(
+                        policy=policy,
+                        chunks=[item[1] for item in selected],
+                        distance=matches[0][2],
                     )
                 )
-        by_policy: dict[str, RetrievedPolicy] = {}
-        for policy, chunk, distance in candidates:
-            existing = by_policy.get(policy.id)
-            if existing is None:
-                by_policy[policy.id] = RetrievedPolicy(
-                    policy=policy, chunks=[chunk], distance=distance
-                )
-            elif all(item.chunk_id != chunk.chunk_id for item in existing.chunks):
-                by_policy[policy.id] = existing.model_copy(
-                    update={"chunks": [*existing.chunks, chunk]}
-                )
+
         scope_rank = {
             PolicyScope.REPOSITORY: 0,
             PolicyScope.ACCEPTED_ADR: 1,
@@ -224,13 +317,13 @@ class SQLitePolicyStore:
             PolicyScope.GENERAL: 4,
         }
         return sorted(
-            by_policy.values(),
+            by_policy,
             key=lambda item: (
-                round(item.distance, 6),
+                item.distance,
                 scope_rank[item.policy.scope],
                 item.policy.id,
             ),
-        )[:top_k]
+        )
 
     def _resolve_version(self, version_id: str | None) -> PolicyIndexVersion:
         if version_id is None:
