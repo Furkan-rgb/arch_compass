@@ -80,25 +80,26 @@ uv run archcompass case show <case-id>
 uv run archcompass advise <case-id>
 ```
 
-For an existing Python repository:
+For an existing Python repository, the ArchCompass checkout can be the workspace. Run
+these commands from this repository and point `TARGET` at the repository to analyse:
 
 ```bash
-uv run archcompass --workspace /path/to/archcompass-workspace init
-uv run archcompass --workspace /path/to/archcompass-workspace \
-  repo index /path/to/repository
-uv run archcompass --workspace /path/to/archcompass-workspace \
-  atlas summary /path/to/repository
-uv run archcompass --workspace /path/to/archcompass-workspace \
-  atlas hotspots /path/to/repository \
+uv run archcompass init
+TARGET=/path/to/repository
+uv run archcompass repo index "$TARGET"
+uv run archcompass atlas summary "$TARGET"
+uv run archcompass atlas hotspots "$TARGET" \
   --metric reverse-dependency-reach
-uv run archcompass --workspace /path/to/archcompass-workspace \
-  advise <case-id> --repo /path/to/repository
+uv run archcompass advise <case-id> --repo "$TARGET"
 ```
 
-The ArchCompass workspace must not equal or sit inside the analysed repository. State and report
-writers remain inside that validated workspace and reject traversal and symlink escapes. If
-repository contents or its Git commit change after indexing, atlas queries and advice reject the
-stale version and direct you to run `repo index` again.
+With this local workflow, state is stored in the gitignored `.archcompass/` directory and reports
+in the gitignored `reports/` directory. The target may be a nested fixture, sibling checkout, or
+other external repository. To analyse the ArchCompass checkout itself, use a separate workspace:
+the workspace must not equal or sit inside the analysed repository. State and report writers
+remain inside that validated workspace and reject traversal and symlink escapes. If repository
+contents or its Git commit change after indexing, atlas queries and advice reject the stale
+version and direct you to run `repo index` again.
 
 Reports are printed and saved as `reports/<run-id>.md` and `reports/<run-id>.json`.
 Use `--json` to print structured output.
