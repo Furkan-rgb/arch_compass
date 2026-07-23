@@ -1,0 +1,9 @@
+title: Brownfield provider leakage
+problem_statement: Qwen built-in voice knowledge appears in frontend, preflight, workflow, and root composition.
+desired_outcome: Put voice discovery under one clear owner and reduce coordinated provider changes.
+expected_future_changes:
+  - A second provider may be added.
+confirmed_facts:
+  - text: A provider interface exists but does not own voice discovery.
+    kind: fact
+

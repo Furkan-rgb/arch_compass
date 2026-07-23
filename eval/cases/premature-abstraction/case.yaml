@@ -1,0 +1,8 @@
+title: Premature abstraction
+problem_statement: One implementation provides one local behavior, but a factory and provider registry are proposed.
+desired_outcome: Avoid new concepts unless they reduce present complexity.
+expected_future_changes: []
+confirmed_facts:
+  - text: There is one implementation and no credible future variation.
+    kind: fact
+

@@ -1,0 +1,21 @@
+models:
+  reasoning:
+    provider: ollama
+    model: qwen3:8b
+    base_url: http://127.0.0.1:11434
+    temperature: 0.0
+    timeout_seconds: 180
+  embedding:
+    provider: ollama
+    model: embeddinggemma
+    base_url: http://127.0.0.1:11434
+    dimensions: 768
+    timeout_seconds: 60
+retrieval:
+  top_k: 6
+consultation:
+  max_zoom_iterations: 3
+  max_queries_per_iteration: 8
+  max_query_results: 30
+  max_excerpt_lines: 80
+
