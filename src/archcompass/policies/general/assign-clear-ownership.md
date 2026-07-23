@@ -26,4 +26,3 @@ The provider owns capability discovery; the workflow owns job sequencing.
 A miscellaneous manager owns behavior simply because it is globally reachable.
 ## Related policies
 See `organize-by-responsibility` and `hide-implementation-details`.
-

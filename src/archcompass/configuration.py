@@ -14,7 +14,7 @@ from archcompass.domain.errors import ConfigurationError
 DEFAULT_CONFIG_TEXT = """models:
   reasoning:
     provider: ollama
-    model: qwen3:8b
+    model: gemma4:12b
     base_url: http://127.0.0.1:11434
     temperature: 0.0
     timeout_seconds: 180

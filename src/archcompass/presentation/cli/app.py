@@ -100,8 +100,7 @@ def policies_rebuild(
     ] = None,
 ) -> None:
     runtime = _state(context).runtime
-    bundled = runtime.workspace / "policies" / "general"
-    sources = [bundled, *(source or [])]
+    sources = [*runtime.policy_sources, *(source or [])]
     if repo is not None:
         sources.append(repo.expanduser().resolve() / ".archcompass" / "policies")
     version = runtime.policy_store.rebuild(sources)

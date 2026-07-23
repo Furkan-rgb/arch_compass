@@ -1,5 +1,8 @@
 from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
-from archcompass.application.evidence import validate_report_evidence
+from archcompass.application.evidence import (
+    repair_report_evidence,
+    validate_report_evidence,
+)
 from archcompass.domain.case import ArchitectureCase
 from archcompass.domain.consultation import (
     AtlasEvidenceReference,
@@ -30,8 +33,9 @@ def test_invented_evidence_is_rejected() -> None:
         assumptions=[],
     )
     alternatives = provider.generate_alternatives(context, [])
+    scenarios = provider.evaluate_scenarios(context, alternatives, [])
     report = provider.synthesize_recommendation(
-        case, context, [], alternatives, [], []
+        case, context, [], alternatives, scenarios, []
     )
     bad = Claim(
         text="Invented observation",
@@ -49,3 +53,16 @@ def test_invented_evidence_is_rejected() -> None:
     )
     assert any("unknown atlas node" in error for error in errors)
 
+    repaired = repair_report_evidence(
+        report,
+        allowed_nodes={},
+        allowed_policy_ids=set(),
+    )
+
+    assert repaired.repository_observations == []
+    assert repaired.evidence_appendix == []
+    assert validate_report_evidence(
+        repaired,
+        allowed_nodes={},
+        allowed_policy_ids=set(),
+    ) == []

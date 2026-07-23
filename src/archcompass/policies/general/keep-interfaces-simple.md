@@ -26,4 +26,3 @@ A single resumable-job operation validates state before advancing a checkpoint.
 A facade with dozens of unrelated methods is called simple because it is one class.
 ## Related policies
 See `eliminate-errors-by-design` and `prefer-deep-modules`.
-

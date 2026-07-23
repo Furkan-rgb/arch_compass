@@ -88,7 +88,8 @@ def parse_policy(path: Path) -> tuple[PolicyDocument, list[PolicyChunk]]:
 def load_policy_sources(sources: list[Path]) -> list[tuple[PolicyDocument, list[PolicyChunk]]]:
     parsed: list[tuple[PolicyDocument, list[PolicyChunk]]] = []
     seen: dict[str, Path] = {}
-    for source in sources:
+    canonical_sources = dict.fromkeys(source.expanduser().resolve() for source in sources)
+    for source in canonical_sources:
         if not source.exists():
             continue
         paths = [source] if source.is_file() else sorted(source.rglob("*.md"))
@@ -101,4 +102,3 @@ def load_policy_sources(sources: list[Path]) -> list[tuple[PolicyDocument, list[
             seen[policy.id] = path
             parsed.append((policy, chunks))
     return sorted(parsed, key=lambda item: item[0].id)
-

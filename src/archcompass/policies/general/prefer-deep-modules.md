@@ -26,4 +26,3 @@ A resumable job store exposes start, checkpoint, resume, and status while owning
 Splitting four sequential steps into four public classes adds navigation without hiding decisions.
 ## Related policies
 See `keep-interfaces-simple` and `pull-complexity-downward`.
-

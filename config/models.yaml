@@ -1,7 +1,7 @@
 models:
   reasoning:
     provider: ollama
-    model: qwen3:8b
+    model: gemma4:12b
     base_url: http://127.0.0.1:11434
     temperature: 0.0
     timeout_seconds: 180
@@ -18,4 +18,3 @@ consultation:
   max_queries_per_iteration: 8
   max_query_results: 30
   max_excerpt_lines: 80
-

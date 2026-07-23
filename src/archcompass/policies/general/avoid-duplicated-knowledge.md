@@ -26,4 +26,3 @@ Built-in voices are declared by the provider and consumed by preflight and prese
 Unrelated code is merged merely because two fragments happen to look alike.
 ## Related policies
 See `explicit-source-of-truth` and `assign-clear-ownership`.
-

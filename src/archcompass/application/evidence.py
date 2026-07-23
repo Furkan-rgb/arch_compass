@@ -51,6 +51,65 @@ def validate_report_evidence(
     return errors
 
 
+def repair_report_evidence(
+    report: RecommendationReport,
+    *,
+    allowed_nodes: dict[str, AtlasNode],
+    allowed_policy_ids: set[str],
+) -> RecommendationReport:
+    def repair_claim(claim: Claim) -> Claim | None:
+        atlas_references = []
+        for reference in claim.atlas_references:
+            node = allowed_nodes.get(reference.node_id)
+            if node is None:
+                continue
+            location = reference.location
+            if location is not None and (
+                location.path != node.path
+                or (node.start_line is not None and location.start_line < node.start_line)
+                or (node.end_line is not None and location.end_line > node.end_line)
+            ):
+                reference = reference.model_copy(update={"location": None})
+            atlas_references.append(reference)
+        policy_ids = [
+            policy_id
+            for policy_id in claim.policy_ids
+            if policy_id in allowed_policy_ids
+        ]
+        if (
+            claim.classification == ClaimClassification.REPOSITORY_OBSERVATION
+            and not atlas_references
+        ):
+            return None
+        if (
+            claim.classification == ClaimClassification.POLICY_GUIDANCE
+            and not policy_ids
+        ):
+            return None
+        return claim.model_copy(
+            update={
+                "atlas_references": atlas_references,
+                "policy_ids": policy_ids,
+            }
+        )
+
+    updates: dict[str, list[Claim]] = {}
+    for field in (
+        "confirmed_context",
+        "assumptions_and_unresolved_questions",
+        "repository_observations",
+        "relevant_policies",
+        "evidence_appendix",
+    ):
+        repaired = [
+            repaired_claim
+            for claim in getattr(report, field)
+            if (repaired_claim := repair_claim(claim)) is not None
+        ]
+        updates[field] = repaired
+    return report.model_copy(update=updates)
+
+
 def _all_claims(report: RecommendationReport) -> list[Claim]:
     unique: dict[str, Claim] = {}
     for collection in (
@@ -63,4 +122,3 @@ def _all_claims(report: RecommendationReport) -> list[Claim]:
         for claim in collection:
             unique[claim.claim_id] = claim
     return list(unique.values())
-

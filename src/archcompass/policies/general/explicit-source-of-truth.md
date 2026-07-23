@@ -26,4 +26,3 @@ Model identity and dimensions are loaded from one validated configuration file.
 Environment variables, constants, and CLI defaults silently disagree.
 ## Related policies
 See `avoid-duplicated-knowledge` and `make-relationships-discoverable`.
-

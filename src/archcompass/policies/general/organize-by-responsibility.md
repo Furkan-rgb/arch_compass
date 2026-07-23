@@ -26,4 +26,3 @@ Preflight coordinates provider validation rather than reimplementing provider ca
 Every execution phase becomes a layer that all features must modify.
 ## Related policies
 See `assign-clear-ownership` and `pull-complexity-downward`.
-

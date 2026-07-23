@@ -26,4 +26,3 @@ A provider adapter normalizes its own voice identifiers before returning them.
 A shared helper guesses business policy because moving code downward looked tidy.
 ## Related policies
 See `hide-implementation-details` and `eliminate-errors-by-design`.
-

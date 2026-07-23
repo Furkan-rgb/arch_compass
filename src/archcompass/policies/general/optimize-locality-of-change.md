@@ -26,4 +26,3 @@ Adding a provider requires one adapter and one composition registration.
 A large central module is justified only because all changes are now in one file.
 ## Related policies
 See `avoid-duplicated-knowledge` and `contain-dependencies`.
-

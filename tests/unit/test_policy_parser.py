@@ -5,12 +5,13 @@ from pathlib import Path
 import pytest
 
 from archcompass.adapters.retrieval.policy_markdown import parse_policy
+from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
 from archcompass.domain.errors import PolicyFormatError
 
 
 def test_general_policy_has_all_required_sections() -> None:
     policy, chunks = parse_policy(
-        Path("policies/general/hide-implementation-details.md").resolve()
+        BUNDLED_POLICY_SOURCE / "hide-implementation-details.md"
     )
     assert policy.id == "hide-implementation-details"
     assert len(chunks) == 9
@@ -35,4 +36,3 @@ Incomplete
     )
     with pytest.raises(PolicyFormatError):
         parse_policy(path)
-

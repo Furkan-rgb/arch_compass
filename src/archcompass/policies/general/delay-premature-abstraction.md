@@ -26,4 +26,3 @@ A local formatter stays a function until different formatting policies actually 
 Interfaces, registries, and factories are added solely because another provider might exist someday.
 ## Related policies
 See `model-stable-concepts` and `prefer-deep-modules`.
-

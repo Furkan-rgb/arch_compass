@@ -69,7 +69,6 @@ class DeterministicReasoningProvider:
             "generate-alternatives:v1",
             "evaluate-scenarios:v1",
             "synthesize-recommendation:v1",
-            "repair-recommendation:v1",
         ]
 
     def discover_design_forces(self, context: GlobalContext) -> list[DesignForce]:
@@ -420,36 +419,3 @@ class DeterministicReasoningProvider:
             ),
             evidence_appendix=evidence,
         )
-
-    def repair_recommendation(
-        self,
-        report: RecommendationReport,
-        errors: list[str],
-        *,
-        allowed_node_ids: set[str],
-        allowed_policy_ids: set[str],
-    ) -> RecommendationReport:
-        def repair_claim(claim: Claim) -> Claim:
-            atlas = [
-                reference
-                for reference in claim.atlas_references
-                if reference.node_id in allowed_node_ids
-            ]
-            policies = [
-                policy_id for policy_id in claim.policy_ids if policy_id in allowed_policy_ids
-            ]
-            return claim.model_copy(
-                update={"atlas_references": atlas, "policy_ids": policies}
-            )
-
-        updates = {
-            field: [repair_claim(claim) for claim in getattr(report, field)]
-            for field in (
-                "confirmed_context",
-                "assumptions_and_unresolved_questions",
-                "repository_observations",
-                "relevant_policies",
-                "evidence_appendix",
-            )
-        }
-        return report.model_copy(update=updates)

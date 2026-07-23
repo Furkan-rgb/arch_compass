@@ -26,4 +26,3 @@ Provider-specific features may remain explicitly provider-specific when portabil
 Renaming every concrete object to `Generic*` without changing its semantics.
 ## Related policies
 See `contain-dependencies` and `keep-interfaces-simple`.
-

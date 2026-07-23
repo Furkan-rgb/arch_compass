@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from typing import TypeVar
 
 import httpx
-from pydantic import BaseModel, RootModel, ValidationError
+from pydantic import BaseModel, Field, RootModel, ValidationError
 
 from archcompass.configuration import EmbeddingModelConfig, ReasoningModelConfig
 from archcompass.domain.atlas import AtlasQueryPlan, AtlasQueryResult
@@ -25,7 +26,7 @@ Item = TypeVar("Item", bound=BaseModel)
 
 
 class DesignForceList(RootModel[list[DesignForce]]):
-    pass
+    root: list[DesignForce] = Field(min_length=1, max_length=8)
 
 
 class ConcernAnalysisList(RootModel[list[ConcernAnalysis]]):
@@ -33,11 +34,11 @@ class ConcernAnalysisList(RootModel[list[ConcernAnalysis]]):
 
 
 class AlternativeList(RootModel[list[CaseAlternative]]):
-    pass
+    root: list[CaseAlternative] = Field(min_length=2, max_length=5)
 
 
 class ScenarioList(RootModel[list[ScenarioEvaluation]]):
-    pass
+    root: list[ScenarioEvaluation] = Field(min_length=1, max_length=4)
 
 
 class EmbeddingResponse(BaseModel):
@@ -61,6 +62,19 @@ class OllamaEmbeddingProvider:
             )
             response.raise_for_status()
             payload = EmbeddingResponse.model_validate_json(response.content)
+            if len(payload.embeddings) != len(texts):
+                raise ValueError(
+                    "Ollama returned "
+                    f"{len(payload.embeddings)} embeddings for {len(texts)} inputs"
+                )
+            for index, vector in enumerate(payload.embeddings):
+                if len(vector) != self._config.dimensions:
+                    raise ValueError(
+                        f"Ollama embedding {index} has {len(vector)} dimensions; "
+                        f"expected {self._config.dimensions}"
+                    )
+                if any(not math.isfinite(value) for value in vector):
+                    raise ValueError(f"Ollama embedding {index} contains a non-finite value")
             return payload.embeddings
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
             raise ProviderError(f"Ollama embedding request failed: {error}") from error
@@ -83,7 +97,6 @@ class OllamaReasoningProvider:
             "generate-alternatives:v1",
             "evaluate-scenarios:v1",
             "synthesize-recommendation:v1",
-            "repair-recommendation:v1",
         ]
 
     def discover_design_forces(self, context: GlobalContext) -> list[DesignForce]:
@@ -117,8 +130,21 @@ class OllamaReasoningProvider:
     def analyze_concern_cluster(
         self, context: GlobalContext, packet: FocusedAnalysisPacket
     ) -> ConcernAnalysis:
+        allowed_node_ids = sorted(
+            {
+                node_id
+                for result in packet.query_results
+                for node_id in result.node_ids
+            }
+        )
+        allowed_policy_ids = sorted(item.policy.id for item in packet.policies)
         return self._complete(
-            "Analyze one concern cluster. Cite only supplied atlas nodes and policies.",
+            "Analyze one concern cluster. "
+            f"Allowed atlas node IDs: {allowed_node_ids or ['none']}. "
+            f"Allowed policy IDs: {allowed_policy_ids or ['none']}. "
+            "Use no other evidence IDs. When no atlas IDs are allowed, do not classify any "
+            "finding as a repository observation. When no policy IDs are allowed, do not "
+            "classify any finding as policy guidance.",
             {"context": context.model_dump(mode="json"), "packet": packet.model_dump(mode="json")},
             ConcernAnalysis,
         )
@@ -127,7 +153,8 @@ class OllamaReasoningProvider:
         self, context: GlobalContext, analyses: list[ConcernAnalysis]
     ) -> list[CaseAlternative]:
         return self._complete(
-            "Generate credible alternatives, including preserving the design when justified.",
+            "Generate between two and five credible alternatives. Include preserving the "
+            "current design when justified; do not assume a new abstraction is required.",
             {
                 "context": context.model_dump(mode="json"),
                 "analyses": [item.model_dump(mode="json") for item in analyses],
@@ -142,7 +169,10 @@ class OllamaReasoningProvider:
         analyses: list[ConcernAnalysis],
     ) -> list[ScenarioEvaluation]:
         return self._complete(
-            "Evaluate alternatives against explicit future scenarios and assumptions.",
+            "Evaluate every alternative against at least one future scenario and its "
+            "assumptions. Use the stated future changes when present. If none are stated, "
+            "evaluate the baseline scenario that requirements remain stable and no credible "
+            "variation appears.",
             {
                 "context": context.model_dump(mode="json"),
                 "alternatives": [item.model_dump(mode="json") for item in alternatives],
@@ -160,8 +190,30 @@ class OllamaReasoningProvider:
         scenarios: list[ScenarioEvaluation],
         packets: list[FocusedAnalysisPacket],
     ) -> RecommendationReport:
+        allowed_node_ids = sorted(
+            {
+                node_id
+                for packet in packets
+                for result in packet.query_results
+                for node_id in result.node_ids
+            }
+        )
+        allowed_policy_ids = sorted(
+            {
+                retrieved.policy.id
+                for packet in packets
+                for retrieved in packet.policies
+            }
+        )
         return self._complete(
-            "Synthesize one coherent recommendation and ADR. Never invent evidence references.",
+            "Synthesize one coherent recommendation and ADR. Never invent evidence references. "
+            "Populate every required report section. Even when no code change is recommended, "
+            "provide concrete steps to preserve the local design and record the decision. "
+            f"Allowed atlas node IDs: {allowed_node_ids or ['none']}. "
+            f"Allowed policy IDs: {allowed_policy_ids or ['none']}. "
+            "Use no other evidence IDs. When no atlas IDs are allowed, repository_observations "
+            "must be empty and no claim may contain an atlas reference. Policy-guidance claims "
+            "must reference at least one allowed policy ID.",
             {
                 "case": case.model_dump(mode="json"),
                 "context": context.model_dump(mode="json"),
@@ -169,25 +221,6 @@ class OllamaReasoningProvider:
                 "alternatives": [item.model_dump(mode="json") for item in alternatives],
                 "scenarios": [item.model_dump(mode="json") for item in scenarios],
                 "packets": [item.model_dump(mode="json") for item in packets],
-            },
-            RecommendationReport,
-        )
-
-    def repair_recommendation(
-        self,
-        report: RecommendationReport,
-        errors: list[str],
-        *,
-        allowed_node_ids: set[str],
-        allowed_policy_ids: set[str],
-    ) -> RecommendationReport:
-        return self._complete(
-            "Repair only the listed validation errors. Remove unsupported claims or references.",
-            {
-                "report": report.model_dump(mode="json"),
-                "errors": errors,
-                "allowed_node_ids": sorted(allowed_node_ids),
-                "allowed_policy_ids": sorted(allowed_policy_ids),
             },
             RecommendationReport,
         )

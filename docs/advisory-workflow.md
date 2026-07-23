@@ -18,6 +18,7 @@ sequenceDiagram
     User->>CLI: advise case --repo path
     CLI->>Workflow: advise(case_id, latest_atlas)
     Workflow->>Cases: load immutable revision
+    Workflow->>Policies: ensure matching policy index exists
     Workflow->>Reasoner: discover_design_forces(global_context)
     loop at most configured zoom iterations
         Workflow->>Reasoner: plan_atlas_queries(summary, surfaced IDs)
@@ -30,7 +31,7 @@ sequenceDiagram
     Workflow->>Reasoner: synthesize from summaries and packets
     Workflow->>Validator: validate atlas and policy references
     alt invalid
-        Workflow->>Reasoner: one constrained repair
+        Workflow->>Validator: remove unsupported claims and references
         Workflow->>Validator: validate again
     end
     Workflow->>Runs: persist immutable run and report
@@ -44,6 +45,6 @@ cluster, its rationale, selected nodes, metrics and blast-radius results, small 
 tests, retrieved policies, assumptions, and uncertainty.
 
 The final reasoner receives structured concern analyses, not the full atlas. Reference validation
-permits one repair constrained to the surfaced node IDs and retrieved policy IDs. Remaining errors
-fail the run explicitly.
-
+permits one deterministic, conservative repair constrained to surfaced nodes and retrieved
+policies. It removes unsupported evidence rather than asking a model to regenerate the full
+report. Remaining errors fail the run explicitly.

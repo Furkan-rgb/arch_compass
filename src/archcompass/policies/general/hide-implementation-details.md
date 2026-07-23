@@ -26,4 +26,3 @@ A provider returns a voice catalog without exposing how its built-in voices are 
 A wrapper forwards every provider option and therefore hides nothing.
 ## Related policies
 See `assign-clear-ownership` and `contain-dependencies`.
-

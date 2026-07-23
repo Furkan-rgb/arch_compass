@@ -8,7 +8,7 @@ from pathlib import Path
 
 from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.adapters.retrieval.policy_markdown import load_policy_sources
-from archcompass.domain.errors import PolicyNotFoundError
+from archcompass.domain.errors import PolicyFormatError, PolicyNotFoundError
 from archcompass.domain.policy import (
     PolicyChunk,
     PolicyDocument,
@@ -26,15 +26,35 @@ class SQLitePolicyStore:
 
     def rebuild(self, sources: list[Path]) -> PolicyIndexVersion:
         parsed = load_policy_sources(sources)
+        self._require_policies(parsed)
+        return self._build(parsed)
+
+    def ensure_current(self, sources: list[Path]) -> PolicyIndexVersion:
+        parsed = load_policy_sources(sources)
+        self._require_policies(parsed)
         provider, model, dimensions = self._embeddings.identity
-        corpus_hash = sha256(
-            "\0".join(policy.content_hash for policy, _ in parsed).encode("utf-8")
-        ).hexdigest()
+        corpus_hash = self._corpus_hash(parsed)
+        current = self.current_version()
+        if (
+            current is not None
+            and current.embedding_provider == provider
+            and current.embedding_model == model
+            and current.dimensions == dimensions
+            and current.corpus_hash == corpus_hash
+        ):
+            return current
+        return self._build(parsed)
+
+    def _build(
+        self,
+        parsed: list[tuple[PolicyDocument, list[PolicyChunk]]],
+    ) -> PolicyIndexVersion:
+        provider, model, dimensions = self._embeddings.identity
         version = PolicyIndexVersion(
             embedding_provider=provider,
             embedding_model=model,
             dimensions=dimensions,
-            corpus_hash=corpus_hash,
+            corpus_hash=self._corpus_hash(parsed),
         )
         chunks = [chunk for _, policy_chunks in parsed for chunk in policy_chunks]
         vectors = self._embeddings.embed([chunk.text for chunk in chunks])
@@ -58,7 +78,7 @@ class SQLitePolicyStore:
                     provider,
                     model,
                     dimensions,
-                    corpus_hash,
+                    version.corpus_hash,
                     version.created_at.isoformat(),
                 ),
             )
@@ -98,6 +118,21 @@ class SQLitePolicyStore:
                 )
             connection.commit()
         return version
+
+    @staticmethod
+    def _corpus_hash(
+        parsed: list[tuple[PolicyDocument, list[PolicyChunk]]],
+    ) -> str:
+        return sha256(
+            "\0".join(policy.content_hash for policy, _ in parsed).encode("utf-8")
+        ).hexdigest()
+
+    @staticmethod
+    def _require_policies(
+        parsed: list[tuple[PolicyDocument, list[PolicyChunk]]],
+    ) -> None:
+        if not parsed:
+            raise PolicyFormatError("Policy preflight found no policy documents")
 
     def current_version(self) -> PolicyIndexVersion | None:
         with self._database.connect() as connection:

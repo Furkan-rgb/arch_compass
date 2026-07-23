@@ -26,4 +26,3 @@ Only the Qwen adapter imports Qwen request and response types.
 A provider-neutral interface contains a union of every vendor's option fields.
 ## Related policies
 See `model-stable-concepts` and `optimize-locality-of-change`.
-

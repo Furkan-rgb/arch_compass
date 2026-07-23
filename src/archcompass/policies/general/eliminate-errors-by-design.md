@@ -26,4 +26,3 @@ An append operation checks the expected case revision in the same transaction.
 Exceptions are swallowed and described as eliminated.
 ## Related policies
 See `keep-interfaces-simple` and `explicit-source-of-truth`.
-

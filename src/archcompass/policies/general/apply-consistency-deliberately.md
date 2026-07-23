@@ -26,4 +26,3 @@ All repositories use the same not-found and revision-conflict semantics.
 Every component is forced through one base class despite different ownership and lifecycle.
 ## Related policies
 See `make-relationships-discoverable` and `keep-interfaces-simple`.
-

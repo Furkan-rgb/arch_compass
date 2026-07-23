@@ -44,17 +44,14 @@ The repository's `config/models.yaml` is the single source for provider identity
 embedding dimensions, timeouts, and consultation limits. The default expects:
 
 ```bash
-ollama pull qwen3:8b
+ollama pull gemma4:12b
 ollama pull embeddinggemma
 ```
 
-ArchCompass does not pull models automatically.
-
-Build the policy index explicitly:
-
-```bash
-uv run archcompass policies rebuild
-```
+ArchCompass does not pull models automatically. Before each consultation, preflight builds the
+policy index when it is missing and rebuilds it when the policy corpus or embedding configuration
+has changed. A matching index is reused without calling the embedding model. Use
+`uv run archcompass policies rebuild` only when you explicitly want a new immutable index version.
 
 ## Quick start
 
@@ -84,10 +81,15 @@ Use `--json` to print structured output.
 ```bash
 make check
 make eval
+make test-ollama
+make full
 make build
 ```
 
-Tests never require a live model. Optional Ollama tests use the `ollama` marker.
+`make check` runs the fast deterministic suite and never requires a live model.
+`make test-ollama` checks the configured embedding model and runs a complete consultation
+against the configured reasoning model. `make full` runs linting, strict type checking, all
+deterministic tests, the live Ollama suite, and the package build.
 
 ## Documentation
 
@@ -105,4 +107,3 @@ Tests never require a live model. Optional Ollama tests use the `ollama` marker.
 ## License
 
 Apache-2.0.
-

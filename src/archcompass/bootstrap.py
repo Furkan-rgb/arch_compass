@@ -30,6 +30,8 @@ from archcompass.domain.errors import ConfigurationError
 from archcompass.ports.services import EmbeddingProvider, ReasoningProvider
 from archcompass.workflows import ConsultationWorkflow
 
+BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
+
 
 @dataclass(frozen=True)
 class Runtime:
@@ -42,6 +44,7 @@ class Runtime:
     analyzer: PythonAstRepositoryAnalyzer
     query_service: DeterministicAtlasQueryService
     policy_store: SQLitePolicyStore
+    policy_sources: tuple[Path, ...]
     case_service: CaseService
     workflow: ConsultationWorkflow
 
@@ -50,6 +53,7 @@ def build_runtime(
     workspace: Path,
     *,
     models_config: Path | None = None,
+    policy_sources: list[Path] | None = None,
     initialize: bool = True,
 ) -> Runtime:
     canonical_workspace = workspace.expanduser().resolve()
@@ -65,6 +69,14 @@ def build_runtime(
     source_reader = SafeSourceReader()
     queries = DeterministicAtlasQueryService(source_reader)
     policies = SQLitePolicyStore(database, embeddings)
+    configured_policy_sources = tuple(
+        source.expanduser().resolve()
+        for source in (
+            policy_sources
+            if policy_sources is not None
+            else [BUNDLED_POLICY_SOURCE]
+        )
+    )
     commits = SQLiteConsultationCommitRepository(database)
     workflow = ConsultationWorkflow(
         config=config,
@@ -76,6 +88,7 @@ def build_runtime(
         policy_index=policies,
         policies=policies,
         reasoning=reasoning,
+        policy_sources=configured_policy_sources,
     )
     return Runtime(
         workspace=canonical_workspace,
@@ -87,6 +100,7 @@ def build_runtime(
         analyzer=PythonAstRepositoryAnalyzer(),
         query_service=queries,
         policy_store=policies,
+        policy_sources=configured_policy_sources,
         case_service=CaseService(cases),
         workflow=workflow,
     )

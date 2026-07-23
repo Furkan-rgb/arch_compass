@@ -26,4 +26,3 @@ Provider registration occurs in one visible composition root.
 Importing an unrelated module silently mutates a global registry.
 ## Related policies
 See `explicit-source-of-truth` and `apply-consistency-deliberately`.
-

@@ -16,7 +16,6 @@ from archcompass.domain.case import ArchitectureCase
     ],
 )
 def test_deterministic_evaluation_cases(runtime, case_path: str, expected: str) -> None:
-    runtime.policy_store.rebuild([Path("policies/general").resolve()])
     data = yaml.safe_load(Path(case_path).read_text(encoding="utf-8"))
     revision = runtime.case_service.create(ArchitectureCase.model_validate(data))
     atlas = None
@@ -30,4 +29,3 @@ def test_deterministic_evaluation_cases(runtime, case_path: str, expected: str) 
         for claim in run.report.evidence_appendix
         for reference in claim.atlas_references
     )
-

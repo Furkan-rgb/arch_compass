@@ -30,5 +30,23 @@ the implementation local rather than adding interfaces, factories, and configura
 - Final synthesis receives focused packets and never the raw atlas or source tree.
 - Greenfield consultation succeeds without repository data.
 - “No abstraction” is representable as a first-class recommendation.
-- Mandatory tests do not contact Ollama; live-provider tests are optional and marked `ollama`.
+- Mandatory tests do not contact Ollama.
 
+## Live-provider tests
+
+Tests marked `ollama` use the models in `config/models.yaml`. They verify the embedding batch,
+dimension, finite-value, and input-sensitivity contracts, then run the premature-abstraction
+case through the real policy index and complete consultation workflow. Assertions target stable
+report and evidence invariants rather than exact model wording.
+
+Run only the live-provider tests with:
+
+```bash
+make test-ollama
+```
+
+Run every deterministic and live check plus the distribution build with:
+
+```bash
+make full
+```

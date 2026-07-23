@@ -82,7 +82,7 @@ class ConcernAnalysis(DomainModel):
 class ScenarioEvaluation(DomainModel):
     scenario: str
     assumptions: list[str]
-    alternative_results: list[str]
+    alternative_results: list[str] = Field(min_length=1)
     conclusion: str
 
 
@@ -91,7 +91,7 @@ class ADRRecord(DomainModel):
     status: str = "proposed"
     context: str
     decision: str
-    consequences: list[str]
+    consequences: list[str] = Field(min_length=1)
 
 
 class RecommendationReport(DomainModel):
@@ -100,20 +100,20 @@ class RecommendationReport(DomainModel):
     problem_and_desired_outcome: str
     confirmed_context: list[Claim]
     assumptions_and_unresolved_questions: list[Claim]
-    important_design_forces: list[DesignForce]
+    important_design_forces: list[DesignForce] = Field(min_length=1)
     repository_observations: list[Claim]
     relevant_policies: list[Claim]
     recommended_architecture: str
-    responsibility_allocation: list[str]
+    responsibility_allocation: list[str] = Field(min_length=1)
     conceptual_interfaces: list[str]
-    alternatives_considered: list[CaseAlternative]
-    scenario_analysis: list[ScenarioEvaluation]
+    alternatives_considered: list[CaseAlternative] = Field(min_length=1)
+    scenario_analysis: list[ScenarioEvaluation] = Field(min_length=1)
     change_amplification_analysis: str
-    trade_offs: list[str]
-    implementation_sequence: list[str]
+    trade_offs: list[str] = Field(min_length=1)
+    implementation_sequence: list[str] = Field(min_length=1)
     confidence: Confidence
-    reversal_conditions: list[str]
-    revisit_triggers: list[str]
+    reversal_conditions: list[str] = Field(min_length=1)
+    revisit_triggers: list[str] = Field(min_length=1)
     adr: ADRRecord
     evidence_appendix: list[Claim]
 

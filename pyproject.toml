@@ -34,7 +34,7 @@ module-name = "archcompass"
 module-root = "src"
 
 [tool.pytest.ini_options]
-addopts = "-q --strict-config --strict-markers"
+addopts = '-q --strict-config --strict-markers -m "not ollama"'
 testpaths = ["tests"]
 norecursedirs = ["tests/fixtures"]
 markers = [

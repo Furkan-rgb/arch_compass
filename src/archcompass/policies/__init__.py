@@ -1,0 +1,1 @@
+"""Bundled architecture policy corpus."""

@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
-from archcompass.application.evidence import validate_report_evidence
+from archcompass.application.evidence import (
+    repair_report_evidence,
+    validate_report_evidence,
+)
 from archcompass.application.reporting import render_markdown
 from archcompass.configuration import AppConfig
 from archcompass.domain.atlas import Atlas, AtlasQueryPlan, AtlasQueryResult
@@ -51,6 +55,7 @@ class ConsultationWorkflow:
         policy_index: PolicyIndex,
         policies: PolicyRetriever,
         reasoning: ReasoningProvider,
+        policy_sources: tuple[Path, ...],
     ) -> None:
         self._config = config
         self._cases = cases
@@ -61,10 +66,17 @@ class ConsultationWorkflow:
         self._policy_index = policy_index
         self._policies = policies
         self._reasoning = reasoning
+        self._policy_sources = policy_sources
 
     def advise(self, case_id: str, *, atlas: Atlas | None = None) -> ConsultationRun:
         started = datetime.now(UTC)
         revision = self._cases.get(case_id)
+        policy_sources = list(self._policy_sources)
+        if atlas is not None:
+            policy_sources.append(
+                Path(atlas.version.root_path) / ".archcompass" / "policies"
+            )
+        policy_version = self._policy_index.ensure_current(policy_sources)
         case = revision.snapshot
         context = self._global_context(case, atlas)
         forces = self._reasoning.discover_design_forces(context)
@@ -92,17 +104,14 @@ class ConsultationWorkflow:
                 all_results.extend(
                     self._queries.execute(atlas, query) for query in plan.queries
                 )
-        policy_version = self._policy_index.current_version()
-        retrieved: list[RetrievedPolicy] = []
-        if policy_version is not None:
-            force_query = " ".join(
-                f"{force.title} {force.description}" for force in forces
-            )
-            retrieved = self._policies.retrieve(
-                force_query,
-                top_k=self._config.retrieval.top_k,
-                version_id=policy_version.version_id,
-            )
+        force_query = " ".join(
+            f"{force.title} {force.description}" for force in forces
+        )
+        retrieved: list[RetrievedPolicy] = self._policies.retrieve(
+            force_query,
+            top_k=self._config.retrieval.top_k,
+            version_id=policy_version.version_id,
+        )
         packet = FocusedAnalysisPacket(
             concern="; ".join(force.title for force in forces),
             reason="The selected forces share responsibility and change-locality consequences.",
@@ -145,10 +154,9 @@ class ConsultationWorkflow:
         repaired = False
         if errors:
             repaired = True
-            report = self._reasoning.repair_recommendation(
+            report = repair_report_evidence(
                 report,
-                errors,
-                allowed_node_ids=set(allowed_nodes),
+                allowed_nodes=allowed_nodes,
                 allowed_policy_ids=allowed_policy_ids,
             )
             errors = validate_report_evidence(
@@ -162,11 +170,9 @@ class ConsultationWorkflow:
                 case_id=case.case_id,
                 input_case_revision=revision.revision,
                 atlas_version_id=atlas.version.version_id if atlas else None,
-                policy_index_version_id=policy_version.version_id if policy_version else None,
+                policy_index_version_id=policy_version.version_id,
                 reasoning_model=self._reasoning.model_identity,
-                embedding_model=(
-                    policy_version.embedding_model if policy_version else "not-indexed"
-                ),
+                embedding_model=policy_version.embedding_model,
                 config_hash=self._config.identity_hash,
                 prompt_identities=self._reasoning.prompt_identities,
                 design_forces=forces,
@@ -190,9 +196,9 @@ class ConsultationWorkflow:
             input_case_revision=revision.revision,
             result_case_revision=revision.revision + 1,
             atlas_version_id=atlas.version.version_id if atlas else None,
-            policy_index_version_id=policy_version.version_id if policy_version else None,
+            policy_index_version_id=policy_version.version_id,
             reasoning_model=self._reasoning.model_identity,
-            embedding_model=policy_version.embedding_model if policy_version else "not-indexed",
+            embedding_model=policy_version.embedding_model,
             config_hash=self._config.identity_hash,
             prompt_identities=self._reasoning.prompt_identities,
             design_forces=forces,

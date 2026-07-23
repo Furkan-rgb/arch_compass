@@ -49,6 +49,8 @@ class AtlasQueryService(Protocol):
 class PolicyIndex(Protocol):
     def rebuild(self, sources: list[Path]) -> PolicyIndexVersion: ...
 
+    def ensure_current(self, sources: list[Path]) -> PolicyIndexVersion: ...
+
     def current_version(self) -> PolicyIndexVersion | None: ...
 
     def list_policies(self, version_id: str | None = None) -> list[PolicyDocument]: ...
@@ -110,13 +112,4 @@ class ReasoningProvider(Protocol):
         alternatives: list[CaseAlternative],
         scenarios: list[ScenarioEvaluation],
         packets: list[FocusedAnalysisPacket],
-    ) -> RecommendationReport: ...
-
-    def repair_recommendation(
-        self,
-        report: RecommendationReport,
-        errors: list[str],
-        *,
-        allowed_node_ids: set[str],
-        allowed_policy_ids: set[str],
     ) -> RecommendationReport: ...

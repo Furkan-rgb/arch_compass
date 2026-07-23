@@ -25,8 +25,6 @@ def test_cli_commands_cover_local_workflow(tmp_path: Path, fake_config_text: str
             *common,
             "policies",
             "rebuild",
-            "--source",
-            str(Path("policies/general").resolve()),
         ],
     )
     assert rebuilt.exit_code == 0, rebuilt.output
@@ -92,3 +90,26 @@ def test_cli_commands_cover_local_workflow(tmp_path: Path, fake_config_text: str
         [*common, "advise", case_id, "--repo", str(fixture), "--json"],
     )
     assert brownfield.exit_code == 0, brownfield.output
+
+
+def test_advise_prepares_missing_policy_index(
+    tmp_path: Path,
+    fake_config_text: str,
+) -> None:
+    workspace = tmp_path.resolve()
+    config_path = workspace / "config" / "models.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(fake_config_text, encoding="utf-8")
+    common = ["--workspace", str(workspace)]
+    case_path = Path("eval/cases/premature-abstraction/case.yaml").resolve()
+    created = runner.invoke(app, [*common, "case", "create", "--from", str(case_path)])
+    assert created.exit_code == 0, created.output
+    case_id = json.loads(created.output)["case_id"]
+
+    advised = runner.invoke(app, [*common, "advise", case_id, "--json"])
+
+    assert advised.exit_code == 0, advised.output
+    assert "recommended_architecture" in advised.output
+    listed = runner.invoke(app, [*common, "policies", "list"])
+    assert listed.exit_code == 0, listed.output
+    assert "delay-premature-abstraction" in listed.output
