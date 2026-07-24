@@ -52,6 +52,9 @@ class MarkdownPolicySourceInspector:
             _policy_paths(canonical)
         return canonical
 
+    def load_documents(self, sources: list[Path]) -> list[PolicyDocument]:
+        return [policy for policy, _chunks in load_policy_sources(sources)]
+
 
 def parse_policy(path: Path) -> tuple[PolicyDocument, list[PolicyChunk]]:
     try:

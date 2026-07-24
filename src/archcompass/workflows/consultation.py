@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
-from typing import TypeVar
+from typing import TypeVar, cast
+
+from pydantic import JsonValue
 
 from archcompass.application.evidence import (
     repair_report_evidence_with_history,
@@ -19,6 +22,7 @@ from archcompass.domain.atlas import (
     Atlas,
     AtlasEdge,
     AtlasNode,
+    AtlasQueryPlan,
     EdgeType,
     SourceExcerpt,
     SourceLocation,
@@ -54,9 +58,15 @@ from archcompass.domain.errors import (
     EvidenceReferenceError,
     ModelOutputValidationError,
 )
-from archcompass.domain.policy import PolicyIndexVersion, RetrievedPolicy
+from archcompass.domain.execution import ProgressEventType
+from archcompass.domain.policy import (
+    PolicyEvidenceSummary,
+    PolicyIndexVersion,
+    RetrievedPolicy,
+)
 from archcompass.ports.atlas import AtlasFreshnessChecker, AtlasQueryService
 from archcompass.ports.policies import PolicyIndex, PolicyRetriever
+from archcompass.ports.progress import ConsultationProgressSink
 from archcompass.ports.reasoning import FocusedReasoningProvider
 from archcompass.ports.repositories import (
     AtlasRepository,
@@ -107,6 +117,9 @@ class ConsultationWorkflow:
         atlas_version_id: str | None = None,
         repository_root: Path | None = None,
         atlas: Atlas | None = None,
+        run_id: str | None = None,
+        input_case_revision: int | None = None,
+        progress: ConsultationProgressSink | None = None,
     ) -> ConsultationRun:
         """Advise from persisted evidence.
 
@@ -114,9 +127,9 @@ class ConsultationWorkflow:
         and its ID is reloaded from the atlas repository. Unsaved aggregates fail.
         """
         started = datetime.now(UTC)
-        revision = self._cases.get(case_id)
+        revision = self._cases.get(case_id, input_case_revision)
         case = revision.snapshot
-        run_id = new_id("run")
+        consultation_run_id = run_id or new_id("run")
         stage_timings: dict[str, float] = {}
         prompt_identities: list[str] = []
         forces: list[DesignForce] = []
@@ -134,6 +147,8 @@ class ConsultationWorkflow:
         final_errors: list[str] = []
         execution_metadata: dict[str, object] = {
             "truncations": [],
+            "query_plan_repairs": [],
+            "model_output_repairs": [],
             "zoom_iterations": 0,
             "atlas_queries": 0,
             "retrieved_policies": 0,
@@ -145,6 +160,11 @@ class ConsultationWorkflow:
         policy_version: PolicyIndexVersion | None = None
 
         try:
+            self._progress_started(
+                progress,
+                ConsultationFailureStage.ATLAS_RESOLUTION,
+                "Preparing repository context",
+            )
             resolved_atlas = self._timed(
                 stage_timings,
                 "atlas_resolution",
@@ -169,7 +189,39 @@ class ConsultationWorkflow:
                     "atlas_freshness",
                     lambda: freshness.ensure_fresh(resolved_atlas),
                 )
+            self._progress_artifact(
+                progress,
+                ConsultationFailureStage.ATLAS_RESOLUTION,
+                "Repository context ready",
+                (
+                    "Greenfield consultation; no repository atlas selected."
+                    if resolved_atlas is None
+                    else f"Using atlas {resolved_atlas.version.version_id}."
+                ),
+                {
+                    "atlas_version_id": (
+                        resolved_atlas.version.version_id
+                        if resolved_atlas is not None
+                        else None
+                    ),
+                    "repository_root": (
+                        resolved_atlas.version.root_path
+                        if resolved_atlas is not None
+                        else None
+                    ),
+                },
+            )
+            self._progress_completed(
+                progress,
+                ConsultationFailureStage.ATLAS_RESOLUTION,
+                "Repository context prepared",
+            )
             current_stage = ConsultationFailureStage.POLICY
+            self._progress_started(
+                progress,
+                ConsultationFailureStage.POLICY,
+                "Preparing policy corpus",
+            )
             repository_policy_root = (
                 Path(resolved_atlas.version.root_path) if resolved_atlas is not None else None
             )
@@ -184,17 +236,54 @@ class ConsultationWorkflow:
                 "policy_preflight",
                 lambda: self._policy_index.ensure_current(policy_sources),
             )
+            self._progress_artifact(
+                progress,
+                ConsultationFailureStage.POLICY,
+                "Policy index ready",
+                f"Using immutable policy index {policy_version.version_id}.",
+                {
+                    "policy_index_version_id": policy_version.version_id,
+                    "embedding_model": policy_version.embedding_model,
+                },
+            )
+            self._progress_completed(
+                progress,
+                ConsultationFailureStage.POLICY,
+                "Policy corpus prepared",
+            )
             context = self._global_context(case, resolved_atlas)
 
             current_stage = ConsultationFailureStage.DESIGN_FORCES
+            self._progress_started(
+                progress,
+                ConsultationFailureStage.DESIGN_FORCES,
+                "Discovering design forces",
+            )
             forces = self._reason(
                 "discover_design_forces",
                 prompt_identities,
                 stage_timings,
                 lambda: self._reasoning.discover_design_forces(context),
             )
+            self._progress_artifact(
+                progress,
+                ConsultationFailureStage.DESIGN_FORCES,
+                "Design forces discovered",
+                f"Found {len(forces)} forces shaping this decision.",
+                {"design_forces": [item.model_dump(mode="json") for item in forces]},
+            )
+            self._progress_completed(
+                progress,
+                ConsultationFailureStage.DESIGN_FORCES,
+                "Design forces discovered",
+            )
 
             current_stage = ConsultationFailureStage.CLUSTERING
+            self._progress_started(
+                progress,
+                ConsultationFailureStage.CLUSTERING,
+                "Organizing concerns",
+            )
             clusters = self._reason(
                 "cluster_design_forces",
                 prompt_identities,
@@ -204,6 +293,18 @@ class ConsultationWorkflow:
             partition_errors = cluster_partition_errors(forces, clusters)
             if partition_errors:
                 raise ModelOutputValidationError("; ".join(partition_errors))
+            self._progress_artifact(
+                progress,
+                ConsultationFailureStage.CLUSTERING,
+                "Concern clusters formed",
+                f"Organized the forces into {len(clusters)} focused clusters.",
+                {"clusters": [item.model_dump(mode="json") for item in clusters]},
+            )
+            self._progress_completed(
+                progress,
+                ConsultationFailureStage.CLUSTERING,
+                "Concerns organized",
+            )
 
             selected_by_cluster: dict[str, list[str]] = {
                 cluster.cluster_id: [] for cluster in clusters
@@ -220,6 +321,11 @@ class ConsultationWorkflow:
                 nodes = {node.atlas_id: node for node in resolved_atlas.nodes}
                 for iteration in range(1, self._config.consultation.max_zoom_iterations + 1):
                     current_stage = ConsultationFailureStage.QUERY_PLANNING
+                    self._progress_started(
+                        progress,
+                        ConsultationFailureStage.QUERY_PLANNING,
+                        f"Planning repository zoom {iteration}",
+                    )
                     iteration_plans = self._reason(
                         "plan_atlas_queries",
                         prompt_identities,
@@ -236,18 +342,54 @@ class ConsultationWorkflow:
                         ),
                         timing_suffix=str(iteration),
                     )
-                    self._validate_cluster_plans(iteration_plans, clusters, iteration)
-                    clamped = self._clamp_iteration_plans(
+                    iteration_plans = self._repair_cluster_plans(
                         iteration_plans,
+                        clusters=clusters,
+                        iteration=iteration,
+                        metadata=execution_metadata,
+                    )
+                    self._validate_cluster_plans(iteration_plans, clusters, iteration)
+                    executable = self._drop_unsurfaced_query_references(
+                        iteration_plans,
+                        surfaced_by_cluster={
+                            cluster_id: set(items)
+                            for cluster_id, items in summaries_by_cluster.items()
+                        },
+                        metadata=execution_metadata,
+                    )
+                    clamped = self._clamp_iteration_plans(
+                        executable,
                         self._config.consultation.max_queries_per_iteration,
                         execution_metadata,
                     )
                     plans.extend(clamped)
                     query_count = sum(len(item.plan.queries) for item in clamped)
+                    self._progress_artifact(
+                        progress,
+                        ConsultationFailureStage.QUERY_PLANNING,
+                        f"Repository zoom {iteration} planned",
+                        f"Planned {query_count} bounded atlas queries.",
+                        {
+                            "iteration": iteration,
+                            "query_plans": [
+                                item.model_dump(mode="json") for item in clamped
+                            ],
+                        },
+                    )
+                    self._progress_completed(
+                        progress,
+                        ConsultationFailureStage.QUERY_PLANNING,
+                        f"Repository zoom {iteration} planned",
+                    )
                     execution_metadata["zoom_iterations"] = iteration
                     if query_count == 0:
                         break
                     current_stage = ConsultationFailureStage.QUERY_EXECUTION
+                    self._progress_started(
+                        progress,
+                        ConsultationFailureStage.QUERY_EXECUTION,
+                        f"Inspecting repository evidence for zoom {iteration}",
+                    )
                     for cluster_plan in clamped:
                         cluster_id = cluster_plan.cluster_id
                         for query_index, query in enumerate(cluster_plan.plan.queries, start=1):
@@ -270,10 +412,38 @@ class ConsultationWorkflow:
                                 excerpt_line_counts=excerpt_lines_by_cluster,
                                 execution_metadata=execution_metadata,
                             )
+                            self._progress_artifact(
+                                progress,
+                                ConsultationFailureStage.QUERY_EXECUTION,
+                                "Repository evidence surfaced",
+                                result.summary,
+                                {
+                                    "iteration": iteration,
+                                    "cluster_id": cluster_id,
+                                    "query": query.model_dump(mode="json"),
+                                    "node_ids": result.node_ids,
+                                    "metric_values": [
+                                        item.model_dump(mode="json")
+                                        for item in result.metric_values
+                                    ],
+                                    "relationship_count": len(result.relationships),
+                                    "excerpt_count": len(result.excerpts),
+                                },
+                            )
+                    self._progress_completed(
+                        progress,
+                        ConsultationFailureStage.QUERY_EXECUTION,
+                        f"Repository zoom {iteration} completed",
+                    )
 
             all_retrieved: dict[str, list[RetrievedPolicy]] = {}
             for cluster in clusters:
                 current_stage = ConsultationFailureStage.POLICY_RETRIEVAL
+                self._progress_started(
+                    progress,
+                    ConsultationFailureStage.POLICY_RETRIEVAL,
+                    f"Retrieving policies for {cluster.title}",
+                )
                 force_lookup = {force.force_id: force for force in forces}
                 cluster_query = " ".join(
                     [
@@ -307,8 +477,29 @@ class ConsultationWorkflow:
                     policies=retrieved,
                 )
                 packets.append(packet)
+                self._progress_artifact(
+                    progress,
+                    ConsultationFailureStage.POLICY_RETRIEVAL,
+                    f"Evidence packet ready: {cluster.title}",
+                    (
+                        f"{len(packet.node_summaries)} nodes, "
+                        f"{len(packet.policies)} policies, "
+                        f"{len(packet.excerpts)} excerpts."
+                    ),
+                    {"packet": packet.model_dump(mode="json")},
+                )
+                self._progress_completed(
+                    progress,
+                    ConsultationFailureStage.POLICY_RETRIEVAL,
+                    f"Policies retrieved for {cluster.title}",
+                )
 
                 current_stage = ConsultationFailureStage.CONCERN_ANALYSIS
+                self._progress_started(
+                    progress,
+                    ConsultationFailureStage.CONCERN_ANALYSIS,
+                    f"Analyzing {cluster.title}",
+                )
                 analysis = self._reason(
                     "analyze_concern_cluster",
                     prompt_identities,
@@ -316,18 +507,93 @@ class ConsultationWorkflow:
                     lambda packet=packet: self._reasoning.analyze_concern_cluster(context, packet),
                     timing_suffix=cluster.cluster_id,
                 )
-                self._validate_concern_analysis(analysis, packet)
+                analysis = self._prepare_concern_analysis(
+                    analysis,
+                    packet=packet,
+                    metadata=execution_metadata,
+                )
+                try:
+                    self._validate_concern_analysis(analysis, packet)
+                except ModelOutputValidationError as first_error:
+                    repairs = execution_metadata.get("model_output_repairs")
+                    if isinstance(repairs, list):
+                        repairs.append(
+                            {
+                                "kind": "retried_invalid_concern_analysis",
+                                "cluster_id": packet.cluster.cluster_id,
+                                "validation_error": str(first_error),
+                                "rejected_analysis": analysis.model_dump(mode="json"),
+                            }
+                        )
+                    feedback = (
+                        f"{first_error}. Previous analysis: {analysis.model_dump_json()}. "
+                        "Return at least one valid finding. Do not repeat an unsupported "
+                        "repository or policy finding."
+                    )
+                    analysis = self._reason(
+                        "analyze_concern_cluster",
+                        prompt_identities,
+                        stage_timings,
+                        lambda packet=packet, feedback=feedback: (
+                            self._reasoning.analyze_concern_cluster(
+                                context,
+                                packet,
+                                validation_feedback=feedback,
+                            )
+                        ),
+                        timing_suffix=f"{cluster.cluster_id}.retry",
+                    )
+                    analysis = self._prepare_concern_analysis(
+                        analysis,
+                        packet=packet,
+                        metadata=execution_metadata,
+                    )
+                    self._validate_concern_analysis(analysis, packet)
                 analyses.append(analysis)
+                self._progress_artifact(
+                    progress,
+                    ConsultationFailureStage.CONCERN_ANALYSIS,
+                    f"Concern analyzed: {cluster.title}",
+                    f"Produced {len(analysis.findings)} evidence-classified findings.",
+                    {"analysis": analysis.model_dump(mode="json")},
+                )
+                self._progress_completed(
+                    progress,
+                    ConsultationFailureStage.CONCERN_ANALYSIS,
+                    f"Analysis completed for {cluster.title}",
+                )
 
             current_stage = ConsultationFailureStage.ALTERNATIVES
+            self._progress_started(
+                progress,
+                ConsultationFailureStage.ALTERNATIVES,
+                "Generating credible alternatives",
+            )
             alternatives = self._reason(
                 "generate_alternatives",
                 prompt_identities,
                 stage_timings,
                 lambda: self._reasoning.generate_alternatives(context, analyses),
             )
+            self._progress_artifact(
+                progress,
+                ConsultationFailureStage.ALTERNATIVES,
+                "Alternatives generated",
+                f"Generated {len(alternatives)} credible options.",
+                {"alternatives": [item.model_dump(mode="json") for item in alternatives]},
+            )
+            self._progress_completed(
+                progress,
+                ConsultationFailureStage.ALTERNATIVES,
+                "Alternatives generated",
+            )
 
             current_stage = ConsultationFailureStage.SCENARIOS
+            self._progress_started(
+                progress,
+                ConsultationFailureStage.SCENARIOS,
+                "Testing future scenarios",
+            )
             scenarios = self._reason(
                 "evaluate_scenarios",
                 prompt_identities,
@@ -335,8 +601,25 @@ class ConsultationWorkflow:
                 lambda: self._reasoning.evaluate_scenarios(context, alternatives, analyses),
             )
             self._validate_scenario_coverage(scenarios, alternatives)
+            self._progress_artifact(
+                progress,
+                ConsultationFailureStage.SCENARIOS,
+                "Scenarios evaluated",
+                f"Compared every alternative across {len(scenarios)} scenarios.",
+                {"scenarios": [item.model_dump(mode="json") for item in scenarios]},
+            )
+            self._progress_completed(
+                progress,
+                ConsultationFailureStage.SCENARIOS,
+                "Scenario evaluation completed",
+            )
 
             current_stage = ConsultationFailureStage.SYNTHESIS
+            self._progress_started(
+                progress,
+                ConsultationFailureStage.SYNTHESIS,
+                "Synthesizing recommendation",
+            )
             report = self._reason(
                 "synthesize_recommendation",
                 prompt_identities,
@@ -352,6 +635,18 @@ class ConsultationWorkflow:
                     packets,
                 ),
             )
+            provider_repairs = self._reasoning.consume_repair_actions()
+            output_repairs = execution_metadata.get("model_output_repairs")
+            if isinstance(output_repairs, list):
+                output_repairs.extend(provider_repairs)
+                report, synthesis_repairs = self._restore_synthesis_artifacts(
+                    report,
+                    forces=forces,
+                    alternatives=alternatives,
+                    scenarios=scenarios,
+                    packets=packets,
+                )
+                output_repairs.extend(synthesis_repairs)
             unrepaired_report = report
             self._validate_synthesis_coverage(
                 report,
@@ -359,8 +654,28 @@ class ConsultationWorkflow:
                 alternatives,
                 packets,
             )
+            self._progress_artifact(
+                progress,
+                ConsultationFailureStage.SYNTHESIS,
+                "Recommendation synthesized",
+                report.decision_summary.text,
+                {
+                    "disposition": report.disposition,
+                    "confidence": report.confidence.model_dump(mode="json"),
+                },
+            )
+            self._progress_completed(
+                progress,
+                ConsultationFailureStage.SYNTHESIS,
+                "Recommendation synthesized",
+            )
 
             current_stage = ConsultationFailureStage.VALIDATION
+            self._progress_started(
+                progress,
+                ConsultationFailureStage.VALIDATION,
+                "Validating evidence references",
+            )
             allowed_nodes = self._allowed_nodes(resolved_atlas, packets)
             allowed_policy_ids = {
                 item.policy.id for retrieved in all_retrieved.values() for item in retrieved
@@ -370,6 +685,7 @@ class ConsultationWorkflow:
                 allowed_nodes=allowed_nodes,
                 allowed_policy_ids=allowed_policy_ids,
             )
+            final_errors = list(initial_errors)
             if initial_errors:
                 repaired = repair_report_evidence_with_history(
                     report,
@@ -384,15 +700,115 @@ class ConsultationWorkflow:
                     allowed_policy_ids=allowed_policy_ids,
                 )
             if final_errors:
+                output_repairs = execution_metadata.get("model_output_repairs")
+                if isinstance(output_repairs, list):
+                    output_repairs.append(
+                        {
+                            "kind": "retried_invalid_synthesis_evidence",
+                            "initial_validation_errors": initial_errors,
+                            "validation_errors": final_errors,
+                            "deterministic_repair_actions": repair_actions,
+                            "rejected_report": unrepaired_report.model_dump(mode="json"),
+                        }
+                    )
+                feedback = (
+                    "Initial evidence validation errors: "
+                    + "; ".join(initial_errors)
+                    + ". Errors remaining after conservative deterministic repair: "
+                    + "; ".join(final_errors)
+                    + ". Previous report: "
+                    + unrepaired_report.model_dump_json()
+                )
+                report = self._reason(
+                    "synthesize_recommendation",
+                    prompt_identities,
+                    stage_timings,
+                    lambda feedback=feedback: self._reasoning.synthesize_recommendation(
+                        case,
+                        context,
+                        forces,
+                        clusters,
+                        analyses,
+                        alternatives,
+                        scenarios,
+                        packets,
+                        validation_feedback=feedback,
+                    ),
+                    timing_suffix="evidence_retry",
+                )
+                provider_repairs = self._reasoning.consume_repair_actions()
+                report, synthesis_repairs = self._restore_synthesis_artifacts(
+                    report,
+                    forces=forces,
+                    alternatives=alternatives,
+                    scenarios=scenarios,
+                    packets=packets,
+                )
+                if isinstance(output_repairs, list):
+                    output_repairs.extend(provider_repairs)
+                    output_repairs.extend(synthesis_repairs)
+                unrepaired_report = report
+                self._validate_synthesis_coverage(
+                    report,
+                    forces,
+                    alternatives,
+                    packets,
+                )
+                initial_errors = validate_report_evidence(
+                    report,
+                    allowed_nodes=allowed_nodes,
+                    allowed_policy_ids=allowed_policy_ids,
+                )
+                repair_actions = []
+                final_errors = list(initial_errors)
+                if initial_errors:
+                    repaired = repair_report_evidence_with_history(
+                        report,
+                        allowed_nodes=allowed_nodes,
+                        allowed_policy_ids=allowed_policy_ids,
+                    )
+                    report = repaired.report
+                    repair_actions = repaired.actions
+                    final_errors = validate_report_evidence(
+                        report,
+                        allowed_nodes=allowed_nodes,
+                        allowed_policy_ids=allowed_policy_ids,
+                    )
+            if final_errors:
                 raise EvidenceReferenceError(
                     "Recommendation evidence validation failed: " + "; ".join(final_errors)
                 )
+            self._progress_artifact(
+                progress,
+                ConsultationFailureStage.VALIDATION,
+                "Evidence validation completed",
+                (
+                    "The report passed validation without repair."
+                    if not initial_errors
+                    else f"Applied {len(repair_actions)} deterministic repair actions."
+                ),
+                {
+                    "initial_errors": initial_errors,
+                    "repair_actions": repair_actions,
+                    "final_errors": final_errors,
+                },
+            )
+            self._progress_completed(
+                progress,
+                ConsultationFailureStage.VALIDATION,
+                "Evidence validated",
+            )
 
             current_stage = ConsultationFailureStage.RENDERING
+            self._progress_started(
+                progress,
+                ConsultationFailureStage.RENDERING,
+                "Rendering report",
+            )
             markdown = self._timed(stage_timings, "rendering", lambda: render_markdown(report))
             run = ConsultationRun(
                 schema_version=2,
-                run_id=run_id,
+                run_id=consultation_run_id,
                 status=ConsultationStatus.SUCCEEDED,
                 case_id=case.case_id,
                 input_case_revision=revision.revision,
@@ -420,6 +836,11 @@ class ConsultationWorkflow:
                 completed_at=utc_now(),
                 execution_metadata=execution_metadata,  # type: ignore[arg-type]
             )
+            self._progress_completed(
+                progress,
+                ConsultationFailureStage.RENDERING,
+                "Report rendered",
+            )
             updated_case = self._updated_case(
                 case,
                 run=run,
@@ -430,6 +851,11 @@ class ConsultationWorkflow:
                 analyses=analyses,
             )
             current_stage = ConsultationFailureStage.COMMIT
+            self._progress_started(
+                progress,
+                ConsultationFailureStage.COMMIT,
+                "Saving immutable run and case revision",
+            )
             self._timed(
                 stage_timings,
                 "commit",
@@ -437,11 +863,32 @@ class ConsultationWorkflow:
                     run, updated_case, expected_revision=revision.revision
                 ),
             )
+            self._progress_completed(
+                progress,
+                ConsultationFailureStage.COMMIT,
+                "Run and case revision saved",
+            )
+            self._progress_emit(
+                progress,
+                event_type=ProgressEventType.COMPLETED,
+                stage=ConsultationFailureStage.COMMIT,
+                title="Consultation completed",
+                summary=report.decision_summary.text,
+                data=cast(
+                    dict[str, JsonValue],
+                    {
+                        "run_id": run.run_id,
+                        "report_id": report.report_id,
+                        "disposition": report.disposition,
+                        "result_case_revision": run.result_case_revision,
+                    },
+                ),
+            )
             return run
         except Exception as error:
             failed = ConsultationRun(
                 schema_version=2,
-                run_id=run_id,
+                run_id=consultation_run_id,
                 status=ConsultationStatus.FAILED,
                 case_id=case.case_id,
                 input_case_revision=revision.revision,
@@ -477,7 +924,78 @@ class ConsultationWorkflow:
             # Failure persistence is deliberately outside another catch. If it
             # fails, persistence is the unavoidable terminal exception.
             self._runs.save(failed)
+            with suppress(Exception):
+                self._progress_emit(
+                    progress,
+                    event_type=ProgressEventType.FAILED,
+                    stage=current_stage,
+                    title="Consultation failed",
+                    summary=self._sanitize_error(error, resolved_atlas),
+                )
             raise
+
+    def _progress_started(
+        self,
+        progress: ConsultationProgressSink | None,
+        stage: ConsultationFailureStage,
+        title: str,
+    ) -> None:
+        self._progress_emit(
+            progress,
+            event_type=ProgressEventType.STAGE_STARTED,
+            stage=stage,
+            title=title,
+        )
+
+    def _progress_artifact(
+        self,
+        progress: ConsultationProgressSink | None,
+        stage: ConsultationFailureStage,
+        title: str,
+        summary: str,
+        data: dict[str, object],
+    ) -> None:
+        self._progress_emit(
+            progress,
+            event_type=ProgressEventType.ARTIFACT_AVAILABLE,
+            stage=stage,
+            title=title,
+            summary=summary,
+            data=cast(dict[str, JsonValue], data),
+        )
+
+    def _progress_completed(
+        self,
+        progress: ConsultationProgressSink | None,
+        stage: ConsultationFailureStage,
+        title: str,
+    ) -> None:
+        self._progress_emit(
+            progress,
+            event_type=ProgressEventType.STAGE_COMPLETED,
+            stage=stage,
+            title=title,
+        )
+
+    @staticmethod
+    def _progress_emit(
+        progress: ConsultationProgressSink | None,
+        *,
+        event_type: ProgressEventType,
+        stage: ConsultationFailureStage,
+        title: str,
+        summary: str = "",
+        data: dict[str, JsonValue] | None = None,
+    ) -> None:
+        if progress is None:
+            return
+        progress.emit(
+            event_type=event_type,
+            stage=stage,
+            title=title,
+            summary=summary,
+            data=data,
+        )
 
     def _resolve_atlas(
         self,
@@ -552,6 +1070,79 @@ class ConsultationWorkflow:
             )
 
     @staticmethod
+    def _repair_cluster_plans(
+        plans: list[ClusterQueryPlan],
+        *,
+        clusters: list[ConcernCluster],
+        iteration: int,
+        metadata: dict[str, object],
+    ) -> list[ClusterQueryPlan]:
+        expected = {cluster.cluster_id for cluster in clusters}
+        accepted: dict[str, ClusterQueryPlan] = {}
+        repairs = metadata.get("query_plan_repairs")
+
+        def record(repair: dict[str, object]) -> None:
+            if isinstance(repairs, list):
+                repairs.append(repair)
+
+        for item in plans:
+            if item.cluster_id not in expected:
+                record(
+                    {
+                        "kind": "dropped_unknown_cluster_plan",
+                        "cluster_id": item.cluster_id,
+                        "iteration": iteration,
+                        "plan": item.model_dump(mode="json"),
+                    }
+                )
+                continue
+            if item.cluster_id in accepted:
+                record(
+                    {
+                        "kind": "dropped_duplicate_cluster_plan",
+                        "cluster_id": item.cluster_id,
+                        "iteration": iteration,
+                        "plan": item.model_dump(mode="json"),
+                    }
+                )
+                continue
+            if item.plan.iteration != iteration:
+                record(
+                    {
+                        "kind": "corrected_query_plan_iteration",
+                        "cluster_id": item.cluster_id,
+                        "from_iteration": item.plan.iteration,
+                        "to_iteration": iteration,
+                    }
+                )
+                item = item.model_copy(
+                    update={"plan": item.plan.model_copy(update={"iteration": iteration})}
+                )
+            accepted[item.cluster_id] = item
+
+        normalized: list[ClusterQueryPlan] = []
+        for cluster in clusters:
+            item = accepted.get(cluster.cluster_id)
+            if item is None:
+                record(
+                    {
+                        "kind": "added_empty_cluster_plan",
+                        "cluster_id": cluster.cluster_id,
+                        "iteration": iteration,
+                    }
+                )
+                item = ClusterQueryPlan(
+                    cluster_id=cluster.cluster_id,
+                    plan=AtlasQueryPlan(
+                        iteration=iteration,
+                        rationale="The model omitted this cluster; no atlas queries were executed.",
+                        queries=[],
+                    ),
+                )
+            normalized.append(item)
+        return normalized
+
+    @staticmethod
     def _clamp_iteration_plans(
         plans: list[ClusterQueryPlan],
         budget: int,
@@ -578,6 +1169,45 @@ class ConsultationWorkflow:
             )
             remaining -= len(queries)
         return clamped
+
+    @staticmethod
+    def _drop_unsurfaced_query_references(
+        plans: list[ClusterQueryPlan],
+        *,
+        surfaced_by_cluster: dict[str, set[str]],
+        metadata: dict[str, object],
+    ) -> list[ClusterQueryPlan]:
+        repaired: list[ClusterQueryPlan] = []
+        repairs = metadata.get("query_plan_repairs")
+        for item in plans:
+            allowed = surfaced_by_cluster.get(item.cluster_id, set())
+            queries = []
+            for query in item.plan.queries:
+                referenced = {
+                    value
+                    for field in ("node_id", "source_id", "target_id")
+                    if isinstance((value := getattr(query, field, None)), str)
+                }
+                unknown = sorted(referenced - allowed)
+                if unknown:
+                    if isinstance(repairs, list):
+                        repairs.append(
+                            {
+                                "kind": "dropped_unsurfaced_node_query",
+                                "cluster_id": item.cluster_id,
+                                "iteration": item.plan.iteration,
+                                "unknown_node_ids": unknown,
+                                "query": query.model_dump(mode="json"),
+                            }
+                        )
+                    continue
+                queries.append(query)
+            repaired.append(
+                item.model_copy(
+                    update={"plan": item.plan.model_copy(update={"queries": queries})}
+                )
+            )
+        return repaired
 
     def _accumulate_query_result(
         self,
@@ -718,6 +1348,113 @@ class ConsultationWorkflow:
         )
 
     @staticmethod
+    def _prepare_concern_analysis(
+        analysis: ConcernAnalysis,
+        *,
+        packet: FocusedAnalysisPacket,
+        metadata: dict[str, object],
+    ) -> ConcernAnalysis:
+        if analysis.cluster_id != packet.cluster.cluster_id:
+            repairs = metadata.get("model_output_repairs")
+            if isinstance(repairs, list):
+                repairs.append(
+                    {
+                        "kind": "corrected_concern_analysis_cluster",
+                        "from_cluster_id": analysis.cluster_id,
+                        "to_cluster_id": packet.cluster.cluster_id,
+                    }
+                )
+            analysis = analysis.model_copy(
+                update={"cluster_id": packet.cluster.cluster_id}
+            )
+        return ConsultationWorkflow._drop_unsupported_concern_evidence(
+            analysis,
+            packet=packet,
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def _drop_unsupported_concern_evidence(
+        analysis: ConcernAnalysis,
+        *,
+        packet: FocusedAnalysisPacket,
+        metadata: dict[str, object],
+    ) -> ConcernAnalysis:
+        policy_ids = {item.policy.id for item in packet.policies}
+        node_summaries = {summary.node_id: summary for summary in packet.node_summaries}
+        findings = []
+        repairs = metadata.get("model_output_repairs")
+        pending_repairs: list[dict[str, object]] = []
+
+        def record(kind: str, payload: dict[str, object]) -> None:
+            pending_repairs.append({"kind": kind, **payload})
+
+        for finding in analysis.findings:
+            if finding.classification == ClaimClassification.REPOSITORY_OBSERVATION:
+                supported = bool(finding.atlas_references)
+                for reference in finding.atlas_references:
+                    summary = node_summaries.get(reference.node_id)
+                    location = reference.location
+                    supported = supported and (
+                        summary is not None
+                        and summary.location is not None
+                        and location is not None
+                        and location.path == summary.location.path
+                        and location.start_line >= summary.location.start_line
+                        and location.end_line <= summary.location.end_line
+                    )
+                if not supported:
+                    record(
+                        "dropped_unsupported_repository_finding",
+                        {
+                            "cluster_id": packet.cluster.cluster_id,
+                            "claim": finding.model_dump(mode="json"),
+                        },
+                    )
+                    continue
+            if finding.classification == ClaimClassification.POLICY_GUIDANCE and (
+                not finding.policy_ids or not set(finding.policy_ids) <= policy_ids
+            ):
+                record(
+                    "dropped_unsupported_policy_finding",
+                    {
+                        "cluster_id": packet.cluster.cluster_id,
+                        "claim": finding.model_dump(mode="json"),
+                    },
+                )
+                continue
+            findings.append(finding)
+
+        conflicts = []
+        for conflict in analysis.policy_conflicts:
+            if set(conflict.policy_ids) <= policy_ids:
+                conflicts.append(conflict)
+                continue
+            record(
+                "dropped_unsupported_policy_conflict",
+                {
+                    "cluster_id": packet.cluster.cluster_id,
+                    "conflict": conflict.model_dump(mode="json"),
+                },
+            )
+
+        if not findings:
+            if isinstance(repairs, list) and pending_repairs:
+                repairs.append(
+                    {
+                        "kind": "rejected_empty_concern_evidence_repair",
+                        "cluster_id": packet.cluster.cluster_id,
+                        "proposed_repairs": pending_repairs,
+                    }
+                )
+            return analysis
+        if isinstance(repairs, list):
+            repairs.extend(pending_repairs)
+        return analysis.model_copy(
+            update={"findings": findings, "policy_conflicts": conflicts}
+        )
+
+    @staticmethod
     def _validate_concern_analysis(
         analysis: ConcernAnalysis, packet: FocusedAnalysisPacket
     ) -> None:
@@ -768,6 +1505,71 @@ class ConsultationWorkflow:
                 raise ModelOutputValidationError(
                     "Every scenario must evaluate every alternative exactly once"
                 )
+
+    @staticmethod
+    def _restore_synthesis_artifacts(
+        report: RecommendationReport,
+        *,
+        forces: list[DesignForce],
+        alternatives: list[CaseAlternative],
+        scenarios: list[ScenarioEvaluation],
+        packets: list[FocusedAnalysisPacket],
+    ) -> tuple[RecommendationReport, list[dict[str, object]]]:
+        """Restore validated upstream artifacts that synthesis may only reproduce."""
+        canonical = {
+            "important_design_forces": forces,
+            "alternatives_considered": alternatives,
+            "scenario_analysis": scenarios,
+        }
+        updates: dict[str, object] = {}
+        actions: list[dict[str, object]] = []
+        for field, expected in canonical.items():
+            actual = getattr(report, field)
+            if actual == expected:
+                continue
+            updates[field] = expected
+            actions.append(
+                {
+                    "kind": "restored_canonical_synthesis_artifact",
+                    "field": field,
+                    "model_output": [
+                        item.model_dump(mode="json") for item in actual
+                    ],
+                    "canonical_input": [
+                        item.model_dump(mode="json") for item in expected
+                    ],
+                }
+            )
+        retrieved = {
+            item.policy.id: item
+            for packet in packets
+            for item in packet.policies
+        }
+        policy_evidence: list[PolicyEvidenceSummary] = []
+        policy_evidence_changed = False
+        for summary in report.policy_evidence:
+            item = retrieved.get(summary.id)
+            if item is None:
+                policy_evidence.append(summary)
+                continue
+            expected_summary = PolicyEvidenceSummary.from_retrieved(item)
+            policy_evidence.append(expected_summary)
+            if summary == expected_summary:
+                continue
+            policy_evidence_changed = True
+            actions.append(
+                {
+                    "kind": "restored_canonical_policy_evidence",
+                    "policy_id": summary.id,
+                    "model_output": summary.model_dump(mode="json"),
+                    "canonical_input": expected_summary.model_dump(mode="json"),
+                }
+            )
+        if policy_evidence_changed:
+            updates["policy_evidence"] = policy_evidence
+        if not updates:
+            return report, actions
+        return report.model_copy(update=updates), actions
 
     @staticmethod
     def _validate_synthesis_coverage(

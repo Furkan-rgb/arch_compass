@@ -9,7 +9,9 @@ from archcompass.adapters.models.deterministic import DeterministicReasoningProv
 from archcompass.bootstrap import BUNDLED_POLICY_SOURCE, build_runtime
 from archcompass.domain.atlas import (
     AtlasQueryPlan,
+    NodeDetailsQuery,
     RepositorySummaryQuery,
+    SearchNodesQuery,
     SourceLocation,
 )
 from archcompass.domain.case import (
@@ -419,6 +421,415 @@ def test_cluster_query_budget_is_global_and_case_records_persisted_atlas(
     assert updated.repository is not None
     assert updated.repository.atlas_version_id == atlas.version.version_id
     assert updated.repository.root_path == atlas.version.root_path
+
+
+def test_unsurfaced_model_query_ids_are_dropped_and_audited(
+    runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Fresh:
+        def ensure_fresh(self, atlas: object) -> None:
+            del atlas
+
+    class InventedQueryIdReasoner(DeterministicReasoningProvider):
+        def plan_atlas_queries(
+            self,
+            context,
+            forces,
+            clusters,
+            *,
+            iteration,
+            prior_results,
+        ):
+            del context, forces, prior_results
+            return [
+                ClusterQueryPlan(
+                    cluster_id=cluster.cluster_id,
+                    plan=AtlasQueryPlan(
+                        iteration=iteration,
+                        rationale="Discover first, then inspect only surfaced IDs.",
+                        queries=(
+                            [
+                                SearchNodesQuery(
+                                    kind="search_nodes",
+                                    terms=["provider"],
+                                    limit=20,
+                                ),
+                                NodeDetailsQuery(
+                                    kind="node_details",
+                                    node_id="invented_provider_node",
+                                ),
+                            ]
+                            if iteration == 1
+                            else []
+                        ),
+                    ),
+                )
+                for cluster in clusters
+            ]
+
+    monkeypatch.setattr(runtime.workflow, "_freshness", Fresh())
+    monkeypatch.setattr(runtime.workflow, "_reasoning", InventedQueryIdReasoner())
+    atlas = runtime.analyzer.analyze(
+        Path("eval/cases/provider-leakage/repository").resolve()
+    )
+    runtime.atlas_repository.save(atlas)
+    revision = runtime.case_service.create(_case(brownfield=True))
+
+    run = runtime.workflow.advise(
+        revision.case_id,
+        atlas_version_id=atlas.version.version_id,
+    )
+
+    assert run.status == ConsultationStatus.SUCCEEDED
+    assert all(
+        query.kind != "node_details"
+        for plan in run.query_plans
+        for query in plan.plan.queries
+    )
+    assert run.execution_metadata["query_plan_repairs"] == [
+        {
+            "kind": "dropped_unsurfaced_node_query",
+            "cluster_id": run.clusters[0].cluster_id,
+            "iteration": 1,
+            "unknown_node_ids": ["invented_provider_node"],
+            "query": {
+                "kind": "node_details",
+                "node_id": "invented_provider_node",
+            },
+        }
+    ]
+
+
+def test_omitted_cluster_query_plan_is_completed_and_audited(
+    runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Fresh:
+        def ensure_fresh(self, atlas: object) -> None:
+            del atlas
+
+    class OmittedClusterPlanReasoner(DeterministicReasoningProvider):
+        def cluster_design_forces(self, context, forces):
+            del context
+            return [
+                ConcernCluster(
+                    cluster_id=f"cluster-{index}",
+                    title=f"Concern {index}",
+                    rationale="Keep both concern clusters explicit.",
+                    design_force_ids=[force.force_id],
+                )
+                for index, force in enumerate(forces, start=1)
+            ]
+
+        def plan_atlas_queries(
+            self,
+            context,
+            forces,
+            clusters,
+            *,
+            iteration,
+            prior_results,
+        ):
+            del context, forces, prior_results
+            return [
+                ClusterQueryPlan(
+                    cluster_id=clusters[0].cluster_id,
+                    plan=AtlasQueryPlan(
+                        iteration=iteration,
+                        rationale="The model returned only the first cluster.",
+                        queries=[],
+                    ),
+                )
+            ]
+
+    monkeypatch.setattr(runtime.workflow, "_freshness", Fresh())
+    monkeypatch.setattr(runtime.workflow, "_reasoning", OmittedClusterPlanReasoner())
+    atlas = runtime.analyzer.analyze(
+        Path("eval/cases/provider-leakage/repository").resolve()
+    )
+    runtime.atlas_repository.save(atlas)
+    revision = runtime.case_service.create(_case(brownfield=True))
+
+    run = runtime.workflow.advise(
+        revision.case_id,
+        atlas_version_id=atlas.version.version_id,
+    )
+
+    assert run.status == ConsultationStatus.SUCCEEDED
+    assert {plan.cluster_id for plan in run.query_plans} == {
+        cluster.cluster_id for cluster in run.clusters
+    }
+    added = [
+        repair
+        for repair in run.execution_metadata["query_plan_repairs"]
+        if repair["kind"] == "added_empty_cluster_plan"
+    ]
+    assert len(added) == len(run.clusters) - 1
+
+
+def test_concern_analysis_cluster_identity_is_corrected_and_audited(
+    runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class WrongAnalysisClusterReasoner(DeterministicReasoningProvider):
+        def analyze_concern_cluster(self, context, packet):
+            analysis = super().analyze_concern_cluster(context, packet)
+            return analysis.model_copy(update={"cluster_id": "invented-cluster"})
+
+    monkeypatch.setattr(
+        runtime.workflow,
+        "_reasoning",
+        WrongAnalysisClusterReasoner(),
+    )
+    revision = runtime.case_service.create(_case())
+
+    run = runtime.workflow.advise(revision.case_id)
+
+    assert run.status == ConsultationStatus.SUCCEEDED
+    assert run.concern_analyses[0].cluster_id == run.clusters[0].cluster_id
+    assert run.execution_metadata["model_output_repairs"] == [
+        {
+            "kind": "corrected_concern_analysis_cluster",
+            "from_cluster_id": "invented-cluster",
+            "to_cluster_id": run.clusters[0].cluster_id,
+        }
+    ]
+
+
+def test_unsupported_repository_finding_is_dropped_and_audited(
+    runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UnsupportedRepositoryFindingReasoner(DeterministicReasoningProvider):
+        def analyze_concern_cluster(self, context, packet):
+            analysis = super().analyze_concern_cluster(context, packet)
+            unsupported = Claim(
+                claim_id="claim-unsupported-repository",
+                text="This repository claim has no surfaced source support.",
+                classification=ClaimClassification.REPOSITORY_OBSERVATION,
+            )
+            return analysis.model_copy(
+                update={"findings": [*analysis.findings, unsupported]}
+            )
+
+    monkeypatch.setattr(
+        runtime.workflow,
+        "_reasoning",
+        UnsupportedRepositoryFindingReasoner(),
+    )
+    revision = runtime.case_service.create(_case())
+
+    run = runtime.workflow.advise(revision.case_id)
+
+    assert run.status == ConsultationStatus.SUCCEEDED
+    assert all(
+        finding.claim_id != "claim-unsupported-repository"
+        for analysis in run.concern_analyses
+        for finding in analysis.findings
+    )
+    assert any(
+        repair["kind"] == "dropped_unsupported_repository_finding"
+        for repair in run.execution_metadata["model_output_repairs"]
+    )
+
+
+def test_fully_invalid_concern_analysis_is_retried_once_with_feedback(
+    runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RetryConcernReasoner(DeterministicReasoningProvider):
+        attempts = 0
+
+        def analyze_concern_cluster(
+            self,
+            context,
+            packet,
+            *,
+            validation_feedback=None,
+        ):
+            self.attempts += 1
+            if validation_feedback is not None:
+                assert "Repository findings require" in validation_feedback
+                return super().analyze_concern_cluster(
+                    context,
+                    packet,
+                    validation_feedback=validation_feedback,
+                )
+            return super().analyze_concern_cluster(context, packet).model_copy(
+                update={
+                    "findings": [
+                        Claim(
+                            claim_id="claim-unsupported-only",
+                            text="This repository claim has no surfaced source support.",
+                            classification=ClaimClassification.REPOSITORY_OBSERVATION,
+                        )
+                    ]
+                }
+            )
+
+    reasoner = RetryConcernReasoner()
+    monkeypatch.setattr(runtime.workflow, "_reasoning", reasoner)
+    revision = runtime.case_service.create(_case())
+
+    run = runtime.workflow.advise(revision.case_id)
+
+    assert run.status == ConsultationStatus.SUCCEEDED
+    assert reasoner.attempts == 2
+    repair_kinds = [
+        repair["kind"]
+        for repair in run.execution_metadata["model_output_repairs"]
+    ]
+    assert "rejected_empty_concern_evidence_repair" in repair_kinds
+    assert "retried_invalid_concern_analysis" in repair_kinds
+
+
+def test_synthesis_reuses_canonical_upstream_artifacts_and_audits_repairs(
+    runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RecreatedSynthesisArtifactsReasoner(DeterministicReasoningProvider):
+        def synthesize_recommendation(
+            self,
+            case,
+            context,
+            forces,
+            clusters,
+            analyses,
+            alternatives,
+            scenarios,
+            packets,
+            *,
+            validation_feedback=None,
+        ):
+            report = super().synthesize_recommendation(
+                case,
+                context,
+                forces,
+                clusters,
+                analyses,
+                alternatives,
+                scenarios,
+                packets,
+                validation_feedback=validation_feedback,
+            )
+            recreated_forces = [
+                force.model_copy(update={"force_id": f"recreated-{index}"})
+                for index, force in enumerate(forces, start=1)
+            ]
+            recreated_policy_evidence = [
+                report.policy_evidence[0].model_copy(
+                    update={
+                        "title": report.policy_evidence[0].id,
+                        "matched_sections": ["Invented section"],
+                    }
+                ),
+                *report.policy_evidence[1:],
+            ]
+            return report.model_copy(
+                update={
+                    "important_design_forces": recreated_forces,
+                    "policy_evidence": recreated_policy_evidence,
+                }
+            )
+
+    monkeypatch.setattr(
+        runtime.workflow,
+        "_reasoning",
+        RecreatedSynthesisArtifactsReasoner(),
+    )
+    revision = runtime.case_service.create(_case())
+
+    run = runtime.workflow.advise(revision.case_id)
+
+    assert run.status == ConsultationStatus.SUCCEEDED
+    assert run.report is not None
+    assert run.report.important_design_forces == run.design_forces
+    repairs = [
+        repair
+        for repair in run.execution_metadata["model_output_repairs"]
+        if repair["kind"] == "restored_canonical_synthesis_artifact"
+    ]
+    assert [repair["field"] for repair in repairs] == ["important_design_forces"]
+    assert [
+        force["force_id"] for force in repairs[0]["model_output"]
+    ] == [
+        f"recreated-{index}"
+        for index in range(1, len(run.design_forces) + 1)
+    ]
+    assert repairs[0]["canonical_input"] == [
+        force.model_dump(mode="json") for force in run.design_forces
+    ]
+    policy_repairs = [
+        repair
+        for repair in run.execution_metadata["model_output_repairs"]
+        if repair["kind"] == "restored_canonical_policy_evidence"
+    ]
+    assert len(policy_repairs) == 1
+    assert policy_repairs[0]["model_output"]["matched_sections"] == [
+        "Invented section"
+    ]
+    assert policy_repairs[0]["canonical_input"] == (
+        run.report.policy_evidence[0].model_dump(mode="json")
+    )
+
+
+def test_invalid_synthesis_evidence_is_retried_once_with_feedback(
+    runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RetrySynthesisReasoner(DeterministicReasoningProvider):
+        attempts = 0
+
+        def synthesize_recommendation(
+            self,
+            case,
+            context,
+            forces,
+            clusters,
+            analyses,
+            alternatives,
+            scenarios,
+            packets,
+            *,
+            validation_feedback=None,
+        ):
+            self.attempts += 1
+            report = super().synthesize_recommendation(
+                case,
+                context,
+                forces,
+                clusters,
+                analyses,
+                alternatives,
+                scenarios,
+                packets,
+                validation_feedback=validation_feedback,
+            )
+            if validation_feedback is not None:
+                assert "unknown claim IDs" in validation_feedback
+                return report
+            return report.model_copy(
+                update={
+                    "decision_summary": report.decision_summary.model_copy(
+                        update={"supporting_claim_ids": ["claim-invented"]}
+                    )
+                }
+            )
+
+    reasoner = RetrySynthesisReasoner()
+    monkeypatch.setattr(runtime.workflow, "_reasoning", reasoner)
+    revision = runtime.case_service.create(_case())
+
+    run = runtime.workflow.advise(revision.case_id)
+
+    assert run.status == ConsultationStatus.SUCCEEDED
+    assert reasoner.attempts == 2
+    assert any(
+        repair["kind"] == "retried_invalid_synthesis_evidence"
+        for repair in run.execution_metadata["model_output_repairs"]
+    )
+    assert run.final_validation_errors == []
 
 
 def test_explicit_repository_precedes_case_atlas_and_uses_its_latest_version(

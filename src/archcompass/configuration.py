@@ -26,8 +26,8 @@ class ReasoningModelConfig(DomainModel):
     provider: str
     model: str
     base_url: str
-    temperature: float = Field(ge=0, le=2)
     timeout_seconds: float = Field(gt=0)
+    max_output_tokens: int = Field(default=16384, ge=512, le=32768)
 
 
 class EmbeddingModelConfig(DomainModel):

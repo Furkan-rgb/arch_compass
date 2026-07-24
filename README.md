@@ -22,10 +22,12 @@ evidence is accepted only while its persisted atlas still matches the repository
 - Deterministic fake providers for tests and evaluations.
 - Classified, claim-supported recommendation prose with one constrained evidence-repair pass.
 - A Typer CLI backed by application services, with lossless Markdown and structured JSON reports.
+- A loopback-only React workspace with guided cases, live structured progress, evidence inspection,
+  report downloads, repository indexing, and policy browsing.
 - Schema-v2 outputs with compatibility upgrades for stored schema-v1 cases, runs, and reports.
 
-V1 does not modify code, comment on pull requests, expose a web UI, monitor repositories,
-perform runtime tracing, or calculate a universal complexity score.
+V1 does not modify code, comment on pull requests, expose a remote or multi-user service,
+monitor repositories, perform runtime tracing, or calculate a universal complexity score.
 
 ## Requirements
 
@@ -43,6 +45,16 @@ Homebrew Python.
 uv sync --locked
 uv run archcompass init
 ```
+
+The packaged local web workspace can then be launched with:
+
+```bash
+uv run archcompass web
+```
+
+It binds only to `127.0.0.1`, opens `http://127.0.0.1:8765` by default, and uses the same
+workspace, services, SQLite state, reports, model configuration, and safety checks as the CLI.
+Use `--no-open` for headless environments or `--port PORT` to select another loopback port.
 
 `init` copies the packaged default configuration to the workspace's `config/models.yaml` and
 does not overwrite an existing file. That workspace file (or an explicit `--models-config`
@@ -131,6 +143,7 @@ deterministic tests, the live Ollama suite, and the package build.
 - [Persistence model](docs/persistence-model.md)
 - [Report contract](docs/report-contract.md)
 - [Evaluation methodology](docs/evaluation.md)
+- [Local web workspace](docs/web-workspace.md)
 
 ## License
 

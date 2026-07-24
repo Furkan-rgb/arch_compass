@@ -104,6 +104,65 @@ def initialize(context: typer.Context) -> None:
         typer.echo(f"Created {path}")
 
 
+@app.command("web")
+def web(
+    context: typer.Context,
+    workspace: Annotated[
+        Path | None,
+        typer.Option(
+            "--workspace",
+            help="Workspace containing config, state, and reports.",
+            file_okay=False,
+        ),
+    ] = None,
+    port: Annotated[
+        int,
+        typer.Option(
+            "--port",
+            min=1,
+            max=65535,
+            help="Loopback port for the local web workspace.",
+        ),
+    ] = 8765,
+    open_browser: Annotated[
+        bool,
+        typer.Option(
+            "--open/--no-open",
+            help="Open the local workspace in the default browser.",
+        ),
+    ] = True,
+) -> None:
+    """Launch the local Arch Compass browser workspace."""
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    from archcompass.presentation.web import create_app
+
+    state = _state(context)
+    selected_workspace = (
+        workspace.expanduser().resolve() if workspace is not None else state.workspace
+    )
+    result = initialize_workspace_runtime(
+        selected_workspace,
+        models_config=state.models_config,
+    )
+    state.set_runtime(result.runtime)
+    url = f"http://127.0.0.1:{port}"
+    typer.echo(f"Arch Compass web workspace: {url}")
+    for path in result.created_paths:
+        typer.echo(f"Created {path}")
+    if open_browser:
+        threading.Timer(0.75, lambda: webbrowser.open(url)).start()
+    uvicorn.run(
+        create_app(result.runtime),
+        host="127.0.0.1",
+        port=port,
+        access_log=False,
+    )
+
+
 @policies_app.command("rebuild")
 def policies_rebuild(
     context: typer.Context,
@@ -290,4 +349,4 @@ def main() -> None:
         app()
     except (ValidationError, ArchCompassError) as error:
         typer.echo(f"Error: {error}", err=True)
-        raise typer.Exit(code=2) from error
+        raise SystemExit(2) from None

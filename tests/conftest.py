@@ -14,8 +14,8 @@ def fake_config_text() -> str:
     provider: fake
     model: deterministic-architecture-v1
     base_url: http://127.0.0.1:11434
-    temperature: 0.0
     timeout_seconds: 1
+    max_output_tokens: 16384
   embedding:
     provider: fake
     model: deterministic-token-hash-v1

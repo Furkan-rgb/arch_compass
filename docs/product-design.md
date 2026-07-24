@@ -36,10 +36,10 @@ are valid outcomes.
 
 ## V1 non-goals
 
-V1 excludes fine-tuning, autonomous code changes, PR comments, web UI, MCP, continuous
-monitoring, languages other than Python, runtime tracing, Git co-change analysis, whole-program
-data flow, organisation accounts, authentication, cloud deployment, automatic principle
-enforcement, and any universal maintainability or complexity score.
+V1 excludes fine-tuning, autonomous code changes, PR comments, remote or multi-user hosting,
+MCP, continuous monitoring, languages other than Python, runtime tracing, Git co-change
+analysis, whole-program data flow, organisation accounts, authentication, cloud deployment,
+automatic principle enforcement, and any universal maintainability or complexity score.
 
 Interfaces are narrow enough to permit later adapters, but V1 contains no unused extension
 platform.

@@ -8,6 +8,7 @@ from archcompass.application.safety import (
     validate_workspace_repository_separation,
 )
 from archcompass.domain.atlas import AtlasVersion
+from archcompass.domain.workspace import RepositorySummary
 from archcompass.ports.atlas import RepositoryAnalyzer
 from archcompass.ports.repositories import AtlasRepository
 
@@ -32,3 +33,6 @@ class RepositoryIndexService:
         atlas = self._analyzer.analyze(canonical_repository)
         self._atlases.save(atlas)
         return atlas.version
+
+    def list(self, *, limit: int = 100) -> list[RepositorySummary]:
+        return self._atlases.list_versions(limit=limit)

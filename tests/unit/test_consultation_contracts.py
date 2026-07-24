@@ -178,6 +178,14 @@ def test_schema_v2_report_rejects_unstructured_substantive_prose() -> None:
         RecommendationReport.model_validate(payload)
 
 
+def test_supported_statement_schema_requires_non_empty_support_ids() -> None:
+    schema = RecommendationReport.model_json_schema()
+    supported_statement = schema["$defs"]["SupportedStatement"]
+
+    assert "supporting_claim_ids" in supported_statement["required"]
+    assert supported_statement["properties"]["supporting_claim_ids"]["minItems"] == 1
+
+
 def test_scenarios_require_exact_alternative_id_coverage() -> None:
     payload = _report().model_dump(mode="json")
     scenario = cast(list[dict[str, object]], payload["scenario_analysis"])[0]

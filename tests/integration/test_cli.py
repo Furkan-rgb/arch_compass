@@ -3,12 +3,43 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
+from archcompass.domain.errors import StaleAtlasError
+from archcompass.presentation.cli import app as cli_module
 from archcompass.presentation.cli.app import app
 
 runner = CliRunner()
+
+
+def test_web_accepts_workspace_after_command(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["web", "--workspace", str(tmp_path), "--help"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "--workspace" in result.output
+    assert "--no-open" in result.output
+
+
+def test_console_entrypoint_reports_domain_errors_without_a_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fail() -> None:
+        raise StaleAtlasError("atlas is stale")
+
+    monkeypatch.setattr(cli_module, "app", fail)
+
+    with pytest.raises(SystemExit) as raised:
+        cli_module.main()
+
+    assert raised.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.err == "Error: atlas is stale\n"
 
 
 def test_cli_commands_cover_local_workflow(tmp_path: Path, fake_config_text: str) -> None:

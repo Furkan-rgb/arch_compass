@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 
 from archcompass.domain.atlas import AtlasNode
 from archcompass.domain.consultation import (
@@ -140,6 +141,7 @@ def repair_report_evidence_with_history(
 ) -> EvidenceRepairOutcome:
     actions: list[str] = []
     valid_claim_ids: set[str] = set()
+    report_claims = _disambiguate_claim_ids(report, actions)
 
     def repair_claim(claim: Claim) -> Claim | None:
         claim_errors = _claim_errors(
@@ -188,7 +190,7 @@ def repair_report_evidence_with_history(
     ):
         repaired_claims = [
             repaired
-            for claim in getattr(report, field)
+            for claim in report_claims[field]
             if (repaired := repair_claim(claim)) is not None
         ]
         updates[field] = _unique_claims(repaired_claims)
@@ -254,6 +256,86 @@ def repair_report_evidence_with_history(
     return EvidenceRepairOutcome(report=repaired_report, actions=actions)
 
 
+def _disambiguate_claim_ids(
+    report: RecommendationReport,
+    actions: list[str],
+) -> dict[str, list[Claim]]:
+    """Re-ID only duplicate claims whose intended support is unambiguous."""
+    fields = (
+        "confirmed_context",
+        "assumptions_and_unresolved_questions",
+        "repository_observations",
+        "relevant_policies",
+        "evidence_appendix",
+    )
+    claims_by_field = {field: list(getattr(report, field)) for field in fields}
+    occurrences: dict[str, list[Claim]] = {}
+    for claims in claims_by_field.values():
+        for claim in claims:
+            occurrences.setdefault(claim.claim_id, []).append(claim)
+
+    support_classifications: dict[str, set[ClaimClassification]] = {}
+    for statement in report.supported_statements():
+        for claim_id in statement.supporting_claim_ids:
+            support_classifications.setdefault(claim_id, set()).add(
+                statement.classification
+            )
+
+    replacements: dict[tuple[str, str], str] = {}
+    occupied_ids = set(occurrences)
+    for claim_id, claims in occurrences.items():
+        distinct = {claim.model_dump_json(): claim for claim in claims}
+        if len(distinct) < 2:
+            continue
+        classifications = support_classifications.get(claim_id, set())
+        if classifications:
+            matching = {
+                serialized: claim
+                for serialized, claim in distinct.items()
+                if claim.classification in classifications
+            }
+            if len(matching) != 1:
+                continue
+            preferred = next(iter(matching))
+        else:
+            preferred = claims[0].model_dump_json()
+
+        for serialized, claim in distinct.items():
+            if serialized == preferred:
+                continue
+            digest_input = f"{claim_id}\0{serialized}".encode()
+            replacement = f"claim_{sha256(digest_input).hexdigest()[:32]}"
+            counter = 1
+            while replacement in occupied_ids:
+                replacement = (
+                    f"claim_{sha256(digest_input + str(counter).encode()).hexdigest()[:32]}"
+                )
+                counter += 1
+            occupied_ids.add(replacement)
+            replacements[(claim_id, serialized)] = replacement
+            actions.append(
+                f"Reassigned duplicate claim ID {claim_id} to {replacement} "
+                f"for {claim.classification}: {claim.text[:80]}"
+            )
+
+    if not replacements:
+        return claims_by_field
+    return {
+        field: [
+            claim.model_copy(
+                update={
+                    "claim_id": replacements.get(
+                        (claim.claim_id, claim.model_dump_json()),
+                        claim.claim_id,
+                    )
+                }
+            )
+            for claim in claims
+        ]
+        for field, claims in claims_by_field.items()
+    }
+
+
 def repair_report_evidence(
     report: RecommendationReport,
     *,
@@ -306,7 +388,7 @@ def _all_claims(report: RecommendationReport) -> list[Claim]:
 def _unique_claims(claims: list[Claim]) -> list[Claim]:
     unique: dict[str, Claim] = {}
     for claim in claims:
-        unique.setdefault(claim.claim_id, claim)
+        unique.setdefault(claim.model_dump_json(), claim)
     return list(unique.values())
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from archcompass.domain.base import utc_now
 from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
+from archcompass.domain.workspace import CaseSummary
 from archcompass.ports.repositories import CaseRepository
 
 
@@ -39,3 +40,5 @@ class CaseService:
     def history(self, case_id: str) -> list[CaseRevision]:
         return self._repository.history(case_id)
 
+    def list(self, *, limit: int = 100) -> list[CaseSummary]:
+        return self._repository.list(limit=limit)

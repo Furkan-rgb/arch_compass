@@ -68,6 +68,16 @@ class PolicyService:
     def list_policies(self, version_id: str | None = None) -> list[PolicyDocument]:
         return self._index.list_policies(version_id)
 
+    def catalog(
+        self, *, repository_root: Path | None = None
+    ) -> list[PolicyDocument]:
+        return self._source_inspector.load_documents(
+            self.effective_sources(repository_root=repository_root)
+        )
+
+    def current_version(self) -> PolicyIndexVersion | None:
+        return self._index.current_version()
+
     def get_policy(
         self, policy_id: str, version_id: str | None = None
     ) -> PolicyDocument:

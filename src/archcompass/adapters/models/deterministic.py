@@ -80,6 +80,9 @@ class DeterministicReasoningProvider:
     def prompt_identity(self, task: str) -> str:
         return self._PROMPTS[task]
 
+    def consume_repair_actions(self) -> list[dict[str, object]]:
+        return []
+
     @property
     def prompt_identities(self) -> list[str]:
         """Compatibility for callers that inspect the provider catalog."""
@@ -189,9 +192,13 @@ class DeterministicReasoningProvider:
         return plans
 
     def analyze_concern_cluster(
-        self, context: GlobalContext, packet: FocusedAnalysisPacket
+        self,
+        context: GlobalContext,
+        packet: FocusedAnalysisPacket,
+        *,
+        validation_feedback: str | None = None,
     ) -> ConcernAnalysis:
-        del context
+        del context, validation_feedback
         findings: list[Claim] = []
         for summary in packet.node_summaries[:4]:
             if summary.location is None:
@@ -324,8 +331,10 @@ class DeterministicReasoningProvider:
         alternatives: list[CaseAlternative],
         scenarios: list[ScenarioEvaluation],
         packets: list[FocusedAnalysisPacket],
+        *,
+        validation_feedback: str | None = None,
     ) -> RecommendationReport:
-        del context, clusters
+        del context, clusters, validation_feedback
         text = (
             f"{case.title} {case.problem_statement} {' '.join(case.expected_future_changes)}"
         ).casefold()

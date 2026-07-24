@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from archcompass.adapters.persistence.database import SQLiteDatabase
@@ -14,6 +15,7 @@ from archcompass.domain.atlas import (
     ObscuritySignal,
 )
 from archcompass.domain.errors import AtlasNotFoundError
+from archcompass.domain.workspace import RepositorySummary
 
 
 class SQLiteAtlasRepository:
@@ -119,3 +121,38 @@ class SQLiteAtlasRepository:
             ).fetchone()
         return None if row is None else self.get(str(row["version_id"]))
 
+    def list_versions(self, *, limit: int = 100) -> list[RepositorySummary]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    v.*,
+                    (SELECT COUNT(*) FROM atlas_nodes n
+                     WHERE n.version_id = v.version_id) AS node_count,
+                    (SELECT COUNT(*) FROM atlas_edges e
+                     WHERE e.version_id = v.version_id) AS edge_count,
+                    (SELECT COUNT(*) FROM atlas_signals s
+                     WHERE s.version_id = v.version_id) AS signal_count
+                FROM atlas_versions v
+                ORDER BY v.created_at DESC, v.rowid DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            RepositorySummary(
+                version_id=str(row["version_id"]),
+                repository_identity=str(row["repository_identity"]),
+                root_path=str(row["root_path"]),
+                git_commit_sha=(
+                    str(row["git_commit_sha"])
+                    if row["git_commit_sha"] is not None
+                    else None
+                ),
+                created_at=datetime.fromisoformat(str(row["created_at"])),
+                node_count=int(row["node_count"]),
+                edge_count=int(row["edge_count"]),
+                signal_count=int(row["signal_count"]),
+            )
+            for row in rows
+        ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.domain.consultation import ConsultationRun
 from archcompass.domain.errors import PersistenceError
+from archcompass.domain.workspace import RunSummary
 
 
 class SQLiteRunRepository:
@@ -24,6 +25,49 @@ class SQLiteRunRepository:
         if row is None:
             raise PersistenceError(f"Consultation run {run_id} was not found")
         return ConsultationRun.model_validate_json(row["run_json"])
+
+    def list(
+        self,
+        *,
+        case_id: str | None = None,
+        limit: int = 100,
+    ) -> list[RunSummary]:
+        query = (
+            """
+            SELECT run_json FROM consultation_runs
+            WHERE case_id = ?
+            ORDER BY completed_at DESC, run_id
+            LIMIT ?
+            """
+            if case_id is not None
+            else """
+            SELECT run_json FROM consultation_runs
+            ORDER BY completed_at DESC, run_id
+            LIMIT ?
+            """
+        )
+        parameters: tuple[object, ...] = (
+            (case_id, limit) if case_id is not None else (limit,)
+        )
+        with self._database.connect() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        summaries: list[RunSummary] = []
+        for row in rows:
+            run = ConsultationRun.model_validate_json(row["run_json"])
+            summaries.append(
+                RunSummary(
+                    run_id=run.run_id,
+                    case_id=run.case_id,
+                    status=run.status,
+                    input_case_revision=run.input_case_revision,
+                    result_case_revision=run.result_case_revision,
+                    disposition=(run.report.disposition if run.report is not None else None),
+                    failure_stage=run.failure_stage,
+                    started_at=run.started_at,
+                    completed_at=run.completed_at,
+                )
+            )
+        return summaries
 
     @staticmethod
     def insert(connection: object, run: ConsultationRun) -> None:

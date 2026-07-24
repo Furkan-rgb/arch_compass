@@ -16,6 +16,7 @@ from archcompass.adapters.persistence import (
     SQLiteAtlasRepository,
     SQLiteCaseRepository,
     SQLiteConsultationCommitRepository,
+    SQLiteConsultationJobRepository,
     SQLiteDatabase,
     SQLitePolicySourceRepository,
     SQLiteRunRepository,
@@ -34,6 +35,7 @@ from archcompass.application.advice import AdviceService
 from archcompass.application.atlas import AtlasFreshnessService
 from archcompass.application.atlas_queries import AtlasService
 from archcompass.application.cases import CaseService
+from archcompass.application.jobs import ConsultationJobService
 from archcompass.application.policies import PolicyService
 from archcompass.application.reports import ReportService
 from archcompass.application.repositories import RepositoryIndexService
@@ -58,6 +60,7 @@ class Runtime:
     database: SQLiteDatabase
     case_repository: SQLiteCaseRepository
     run_repository: SQLiteRunRepository
+    job_repository: SQLiteConsultationJobRepository
     atlas_repository: SQLiteAtlasRepository
     analyzer: PythonAstRepositoryAnalyzer
     query_service: DeterministicAtlasQueryService
@@ -71,6 +74,7 @@ class Runtime:
     advice_service: AdviceService
     report_service: ReportService
     run_service: RunService
+    job_service: ConsultationJobService
     freshness_service: AtlasFreshnessService
 
 
@@ -103,6 +107,7 @@ def build_runtime(
     reasoning = _reasoning_provider(config)
     cases = SQLiteCaseRepository(database)
     runs = SQLiteRunRepository(database)
+    jobs = SQLiteConsultationJobRepository(database)
     atlases = SQLiteAtlasRepository(database)
     analyzer = PythonAstRepositoryAnalyzer()
     freshness = AtlasFreshnessService(analyzer)
@@ -160,12 +165,23 @@ def build_runtime(
         queries=queries,
         freshness=freshness,
     )
+    advice_service = AdviceService(
+        consultation=workflow,
+        reports=report_service,
+    )
+    job_service = ConsultationJobService(
+        cases=cases,
+        runs=runs,
+        jobs=jobs,
+        advice=advice_service,
+    )
     return Runtime(
         workspace=canonical_workspace,
         config=config,
         database=database,
         case_repository=cases,
         run_repository=runs,
+        job_repository=jobs,
         atlas_repository=atlases,
         analyzer=analyzer,
         query_service=queries,
@@ -176,12 +192,10 @@ def build_runtime(
         policy_service=policy_service,
         repository_service=repository_service,
         atlas_service=atlas_service,
-        advice_service=AdviceService(
-            consultation=workflow,
-            reports=report_service,
-        ),
+        advice_service=advice_service,
         report_service=report_service,
         run_service=RunService(runs),
+        job_service=job_service,
         freshness_service=freshness,
     )
 

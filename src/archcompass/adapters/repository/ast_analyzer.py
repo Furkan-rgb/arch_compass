@@ -261,8 +261,30 @@ class PythonAstRepositoryAnalyzer:
     @staticmethod
     def _git_sha(root: Path) -> str | None:
         try:
+            top_level_result = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            top_level = Path(top_level_result.stdout.strip()).resolve(strict=True)
+            if top_level == root:
+                command = ["git", "-C", str(root), "rev-parse", "HEAD"]
+            else:
+                relative_root = root.relative_to(top_level).as_posix()
+                command = [
+                    "git",
+                    "-C",
+                    str(top_level),
+                    "log",
+                    "-1",
+                    "--format=%H",
+                    "--",
+                    relative_root,
+                ]
             result = subprocess.run(
-                ["git", "-C", str(root), "rev-parse", "HEAD"],
+                command,
                 check=True,
                 capture_output=True,
                 text=True,

@@ -10,8 +10,8 @@ and the only module that chooses providers.
 
 ```mermaid
 flowchart LR
-    CLI[Typer CLI] --> BOOT[Composition root]
-    CLI --> APP[Application services and workflows]
+    PRESENTATION[Typer CLI / local FastAPI + React] --> BOOT[Composition root]
+    PRESENTATION --> APP[Application services and workflows]
     APP --> DOMAIN[Domain models]
     APP --> PORTS[Ports]
     ADAPTERS[SQLite / AST / sqlite-vec / Ollama adapters] --> PORTS
@@ -38,6 +38,11 @@ commands use application services instead of concrete repositories, analyzers, o
 - Retrieval adapters: policy parsing, chunking, embeddings, and vector search.
 - Model adapters: structured reasoning tasks and embeddings.
 - Presentation: input validation, application-service calls, output, and exit behavior only.
+
+The local web adapter adds no alternate domain path. FastAPI routes call the same application
+services as the CLI, while the React bundle consumes JSON and server-sent progress events from
+that adapter. A single-worker application queue fixes a run ID and input case revision before
+calling the consultation workflow.
 
 Heavyweight or provider-specific behavior is constructed explicitly. Imports have no side effects.
 The packaged model configuration is a resource; workspace initialization copies it only when the

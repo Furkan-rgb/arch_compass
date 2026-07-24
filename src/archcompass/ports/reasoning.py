@@ -24,6 +24,8 @@ class FocusedReasoningProvider(Protocol):
 
     def prompt_identity(self, task: str) -> str: ...
 
+    def consume_repair_actions(self) -> list[dict[str, object]]: ...
+
     def discover_design_forces(self, context: GlobalContext) -> list[DesignForce]: ...
 
     def cluster_design_forces(
@@ -41,7 +43,11 @@ class FocusedReasoningProvider(Protocol):
     ) -> list[ClusterQueryPlan]: ...
 
     def analyze_concern_cluster(
-        self, context: GlobalContext, packet: FocusedAnalysisPacket
+        self,
+        context: GlobalContext,
+        packet: FocusedAnalysisPacket,
+        *,
+        validation_feedback: str | None = None,
     ) -> ConcernAnalysis: ...
 
     def generate_alternatives(
@@ -65,4 +71,6 @@ class FocusedReasoningProvider(Protocol):
         alternatives: list[CaseAlternative],
         scenarios: list[ScenarioEvaluation],
         packets: list[FocusedAnalysisPacket],
+        *,
+        validation_feedback: str | None = None,
     ) -> RecommendationReport: ...

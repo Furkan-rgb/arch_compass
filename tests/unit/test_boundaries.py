@@ -94,3 +94,40 @@ def test_cli_commands_use_application_services_only() -> None:
             if isinstance(node, ast.Attribute)
         }
         assert service in attributes, f"{command} does not delegate through {service}"
+
+
+def test_web_routes_use_application_services_only() -> None:
+    path = SOURCE_ROOT / "presentation" / "web" / "app.py"
+    imports = _imports(path)
+
+    assert not any(
+        imported == "archcompass.adapters"
+        or imported.startswith("archcompass.adapters.")
+        for imported in imports
+    )
+
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    forbidden_runtime_attributes = {
+        "analyzer",
+        "atlas_repository",
+        "case_repository",
+        "database",
+        "job_repository",
+        "policy_store",
+        "query_service",
+        "report_writer",
+        "run_repository",
+        "workflow",
+    }
+    used_attributes = {
+        node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+    }
+    assert used_attributes.isdisjoint(forbidden_runtime_attributes)
+    assert {
+        "atlas_service",
+        "case_service",
+        "job_service",
+        "policy_service",
+        "repository_service",
+        "run_service",
+    } <= used_attributes

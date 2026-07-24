@@ -8,6 +8,7 @@ from typing import Protocol
 from archcompass.domain.atlas import Atlas
 from archcompass.domain.case import ArchitectureCase, CaseRevision
 from archcompass.domain.consultation import ConsultationRun
+from archcompass.domain.workspace import CaseSummary, RepositorySummary, RunSummary
 
 
 class CaseRepository(Protocol):
@@ -27,11 +28,20 @@ class CaseRepository(Protocol):
 
     def history(self, case_id: str) -> list[CaseRevision]: ...
 
+    def list(self, *, limit: int = 100) -> list[CaseSummary]: ...
+
 
 class ConsultationRunRepository(Protocol):
     def save(self, run: ConsultationRun) -> None: ...
 
     def get(self, run_id: str) -> ConsultationRun: ...
+
+    def list(
+        self,
+        *,
+        case_id: str | None = None,
+        limit: int = 100,
+    ) -> list[RunSummary]: ...
 
 
 class ConsultationCommitRepository(Protocol):
@@ -50,3 +60,5 @@ class AtlasRepository(Protocol):
     def get(self, version_id: str) -> Atlas: ...
 
     def latest_for_path(self, root: Path) -> Atlas | None: ...
+
+    def list_versions(self, *, limit: int = 100) -> list[RepositorySummary]: ...

@@ -291,7 +291,7 @@ class RecommendationDisposition(StrEnum):
 class SupportedStatement(DomainModel):
     text: str = Field(min_length=1)
     classification: ClaimClassification
-    supporting_claim_ids: list[str] = Field(default_factory=list[str])
+    supporting_claim_ids: list[str] = Field(json_schema_extra={"minItems": 1})
     legacy: bool = False
 
     @model_validator(mode="after")

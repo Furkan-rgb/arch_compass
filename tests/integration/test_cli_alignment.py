@@ -30,7 +30,7 @@ def _groups(application: typer.Typer) -> set[str]:
 
 
 def test_existing_cli_command_names_remain_registered() -> None:
-    assert {"init", "advise"} <= _commands(app)
+    assert {"init", "web", "advise"} <= _commands(app)
     assert {"policies", "repo", "atlas", "case", "run"} <= _groups(app)
     assert {"rebuild", "list", "show"} <= _commands(policies_app)
     assert {"sources"} <= _groups(policies_app)

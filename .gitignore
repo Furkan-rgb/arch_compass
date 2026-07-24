@@ -10,4 +10,6 @@ build/
 *.egg-info/
 .archcompass/
 reports/
-
+frontend/node_modules/
+frontend/coverage/
+frontend/*.tsbuildinfo

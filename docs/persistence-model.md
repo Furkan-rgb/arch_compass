@@ -15,6 +15,8 @@ embedded in the package and applied explicitly during initialization.
 - `policy_vector_rows`: stable relational mapping to dimension-specific `vec0` rows.
 - `policy_source_registrations`: canonical persistent workspace policy-source paths.
 - `consultation_runs`: immutable successful or failed execution and report record.
+- `consultation_jobs`: mutable local queue status linked to a fixed case revision and run ID.
+- `consultation_progress_events`: append-only, ordered structured milestones for one job.
 
 Case append uses optimistic revision matching in the same transaction as the new snapshot.
 Atlas and policy rebuilds always insert new version rows. Old consultations continue to reference
@@ -30,3 +32,9 @@ the workspace and reject traversal or symlink escapes.
 Migration `002_policy_source_registrations.sql` adds the source registry without replacing
 existing tables. Stored schema-v1 case and run JSON remains readable through model upgrade
 validators; new case, atlas, policy-index, report, and run output uses schema version 2.
+
+Migration `003_consultation_jobs.sql` adds list-query indexes plus the local execution tables.
+Progress events contain validated structured artifacts and sanitized errors, not full prompts or
+hidden model reasoning. Terminal consultation runs remain immutable and authoritative; job state
+exists only to support queuing, live progress, reconnect replay, warnings, and interruption
+recovery.

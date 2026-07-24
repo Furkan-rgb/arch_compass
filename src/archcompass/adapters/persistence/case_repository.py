@@ -7,6 +7,7 @@ from datetime import datetime
 from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.domain.case import ArchitectureCase, CaseRevision
 from archcompass.domain.errors import CaseNotFoundError, CaseRevisionConflictError
+from archcompass.domain.workspace import CaseSummary
 
 
 class SQLiteCaseRepository:
@@ -106,6 +107,39 @@ class SQLiteCaseRepository:
         if not rows:
             raise CaseNotFoundError(f"Architecture case {case_id} was not found")
         return [self._row_to_revision(case_id, row) for row in rows]
+
+    def list(self, *, limit: int = 100) -> list[CaseSummary]:
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT r.case_id, r.revision, r.snapshot_json
+                FROM case_revisions r
+                JOIN cases c
+                  ON c.case_id = r.case_id
+                 AND c.current_revision = r.revision
+                ORDER BY c.updated_at DESC, r.case_id
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        summaries: list[CaseSummary] = []
+        for row in rows:
+            snapshot = ArchitectureCase.model_validate_json(row["snapshot_json"])
+            summaries.append(
+                CaseSummary(
+                    case_id=snapshot.case_id,
+                    revision=int(row["revision"]),
+                    title=snapshot.title,
+                    problem_statement=snapshot.problem_statement,
+                    repository_root=(
+                        snapshot.repository.root_path if snapshot.repository is not None else None
+                    ),
+                    current_recommendation=snapshot.current_recommendation,
+                    confidence=snapshot.confidence,
+                    updated_at=snapshot.updated_at,
+                )
+            )
+        return summaries
 
     @staticmethod
     def insert_revision(connection: object, revision: CaseRevision) -> None:

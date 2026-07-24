@@ -3,8 +3,8 @@ models:
     provider: ollama
     model: gemma4:12b
     base_url: http://127.0.0.1:11434
-    temperature: 0.0
-    timeout_seconds: 180
+    timeout_seconds: 360
+    max_output_tokens: 16384
   embedding:
     provider: ollama
     model: embeddinggemma

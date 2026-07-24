@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -169,6 +170,69 @@ def test_workspace_separation_and_output_paths_reject_escapes(tmp_path: Path) ->
     (workspace / "reports").symlink_to(outside, target_is_directory=True)
     with pytest.raises(PathValidationError, match="symlink"):
         safe_workspace_output_path(workspace, "reports/result.md")
+
+
+def test_nested_repository_git_identity_ignores_unrelated_parent_commits(
+    tmp_path: Path,
+) -> None:
+    git_root = tmp_path / "git-root"
+    repository = git_root / "nested-repository"
+    repository.mkdir(parents=True)
+    (repository / "api.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (git_root / "README.md").write_text("initial\n", encoding="utf-8")
+
+    def git(*arguments: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(git_root), *arguments],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    git("init")
+    git("add", ".")
+    git(
+        "-c",
+        "user.name=ArchCompass Tests",
+        "-c",
+        "user.email=tests@archcompass.local",
+        "commit",
+        "-m",
+        "initial",
+    )
+
+    analyzer = PythonAstRepositoryAnalyzer()
+    initial = analyzer.current_identity(repository)
+    assert initial.git_commit_sha is not None
+
+    (git_root / "README.md").write_text("unrelated parent change\n", encoding="utf-8")
+    git("add", "README.md")
+    git(
+        "-c",
+        "user.name=ArchCompass Tests",
+        "-c",
+        "user.email=tests@archcompass.local",
+        "commit",
+        "-m",
+        "change parent",
+    )
+    after_parent_change = analyzer.current_identity(repository)
+    assert after_parent_change == initial
+
+    (repository / "api.py").write_text("VALUE = 2\n", encoding="utf-8")
+    git("add", "nested-repository/api.py")
+    git(
+        "-c",
+        "user.name=ArchCompass Tests",
+        "-c",
+        "user.email=tests@archcompass.local",
+        "commit",
+        "-m",
+        "change nested repository",
+    )
+    after_repository_change = analyzer.current_identity(repository)
+    assert after_repository_change.git_commit_sha != initial.git_commit_sha
+    assert after_repository_change.content_fingerprint != initial.content_fingerprint
 
 
 def test_lexical_call_ownership_import_metrics_tests_and_cycles(tmp_path: Path) -> None:
