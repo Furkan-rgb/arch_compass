@@ -6,7 +6,9 @@ strength: guidance
 tags: [temporal-decomposition, cohesion, ownership]
 source:
   author: ArchCompass
-  inspiration: [software-design literature]
+  inspiration:
+    - "John Ousterhout, temporal decomposition"
+    - "David Parnas, information hiding"
 ---
 ## Intent
 Avoid modules that are merely named after when code runs.

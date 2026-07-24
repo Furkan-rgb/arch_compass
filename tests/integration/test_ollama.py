@@ -6,11 +6,19 @@ from pathlib import Path
 import pytest
 import yaml
 
-from archcompass.adapters.models.ollama import OllamaEmbeddingProvider
+from archcompass.adapters.models.ollama import (
+    OllamaEmbeddingProvider,
+    OllamaReasoningProvider,
+)
 from archcompass.bootstrap import build_runtime
 from archcompass.configuration import AppConfig, load_config
 from archcompass.domain.case import ArchitectureCase
-from archcompass.domain.consultation import ConsultationStatus
+from archcompass.domain.consultation import (
+    ConsultationStatus,
+    DesignForce,
+    GlobalContext,
+    cluster_partition_errors,
+)
 
 pytestmark = pytest.mark.ollama
 
@@ -43,6 +51,67 @@ def test_live_embedding_model_contract(live_config: AppConfig) -> None:
     assert all(math.isfinite(value) for vector in vectors for value in vector)
     assert all(any(value != 0 for value in vector) for vector in vectors)
     assert vectors[0] != vectors[1]
+
+
+def test_live_clustering_maps_closed_set_references_to_canonical_ids(
+    live_config: AppConfig,
+) -> None:
+    provider = OllamaReasoningProvider(live_config.models.reasoning)
+    context = GlobalContext(
+        case_id="case-live-clustering-contract",
+        revision=1,
+        title="Brownfield provider leakage",
+        problem="Provider-specific voice knowledge is spread across several responsibilities.",
+        desired_outcome="Give capability discovery one owner and contain provider changes.",
+        goals=["Clear responsibility ownership", "Localized provider changes"],
+        constraints=["Keep existing behavior"],
+        future_changes=["A second provider may be added"],
+        non_goals=["A universal plugin marketplace"],
+        confirmed_facts=["A provider interface exists without capability discovery"],
+        assumptions=[],
+    )
+    forces = [
+        DesignForce(
+            force_id="force_adea9fa4455d4439a3b215860cb0eec3",
+            title="Provider-neutral ownership",
+            description="Provider capability knowledge needs one clear owner.",
+            importance="high",
+        ),
+        DesignForce(
+            force_id="force_382d88fef7894aa39b2df88461652109",
+            title="Resource lifecycle",
+            description="Provider resources need explicit acquisition and cleanup ownership.",
+            importance="high",
+        ),
+        DesignForce(
+            force_id="force_9abd553fc67f4851b1619cebd450c8c8",
+            title="Change locality",
+            description="Adding a provider should not require coordinated changes everywhere.",
+            importance="high",
+        ),
+        DesignForce(
+            force_id="force_9bfef0aed0a441f7ac8b6ce77727f67a",
+            title="Dependency spread",
+            description="Existing provider knowledge crosses several application layers.",
+            importance="high",
+        ),
+        DesignForce(
+            force_id="force_e2a09841996a425c83787838ff8d20a1",
+            title="Bounded extensibility",
+            description="A credible second provider does not justify a universal plugin system.",
+            importance="medium",
+        ),
+    ]
+
+    clusters = provider.cluster_design_forces(context, forces)
+
+    assert cluster_partition_errors(forces, clusters) == []
+    assert {
+        force_id
+        for cluster in clusters
+        for force_id in cluster.design_force_ids
+    } == {force.force_id for force in forces}
+    assert all(cluster.cluster_id.startswith("cluster_") for cluster in clusters)
 
 
 def test_live_audiobook_greenfield_consultation(

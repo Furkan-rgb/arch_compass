@@ -20,12 +20,23 @@ functional_requirements:
 confirmed_facts:
   - text: A provider interface already exists.
     kind: fact
+design_forces:
+  - text: Provider capability knowledge needs one owner.
+    kind: force
+policy_applicability:
+  user: furkan
+  organisation: example-organisation
 `),
     );
 
     expect(imported.title).toBe("Provider ownership");
     expect(imported.functional_requirements).toBe("Discover available voices");
     expect(imported.confirmed_facts).toBe("A provider interface already exists.");
+    expect(imported.design_forces).toBe(
+      "Provider capability knowledge needs one owner.",
+    );
+    expect(imported.policy_user).toBe("furkan");
+    expect(imported.policy_organisation).toBe("example-organisation");
   });
 
   it("normalizes one-item-per-line fields into the case contract", () => {
@@ -33,6 +44,9 @@ confirmed_facts:
       ...fromImportedCase(consultationExamples[0].value),
       functional_requirements: "Ingest books\n\nResume narration",
       confirmed_facts: "Qwen is first.\nOne local GPU.",
+      design_forces: "Provider owns its capabilities.",
+      policy_user: "furkan",
+      policy_organisation: "example-organisation",
     };
 
     const architectureCase = toArchitectureCase(form);
@@ -45,6 +59,17 @@ confirmed_facts:
       { text: "Qwen is first.", kind: "fact" },
       { text: "One local GPU.", kind: "fact" },
     ]);
+    expect(architectureCase.design_forces).toEqual([
+      {
+        text: "Provider owns its capabilities.",
+        kind: "force",
+        source: "user",
+      },
+    ]);
+    expect(architectureCase.policy_applicability).toEqual({
+      user: "furkan",
+      organisation: "example-organisation",
+    });
   });
 
   it("rejects vague required fields before review", () => {

@@ -6,7 +6,7 @@ strength: guidance
 tags: [complexity, ownership, usability]
 source:
   author: ArchCompass
-  inspiration: [software-design literature]
+  inspiration: ["John Ousterhout, A Philosophy of Software Design (2nd ed.)"]
 ---
 ## Intent
 Avoid making every caller solve the same difficult problem.

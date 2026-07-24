@@ -6,6 +6,7 @@ from typing import Protocol
 
 from pydantic import JsonValue
 
+from archcompass.domain.diagnostics import FailureDiagnostic
 from archcompass.domain.execution import (
     ConsultationJob,
     ConsultationJobStatus,
@@ -41,6 +42,7 @@ class ConsultationJobRepository(Protocol):
         current_stage: str | None = None,
         warning: str | None = None,
         error: str | None = None,
+        failure_diagnostics: list[FailureDiagnostic] | None = None,
     ) -> ConsultationJob: ...
 
     def append_event(

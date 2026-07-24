@@ -34,12 +34,14 @@ repo_app = typer.Typer(help="Index a Python repository.")
 atlas_app = typer.Typer(help="Query repository atlases.")
 case_app = typer.Typer(help="Create and revise architecture cases.")
 run_app = typer.Typer(help="Inspect immutable consultation runs.")
+conversation_app = typer.Typer(help="Discuss one immutable consultation report.")
 app.add_typer(policies_app, name="policies")
 policies_app.add_typer(policy_sources_app, name="sources")
 app.add_typer(repo_app, name="repo")
 app.add_typer(atlas_app, name="atlas")
 app.add_typer(case_app, name="case")
 app.add_typer(run_app, name="run")
+app.add_typer(conversation_app, name="conversation")
 
 
 class CLIState:
@@ -111,7 +113,10 @@ def web(
         Path | None,
         typer.Option(
             "--workspace",
-            help="Workspace containing config, state, and reports.",
+            help=(
+                "Workspace containing config, state, and reports. "
+                "Defaults to the current directory (.)."
+            ),
             file_okay=False,
         ),
     ] = None,
@@ -329,6 +334,90 @@ def advise(
 def run_show(context: typer.Context, run_id: str) -> None:
     run = _state(context).runtime.run_service.show(run_id)
     typer.echo(run.model_dump_json(indent=2))
+
+
+@conversation_app.command("create")
+def conversation_create(
+    context: typer.Context,
+    run: Annotated[str, typer.Option("--run", help="Successful consultation run ID.")],
+    title: Annotated[str | None, typer.Option("--title")] = None,
+) -> None:
+    conversation = _state(context).runtime.conversation_service.create(
+        run,
+        title=title,
+    )
+    typer.echo(conversation.model_dump_json(indent=2))
+
+
+@conversation_app.command("list")
+def conversation_list(
+    context: typer.Context,
+    run: Annotated[str, typer.Option("--run", help="Consultation run ID.")],
+) -> None:
+    conversations = _state(context).runtime.conversation_service.list(run)
+    typer.echo(
+        json.dumps(
+            [item.model_dump(mode="json") for item in conversations],
+            indent=2,
+        )
+    )
+
+
+@conversation_app.command("show")
+def conversation_show(context: typer.Context, conversation_id: str) -> None:
+    conversation = _state(context).runtime.conversation_service.show(conversation_id)
+    typer.echo(conversation.model_dump_json(indent=2))
+
+
+@conversation_app.command("ask")
+def conversation_ask(
+    context: typer.Context,
+    conversation_id: str,
+    question: str,
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Print the canonical structured answer."),
+    ] = False,
+) -> None:
+    message = _state(context).runtime.conversation_service.ask(
+        conversation_id,
+        question,
+    )
+    if message.answer is None:
+        raise RuntimeError("A successful conversation answer is missing structured output")
+    typer.echo(
+        message.answer.model_dump_json(indent=2)
+        if as_json
+        else message.text
+    )
+
+
+@conversation_app.command("history")
+def conversation_history(context: typer.Context, conversation_id: str) -> None:
+    messages = _state(context).runtime.conversation_service.history(conversation_id)
+    typer.echo(
+        json.dumps(
+            [item.model_dump(mode="json") for item in messages],
+            indent=2,
+        )
+    )
+
+
+@conversation_app.command("export")
+def conversation_export(
+    context: typer.Context,
+    conversation_id: str,
+    output_format: Annotated[
+        str,
+        typer.Option("--format", help="Export format: markdown or json."),
+    ] = "markdown",
+) -> None:
+    typer.echo(
+        _state(context).runtime.conversation_service.export(
+            conversation_id,
+            format=output_format,
+        )
+    )
 
 
 def _state(context: typer.Context) -> CLIState:

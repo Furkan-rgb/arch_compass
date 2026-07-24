@@ -24,6 +24,16 @@ class AtlasFreshnessService:
             mismatches.append("content fingerprint")
         if current.git_commit_sha != atlas.version.git_commit_sha:
             mismatches.append("Git commit")
+        if (
+            current.parser_version is not None
+            and current.parser_version != atlas.version.parser_version
+        ):
+            mismatches.append("parser version")
+        if (
+            current.analysis_config_hash is not None
+            and current.analysis_config_hash != atlas.version.analysis_config_hash
+        ):
+            mismatches.append("analysis configuration")
         if mismatches:
             raise self._stale(atlas, " and ".join(mismatches) + " changed")
 

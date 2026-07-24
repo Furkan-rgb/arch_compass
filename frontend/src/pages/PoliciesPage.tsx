@@ -20,6 +20,7 @@ import {
   PageHeader,
   useDialogFocus,
 } from "../components";
+import { policyApplicabilityLabel } from "../policy-applicability";
 import type { Policy } from "../types";
 
 export function filterPolicies(
@@ -32,7 +33,7 @@ export function filterPolicies(
     (policy) =>
       (scope === "all" || policy.scope === scope) &&
       (!term ||
-        `${policy.id} ${policy.title} ${policy.tags.join(" ")} ${policy.body}`
+        `${policy.id} ${policy.title} ${policy.tags.join(" ")} ${policy.body} ${policy.applies_to || ""}`
           .toLocaleLowerCase()
           .includes(term)),
   );
@@ -143,7 +144,9 @@ export function PoliciesPage() {
               <p>{policy.body.split("##")[1]?.replace(/^[^\n]+\n/, "").trim().slice(0, 180)}…</p>
               <footer>
                 <code>{policy.id}</code>
-                <span>{policy.scope}</span>
+                <span title={policy.applies_to || undefined}>
+                  {policyApplicabilityLabel(policy.scope, policy.applies_to)}
+                </span>
               </footer>
             </button>
           ))}
@@ -215,6 +218,12 @@ export function PoliciesPage() {
               <span>Strength <strong>{selected.strength}</strong></span>
               <span>Author <strong>{selected.source.author}</strong></span>
               <span>Tags <strong>{selected.tags.join(", ")}</strong></span>
+              <span>
+                Applies to
+                <strong>
+                  {policyApplicabilityLabel(selected.scope, selected.applies_to)}
+                </strong>
+              </span>
             </div>
             <div className="markdown policy-markdown">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{selected.body}</ReactMarkdown>

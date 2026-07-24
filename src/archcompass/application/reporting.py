@@ -32,48 +32,78 @@ def render_markdown(report: RecommendationReport) -> str:
                 for force in report.important_design_forces
             ]
         ),
-        "## 6. Repository observations and quantified signals",
+        "## 6. Findings",
+        _findings(report),
+        "## 7. Repository observations and quantified signals",
         _claims(report.repository_observations),
-        "## 7. Relevant policies",
+        "## 8. Relevant policies",
         _policy_section(report),
-        "## 8. Recommended architecture",
+        "## 9. Recommended architecture",
         _statement(report.recommended_architecture),
-        "## 9. Responsibility allocation",
+        "## 10. Responsibility allocation",
         _supported_bullets(report.responsibility_allocation),
-        "## 10. Proposed conceptual interfaces",
+        "## 11. Proposed conceptual interfaces",
         _supported_bullets(report.conceptual_interfaces),
-        "## 11. Alternatives considered",
+        "## 12. Alternatives considered",
         _bullets(
             [
                 f"`{alternative.id}` — {alternative.title}: {alternative.summary}"
                 for alternative in report.alternatives_considered
             ]
         ),
-        "## 12. Scenario analysis",
+        "## 13. Scenario analysis",
         _scenarios(report),
-        "## 13. Change-amplification and blast-radius analysis",
+        "## 14. Change-amplification and blast-radius analysis",
         _statement(report.change_amplification_analysis),
-        "## 14. Trade-offs",
+        "## 15. Trade-offs",
         _supported_bullets(report.trade_offs),
-        "## 15. Implementation sequence",
+        "## 16. Implementation sequence",
         _supported_numbered(report.implementation_sequence),
-        "## 16. Confidence",
+        "## 17. Confidence",
         f"`{report.confidence.level}` — {report.confidence.rationale}",
-        "## 17. Conditions that could reverse the recommendation",
+        "## 18. Conditions that could reverse the recommendation",
         _supported_bullets(report.reversal_conditions),
-        "## 18. Revisit triggers",
+        "## 19. Revisit triggers",
         _supported_bullets(report.revisit_triggers),
-        "## 19. ADR-style decision record",
+        "## 20. ADR-style decision record",
         (
             f"Status: `{report.adr.status}`\n\n"
             f"Context: {report.adr.context}\n\n"
             f"Decision: {_statement(report.adr.decision)}\n\n"
             f"Consequences:\n{_supported_bullets(report.adr.consequences)}"
         ),
-        "## 20. Evidence appendix",
+        "## 21. Evidence appendix",
         _claims(report.evidence_appendix),
     ]
     return "\n\n".join(parts).rstrip() + "\n"
+
+
+def _findings(report: RecommendationReport) -> str:
+    sections: list[str] = []
+    for finding in report.findings:
+        locations = ", ".join(
+            (
+                f"{item.path}:{item.location.start_line}-{item.location.end_line}"
+                if item.location is not None
+                else item.path
+            )
+            for item in finding.affected_locations
+        )
+        sections.append(
+            f"### {finding.finding_id} — {finding.title}\n\n"
+            f"Importance: **{finding.importance.value.title()}**  \n"
+            f"Confidence: **{finding.confidence.level.value.title()}**\n\n"
+            f"{finding.summary}\n\n"
+            f"Importance rationale: {finding.importance_rationale}\n\n"
+            f"Consequence: {finding.consequence}\n\n"
+            f"Recommended response: {finding.recommended_response}\n\n"
+            f"Claims: `{', '.join(finding.claim_ids)}`  \n"
+            f"Atlas nodes: `{', '.join(finding.atlas_node_ids) or 'none'}`  \n"
+            f"Policies: `{', '.join(finding.policy_ids) or 'none'}`  \n"
+            f"Locations: {locations or 'None'}\n\n"
+            f"Uncertainty:\n{_bullets(finding.uncertainty)}"
+        )
+    return "\n\n".join(sections)
 
 
 def _statement(statement: SupportedStatement) -> str:
@@ -114,6 +144,7 @@ def _policy_section(report: RecommendationReport) -> str:
                 [
                     (
                         f"`{item.id}` — {item.title}; scope=`{item.scope}`; "
+                        f"applies to=`{item.applies_to or 'all contexts'}`; "
                         f"strength=`{item.strength}`; matched sections: "
                         f"{', '.join(item.matched_sections)}"
                     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
@@ -30,17 +31,59 @@ class PolicySource(DomainModel):
     inspiration: list[str] = Field(default_factory=list[str])
 
 
+class PolicyApplicabilityContext(DomainModel):
+    """Subjects in whose context scoped policies may be retrieved."""
+
+    user: str | None = None
+    organisation: str | None = None
+    repository: str | None = None
+
+    @field_validator("user", "organisation", "repository")
+    @classmethod
+    def normalize_subject(cls, subject: str | None) -> str | None:
+        if subject is None:
+            return None
+        normalized = subject.strip()
+        if not normalized:
+            raise ValueError("Policy applicability subjects must be nonempty")
+        return normalized
+
+
 class PolicyDocument(DomainModel):
     schema_version: Literal[2] = 2
     id: str
     title: str
     scope: PolicyScope
+    applies_to: str | None = None
     strength: PolicyStrength
     tags: list[str]
     source: PolicySource
     body: str
     source_path: str
     content_hash: str
+
+    @field_validator("applies_to")
+    @classmethod
+    def normalize_applies_to(cls, subject: str | None) -> str | None:
+        if subject is None:
+            return None
+        normalized = subject.strip()
+        if not normalized:
+            raise ValueError("Policy applicability subjects must be nonempty")
+        return normalized
+
+    def applies_in(self, context: PolicyApplicabilityContext | None = None) -> bool:
+        """Return whether this policy is applicable without widening missing identity."""
+
+        if self.scope is PolicyScope.GENERAL:
+            return True
+        if self.applies_to is None or context is None:
+            return False
+        if self.scope is PolicyScope.USER:
+            return self.applies_to == context.user
+        if self.scope is PolicyScope.ORGANISATION:
+            return self.applies_to == context.organisation
+        return self.applies_to == context.repository
 
 
 class PolicyChunk(DomainModel):
@@ -77,6 +120,7 @@ class PolicyEvidenceSummary(DomainModel):
     id: str = Field(min_length=1)
     title: str = Field(min_length=1)
     scope: PolicyScope
+    applies_to: str | None = None
     strength: PolicyStrength
     matched_sections: list[str] = Field(min_length=1)
 
@@ -99,9 +143,65 @@ class PolicyEvidenceSummary(DomainModel):
             id=retrieved.policy.id,
             title=retrieved.policy.title,
             scope=retrieved.policy.scope,
+            applies_to=retrieved.policy.applies_to,
             strength=retrieved.policy.strength,
             matched_sections=[chunk.section for chunk in retrieved.chunks],
         )
+
+
+def canonical_policy_evidence(
+    retrieved_policies: Iterable[RetrievedPolicy],
+) -> list[PolicyEvidenceSummary]:
+    """Merge repeated cross-cluster retrievals into stable policy evidence."""
+
+    documents: dict[str, PolicyDocument] = {}
+    sections: dict[str, dict[str, str]] = {}
+    order: list[str] = []
+    for retrieved in retrieved_policies:
+        policy = retrieved.policy
+        previous = documents.get(policy.id)
+        if previous is None:
+            documents[policy.id] = policy
+            sections[policy.id] = {}
+            order.append(policy.id)
+        elif (
+            previous.title,
+            previous.scope,
+            previous.applies_to,
+            previous.strength,
+        ) != (
+            policy.title,
+            policy.scope,
+            policy.applies_to,
+            policy.strength,
+        ):
+            raise ValueError(
+                f"Retrieved policy {policy.id} has inconsistent canonical metadata"
+            )
+        for chunk in retrieved.chunks:
+            normalized = " ".join(chunk.section.split())
+            if normalized:
+                sections[policy.id].setdefault(normalized.casefold(), normalized)
+
+    summaries: list[PolicyEvidenceSummary] = []
+    for policy_id in order:
+        policy = documents[policy_id]
+        matched_sections = list(sections[policy_id].values())[:3]
+        if not matched_sections:
+            raise ValueError(
+                f"Retrieved policy {policy_id} has no matched section evidence"
+            )
+        summaries.append(
+            PolicyEvidenceSummary(
+                id=policy.id,
+                title=policy.title,
+                scope=policy.scope,
+                applies_to=policy.applies_to,
+                strength=policy.strength,
+                matched_sections=matched_sections,
+            )
+        )
+    return summaries
 
 
 class PolicyConflict(DomainModel):

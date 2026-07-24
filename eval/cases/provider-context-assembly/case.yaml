@@ -1,0 +1,8 @@
+title: Grounded report questions
+problem_statement: Users need to ask follow-up questions about a completed architecture report and receive answers grounded in the persisted findings.
+desired_outcome: Keep evidence selection, claim attribution, context limits, and answer provenance consistent and auditable.
+functional_requirements:
+  - Answer questions from the completed report and its persisted findings.
+  - Preserve links from answers to the supporting evidence.
+quality_attributes:
+  - Evidence selection remains deterministic and independently testable.

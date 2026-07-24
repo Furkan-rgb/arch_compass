@@ -27,9 +27,15 @@ class CaseService:
         actor: str = "user",
     ) -> CaseRevision:
         current = self._repository.get(case_id)
+        case_data = current.snapshot.model_dump()
         changes = update.model_dump(exclude_unset=True)
         changes["updated_at"] = utc_now()
-        next_case = current.snapshot.model_copy(update=changes)
+        case_data.update(changes)
+        # Pydantic's model_copy(update=...) deliberately skips validation.
+        # Case updates contain nested statements, so reconstruct the aggregate
+        # to turn their serialized dictionaries back into domain models before
+        # the revision validators inspect them.
+        next_case = ArchitectureCase.model_validate(case_data)
         return self._repository.append(
             next_case,
             expected_revision=current.revision,

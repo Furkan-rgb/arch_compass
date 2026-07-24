@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from archcompass.domain.errors import PolicyFormatError
 from archcompass.domain.policy import (
     PolicyDocument,
     PolicyIndexVersion,
+    PolicyScope,
     PolicySourceRegistration,
 )
 from archcompass.ports.policies import (
@@ -35,6 +37,18 @@ class PolicyService:
 
     def add_source(self, source: Path) -> PolicySourceRegistration:
         canonical = self._source_inspector.canonicalize(source)
+        documents = self._source_inspector.load_documents([canonical])
+        local_policy_ids = sorted(
+            document.id
+            for document in documents
+            if document.scope in {PolicyScope.REPOSITORY, PolicyScope.ACCEPTED_ADR}
+        )
+        if local_policy_ids:
+            raise PolicyFormatError(
+                "Repository and accepted-ADR policies cannot be registered globally; "
+                "place them in <repository>/.archcompass/policies instead "
+                f"(found: {', '.join(local_policy_ids)})"
+            )
         return self._source_repository.add(
             PolicySourceRegistration(canonical_path=str(canonical))
         )

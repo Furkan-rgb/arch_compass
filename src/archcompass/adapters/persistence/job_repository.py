@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 from pydantic import JsonValue
 
 from archcompass.adapters.persistence.database import SQLiteDatabase
+from archcompass.domain.diagnostics import FailureDiagnostic
 from archcompass.domain.errors import PersistenceError
 from archcompass.domain.execution import (
     ConsultationJob,
@@ -27,8 +29,8 @@ class SQLiteConsultationJobRepository:
                 INSERT INTO consultation_jobs(
                     run_id, case_id, input_case_revision, repository_root,
                     status, current_stage, created_at, updated_at, started_at,
-                    completed_at, warning, error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    completed_at, warning, error, failure_diagnostics_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 self._values(job),
             )
@@ -65,6 +67,7 @@ class SQLiteConsultationJobRepository:
         current_stage: str | None = None,
         warning: str | None = None,
         error: str | None = None,
+        failure_diagnostics: list[FailureDiagnostic] | None = None,
     ) -> ConsultationJob:
         current = self.get(run_id)
         now = datetime.now(UTC)
@@ -88,6 +91,11 @@ class SQLiteConsultationJobRepository:
                 "completed_at": now if terminal else None,
                 "warning": warning,
                 "error": error,
+                "failure_diagnostics": (
+                    current.failure_diagnostics
+                    if failure_diagnostics is None
+                    else failure_diagnostics
+                ),
             }
         )
         with self._database.connect() as connection:
@@ -95,7 +103,8 @@ class SQLiteConsultationJobRepository:
                 """
                 UPDATE consultation_jobs
                 SET status = ?, current_stage = ?, updated_at = ?, started_at = ?,
-                    completed_at = ?, warning = ?, error = ?
+                    completed_at = ?, warning = ?, error = ?,
+                    failure_diagnostics_json = ?
                 WHERE run_id = ?
                 """,
                 (
@@ -114,6 +123,13 @@ class SQLiteConsultationJobRepository:
                     ),
                     updated.warning,
                     updated.error,
+                    json.dumps(
+                        [
+                            item.model_dump(mode="json")
+                            for item in updated.failure_diagnostics
+                        ],
+                        separators=(",", ":"),
+                    ),
                     run_id,
                 ),
             )
@@ -217,6 +233,10 @@ class SQLiteConsultationJobRepository:
             job.completed_at.isoformat() if job.completed_at is not None else None,
             job.warning,
             job.error,
+            json.dumps(
+                [item.model_dump(mode="json") for item in job.failure_diagnostics],
+                separators=(",", ":"),
+            ),
         )
 
     @staticmethod
@@ -242,4 +262,8 @@ class SQLiteConsultationJobRepository:
             ),
             warning=row["warning"],  # type: ignore[index]
             error=row["error"],  # type: ignore[index]
+            failure_diagnostics=[
+                FailureDiagnostic.model_validate(item)
+                for item in json.loads(str(row["failure_diagnostics_json"]))  # type: ignore[index]
+            ],
         )

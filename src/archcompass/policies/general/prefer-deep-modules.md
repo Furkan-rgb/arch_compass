@@ -6,7 +6,7 @@ strength: guidance
 tags: [deep-modules, interfaces, complexity]
 source:
   author: ArchCompass
-  inspiration: [software-design literature]
+  inspiration: ["John Ousterhout, A Philosophy of Software Design (2nd ed.)"]
 ---
 ## Intent
 Concentrate useful behavior behind a small conceptual surface.

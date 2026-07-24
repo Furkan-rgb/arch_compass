@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from archcompass.domain.atlas import (
     AtlasQuery,
     AtlasQueryResult,
+    CyclesQuery,
     HotspotsQuery,
+    NeighbourhoodQuery,
     NodeDetailsQuery,
+    RelationQuery,
     RepositorySummaryQuery,
+    SearchNodesQuery,
+    ShortestPathQuery,
+    SignalsQuery,
+    SubsystemSummaryQuery,
 )
 from archcompass.domain.errors import AtlasNotFoundError
 from archcompass.ports.atlas import AtlasFreshnessChecker, AtlasQueryService
@@ -44,6 +52,91 @@ class AtlasService:
         return self._execute_latest(
             repository,
             HotspotsQuery(kind="hotspots", metric=metric, limit=20),
+        )
+
+    def children(
+        self, repository: Path, node_id: str, *, limit: int = 50
+    ) -> AtlasQueryResult:
+        return self._execute_latest(
+            repository,
+            SubsystemSummaryQuery(
+                kind="subsystem_summary", node_id=node_id, limit=limit
+            ),
+        )
+
+    def relationships(
+        self,
+        repository: Path,
+        node_id: str,
+        *,
+        kind: Literal[
+            "direct_dependencies",
+            "direct_dependants",
+            "known_callers",
+            "implementations",
+            "related_tests",
+        ],
+        limit: int = 50,
+    ) -> AtlasQueryResult:
+        return self._execute_latest(
+            repository,
+            RelationQuery(kind=kind, node_id=node_id, limit=limit),
+        )
+
+    def neighbourhood(
+        self,
+        repository: Path,
+        node_id: str,
+        *,
+        direction: Literal["forward_neighbourhood", "reverse_neighbourhood"],
+        depth: int = 1,
+        limit: int = 50,
+    ) -> AtlasQueryResult:
+        return self._execute_latest(
+            repository,
+            NeighbourhoodQuery(
+                kind=direction,
+                node_id=node_id,
+                depth=depth,
+                limit=limit,
+            ),
+        )
+
+    def search(
+        self, repository: Path, terms: list[str], *, limit: int = 30
+    ) -> AtlasQueryResult:
+        return self._execute_latest(
+            repository,
+            SearchNodesQuery(kind="search_nodes", terms=terms, limit=limit),
+        )
+
+    def shortest_path(
+        self, repository: Path, source_id: str, target_id: str
+    ) -> AtlasQueryResult:
+        return self._execute_latest(
+            repository,
+            ShortestPathQuery(
+                kind="shortest_dependency_path",
+                source_id=source_id,
+                target_id=target_id,
+            ),
+        )
+
+    def cycles(self, repository: Path, *, limit: int = 50) -> AtlasQueryResult:
+        return self._execute_latest(
+            repository, CyclesQuery(kind="cyclic_components", limit=limit)
+        )
+
+    def signals(
+        self,
+        repository: Path,
+        *,
+        codes: list[str] | None = None,
+        limit: int = 50,
+    ) -> AtlasQueryResult:
+        return self._execute_latest(
+            repository,
+            SignalsQuery(kind="signals", codes=codes or [], limit=limit),
         )
 
     def _execute_latest(

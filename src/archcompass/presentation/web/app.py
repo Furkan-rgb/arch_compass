@@ -9,29 +9,35 @@ import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal, cast
 
 import yaml
 from fastapi import Body, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from archcompass.bootstrap import Runtime
 from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion
 from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
 from archcompass.domain.consultation import ConsultationRun
+from archcompass.domain.conversation import ConversationMessage, ReportConversation
 from archcompass.domain.errors import (
     ArchCompassError,
     AtlasNotFoundError,
     CaseNotFoundError,
     CaseRevisionConflictError,
+    ConversationNotFoundError,
+    ConversationRetrievalError,
+    ConversationRevisionConflictError,
+    ConversationValidationError,
     ModelOutputValidationError,
     PathValidationError,
     PersistenceError,
     PolicyFormatError,
     PolicyNotFoundError,
     ProviderError,
+    RunNotFoundError,
     StaleAtlasError,
 )
 from archcompass.domain.execution import (
@@ -60,13 +66,93 @@ class ProblemDetail(APIModel):
     field_errors: list[str] = Field(default_factory=list[str])
 
 
+_PROBLEM_RESPONSE_DESCRIPTIONS = {
+    404: "The requested pinned resource was not found.",
+    409: "The request conflicts with the current persisted revision or pinned state.",
+    422: "The request or generated evidence did not satisfy the validated contract.",
+    503: "A configured model provider is temporarily unavailable.",
+}
+
+
+def _problem_responses(
+    *statuses: Literal[404, 409, 422, 503],
+) -> dict[int | str, dict[str, Any]]:
+    return {
+        status: {
+            "model": ProblemDetail,
+            "description": _PROBLEM_RESPONSE_DESCRIPTIONS[status],
+        }
+        for status in statuses
+    }
+
+
+def _export_responses(
+    json_schema: dict[str, Any],
+    *,
+    description: str,
+) -> dict[int | str, dict[str, Any]]:
+    return {
+        200: {
+            "description": description,
+            "content": {
+                "application/json": {"schema": json_schema},
+                "text/markdown": {"schema": {"type": "string"}},
+            },
+        },
+        **_problem_responses(404, 422),
+    }
+
+
 class RepositoryPathRequest(APIModel):
     root_path: str = Field(min_length=1)
+
+
+class AtlasExploreRequest(APIModel):
+    root_path: str = Field(min_length=1)
+    operation: Literal[
+        "children",
+        "dependencies",
+        "dependants",
+        "callers",
+        "implementations",
+        "tests",
+        "forward_neighbourhood",
+        "reverse_neighbourhood",
+        "search",
+        "shortest_path",
+        "cycles",
+        "signals",
+    ]
+    node_id: str | None = None
+    target_id: str | None = None
+    terms: list[str] = Field(default_factory=list, max_length=10)
+    signal_codes: list[str] = Field(default_factory=list, max_length=10)
+    depth: int = Field(default=1, ge=1, le=5)
+    limit: int = Field(default=50, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def validate_operation_fields(self) -> AtlasExploreRequest:
+        if self.operation == "search" and not self.terms:
+            raise ValueError("search requires at least one term")
+        if self.operation not in {"search", "cycles", "signals"} and self.node_id is None:
+            raise ValueError(f"{self.operation} requires node_id")
+        if self.operation == "shortest_path" and self.target_id is None:
+            raise ValueError("shortest_path requires target_id")
+        return self
 
 
 class ConsultationStartRequest(APIModel):
     case_id: str = Field(min_length=1)
     repository_root: str | None = None
+
+
+class ConversationCreateRequest(APIModel):
+    run_id: str = Field(min_length=1)
+    title: str | None = Field(default=None, min_length=1)
+
+
+class ReportQuestionRequest(APIModel):
+    question: str = Field(min_length=1, max_length=4000)
 
 
 class PolicySourceRequest(APIModel):
@@ -124,6 +210,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         lifespan=lifespan,
+        responses=_problem_responses(422),
     )
 
     @app.exception_handler(ArchCompassError)
@@ -238,6 +325,65 @@ def create_app(runtime: Runtime) -> FastAPI:
     def repository_inspect(root_path: str, node_id: str) -> AtlasQueryResult:
         return runtime.atlas_service.inspect(Path(root_path), node_id)
 
+    @app.post("/api/repositories/explore")
+    def repository_explore(request: AtlasExploreRequest) -> AtlasQueryResult:
+        repository = Path(request.root_path)
+        if request.operation == "search":
+            return runtime.atlas_service.search(
+                repository, request.terms, limit=request.limit
+            )
+        if request.operation == "cycles":
+            return runtime.atlas_service.cycles(repository, limit=request.limit)
+        if request.operation == "signals":
+            return runtime.atlas_service.signals(
+                repository,
+                codes=request.signal_codes,
+                limit=request.limit,
+            )
+        assert request.node_id is not None
+        if request.operation == "children":
+            return runtime.atlas_service.children(
+                repository, request.node_id, limit=request.limit
+            )
+        if request.operation == "shortest_path":
+            assert request.target_id is not None
+            return runtime.atlas_service.shortest_path(
+                repository, request.node_id, request.target_id
+            )
+        if request.operation in {"forward_neighbourhood", "reverse_neighbourhood"}:
+            return runtime.atlas_service.neighbourhood(
+                repository,
+                request.node_id,
+                direction=cast(
+                    Literal["forward_neighbourhood", "reverse_neighbourhood"],
+                    request.operation,
+                ),
+                depth=request.depth,
+                limit=request.limit,
+            )
+        relation_kinds = {
+            "dependencies": "direct_dependencies",
+            "dependants": "direct_dependants",
+            "callers": "known_callers",
+            "implementations": "implementations",
+            "tests": "related_tests",
+        }
+        return runtime.atlas_service.relationships(
+            repository,
+            request.node_id,
+            kind=cast(
+                Literal[
+                    "direct_dependencies",
+                    "direct_dependants",
+                    "known_callers",
+                    "implementations",
+                    "related_tests",
+                ],
+                relation_kinds[request.operation],
+            ),
+            limit=request.limit,
+        )
+
     @app.post("/api/consultations", status_code=202)
     def start_consultation(request: ConsultationStartRequest) -> ConsultationJob:
         return runtime.job_service.start(
@@ -321,11 +467,111 @@ def create_app(runtime: Runtime) -> FastAPI:
     ) -> list[RunSummary]:
         return runtime.run_service.list(case_id=case_id, limit=limit)
 
-    @app.get("/api/runs/{run_id}")
+    @app.get(
+        "/api/runs/{run_id}",
+        responses=_problem_responses(404, 422),
+    )
     def get_run(run_id: str) -> ConsultationRun:
         return runtime.run_service.show(run_id)
 
-    @app.get("/api/runs/{run_id}/report")
+    @app.post(
+        "/api/conversations",
+        status_code=201,
+        responses=_problem_responses(404, 422),
+    )
+    def create_report_conversation(
+        request: ConversationCreateRequest,
+    ) -> ReportConversation:
+        return runtime.conversation_service.create(
+            request.run_id,
+            title=request.title,
+        )
+
+    @app.get(
+        "/api/conversations",
+        responses=_problem_responses(404, 422),
+    )
+    def list_report_conversations(run_id: str) -> list[ReportConversation]:
+        return runtime.conversation_service.list(run_id)
+
+    @app.get(
+        "/api/conversations/{conversation_id}",
+        responses=_problem_responses(404, 422),
+    )
+    def get_report_conversation(conversation_id: str) -> ReportConversation:
+        return runtime.conversation_service.show(conversation_id)
+
+    @app.get(
+        "/api/conversations/{conversation_id}/history",
+        responses=_problem_responses(404, 422),
+    )
+    def get_report_conversation_history(
+        conversation_id: str,
+    ) -> list[ConversationMessage]:
+        return runtime.conversation_service.history(conversation_id)
+
+    @app.post(
+        "/api/conversations/{conversation_id}/messages",
+        status_code=201,
+        responses=_problem_responses(404, 409, 422, 503),
+    )
+    def ask_report_question(
+        conversation_id: str,
+        request: ReportQuestionRequest,
+    ) -> ConversationMessage:
+        return runtime.conversation_service.ask(conversation_id, request.question)
+
+    @app.get(
+        "/api/conversations/{conversation_id}/export",
+        responses=_export_responses(
+            {
+                "type": "object",
+                "required": ["conversation", "messages"],
+                "properties": {
+                    "conversation": {
+                        "$ref": "#/components/schemas/ReportConversation"
+                    },
+                    "messages": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ConversationMessage"
+                        },
+                    },
+                },
+                "additionalProperties": False,
+            },
+            description=(
+                "The pinned conversation as canonical JSON or a deterministic "
+                "Markdown transcript."
+            ),
+        ),
+    )
+    def export_report_conversation(
+        conversation_id: str,
+        format: Literal["markdown", "json"] = "markdown",
+    ) -> PlainTextResponse:
+        return PlainTextResponse(
+            runtime.conversation_service.export(
+                conversation_id,
+                format=format,
+            ),
+            media_type=(
+                "application/json"
+                if format == "json"
+                else "text/markdown; charset=utf-8"
+            ),
+        )
+
+    @app.get(
+        "/api/runs/{run_id}/report",
+        responses=_export_responses(
+            {"$ref": "#/components/schemas/RecommendationReport"},
+            description=(
+                "The immutable recommendation report as canonical JSON or "
+                "deterministic Markdown."
+            ),
+        ),
+    )
     def download_report(
         run_id: str,
         format: Literal["markdown", "json"] = "markdown",
@@ -395,6 +641,20 @@ def create_app(runtime: Runtime) -> FastAPI:
                 return policy
         raise PolicyNotFoundError(f"Policy {policy_id} was not found")
 
+    @app.api_route(
+        "/api/{api_path:path}",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        include_in_schema=False,
+    )
+    def unknown_api_route(api_path: str) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content=ProblemDetail(
+                code="not_found",
+                message=f"API route /api/{api_path} was not found",
+            ).model_dump(mode="json"),
+        )
+
     @app.get("/{path:path}", include_in_schema=False, response_model=None)
     def spa(path: str) -> FileResponse | JSONResponse:
         candidate = (STATIC_DIR / path).resolve()
@@ -415,13 +675,38 @@ def create_app(runtime: Runtime) -> FastAPI:
 
 
 def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
-    if isinstance(error, (CaseNotFoundError, AtlasNotFoundError, PolicyNotFoundError)):
-        return 404, "not_found", False
-    if isinstance(error, (CaseRevisionConflictError, StaleAtlasError)):
-        return 409, "state_conflict", isinstance(error, StaleAtlasError)
     if isinstance(
         error,
-        (PathValidationError, PolicyFormatError, ModelOutputValidationError),
+        (
+            CaseNotFoundError,
+            AtlasNotFoundError,
+            RunNotFoundError,
+            PolicyNotFoundError,
+            ConversationNotFoundError,
+        ),
+    ):
+        return 404, "not_found", False
+    if isinstance(
+        error,
+        (
+            CaseRevisionConflictError,
+            ConversationRevisionConflictError,
+            StaleAtlasError,
+        ),
+    ):
+        return 409, "state_conflict", isinstance(
+            error,
+            (ConversationRevisionConflictError, StaleAtlasError),
+        )
+    if isinstance(
+        error,
+        (
+            PathValidationError,
+            PolicyFormatError,
+            ModelOutputValidationError,
+            ConversationValidationError,
+            ConversationRetrievalError,
+        ),
     ):
         return 422, "validation_error", False
     if isinstance(error, ProviderError):

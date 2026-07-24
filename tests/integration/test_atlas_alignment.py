@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
 from archcompass.adapters.repository.ast_analyzer import PythonAstRepositoryAnalyzer
 from archcompass.adapters.repository.query_service import DeterministicAtlasQueryService
 from archcompass.adapters.repository.source_reader import SafeSourceReader
@@ -14,6 +15,8 @@ from archcompass.application.safety import (
     validate_workspace_repository_separation,
 )
 from archcompass.domain.atlas import (
+    Atlas,
+    AtlasNode,
     CyclesQuery,
     EdgeType,
     HotspotsQuery,
@@ -24,14 +27,21 @@ from archcompass.domain.atlas import (
     RepositorySummaryQuery,
     SearchNodesQuery,
     ShortestPathQuery,
+    SignalsQuery,
     SourceExcerptQuery,
     SubsystemSummaryQuery,
 )
+from archcompass.domain.consultation import GlobalContext
 from archcompass.domain.errors import (
     AtlasQueryValidationError,
     PathValidationError,
     StaleAtlasError,
 )
+from archcompass.workflows.consultation import ConsultationWorkflow
+
+PROVIDER_CONTEXT_FIXTURE = Path(
+    "eval/cases/provider-context-assembly/repository"
+).resolve()
 
 
 def _write_repository(root: Path) -> None:
@@ -92,8 +102,203 @@ def test_target() -> None:
     (root / "settings.yaml").write_text("feature: true\n", encoding="utf-8")
 
 
-def _node(atlas, qualified_name: str):
+def _node(atlas: Atlas, qualified_name: str) -> AtlasNode:
     return next(node for node in atlas.nodes if node.qualified_name == qualified_name)
+
+
+def _write_parallel_preparation_repository(root: Path) -> None:
+    root.mkdir()
+    (root / "ports.py").write_text(
+        """
+from typing import Protocol
+
+class ReportQuestionPort(Protocol):
+    def answer(self, run, question: str): ...
+
+class SingleReportPort(Protocol):
+    def explain(self, run, question: str): ...
+
+class SplitInputPort(Protocol):
+    def combine(self, left, right): ...
+
+class UnrelatedMappingPort(Protocol):
+    def send(self, run): ...
+
+class FlatContextPort(Protocol):
+    def answer_flat(self, context): ...
+
+class ReboundInputPort(Protocol):
+    def send_rebound(self, run): ...
+
+class OverwrittenProjectionPort(Protocol):
+    def send_overwritten(self, run): ...
+
+class DestructuredAliasPort(Protocol):
+    def send_destructured(self, run): ...
+
+class ShadowedInputPort(Protocol):
+    def send_shadowed(self, run): ...
+
+class ThinPort(Protocol):
+    def send(self, request): ...
+
+class TypedPort(Protocol):
+    def transform(self, value: int, label: str) -> str: ...
+""".lstrip(),
+        encoding="utf-8",
+    )
+    common_body = """
+from ports import ReportQuestionPort
+
+class {class_name}(ReportQuestionPort):
+    def __init__(self, client):
+        self.client = client
+
+    def answer(self, {run_name}, question: str):
+        context = {{
+            "decision": {run_name}.report.decision.summary,
+            "findings": {run_name}.report.analysis.findings,
+            "evidence": {run_name}.report.evidence.items,
+            "question": question,
+        }}
+        return self.client.complete(context)
+"""
+    (root / "ollama_adapter.py").write_text(
+        common_body.format(class_name="OllamaAdapter", run_name="run").lstrip(),
+        encoding="utf-8",
+    )
+    (root / "hosted_adapter.py").write_text(
+        common_body.format(class_name="HostedAdapter", run_name="consultation").lstrip(),
+        encoding="utf-8",
+    )
+    (root / "single_adapter.py").write_text(
+        """
+from ports import SingleReportPort
+
+class SingleReportAdapter(SingleReportPort):
+    def __init__(self, client):
+        self.client = client
+
+    def explain(self, run, question: str):
+        context = {
+            "decision": run.report.decision.summary,
+            "findings": run.report.analysis.findings,
+            "evidence": run.report.evidence.items,
+            "question": question,
+        }
+        return self.client.complete(context)
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (root / "negative_adapters.py").write_text(
+        """
+from ports import (
+    DestructuredAliasPort,
+    FlatContextPort,
+    OverwrittenProjectionPort,
+    ReboundInputPort,
+    ShadowedInputPort,
+    SplitInputPort,
+    UnrelatedMappingPort,
+)
+
+class SplitInputAdapter(SplitInputPort):
+    def combine(self, left, right):
+        request = {
+            "first": left.report.first,
+            "second": right.report.second,
+            "third": right.report.third,
+        }
+        return self.client.send(request)
+
+class UnrelatedMappingAdapter(UnrelatedMappingPort):
+    def send(self, run):
+        selected = [
+            run.report.first,
+            run.report.second,
+            run.report.third,
+        ]
+        unrelated = {"one": 1, "two": 2, "three": 3}
+        self.log(unrelated)
+        return self.client.send(selected)
+
+class FlatContextAdapter(FlatContextPort):
+    def answer_flat(self, context):
+        request = {
+            "question": context.question,
+            "decision": context.decision,
+            "claims": context.claims,
+        }
+        return self.client.send(request)
+
+class PlainMapper:
+    def project(self, run):
+        request = {
+            "decision": run.report.decision,
+            "findings": run.report.findings,
+            "policies": run.report.policies,
+        }
+        return request
+
+class ReboundInputAdapter(ReboundInputPort):
+    def send_rebound(self, run):
+        run = self.load_default()
+        request = {
+            "decision": run.report.decision,
+            "findings": run.report.findings,
+            "policies": run.report.policies,
+        }
+        return self.client.send(request)
+
+class OverwrittenProjectionAdapter(OverwrittenProjectionPort):
+    def send_overwritten(self, run):
+        request = {
+            "decision": run.report.decision,
+            "findings": run.report.findings,
+            "policies": run.report.policies,
+        }
+        request = {"safe": True}
+        return self.client.send(request)
+
+class DestructuredAliasAdapter(DestructuredAliasPort):
+    def send_destructured(self, run):
+        decision, findings = run.report.decision, run.report.findings
+        request = {
+            "decision": decision,
+            "findings": findings,
+            "policies": run.report.policies,
+        }
+        return self.client.send(request)
+
+class ShadowedInputAdapter(ShadowedInputPort):
+    def send_shadowed(self, run):
+        request = {
+            "decision": [run.report.decision for run in self.examples],
+            "findings": [run.report.findings for run in self.examples],
+            "policies": [run.report.policies for run in self.examples],
+        }
+        return self.client.send(request)
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (root / "thin_adapters.py").write_text(
+        """
+from ports import ThinPort
+
+class FirstThinAdapter(ThinPort):
+    def send(self, request):
+        return request
+
+class SecondThinAdapter(ThinPort):
+    def send(self, request):
+        return request
+
+class IncompatibleLookalike:
+    def transform(self, value: str, label: str) -> int:
+        return len(value + label)
+""".lstrip(),
+        encoding="utf-8",
+    )
 
 
 def test_indexing_snapshot_reads_each_discovered_file_once(
@@ -121,6 +326,137 @@ def test_indexing_snapshot_reads_each_discovered_file_once(
     assert atlas.schema_version == 2
 
 
+def test_parallel_port_preparation_is_a_bounded_structural_proxy(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    _write_parallel_preparation_repository(repository)
+
+    atlas = PythonAstRepositoryAnalyzer().analyze(repository)
+    signals = [
+        signal
+        for signal in atlas.signals
+        if signal.code == "parallel-boundary-preparation"
+    ]
+
+    assert len(signals) == 2
+    assert {
+        _node(atlas, "ollama_adapter.OllamaAdapter.answer").atlas_id,
+        _node(atlas, "hosted_adapter.HostedAdapter.answer").atlas_id,
+    } == {signal.node_id for signal in signals}
+    assert all(signal.nature == "structural_proxy" for signal in signals)
+    assert all("does not prove" in signal.limitations for signal in signals)
+    assert all("report.analysis.findings" in signal.message for signal in signals)
+    assert not any("ThinAdapter" in signal.message for signal in signals)
+    broad_input_signals = [
+        signal
+        for signal in atlas.signals
+        if signal.code == "broad-input-boundary-preparation"
+    ]
+    single = _node(atlas, "single_adapter.SingleReportAdapter.explain")
+    assert len(broad_input_signals) == 3
+    assert single.atlas_id in {
+        signal.node_id for signal in broad_input_signals
+    }
+    assert any(
+        "reads 3 nested input paths under run.report" in signal.message
+        and signal.node_id == single.atlas_id
+        for signal in broad_input_signals
+    )
+    assert all(signal.nature == "structural_proxy" for signal in broad_input_signals)
+    assert not any(
+        name in signal.message
+        for signal in broad_input_signals
+        for name in (
+            "FlatContextAdapter",
+            "DestructuredAliasAdapter",
+            "OverwrittenProjectionAdapter",
+            "PlainMapper",
+            "ReboundInputAdapter",
+            "ShadowedInputAdapter",
+            "SplitInputAdapter",
+            "ThinAdapter",
+            "UnrelatedMappingAdapter",
+        )
+    )
+    incompatible = _node(atlas, "thin_adapters.IncompatibleLookalike")
+    typed_port = _node(atlas, "ports.TypedPort")
+    assert not any(
+        edge.edge_type == EdgeType.IMPLEMENTS
+        and edge.source_id == incompatible.atlas_id
+        and edge.target_id == typed_port.atlas_id
+        for edge in atlas.edges
+    )
+
+
+def test_structural_provider_context_fixture_is_visible_before_a_case_names_it() -> None:
+    atlas = PythonAstRepositoryAnalyzer().analyze(PROVIDER_CONTEXT_FIXTURE)
+    queries = DeterministicAtlasQueryService(SafeSourceReader())
+
+    overview = ConsultationWorkflow._atlas_overview(  # pyright: ignore[reportPrivateUsage]
+        atlas
+    )
+    assert overview.signal_code_counts["broad-input-boundary-preparation"] == 1
+    assert overview.signal_code_counts.get("parallel-boundary-preparation", 0) == 0
+    overview_signal = next(
+        signal
+        for signal in overview.signals
+        if signal.code == "broad-input-boundary-preparation"
+    )
+    assert overview_signal.nature == "structural_proxy"
+    assert overview_signal.limitations
+
+    result = queries.execute(
+        atlas,
+        SignalsQuery(
+            kind="signals",
+            codes=["broad-input-boundary-preparation"],
+            limit=10,
+        ),
+    )
+    assert len(result.node_ids) == 1
+    assert len(result.node_summaries) == 1
+    assert len(result.signals) == 1
+    assert all(
+        signal.code == "broad-input-boundary-preparation"
+        for signal in result.signals
+    )
+
+    context = GlobalContext(
+        case_id="case-generic-review",
+        revision=1,
+        title="Review repository architecture",
+        problem="Assess the current architecture.",
+        desired_outcome="Identify material architectural risks.",
+        goals=[],
+        constraints=[],
+        future_changes=[],
+        non_goals=[],
+        confirmed_facts=[],
+        assumptions=[],
+        atlas_overview=overview,
+        atlas_summary="Repository evidence is available.",
+    )
+    reasoner = DeterministicReasoningProvider()
+    forces = reasoner.discover_design_forces(context)
+    assert any(force.title == "Boundary knowledge spill" for force in forces)
+    clusters = reasoner.cluster_design_forces(context, forces)
+    plans = reasoner.plan_atlas_queries(
+        context,
+        forces,
+        clusters,
+        iteration=1,
+        prior_results={},
+    )
+    assert any(
+        query.kind == "signals"
+        and query.codes == ["broad-input-boundary-preparation"]
+        for plan in plans
+        for query in plan.plan.queries
+        if isinstance(query, SignalsQuery)
+    )
+
+
 def test_freshness_rejects_changed_content_before_excerpt(tmp_path: Path) -> None:
     repository = tmp_path / "repository"
     _write_repository(repository)
@@ -136,6 +472,16 @@ def test_freshness_rejects_changed_content_before_excerpt(tmp_path: Path) -> Non
         max_lines=10,
     )
     assert queries.execute(atlas, excerpt_query).excerpts
+
+    old_parser_atlas = atlas.model_copy(
+        update={
+            "version": atlas.version.model_copy(
+                update={"parser_version": "python-ast-legacy"}
+            )
+        }
+    )
+    with pytest.raises(StaleAtlasError, match="parser version"):
+        freshness.ensure_fresh(old_parser_atlas)
 
     (repository / "api.py").write_text(
         (repository / "api.py").read_text(encoding="utf-8") + "\nCHANGED = True\n",
@@ -272,9 +618,7 @@ def test_lexical_call_ownership_import_metrics_tests_and_cycles(tmp_path: Path) 
         and edge.target_id == target.atlas_id
         for edge in atlas.edges
     )
-    cycle_signals = [
-        signal for signal in atlas.signals if signal.code == "cyclic-dependency"
-    ]
+    cycle_signals = [signal for signal in atlas.signals if signal.code == "cyclic-dependency"]
     assert len(cycle_signals) == 2
 
 
@@ -287,9 +631,7 @@ def test_call_path_and_public_interface_metrics_are_resolved_and_deterministic(
     entry = _node(atlas, "caller.entry")
     boundary_entry = _node(atlas, "caller.boundary_entry")
     target = _node(atlas, "api.target")
-    entry_profile = next(
-        profile for profile in atlas.metrics if profile.node_id == entry.atlas_id
-    )
+    entry_profile = next(profile for profile in atlas.metrics if profile.node_id == entry.atlas_id)
     target_profile = next(
         profile for profile in atlas.metrics if profile.node_id == target.atlas_id
     )
@@ -297,9 +639,20 @@ def test_call_path_and_public_interface_metrics_are_resolved_and_deterministic(
         profile for profile in atlas.metrics if profile.node_id == boundary_entry.atlas_id
     )
 
-    assert entry_profile.cognitive_scope.symbols_in_representative_path >= 2
+    assert entry_profile.cognitive_scope.bounded_resolved_call_chain_nodes >= 2
+    assert (
+        entry_profile.cognitive_scope.symbols_in_representative_path
+        == entry_profile.cognitive_scope.bounded_resolved_call_chain_nodes
+    )
     assert boundary_profile.cognitive_scope.abstraction_boundaries == 1
-    assert target_profile.change_amplification.public_interfaces_crossed >= 1
+    assert target_profile.change_amplification.public_call_targets_in_affected_modules >= 1
+    assert (
+        target_profile.change_amplification.public_interfaces_crossed
+        == target_profile.change_amplification.public_call_targets_in_affected_modules
+    )
+    serialized = target_profile.model_dump(mode="json")
+    assert "public_call_targets_in_affected_modules" in serialized["change_amplification"]
+    assert "public_interfaces_crossed" not in serialized["change_amplification"]
 
 
 def test_every_query_kind_returns_typed_evidence(tmp_path: Path) -> None:
@@ -314,29 +667,19 @@ def test_every_query_kind_returns_typed_evidence(tmp_path: Path) -> None:
     target = _node(atlas, "api.target")
 
     results = [
+        queries.execute(atlas, RepositorySummaryQuery(kind="repository_summary", limit=100)),
         queries.execute(
-            atlas, RepositorySummaryQuery(kind="repository_summary", limit=100)
+            atlas,
+            SubsystemSummaryQuery(kind="subsystem_summary", node_id=root.atlas_id, limit=100),
+        ),
+        queries.execute(atlas, NodeDetailsQuery(kind="node_details", node_id=target.atlas_id)),
+        queries.execute(
+            atlas,
+            RelationQuery(kind="direct_dependencies", node_id=caller.atlas_id, limit=100),
         ),
         queries.execute(
             atlas,
-            SubsystemSummaryQuery(
-                kind="subsystem_summary", node_id=root.atlas_id, limit=100
-            ),
-        ),
-        queries.execute(
-            atlas, NodeDetailsQuery(kind="node_details", node_id=target.atlas_id)
-        ),
-        queries.execute(
-            atlas,
-            RelationQuery(
-                kind="direct_dependencies", node_id=caller.atlas_id, limit=100
-            ),
-        ),
-        queries.execute(
-            atlas,
-            RelationQuery(
-                kind="direct_dependants", node_id=api.atlas_id, limit=100
-            ),
+            RelationQuery(kind="direct_dependants", node_id=api.atlas_id, limit=100),
         ),
         queries.execute(
             atlas,
@@ -381,9 +724,7 @@ def test_every_query_kind_returns_typed_evidence(tmp_path: Path) -> None:
             atlas,
             HotspotsQuery(kind="hotspots", metric="reverse_dependency_reach", limit=5),
         ),
-        queries.execute(
-            atlas, SearchNodesQuery(kind="search_nodes", terms=["target"], limit=10)
-        ),
+        queries.execute(atlas, SearchNodesQuery(kind="search_nodes", terms=["target"], limit=10)),
         queries.execute(
             atlas,
             SourceExcerptQuery(
@@ -401,11 +742,14 @@ def test_every_query_kind_returns_typed_evidence(tmp_path: Path) -> None:
     assert results[7].test_ids
     assert results[10].relationships
     assert results[12].metric_values[0].rank == 1
+    assert results[12].metric_values[0].definition
+    assert results[12].metric_values[0].nature in {
+        "objective_measurement",
+        "structural_proxy",
+    }
     assert results[14].excerpts
     with pytest.raises(AtlasQueryValidationError, match="Unknown numeric atlas metric"):
-        queries.execute(
-            atlas, HotspotsQuery(kind="hotspots", metric="not_a_metric", limit=5)
-        )
+        queries.execute(atlas, HotspotsQuery(kind="hotspots", metric="not_a_metric", limit=5))
 
 
 def test_every_numeric_metric_is_queryable_deterministically(tmp_path: Path) -> None:

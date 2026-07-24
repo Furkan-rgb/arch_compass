@@ -11,15 +11,24 @@ from pydantic import Field, JsonValue, RootModel, model_validator
 
 from archcompass.domain.atlas import (
     AtlasEdge,
+    AtlasMetricValue,
     AtlasNode,
+    AtlasNodeEvidence,
+    AtlasNodeSummary,
+    AtlasOverview,
     AtlasQueryPlan,
+    AtlasRelationshipEvidence,
+    AtlasSelectionReason,
     MetricProfile,
+    ObscuritySignal,
     SourceExcerpt,
     SourceLocation,
 )
 from archcompass.domain.base import DomainModel, new_id, utc_now
 from archcompass.domain.case import ArchitectureCase, CaseAlternative, Confidence
+from archcompass.domain.diagnostics import FailureDiagnostic, FailureDiagnosticCode
 from archcompass.domain.policy import (
+    PolicyApplicabilityContext,
     PolicyConflict,
     PolicyEvidenceSummary,
     PolicyScope,
@@ -127,6 +136,69 @@ def cluster_partition_errors(
     return errors
 
 
+def cluster_partition_diagnostics(
+    forces: list[DesignForce], clusters: list[ConcernCluster]
+) -> list[FailureDiagnostic]:
+    """Describe an invalid partition without exposing model text or internal IDs."""
+    diagnostics: list[FailureDiagnostic] = []
+    if not 1 <= len(clusters) <= 4:
+        diagnostics.append(
+            FailureDiagnostic(
+                code=FailureDiagnosticCode.CLUSTER_COUNT_OUT_OF_RANGE,
+                count=len(clusters),
+            )
+        )
+    handle_by_id = {
+        force.force_id: f"F{ordinal}" for ordinal, force in enumerate(forces, start=1)
+    }
+    expected = set(handle_by_id)
+    assigned = [force_id for cluster in clusters for force_id in cluster.design_force_ids]
+    unknown_count = sum(force_id not in expected for force_id in assigned)
+    if unknown_count:
+        diagnostics.append(
+            FailureDiagnostic(
+                code=FailureDiagnosticCode.UNKNOWN_FORCE_REFERENCES,
+                count=unknown_count,
+            )
+        )
+    missing_handles = [
+        handle
+        for force_id, handle in handle_by_id.items()
+        if force_id not in set(assigned)
+    ]
+    if missing_handles:
+        diagnostics.append(
+            FailureDiagnostic(
+                code=FailureDiagnosticCode.MISSING_FORCE_REFERENCES,
+                force_handles=missing_handles,
+            )
+        )
+    duplicate_handles = [
+        handle
+        for force_id, handle in handle_by_id.items()
+        if assigned.count(force_id) > 1
+    ]
+    if duplicate_handles:
+        diagnostics.append(
+            FailureDiagnostic(
+                code=FailureDiagnosticCode.DUPLICATE_FORCE_REFERENCES,
+                force_handles=duplicate_handles,
+            )
+        )
+    cluster_ids = [cluster.cluster_id for cluster in clusters]
+    duplicate_cluster_count = sum(
+        cluster_ids.count(cluster_id) > 1 for cluster_id in set(cluster_ids)
+    )
+    if duplicate_cluster_count:
+        diagnostics.append(
+            FailureDiagnostic(
+                code=FailureDiagnosticCode.DUPLICATE_CLUSTER_IDS,
+                count=duplicate_cluster_count,
+            )
+        )
+    return diagnostics
+
+
 class GlobalContext(DomainModel):
     case_id: str
     revision: int = Field(ge=1)
@@ -141,6 +213,11 @@ class GlobalContext(DomainModel):
     confirmed_facts: list[str]
     assumptions: list[str]
     unresolved_questions: list[str] = Field(default_factory=list[str])
+    user_design_forces: list[str] = Field(default_factory=list[str])
+    policy_applicability: PolicyApplicabilityContext = Field(
+        default_factory=PolicyApplicabilityContext
+    )
+    atlas_overview: AtlasOverview | None = None
     atlas_summary: str | None = None
 
 
@@ -151,6 +228,9 @@ class FocusedNodeSummary(DomainModel):
     node_type: str = "unknown"
     location: SourceLocation | None = None
     summary: str = ""
+    selection_reasons: list[AtlasSelectionReason] = Field(
+        default_factory=list[AtlasSelectionReason]
+    )
 
     @classmethod
     def from_node(cls, node: AtlasNode, *, summary: str = "") -> FocusedNodeSummary:
@@ -172,17 +252,40 @@ class FocusedNodeSummary(DomainModel):
             summary=summary,
         )
 
+    @classmethod
+    def from_summary(
+        cls,
+        node: AtlasNodeSummary,
+        *,
+        summary: str = "",
+        selection_reasons: list[AtlasSelectionReason] | None = None,
+    ) -> FocusedNodeSummary:
+        return cls(
+            node_id=node.node_id,
+            path=node.path,
+            qualified_name=node.qualified_name,
+            node_type=node.node_type,
+            location=node.location,
+            summary=summary,
+            selection_reasons=selection_reasons or [],
+        )
+
 
 class FocusedAnalysisPacket(DomainModel):
     cluster: ConcernCluster
     node_summaries: list[FocusedNodeSummary] = Field(default_factory=list[FocusedNodeSummary])
+    node_evidence: list[AtlasNodeEvidence] = Field(default_factory=list[AtlasNodeEvidence])
     metrics: list[MetricProfile] = Field(default_factory=list[MetricProfile])
     relationships: list[AtlasEdge] = Field(default_factory=list[AtlasEdge])
+    relationship_evidence: list[AtlasRelationshipEvidence] = Field(
+        default_factory=list[AtlasRelationshipEvidence]
+    )
     test_ids: list[str] = Field(default_factory=list[str])
+    test_evidence: list[AtlasNodeSummary] = Field(default_factory=list[AtlasNodeSummary])
     excerpts: list[SourceExcerpt] = Field(default_factory=list[SourceExcerpt])
     policies: list[RetrievedPolicy] = Field(default_factory=list[RetrievedPolicy])
     assumptions: list[str] = Field(default_factory=list[str])
-    uncertainty: list[str] = Field(default_factory=list[str])
+    uncertainty: list[str] = Field(min_length=1)
 
     @model_validator(mode="before")
     @classmethod
@@ -288,6 +391,62 @@ class RecommendationDisposition(StrEnum):
     GATHER_INFORMATION = "gather_information"
 
 
+class FindingImportance(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class ArchitecturalFinding(DomainModel):
+    finding_id: str = Field(pattern=r"^FIND-[0-9]{3}$")
+    title: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+    concern_cluster_id: str | None = None
+    importance: FindingImportance
+    importance_rationale: str = Field(min_length=1)
+    confidence: Confidence
+    consequence: str = Field(min_length=1)
+    claim_ids: list[str] = Field(min_length=1)
+    atlas_node_ids: list[str] = Field(default_factory=list[str])
+    policy_ids: list[str] = Field(default_factory=list[str])
+    affected_locations: list[AtlasNodeSummary] = Field(
+        default_factory=list[AtlasNodeSummary]
+    )
+    metric_observations: list[AtlasMetricValue] = Field(
+        default_factory=list[AtlasMetricValue]
+    )
+    obscurity_signals: list[ObscuritySignal] = Field(
+        default_factory=list[ObscuritySignal]
+    )
+    recommended_response: str = Field(min_length=1)
+    uncertainty: list[str] = Field(default_factory=list[str])
+
+    @model_validator(mode="after")
+    def validate_references(self) -> ArchitecturalFinding:
+        for name, values in (
+            ("claim", self.claim_ids),
+            ("Atlas node", self.atlas_node_ids),
+            ("policy", self.policy_ids),
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError(f"Architectural finding {name} references must be unique")
+        surfaced = set(self.atlas_node_ids)
+        nested_node_ids = {
+            *(item.node_id for item in self.affected_locations),
+            *(item.node_id for item in self.metric_observations),
+            *(item.node_id for item in self.obscurity_signals),
+        }
+        if unknown := nested_node_ids - surfaced:
+            raise ValueError(
+                "Architectural finding evidence references absent Atlas nodes: "
+                f"{sorted(unknown)}"
+            )
+        if any(not item.strip() for item in self.uncertainty):
+            raise ValueError("Architectural finding uncertainty must not be blank")
+        return self
+
+
 class SupportedStatement(DomainModel):
     text: str = Field(min_length=1)
     classification: ClaimClassification
@@ -375,8 +534,122 @@ def _upgrade_scenario_mappings(scenarios: object, alternatives: object) -> objec
     return upgraded
 
 
+def _legacy_findings(data: dict[str, object]) -> list[dict[str, object]]:
+    raw_claims: list[dict[str, object]] = []
+    for field in (
+        "repository_observations",
+        "evidence_appendix",
+        "confirmed_context",
+        "assumptions_and_unresolved_questions",
+        "relevant_policies",
+    ):
+        for item in _objects(data.get(field, [])) or []:
+            mapped = _mapping(item)
+            if mapped is not None and mapped.get("claim_id"):
+                raw_claims.append(mapped)
+    if not raw_claims:
+        return []
+
+    raw_claims = list(
+        {
+            str(item["claim_id"]): item
+            for item in raw_claims
+        }.values()
+    )
+    claim_ids = list(dict.fromkeys(str(item["claim_id"]) for item in raw_claims))
+    raw_references = [
+        reference
+        for claim in raw_claims
+        for reference in (_objects(claim.get("atlas_references", [])) or [])
+    ]
+    references = [
+        mapped
+        for raw_reference in raw_references
+        if (mapped := _mapping(raw_reference)) is not None
+    ]
+    atlas_node_ids = list(
+        dict.fromkeys(
+            str(reference["node_id"])
+            for reference in references
+            if reference.get("node_id")
+        )
+    )
+    affected_locations: list[dict[str, object]] = []
+    seen_locations: set[str] = set()
+    for reference in references:
+        if not reference.get("node_id"):
+            continue
+        node_id = str(reference["node_id"])
+        location = _mapping(reference.get("location"))
+        if location is None or node_id in seen_locations:
+            continue
+        seen_locations.add(node_id)
+        affected_locations.append(
+            {
+                "node_id": node_id,
+                "qualified_name": node_id,
+                "node_type": "module",
+                "path": str(location.get("path", "")),
+                "location": location,
+            }
+        )
+    policy_ids = list(
+        dict.fromkeys(
+            str(policy_id)
+            for claim in raw_claims
+            for policy_id in (_objects(claim.get("policy_ids", [])) or [])
+        )
+    )
+
+    def statement_text(field: str, fallback: str) -> str:
+        value = data.get(field)
+        mapped = _mapping(value)
+        if mapped is not None and mapped.get("text"):
+            return str(mapped["text"])
+        if isinstance(value, str) and value.strip():
+            return value
+        return fallback
+
+    confidence = data.get("confidence")
+    if _mapping(confidence) is None:
+        confidence = {
+            "level": "low",
+            "rationale": "The legacy report did not retain finding-level confidence.",
+        }
+    return [
+        {
+            "finding_id": "FIND-001",
+            "title": "Legacy architectural finding",
+            "summary": str(raw_claims[0].get("text", "Legacy architectural concern")),
+            "concern_cluster_id": None,
+            "importance": FindingImportance.MEDIUM,
+            "importance_rationale": (
+                "The legacy report did not retain a contextual finding-importance assessment."
+            ),
+            "confidence": confidence,
+            "consequence": statement_text(
+                "change_amplification_analysis",
+                "Consult the original legacy report for the recorded consequence.",
+            ),
+            "claim_ids": claim_ids,
+            "atlas_node_ids": atlas_node_ids,
+            "policy_ids": policy_ids,
+            "affected_locations": affected_locations,
+            "metric_observations": [],
+            "obscurity_signals": [],
+            "recommended_response": statement_text(
+                "recommended_architecture",
+                "Consult the original legacy recommendation.",
+            ),
+            "uncertainty": [
+                "This finding was derived for compatibility from a pre-V1.2 report."
+            ],
+        }
+    ]
+
+
 class RecommendationReport(DomainModel):
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     report_id: str = Field(default_factory=lambda: new_id("report"))
     disposition: RecommendationDisposition
     decision_summary: SupportedStatement
@@ -384,6 +657,7 @@ class RecommendationReport(DomainModel):
     confirmed_context: list[Claim]
     assumptions_and_unresolved_questions: list[Claim]
     important_design_forces: list[DesignForce] = Field(min_length=1)
+    findings: list[ArchitecturalFinding] = Field(min_length=1, max_length=12)
     repository_observations: list[Claim]
     relevant_policies: list[Claim]
     policy_evidence: list[PolicyEvidenceSummary] = Field(
@@ -410,8 +684,9 @@ class RecommendationReport(DomainModel):
         data = _mapping(value)
         if data is None:
             return value
-        legacy = data.get("schema_version") != 2
-        data["schema_version"] = 2
+        source_version = int(str(data.get("schema_version", 1)))
+        legacy = source_version < 2
+        data["schema_version"] = 3
         if not legacy:
             scalar_fields = (
                 "decision_summary",
@@ -433,6 +708,8 @@ class RecommendationReport(DomainModel):
                 for field in list_fields
             ):
                 raise ValueError("Schema-v2 substantive report lists must use SupportedStatement")
+            if source_version < 3 and not (_objects(data.get("findings")) or []):
+                data["findings"] = _legacy_findings(data)
             return data
         text = str(data.get("decision_summary", "")).casefold()
         data.setdefault(
@@ -476,8 +753,7 @@ class RecommendationReport(DomainModel):
                     claim = _mapping(raw_claim)
                     if claim is not None:
                         policy_ids.extend(
-                            str(item)
-                            for item in (_objects(claim.get("policy_ids", [])) or [])
+                            str(item) for item in (_objects(claim.get("policy_ids", [])) or [])
                         )
             data["policy_evidence"] = [
                 {
@@ -490,6 +766,7 @@ class RecommendationReport(DomainModel):
                 for policy_id in dict.fromkeys(policy_ids)
             ]
         data.setdefault("policy_conflicts", [])
+        data["findings"] = _legacy_findings(data)
         return data
 
     @model_validator(mode="after")
@@ -603,6 +880,44 @@ class RecommendationReport(DomainModel):
                     f"Report policy conflict references policies absent from evidence: "
                     f"{sorted(unknown)}"
                 )
+        claim_registry = {
+            claim.claim_id: claim
+            for claim in [
+                *self.confirmed_context,
+                *self.assumptions_and_unresolved_questions,
+                *self.repository_observations,
+                *self.relevant_policies,
+                *self.evidence_appendix,
+            ]
+        }
+        finding_ids = [finding.finding_id for finding in self.findings]
+        if len(finding_ids) != len(set(finding_ids)):
+            raise ValueError("Architectural finding IDs must be unique")
+        for finding in self.findings:
+            if unknown_claims := set(finding.claim_ids) - set(claim_registry):
+                raise ValueError(
+                    f"Finding {finding.finding_id} references unknown claims: "
+                    f"{sorted(unknown_claims)}"
+                )
+            cited_claims = [claim_registry[claim_id] for claim_id in finding.claim_ids]
+            supported_nodes = {
+                reference.node_id
+                for claim in cited_claims
+                for reference in claim.atlas_references
+            }
+            supported_policies = {
+                policy_id for claim in cited_claims for policy_id in claim.policy_ids
+            }
+            if unknown_nodes := set(finding.atlas_node_ids) - supported_nodes:
+                raise ValueError(
+                    f"Finding {finding.finding_id} references unsupported Atlas nodes: "
+                    f"{sorted(unknown_nodes)}"
+                )
+            if unknown_policies := set(finding.policy_ids) - supported_policies:
+                raise ValueError(
+                    f"Finding {finding.finding_id} references unsupported policies: "
+                    f"{sorted(unknown_policies)}"
+                )
         return self
 
     def supported_statements(self) -> list[SupportedStatement]:
@@ -662,7 +977,7 @@ class ClusterQueryPlan(DomainModel):
 
 
 class ConsultationRun(DomainModel):
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     run_id: str = Field(default_factory=lambda: new_id("run"))
     status: ConsultationStatus
     case_id: str
@@ -691,6 +1006,9 @@ class ConsultationRun(DomainModel):
     stage_timings: dict[str, float] = Field(default_factory=dict[str, float])
     failure_stage: ConsultationFailureStage | None = None
     sanitized_errors: list[str] = Field(default_factory=list[str])
+    failure_diagnostics: list[FailureDiagnostic] = Field(
+        default_factory=list[FailureDiagnostic]
+    )
     started_at: datetime = Field(default_factory=utc_now)
     completed_at: datetime = Field(default_factory=utc_now)
     execution_metadata: dict[str, JsonValue] = Field(default_factory=dict[str, JsonValue])
@@ -701,8 +1019,8 @@ class ConsultationRun(DomainModel):
         data = _mapping(value)
         if data is None:
             return value
-        legacy = data.get("schema_version") != 2
-        data["schema_version"] = 2
+        legacy = int(str(data.get("schema_version", 1))) < 2
+        data["schema_version"] = 3
         if not legacy:
             return data
         validation_errors = [
@@ -758,7 +1076,11 @@ class ConsultationRun(DomainModel):
                 raise ValueError("A successful run must produce the next case revision")
             if self.report is None or not self.markdown_report:
                 raise ValueError("A successful run requires structured and Markdown reports")
-            if self.failure_stage is not None or self.sanitized_errors:
+            if (
+                self.failure_stage is not None
+                or self.sanitized_errors
+                or self.failure_diagnostics
+            ):
                 raise ValueError("A successful run cannot contain terminal failure details")
             if self.final_validation_errors:
                 raise ValueError("A successful run cannot retain final validation errors")
@@ -795,9 +1117,20 @@ class ConsultationRun(DomainModel):
                 or len(analysis_ids) != len(set(analysis_ids))
             ):
                 raise ValueError(
-                    "A successful run requires exactly one packet and analysis "
-                    "per concern cluster"
+                    "A successful run requires exactly one packet and analysis per concern cluster"
                 )
+            if self.report is not None:
+                unknown_finding_clusters = {
+                    finding.concern_cluster_id
+                    for finding in self.report.findings
+                    if finding.concern_cluster_id is not None
+                    and finding.concern_cluster_id not in cluster_ids
+                }
+                if unknown_finding_clusters:
+                    raise ValueError(
+                        "Report findings reference unknown concern clusters: "
+                        f"{sorted(unknown_finding_clusters)}"
+                    )
         return self
 
     @property

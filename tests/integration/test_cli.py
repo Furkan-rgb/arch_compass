@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -22,7 +23,41 @@ def test_web_accepts_workspace_after_command(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     assert "--workspace" in result.output
+    assert "Defaults to" in result.output
+    assert "the current directory" in result.output
     assert "--no-open" in result.output
+
+
+def test_web_defaults_workspace_to_current_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected_workspaces: list[Path] = []
+
+    def initialize_workspace(workspace: Path, **_: object) -> SimpleNamespace:
+        selected_workspaces.append(workspace)
+        return SimpleNamespace(
+            runtime=SimpleNamespace(workspace=workspace),
+            created_paths=(),
+        )
+
+    monkeypatch.setattr(
+        cli_module,
+        "initialize_workspace_runtime",
+        initialize_workspace,
+    )
+    monkeypatch.setattr("archcompass.presentation.web.create_app", lambda runtime: runtime)
+    monkeypatch.setattr("uvicorn.run", lambda *args, **kwargs: None)
+
+    result = runner.invoke(app, ["web", "--no-open"])
+    override = runner.invoke(
+        app,
+        ["web", "--workspace", str(tmp_path), "--no-open"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert override.exit_code == 0, override.output
+    assert selected_workspaces == [Path.cwd().resolve(), tmp_path.resolve()]
 
 
 def test_console_entrypoint_reports_domain_errors_without_a_traceback(
@@ -117,6 +152,63 @@ def test_cli_commands_cover_local_workflow(tmp_path: Path, fake_config_text: str
     run_id = reports[0].stem
     shown_run = runner.invoke(app, [*common, "run", "show", run_id])
     assert shown_run.exit_code == 0
+    created_conversation = runner.invoke(
+        app,
+        [*common, "conversation", "create", "--run", run_id],
+    )
+    assert created_conversation.exit_code == 0, created_conversation.output
+    conversation_id = json.loads(created_conversation.output)["conversation_id"]
+    assert runner.invoke(
+        app,
+        [*common, "conversation", "list", "--run", run_id],
+    ).exit_code == 0
+    assert runner.invoke(
+        app,
+        [*common, "conversation", "show", conversation_id],
+    ).exit_code == 0
+    asked = runner.invoke(
+        app,
+        [
+            *common,
+            "conversation",
+            "ask",
+            conversation_id,
+            "What are the main findings?",
+            "--json",
+        ],
+    )
+    assert asked.exit_code == 0, asked.output
+    assert json.loads(asked.output)["relevant_finding_ids"]
+    assert runner.invoke(
+        app,
+        [*common, "conversation", "history", conversation_id],
+    ).exit_code == 0
+    markdown_export = runner.invoke(
+        app,
+        [
+            *common,
+            "conversation",
+            "export",
+            conversation_id,
+            "--format",
+            "markdown",
+        ],
+    )
+    assert markdown_export.exit_code == 0
+    assert f"Consultation run: `{run_id}`" in markdown_export.output
+    json_export = runner.invoke(
+        app,
+        [
+            *common,
+            "conversation",
+            "export",
+            conversation_id,
+            "--format",
+            "json",
+        ],
+    )
+    assert json_export.exit_code == 0
+    assert json.loads(json_export.output)["conversation"]["conversation_id"] == conversation_id
     brownfield = runner.invoke(
         app,
         [*common, "advise", case_id, "--repo", str(fixture), "--json"],
@@ -168,7 +260,11 @@ def test_cli_policy_source_registry_is_persistent(
             "id: contain-dependencies",
             "id: team-containment",
             1,
-        ).replace("scope: general", "scope: organisation", 1),
+        ).replace(
+            "scope: general",
+            "scope: organisation\napplies_to: example-organisation",
+            1,
+        ),
         encoding="utf-8",
     )
     common = ["--workspace", str(workspace)]

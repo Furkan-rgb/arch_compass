@@ -32,7 +32,7 @@ test-ollama:
 	uv run pytest -m ollama
 
 eval:
-	uv run pytest -m evaluation
+	uv run pytest -m "evaluation and not architectural_quality and not ollama"
 
 check: lint typecheck test frontend-check
 

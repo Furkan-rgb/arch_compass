@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 from archcompass.domain.policy import (
+    PolicyApplicabilityContext,
     PolicyDocument,
     PolicyIndexVersion,
     PolicySourceRegistration,
@@ -35,6 +36,7 @@ class PolicyRetriever(Protocol):
         top_k: int,
         version_id: str | None = None,
         max_sections_per_policy: int | None = None,
+        applicability: PolicyApplicabilityContext | None = None,
     ) -> list[RetrievedPolicy]: ...
 
 

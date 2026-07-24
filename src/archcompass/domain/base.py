@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
+from pydantic_core import to_jsonable_python
 
 
 class DomainModel(BaseModel):
@@ -30,9 +31,11 @@ def stable_id(prefix: str, *parts: str, length: int = 24) -> str:
 
 
 def canonical_json(model: BaseModel | dict[str, Any]) -> str:
-    if isinstance(model, BaseModel):
-        return model.model_dump_json(indent=None, exclude_none=False)
     import json
 
-    return json.dumps(model, sort_keys=True, separators=(",", ":"), default=str)
-
+    return json.dumps(
+        to_jsonable_python(model),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )

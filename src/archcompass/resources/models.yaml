@@ -4,6 +4,7 @@ models:
     model: gemma4:12b
     base_url: http://127.0.0.1:11434
     timeout_seconds: 360
+    context_window_tokens: 32768
     max_output_tokens: 16384
   embedding:
     provider: ollama
@@ -19,3 +20,16 @@ consultation:
   max_queries_per_iteration: 8
   max_query_results: 30
   max_excerpt_lines: 80
+conversation:
+  max_actions_per_question: 8
+  max_findings: 12
+  max_atlas_nodes: 24
+  max_policies: 8
+  max_neighbourhood_depth: 2
+  max_excerpt_lines: 120
+  max_total_excerpt_lines: 180
+  max_retrieved_text_characters: 24000
+  recent_message_limit: 8
+  summarize_after_messages: 12
+  summarize_every_messages: 8
+  max_summary_characters: 6000

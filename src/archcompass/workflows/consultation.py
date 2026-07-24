@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 from time import perf_counter
 from typing import TypeVar, cast
@@ -13,6 +15,7 @@ from typing import TypeVar, cast
 from pydantic import JsonValue
 
 from archcompass.application.evidence import (
+    canonicalize_report_findings,
     repair_report_evidence_with_history,
     validate_report_evidence,
 )
@@ -22,12 +25,25 @@ from archcompass.domain.atlas import (
     Atlas,
     AtlasEdge,
     AtlasNode,
+    AtlasNodeEvidence,
+    AtlasNodeSummary,
+    AtlasOverview,
+    AtlasQuery,
     AtlasQueryPlan,
-    EdgeType,
+    AtlasQueryResult,
+    AtlasRelationshipEvidence,
+    AtlasSelectionReason,
+    AtlasSelectionReasonKind,
+    NodeType,
+    ObscuritySignal,
     SourceExcerpt,
     SourceLocation,
 )
-from archcompass.domain.base import new_id, utc_now
+from archcompass.domain.atlas_metrics import (
+    canonical_metric_name,
+    salient_profile_observations,
+)
+from archcompass.domain.base import canonical_json, new_id, utc_now
 from archcompass.domain.case import (
     ArchitectureCase,
     CaseAlternative,
@@ -51,18 +67,21 @@ from archcompass.domain.consultation import (
     GlobalContext,
     RecommendationReport,
     ScenarioEvaluation,
-    cluster_partition_errors,
+    cluster_partition_diagnostics,
 )
 from archcompass.domain.errors import (
     AtlasNotFoundError,
+    ClusterPartitionError,
     EvidenceReferenceError,
     ModelOutputValidationError,
 )
 from archcompass.domain.execution import ProgressEventType
 from archcompass.domain.policy import (
+    PolicyApplicabilityContext,
     PolicyEvidenceSummary,
     PolicyIndexVersion,
     RetrievedPolicy,
+    canonical_policy_evidence,
 )
 from archcompass.ports.atlas import AtlasFreshnessChecker, AtlasQueryService
 from archcompass.ports.policies import PolicyIndex, PolicyRetriever
@@ -76,6 +95,7 @@ from archcompass.ports.repositories import (
 )
 
 Result = TypeVar("Result")
+POLICY_QUERY_CHARACTER_BUDGET = 8_000
 
 
 class ConsultationWorkflow:
@@ -132,6 +152,7 @@ class ConsultationWorkflow:
         consultation_run_id = run_id or new_id("run")
         stage_timings: dict[str, float] = {}
         prompt_identities: list[str] = []
+        advisor_forces: list[DesignForce] = []
         forces: list[DesignForce] = []
         clusters: list[ConcernCluster] = []
         plans: list[ClusterQueryPlan] = []
@@ -200,14 +221,10 @@ class ConsultationWorkflow:
                 ),
                 {
                     "atlas_version_id": (
-                        resolved_atlas.version.version_id
-                        if resolved_atlas is not None
-                        else None
+                        resolved_atlas.version.version_id if resolved_atlas is not None else None
                     ),
                     "repository_root": (
-                        resolved_atlas.version.root_path
-                        if resolved_atlas is not None
-                        else None
+                        resolved_atlas.version.root_path if resolved_atlas is not None else None
                     ),
                 },
             )
@@ -259,12 +276,14 @@ class ConsultationWorkflow:
                 ConsultationFailureStage.DESIGN_FORCES,
                 "Discovering design forces",
             )
-            forces = self._reason(
+            advisor_forces = self._reason(
                 "discover_design_forces",
                 prompt_identities,
                 stage_timings,
                 lambda: self._reasoning.discover_design_forces(context),
             )
+            forces = self._merge_user_design_forces(case, advisor_forces)
+            advisor_forces = forces[len(case.design_forces) :]
             self._progress_artifact(
                 progress,
                 ConsultationFailureStage.DESIGN_FORCES,
@@ -290,9 +309,9 @@ class ConsultationWorkflow:
                 stage_timings,
                 lambda: self._reasoning.cluster_design_forces(context, forces),
             )
-            partition_errors = cluster_partition_errors(forces, clusters)
-            if partition_errors:
-                raise ModelOutputValidationError("; ".join(partition_errors))
+            partition_diagnostics = cluster_partition_diagnostics(forces, clusters)
+            if partition_diagnostics:
+                raise ClusterPartitionError(partition_diagnostics)
             self._progress_artifact(
                 progress,
                 ConsultationFailureStage.CLUSTERING,
@@ -314,6 +333,12 @@ class ConsultationWorkflow:
             }
             excerpts_by_cluster: dict[str, list[SourceExcerpt]] = {
                 cluster.cluster_id: [] for cluster in clusters
+            }
+            relationships_by_cluster: dict[str, dict[str, AtlasEdge]] = {
+                cluster.cluster_id: {} for cluster in clusters
+            }
+            test_ids_by_cluster: dict[str, set[str]] = {
+                cluster.cluster_id: set() for cluster in clusters
             }
             excerpt_lines_by_cluster = {cluster.cluster_id: 0 for cluster in clusters}
 
@@ -371,9 +396,7 @@ class ConsultationWorkflow:
                         f"Planned {query_count} bounded atlas queries.",
                         {
                             "iteration": iteration,
-                            "query_plans": [
-                                item.model_dump(mode="json") for item in clamped
-                            ],
+                            "query_plans": [item.model_dump(mode="json") for item in clamped],
                         },
                     )
                     self._progress_completed(
@@ -402,13 +425,13 @@ class ConsultationWorkflow:
                             execution_metadata["atlas_queries"] = atlas_query_count
                             self._accumulate_query_result(
                                 cluster_id=cluster_id,
-                                result_node_ids=result.node_ids,
-                                result_summary=result.summary,
-                                result_excerpts=result.excerpts,
+                                result=result,
                                 nodes=nodes,
                                 selected=selected_by_cluster,
                                 summaries=summaries_by_cluster,
                                 excerpts=excerpts_by_cluster,
+                                relationships=relationships_by_cluster,
+                                test_ids=test_ids_by_cluster,
                                 excerpt_line_counts=excerpt_lines_by_cluster,
                                 execution_metadata=execution_metadata,
                             )
@@ -445,15 +468,12 @@ class ConsultationWorkflow:
                     f"Retrieving policies for {cluster.title}",
                 )
                 force_lookup = {force.force_id: force for force in forces}
-                cluster_query = " ".join(
-                    [
-                        cluster.title,
-                        cluster.rationale,
-                        *[
-                            (f"{force_lookup[force_id].title} {force_lookup[force_id].description}")
-                            for force_id in cluster.design_force_ids
-                        ],
-                    ]
+                cluster_query = self._policy_retrieval_query(
+                    case=case,
+                    cluster=cluster,
+                    force_lookup=force_lookup,
+                    atlas=resolved_atlas,
+                    selected_node_ids=selected_by_cluster[cluster.cluster_id],
                 )
                 retrieved = self._timed(
                     stage_timings,
@@ -462,6 +482,7 @@ class ConsultationWorkflow:
                         cluster_query,
                         top_k=self._config.retrieval.top_k,
                         version_id=policy_version.version_id,
+                        applicability=context.policy_applicability,
                     ),
                 )
                 all_retrieved[cluster.cluster_id] = retrieved
@@ -474,7 +495,10 @@ class ConsultationWorkflow:
                     selected_ids=selected_by_cluster[cluster.cluster_id],
                     summaries=list(summaries_by_cluster[cluster.cluster_id].values()),
                     excerpts=excerpts_by_cluster[cluster.cluster_id],
+                    relationships=list(relationships_by_cluster[cluster.cluster_id].values()),
+                    test_ids=sorted(test_ids_by_cluster[cluster.cluster_id]),
                     policies=retrieved,
+                    execution_metadata=execution_metadata,
                 )
                 packets.append(packet)
                 self._progress_artifact(
@@ -512,43 +536,7 @@ class ConsultationWorkflow:
                     packet=packet,
                     metadata=execution_metadata,
                 )
-                try:
-                    self._validate_concern_analysis(analysis, packet)
-                except ModelOutputValidationError as first_error:
-                    repairs = execution_metadata.get("model_output_repairs")
-                    if isinstance(repairs, list):
-                        repairs.append(
-                            {
-                                "kind": "retried_invalid_concern_analysis",
-                                "cluster_id": packet.cluster.cluster_id,
-                                "validation_error": str(first_error),
-                                "rejected_analysis": analysis.model_dump(mode="json"),
-                            }
-                        )
-                    feedback = (
-                        f"{first_error}. Previous analysis: {analysis.model_dump_json()}. "
-                        "Return at least one valid finding. Do not repeat an unsupported "
-                        "repository or policy finding."
-                    )
-                    analysis = self._reason(
-                        "analyze_concern_cluster",
-                        prompt_identities,
-                        stage_timings,
-                        lambda packet=packet, feedback=feedback: (
-                            self._reasoning.analyze_concern_cluster(
-                                context,
-                                packet,
-                                validation_feedback=feedback,
-                            )
-                        ),
-                        timing_suffix=f"{cluster.cluster_id}.retry",
-                    )
-                    analysis = self._prepare_concern_analysis(
-                        analysis,
-                        packet=packet,
-                        metadata=execution_metadata,
-                    )
-                    self._validate_concern_analysis(analysis, packet)
+                self._validate_concern_analysis(analysis, packet)
                 analyses.append(analysis)
                 self._progress_artifact(
                     progress,
@@ -563,6 +551,10 @@ class ConsultationWorkflow:
                     f"Analysis completed for {cluster.title}",
                 )
 
+            analyses = self._canonicalize_analysis_claim_ids(
+                analyses,
+                metadata=execution_metadata,
+            )
             current_stage = ConsultationFailureStage.ALTERNATIVES
             self._progress_started(
                 progress,
@@ -647,6 +639,20 @@ class ConsultationWorkflow:
                     packets=packets,
                 )
                 output_repairs.extend(synthesis_repairs)
+            try:
+                canonical_findings = canonicalize_report_findings(
+                    report,
+                    packets=packets,
+                    analyses=analyses,
+                )
+            except ValueError as exc:
+                raise ModelOutputValidationError(
+                    f"Final synthesis finding evidence is inconsistent: {exc}"
+                ) from exc
+            report = canonical_findings.report
+            finding_evidence_by_cluster = canonical_findings.evidence_by_cluster
+            if isinstance(output_repairs, list):
+                output_repairs.extend(canonical_findings.actions)
             unrepaired_report = report
             self._validate_synthesis_coverage(
                 report,
@@ -684,6 +690,7 @@ class ConsultationWorkflow:
                 report,
                 allowed_nodes=allowed_nodes,
                 allowed_policy_ids=allowed_policy_ids,
+                finding_evidence_by_cluster=finding_evidence_by_cluster,
             )
             final_errors = list(initial_errors)
             if initial_errors:
@@ -691,89 +698,32 @@ class ConsultationWorkflow:
                     report,
                     allowed_nodes=allowed_nodes,
                     allowed_policy_ids=allowed_policy_ids,
+                    finding_evidence_by_cluster=finding_evidence_by_cluster,
                 )
-                report = repaired.report
+                repaired_findings = canonicalize_report_findings(
+                    repaired.report,
+                    packets=packets,
+                    analyses=analyses,
+                )
+                report = repaired_findings.report
                 repair_actions = repaired.actions
+                if isinstance(output_repairs, list):
+                    output_repairs.extend(repaired_findings.actions)
                 final_errors = validate_report_evidence(
                     report,
                     allowed_nodes=allowed_nodes,
                     allowed_policy_ids=allowed_policy_ids,
+                    finding_evidence_by_cluster=finding_evidence_by_cluster,
                 )
-            if final_errors:
-                output_repairs = execution_metadata.get("model_output_repairs")
-                if isinstance(output_repairs, list):
-                    output_repairs.append(
-                        {
-                            "kind": "retried_invalid_synthesis_evidence",
-                            "initial_validation_errors": initial_errors,
-                            "validation_errors": final_errors,
-                            "deterministic_repair_actions": repair_actions,
-                            "rejected_report": unrepaired_report.model_dump(mode="json"),
-                        }
-                    )
-                feedback = (
-                    "Initial evidence validation errors: "
-                    + "; ".join(initial_errors)
-                    + ". Errors remaining after conservative deterministic repair: "
-                    + "; ".join(final_errors)
-                    + ". Previous report: "
-                    + unrepaired_report.model_dump_json()
-                )
-                report = self._reason(
-                    "synthesize_recommendation",
-                    prompt_identities,
-                    stage_timings,
-                    lambda feedback=feedback: self._reasoning.synthesize_recommendation(
-                        case,
-                        context,
+                try:
+                    self._validate_synthesis_coverage(
+                        report,
                         forces,
-                        clusters,
-                        analyses,
                         alternatives,
-                        scenarios,
                         packets,
-                        validation_feedback=feedback,
-                    ),
-                    timing_suffix="evidence_retry",
-                )
-                provider_repairs = self._reasoning.consume_repair_actions()
-                report, synthesis_repairs = self._restore_synthesis_artifacts(
-                    report,
-                    forces=forces,
-                    alternatives=alternatives,
-                    scenarios=scenarios,
-                    packets=packets,
-                )
-                if isinstance(output_repairs, list):
-                    output_repairs.extend(provider_repairs)
-                    output_repairs.extend(synthesis_repairs)
-                unrepaired_report = report
-                self._validate_synthesis_coverage(
-                    report,
-                    forces,
-                    alternatives,
-                    packets,
-                )
-                initial_errors = validate_report_evidence(
-                    report,
-                    allowed_nodes=allowed_nodes,
-                    allowed_policy_ids=allowed_policy_ids,
-                )
-                repair_actions = []
-                final_errors = list(initial_errors)
-                if initial_errors:
-                    repaired = repair_report_evidence_with_history(
-                        report,
-                        allowed_nodes=allowed_nodes,
-                        allowed_policy_ids=allowed_policy_ids,
                     )
-                    report = repaired.report
-                    repair_actions = repaired.actions
-                    final_errors = validate_report_evidence(
-                        report,
-                        allowed_nodes=allowed_nodes,
-                        allowed_policy_ids=allowed_policy_ids,
-                    )
+                except ModelOutputValidationError as exc:
+                    final_errors.append(str(exc))
             if final_errors:
                 raise EvidenceReferenceError(
                     "Recommendation evidence validation failed: " + "; ".join(final_errors)
@@ -807,7 +757,7 @@ class ConsultationWorkflow:
             )
             markdown = self._timed(stage_timings, "rendering", lambda: render_markdown(report))
             run = ConsultationRun(
-                schema_version=2,
+                schema_version=3,
                 run_id=consultation_run_id,
                 status=ConsultationStatus.SUCCEEDED,
                 case_id=case.case_id,
@@ -846,7 +796,7 @@ class ConsultationWorkflow:
                 run=run,
                 atlas=resolved_atlas,
                 report=report,
-                forces=forces,
+                advisor_forces=advisor_forces,
                 alternatives=alternatives,
                 analyses=analyses,
             )
@@ -886,8 +836,12 @@ class ConsultationWorkflow:
             )
             return run
         except Exception as error:
+            sanitized_error = self._sanitize_error(error, resolved_atlas)
+            failure_diagnostics = (
+                error.diagnostics if isinstance(error, ClusterPartitionError) else []
+            )
             failed = ConsultationRun(
-                schema_version=2,
+                schema_version=3,
                 run_id=consultation_run_id,
                 status=ConsultationStatus.FAILED,
                 case_id=case.case_id,
@@ -916,7 +870,8 @@ class ConsultationWorkflow:
                 final_validation_errors=final_errors,
                 stage_timings=stage_timings,
                 failure_stage=current_stage,
-                sanitized_errors=[self._sanitize_error(error, resolved_atlas)],
+                sanitized_errors=[sanitized_error],
+                failure_diagnostics=failure_diagnostics,
                 started_at=started,
                 completed_at=utc_now(),
                 execution_metadata=execution_metadata,  # type: ignore[arg-type]
@@ -930,7 +885,12 @@ class ConsultationWorkflow:
                     event_type=ProgressEventType.FAILED,
                     stage=current_stage,
                     title="Consultation failed",
-                    summary=self._sanitize_error(error, resolved_atlas),
+                    summary=sanitized_error,
+                    data={
+                        "failure_diagnostics": [
+                            item.model_dump(mode="json") for item in failure_diagnostics
+                        ]
+                    },
                 )
             raise
 
@@ -1148,10 +1108,27 @@ class ConsultationWorkflow:
         budget: int,
         metadata: dict[str, object],
     ) -> list[ClusterQueryPlan]:
+        accepted: dict[str, list[AtlasQuery]] = {item.cluster_id: [] for item in plans}
+        next_index = {item.cluster_id: 0 for item in plans}
         remaining = budget
+        while remaining:
+            progressed = False
+            for item in plans:
+                index = next_index[item.cluster_id]
+                if index >= len(item.plan.queries):
+                    continue
+                accepted[item.cluster_id].append(item.plan.queries[index])
+                next_index[item.cluster_id] = index + 1
+                remaining -= 1
+                progressed = True
+                if remaining == 0:
+                    break
+            if not progressed:
+                break
+
         clamped: list[ClusterQueryPlan] = []
         for item in plans:
-            queries = item.plan.queries[:remaining]
+            queries = accepted[item.cluster_id]
             dropped = len(item.plan.queries) - len(queries)
             if dropped:
                 truncations = metadata["truncations"]
@@ -1167,7 +1144,6 @@ class ConsultationWorkflow:
             clamped.append(
                 item.model_copy(update={"plan": item.plan.model_copy(update={"queries": queries})})
             )
-            remaining -= len(queries)
         return clamped
 
     @staticmethod
@@ -1203,9 +1179,7 @@ class ConsultationWorkflow:
                     continue
                 queries.append(query)
             repaired.append(
-                item.model_copy(
-                    update={"plan": item.plan.model_copy(update={"queries": queries})}
-                )
+                item.model_copy(update={"plan": item.plan.model_copy(update={"queries": queries})})
             )
         return repaired
 
@@ -1213,19 +1187,33 @@ class ConsultationWorkflow:
         self,
         *,
         cluster_id: str,
-        result_node_ids: list[str],
-        result_summary: str,
-        result_excerpts: list[SourceExcerpt],
+        result: AtlasQueryResult,
         nodes: dict[str, AtlasNode],
         selected: dict[str, list[str]],
         summaries: dict[str, dict[str, FocusedNodeSummary]],
         excerpts: dict[str, list[SourceExcerpt]],
+        relationships: dict[str, dict[str, AtlasEdge]],
+        test_ids: dict[str, set[str]],
         excerpt_line_counts: dict[str, int],
         execution_metadata: dict[str, object],
     ) -> None:
         selected_ids = selected[cluster_id]
-        for node_id in result_node_ids:
+        returned_summaries = {summary.node_id: summary for summary in result.node_summaries}
+        reasons = self._selection_reasons(result)
+        for node_id in result.node_ids:
             if node_id in selected_ids:
+                existing = summaries[cluster_id].get(node_id)
+                if existing is not None:
+                    merged = {
+                        reason.model_dump_json(): reason
+                        for reason in [
+                            *existing.selection_reasons,
+                            *reasons.get(node_id, []),
+                        ]
+                    }
+                    summaries[cluster_id][node_id] = existing.model_copy(
+                        update={"selection_reasons": list(merged.values())}
+                    )
                 continue
             if len(selected_ids) >= self._config.consultation.max_query_results:
                 self._record_truncation(
@@ -1239,11 +1227,46 @@ class ConsultationWorkflow:
             if node is None:
                 continue
             selected_ids.append(node_id)
-            summaries[cluster_id][node_id] = FocusedNodeSummary.from_node(
-                node, summary=result_summary
+            returned = returned_summaries.get(node_id)
+            summaries[cluster_id][node_id] = (
+                FocusedNodeSummary.from_summary(
+                    returned,
+                    summary=result.summary,
+                    selection_reasons=reasons.get(node_id, []),
+                )
+                if returned is not None
+                else FocusedNodeSummary.from_node(
+                    node,
+                    summary=result.summary,
+                ).model_copy(update={"selection_reasons": reasons.get(node_id, [])})
             )
 
-        for excerpt in result_excerpts:
+        relationship_limit = self._config.consultation.max_query_results * 4
+        cluster_relationships = relationships[cluster_id]
+        for edge in result.relationships:
+            if edge.edge_id in cluster_relationships:
+                continue
+            if len(cluster_relationships) >= relationship_limit:
+                self._record_truncation(
+                    execution_metadata,
+                    kind="relationship_budget",
+                    cluster_id=cluster_id,
+                    dropped=1,
+                )
+                continue
+            cluster_relationships[edge.edge_id] = edge
+        remaining_tests = self._config.consultation.max_query_results - len(test_ids[cluster_id])
+        if remaining_tests > 0:
+            test_ids[cluster_id].update(result.test_ids[:remaining_tests])
+        if len(result.test_ids) > max(remaining_tests, 0):
+            self._record_truncation(
+                execution_metadata,
+                kind="test_evidence_budget",
+                cluster_id=cluster_id,
+                dropped=len(result.test_ids) - max(remaining_tests, 0),
+            )
+
+        for excerpt in result.excerpts:
             if excerpt.node_id not in selected_ids:
                 continue
             remaining = (
@@ -1279,6 +1302,62 @@ class ConsultationWorkflow:
             excerpt_line_counts[cluster_id] += len(kept_lines)
 
     @staticmethod
+    def _selection_reasons(
+        result: AtlasQueryResult,
+    ) -> dict[str, list[AtlasSelectionReason]]:
+        reason_kind = {
+            "repository_summary": AtlasSelectionReasonKind.OVERVIEW,
+            "subsystem_summary": AtlasSelectionReasonKind.RELATION,
+            "node_details": AtlasSelectionReasonKind.EXPLICIT_DETAILS,
+            "direct_dependencies": AtlasSelectionReasonKind.RELATION,
+            "direct_dependants": AtlasSelectionReasonKind.RELATION,
+            "known_callers": AtlasSelectionReasonKind.RELATION,
+            "implementations": AtlasSelectionReasonKind.RELATION,
+            "related_tests": AtlasSelectionReasonKind.RELATION,
+            "forward_neighbourhood": AtlasSelectionReasonKind.NEIGHBOURHOOD,
+            "reverse_neighbourhood": AtlasSelectionReasonKind.NEIGHBOURHOOD,
+            "shortest_dependency_path": AtlasSelectionReasonKind.PATH,
+            "cyclic_components": AtlasSelectionReasonKind.CYCLE,
+            "signals": AtlasSelectionReasonKind.SIGNAL,
+            "hotspots": AtlasSelectionReasonKind.METRIC_RANK,
+            "search_nodes": AtlasSelectionReasonKind.NAME_MATCH,
+            "source_excerpt": AtlasSelectionReasonKind.EXCERPT,
+        }[result.query.kind]
+        metric_by_node = {observation.node_id: observation for observation in result.metric_values}
+        related_node_id = next(
+            (
+                value
+                for field in ("node_id", "source_id")
+                if isinstance((value := getattr(result.query, field, None)), str)
+            ),
+            None,
+        )
+        reasons: dict[str, list[AtlasSelectionReason]] = {}
+        for node_id in result.node_ids:
+            metric = metric_by_node.get(node_id)
+            if metric is not None and metric.rank is not None:
+                explanation = (
+                    f"rank {metric.rank} by {metric.metric}={metric.value}; {metric.definition}"
+                )
+            else:
+                explanation = result.summary or (
+                    f"Selected by {result.query.kind.replace('_', ' ')}"
+                )
+            reasons[node_id] = [
+                AtlasSelectionReason(
+                    kind=reason_kind,
+                    explanation=explanation,
+                    metric=metric.metric if metric is not None else None,
+                    related_node_id=(
+                        related_node_id
+                        if related_node_id is not None and related_node_id != node_id
+                        else None
+                    ),
+                )
+            ]
+        return reasons
+
+    @staticmethod
     def _record_truncation(
         metadata: dict[str, object],
         *,
@@ -1297,6 +1376,55 @@ class ConsultationWorkflow:
             )
 
     @staticmethod
+    def _policy_retrieval_query(
+        *,
+        case: ArchitectureCase,
+        cluster: ConcernCluster,
+        force_lookup: dict[str, DesignForce],
+        atlas: Atlas | None,
+        selected_node_ids: list[str],
+    ) -> str:
+        """Build a bounded policy query from case intent and surfaced evidence."""
+
+        parts = [
+            f"Concern: {cluster.title}",
+            f"Investigation: {cluster.rationale}",
+            f"Problem: {case.problem_statement}",
+            f"Desired outcome: {case.desired_outcome}",
+        ]
+        for force_id in cluster.design_force_ids:
+            if force := force_lookup.get(force_id):
+                parts.append(f"Design force: {force.title}. {force.description}")
+        for requirement in case.functional_requirements[:6]:
+            parts.append(f"Requirement: {requirement}")
+        for quality in case.quality_attributes[:6]:
+            parts.append(f"Quality attribute: {quality}")
+        for constraint in case.technical_constraints[:6]:
+            parts.append(f"Technical constraint: {constraint}")
+        for change in case.expected_future_changes[:6]:
+            parts.append(f"Expected change: {change}")
+
+        if atlas is not None:
+            selected = set(selected_node_ids)
+            signals = sorted(
+                (
+                    signal
+                    for signal in atlas.signals
+                    if signal.node_id in selected
+                ),
+                key=lambda signal: (signal.code, signal.node_id, signal.message),
+            )
+            for signal in signals[:8]:
+                parts.append(
+                    "Repository signal "
+                    f"{signal.code}: {signal.message} "
+                    f"Definition: {signal.definition or 'not supplied'}. "
+                    f"Limitations: {signal.limitations or 'not supplied'}."
+                )
+
+        return "\n".join(parts)[:POLICY_QUERY_CHARACTER_BUDGET]
+
+    @staticmethod
     def _build_packet(
         *,
         case: ArchitectureCase,
@@ -1305,36 +1433,78 @@ class ConsultationWorkflow:
         selected_ids: list[str],
         summaries: list[FocusedNodeSummary],
         excerpts: list[SourceExcerpt],
+        relationships: list[AtlasEdge],
+        test_ids: list[str],
         policies: list[RetrievedPolicy],
+        execution_metadata: dict[str, object],
     ) -> FocusedAnalysisPacket:
         selected = set(selected_ids)
         metrics = (
             [profile for profile in atlas.metrics if profile.node_id in selected] if atlas else []
         )
-        relationships: list[AtlasEdge] = (
-            [
-                edge
-                for edge in atlas.edges
-                if edge.source_id in selected and edge.target_id in selected
-            ]
-            if atlas
-            else []
-        )
-        test_ids: set[str] = set()
+        nodes = {node.atlas_id: node for node in atlas.nodes} if atlas else {}
+        profiles = {profile.node_id: profile for profile in metrics}
+        signals_by_node: dict[str, list[ObscuritySignal]] = {}
         if atlas:
-            node_types = {node.atlas_id: node.node_type for node in atlas.nodes}
-            for edge in relationships:
-                if edge.edge_type == EdgeType.TESTS:
-                    for node_id in (edge.source_id, edge.target_id):
-                        node_type = node_types.get(node_id)
-                        if node_type is not None and node_type.value.startswith("test"):
-                            test_ids.add(node_id)
+            for signal in atlas.signals:
+                if signal.node_id in selected:
+                    signals_by_node.setdefault(signal.node_id, []).append(signal)
+        node_evidence: list[AtlasNodeEvidence] = []
+        for summary in summaries:
+            node = nodes.get(summary.node_id)
+            if node is None:
+                continue
+            profile = profiles.get(summary.node_id)
+            node_evidence.append(
+                AtlasNodeEvidence(
+                    node=ConsultationWorkflow._atlas_node_summary(node),
+                    reasons=summary.selection_reasons,
+                    metrics=(salient_profile_observations(profile) if profile is not None else []),
+                    signals=signals_by_node.get(summary.node_id, [])[:5],
+                )
+            )
+        allowed_relationship_nodes = {*selected_ids, *test_ids}
+        surfaced_relationships = [
+            edge
+            for edge in relationships
+            if edge.source_id in allowed_relationship_nodes
+            and edge.target_id in allowed_relationship_nodes
+            and edge.source_id in nodes
+            and edge.target_id in nodes
+        ]
+        dropped_relationships = len(relationships) - len(surfaced_relationships)
+        if dropped_relationships:
+            ConsultationWorkflow._record_truncation(
+                execution_metadata,
+                kind="relationship_endpoint_not_surfaced",
+                cluster_id=cluster.cluster_id,
+                dropped=dropped_relationships,
+            )
+        relationship_evidence = [
+            AtlasRelationshipEvidence(
+                edge_id=edge.edge_id,
+                edge_type=edge.edge_type,
+                source=ConsultationWorkflow._atlas_node_summary(nodes[edge.source_id]),
+                target=ConsultationWorkflow._atlas_node_summary(nodes[edge.target_id]),
+                confidence=edge.confidence,
+                location=edge.location,
+            )
+            for edge in surfaced_relationships
+        ]
+        test_evidence = [
+            ConsultationWorkflow._atlas_node_summary(nodes[node_id])
+            for node_id in test_ids
+            if node_id in nodes
+        ]
         return FocusedAnalysisPacket(
             cluster=cluster,
             node_summaries=summaries,
+            node_evidence=node_evidence,
             metrics=metrics,
-            relationships=relationships,
-            test_ids=sorted(test_ids),
+            relationships=surfaced_relationships,
+            relationship_evidence=relationship_evidence,
+            test_ids=[item.node_id for item in test_evidence],
+            test_evidence=test_evidence,
             excerpts=excerpts,
             policies=policies,
             assumptions=[item.text for item in case.assumptions],
@@ -1348,14 +1518,77 @@ class ConsultationWorkflow:
         )
 
     @staticmethod
+    def _canonicalize_analysis_claim_ids(
+        analyses: list[ConcernAnalysis],
+        *,
+        metadata: dict[str, object],
+    ) -> list[ConcernAnalysis]:
+        """Make cluster-local claim identities unambiguous before synthesis."""
+        occurrences = Counter(
+            claim.claim_id
+            for analysis in analyses
+            for claim in analysis.findings
+        )
+        reserved_ids = {"none", "null", "n/a", "unknown"}
+        used_ids = {
+            claim_id
+            for claim_id, count in occurrences.items()
+            if count == 1 and claim_id.casefold() not in reserved_ids
+        }
+        repairs = metadata.get("model_output_repairs")
+        updated_analyses: list[ConcernAnalysis] = []
+        for analysis in analyses:
+            findings = []
+            changed = False
+            for ordinal, claim in enumerate(analysis.findings, start=1):
+                if (
+                    occurrences[claim.claim_id] == 1
+                    and claim.claim_id.casefold() not in reserved_ids
+                ):
+                    findings.append(claim)
+                    continue
+                serialized = canonical_json(
+                    {
+                        "cluster_id": analysis.cluster_id,
+                        "ordinal": ordinal,
+                        "claim": claim,
+                    }
+                )
+                digest = sha256(serialized.encode("utf-8")).hexdigest()
+                replacement = f"claim_{digest[:24]}"
+                suffix = 24
+                while replacement in used_ids:
+                    suffix += 4
+                    replacement = f"claim_{digest[:suffix]}"
+                used_ids.add(replacement)
+                findings.append(claim.model_copy(update={"claim_id": replacement}))
+                changed = True
+                if isinstance(repairs, list):
+                    repairs.append(
+                        {
+                            "kind": "reassigned_ambiguous_analysis_claim_id",
+                            "cluster_id": analysis.cluster_id,
+                            "from_claim_id": claim.claim_id,
+                            "to_claim_id": replacement,
+                        }
+                    )
+            updated_analyses.append(
+                analysis.model_copy(update={"findings": findings})
+                if changed
+                else analysis
+            )
+        return updated_analyses
+
+    @staticmethod
     def _prepare_concern_analysis(
         analysis: ConcernAnalysis,
         *,
         packet: FocusedAnalysisPacket,
         metadata: dict[str, object],
     ) -> ConcernAnalysis:
+        updates: dict[str, object] = {}
+        repairs = metadata.get("model_output_repairs")
         if analysis.cluster_id != packet.cluster.cluster_id:
-            repairs = metadata.get("model_output_repairs")
             if isinstance(repairs, list):
                 repairs.append(
                     {
@@ -1364,9 +1597,20 @@ class ConsultationWorkflow:
                         "to_cluster_id": packet.cluster.cluster_id,
                     }
                 )
-            analysis = analysis.model_copy(
-                update={"cluster_id": packet.cluster.cluster_id}
-            )
+            updates["cluster_id"] = packet.cluster.cluster_id
+        if analysis.concern != packet.cluster.title:
+            if isinstance(repairs, list):
+                repairs.append(
+                    {
+                        "kind": "corrected_concern_analysis_title",
+                        "cluster_id": packet.cluster.cluster_id,
+                        "from_concern": analysis.concern,
+                        "to_concern": packet.cluster.title,
+                    }
+                )
+            updates["concern"] = packet.cluster.title
+        if updates:
+            analysis = analysis.model_copy(update=updates)
         return ConsultationWorkflow._drop_unsupported_concern_evidence(
             analysis,
             packet=packet,
@@ -1450,9 +1694,7 @@ class ConsultationWorkflow:
             return analysis
         if isinstance(repairs, list):
             repairs.extend(pending_repairs)
-        return analysis.model_copy(
-            update={"findings": findings, "policy_conflicts": conflicts}
-        )
+        return analysis.model_copy(update={"findings": findings, "policy_conflicts": conflicts})
 
     @staticmethod
     def _validate_concern_analysis(
@@ -1532,27 +1774,23 @@ class ConsultationWorkflow:
                 {
                     "kind": "restored_canonical_synthesis_artifact",
                     "field": field,
-                    "model_output": [
-                        item.model_dump(mode="json") for item in actual
-                    ],
-                    "canonical_input": [
-                        item.model_dump(mode="json") for item in expected
-                    ],
+                    "model_output": [item.model_dump(mode="json") for item in actual],
+                    "canonical_input": [item.model_dump(mode="json") for item in expected],
                 }
             )
-        retrieved = {
-            item.policy.id: item
-            for packet in packets
-            for item in packet.policies
+        canonical_policy_by_id = {
+            summary.id: summary
+            for summary in canonical_policy_evidence(
+                item for packet in packets for item in packet.policies
+            )
         }
         policy_evidence: list[PolicyEvidenceSummary] = []
         policy_evidence_changed = False
         for summary in report.policy_evidence:
-            item = retrieved.get(summary.id)
-            if item is None:
+            expected_summary = canonical_policy_by_id.get(summary.id)
+            if expected_summary is None:
                 policy_evidence.append(summary)
                 continue
-            expected_summary = PolicyEvidenceSummary.from_retrieved(item)
             policy_evidence.append(expected_summary)
             if summary == expected_summary:
                 continue
@@ -1590,37 +1828,29 @@ class ConsultationWorkflow:
             raise ModelOutputValidationError(
                 "Final synthesis did not preserve the evaluated alternatives"
             )
-        retrieved: dict[str, RetrievedPolicy] = {}
-        matched_sections: dict[str, set[str]] = {}
-        for packet in packets:
-            for item in packet.policies:
-                retrieved.setdefault(item.policy.id, item)
-                matched_sections.setdefault(item.policy.id, set()).update(
-                    " ".join(chunk.section.split()).casefold()
-                    for chunk in item.chunks
-                )
+        cluster_ids = {packet.cluster.cluster_id for packet in packets}
+        finding_cluster_ids = {
+            finding.concern_cluster_id
+            for finding in report.findings
+            if finding.concern_cluster_id is not None
+        }
+        if finding_cluster_ids != cluster_ids:
+            raise ModelOutputValidationError(
+                "Final synthesis must provide findings for every concern cluster"
+            )
+        expected_policy_evidence = {
+            summary.id: summary
+            for summary in canonical_policy_evidence(
+                item for packet in packets for item in packet.policies
+            )
+        }
         for summary in report.policy_evidence:
-            item = retrieved.get(summary.id)
-            if item is None:
-                raise ModelOutputValidationError(
-                    "Final synthesis invented a policy evidence ID"
-                )
-            policy = item.policy
-            if (
-                summary.title != policy.title
-                or summary.scope != policy.scope
-                or summary.strength != policy.strength
-            ):
+            expected = expected_policy_evidence.get(summary.id)
+            if expected is None:
+                raise ModelOutputValidationError("Final synthesis invented a policy evidence ID")
+            if summary != expected:
                 raise ModelOutputValidationError(
                     f"Final synthesis altered canonical metadata for policy {summary.id}"
-                )
-            sections = {
-                " ".join(section.split()).casefold()
-                for section in summary.matched_sections
-            }
-            if not sections <= matched_sections[summary.id]:
-                raise ModelOutputValidationError(
-                    f"Final synthesis invented matched sections for policy {summary.id}"
                 )
 
     @staticmethod
@@ -1639,7 +1869,7 @@ class ConsultationWorkflow:
         run: ConsultationRun,
         atlas: Atlas | None,
         report: RecommendationReport,
-        forces: list[DesignForce],
+        advisor_forces: list[DesignForce],
         alternatives: list[CaseAlternative],
         analyses: list[ConcernAnalysis],
     ) -> ArchitectureCase:
@@ -1662,14 +1892,14 @@ class ConsultationWorkflow:
         )
         return case.model_copy(
             update={
-                "design_forces": [
+                "advisor_design_forces": [
                     CaseStatement(
                         id=force.force_id,
                         text=f"{force.title}: {force.description}",
                         kind=StatementKind.FORCE,
                         source=run.run_id,
                     )
-                    for force in forces
+                    for force in advisor_forces
                 ],
                 "repository": (
                     RepositoryReference(
@@ -1696,8 +1926,21 @@ class ConsultationWorkflow:
 
     @staticmethod
     def _sanitize_error(error: Exception, atlas: Atlas | None) -> str:
-        if isinstance(error, ModelOutputValidationError):
-            message = "Structured model output failed validation"
+        if isinstance(error, ClusterPartitionError):
+            message = str(error)
+        elif isinstance(error, ModelOutputValidationError):
+            detail = str(error)
+            safe_synthesis_messages = {
+                "Final synthesis did not preserve the discovered design forces",
+                "Final synthesis did not preserve the evaluated alternatives",
+                "Final synthesis must provide findings for every concern cluster",
+                "Final synthesis invented a policy evidence ID",
+            }
+            message = (
+                detail
+                if detail in safe_synthesis_messages
+                else "Structured model output failed validation"
+            )
         else:
             message = " ".join(str(error).split())
         if atlas is not None:
@@ -1705,6 +1948,185 @@ class ConsultationWorkflow:
         message = re.sub(r"(?<![:\w])/[^\s;,)]+", "<path>", message)
         message = message[:500]
         return f"{type(error).__name__}: {message or 'operation failed'}"
+
+    @staticmethod
+    def _merge_user_design_forces(
+        case: ArchitectureCase,
+        advisor_forces: list[DesignForce],
+    ) -> list[DesignForce]:
+        user_forces: list[DesignForce] = []
+        for statement in case.design_forces:
+            raw_title, separator, raw_description = statement.text.partition(":")
+            title = raw_title.strip() if separator else statement.text.strip()
+            description = (
+                raw_description.strip()
+                if separator and raw_description.strip()
+                else statement.text.strip()
+            )
+            user_forces.append(
+                DesignForce(
+                    force_id=statement.id,
+                    title=title,
+                    description=description,
+                    importance="user-specified",
+                )
+            )
+        used_ids = {force.force_id for force in user_forces}
+        normalized_advisor_forces: list[DesignForce] = []
+        for force in advisor_forces:
+            normalized = force
+            while normalized.force_id in used_ids:
+                normalized = normalized.model_copy(update={"force_id": new_id("force")})
+            used_ids.add(normalized.force_id)
+            normalized_advisor_forces.append(normalized)
+        return [*user_forces, *normalized_advisor_forces]
+
+    @staticmethod
+    def _atlas_node_summary(node: AtlasNode) -> AtlasNodeSummary:
+        return AtlasNodeSummary(
+            node_id=node.atlas_id,
+            qualified_name=node.qualified_name,
+            node_type=node.node_type,
+            path=node.path,
+            location=(
+                SourceLocation(
+                    path=node.path,
+                    start_line=node.start_line,
+                    end_line=node.end_line,
+                )
+                if node.start_line is not None and node.end_line is not None
+                else None
+            ),
+            is_public=node.is_public,
+        )
+
+    @staticmethod
+    def _atlas_overview(atlas: Atlas) -> AtlasOverview:
+        root = next(
+            (node for node in atlas.nodes if node.node_type == NodeType.REPOSITORY),
+            None,
+        )
+        top_level = sorted(
+            [node for node in atlas.nodes if root is not None and node.parent_id == root.atlas_id],
+            key=lambda node: (node.node_type.value, node.qualified_name),
+        )[:20]
+        profiles = {profile.node_id: profile for profile in atlas.metrics}
+        signals_by_node: dict[str, list[ObscuritySignal]] = {}
+        for signal in atlas.signals:
+            signals_by_node.setdefault(signal.node_id, []).append(signal)
+        signal_priority = {
+            "broad-input-boundary-preparation": 0,
+            "parallel-boundary-preparation": 1,
+            "cyclic-dependency": 2,
+        }
+        representative_signals: list[ObscuritySignal] = []
+        signals_by_code: dict[str, list[ObscuritySignal]] = {}
+        for signal in atlas.signals:
+            signals_by_code.setdefault(signal.code, []).append(signal)
+        for code in sorted(
+            signals_by_code,
+            key=lambda value: (signal_priority.get(value, 2), value),
+        ):
+            representative_signals.extend(
+                sorted(
+                    signals_by_code[code],
+                    key=lambda signal: (signal.node_id, signal.message),
+                )[:2]
+            )
+            if len(representative_signals) >= 20:
+                break
+        representative_signals = representative_signals[:20]
+
+        candidate_types = {
+            NodeType.MODULE,
+            NodeType.TEST_MODULE,
+            NodeType.CONFIGURATION,
+            NodeType.CLASS,
+            NodeType.INTERFACE,
+        }
+
+        def hotspot_values(node: AtlasNode) -> tuple[int, int, int, int]:
+            profile = profiles.get(node.atlas_id)
+            if profile is None:
+                return (0, 0, 0, 0)
+            return (
+                profile.change_amplification.likely_affected_modules,
+                profile.dependency.reverse_dependency_reach,
+                profile.dependency.fan_out,
+                profile.local.branch_count,
+            )
+
+        candidates = [
+            node
+            for node in atlas.nodes
+            if node.node_type in candidate_types and any(hotspot_values(node))
+        ]
+        candidates.sort(
+            key=lambda node: (
+                *[-value for value in hotspot_values(node)],
+                node.qualified_name,
+                node.atlas_id,
+            )
+        )
+        hotspots: list[AtlasNodeEvidence] = []
+        metric_names = (
+            "change_amplification.likely_affected_modules",
+            "dependency.reverse_dependency_reach",
+            "dependency.fan_out",
+            "local.branch_count",
+        )
+        for node in candidates[:8]:
+            profile = profiles[node.atlas_id]
+            values = hotspot_values(node)
+            selected_index = max(
+                range(len(values)),
+                key=lambda index: (values[index], -index),
+            )
+            metric_name = canonical_metric_name(metric_names[selected_index])
+            hotspots.append(
+                AtlasNodeEvidence(
+                    node=ConsultationWorkflow._atlas_node_summary(node),
+                    reasons=[
+                        AtlasSelectionReason(
+                            kind=AtlasSelectionReasonKind.METRIC_RANK,
+                            explanation=(
+                                f"Selected for elevated {metric_name}={values[selected_index]}."
+                            ),
+                            metric=metric_name,
+                        )
+                    ],
+                    metrics=salient_profile_observations(profile),
+                    signals=signals_by_node.get(node.atlas_id, [])[:5],
+                )
+            )
+        return AtlasOverview(
+            atlas_version_id=atlas.version.version_id,
+            repository_identity=atlas.version.repository_identity,
+            node_count=len(atlas.nodes),
+            edge_count=len(atlas.edges),
+            signal_count=len(atlas.signals),
+            node_type_counts=dict(
+                sorted(Counter(node.node_type.value for node in atlas.nodes).items())
+            ),
+            edge_type_counts=dict(
+                sorted(Counter(edge.edge_type.value for edge in atlas.edges).items())
+            ),
+            signal_code_counts=dict(
+                sorted(Counter(signal.code for signal in atlas.signals).items())
+            ),
+            signals=representative_signals,
+            top_level_nodes=[ConsultationWorkflow._atlas_node_summary(node) for node in top_level],
+            hotspots=hotspots,
+            limitations=[
+                "The atlas is derived from conservative static resolution; runtime dispatch "
+                "and dynamic imports may be absent.",
+                "Change-amplification and cognitive-scope values are structural proxies, "
+                "not model interpretations or maintainability scores.",
+                "Atlas signals are bounded static observations or explicitly labelled "
+                "structural proxies; they identify investigation targets, not architecture "
+                "violations.",
+            ],
+        )
 
     @staticmethod
     def _global_context(case: ArchitectureCase, atlas: Atlas | None) -> GlobalContext:
@@ -1726,6 +2148,15 @@ class ConsultationWorkflow:
             confirmed_facts=[item.text for item in case.confirmed_facts],
             assumptions=[item.text for item in case.assumptions],
             unresolved_questions=[item.text for item in case.unresolved_questions],
+            user_design_forces=[item.text for item in case.design_forces],
+            policy_applicability=PolicyApplicabilityContext(
+                user=case.policy_applicability.user,
+                organisation=case.policy_applicability.organisation,
+                repository=(atlas.version.repository_identity if atlas is not None else None),
+            ),
+            atlas_overview=(
+                ConsultationWorkflow._atlas_overview(atlas) if atlas is not None else None
+            ),
             atlas_summary=(
                 f"{len(atlas.nodes)} nodes, {len(atlas.edges)} edges, "
                 f"{len(atlas.signals)} objective signals"

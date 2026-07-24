@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { policyApplicabilityLabel } from "../policy-applicability";
 import type { Policy } from "../types";
 import { filterPolicies } from "./PoliciesPage";
 
@@ -8,6 +9,7 @@ const policies: Policy[] = [
     id: "POL-OWN-001",
     title: "Keep capability knowledge with its owner",
     scope: "general",
+    applies_to: null,
     strength: "preferred",
     tags: ["ownership", "providers"],
     source: { author: "Arch Compass", inspiration: [] },
@@ -19,6 +21,7 @@ const policies: Policy[] = [
     id: "POL-LOCAL-001",
     title: "Keep one behavior local",
     scope: "repository",
+    applies_to: "repo_arch_compass",
     strength: "guidance",
     tags: ["abstraction"],
     source: { author: "Team", inspiration: [] },
@@ -39,5 +42,15 @@ describe("policy catalog filtering", () => {
   it("combines search with scope", () => {
     expect(filterPolicies(policies, "local", "repository")).toEqual([policies[1]]);
     expect(filterPolicies(policies, "local", "general")).toEqual([]);
+  });
+
+  it("searches and labels scoped policy identity", () => {
+    expect(filterPolicies(policies, "repo_arch_compass", "all")).toEqual([
+      policies[1],
+    ]);
+    expect(policyApplicabilityLabel("general", null)).toBe("All contexts");
+    expect(
+      policyApplicabilityLabel("repository", "repo_arch_compass"),
+    ).toBe("repository · repo_arch_compass");
   });
 });

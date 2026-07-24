@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from hashlib import sha256
 from pathlib import Path
@@ -10,6 +11,7 @@ from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.adapters.retrieval.policy_markdown import load_policy_sources
 from archcompass.domain.errors import PolicyFormatError, PolicyNotFoundError
 from archcompass.domain.policy import (
+    PolicyApplicabilityContext,
     PolicyChunk,
     PolicyDocument,
     PolicyIndexVersion,
@@ -132,8 +134,26 @@ class SQLitePolicyStore:
     def _corpus_hash(
         parsed: list[tuple[PolicyDocument, list[PolicyChunk]]],
     ) -> str:
+        identities = [
+            {
+                "applies_to": policy.applies_to,
+                "content_hash": policy.content_hash,
+                "policy_id": policy.id,
+                "scope": policy.scope.value,
+                "source_path": policy.source_path,
+            }
+            for policy, _ in sorted(
+                parsed,
+                key=lambda item: (item[0].id, item[0].source_path),
+            )
+        ]
         return sha256(
-            "\0".join(policy.content_hash for policy, _ in parsed).encode("utf-8")
+            json.dumps(
+                identities,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
         ).hexdigest()
 
     @staticmethod
@@ -180,6 +200,7 @@ class SQLitePolicyStore:
         top_k: int,
         version_id: str | None = None,
         max_sections_per_policy: int | None = None,
+        applicability: PolicyApplicabilityContext | None = None,
     ) -> list[RetrievedPolicy]:
         if top_k < 1:
             raise ValueError("top_k must be at least one")
@@ -238,9 +259,12 @@ class SQLitePolicyStore:
                     ).fetchone()
                     if joined is None:
                         continue
+                    policy = PolicyDocument.model_validate_json(joined["policy_json"])
+                    if not policy.applies_in(applicability):
+                        continue
                     candidates.append(
                         (
-                            PolicyDocument.model_validate_json(joined["policy_json"]),
+                            policy,
                             PolicyChunk.model_validate_json(joined["chunk_json"]),
                             float(row["distance"]),
                         )

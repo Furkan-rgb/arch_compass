@@ -4,20 +4,38 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from hashlib import sha256
 from typing import ClassVar, TypeVar, cast
 
 import httpx
-from pydantic import BaseModel, Field, RootModel, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError
 
+from archcompass.adapters.models.prompt_contracts import (
+    ANALYZE_CONCERN_CLUSTER,
+    ANSWER_REPORT_QUESTION,
+    CLASSIFY_REPORT_QUESTION,
+    CLUSTER_DESIGN_FORCES,
+    DISCOVER_DESIGN_FORCES,
+    EVALUATE_SCENARIOS,
+    GENERATE_ALTERNATIVES,
+    LINK_STATEMENT_SUPPORT,
+    OLLAMA_STAGE_PROMPTS,
+    PLAN_ATLAS_QUERIES,
+    REPAIR_CONVERSATION_ANSWER,
+    SUMMARIZE_REPORT_CONVERSATION,
+    SYNTHESIZE_RECOMMENDATION,
+    PromptContract,
+)
 from archcompass.configuration import EmbeddingModelConfig, ReasoningModelConfig
+from archcompass.domain.base import canonical_json
 from archcompass.domain.case import ArchitectureCase, CaseAlternative
 from archcompass.domain.consultation import (
+    Claim,
+    ClaimClassification,
     ClusterQueryPlan,
     ConcernAnalysis,
     ConcernCluster,
-    ConcernClusterList,
     DesignForce,
     FocusedAnalysisPacket,
     FocusedNodeSummary,
@@ -26,8 +44,25 @@ from archcompass.domain.consultation import (
     ScenarioEvaluation,
     SupportedStatement,
 )
-from archcompass.domain.errors import ModelOutputValidationError, ProviderError
-from archcompass.domain.policy import PolicyEvidenceSummary
+from archcompass.domain.conversation import (
+    ConversationAnswer,
+    ConversationMessageView,
+    ConversationSummary,
+    ReportConversationContext,
+    ReportQuestionPlan,
+    ReportQuestionPlanningContext,
+)
+from archcompass.domain.diagnostics import (
+    FailureDiagnostic,
+    FailureDiagnosticCode,
+    format_failure_diagnostic,
+)
+from archcompass.domain.errors import (
+    ClusterPartitionError,
+    ModelOutputValidationError,
+    ProviderError,
+)
+from archcompass.domain.policy import canonical_policy_evidence
 
 Item = TypeVar("Item", bound=BaseModel)
 
@@ -39,8 +74,32 @@ def _object_mapping(value: object) -> dict[str, object] | None:
     return {str(key): item for key, item in source.items()}
 
 
-class DesignForceList(RootModel[list[DesignForce]]):
-    root: list[DesignForce] = Field(min_length=1, max_length=8)
+class ProposedDesignForce(BaseModel):
+    """Model-facing force content; identity is owned by ArchCompass."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    importance: str = Field(min_length=1)
+
+
+class ProposedDesignForceList(RootModel[list[ProposedDesignForce]]):
+    root: list[ProposedDesignForce] = Field(min_length=1, max_length=8)
+
+
+class ProposedConcernCluster(BaseModel):
+    """Model-facing cluster content using bounded, request-local force handles."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1)
+    rationale: str = Field(min_length=1)
+    force_refs: list[str] = Field(min_length=1)
+
+
+class ProposedConcernClusterList(RootModel[list[ProposedConcernCluster]]):
+    root: list[ProposedConcernCluster]
 
 
 class ConcernAnalysisList(RootModel[list[ConcernAnalysis]]):
@@ -108,13 +167,7 @@ class OllamaEmbeddingProvider:
 
 class OllamaReasoningProvider:
     _PROMPTS: ClassVar[dict[str, str]] = {
-        "discover_design_forces": "discover-design-forces:v2",
-        "cluster_design_forces": "cluster-design-forces:v1",
-        "plan_atlas_queries": "plan-cluster-atlas-queries:v3",
-        "analyze_concern_cluster": "analyze-concern:v3",
-        "generate_alternatives": "generate-alternatives:v2",
-        "evaluate_scenarios": "evaluate-scenarios:v2",
-        "synthesize_recommendation": "synthesize-recommendation:v2",
+        task: contract.identity for task, contract in OLLAMA_STAGE_PROMPTS.items()
     }
 
     def __init__(self, config: ReasoningModelConfig) -> None:
@@ -138,25 +191,77 @@ class OllamaReasoningProvider:
         return actions
 
     def discover_design_forces(self, context: GlobalContext) -> list[DesignForce]:
-        return self._complete(
-            "Discover the important software architecture design forces. "
-            "Separate confirmed facts from assumptions.",
+        proposed = self._complete(
+            DISCOVER_DESIGN_FORCES,
             context,
-            DesignForceList,
+            ProposedDesignForceList,
         ).root
+        forces: list[DesignForce] = []
+        known_ids: set[str] = set()
+        for item in proposed:
+            force = DesignForce(
+                title=item.title,
+                description=item.description,
+                importance=item.importance,
+            )
+            while force.force_id in known_ids:
+                force = DesignForce(
+                    title=item.title,
+                    description=item.description,
+                    importance=item.importance,
+                )
+            known_ids.add(force.force_id)
+            forces.append(force)
+        return forces
 
     def cluster_design_forces(
         self, context: GlobalContext, forces: list[DesignForce]
     ) -> list[ConcernCluster]:
-        return self._complete(
-            "Group all supplied design forces into one to four focused concern clusters. "
-            "Every force ID must appear exactly once and no other force ID may appear.",
+        if len({force.force_id for force in forces}) != len(forces):
+            raise ValueError("Design force IDs must be unique before clustering")
+        handled_forces = [(f"F{index}", force) for index, force in enumerate(forces, start=1)]
+        ids_by_handle = {handle: force.force_id for handle, force in handled_forces}
+        proposed = self._complete(
+            CLUSTER_DESIGN_FORCES,
             {
                 "context": context.model_dump(mode="json"),
-                "forces": [force.model_dump(mode="json") for force in forces],
+                "forces": [
+                    {
+                        "force_ref": handle,
+                        "title": force.title,
+                        "description": force.description,
+                        "importance": force.importance,
+                    }
+                    for handle, force in handled_forces
+                ],
             },
-            ConcernClusterList,
+            ProposedConcernClusterList,
+            runtime_instruction=(
+                "Use only the supplied force_ref handles in force_refs. "
+                f"Allowed force handles: {list(ids_by_handle)}. "
+                "Assign every handle exactly once across all clusters. "
+                "ArchCompass owns internal force and cluster IDs; do not create or copy them."
+            ),
+            schema_override=self._cluster_proposal_schema(set(ids_by_handle)),
+            candidate_validator=lambda candidate: self._force_handle_partition_errors(
+                candidate.root,
+                set(ids_by_handle),
+            ),
+            candidate_error_factory=lambda candidate: ClusterPartitionError(
+                self._force_handle_partition_diagnostics(
+                    candidate.root,
+                    set(ids_by_handle),
+                )
+            ),
         ).root
+        return [
+            ConcernCluster(
+                title=cluster.title,
+                rationale=cluster.rationale,
+                design_force_ids=[ids_by_handle[force_ref] for force_ref in cluster.force_refs],
+            )
+            for cluster in proposed
+        ]
 
     def plan_atlas_queries(
         self,
@@ -184,59 +289,38 @@ class OllamaReasoningProvider:
             for cluster in clusters
         }
         return self._complete(
-            "Return exactly one query plan keyed by each supplied cluster ID. Plan only "
-            "focused, bounded atlas queries. Queries in one plan are executed as a batch: "
-            "a search result from that plan is not available to another query until the next "
-            "iteration. Node-based queries may therefore use only the corresponding cluster's "
-            f"allowed node IDs from prior iterations: {allowed_node_ids}. Never invent or infer "
-            "a node ID from a symbol name. When a cluster has no allowed node IDs, use only "
-            "ID-free discovery queries: repository_summary, search_nodes, hotspots, or "
-            "cyclic_components. Prefer documented hotspot metrics such as "
-            "reverse_dependency_reach, fan_in, or cycle_size.",
+            PLAN_ATLAS_QUERIES,
             payload,
             ClusterQueryPlanList,
+            runtime_instruction=f"Allowed node IDs by cluster: {allowed_node_ids}.",
         ).root
 
     def analyze_concern_cluster(
         self,
         context: GlobalContext,
         packet: FocusedAnalysisPacket,
-        *,
-        validation_feedback: str | None = None,
     ) -> ConcernAnalysis:
         allowed_node_ids = sorted(packet.surfaced_node_ids)
         allowed_policy_ids = sorted(item.policy.id for item in packet.policies)
-        retry_instruction = (
-            ""
-            if validation_feedback is None
-            else (
-                " This is one bounded correction attempt. The previous analysis was rejected "
-                "by semantic evidence validation. Correct the complete analysis using this "
-                f"feedback: {validation_feedback}"
-            )
-        )
         return self._complete(
-            "Analyze exactly one concern cluster. "
-            f"Set cluster_id exactly to {packet.cluster.cluster_id!r}. "
-            f"Allowed atlas node IDs: {allowed_node_ids or ['none']}. "
-            f"Allowed policy IDs: {allowed_policy_ids or ['none']}. "
-            "Use no other evidence IDs. When no atlas IDs are allowed, do not classify any "
-            "finding as a repository observation. When no policy IDs are allowed, do not "
-            "classify any finding as policy guidance. A repository observation must cite an "
-            "allowed node ID and copy a source location that lies within that node's surfaced "
-            "location. If exact repository support is unavailable, omit the finding or classify "
-            "it as an advisor inference without an atlas reference."
-            f"{retry_instruction}",
+            ANALYZE_CONCERN_CLUSTER,
             {"context": context.model_dump(mode="json"), "packet": packet.model_dump(mode="json")},
             ConcernAnalysis,
+            runtime_instruction=(
+                f"Set cluster_id exactly to {packet.cluster.cluster_id!r}. "
+                f"Allowed atlas node IDs: {allowed_node_ids or ['none']}. "
+                f"Allowed policy IDs: {allowed_policy_ids or ['none']}. "
+                "Use no other evidence IDs. When no atlas IDs are allowed, do not classify a "
+                "finding as a repository observation. When no policy IDs are allowed, do not "
+                "classify a finding as policy guidance."
+            ),
         )
 
     def generate_alternatives(
         self, context: GlobalContext, analyses: list[ConcernAnalysis]
     ) -> list[CaseAlternative]:
         return self._complete(
-            "Generate between two and five credible alternatives. Include preserving the "
-            "current design when justified; do not assume a new abstraction is required.",
+            GENERATE_ALTERNATIVES,
             {
                 "context": context.model_dump(mode="json"),
                 "analyses": [item.model_dump(mode="json") for item in analyses],
@@ -250,18 +334,50 @@ class OllamaReasoningProvider:
         alternatives: list[CaseAlternative],
         analyses: list[ConcernAnalysis],
     ) -> list[ScenarioEvaluation]:
-        return self._complete(
-            "Evaluate every alternative against at least one future scenario and its "
-            "assumptions. Use the stated future changes when present. If none are stated, "
-            "evaluate the baseline scenario that requirements remain stable and no credible "
-            "variation appears.",
+        alternative_handles = {
+            f"A{ordinal}": item.id
+            for ordinal, item in enumerate(alternatives, start=1)
+        }
+        completed = self._complete(
+            EVALUATE_SCENARIOS,
             {
                 "context": context.model_dump(mode="json"),
-                "alternatives": [item.model_dump(mode="json") for item in alternatives],
+                "alternatives": [
+                    {
+                        "alternative_ref": handle,
+                        "title": alternative.title,
+                        "summary": alternative.summary,
+                    }
+                    for handle, alternative in zip(
+                        alternative_handles,
+                        alternatives,
+                        strict=True,
+                    )
+                ],
                 "analyses": [item.model_dump(mode="json") for item in analyses],
             },
             ScenarioList,
+            runtime_instruction=(
+                "Every alternative_results object must contain exactly these keys, "
+                f"once each, with no aliases or replacements: "
+                f"{list(alternative_handles)}."
+            ),
+            candidate_validator=lambda candidate: self._scenario_coverage_errors(
+                candidate.root,
+                allowed_alternative_ids=set(alternative_handles),
+            ),
         ).root
+        return [
+            scenario.model_copy(
+                update={
+                    "alternative_results": {
+                        alternative_handles[handle]: result
+                        for handle, result in scenario.alternative_results.items()
+                    }
+                }
+            )
+            for scenario in completed
+        ]
 
     def synthesize_recommendation(
         self,
@@ -273,8 +389,6 @@ class OllamaReasoningProvider:
         alternatives: list[CaseAlternative],
         scenarios: list[ScenarioEvaluation],
         packets: list[FocusedAnalysisPacket],
-        *,
-        validation_feedback: str | None = None,
     ) -> RecommendationReport:
         allowed_node_ids = sorted(
             {node_id for packet in packets for node_id in packet.surfaced_node_ids}
@@ -282,46 +396,11 @@ class OllamaReasoningProvider:
         allowed_policy_ids = sorted(
             {retrieved.policy.id for packet in packets for retrieved in packet.policies}
         )
-        policy_evidence_by_id: dict[str, PolicyEvidenceSummary] = {}
-        for packet in packets:
-            for retrieved in packet.policies:
-                policy_evidence_by_id.setdefault(
-                    retrieved.policy.id,
-                    PolicyEvidenceSummary.from_retrieved(retrieved),
-                )
-        retry_instruction = (
-            ""
-            if validation_feedback is None
-            else (
-                " This is one bounded correction attempt after semantic validation failed. "
-                "Preserve the recommendation unless an evidence correction requires changing "
-                "it, return the complete report, and fix every reported error. "
-                f"Validation feedback: {validation_feedback}"
-            )
+        policy_evidence = canonical_policy_evidence(
+            retrieved for packet in packets for retrieved in packet.policies
         )
         report = self._complete(
-            "Synthesize one coherent recommendation and ADR. Never invent evidence references. "
-            "Populate every required report section. Even when no code change is recommended, "
-            "provide concrete steps to preserve the local design and record the decision. "
-            "First create the report's classified claims with stable claim_id values. Every "
-            "semantically different claim must have a globally unique claim_id across all "
-            "report sections. Never reuse a claim_id for different text, classification, atlas "
-            "references, or policy IDs. If evidence_appendix repeats a claim from another "
-            "section, copy the entire claim object exactly. "
-            "Every "
-            "SupportedStatement must include a non-empty supporting_claim_ids array containing "
-            "one or more exact claim_id values present in that same report; never omit this "
-            "field and never return an empty array. "
-            "Use these exact report-section classifications: confirmed_context only "
-            "confirmed_user_requirement; assumptions_and_unresolved_questions only "
-            "scenario_assumption; repository_observations only repository_observation; "
-            "relevant_policies only policy_guidance. "
-            f"Allowed atlas node IDs: {allowed_node_ids or ['none']}. "
-            f"Allowed policy IDs: {allowed_policy_ids or ['none']}. "
-            "Use no other evidence IDs. When no atlas IDs are allowed, repository_observations "
-            "must be empty and no claim may contain an atlas reference. Policy-guidance claims "
-            "must reference at least one allowed policy ID."
-            f"{retry_instruction}",
+            SYNTHESIZE_RECOMMENDATION,
             {
                 "case": case.model_dump(mode="json"),
                 "context": context.model_dump(mode="json"),
@@ -330,46 +409,143 @@ class OllamaReasoningProvider:
                 "analyses": [item.model_dump(mode="json") for item in analyses],
                 "alternatives": [item.model_dump(mode="json") for item in alternatives],
                 "scenarios": [item.model_dump(mode="json") for item in scenarios],
-                "packets": [item.model_dump(mode="json") for item in packets],
+                "policy_evidence": [item.model_dump(mode="json") for item in policy_evidence],
             },
             RecommendationReport,
+            runtime_instruction=(
+                f"Allowed atlas node IDs: {allowed_node_ids or ['none']}. "
+                f"Allowed policy IDs: {allowed_policy_ids or ['none']}. "
+                "Use no other evidence IDs. When no atlas IDs are allowed, "
+                "repository_observations must be empty and no claim may contain an atlas "
+                "reference. Every policy-guidance claim must reference at least one allowed "
+                "policy ID."
+            ),
             normalization_context={
-                "important_design_forces": [
-                    item.model_dump(mode="json") for item in forces
-                ],
-                "alternatives_considered": [
-                    item.model_dump(mode="json") for item in alternatives
-                ],
-                "scenario_analysis": [
-                    item.model_dump(mode="json") for item in scenarios
-                ],
-                "policy_evidence": [
-                    item.model_dump(mode="json")
-                    for item in policy_evidence_by_id.values()
-                ],
+                "important_design_forces": [item.model_dump(mode="json") for item in forces],
+                "alternatives_considered": [item.model_dump(mode="json") for item in alternatives],
+                "scenario_analysis": [item.model_dump(mode="json") for item in scenarios],
+                "policy_evidence": [item.model_dump(mode="json") for item in policy_evidence],
             },
         )
-        return self._link_report_support(report)
+        return self._link_report_support(report, packets=packets)
+
+    def classify_report_question(
+        self,
+        context: ReportQuestionPlanningContext,
+    ) -> ReportQuestionPlan:
+        return self._complete(
+            CLASSIFY_REPORT_QUESTION,
+            context,
+            ReportQuestionPlan,
+            runtime_instruction=(
+                "Allowed finding IDs: "
+                f"{[item.finding_id for item in context.finding_digests]}. "
+                "Use no more than eight retrieval actions."
+            ),
+            think=False,
+            temperature=0,
+        )
+
+    def answer_report_question(
+        self,
+        context: ReportConversationContext,
+    ) -> ConversationAnswer:
+        allowed_finding_ids = {
+            item.finding_id for item in context.finding_digests
+        }
+        allowed_claim_ids = {item.claim_id for item in context.retrieved_claims}
+        allowed_evidence_ids = {
+            item.evidence_id for item in context.evidence_references
+        }
+        allowed_policy_ids = {item.policy.id for item in context.retrieved_policies}
+
+        return self._complete(
+            ANSWER_REPORT_QUESTION,
+            {
+                "question": context.question,
+                "context": context.model_dump(mode="json"),
+            },
+            ConversationAnswer,
+            runtime_instruction=(
+                f"Allowed finding IDs: {sorted(allowed_finding_ids)}. "
+                f"Allowed report claim IDs: {sorted(allowed_claim_ids)}. "
+                f"Allowed exact evidence IDs: {sorted(allowed_evidence_ids)}. "
+                f"Allowed policy IDs: {sorted(allowed_policy_ids)}."
+            ),
+            allow_repair=False,
+            think=False,
+            temperature=0,
+        )
+
+    def summarize_report_conversation(
+        self,
+        current_summary: ConversationSummary | None,
+        messages: list[ConversationMessageView],
+    ) -> ConversationSummary:
+        return self._complete(
+            SUMMARIZE_REPORT_CONVERSATION,
+            {
+                "current_summary": current_summary,
+                "messages": [item.model_dump(mode="json") for item in messages],
+            },
+            ConversationSummary,
+            think=False,
+            temperature=0,
+        )
+
+    def repair_conversation_answer(
+        self,
+        answer: ConversationAnswer,
+        errors: list[str],
+        allowed_finding_ids: set[str],
+        allowed_claim_ids: set[str],
+        allowed_evidence_ids: set[str],
+        allowed_policy_ids: set[str],
+    ) -> ConversationAnswer:
+        return self._complete(
+            REPAIR_CONVERSATION_ANSWER,
+            {
+                "answer": answer.model_dump(mode="json"),
+                "errors": errors,
+                "allowed_finding_ids": sorted(allowed_finding_ids),
+                "allowed_claim_ids": sorted(allowed_claim_ids),
+                "allowed_evidence_ids": sorted(allowed_evidence_ids),
+                "allowed_policy_ids": sorted(allowed_policy_ids),
+            },
+            ConversationAnswer,
+            allow_repair=False,
+            think=False,
+            temperature=0,
+        )
 
     def _complete(
         self,
-        instruction: str,
+        contract: PromptContract,
         payload: BaseModel | Mapping[str, object],
         output_type: type[Item],
         *,
+        runtime_instruction: str = "",
         normalization_context: Mapping[str, object] | None = None,
         schema_override: Mapping[str, object] | None = None,
+        candidate_validator: Callable[[Item], list[str]] | None = None,
+        candidate_error_factory: (Callable[[Item], ModelOutputValidationError] | None) = None,
+        allow_repair: bool = True,
+        think: bool | str | None = None,
+        temperature: float | None = None,
     ) -> Item:
-        data = payload.model_dump(mode="json") if isinstance(payload, BaseModel) else payload
+        data = payload.model_dump(mode="json") if isinstance(payload, BaseModel) else dict(payload)
+        instruction = contract.request
+        if runtime_instruction:
+            instruction = f"{instruction}\n\nRun-specific constraints:\n{runtime_instruction}"
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "You are ArchCompass. Return only data matching the supplied JSON "
-                    "schema. Treat policies as guidance, not automatic violations."
-                ),
+                "content": contract.system_prompt,
             },
-            {"role": "user", "content": f"{instruction}\n\nInput:\n{data}"},
+            {
+                "role": "user",
+                "content": f"{instruction}\n\nInput:\n{canonical_json(data)}",
+            },
         ]
         try:
             content = self._normalize_output(
@@ -378,6 +554,8 @@ class OllamaReasoningProvider:
                     output_type,
                     messages,
                     schema_override=schema_override,
+                    think=think,
+                    temperature=temperature,
                 ),
                 normalization_context=normalization_context,
             )
@@ -386,7 +564,17 @@ class OllamaReasoningProvider:
             except ValidationError as first_error:
                 validation_errors = str(first_error)
             else:
-                return candidate
+                candidate_errors = (
+                    candidate_validator(candidate) if candidate_validator is not None else []
+                )
+                if not candidate_errors:
+                    return candidate
+                validation_errors = "; ".join(candidate_errors)
+            if not allow_repair:
+                raise ModelOutputValidationError(
+                    "Ollama returned invalid structured output: "
+                    f"{validation_errors}"
+                )
             repair_messages = [
                 *messages,
                 {"role": "assistant", "content": content},
@@ -405,6 +593,8 @@ class OllamaReasoningProvider:
                     output_type,
                     repair_messages,
                     schema_override=schema_override,
+                    think=think,
+                    temperature=temperature,
                 ),
                 normalization_context=normalization_context,
             )
@@ -415,29 +605,175 @@ class OllamaReasoningProvider:
                     "Ollama returned invalid structured output after one repair pass: "
                     f"{final_error}"
                 ) from final_error
+            candidate_errors = (
+                candidate_validator(candidate) if candidate_validator is not None else []
+            )
+            if candidate_errors:
+                if candidate_error_factory is not None:
+                    raise candidate_error_factory(candidate)
+                raise ModelOutputValidationError(
+                    "Ollama returned invalid structured output after one repair pass: "
+                    + "; ".join(candidate_errors)
+                )
             return candidate
+        except httpx.HTTPStatusError as error:
+            detail = error.response.text.strip()
+            if len(detail) > 1000:
+                detail = detail[:999].rstrip() + "…"
+            suffix = f": {detail}" if detail else ""
+            raise ProviderError(
+                f"Ollama reasoning request failed with HTTP {error.response.status_code}{suffix}"
+            ) from error
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
             raise ProviderError(f"Ollama reasoning request failed: {error}") from error
+
+    @staticmethod
+    def _scenario_coverage_errors(
+        scenarios: list[ScenarioEvaluation],
+        *,
+        allowed_alternative_ids: set[str],
+    ) -> list[str]:
+        errors: list[str] = []
+        for ordinal, scenario in enumerate(scenarios, start=1):
+            actual = set(scenario.alternative_results)
+            missing = sorted(allowed_alternative_ids - actual)
+            unknown = sorted(actual - allowed_alternative_ids)
+            if missing:
+                errors.append(
+                    f"Scenario {ordinal} omits alternative IDs: {missing}"
+                )
+            if unknown:
+                errors.append(
+                    f"Scenario {ordinal} invents alternative IDs: {unknown}"
+                )
+        return errors
+
+    @staticmethod
+    def _cluster_proposal_schema(allowed_refs: set[str]) -> dict[str, object]:
+        """Constrain model-visible references without exposing domain identifiers."""
+
+        return {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["title", "rationale", "force_refs"],
+                "properties": {
+                    "title": {"type": "string", "minLength": 1},
+                    "rationale": {"type": "string", "minLength": 1},
+                    "force_refs": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "string",
+                            "enum": sorted(allowed_refs),
+                        },
+                    },
+                },
+            },
+        }
+
+    @staticmethod
+    def _force_handle_partition_errors(
+        clusters: list[ProposedConcernCluster],
+        allowed_handles: set[str],
+    ) -> list[str]:
+        return [
+            format_failure_diagnostic(diagnostic)
+            for diagnostic in OllamaReasoningProvider._force_handle_partition_diagnostics(
+                clusters,
+                allowed_handles,
+            )
+        ]
+
+    @staticmethod
+    def _force_handle_partition_diagnostics(
+        clusters: list[ProposedConcernCluster],
+        allowed_handles: set[str],
+    ) -> list[FailureDiagnostic]:
+        assigned = [force_ref for cluster in clusters for force_ref in cluster.force_refs]
+        actual = set(assigned)
+        diagnostics: list[FailureDiagnostic] = []
+        unknown_count = sum(force_handle not in allowed_handles for force_handle in assigned)
+        missing = sorted(allowed_handles - actual)
+        duplicates = sorted(
+            force_handle
+            for force_handle in actual & allowed_handles
+            if assigned.count(force_handle) > 1
+        )
+        if not 1 <= len(clusters) <= 4:
+            diagnostics.append(
+                FailureDiagnostic(
+                    code=FailureDiagnosticCode.CLUSTER_COUNT_OUT_OF_RANGE,
+                    count=len(clusters),
+                )
+            )
+        if unknown_count:
+            diagnostics.append(
+                FailureDiagnostic(
+                    code=FailureDiagnosticCode.UNKNOWN_FORCE_REFERENCES,
+                    count=unknown_count,
+                )
+            )
+        if missing:
+            diagnostics.append(
+                FailureDiagnostic(
+                    code=FailureDiagnosticCode.MISSING_FORCE_REFERENCES,
+                    force_handles=missing,
+                )
+            )
+        if duplicates:
+            diagnostics.append(
+                FailureDiagnostic(
+                    code=FailureDiagnosticCode.DUPLICATE_FORCE_REFERENCES,
+                    force_handles=duplicates,
+                )
+            )
+        return diagnostics
 
     def _link_report_support(
         self,
         report: RecommendationReport,
+        *,
+        packets: list[FocusedAnalysisPacket],
     ) -> RecommendationReport:
         slots = self._statement_slots(report)
+        nodes_by_id = {node.node_id: node for packet in packets for node in packet.node_summaries}
+        allowed_policy_ids = {
+            retrieved.policy.id for packet in packets for retrieved in packet.policies
+        }
+        report_claims = [
+            *report.confirmed_context,
+            *report.assumptions_and_unresolved_questions,
+            *report.repository_observations,
+            *report.relevant_policies,
+            *report.evidence_appendix,
+        ]
         claims_by_id = {
             claim.claim_id: claim
-            for claim in [
-                *report.confirmed_context,
-                *report.assumptions_and_unresolved_questions,
-                *report.repository_observations,
-                *report.relevant_policies,
-                *report.evidence_appendix,
-            ]
+            for claim in report_claims
+            if self._claim_can_survive_evidence_repair(
+                claim,
+                nodes_by_id=nodes_by_id,
+                allowed_policy_ids=allowed_policy_ids,
+            )
         }
+        excluded_claim_ids = sorted({claim.claim_id for claim in report_claims} - set(claims_by_id))
+        if excluded_claim_ids:
+            self._repair_actions.append(
+                {
+                    "kind": "excluded_invalid_statement_support_claims",
+                    "claim_ids": excluded_claim_ids,
+                }
+            )
+        if not claims_by_id:
+            raise ModelOutputValidationError(
+                "The synthesized report contains no claims that can survive evidence validation"
+            )
         payload = {
-            "claims": [
-                claim.model_dump(mode="json") for claim in claims_by_id.values()
-            ],
+            "claims": [claim.model_dump(mode="json") for claim in claims_by_id.values()],
             "statements": [
                 {
                     "statement_key": key,
@@ -447,18 +783,13 @@ class OllamaReasoningProvider:
                 for key, statement in slots
             ],
         }
-        instruction = (
-            "Link every statement to one or more claims that directly support it. "
-            "Return every statement_key exactly once. Use only exact claim_id values from "
-            "the supplied claims. Do not create or rewrite claims or statements."
-        )
         schema = self._support_plan_schema(
             statement_keys={key for key, _ in slots},
             claim_ids=set(claims_by_id),
             statement_count=len(slots),
         )
         plan = self._complete(
-            instruction,
+            LINK_STATEMENT_SUPPORT,
             payload,
             StatementSupportPlan,
             schema_override=schema,
@@ -466,34 +797,58 @@ class OllamaReasoningProvider:
         errors = self._support_plan_errors(plan, slots, set(claims_by_id))
         if errors:
             plan = self._complete(
-                instruction
-                + " Correct these prior mapping errors: "
-                + "; ".join(errors),
+                LINK_STATEMENT_SUPPORT,
                 payload,
                 StatementSupportPlan,
+                runtime_instruction=("Correct these prior mapping errors: " + "; ".join(errors)),
                 schema_override=schema,
             ).root
             errors = self._support_plan_errors(plan, slots, set(claims_by_id))
         if errors:
             raise ModelOutputValidationError(
-                "Ollama returned an invalid statement support plan: "
-                + "; ".join(errors)
+                "Ollama returned an invalid statement support plan: " + "; ".join(errors)
             )
-        assignments = {
-            item.statement_key: item.supporting_claim_ids for item in plan
-        }
+        assignments = {item.statement_key: item.supporting_claim_ids for item in plan}
         linked = self._apply_statement_support(report, assignments)
         self._repair_actions.append(
             {
                 "kind": "linked_report_statement_support",
                 "previous_support": {
-                    key: statement.supporting_claim_ids
-                    for key, statement in slots
+                    key: statement.supporting_claim_ids for key, statement in slots
                 },
                 "assignments": assignments,
             }
         )
         return linked
+
+    @staticmethod
+    def _claim_can_survive_evidence_repair(
+        claim: Claim,
+        *,
+        nodes_by_id: dict[str, FocusedNodeSummary],
+        allowed_policy_ids: set[str],
+    ) -> bool:
+        if claim.classification == ClaimClassification.POLICY_GUIDANCE:
+            return any(policy_id in allowed_policy_ids for policy_id in claim.policy_ids)
+        if claim.classification != ClaimClassification.REPOSITORY_OBSERVATION:
+            return True
+        if not claim.atlas_references:
+            return False
+        if any(policy_id not in allowed_policy_ids for policy_id in claim.policy_ids):
+            return False
+        for reference in claim.atlas_references:
+            node = nodes_by_id.get(reference.node_id)
+            location = reference.location
+            if node is None or node.location is None or location is None:
+                return False
+            if location.path != node.path or location.end_line < location.start_line:
+                return False
+            if (
+                location.start_line < node.location.start_line
+                or location.end_line > node.location.end_line
+            ):
+                return False
+        return True
 
     @staticmethod
     def _support_plan_schema(
@@ -594,9 +949,7 @@ class OllamaReasoningProvider:
         assignments: dict[str, list[str]],
     ) -> RecommendationReport:
         def linked(key: str, statement: SupportedStatement) -> SupportedStatement:
-            return statement.model_copy(
-                update={"supporting_claim_ids": assignments[key]}
-            )
+            return statement.model_copy(update={"supporting_claim_ids": assignments[key]})
 
         adr = report.adr.model_copy(
             update={
@@ -639,20 +992,29 @@ class OllamaReasoningProvider:
         messages: list[dict[str, str]],
         *,
         schema_override: Mapping[str, object] | None = None,
+        think: bool | str | None = None,
+        temperature: float | None = None,
     ) -> str:
+        options: dict[str, object] = {
+            "num_ctx": self._config.context_window_tokens,
+            "num_predict": self._config.max_output_tokens,
+        }
+        if temperature is not None:
+            options["temperature"] = temperature
+        request: dict[str, object] = {
+            "model": self._config.model,
+            "stream": False,
+            "format": (
+                schema_override if schema_override is not None else output_type.model_json_schema()
+            ),
+            "options": options,
+            "messages": messages,
+        }
+        if think is not None:
+            request["think"] = think
         response = httpx.post(
             f"{self._config.base_url.rstrip('/')}/api/chat",
-            json={
-                "model": self._config.model,
-                "stream": False,
-                "format": (
-                    schema_override
-                    if schema_override is not None
-                    else output_type.model_json_schema()
-                ),
-                "options": {"num_predict": self._config.max_output_tokens},
-                "messages": messages,
-            },
+            json=request,
             timeout=self._config.timeout_seconds,
         )
         response.raise_for_status()
@@ -705,11 +1067,7 @@ class OllamaReasoningProvider:
             "relevant_policies": "policy_guidance",
         }
         raw_appendix = payload.get("evidence_appendix")
-        appendix = (
-            list(cast(list[object], raw_appendix))
-            if isinstance(raw_appendix, list)
-            else []
-        )
+        appendix = list(cast(list[object], raw_appendix)) if isinstance(raw_appendix, list) else []
         payload["evidence_appendix"] = appendix
         appendix_ids = {
             item.get("claim_id")
@@ -770,9 +1128,7 @@ class OllamaReasoningProvider:
                     replacement = f"claim_{digest[:32]}"
                     counter = 1
                     while replacement in occupied_ids:
-                        digest = sha256(
-                            f"{claim_id}\0{serialized}\0{counter}".encode()
-                        ).hexdigest()
+                        digest = sha256(f"{claim_id}\0{serialized}\0{counter}".encode()).hexdigest()
                         replacement = f"claim_{digest[:32]}"
                         counter += 1
                     reassignments[(claim_id, serialized)] = replacement

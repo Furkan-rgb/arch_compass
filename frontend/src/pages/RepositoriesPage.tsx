@@ -3,7 +3,17 @@ import { Boxes, GitBranch, Network, Plus, SearchCode } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../api";
-import { RepositoryAtlas, type AtlasNodeView } from "../atlas";
+import {
+  RepositoryAtlas,
+  type AtlasMetricView,
+  type AtlasNodeView,
+} from "../atlas";
+import type {
+  AtlasExploreOperation,
+  AtlasExploreRequest,
+  AtlasMetricValue,
+  AtlasQueryResult,
+} from "../types";
 import {
   Badge,
   EmptyState,
@@ -20,6 +30,10 @@ export function RepositoriesPage() {
   const [rootPath, setRootPath] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [exploredResults, setExploredResults] = useState<AtlasQueryResult[]>([]);
+  const [pathStartNodeId, setPathStartNodeId] = useState<string | null>(null);
+  const [pathNodeIds, setPathNodeIds] = useState<string[]>([]);
+  const [pathEdgeIds, setPathEdgeIds] = useState<string[]>([]);
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const repositoryChoices = useMemo(
     () =>
@@ -52,6 +66,24 @@ export function RepositoriesPage() {
       void queryClient.invalidateQueries({ queryKey: ["repositories"] });
     },
   });
+  const explore = useMutation({
+    mutationFn: api.repositoryExplore,
+    onSuccess: (result, request) => {
+      setExploredResults((current) => [
+        ...current.filter(
+          (item) => JSON.stringify(item.query) !== JSON.stringify(result.query),
+        ),
+        result,
+      ]);
+      if (request.operation === "shortest_path") {
+        setPathNodeIds(result.node_ids);
+        setPathEdgeIds(result.relationships.map((edge) => edge.edge_id));
+      }
+      if (result.node_ids[0]) {
+        if (request.operation === "search") setSelectedNodeId(result.node_ids[0]);
+      }
+    },
+  });
 
   useEffect(() => {
     if (!selected && repositoryChoices.length) {
@@ -63,34 +95,64 @@ export function RepositoriesPage() {
     setSelectedNodeId(summary.data?.node_summaries[0]?.node_id || null);
   }, [selected, summary.data]);
 
+  useEffect(() => {
+    setExploredResults([]);
+    setPathStartNodeId(null);
+    setPathNodeIds([]);
+    setPathEdgeIds([]);
+  }, [selected]);
+
   const atlasNodes = useMemo(() => {
     const summaries = new Map(
-      [...(summary.data?.node_summaries || []), ...(hotspots.data?.node_summaries || [])]
+      [
+        ...(summary.data?.node_summaries || []),
+        ...(hotspots.data?.node_summaries || []),
+        ...exploredResults.flatMap((result) => result.node_summaries),
+      ]
         .map((node) => [node.node_id, node]),
     );
     const hotspotMetrics = new Map(
       (hotspots.data?.metric_values || []).map((metric) => [metric.node_id, metric]),
     );
+    const cycleNodeIds = new Set(
+      exploredResults
+        .filter((result) => result.query.kind === "cyclic_components")
+        .flatMap((result) => result.node_ids),
+    );
+    const exploredMetrics = exploredResults.flatMap((result) => result.metric_values);
     const inspectMetrics = new Map(
       (inspection.data?.metric_values || [])
         .filter((metric) => metric.node_id === selectedNodeId)
         .map((metric) => [
           metric.metric,
-          {
-            label: metric.metric.replaceAll("_", " ").replaceAll(".", " · "),
-            value: metric.value,
-            group: metric.metric.split(".")[0].replaceAll("_", " "),
-          },
+          atlasMetricView(metric),
         ]),
     );
-    const signalCounts = new Map<string, number>();
-    [...(summary.data?.signals || []), ...(inspection.data?.signals || [])].forEach((signal) =>
-      signalCounts.set(signal.node_id, (signalCounts.get(signal.node_id) || 0) + 1),
-    );
+    const signalsByNode = new Map<string, AtlasQueryResult["signals"]>();
+    [
+      ...(summary.data?.signals || []),
+      ...(inspection.data?.signals || []),
+      ...exploredResults.flatMap((result) => result.signals),
+    ].forEach((signal) => {
+      const existing = signalsByNode.get(signal.node_id) || [];
+      if (
+        !existing.some(
+          (item) => item.code === signal.code && item.message === signal.message,
+        )
+      ) {
+        signalsByNode.set(signal.node_id, [...existing, signal]);
+      }
+    });
     return [...summaries.values()].map((node): AtlasNodeView => {
       const hotspot = hotspotMetrics.get(node.node_id);
-      const selectedMetrics =
-        node.node_id === selectedNodeId ? [...inspectMetrics.values()] : [];
+      const selectedMetrics = node.node_id === selectedNodeId
+        ? [
+            ...inspectMetrics.values(),
+            ...exploredMetrics
+              .filter((metric) => metric.node_id === node.node_id)
+              .map(atlasMetricView),
+          ]
+        : [];
       return {
         id: node.node_id,
         label: node.qualified_name.split(".").at(-1) || node.qualified_name,
@@ -98,7 +160,8 @@ export function RepositoriesPage() {
           ? `${node.path}:${node.location.start_line}–${node.location.end_line}`
           : node.path,
         kind: node.node_type,
-        state: hotspot && (hotspot.rank || 99) <= 5
+        isPublic: node.is_public,
+        state: cycleNodeIds.has(node.node_id) || (hotspot && (hotspot.rank || 99) <= 5)
           ? "hotspot"
           : ["repository", "package"].includes(node.node_type)
             ? "contained"
@@ -113,19 +176,28 @@ export function RepositoriesPage() {
             ? [{
                 label: hotspot.metric.replaceAll("_", " "),
                 value: hotspot.value,
-                group: `Rank #${hotspot.rank || "—"}`,
+                group:
+                  hotspot.nature === "structural_proxy"
+                    ? `Structural proxy · rank #${hotspot.rank || "—"}`
+                    : `Measurement · rank #${hotspot.rank || "—"}`,
+                nature: hotspot.nature,
+                scope: hotspot.scope,
+                definition: hotspot.definition,
+                limitations: hotspot.limitations,
               }]
             : [],
-        signalCount: signalCounts.get(node.node_id) || 0,
+        signalCount: signalsByNode.get(node.node_id)?.length || 0,
+        signals: signalsByNode.get(node.node_id) || [],
       };
     });
-  }, [hotspots.data, inspection.data, selectedNodeId, summary.data]);
+  }, [exploredResults, hotspots.data, inspection.data, selectedNodeId, summary.data]);
 
   const atlasEdges = useMemo(() => {
     const nodeIds = new Set(atlasNodes.map((node) => node.id));
     return [
       ...(summary.data?.relationships || []),
       ...(inspection.data?.relationships || []),
+      ...exploredResults.flatMap((result) => result.relationships),
     ]
       .filter(
         (edge, index, all) =>
@@ -143,7 +215,46 @@ export function RepositoriesPage() {
           atlasNodes.find((node) => node.id === edge.source_id)?.state === "hotspot" &&
           atlasNodes.find((node) => node.id === edge.target_id)?.state === "hotspot",
       }));
-  }, [atlasNodes, inspection.data?.relationships, summary.data?.relationships]);
+  }, [atlasNodes, exploredResults, inspection.data?.relationships, summary.data?.relationships]);
+
+  const exploreNode = (
+    nodeId: string,
+    operation: Exclude<
+      AtlasExploreOperation,
+      "search" | "shortest_path" | "cycles" | "signals"
+    >,
+    depth = 1,
+  ) => {
+    if (!selected) return;
+    explore.mutate({
+      root_path: selected,
+      operation,
+      node_id: nodeId,
+      depth,
+      limit: 60,
+    });
+  };
+
+  const searchAtlas = (term: string) => {
+    if (!selected || !term.trim()) return;
+    explore.mutate({
+      root_path: selected,
+      operation: "search",
+      terms: term.trim().split(/\s+/).slice(0, 10),
+      limit: 30,
+    });
+  };
+
+  const tracePath = (targetNodeId: string) => {
+    if (!selected || !pathStartNodeId || pathStartNodeId === targetNodeId) return;
+    const request: AtlasExploreRequest = {
+      root_path: selected,
+      operation: "shortest_path",
+      node_id: pathStartNodeId,
+      target_id: targetNodeId,
+    };
+    explore.mutate(request);
+  };
 
   return (
     <div className="page">
@@ -254,8 +365,10 @@ export function RepositoriesPage() {
 
       {selected && (
         <>
-          {(summary.error || hotspots.error || inspection.error) && (
-            <ErrorPanel error={summary.error || hotspots.error || inspection.error} />
+          {(summary.error || hotspots.error || inspection.error || explore.error) && (
+            <ErrorPanel
+              error={summary.error || hotspots.error || inspection.error || explore.error}
+            />
           )}
           <RepositoryAtlas
             title={`${selected.split("/").at(-1)} RepositoryAtlas`}
@@ -264,12 +377,51 @@ export function RepositoriesPage() {
             edges={atlasEdges}
             selectedNodeId={selectedNodeId}
             onSelectNode={setSelectedNodeId}
-            loading={summary.isLoading || hotspots.isLoading || inspection.isLoading}
+            loading={
+              summary.isLoading ||
+              hotspots.isLoading ||
+              inspection.isLoading ||
+              explore.isPending
+            }
+            onExploreNode={exploreNode}
+            onExploreAtlas={(operation) => {
+              if (!selected) return;
+              explore.mutate({
+                root_path: selected,
+                operation,
+                limit: 60,
+              });
+            }}
+            onSearch={searchAtlas}
+            pathStartNodeId={pathStartNodeId}
+            onSetPathStart={(nodeId) => {
+              setPathStartNodeId(nodeId);
+              setPathNodeIds([]);
+              setPathEdgeIds([]);
+            }}
+            onTracePath={tracePath}
+            highlightedNodeIds={pathNodeIds}
+            highlightedEdgeIds={pathEdgeIds}
           />
         </>
       )}
     </div>
   );
+}
+
+function atlasMetricView(metric: AtlasMetricValue): AtlasMetricView {
+  return {
+    label: metric.metric.replaceAll("_", " ").replaceAll(".", " · "),
+    value: metric.value,
+    group:
+      metric.nature === "structural_proxy"
+        ? "Structural proxy"
+        : "Objective measurement",
+    nature: metric.nature,
+    scope: metric.scope,
+    definition: metric.definition,
+    limitations: metric.limitations,
+  };
 }
 
 function inspectionDescription(summary?: string) {

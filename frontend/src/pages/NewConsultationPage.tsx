@@ -32,6 +32,9 @@ export const caseFormSchema = z.object({
   expected_future_changes: z.string(),
   non_goals: z.string(),
   confirmed_facts: z.string(),
+  design_forces: z.string(),
+  policy_user: z.string(),
+  policy_organisation: z.string(),
 });
 
 export type CaseFormValue = z.infer<typeof caseFormSchema>;
@@ -49,6 +52,9 @@ const defaults: CaseFormValue = {
   expected_future_changes: "",
   non_goals: "",
   confirmed_facts: "",
+  design_forces: "",
+  policy_user: "",
+  policy_organisation: "",
 };
 
 export const consultationExamples: Array<{
@@ -125,11 +131,25 @@ export function toArchitectureCase(
     expected_future_changes: lines(value.expected_future_changes),
     non_goals: lines(value.non_goals),
     confirmed_facts: lines(value.confirmed_facts).map((text) => ({ text, kind: "fact" })),
+    design_forces: lines(value.design_forces).map((text) => ({
+      text,
+      kind: "force",
+      source: "user",
+    })),
+    policy_applicability: {
+      user: value.policy_user.trim() || null,
+      organisation: value.policy_organisation.trim() || null,
+    },
   };
 }
 
 export function fromImportedCase(raw: unknown): CaseFormValue {
   const source = (raw || {}) as Record<string, unknown>;
+  const applicability =
+    typeof source.policy_applicability === "object" &&
+    source.policy_applicability !== null
+      ? (source.policy_applicability as Record<string, unknown>)
+      : {};
   const text = (key: string) => (typeof source[key] === "string" ? String(source[key]) : "");
   const list = (key: string) =>
     Array.isArray(source[key])
@@ -153,6 +173,13 @@ export function fromImportedCase(raw: unknown): CaseFormValue {
     expected_future_changes: list("expected_future_changes"),
     non_goals: list("non_goals"),
     confirmed_facts: list("confirmed_facts"),
+    design_forces: list("design_forces"),
+    policy_user:
+      typeof applicability.user === "string" ? applicability.user : "",
+    policy_organisation:
+      typeof applicability.organisation === "string"
+        ? applicability.organisation
+        : "",
   };
 }
 
@@ -359,6 +386,10 @@ export function NewConsultationPage() {
               <TextList label="Technical constraints" registration={form.register("technical_constraints")} />
               <TextList label="Organisational constraints" registration={form.register("organisational_constraints")} />
               <TextList label="Confirmed facts" registration={form.register("confirmed_facts")} />
+              <TextList
+                label="User-authored design forces"
+                registration={form.register("design_forces")}
+              />
             </div>
           </details>
 
@@ -367,6 +398,31 @@ export function NewConsultationPage() {
             <div className="form-grid">
               <TextList label="Expected future changes" registration={form.register("expected_future_changes")} />
               <TextList label="Non-goals" registration={form.register("non_goals")} />
+            </div>
+          </details>
+
+          <details className="form-details">
+            <summary>Scoped policy identity</summary>
+            <p>
+              These optional identities determine which user and organisation
+              policies can apply. Repository policy identity comes from the
+              selected atlas.
+            </p>
+            <div className="form-grid">
+              <label className="field">
+                <span>User policy identity</span>
+                <input
+                  {...form.register("policy_user")}
+                  placeholder="e.g. furkan"
+                />
+              </label>
+              <label className="field">
+                <span>Organisation policy identity</span>
+                <input
+                  {...form.register("policy_organisation")}
+                  placeholder="e.g. example-organisation"
+                />
+              </label>
             </div>
           </details>
 

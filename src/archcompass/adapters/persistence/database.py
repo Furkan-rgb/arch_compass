@@ -34,6 +34,7 @@ class SQLiteDatabase:
                     )
                     """
                 )
+                connection.commit()
                 current_rows = connection.execute(
                     "SELECT version FROM schema_migrations ORDER BY version"
                 ).fetchall()
@@ -44,14 +45,51 @@ class SQLiteDatabase:
                     version = int(resource.name.split("_", maxsplit=1)[0])
                     if version in current:
                         continue
-                    connection.executescript(resource.read_text(encoding="utf-8"))
-                    connection.execute(
-                        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
-                        (version, datetime.now(UTC).isoformat()),
+                    self._apply_migration(
+                        connection,
+                        version=version,
+                        script=resource.read_text(encoding="utf-8"),
                     )
-                connection.commit()
         except (OSError, sqlite3.Error, ValueError) as error:
             raise PersistenceError(f"Could not initialize database {self.path}: {error}") from error
+
+    @staticmethod
+    def _apply_migration(
+        connection: sqlite3.Connection,
+        *,
+        version: int,
+        script: str,
+    ) -> None:
+        """Apply one migration and its version marker in one SQLite transaction."""
+        statements = SQLiteDatabase._migration_statements(script)
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            for statement in statements:
+                connection.execute(statement)
+            connection.execute(
+                "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                (version, datetime.now(UTC).isoformat()),
+            )
+        except (sqlite3.Error, ValueError):
+            connection.rollback()
+            raise
+        connection.commit()
+
+    @staticmethod
+    def _migration_statements(script: str) -> list[str]:
+        """Split complete SQLite statements without `executescript`'s implicit commit."""
+        statements: list[str] = []
+        pending = ""
+        for line in script.splitlines(keepends=True):
+            pending += line
+            if sqlite3.complete_statement(pending):
+                statement = pending.strip()
+                if statement:
+                    statements.append(statement)
+                pending = ""
+        if pending.strip():
+            raise ValueError("Migration ends with an incomplete SQL statement")
+        return statements
 
     @contextmanager
     def connect(self, *, load_vectors: bool = False) -> Generator[sqlite3.Connection]:

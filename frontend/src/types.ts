@@ -1,3 +1,7 @@
+import type { components as OpenAPIComponents } from "./openapi.generated";
+
+export type ProblemDetail = OpenAPIComponents["schemas"]["ProblemDetail"];
+
 export interface WorkspaceSummary {
   workspace: string;
   models: {
@@ -71,17 +75,64 @@ export interface AtlasRelationship {
   location?: SourceLocation | null;
 }
 
+export type AtlasMetricNature = "objective_measurement" | "structural_proxy";
+
+export type AtlasMetricScope =
+  | "lexical_node"
+  | "owning_module"
+  | "reverse_static_impact_neighbourhood"
+  | "bounded_resolved_call_chain";
+
 export interface AtlasMetricValue {
   node_id: string;
   metric: string;
   value: number;
   rank?: number | null;
+  nature: AtlasMetricNature;
+  scope: AtlasMetricScope;
+  definition: string;
+  limitations: string;
 }
 
 export interface AtlasSignal {
   code: string;
   message: string;
   node_id: string;
+  location?: SourceLocation | null;
+  nature: AtlasMetricNature;
+  definition: string;
+  limitations: string;
+}
+
+export interface AtlasSelectionReason {
+  kind:
+    | "overview"
+    | "metric_rank"
+    | "name_match"
+    | "relation"
+    | "neighbourhood"
+    | "path"
+    | "cycle"
+    | "excerpt"
+    | "explicit_details";
+  explanation: string;
+  metric?: string | null;
+  related_node_id?: string | null;
+}
+
+export interface AtlasNodeEvidence {
+  node: AtlasNodeSummary;
+  reasons: AtlasSelectionReason[];
+  metrics: AtlasMetricValue[];
+  signals: AtlasSignal[];
+}
+
+export interface AtlasRelationshipEvidence {
+  edge_id: string;
+  edge_type: string;
+  source: AtlasNodeSummary;
+  target: AtlasNodeSummary;
+  confidence: number;
   location?: SourceLocation | null;
 }
 
@@ -99,6 +150,31 @@ export interface AtlasQueryResult {
     location: SourceLocation;
     text: string;
   }>;
+}
+
+export type AtlasExploreOperation =
+  | "children"
+  | "dependencies"
+  | "dependants"
+  | "callers"
+  | "implementations"
+  | "tests"
+  | "forward_neighbourhood"
+  | "reverse_neighbourhood"
+  | "search"
+  | "shortest_path"
+  | "cycles"
+  | "signals";
+
+export interface AtlasExploreRequest {
+  root_path: string;
+  operation: AtlasExploreOperation;
+  node_id?: string;
+  target_id?: string;
+  terms?: string[];
+  signal_codes?: string[];
+  depth?: number;
+  limit?: number;
 }
 
 export interface RunSummary {
@@ -121,6 +197,19 @@ export type JobStatus =
   | "failed"
   | "interrupted";
 
+export type FailureDiagnosticCode =
+  | "cluster_count_out_of_range"
+  | "unknown_force_references"
+  | "missing_force_references"
+  | "duplicate_force_references"
+  | "duplicate_cluster_ids";
+
+export interface FailureDiagnostic {
+  code: FailureDiagnosticCode;
+  force_handles: string[];
+  count?: number | null;
+}
+
 export interface ConsultationJob {
   run_id: string;
   case_id: string;
@@ -134,6 +223,7 @@ export interface ConsultationJob {
   completed_at?: string | null;
   warning?: string | null;
   error?: string | null;
+  failure_diagnostics: FailureDiagnostic[];
 }
 
 export interface ProgressEvent {
@@ -176,6 +266,7 @@ export interface FocusedAnalysisPacket {
     cluster_id: string;
     title: string;
     rationale: string;
+    design_force_ids: string[];
   };
   node_summaries: Array<{
     node_id: string;
@@ -184,20 +275,20 @@ export interface FocusedAnalysisPacket {
     node_type: string;
     location?: { path: string; start_line: number; end_line: number } | null;
     summary: string;
+    selection_reasons: AtlasSelectionReason[];
   }>;
+  node_evidence: AtlasNodeEvidence[];
   metrics: Array<{
     node_id: string;
-    local: Record<string, number>;
-    dependency: Record<string, number>;
-    change_amplification: Record<string, number>;
-    cognitive_scope: Record<string, number>;
+    local: Record<string, number | string | string[] | null>;
+    dependency: Record<string, number | string | string[] | null>;
+    change_amplification: Record<string, number | string | string[] | null>;
+    cognitive_scope: Record<string, number | string | string[] | null>;
   }>;
-  relationships: Array<{
-    edge_id: string;
-    source_id: string;
-    target_id: string;
-    edge_type: string;
-  }>;
+  relationships: AtlasRelationship[];
+  relationship_evidence: AtlasRelationshipEvidence[];
+  test_ids: string[];
+  test_evidence: AtlasNodeSummary[];
   excerpts: Array<{
     node_id: string;
     location: { path: string; start_line: number; end_line: number };
@@ -214,6 +305,8 @@ export interface FocusedAnalysisPacket {
     }>;
     distance: number;
   }>;
+  assumptions: string[];
+  uncertainty: string[];
 }
 
 export interface CaseStatement {
@@ -241,10 +334,12 @@ export interface ArchitectureCase {
   assumptions: CaseStatement[];
   unresolved_questions: CaseStatement[];
   design_forces: CaseStatement[];
+  advisor_design_forces: CaseStatement[];
   repository?: {
     root_path: string;
     atlas_version_id?: string | null;
   } | null;
+  policy_applicability: PolicyApplicability;
   referenced_policy_ids: string[];
   candidate_alternatives: Array<{ id: string; title: string; summary: string }>;
   current_recommendation?: RecommendationState | null;
@@ -292,7 +387,27 @@ export interface ScenarioEvaluation {
   conclusion: string;
 }
 
+export interface ArchitecturalFinding {
+  finding_id: string;
+  title: string;
+  summary: string;
+  concern_cluster_id?: string | null;
+  importance: "low" | "medium" | "high" | "critical";
+  importance_rationale: string;
+  confidence: Confidence;
+  consequence: string;
+  claim_ids: string[];
+  atlas_node_ids: string[];
+  policy_ids: string[];
+  affected_locations: AtlasNodeSummary[];
+  metric_observations: AtlasMetricValue[];
+  obscurity_signals: AtlasSignal[];
+  recommended_response: string;
+  uncertainty: string[];
+}
+
 export interface RecommendationReport {
+  schema_version: 3;
   report_id: string;
   disposition: string;
   decision_summary: SupportedStatement;
@@ -305,12 +420,14 @@ export interface RecommendationReport {
     description: string;
     importance: string;
   }>;
+  findings: ArchitecturalFinding[];
   repository_observations: Claim[];
   relevant_policies: Claim[];
   policy_evidence: Array<{
     id: string;
     title: string;
     scope: string;
+    applies_to: string | null;
     strength: string;
     matched_sections: string[];
   }>;
@@ -341,6 +458,7 @@ export interface RecommendationReport {
 }
 
 export interface ConsultationRun {
+  schema_version: 3;
   run_id: string;
   status: "succeeded" | "failed";
   case_id: string;
@@ -365,6 +483,7 @@ export interface ConsultationRun {
   stage_timings: Record<string, number>;
   failure_stage?: string | null;
   sanitized_errors: string[];
+  failure_diagnostics: FailureDiagnostic[];
   started_at: string;
   completed_at: string;
   execution_metadata: Record<string, unknown>;
@@ -374,12 +493,19 @@ export interface Policy {
   id: string;
   title: string;
   scope: string;
+  applies_to: string | null;
   strength: string;
   tags: string[];
   source: { author: string; inspiration: string[] };
   body: string;
   source_path: string;
   content_hash: string;
+}
+
+export interface PolicyApplicability {
+  user?: string | null;
+  organisation?: string | null;
+  repository?: string | null;
 }
 
 export interface PolicySource {
@@ -399,8 +525,12 @@ export interface ArchitectureCaseInput {
   expected_future_changes: string[];
   non_goals: string[];
   confirmed_facts: Array<{ text: string; kind: "fact" }>;
+  design_forces?: Array<{ text: string; kind: "force"; source?: string | null }>;
+  policy_applicability?: PolicyApplicability;
 }
 
 export interface ArchitectureCaseUpdate {
   unresolved_questions?: Array<Omit<CaseStatement, "id"> & { id?: string }>;
+  design_forces?: Array<Omit<CaseStatement, "id"> & { id?: string }>;
+  policy_applicability?: PolicyApplicability;
 }

@@ -15,12 +15,13 @@ import {
   FileText,
   Lightbulb,
   Network,
+  RefreshCcw,
   Scale,
   ShieldCheck,
   Sparkles,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -37,6 +38,8 @@ import {
   shortId,
   useDialogFocus,
 } from "../components";
+import { FailureDiagnostics } from "../failure-diagnostics";
+import { policyApplicabilityLabel } from "../policy-applicability";
 import type {
   Claim,
   ConsultationRun,
@@ -75,6 +78,8 @@ export function RunDetailPage() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>("recommendation");
   const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
+  const [showRevision, setShowRevision] = useState(false);
+  const [revisionPrompt, setRevisionPrompt] = useState("");
   const job = useQuery({
     queryKey: ["job", runId],
     queryFn: () => api.job(runId),
@@ -102,7 +107,7 @@ export function RunDetailPage() {
     queryFn: () => api.case(caseId),
     enabled: Boolean(caseId),
   });
-  const continueConsultation = useMutation({
+  const reviseConsultation = useMutation({
     mutationFn: async (question: string) => {
       if (!architectureCase.data) {
         throw new Error("The ArchitectureCase is not available yet.");
@@ -110,7 +115,7 @@ export function RunDetailPage() {
       const revision = await api.updateCase(architectureCase.data.case_id, {
         unresolved_questions: [
           ...architectureCase.data.snapshot.unresolved_questions,
-          { text: question, kind: "question", source: "advisor_composer" },
+          { text: question, kind: "question", source: "case_revision" },
         ],
       });
       return api.startConsultation(
@@ -149,11 +154,15 @@ export function RunDetailPage() {
   const report = run.data?.report || null;
   const active = ["queued", "running"].includes(status);
   const failed = ["failed", "interrupted"].includes(status);
-  const elapsed = run.data
-    ? duration(run.data.started_at, run.data.completed_at)
-    : job.data?.started_at
-      ? duration(job.data.started_at, job.data.completed_at || new Date().toISOString())
-      : "Waiting";
+  const failureDiagnostics = job.data?.failure_diagnostics?.length
+    ? job.data.failure_diagnostics
+    : run.data?.failure_diagnostics || [];
+  const submitRevision = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const value = revisionPrompt.trim();
+    if (!value || reviseConsultation.isPending) return;
+    reviseConsultation.mutate(value);
+  };
 
   return (
     <div className="page">
@@ -173,10 +182,22 @@ export function RunDetailPage() {
           "Arch Compass is moving from bounded context to an evidence-checked recommendation."
         }
         action={
-          <Badge tone={active ? "teal" : failed ? "danger" : "success"}>
-            {active && <span className="badge-pulse" />}
-            {status.replaceAll("_", " ")}
-          </Badge>
+          <div className="run-header-actions">
+            <Badge tone={active ? "teal" : failed ? "danger" : "success"}>
+              {active && <span className="badge-pulse" />}
+              {status.replaceAll("_", " ")}
+            </Badge>
+            {report && (
+              <button
+                type="button"
+                className="button button--secondary"
+                onClick={() => setShowRevision((value) => !value)}
+                aria-expanded={showRevision}
+              >
+                <RefreshCcw size={15} /> Revise case &amp; run again
+              </button>
+            )}
+          </div>
         }
       />
 
@@ -191,7 +212,13 @@ export function RunDetailPage() {
         </div>
         <div>
           <span>Elapsed</span>
-          <strong>{elapsed}</strong>
+          <strong>
+            <ElapsedTime
+              active={active}
+              start={run.data?.started_at || job.data?.started_at}
+              end={run.data?.completed_at || job.data?.completed_at}
+            />
+          </strong>
         </div>
         <div>
           <span>Disposition</span>
@@ -203,19 +230,65 @@ export function RunDetailPage() {
         </div>
       </section>
 
+      {showRevision && report && (
+        <form className="revision-run-panel" onSubmit={submitRevision}>
+          <div>
+            <span className="eyebrow">New analysis</span>
+            <h2>Revise the ArchitectureCase</h2>
+            <p>
+              Use this only when a premise, constraint, requirement, or scenario has changed.
+              Arch Compass will create a new immutable case revision and perform a complete run.
+            </p>
+          </div>
+          <label>
+            <span>What changed?</span>
+            <textarea
+              rows={3}
+              value={revisionPrompt}
+              onChange={(event) => setRevisionPrompt(event.target.value)}
+              placeholder="A hosted provider is now committed for the next release…"
+              autoFocus
+            />
+          </label>
+          <div className="revision-run-panel__actions">
+            <button
+              type="button"
+              className="button button--quiet"
+              onClick={() => {
+                setShowRevision(false);
+                setRevisionPrompt("");
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="button button--primary"
+              disabled={!revisionPrompt.trim() || reviseConsultation.isPending}
+            >
+              <RefreshCcw size={15} />
+              {reviseConsultation.isPending ? "Starting new run…" : "Create revision and run"}
+            </button>
+          </div>
+        </form>
+      )}
+
       {job.data?.warning && (
         <div className="notice notice--warning">
           <AlertTriangle size={19} />
           <div><strong>Completed with a file-export warning</strong><p>{job.data.warning}</p></div>
         </div>
       )}
-      {continueConsultation.error && <ErrorPanel error={continueConsultation.error} />}
+      {reviseConsultation.error && <ErrorPanel error={reviseConsultation.error} />}
       {failed && (
         <div className="notice notice--error">
           <AlertTriangle size={19} />
           <div>
             <strong>Consultation failed at {job.data?.current_stage?.replaceAll("_", " ") || run.data?.failure_stage}</strong>
-            <p>{job.data?.error || run.data?.sanitized_errors.join(" ")}</p>
+            {!failureDiagnostics.length && (
+              <p>{job.data?.error || run.data?.sanitized_errors.join(" ")}</p>
+            )}
+            <FailureDiagnostics diagnostics={failureDiagnostics} />
           </div>
         </div>
       )}
@@ -267,8 +340,6 @@ export function RunDetailPage() {
                 run={run.data}
                 report={report}
                 onClaim={setSelectedClaim}
-                onContinue={(question) => continueConsultation.mutateAsync(question)}
-                continuing={continueConsultation.isPending}
               />
             )}
             {tab === "report" && (
@@ -414,15 +485,33 @@ function EvidenceDrawer({
   const dialogRef = useDialogFocus(onClose);
   const atlasEvidence = claim.atlas_references.map((reference) => {
     const packet = packets.find((item) =>
+      item.node_evidence.some(
+        (evidence) => evidence.node.node_id === reference.node_id,
+      ) ||
       item.node_summaries.some((node) => node.node_id === reference.node_id),
     );
-    const node = packet?.node_summaries.find(
+    const typedEvidence = packet?.node_evidence.find(
+      (item) => item.node.node_id === reference.node_id,
+    );
+    const legacyNode = packet?.node_summaries.find(
       (item) => item.node_id === reference.node_id,
     );
     return {
       reference,
-      node,
-      metrics: packet?.metrics.find((item) => item.node_id === reference.node_id),
+      node: typedEvidence?.node || legacyNode,
+      selectionReasons:
+        typedEvidence?.reasons || legacyNode?.selection_reasons || [],
+      semanticMetrics: typedEvidence?.metrics || [],
+      signals: typedEvidence?.signals || [],
+      legacyMetrics: packet?.metrics.find(
+        (item) => item.node_id === reference.node_id,
+      ),
+      relationshipEvidence:
+        packet?.relationship_evidence.filter(
+          (item) =>
+            item.source.node_id === reference.node_id ||
+            item.target.node_id === reference.node_id,
+        ) || [],
       relationships:
         packet?.relationships.filter(
           (item) =>
@@ -455,7 +544,17 @@ function EvidenceDrawer({
         <code>{claim.claim_id}</code>
         <section>
           <span className="eyebrow">Repository references</span>
-          {atlasEvidence.map(({ reference, node, metrics, relationships, excerpts }) => (
+          {atlasEvidence.map(({
+            reference,
+            node,
+            selectionReasons,
+            semanticMetrics,
+            signals,
+            legacyMetrics,
+            relationshipEvidence,
+            relationships,
+            excerpts,
+          }) => (
             <details className="evidence-record" key={reference.node_id}>
               <summary className="reference-card">
                 <FileCode2 size={18} />
@@ -476,19 +575,62 @@ function EvidenceDrawer({
                 <ChevronRight size={16} />
               </summary>
               <div className="evidence-record__body">
-                {node?.summary && <p>{node.summary}</p>}
-                {metrics && (
+                {node && "summary" in node && node.summary && (
+                  <p>{node.summary}</p>
+                )}
+                {selectionReasons.length > 0 && (
+                  <div>
+                    <span className="eyebrow">Why this node was surfaced</span>
+                    <ul className="evidence-list">
+                      {selectionReasons.map((reason, index) => (
+                        <li key={`${reason.kind}-${index}`}>
+                          <code>{reason.kind.replaceAll("_", " ")}</code>{" "}
+                          {reason.explanation}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {semanticMetrics.length > 0 ? (
+                  <div className="metric-groups">
+                    {semanticMetrics
+                      .filter((metric) => metric.value > 0)
+                      .map((metric) => (
+                        <div key={metric.metric}>
+                          <strong>
+                            {metric.nature === "structural_proxy"
+                              ? "Structural proxy"
+                              : "Objective measurement"}
+                          </strong>
+                          <span>
+                            {metric.metric.replaceAll("_", " ").replaceAll(".", " · ")}
+                            <b>{metric.value}</b>
+                          </span>
+                          {metric.definition && <small>{metric.definition}</small>}
+                          <small>
+                            Scope: {metric.scope.replaceAll("_", " ")}
+                            {metric.limitations
+                              ? ` · ${metric.limitations}`
+                              : ""}
+                          </small>
+                        </div>
+                      ))}
+                  </div>
+                ) : legacyMetrics ? (
                   <div className="metric-groups">
                     {Object.entries({
-                      Local: metrics.local,
-                      Dependency: metrics.dependency,
-                      "Change amplification": metrics.change_amplification,
-                      "Cognitive scope": metrics.cognitive_scope,
+                      Local: legacyMetrics.local,
+                      Dependency: legacyMetrics.dependency,
+                      "Change amplification": legacyMetrics.change_amplification,
+                      "Cognitive scope": legacyMetrics.cognitive_scope,
                     }).map(([label, values]) => (
                       <div key={label}>
                         <strong>{label}</strong>
                         {Object.entries(values)
-                          .filter(([, value]) => value > 0)
+                          .filter(
+                            ([, value]) =>
+                              typeof value === "number" && value > 0,
+                          )
                           .map(([name, value]) => (
                             <span key={name}>
                               {name.replaceAll("_", " ")} <b>{value}</b>
@@ -497,17 +639,38 @@ function EvidenceDrawer({
                       </div>
                     ))}
                   </div>
-                )}
-                {relationships.length > 0 && (
+                ) : null}
+                {(relationshipEvidence.length > 0 || relationships.length > 0) && (
                   <div>
                     <span className="eyebrow">Persisted relationships</span>
                     <ul className="evidence-list">
-                      {relationships.map((relationship) => (
+                      {relationshipEvidence.map((relationship) => (
+                        <li key={relationship.edge_id}>
+                          <code>{relationship.edge_type}</code>{" "}
+                          {relationship.source.node_id === reference.node_id
+                            ? `→ ${relationship.target.qualified_name}`
+                            : `${relationship.source.qualified_name} →`}
+                        </li>
+                      ))}
+                      {!relationshipEvidence.length && relationships.map((relationship) => (
                         <li key={relationship.edge_id}>
                           <code>{relationship.edge_type}</code>{" "}
                           {relationship.source_id === reference.node_id
                             ? `→ ${relationship.target_id}`
                             : `${relationship.source_id} →`}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {signals.length > 0 && (
+                  <div>
+                    <span className="eyebrow">Objective signals</span>
+                    <ul className="evidence-list">
+                      {signals.map((signal, index) => (
+                        <li key={`${signal.code}-${index}`}>
+                          <code>{signal.code.replaceAll("-", " ")}</code>{" "}
+                          {signal.message}
                         </li>
                       ))}
                     </ul>
@@ -537,7 +700,10 @@ function EvidenceDrawer({
                   <strong>{retrieved?.policy.title || policyId}</strong>
                   <code>
                     {retrieved
-                      ? `${retrieved.policy.scope} · ${retrieved.policy.strength}`
+                      ? `${retrieved.policy.strength} · ${policyApplicabilityLabel(
+                          retrieved.policy.scope,
+                          retrieved.policy.applies_to,
+                        )}`
                       : policyId}
                   </code>
                 </div>
@@ -550,6 +716,15 @@ function EvidenceDrawer({
                     {retrieved.policy.source.inspiration.length
                       ? ` · inspired by ${retrieved.policy.source.inspiration.join(", ")}`
                       : ""}
+                  </p>
+                  <p>
+                    Applies to{" "}
+                    <strong>
+                      {policyApplicabilityLabel(
+                        retrieved.policy.scope,
+                        retrieved.policy.applies_to,
+                      )}
+                    </strong>
                   </p>
                   {retrieved.chunks.map((chunk) => (
                     <div key={chunk.chunk_id} className="policy-match">
@@ -605,6 +780,28 @@ function RunDetails({ run }: { run: ConsultationRun }) {
 function duration(start: string, end: string) {
   const seconds = Math.max(0, (new Date(end).getTime() - new Date(start).getTime()) / 1000);
   return seconds < 60 ? `${seconds.toFixed(1)}s` : `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+}
+
+export function ElapsedTime({
+  active,
+  start,
+  end,
+}: {
+  active: boolean;
+  start?: string | null;
+  end?: string | null;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!active || !start || end) return;
+    setNow(Date.now());
+    const interval = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [active, end, start]);
+
+  if (!start) return <>Waiting</>;
+  return <>{duration(start, end || new Date(now).toISOString())}</>;
 }
 
 function eventsFromRun(run: ConsultationRun): ProgressEvent[] {

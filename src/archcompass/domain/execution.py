@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import Field, JsonValue
 
 from archcompass.domain.base import DomainModel, new_id, utc_now
+from archcompass.domain.diagnostics import FailureDiagnostic
 
 
 class ConsultationJobStatus(StrEnum):
@@ -44,6 +45,9 @@ class ConsultationJob(DomainModel):
     completed_at: datetime | None = None
     warning: str | None = None
     error: str | None = None
+    failure_diagnostics: list[FailureDiagnostic] = Field(
+        default_factory=list[FailureDiagnostic]
+    )
 
 
 class ConsultationProgressEvent(DomainModel):

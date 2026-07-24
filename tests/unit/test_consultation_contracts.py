@@ -24,13 +24,19 @@ from archcompass.domain.consultation import (
     DesignForce,
     GlobalContext,
     RecommendationReport,
+    cluster_partition_diagnostics,
     cluster_partition_errors,
 )
+from archcompass.domain.diagnostics import FailureDiagnostic, FailureDiagnosticCode
 from archcompass.domain.policy import (
     PolicyConflict,
     PolicyEvidenceSummary,
     PolicyScope,
     PolicyStrength,
+)
+from archcompass.workflows.consultation import (
+    POLICY_QUERY_CHARACTER_BUDGET,
+    ConsultationWorkflow,
 )
 
 
@@ -111,6 +117,105 @@ def test_clusters_must_be_an_exact_force_partition() -> None:
     assert any("unknown" in error for error in errors)
     assert any("omit" in error for error in errors)
 
+    diagnostics = cluster_partition_diagnostics(forces, clusters)
+
+    assert [item.code for item in diagnostics] == [
+        FailureDiagnosticCode.UNKNOWN_FORCE_REFERENCES,
+        FailureDiagnosticCode.MISSING_FORCE_REFERENCES,
+    ]
+    assert diagnostics[0].count == 1
+    assert diagnostics[1].force_handles == ["F2"]
+    serialized = json.dumps(
+        [item.model_dump(mode="json") for item in diagnostics]
+    )
+    assert "force-a" not in serialized
+    assert "force-b" not in serialized
+    assert "force-invented" not in serialized
+
+
+def test_failure_diagnostics_reject_internal_ids_and_model_prose() -> None:
+    with pytest.raises(ValidationError, match="string_pattern_mismatch"):
+        FailureDiagnostic(
+            code=FailureDiagnosticCode.MISSING_FORCE_REFERENCES,
+            force_handles=["force_internal-id /private/path"],
+        )
+
+
+def test_deterministic_reasoner_partitions_generic_forces_and_focuses_queries() -> None:
+    forces = [
+        DesignForce(
+            force_id="force-ownership",
+            title="Responsibility ownership",
+            description="Give changing knowledge one owner.",
+            importance="high",
+        ),
+        DesignForce(
+            force_id="force-change",
+            title="Evolution pressure",
+            description="Contain credible variation and growth.",
+            importance="high",
+        ),
+        DesignForce(
+            force_id="force-lifecycle",
+            title="Resource lifecycle",
+            description="Make uncertain resource lifetime constraints explicit.",
+            importance="medium",
+        ),
+        DesignForce(
+            force_id="force-uncertainty",
+            title="Evidence uncertainty",
+            description="Keep unknown repository details explicit.",
+            importance="medium",
+        ),
+    ]
+    context = GlobalContext(
+        case_id="case-routing",
+        revision=1,
+        title="Generic routing",
+        problem="Several architectural forces need focused investigation.",
+        desired_outcome="Investigate each concern independently.",
+        goals=[],
+        constraints=[],
+        future_changes=[],
+        non_goals=[],
+        confirmed_facts=[],
+        assumptions=[],
+        atlas_summary="Repository evidence is available.",
+    )
+    provider = DeterministicReasoningProvider()
+
+    clusters = provider.cluster_design_forces(context, forces)
+    plans = provider.plan_atlas_queries(
+        context,
+        forces,
+        clusters,
+        iteration=1,
+        prior_results={},
+    )
+
+    assert [cluster.title for cluster in clusters] == [
+        "Responsibility ownership",
+        "Lifecycle and operations",
+        "Change locality and evolution",
+        "Evidence uncertainty",
+    ]
+    assert sorted(
+        force_id
+        for cluster in clusters
+        for force_id in cluster.design_force_ids
+    ) == sorted(force.force_id for force in forces)
+    assert [plan.plan.queries[0].model_dump()["metric"] for plan in plans] == [
+        "dependency.fan_in",
+        "local.branch_count",
+        "dependency.fan_out",
+        "cognitive_scope.dependency_neighbourhood_modules",
+    ]
+    assert provider.model_identity == "fake:deterministic-architecture-v3"
+    assert provider.prompt_identity("cluster_design_forces") == "cluster-design-forces:v2"
+    assert provider.prompt_identity("plan_atlas_queries") == (
+        "plan-cluster-atlas-queries:v4"
+    )
+
 
 def test_case_statement_collections_enforce_their_kind() -> None:
     with pytest.raises(ValidationError, match="wrong kind"):
@@ -162,7 +267,8 @@ def test_schema_v1_report_strings_upgrade_losslessly() -> None:
 
     loaded = RecommendationReport.model_validate_json(json.dumps(payload))
 
-    assert loaded.schema_version == 2
+    assert loaded.schema_version == 3
+    assert loaded.findings[0].finding_id == "FIND-001"
     assert loaded.decision_summary.text == current.decision_summary.text
     assert loaded.decision_summary.legacy is True
     assert set(loaded.scenario_analysis[0].alternative_results) == {
@@ -170,11 +276,31 @@ def test_schema_v1_report_strings_upgrade_losslessly() -> None:
     }
 
 
-def test_schema_v2_report_rejects_unstructured_substantive_prose() -> None:
+def test_schema_v3_report_rejects_unstructured_substantive_prose() -> None:
     payload = _report().model_dump(mode="json")
     payload["decision_summary"] = "An unclassified decision"
 
     with pytest.raises(ValidationError, match="SupportedStatement"):
+        RecommendationReport.model_validate(payload)
+
+
+def test_schema_v2_report_upgrades_to_uncertain_compatibility_finding() -> None:
+    payload = _report().model_dump(mode="json")
+    payload["schema_version"] = 2
+    payload.pop("findings")
+
+    loaded = RecommendationReport.model_validate(payload)
+
+    assert loaded.schema_version == 3
+    assert [item.finding_id for item in loaded.findings] == ["FIND-001"]
+    assert "compatibility" in loaded.findings[0].uncertainty[0].casefold()
+
+
+def test_schema_v3_report_requires_authored_findings() -> None:
+    payload = _report().model_dump(mode="json")
+    payload.pop("findings")
+
+    with pytest.raises(ValidationError, match="findings"):
         RecommendationReport.model_validate(payload)
 
 
@@ -270,6 +396,11 @@ def test_invalid_repository_location_removes_the_whole_observation() -> None:
     )
 
 
+def test_source_location_rejects_a_reversed_span() -> None:
+    with pytest.raises(ValidationError, match="end line must not precede"):
+        SourceLocation(path="provider.py", start_line=20, end_line=10)
+
+
 def test_markdown_preserves_scenario_and_support_metadata() -> None:
     report = _report()
     repository_claim = Claim(
@@ -327,6 +458,11 @@ def test_markdown_preserves_scenario_and_support_metadata() -> None:
     markdown = render_markdown(report)
     scenario = report.scenario_analysis[0]
 
+    assert "## 6. Findings" in markdown
+    assert "FIND-001" in markdown
+    assert "Importance rationale" in markdown
+    assert "Recommended response" in markdown
+    assert "Uncertainty" in markdown
     assert scenario.assumptions[0] in markdown
     assert all(alternative_id in markdown for alternative_id in scenario.alternative_results)
     assert report.decision_summary.supporting_claim_ids[0] in markdown
@@ -352,6 +488,41 @@ def test_failed_run_requires_auditable_failure_details() -> None:
             embedding_model="fake:test",
             config_hash="cfg-test",
         )
+
+
+def test_greenfield_policy_query_contains_case_intent_and_is_bounded() -> None:
+    case = ArchitectureCase(
+        title="Report questions",
+        problem_statement="Add a hosted reasoning provider for report follow-up questions.",
+        desired_outcome="Preserve evidence selection and answer semantics when providers switch.",
+        functional_requirements=["Users can ask questions about persisted findings."],
+        expected_future_changes=["More model providers will be introduced."],
+    )
+    force = DesignForce(
+        force_id="force-provider",
+        title="Provider-neutral evidence",
+        description="Keep authoritative report evidence stable across providers.",
+        importance="high",
+    )
+    cluster = ConcernCluster(
+        cluster_id="cluster-provider",
+        title="Responsibility ownership",
+        rationale="Identify the owner of model context selection.",
+        design_force_ids=[force.force_id],
+    )
+
+    query = ConsultationWorkflow._policy_retrieval_query(
+        case=case,
+        cluster=cluster,
+        force_lookup={force.force_id: force},
+        atlas=None,
+        selected_node_ids=[],
+    )
+
+    assert "hosted reasoning provider" in query
+    assert "Preserve evidence selection" in query
+    assert "Users can ask questions about persisted findings" in query
+    assert len(query) <= POLICY_QUERY_CHARACTER_BUDGET
 
 
 def test_schema_v1_run_json_loads_with_new_audit_defaults() -> None:
@@ -382,7 +553,7 @@ def test_schema_v1_run_json_loads_with_new_audit_defaults() -> None:
 
     loaded = ConsultationRun.model_validate_json(json.dumps(payload))
 
-    assert loaded.schema_version == 2
+    assert loaded.schema_version == 3
     assert loaded.clusters == []
     assert loaded.concern_analyses == []
     assert loaded.stage_timings == {}
@@ -390,5 +561,5 @@ def test_schema_v1_run_json_loads_with_new_audit_defaults() -> None:
 
     payload["schema_version"] = 1
     explicit_v1 = ConsultationRun.model_validate_json(json.dumps(payload))
-    assert explicit_v1.schema_version == 2
+    assert explicit_v1.schema_version == 3
     assert explicit_v1.clusters == []

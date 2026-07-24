@@ -13,6 +13,41 @@ export interface components {
     "decision": components["schemas"]["SupportedStatement"];
     "consequences": Array<components["schemas"]["SupportedStatement"]>;
   };
+    "AnswerClaim": {
+    "claim_id"?: string;
+    "text": string;
+    "classification": components["schemas"]["ClaimClassification"];
+    "evidence_ids"?: Array<string>;
+    "finding_ids"?: Array<string>;
+    "report_claim_ids"?: Array<string>;
+    "policy_ids"?: Array<string>;
+  };
+    "AnswerStatement": {
+    "text": string;
+    "kind": components["schemas"]["AnswerStatementKind"];
+    "answer_claim_ids"?: Array<string>;
+    "finding_ids"?: Array<string>;
+    "report_claim_ids"?: Array<string>;
+  };
+    "AnswerStatementKind": "direct_answer" | "supporting_point" | "uncertainty";
+    "ArchitecturalFinding": {
+    "finding_id": string;
+    "title": string;
+    "summary": string;
+    "concern_cluster_id"?: string | null;
+    "importance": components["schemas"]["FindingImportance"];
+    "importance_rationale": string;
+    "confidence": components["schemas"]["Confidence"];
+    "consequence": string;
+    "claim_ids": Array<string>;
+    "atlas_node_ids"?: Array<string>;
+    "policy_ids"?: Array<string>;
+    "affected_locations"?: Array<components["schemas"]["AtlasNodeSummary"]>;
+    "metric_observations"?: Array<components["schemas"]["AtlasMetricValue"]>;
+    "obscurity_signals"?: Array<components["schemas"]["ObscuritySignal"]>;
+    "recommended_response": string;
+    "uncertainty"?: Array<string>;
+  };
     "ArchitectureCase": {
     "schema_version"?: 2;
     "case_id"?: string;
@@ -31,7 +66,9 @@ export interface components {
     "assumptions"?: Array<components["schemas"]["CaseStatement"]>;
     "unresolved_questions"?: Array<components["schemas"]["CaseStatement"]>;
     "design_forces"?: Array<components["schemas"]["CaseStatement"]>;
+    "advisor_design_forces"?: Array<components["schemas"]["CaseStatement"]>;
     "repository"?: components["schemas"]["RepositoryReference"] | null;
+    "policy_applicability"?: components["schemas"]["PolicyApplicabilityContext"];
     "referenced_policy_ids"?: Array<string>;
     "candidate_alternatives"?: Array<components["schemas"]["CaseAlternative"]>;
     "current_recommendation"?: components["schemas"]["RecommendationState"] | null;
@@ -54,11 +91,31 @@ export interface components {
     "node_id": string;
     "location"?: components["schemas"]["SourceLocation"] | null;
   };
+    "AtlasExploreRequest": {
+    "root_path": string;
+    "operation": "children" | "dependencies" | "dependants" | "callers" | "implementations" | "tests" | "forward_neighbourhood" | "reverse_neighbourhood" | "search" | "shortest_path" | "cycles" | "signals";
+    "node_id"?: string | null;
+    "target_id"?: string | null;
+    "terms"?: Array<string>;
+    "signal_codes"?: Array<string>;
+    "depth"?: number;
+    "limit"?: number;
+  };
     "AtlasMetricValue": {
     "node_id": string;
     "metric": string;
     "value": number;
     "rank"?: number | null;
+    "nature"?: components["schemas"]["MetricNature"];
+    "scope"?: components["schemas"]["MetricScope"];
+    "definition"?: string;
+    "limitations"?: string;
+  };
+    "AtlasNodeEvidence": {
+    "node": components["schemas"]["AtlasNodeSummary"];
+    "reasons"?: Array<components["schemas"]["AtlasSelectionReason"]>;
+    "metrics"?: Array<components["schemas"]["AtlasMetricValue"]>;
+    "signals"?: Array<components["schemas"]["ObscuritySignal"]>;
   };
     "AtlasNodeSummary": {
     "node_id": string;
@@ -71,10 +128,10 @@ export interface components {
     "AtlasQueryPlan": {
     "iteration": number;
     "rationale": string;
-    "queries": Array<components["schemas"]["RepositorySummaryQuery"] | components["schemas"]["SubsystemSummaryQuery"] | components["schemas"]["NodeDetailsQuery"] | components["schemas"]["RelationQuery"] | components["schemas"]["NeighbourhoodQuery"] | components["schemas"]["ShortestPathQuery"] | components["schemas"]["CyclesQuery"] | components["schemas"]["HotspotsQuery"] | components["schemas"]["SearchNodesQuery"] | components["schemas"]["SourceExcerptQuery"]>;
+    "queries": Array<components["schemas"]["RepositorySummaryQuery"] | components["schemas"]["SubsystemSummaryQuery"] | components["schemas"]["NodeDetailsQuery"] | components["schemas"]["RelationQuery"] | components["schemas"]["NeighbourhoodQuery"] | components["schemas"]["ShortestPathQuery"] | components["schemas"]["CyclesQuery"] | components["schemas"]["SignalsQuery"] | components["schemas"]["HotspotsQuery"] | components["schemas"]["SearchNodesQuery"] | components["schemas"]["SourceExcerptQuery"]>;
   };
     "AtlasQueryResult": {
-    "query": components["schemas"]["RepositorySummaryQuery"] | components["schemas"]["SubsystemSummaryQuery"] | components["schemas"]["NodeDetailsQuery"] | components["schemas"]["RelationQuery"] | components["schemas"]["NeighbourhoodQuery"] | components["schemas"]["ShortestPathQuery"] | components["schemas"]["CyclesQuery"] | components["schemas"]["HotspotsQuery"] | components["schemas"]["SearchNodesQuery"] | components["schemas"]["SourceExcerptQuery"];
+    "query": components["schemas"]["RepositorySummaryQuery"] | components["schemas"]["SubsystemSummaryQuery"] | components["schemas"]["NodeDetailsQuery"] | components["schemas"]["RelationQuery"] | components["schemas"]["NeighbourhoodQuery"] | components["schemas"]["ShortestPathQuery"] | components["schemas"]["CyclesQuery"] | components["schemas"]["SignalsQuery"] | components["schemas"]["HotspotsQuery"] | components["schemas"]["SearchNodesQuery"] | components["schemas"]["SourceExcerptQuery"];
     "node_ids"?: Array<string>;
     "summary"?: string;
     "node_summaries"?: Array<components["schemas"]["AtlasNodeSummary"]>;
@@ -84,6 +141,21 @@ export interface components {
     "signals"?: Array<components["schemas"]["ObscuritySignal"]>;
     "excerpts"?: Array<components["schemas"]["SourceExcerpt"]>;
   };
+    "AtlasRelationshipEvidence": {
+    "edge_id": string;
+    "edge_type": components["schemas"]["EdgeType"];
+    "source": components["schemas"]["AtlasNodeSummary"];
+    "target": components["schemas"]["AtlasNodeSummary"];
+    "confidence": number;
+    "location"?: components["schemas"]["SourceLocation"] | null;
+  };
+    "AtlasSelectionReason": {
+    "kind": components["schemas"]["AtlasSelectionReasonKind"];
+    "explanation": string;
+    "metric"?: string | null;
+    "related_node_id"?: string | null;
+  };
+    "AtlasSelectionReasonKind": "overview" | "metric_rank" | "name_match" | "relation" | "neighbourhood" | "path" | "cycle" | "signal" | "excerpt" | "explicit_details";
     "AtlasVersion": {
     "schema_version"?: number;
     "version_id"?: string;
@@ -141,7 +213,9 @@ export interface components {
     "assumptions"?: Array<components["schemas"]["CaseStatement"]> | null;
     "unresolved_questions"?: Array<components["schemas"]["CaseStatement"]> | null;
     "design_forces"?: Array<components["schemas"]["CaseStatement"]> | null;
+    "advisor_design_forces"?: Array<components["schemas"]["CaseStatement"]> | null;
     "repository"?: components["schemas"]["RepositoryReference"] | null;
+    "policy_applicability"?: components["schemas"]["PolicyApplicabilityContext"] | null;
     "referenced_policy_ids"?: Array<string> | null;
     "candidate_alternatives"?: Array<components["schemas"]["CaseAlternative"]> | null;
     "current_recommendation"?: components["schemas"]["RecommendationState"] | null;
@@ -151,7 +225,7 @@ export interface components {
   };
     "ChangeAmplificationMetrics": {
     "likely_affected_modules"?: number;
-    "public_interfaces_crossed"?: number;
+    "public_call_targets_in_affected_modules"?: number;
     "coordinated_implementations"?: number;
     "configuration_locations"?: number;
     "reverse_neighbourhood_tests"?: number;
@@ -170,11 +244,15 @@ export interface components {
   };
     "CognitiveScopeMetrics": {
     "dependency_neighbourhood_modules"?: number;
-    "symbols_in_representative_path"?: number;
+    "bounded_resolved_call_chain_nodes"?: number;
     "abstraction_boundaries"?: number;
     "related_configuration_locations"?: number;
     "local_control_flow_complexity"?: number;
     "public_api_surface"?: number;
+  };
+    "CompareFindingsAction": {
+    "kind": "compare_findings";
+    "finding_ids": Array<string>;
   };
     "ConcernAnalysis": {
     "cluster_id"?: string;
@@ -215,6 +293,7 @@ export interface components {
     "completed_at"?: string | null;
     "warning"?: string | null;
     "error"?: string | null;
+    "failure_diagnostics"?: Array<components["schemas"]["FailureDiagnostic"]>;
   };
     "ConsultationJobStatus": "queued" | "running" | "succeeded" | "succeeded_with_warnings" | "failed" | "interrupted";
     "ConsultationProgressEvent": {
@@ -231,7 +310,7 @@ export interface components {
     "occurred_at"?: string;
   };
     "ConsultationRun": {
-    "schema_version"?: 2;
+    "schema_version"?: 3;
     "run_id"?: string;
     "status": components["schemas"]["ConsultationStatus"];
     "case_id": string;
@@ -260,6 +339,7 @@ export interface components {
   };
     "failure_stage"?: components["schemas"]["ConsultationFailureStage"] | null;
     "sanitized_errors"?: Array<string>;
+    "failure_diagnostics"?: Array<components["schemas"]["FailureDiagnostic"]>;
     "started_at"?: string;
     "completed_at"?: string;
     "execution_metadata"?: {
@@ -271,6 +351,82 @@ export interface components {
     "repository_root"?: string | null;
   };
     "ConsultationStatus": "succeeded" | "failed";
+    "ConversationAnswer": {
+    "direct_answer": components["schemas"]["AnswerStatement"];
+    "supporting_points"?: Array<components["schemas"]["AnswerStatement"]>;
+    "claims"?: Array<components["schemas"]["AnswerClaim"]>;
+    "relevant_finding_ids"?: Array<string>;
+    "uncertainty"?: Array<components["schemas"]["AnswerStatement"]>;
+    "suggested_follow_up_questions"?: Array<string>;
+  };
+    "ConversationCreateRequest": {
+    "run_id": string;
+    "title"?: string | null;
+  };
+    "ConversationEvidenceKind": "finding" | "report_claim" | "report_context" | "concern_analysis" | "alternative" | "scenario" | "atlas_node" | "atlas_relationship" | "atlas_metric" | "atlas_signal" | "source_excerpt" | "test" | "policy" | "metric_definition" | "retrieval_unavailable";
+    "ConversationEvidenceReference": {
+    "evidence_id": string;
+    "kind": components["schemas"]["ConversationEvidenceKind"];
+    "artifact_id": string;
+    "scope": components["schemas"]["ConversationEvidenceScope"];
+    "content_hash": string;
+    "node_id"?: string | null;
+    "location"?: components["schemas"]["SourceLocation"] | null;
+  };
+    "ConversationEvidenceScope": "original_run" | "additional_conversation";
+    "ConversationExcerptSnapshot": {
+    "evidence_id": string;
+    "location": components["schemas"]["SourceLocation"];
+    "text": string;
+  };
+    "ConversationMessage": {
+    "message_id"?: string;
+    "conversation_id": string;
+    "ordinal": number;
+    "role": components["schemas"]["ConversationRole"];
+    "text": string;
+    "question_type"?: string | null;
+    "retrieved_context"?: components["schemas"]["ConversationRetrievalRecord"] | null;
+    "answer"?: components["schemas"]["ConversationAnswer"] | null;
+    "model_identity"?: string | null;
+    "prompt_identities"?: Array<string>;
+    "created_at"?: string;
+  };
+    "ConversationRetrievalRecord": {
+    "consultation_run_id": string;
+    "case_id": string;
+    "case_revision": number;
+    "atlas_version_id"?: string | null;
+    "policy_index_version_id"?: string | null;
+    "question_plan": components["schemas"]["ReportQuestionPlan"];
+    "retrieval_actions": Array<components["schemas"]["ListFindingsAction"] | components["schemas"]["GetFindingAction"] | components["schemas"]["CompareFindingsAction"] | components["schemas"]["GetReportClaimsAction"] | components["schemas"]["GetClusterAnalysisAction"] | components["schemas"]["GetAlternativeAction"] | components["schemas"]["GetScenarioAction"] | components["schemas"]["GetAtlasNodesAction"] | components["schemas"]["SearchAtlasNodesAction"] | components["schemas"]["GetMetricProfilesAction"] | components["schemas"]["GetObscuritySignalsAction"] | components["schemas"]["GetDependencyNeighbourhoodAction"] | components["schemas"]["GetDependencyPathAction"] | components["schemas"]["GetSourceExcerptAction"] | components["schemas"]["GetPoliciesAction"] | components["schemas"]["ExplainMetricDefinitionAction"]>;
+    "evidence_references"?: Array<components["schemas"]["ConversationEvidenceReference"]>;
+    "supplied_finding_ids"?: Array<string>;
+    "supplied_report_claim_ids"?: Array<string>;
+    "supplied_evidence_ids"?: Array<string>;
+    "supplied_policy_ids"?: Array<string>;
+    "summary_revision"?: number | null;
+    "recent_message_ordinals"?: Array<number>;
+    "truncations"?: Array<string>;
+    "unavailable_reasons"?: Array<string>;
+    "excerpt_snapshots"?: Array<components["schemas"]["ConversationExcerptSnapshot"]>;
+    "context_hash": string;
+  };
+    "ConversationRole": "user" | "assistant";
+    "ConversationSummary": {
+    "narrative": string;
+    "discussed_finding_ids"?: Array<string>;
+    "discussed_evidence_ids"?: Array<string>;
+    "user_corrections"?: Array<components["schemas"]["ConversationSummaryItem"]>;
+    "hypotheticals"?: Array<components["schemas"]["ConversationSummaryItem"]>;
+    "unresolved_questions"?: Array<components["schemas"]["ConversationSummaryItem"]>;
+  };
+    "ConversationSummaryItem": {
+    "text": string;
+    "source_ordinals": Array<number>;
+    "finding_ids"?: Array<string>;
+    "evidence_ids"?: Array<string>;
+  };
     "CyclesQuery": {
     "kind": "cyclic_components";
     "limit"?: number;
@@ -302,16 +458,30 @@ export interface components {
     "model": string;
     "dimensions": number;
   };
+    "ExplainMetricDefinitionAction": {
+    "kind": "explain_metric_definition";
+    "metric_names": Array<string>;
+  };
+    "FailureDiagnostic": {
+    "code": components["schemas"]["FailureDiagnosticCode"];
+    "force_handles"?: Array<string>;
+    "count"?: number | null;
+  };
+    "FailureDiagnosticCode": "cluster_count_out_of_range" | "unknown_force_references" | "missing_force_references" | "duplicate_force_references" | "duplicate_cluster_ids";
+    "FindingImportance": "low" | "medium" | "high" | "critical";
     "FocusedAnalysisPacket": {
     "cluster": components["schemas"]["ConcernCluster"];
     "node_summaries"?: Array<components["schemas"]["FocusedNodeSummary"]>;
+    "node_evidence"?: Array<components["schemas"]["AtlasNodeEvidence"]>;
     "metrics"?: Array<components["schemas"]["MetricProfile"]>;
     "relationships"?: Array<components["schemas"]["AtlasEdge"]>;
+    "relationship_evidence"?: Array<components["schemas"]["AtlasRelationshipEvidence"]>;
     "test_ids"?: Array<string>;
+    "test_evidence"?: Array<components["schemas"]["AtlasNodeSummary"]>;
     "excerpts"?: Array<components["schemas"]["SourceExcerpt"]>;
     "policies"?: Array<components["schemas"]["RetrievedPolicy"]>;
     "assumptions"?: Array<string>;
-    "uncertainty"?: Array<string>;
+    "uncertainty": Array<string>;
   };
     "FocusedNodeSummary": {
     "node_id": string;
@@ -320,9 +490,61 @@ export interface components {
     "node_type"?: string;
     "location"?: components["schemas"]["SourceLocation"] | null;
     "summary"?: string;
+    "selection_reasons"?: Array<components["schemas"]["AtlasSelectionReason"]>;
   };
-    "HTTPValidationError": {
-    "detail"?: Array<components["schemas"]["ValidationError"]>;
+    "GetAlternativeAction": {
+    "kind": "get_alternative";
+    "alternative_id": string;
+  };
+    "GetAtlasNodesAction": {
+    "kind": "get_atlas_nodes";
+    "node_ids": Array<string>;
+  };
+    "GetClusterAnalysisAction": {
+    "kind": "get_cluster_analysis";
+    "cluster_id": string;
+  };
+    "GetDependencyNeighbourhoodAction": {
+    "kind": "get_dependency_neighbourhood";
+    "node_id": string;
+    "direction"?: "forward" | "reverse";
+    "depth"?: number;
+    "limit"?: number;
+  };
+    "GetDependencyPathAction": {
+    "kind": "get_dependency_path";
+    "source_node_id": string;
+    "target_node_id": string;
+  };
+    "GetFindingAction": {
+    "kind": "get_finding";
+    "finding_id": string;
+  };
+    "GetMetricProfilesAction": {
+    "kind": "get_metric_profiles";
+    "node_ids": Array<string>;
+  };
+    "GetObscuritySignalsAction": {
+    "kind": "get_obscurity_signals";
+    "node_ids": Array<string>;
+  };
+    "GetPoliciesAction": {
+    "kind": "get_policies";
+    "policy_ids": Array<string>;
+  };
+    "GetReportClaimsAction": {
+    "kind": "get_report_claims";
+    "claim_ids": Array<string>;
+  };
+    "GetScenarioAction": {
+    "kind": "get_scenario";
+    "ordinal": number;
+  };
+    "GetSourceExcerptAction": {
+    "kind": "get_source_excerpt";
+    "node_id": string;
+    "context_lines"?: number;
+    "max_lines"?: number;
   };
     "HotspotsQuery": {
     "kind": "hotspots";
@@ -330,6 +552,10 @@ export interface components {
     "limit"?: number;
   };
     "JsonValue": unknown;
+    "ListFindingsAction": {
+    "kind": "list_findings";
+    "limit"?: number;
+  };
     "LocalStructuralMetrics": {
     "physical_lines"?: number;
     "logical_statements"?: number;
@@ -341,6 +567,7 @@ export interface components {
     "outgoing_static_calls"?: number;
     "incoming_known_callers"?: number;
   };
+    "MetricNature": "objective_measurement" | "structural_proxy";
     "MetricProfile": {
     "node_id": string;
     "local"?: components["schemas"]["LocalStructuralMetrics"];
@@ -348,6 +575,7 @@ export interface components {
     "change_amplification"?: components["schemas"]["ChangeAmplificationMetrics"];
     "cognitive_scope"?: components["schemas"]["CognitiveScopeMetrics"];
   };
+    "MetricScope": "lexical_node" | "owning_module" | "reverse_static_impact_neighbourhood" | "bounded_resolved_call_chain";
     "ModelIdentity": {
     "provider": string;
     "model": string;
@@ -368,6 +596,14 @@ export interface components {
     "message": string;
     "node_id": string;
     "location"?: components["schemas"]["SourceLocation"] | null;
+    "nature"?: components["schemas"]["MetricNature"];
+    "definition"?: string;
+    "limitations"?: string;
+  };
+    "PolicyApplicabilityContext": {
+    "user"?: string | null;
+    "organisation"?: string | null;
+    "repository"?: string | null;
   };
     "PolicyChunk": {
     "chunk_id": string;
@@ -387,6 +623,7 @@ export interface components {
     "id": string;
     "title": string;
     "scope": components["schemas"]["PolicyScope"];
+    "applies_to"?: string | null;
     "strength": components["schemas"]["PolicyStrength"];
     "tags": Array<string>;
     "source": components["schemas"]["PolicySource"];
@@ -398,6 +635,7 @@ export interface components {
     "id": string;
     "title": string;
     "scope": components["schemas"]["PolicyScope"];
+    "applies_to"?: string | null;
     "strength": components["schemas"]["PolicyStrength"];
     "matched_sections": Array<string>;
   };
@@ -429,10 +667,16 @@ export interface components {
     "source": string;
   };
     "PolicyStrength": "guidance" | "preferred" | "required";
+    "ProblemDetail": {
+    "code": string;
+    "message": string;
+    "retryable"?: boolean;
+    "field_errors"?: Array<string>;
+  };
     "ProgressEventType": "queued" | "stage_started" | "artifact_available" | "stage_completed" | "warning" | "completed" | "failed";
     "RecommendationDisposition": "introduce_boundary" | "move_responsibility" | "keep_local" | "delay" | "preserve" | "gather_information";
     "RecommendationReport": {
-    "schema_version"?: 2;
+    "schema_version"?: 3;
     "report_id"?: string;
     "disposition": components["schemas"]["RecommendationDisposition"];
     "decision_summary": components["schemas"]["SupportedStatement"];
@@ -440,6 +684,7 @@ export interface components {
     "confirmed_context": Array<components["schemas"]["Claim"]>;
     "assumptions_and_unresolved_questions": Array<components["schemas"]["Claim"]>;
     "important_design_forces": Array<components["schemas"]["DesignForce"]>;
+    "findings": Array<components["schemas"]["ArchitecturalFinding"]>;
     "repository_observations": Array<components["schemas"]["Claim"]>;
     "relevant_policies": Array<components["schemas"]["Claim"]>;
     "policy_evidence"?: Array<components["schemas"]["PolicyEvidenceSummary"]>;
@@ -469,6 +714,35 @@ export interface components {
     "node_id": string;
     "limit"?: number;
   };
+    "ReportConversation": {
+    "conversation_id"?: string;
+    "consultation_run_id": string;
+    "case_id": string;
+    "case_revision": number;
+    "atlas_version_id"?: string | null;
+    "policy_index_version_id"?: string | null;
+    "title": string;
+    "created_at"?: string;
+    "updated_at"?: string;
+    "current_summary"?: components["schemas"]["ConversationSummary"] | null;
+    "summary_through_ordinal"?: number;
+    "message_count"?: number;
+    "revision"?: number;
+  };
+    "ReportQuestionPlan": {
+    "question_types": Array<components["schemas"]["ReportQuestionType"]>;
+    "finding_ids"?: Array<string>;
+    "report_claim_ids"?: Array<string>;
+    "atlas_node_ids"?: Array<string>;
+    "policy_ids"?: Array<string>;
+    "search_terms"?: Array<string>;
+    "retrieval_actions": Array<components["schemas"]["ListFindingsAction"] | components["schemas"]["GetFindingAction"] | components["schemas"]["CompareFindingsAction"] | components["schemas"]["GetReportClaimsAction"] | components["schemas"]["GetClusterAnalysisAction"] | components["schemas"]["GetAlternativeAction"] | components["schemas"]["GetScenarioAction"] | components["schemas"]["GetAtlasNodesAction"] | components["schemas"]["SearchAtlasNodesAction"] | components["schemas"]["GetMetricProfilesAction"] | components["schemas"]["GetObscuritySignalsAction"] | components["schemas"]["GetDependencyNeighbourhoodAction"] | components["schemas"]["GetDependencyPathAction"] | components["schemas"]["GetSourceExcerptAction"] | components["schemas"]["GetPoliciesAction"] | components["schemas"]["ExplainMetricDefinitionAction"]>;
+    "rationale": string;
+  };
+    "ReportQuestionRequest": {
+    "question": string;
+  };
+    "ReportQuestionType": "report_summary" | "list_findings" | "finding_details" | "finding_priority" | "compare_findings" | "evidence_trace" | "source_explanation" | "policy_explanation" | "alternative_explanation" | "scenario_explanation" | "assumption_review" | "implementation_order" | "counterfactual" | "general_report_question";
     "RepositoryPathRequest": {
     "root_path": string;
   };
@@ -514,6 +788,11 @@ export interface components {
   };
     "conclusion": string;
   };
+    "SearchAtlasNodesAction": {
+    "kind": "search_atlas_nodes";
+    "terms": Array<string>;
+    "limit"?: number;
+  };
     "SearchNodesQuery": {
     "kind": "search_nodes";
     "terms": Array<string>;
@@ -523,6 +802,11 @@ export interface components {
     "kind": "shortest_dependency_path";
     "source_id": string;
     "target_id": string;
+  };
+    "SignalsQuery": {
+    "kind": "signals";
+    "codes"?: Array<string>;
+    "limit"?: number;
   };
     "SourceExcerpt": {
     "node_id": string;
@@ -552,11 +836,6 @@ export interface components {
     "supporting_claim_ids": Array<string>;
     "legacy"?: boolean;
   };
-    "ValidationError": {
-    "loc": Array<string | number>;
-    "msg": string;
-    "type": string;
-  };
     "WorkspaceModels": {
     "reasoning": components["schemas"]["ModelIdentity"];
     "embedding": components["schemas"]["EmbeddingModelIdentity"];
@@ -581,7 +860,25 @@ export interface operations {
     requestBody: components["schemas"]["PolicySourceRequest"];
     responses: {
       "201": components["schemas"]["PolicySourceRegistration"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "ask_report_question_api_conversations__conversation_id__messages_post": {
+    parameters: {
+      query: never;
+      path: {
+      "conversation_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["ReportQuestionRequest"];
+    responses: {
+      "201": components["schemas"]["ConversationMessage"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
+      "503": components["schemas"]["ProblemDetail"];
     };
   };
   "case_history_api_cases__case_id__history_get": {
@@ -596,7 +893,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": Array<components["schemas"]["CaseRevision"]>;
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "consultation_events_api_consultations__run_id__events_get": {
@@ -613,7 +910,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": Array<components["schemas"]["ConsultationProgressEvent"]>;
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "consultation_stream_api_consultations__run_id__stream_get": {
@@ -628,7 +925,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": unknown;
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "create_case_api_cases_post": {
@@ -641,7 +938,21 @@ export interface operations {
     requestBody: components["schemas"]["ArchitectureCase"];
     responses: {
       "201": components["schemas"]["CaseRevision"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "create_report_conversation_api_conversations_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["ConversationCreateRequest"];
+    responses: {
+      "201": components["schemas"]["ReportConversation"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
     };
   };
   "download_report_api_runs__run_id__report_get": {
@@ -657,8 +968,30 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      "200": unknown;
-      "422": components["schemas"]["HTTPValidationError"];
+      "200": components["schemas"]["RecommendationReport"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "export_report_conversation_api_conversations__conversation_id__export_get": {
+    parameters: {
+      query: {
+      "format"?: "markdown" | "json";
+      };
+      path: {
+      "conversation_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": {
+    "conversation": components["schemas"]["ReportConversation"];
+    "messages": Array<components["schemas"]["ConversationMessage"]>;
+  };
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
     };
   };
   "get_case_api_cases__case_id__get": {
@@ -675,7 +1008,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": components["schemas"]["CaseRevision"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "get_consultation_api_consultations__run_id__get": {
@@ -690,7 +1023,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": components["schemas"]["ConsultationJob"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "get_policy_api_policies__policy_id__get": {
@@ -707,7 +1040,39 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": components["schemas"]["PolicyDocument"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "get_report_conversation_api_conversations__conversation_id__get": {
+    parameters: {
+      query: never;
+      path: {
+      "conversation_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": components["schemas"]["ReportConversation"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "get_report_conversation_history_api_conversations__conversation_id__history_get": {
+    parameters: {
+      query: never;
+      path: {
+      "conversation_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": Array<components["schemas"]["ConversationMessage"]>;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
     };
   };
   "get_run_api_runs__run_id__get": {
@@ -722,7 +1087,8 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": components["schemas"]["ConsultationRun"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
     };
   };
   "import_case_yaml_api_cases_import_yaml_post": {
@@ -735,7 +1101,7 @@ export interface operations {
     requestBody: string;
     responses: {
       "201": components["schemas"]["CaseRevision"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "index_repository_api_repositories_index_post": {
@@ -748,7 +1114,7 @@ export interface operations {
     requestBody: components["schemas"]["RepositoryPathRequest"];
     responses: {
       "201": components["schemas"]["AtlasVersion"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "list_cases_api_cases_get": {
@@ -763,7 +1129,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": Array<components["schemas"]["CaseSummary"]>;
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "list_consultations_api_consultations_get": {
@@ -778,7 +1144,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": Array<components["schemas"]["ConsultationJob"]>;
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "list_policies_api_policies_get": {
@@ -793,7 +1159,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": Array<components["schemas"]["PolicyDocument"]>;
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "list_policy_sources_api_policies_sources_get": {
@@ -806,6 +1172,23 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": Array<components["schemas"]["PolicySourceRegistration"]>;
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "list_report_conversations_api_conversations_get": {
+    parameters: {
+      query: {
+      "run_id": string;
+      };
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": Array<components["schemas"]["ReportConversation"]>;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
     };
   };
   "list_repositories_api_repositories_get": {
@@ -820,7 +1203,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": Array<components["schemas"]["RepositorySummary"]>;
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "list_runs_api_runs_get": {
@@ -836,7 +1219,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": Array<components["schemas"]["RunSummary"]>;
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "rebuild_policies_api_policies_rebuild_post": {
@@ -849,7 +1232,7 @@ export interface operations {
     requestBody: components["schemas"]["PolicyRebuildRequest"];
     responses: {
       "200": components["schemas"]["PolicyIndexVersion"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "remove_policy_source_api_policies_sources_delete": {
@@ -864,7 +1247,20 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": components["schemas"]["PolicySourceRemovalResponse"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "repository_explore_api_repositories_explore_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["AtlasExploreRequest"];
+    responses: {
+      "200": components["schemas"]["AtlasQueryResult"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "repository_hotspots_api_repositories_hotspots_get": {
@@ -880,7 +1276,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": components["schemas"]["AtlasQueryResult"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "repository_inspect_api_repositories_inspect_get": {
@@ -896,7 +1292,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": components["schemas"]["AtlasQueryResult"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "repository_summary_api_repositories_summary_get": {
@@ -911,7 +1307,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": components["schemas"]["AtlasQueryResult"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "start_consultation_api_consultations_post": {
@@ -924,7 +1320,7 @@ export interface operations {
     requestBody: components["schemas"]["ConsultationStartRequest"];
     responses: {
       "202": components["schemas"]["ConsultationJob"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "update_case_api_cases__case_id__patch": {
@@ -939,7 +1335,7 @@ export interface operations {
     requestBody: components["schemas"]["CaseUpdate"];
     responses: {
       "200": components["schemas"]["CaseRevision"];
-      "422": components["schemas"]["HTTPValidationError"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "workspace_summary_api_workspace_get": {
@@ -952,6 +1348,7 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": components["schemas"]["WorkspaceSummaryResponse"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
 }
@@ -984,6 +1381,22 @@ export interface paths {
   "/api/consultations/{run_id}/stream": {
     get: operations["consultation_stream_api_consultations__run_id__stream_get"];
   };
+  "/api/conversations": {
+    get: operations["list_report_conversations_api_conversations_get"];
+    post: operations["create_report_conversation_api_conversations_post"];
+  };
+  "/api/conversations/{conversation_id}": {
+    get: operations["get_report_conversation_api_conversations__conversation_id__get"];
+  };
+  "/api/conversations/{conversation_id}/export": {
+    get: operations["export_report_conversation_api_conversations__conversation_id__export_get"];
+  };
+  "/api/conversations/{conversation_id}/history": {
+    get: operations["get_report_conversation_history_api_conversations__conversation_id__history_get"];
+  };
+  "/api/conversations/{conversation_id}/messages": {
+    post: operations["ask_report_question_api_conversations__conversation_id__messages_post"];
+  };
   "/api/policies": {
     get: operations["list_policies_api_policies_get"];
   };
@@ -1000,6 +1413,9 @@ export interface paths {
   };
   "/api/repositories": {
     get: operations["list_repositories_api_repositories_get"];
+  };
+  "/api/repositories/explore": {
+    post: operations["repository_explore_api_repositories_explore_post"];
   };
   "/api/repositories/hotspots": {
     get: operations["repository_hotspots_api_repositories_hotspots_get"];

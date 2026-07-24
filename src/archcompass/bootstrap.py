@@ -19,6 +19,7 @@ from archcompass.adapters.persistence import (
     SQLiteConsultationJobRepository,
     SQLiteDatabase,
     SQLitePolicySourceRepository,
+    SQLiteReportConversationRepository,
     SQLiteRunRepository,
 )
 from archcompass.adapters.reporting import SafeWorkspaceReportWriter
@@ -35,6 +36,12 @@ from archcompass.application.advice import AdviceService
 from archcompass.application.atlas import AtlasFreshnessService
 from archcompass.application.atlas_queries import AtlasService
 from archcompass.application.cases import CaseService
+from archcompass.application.conversation_context import ConversationContextBuilder
+from archcompass.application.conversation_rendering import ConversationRenderer
+from archcompass.application.conversation_retrieval import (
+    ConversationEvidenceRetriever,
+)
+from archcompass.application.conversations import ReportConversationService
 from archcompass.application.jobs import ConsultationJobService
 from archcompass.application.policies import PolicyService
 from archcompass.application.reports import ReportService
@@ -74,6 +81,7 @@ class Runtime:
     advice_service: AdviceService
     report_service: ReportService
     run_service: RunService
+    conversation_service: ReportConversationService
     job_service: ConsultationJobService
     freshness_service: AtlasFreshnessService
 
@@ -107,6 +115,7 @@ def build_runtime(
     reasoning = _reasoning_provider(config)
     cases = SQLiteCaseRepository(database)
     runs = SQLiteRunRepository(database)
+    conversations = SQLiteReportConversationRepository(database)
     jobs = SQLiteConsultationJobRepository(database)
     atlases = SQLiteAtlasRepository(database)
     analyzer = PythonAstRepositoryAnalyzer()
@@ -175,6 +184,22 @@ def build_runtime(
         jobs=jobs,
         advice=advice_service,
     )
+    conversation_service = ReportConversationService(
+        runs=runs,
+        cases=cases,
+        conversations=conversations,
+        atlases=atlases,
+        policies=policies,
+        reasoning=reasoning,
+        retrieval=ConversationEvidenceRetriever(
+            atlases=atlases,
+            queries=queries,
+            config=config.conversation,
+        ),
+        context_builder=ConversationContextBuilder(config.conversation),
+        renderer=ConversationRenderer(),
+        config=config.conversation,
+    )
     return Runtime(
         workspace=canonical_workspace,
         config=config,
@@ -195,6 +220,7 @@ def build_runtime(
         advice_service=advice_service,
         report_service=report_service,
         run_service=RunService(runs),
+        conversation_service=conversation_service,
         job_service=job_service,
         freshness_service=freshness,
     )

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { vi } from "vitest";
@@ -18,6 +18,7 @@ const statement = (text: string, supporting_claim_ids = ["claim_repo"]) => ({
 });
 
 const report: RecommendationReport = {
+  schema_version: 3,
   report_id: "report_1",
   disposition: "move_responsibility",
   decision_summary: statement("Move provider discovery behind the provider boundary."),
@@ -30,6 +31,30 @@ const report: RecommendationReport = {
     description: "Provider knowledge needs one accountable owner.",
     importance: "high",
   }],
+  findings: [{
+    finding_id: "FIND-001",
+    title: "Provider knowledge crosses ownership boundaries",
+    summary: "The caller reaches directly into provider behavior.",
+    concern_cluster_id: "cluster_1",
+    importance: "high",
+    importance_rationale: "The dependency increases coordinated change.",
+    confidence: { level: "high", rationale: "The static call is persisted." },
+    consequence: "Provider changes require caller edits.",
+    claim_ids: ["claim_repo"],
+    atlas_node_ids: ["node_a"],
+    policy_ids: [],
+    affected_locations: [{
+      node_id: "node_a",
+      qualified_name: "ServiceA",
+      node_type: "class",
+      path: "a.py",
+      location: { path: "a.py", start_line: 1, end_line: 8 },
+    }],
+    metric_observations: [],
+    obscurity_signals: [],
+    recommended_response: "Move discovery behind the provider boundary.",
+    uncertainty: ["Static analysis does not include runtime dispatch."],
+  }],
   repository_observations: [{
     claim_id: "claim_repo",
     text: "ServiceA calls ServiceB directly.",
@@ -41,7 +66,8 @@ const report: RecommendationReport = {
   policy_evidence: [{
     id: "policy_1",
     title: "Place knowledge with its owner",
-    scope: "general",
+    scope: "organisation",
+    applies_to: "example-organisation",
     strength: "guidance",
     matched_sections: ["Responsibility"],
   }],
@@ -100,11 +126,36 @@ const brownfieldRun = {
       cluster_id: "cluster_1",
       title: "Provider ownership",
       rationale: "Locate distributed provider knowledge.",
+      design_force_ids: ["force_1"],
     },
     node_summaries: [
-      { node_id: "node_a", path: "a.py", qualified_name: "ServiceA", node_type: "class", summary: "Caller." },
-      { node_id: "node_b", path: "b.py", qualified_name: "ServiceB", node_type: "class", summary: "Provider." },
+      { node_id: "node_a", path: "a.py", qualified_name: "ServiceA", node_type: "class", summary: "Caller.", selection_reasons: [] },
+      { node_id: "node_b", path: "b.py", qualified_name: "ServiceB", node_type: "class", summary: "Provider.", selection_reasons: [] },
     ],
+    node_evidence: [{
+      node: {
+        node_id: "node_a",
+        path: "a.py",
+        qualified_name: "ServiceA",
+        node_type: "class",
+      },
+      reasons: [{
+        kind: "metric_rank",
+        explanation: "High reverse dependency reach.",
+        metric: "reverse_dependency_reach",
+      }],
+      metrics: [{
+        node_id: "node_a",
+        metric: "dependency.reverse_dependency_reach",
+        value: 9,
+        rank: 1,
+        nature: "objective_measurement",
+        scope: "owning_module",
+        definition: "Modules that depend transitively on the owning module.",
+        limitations: "Static internal dependencies only.",
+      }],
+      signals: [],
+    }],
     metrics: [{
       node_id: "node_a",
       local: { branch_count: 2 },
@@ -117,9 +168,31 @@ const brownfieldRun = {
       source_id: "node_a",
       target_id: "node_b",
       edge_type: "calls",
+      confidence: 1,
     }],
+    relationship_evidence: [{
+      edge_id: "edge_1",
+      edge_type: "calls",
+      source: {
+        node_id: "node_a",
+        path: "a.py",
+        qualified_name: "ServiceA",
+        node_type: "class",
+      },
+      target: {
+        node_id: "node_b",
+        path: "b.py",
+        qualified_name: "ServiceB",
+        node_type: "class",
+      },
+      confidence: 1,
+    }],
+    test_ids: [],
+    test_evidence: [],
     excerpts: [],
     policies: [],
+    assumptions: [],
+    uncertainty: ["Static call resolution is conservative."],
   }],
   concern_analyses: [],
   alternatives: report.alternatives_considered,
@@ -134,7 +207,7 @@ const brownfieldRun = {
   started_at: "2026-01-01T00:00:00Z",
   completed_at: "2026-01-01T00:00:01Z",
   execution_metadata: {},
-} as ConsultationRun;
+} as unknown as ConsultationRun;
 
 const architectureCase = {
   case_id: "case_1",
@@ -153,8 +226,23 @@ const architectureCase = {
   derived_constraints: [],
   assumptions: [],
   unresolved_questions: [],
-  design_forces: [],
+  design_forces: [{
+    id: "force_user",
+    text: "The provider should own capability knowledge.",
+    kind: "force",
+    source: "user",
+  }],
+  advisor_design_forces: [{
+    id: "force_advisor",
+    text: "Current repository observations favor one provider owner.",
+    kind: "force",
+    source: "run_1",
+  }],
   repository: { root_path: "/project", atlas_version_id: "atlas_1" },
+  policy_applicability: {
+    organisation: "example-organisation",
+    repository: "repo_1",
+  },
   referenced_policy_ids: [],
   candidate_alternatives: [],
   reversal_conditions: [],
@@ -186,6 +274,14 @@ describe("RepositoryAtlas", () => {
     ).toBeLessThan(
       Math.abs(layout.positions.get("module_b")!.x - layout.positions.get("class_a")!.x),
     );
+    expect(layout.clusters).toHaveLength(2);
+    const [firstIsland, secondIsland] = layout.clusters;
+    expect(
+      firstIsland.x + firstIsland.width + 20 <= secondIsland.x ||
+      secondIsland.x + secondIsland.width + 20 <= firstIsland.x ||
+      firstIsland.y + firstIsland.height + 20 <= secondIsland.y ||
+      secondIsland.y + secondIsland.height + 20 <= firstIsland.y,
+    ).toBe(true);
 
     const homogeneous = layoutAtlas(
       ["a", "b", "c"].map((id) => ({
@@ -201,8 +297,30 @@ describe("RepositoryAtlas", () => {
         { id: "b-c", sourceId: "b", targetId: "c", kind: "calls" },
       ],
     );
-    expect(homogeneous.positions.get("b")!.y).toBeLessThan(homogeneous.positions.get("a")!.y);
-    expect(homogeneous.positions.get("b")!.y).toBeLessThan(homogeneous.positions.get("c")!.y);
+    expect(homogeneous.clusters).toEqual([
+      expect.objectContaining({ nodeIds: expect.arrayContaining(["a", "b", "c"]) }),
+    ]);
+    expect(
+      new Set(
+        ["a", "b", "c"].map((id) =>
+          Math.round(homogeneous.positions.get(id)!.y),
+        ),
+      ).size,
+    ).toBeGreaterThan(1);
+    expect(layoutAtlas(
+      ["a", "b", "c"].map((id) => ({
+        id,
+        label: id,
+        path: `${id}.py`,
+        kind: "class",
+        state: "normal",
+        metrics: [],
+      })),
+      [
+        { id: "a-b", sourceId: "a", targetId: "b", kind: "calls" },
+        { id: "b-c", sourceId: "b", targetId: "c", kind: "calls" },
+      ],
+    ).positions).toEqual(homogeneous.positions);
   });
 
   it("lets keyboard users select a node and updates its detail panel", () => {
@@ -211,7 +329,7 @@ describe("RepositoryAtlas", () => {
       { id: "b", label: "ServiceB", path: "b.py", kind: "class", state: "hotspot", metrics: [] },
     ];
     function Harness() {
-      const [selected, setSelected] = useState("a");
+      const [selected, setSelected] = useState<string | null>("a");
       return (
         <RepositoryAtlas
           nodes={nodes}
@@ -223,11 +341,103 @@ describe("RepositoryAtlas", () => {
     }
     render(<Harness />);
 
-    fireEvent.keyDown(screen.getByRole("treeitem", { name: "ServiceB, class, hotspot" }), {
+    fireEvent.keyDown(screen.getByRole("button", { name: "ServiceB, class, hotspot" }), {
       key: "Enter",
     });
     expect(screen.getByRole("heading", { name: "ServiceB" })).toBeVisible();
     expect(screen.getByText("b.py")).toBeVisible();
+  });
+
+  it("selects a node with a pointer without starting a canvas pan", () => {
+    const nodes: AtlasNodeView[] = [
+      { id: "a", label: "ServiceA", path: "a.py", kind: "class", state: "normal", metrics: [] },
+      { id: "b", label: "ServiceB", path: "b.py", kind: "class", state: "hotspot", metrics: [] },
+    ];
+    function Harness() {
+      const [selected, setSelected] = useState<string | null>("a");
+      return (
+        <RepositoryAtlas
+          nodes={nodes}
+          edges={[{ id: "edge", sourceId: "a", targetId: "b", kind: "calls" }]}
+          selectedNodeId={selected}
+          onSelectNode={setSelected}
+        />
+      );
+    }
+    render(<Harness />);
+    const node = screen.getByRole("button", { name: "ServiceB, class, hotspot" });
+
+    fireEvent.pointerDown(node, { pointerId: 1, pointerType: "mouse", button: 0 });
+    fireEvent.click(node);
+
+    expect(screen.getByRole("heading", { name: "ServiceB" })).toBeVisible();
+    expect(screen.getByText("b.py")).toBeVisible();
+  });
+
+  it("switches lenses, searches locally, and exposes progressive exploration actions", () => {
+    const onExploreNode = vi.fn();
+    const onExploreAtlas = vi.fn();
+    const onSetPathStart = vi.fn();
+    const nodes: AtlasNodeView[] = [
+      { id: "repo", label: "Repository", path: ".", kind: "repository", state: "contained", metrics: [] },
+      {
+        id: "a",
+        label: "BillingService",
+        path: "billing.py",
+        kind: "class",
+        state: "normal",
+        metrics: [],
+        signals: [{
+          code: "parallel-boundary-preparation",
+          message: "Sibling adapters prepare the same request-shaped context.",
+          node_id: "a",
+          nature: "structural_proxy",
+          definition: "Overlapping static input-to-request preparation.",
+          limitations: "Static overlap does not prove misplaced ownership.",
+        }],
+      },
+      { id: "b", label: "Ledger", path: "ledger.py", kind: "class", state: "hotspot", metrics: [] },
+    ];
+    function Harness() {
+      const [selected, setSelected] = useState<string | null>("a");
+      return (
+        <RepositoryAtlas
+          nodes={nodes}
+          edges={[
+            { id: "contains", sourceId: "repo", targetId: "a", kind: "contains" },
+            { id: "calls", sourceId: "a", targetId: "b", kind: "calls" },
+          ]}
+          selectedNodeId={selected}
+          onSelectNode={setSelected}
+          onExploreNode={onExploreNode}
+          onExploreAtlas={onExploreAtlas}
+          onSetPathStart={onSetPathStart}
+          onTracePath={vi.fn()}
+        />
+      );
+    }
+    const { container } = render(<Harness />);
+
+    expect(
+      screen.getByText("Sibling adapters prepare the same request-shaped context."),
+    ).toBeVisible();
+    expect(container.querySelector(".atlas-edge--kind-calls")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "dependencies" }));
+    expect(container.querySelector(".atlas-edge--kind-calls")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search repository atlas" }), {
+      target: { value: "Ledger" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Find" }));
+    expect(screen.getByRole("heading", { name: "Ledger" })).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dependencies" }));
+    expect(onExploreNode).toHaveBeenCalledWith("b", "dependencies");
+    fireEvent.click(screen.getByRole("button", { name: "Use as path start" }));
+    expect(onSetPathStart).toHaveBeenCalledWith("b");
+    fireEvent.click(screen.getByRole("button", { name: "risk" }));
+    fireEvent.click(screen.getByRole("button", { name: "Surface signals" }));
+    expect(onExploreAtlas).toHaveBeenCalledWith("signals");
   });
 
   it("provides zoom, fit, scrolling, and drag-panning controls", () => {
@@ -235,12 +445,13 @@ describe("RepositoryAtlas", () => {
       { id: "a", label: "ServiceA", path: "a.py", kind: "class", state: "normal", metrics: [] },
       { id: "b", label: "ServiceB", path: "b.py", kind: "class", state: "normal", metrics: [] },
     ];
+    const onSelectNode = vi.fn();
     render(
       <RepositoryAtlas
         nodes={nodes}
         edges={[{ id: "edge", sourceId: "a", targetId: "b", kind: "calls" }]}
         selectedNodeId="a"
-        onSelectNode={vi.fn()}
+        onSelectNode={onSelectNode}
       />,
     );
 
@@ -248,8 +459,42 @@ describe("RepositoryAtlas", () => {
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
     expect(screen.getByRole("status", { name: "Current graph zoom" })).toHaveTextContent("115%");
     expect(screen.getByRole("button", { name: "Fit graph to view" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Enter full screen" }));
+    expect(screen.getByRole("region", { name: "RepositoryAtlas" })).toHaveClass(
+      "atlas-panel--fullscreen",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Exit full screen" }));
+    expect(screen.getByRole("region", { name: "RepositoryAtlas" })).not.toHaveClass(
+      "atlas-panel--fullscreen",
+    );
+    expect(screen.getByRole("button", { name: "Graph minimap; click to recenter" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Hide graph minimap" }));
+    expect(screen.queryByRole("button", { name: "Graph minimap; click to recenter" })).not.toBeInTheDocument();
 
     const viewport = screen.getByRole("region", { name: "Scrollable graph viewport" });
+    fireEvent.click(viewport);
+    expect(onSelectNode).toHaveBeenCalledWith(null);
+    const pinchWheel = createEvent.wheel(viewport, {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: -20,
+      clientX: 150,
+      clientY: 100,
+    });
+    fireEvent(viewport, pinchWheel);
+    expect(pinchWheel.defaultPrevented).toBe(true);
+    expect(screen.getByRole("status", { name: "Current graph zoom" })).toHaveTextContent("130%");
+
+    const pageWheel = createEvent.wheel(document.body, {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: -20,
+    });
+    fireEvent(document.body, pageWheel);
+    expect(pageWheel.defaultPrevented).toBe(false);
+
     fireEvent.pointerDown(viewport, { button: 0, pointerId: 1, clientX: 120, clientY: 90 });
     expect(viewport).toHaveClass("atlas-canvas--panning");
     fireEvent.pointerMove(viewport, { pointerId: 1, clientX: 70, clientY: 50 });
@@ -280,13 +525,12 @@ describe("architecture workspace", () => {
     );
   });
 
-  it("synchronizes alternatives and scenarios, copies the ADR, and continues the case", async () => {
+  it("synchronizes the report workspace without rerunning", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText },
     });
-    const onContinue = vi.fn().mockResolvedValue(undefined);
     render(
       <MemoryRouter>
         <ArchitectureWorkspace
@@ -294,10 +538,29 @@ describe("architecture workspace", () => {
           run={brownfieldRun}
           report={report}
           onClaim={vi.fn()}
-          onContinue={onContinue}
         />
       </MemoryRouter>,
     );
+
+    fireEvent.click(screen.getByText("User forces"));
+    expect(
+      screen.getByText("The provider should own capability knowledge."),
+    ).toBeVisible();
+    fireEvent.click(screen.getByText("Advisor forces"));
+    expect(
+      screen.getByText(
+        "Current repository observations favor one provider owner.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText("organisation · example-organisation"),
+    ).toBeVisible();
+    expect(screen.getByText("Objective measurement")).toBeVisible();
+    expect(
+      screen.getByRole("button", {
+        name: /repository observation ServiceA calls ServiceB directly/,
+      }),
+    ).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: /Move ownership/ }));
     fireEvent.click(screen.getByRole("tab", { name: /Remove built-in voices/ }));
@@ -308,13 +571,5 @@ describe("architecture workspace", () => {
       expect(writeText).toHaveBeenCalledWith(expect.stringContaining("# Centralize provider discovery")),
     );
     expect(screen.getByRole("button", { name: "Copied" })).toBeVisible();
-
-    fireEvent.change(screen.getByPlaceholderText(/Add a new constraint/), {
-      target: { value: "What if discovery becomes remote?" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Consult again" }));
-    await waitFor(() =>
-      expect(onContinue).toHaveBeenCalledWith("What if discovery becomes remote?"),
-    );
   });
 });

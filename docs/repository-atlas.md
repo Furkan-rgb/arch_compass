@@ -18,6 +18,12 @@ and `configures`. V1 emits only relationships it can resolve conservatively. Eac
 confidence and a source location where available. Calls without one resolvable internal target
 become `unresolved-call` signals instead of invented edges.
 
+Because Python `Protocol` conformance is normally structural, the analyzer can also emit a
+lower-confidence `implements` edge without explicit inheritance. It does so only when a class
+provides the Protocol's complete operation set with compatible arity and at least two matching
+type annotations per operation. This remains static conformance evidence, not proof of runtime
+dispatch.
+
 Calls, references, statements, branches, and imports are attributed to their lexical owner.
 Walking a module, class, or callable treats nested class/function definitions as opaque, so a
 nested callable's behavior is not charged to its parent. Test relationships come from resolved
@@ -46,11 +52,25 @@ analysed repository.
 Supported queries include repository and subsystem summaries, node details, direct dependencies
 and dependants, forward and reverse neighbourhoods, known callers, interface implementations,
 related tests, shortest dependency paths, cycles, metric hotspots, token-based node search, and
-bounded excerpts.
+bounded excerpts. The ID-free `signals` query can retrieve all signals or filter by signal code,
+allowing a consultation to investigate a bounded signal exposed in its initial overview without
+already knowing a node ID.
 
 Every result has typed fields for node summaries, metric values, relationships, test IDs,
 signals, and excerpts in addition to its bounded summary and node IDs. Hotspot metric values
-include deterministic ranks. Unsupported metric names and unknown node IDs are rejected.
+include deterministic ranks, canonical names, measurement/proxy classification, calculation
+scope, definitions, and limitations. The former
+`public_interfaces_crossed` and `symbols_in_representative_path` query names remain accepted for
+compatibility, while new output uses `public_call_targets_in_affected_modules` and
+`bounded_resolved_call_chain_nodes`. Unsupported metric names and unknown node IDs are rejected.
+
+Before focused querying, brownfield reasoning receives a deterministic `AtlasOverview`, not a
+raw graph or count-only prose string. It contains bounded inventory counts, top-level named
+nodes, at most eight non-zero module/class/configuration hotspots, their salient typed metrics,
+up to twenty representative typed signals, explicit selection reasons, and static-analysis
+limitations. Focused packets
+then carry self-describing node and relationship evidence: paths, qualified names, types,
+locations, resolved endpoints, metric semantics, signals, and why each node was selected.
 
 Progressive zoom is:
 
@@ -73,6 +93,16 @@ traversal.
 - Namespace packages and generated code can be interpreted differently from runtime tooling.
 - Runtime frequency, latency, production behavior, Git co-change, and whole-program data flow are
   not observed.
+- `broad-input-boundary-preparation` is a structural proxy that does not require sibling
+  implementations. It records when one resolved port implementation feeds at least three nested
+  paths from one input substructure into at least two fields of one three-or-more-field projection
+  passed to a call or return. It does not label that projection as misplaced responsibility;
+  persistence mappers, presenters, exporters, and anti-corruption adapters may legitimately have
+  this shape.
+- `parallel-boundary-preparation` is a structural proxy: it requires sibling implementations of
+  one resolved or structurally matched Protocol operation to share a substantial static
+  input-to-request fingerprint. It makes those methods inspectable, but cannot prove semantic
+  duplication, provider-neutral meaning, or misplaced ownership.
 
 Confidence describes static resolution quality; it is not a probability that the architecture is
 good.

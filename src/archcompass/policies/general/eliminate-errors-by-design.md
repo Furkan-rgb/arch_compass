@@ -6,7 +6,7 @@ strength: guidance
 tags: [errors, validation, invariants]
 source:
   author: ArchCompass
-  inspiration: [software-design literature]
+  inspiration: ["John Ousterhout, A Philosophy of Software Design (2nd ed.)"]
 ---
 ## Intent
 Prefer designs in which invalid states or operations cannot arise.

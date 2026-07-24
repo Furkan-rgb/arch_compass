@@ -6,7 +6,9 @@ strength: guidance
 tags: [information-hiding, dependencies, ownership]
 source:
   author: ArchCompass
-  inspiration: [software-design literature]
+  inspiration:
+    - "David Parnas, information hiding"
+    - "John Ousterhout, A Philosophy of Software Design"
 ---
 ## Intent
 Prevent callers from depending on decisions that belong to another module.

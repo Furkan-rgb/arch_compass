@@ -10,6 +10,7 @@ from typing import Literal, cast
 from pydantic import Field, model_validator
 
 from archcompass.domain.base import DomainModel, new_id, utc_now
+from archcompass.domain.policy import PolicyApplicabilityContext
 
 
 def _mapping(value: object) -> dict[str, object] | None:
@@ -81,7 +82,11 @@ class ArchitectureCase(DomainModel):
     assumptions: list[CaseStatement] = Field(default_factory=list[CaseStatement])
     unresolved_questions: list[CaseStatement] = Field(default_factory=list[CaseStatement])
     design_forces: list[CaseStatement] = Field(default_factory=list[CaseStatement])
+    advisor_design_forces: list[CaseStatement] = Field(default_factory=list[CaseStatement])
     repository: RepositoryReference | None = None
+    policy_applicability: PolicyApplicabilityContext = Field(
+        default_factory=PolicyApplicabilityContext
+    )
     referenced_policy_ids: list[str] = Field(default_factory=list[str])
     candidate_alternatives: list[CaseAlternative] = Field(default_factory=list[CaseAlternative])
     current_recommendation: RecommendationState | None = None
@@ -99,6 +104,23 @@ class ArchitectureCase(DomainModel):
         if data is None:
             return value
         data["schema_version"] = 2
+        if "advisor_design_forces" not in data:
+            raw_forces = data.get("design_forces")
+            if isinstance(raw_forces, list):
+                force_items = cast(list[object], raw_forces)
+                user_forces: list[object] = []
+                advisor_forces: list[object] = []
+                for force in force_items:
+                    force_data = _mapping(force)
+                    source = force_data.get("source") if force_data is not None else None
+                    destination = (
+                        advisor_forces
+                        if isinstance(source, str) and source.startswith("run_")
+                        else user_forces
+                    )
+                    destination.append(force)
+                data["design_forces"] = user_forces
+                data["advisor_design_forces"] = advisor_forces
         return data
 
     @model_validator(mode="after")
@@ -117,11 +139,24 @@ class ArchitectureCase(DomainModel):
                 StatementKind.QUESTION,
             ),
             ("design_forces", self.design_forces, StatementKind.FORCE),
+            (
+                "advisor_design_forces",
+                self.advisor_design_forces,
+                StatementKind.FORCE,
+            ),
         )
         for field, statements, kind in expected:
             wrong = [statement.id for statement in statements if statement.kind != kind]
             if wrong:
                 raise ValueError(f"{field} contains statements with the wrong kind: {wrong}")
+        user_force_ids = [statement.id for statement in self.design_forces]
+        duplicate_user_force_ids = sorted(
+            force_id for force_id in set(user_force_ids) if user_force_ids.count(force_id) > 1
+        )
+        if duplicate_user_force_ids:
+            raise ValueError(
+                f"design_forces contains duplicate user-authored IDs: {duplicate_user_force_ids}"
+            )
         return self
 
 
@@ -141,7 +176,9 @@ class CaseUpdate(DomainModel):
     assumptions: list[CaseStatement] | None = None
     unresolved_questions: list[CaseStatement] | None = None
     design_forces: list[CaseStatement] | None = None
+    advisor_design_forces: list[CaseStatement] | None = None
     repository: RepositoryReference | None = None
+    policy_applicability: PolicyApplicabilityContext | None = None
     referenced_policy_ids: list[str] | None = None
     candidate_alternatives: list[CaseAlternative] | None = None
     current_recommendation: RecommendationState | None = None
@@ -165,6 +202,11 @@ class CaseUpdate(DomainModel):
                 StatementKind.QUESTION,
             ),
             ("design_forces", self.design_forces, StatementKind.FORCE),
+            (
+                "advisor_design_forces",
+                self.advisor_design_forces,
+                StatementKind.FORCE,
+            ),
         )
         for field, statements, kind in expected:
             if statements is None:

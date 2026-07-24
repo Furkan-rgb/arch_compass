@@ -16,14 +16,50 @@ from archcompass.domain.consultation import (
     RecommendationReport,
     ScenarioEvaluation,
 )
+from archcompass.domain.conversation import (
+    ConversationAnswer,
+    ConversationMessageView,
+    ConversationSummary,
+    ReportConversationContext,
+    ReportQuestionPlan,
+    ReportQuestionPlanningContext,
+)
 
 
-class FocusedReasoningProvider(Protocol):
+class ReportConversationReasoner(Protocol):
     @property
     def model_identity(self) -> str: ...
 
     def prompt_identity(self, task: str) -> str: ...
 
+    def classify_report_question(
+        self,
+        context: ReportQuestionPlanningContext,
+    ) -> ReportQuestionPlan: ...
+
+    def answer_report_question(
+        self,
+        context: ReportConversationContext,
+    ) -> ConversationAnswer: ...
+
+    def summarize_report_conversation(
+        self,
+        current_summary: ConversationSummary | None,
+        messages: list[ConversationMessageView],
+    ) -> ConversationSummary: ...
+
+    def repair_conversation_answer(
+        self,
+        answer: ConversationAnswer,
+        errors: list[str],
+        allowed_finding_ids: set[str],
+        allowed_claim_ids: set[str],
+        allowed_evidence_ids: set[str],
+        allowed_policy_ids: set[str],
+    ) -> ConversationAnswer: ...
+
+
+class FocusedReasoningProvider(ReportConversationReasoner, Protocol):
     def consume_repair_actions(self) -> list[dict[str, object]]: ...
 
     def discover_design_forces(self, context: GlobalContext) -> list[DesignForce]: ...
@@ -46,8 +82,6 @@ class FocusedReasoningProvider(Protocol):
         self,
         context: GlobalContext,
         packet: FocusedAnalysisPacket,
-        *,
-        validation_feedback: str | None = None,
     ) -> ConcernAnalysis: ...
 
     def generate_alternatives(
@@ -71,6 +105,4 @@ class FocusedReasoningProvider(Protocol):
         alternatives: list[CaseAlternative],
         scenarios: list[ScenarioEvaluation],
         packets: list[FocusedAnalysisPacket],
-        *,
-        validation_feedback: str | None = None,
     ) -> RecommendationReport: ...

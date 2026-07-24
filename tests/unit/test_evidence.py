@@ -67,7 +67,10 @@ def test_invented_evidence_is_rejected() -> None:
         allowed_nodes={},
         allowed_policy_ids=set(),
     )
-    assert final_errors == ["Supported statement has no supporting claim IDs"]
+    assert final_errors == [
+        "Supported statement has no supporting claim IDs",
+        "A recommendation report must contain architectural findings",
+    ]
 
 
 def test_invented_policy_ids_are_removed() -> None:

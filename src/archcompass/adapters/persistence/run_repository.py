@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.domain.consultation import ConsultationRun
-from archcompass.domain.errors import PersistenceError
+from archcompass.domain.errors import RunNotFoundError
 from archcompass.domain.workspace import RunSummary
 
 
@@ -23,7 +23,7 @@ class SQLiteRunRepository:
                 "SELECT run_json FROM consultation_runs WHERE run_id = ?", (run_id,)
             ).fetchone()
         if row is None:
-            raise PersistenceError(f"Consultation run {run_id} was not found")
+            raise RunNotFoundError(f"Consultation run {run_id} was not found")
         return ConsultationRun.model_validate_json(row["run_json"])
 
     def list(

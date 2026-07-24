@@ -5,6 +5,9 @@ from archcompass.adapters.persistence.case_repository import SQLiteCaseRepositor
 from archcompass.adapters.persistence.consultation_commit import (
     SQLiteConsultationCommitRepository,
 )
+from archcompass.adapters.persistence.conversation_repository import (
+    SQLiteReportConversationRepository,
+)
 from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.adapters.persistence.job_repository import (
     SQLiteConsultationJobRepository,
@@ -21,5 +24,6 @@ __all__ = [
     "SQLiteConsultationJobRepository",
     "SQLiteDatabase",
     "SQLitePolicySourceRepository",
+    "SQLiteReportConversationRepository",
     "SQLiteRunRepository",
 ]

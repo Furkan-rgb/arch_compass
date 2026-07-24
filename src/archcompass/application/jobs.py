@@ -166,11 +166,15 @@ class ConsultationJobService:
                 return
             if run is not None and run.sanitized_errors:
                 message = run.sanitized_errors[0]
+            failure_diagnostics = (
+                run.failure_diagnostics if run is not None else []
+            )
             self._jobs.update(
                 job.run_id,
                 status=ConsultationJobStatus.FAILED,
                 current_stage=self._jobs.get(job.run_id).current_stage,
                 error=message,
+                failure_diagnostics=failure_diagnostics,
             )
             events = self._jobs.events(job.run_id)
             if not events or events[-1].event_type != ProgressEventType.FAILED:
@@ -180,6 +184,12 @@ class ConsultationJobService:
                     stage=self._jobs.get(job.run_id).current_stage,
                     title="Consultation failed",
                     summary=message,
+                    data={
+                        "failure_diagnostics": [
+                            item.model_dump(mode="json")
+                            for item in failure_diagnostics
+                        ]
+                    },
                 )
             return
         self._jobs.update(

@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field, model_validator
 
 from archcompass.domain.base import DomainModel, new_id, utc_now
 
@@ -35,10 +35,32 @@ class EdgeType(StrEnum):
     CONFIGURES = "configures"
 
 
+class MetricNature(StrEnum):
+    """How directly an atlas value represents repository structure."""
+
+    MEASUREMENT = "objective_measurement"
+    STRUCTURAL_PROXY = "structural_proxy"
+
+
+class MetricScope(StrEnum):
+    """The structural population used to calculate a metric."""
+
+    LEXICAL_NODE = "lexical_node"
+    OWNING_MODULE = "owning_module"
+    REVERSE_STATIC_IMPACT_NEIGHBOURHOOD = "reverse_static_impact_neighbourhood"
+    BOUNDED_RESOLVED_CALL_CHAIN = "bounded_resolved_call_chain"
+
+
 class SourceLocation(DomainModel):
     path: str
     start_line: int = Field(ge=1)
     end_line: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def require_ordered_span(self) -> SourceLocation:
+        if self.end_line < self.start_line:
+            raise ValueError("Source location end line must not precede its start line")
+        return self
 
 
 class AtlasNode(DomainModel):
@@ -95,19 +117,41 @@ class DependencyMetrics(DomainModel):
 
 class ChangeAmplificationMetrics(DomainModel):
     likely_affected_modules: int = 0
-    public_interfaces_crossed: int = 0
+    public_call_targets_in_affected_modules: int = Field(
+        default=0,
+        validation_alias=AliasChoices(
+            "public_call_targets_in_affected_modules",
+            "public_interfaces_crossed",
+        ),
+    )
     coordinated_implementations: int = 0
     configuration_locations: int = 0
     reverse_neighbourhood_tests: int = 0
 
+    @property
+    def public_interfaces_crossed(self) -> int:
+        """Schema-v1 compatibility for the former, overstated metric name."""
+        return self.public_call_targets_in_affected_modules
+
 
 class CognitiveScopeMetrics(DomainModel):
     dependency_neighbourhood_modules: int = 0
-    symbols_in_representative_path: int = 0
+    bounded_resolved_call_chain_nodes: int = Field(
+        default=0,
+        validation_alias=AliasChoices(
+            "bounded_resolved_call_chain_nodes",
+            "symbols_in_representative_path",
+        ),
+    )
     abstraction_boundaries: int = 0
     related_configuration_locations: int = 0
     local_control_flow_complexity: int = 0
     public_api_surface: int = 0
+
+    @property
+    def symbols_in_representative_path(self) -> int:
+        """Schema-v1 compatibility for the former, ambiguous metric name."""
+        return self.bounded_resolved_call_chain_nodes
 
 
 class MetricProfile(DomainModel):
@@ -125,6 +169,9 @@ class ObscuritySignal(DomainModel):
     message: str
     node_id: str
     location: SourceLocation | None = None
+    nature: MetricNature = MetricNature.MEASUREMENT
+    definition: str = ""
+    limitations: str = ""
 
 
 class AtlasVersion(DomainModel):
@@ -152,6 +199,8 @@ class RepositoryContentIdentity(DomainModel):
     root_path: str
     content_fingerprint: str
     git_commit_sha: str | None = None
+    parser_version: str | None = None
+    analysis_config_hash: str | None = None
 
 
 class RepositorySummaryQuery(DomainModel):
@@ -200,6 +249,12 @@ class CyclesQuery(DomainModel):
     limit: int = Field(default=30, ge=1, le=100)
 
 
+class SignalsQuery(DomainModel):
+    kind: Literal["signals"]
+    codes: list[str] = Field(default_factory=list[str], max_length=10)
+    limit: int = Field(default=20, ge=1, le=100)
+
+
 class HotspotsQuery(DomainModel):
     kind: Literal["hotspots"]
     metric: str
@@ -227,6 +282,7 @@ AtlasQuery = Annotated[
     | NeighbourhoodQuery
     | ShortestPathQuery
     | CyclesQuery
+    | SignalsQuery
     | HotspotsQuery
     | SearchNodesQuery
     | SourceExcerptQuery,
@@ -260,18 +316,84 @@ class AtlasMetricValue(DomainModel):
     metric: str
     value: int | float
     rank: int | None = Field(default=None, ge=1)
+    nature: MetricNature = MetricNature.MEASUREMENT
+    scope: MetricScope = MetricScope.LEXICAL_NODE
+    definition: str = ""
+    limitations: str = ""
+
+
+class AtlasSelectionReasonKind(StrEnum):
+    OVERVIEW = "overview"
+    METRIC_RANK = "metric_rank"
+    NAME_MATCH = "name_match"
+    RELATION = "relation"
+    NEIGHBOURHOOD = "neighbourhood"
+    PATH = "path"
+    CYCLE = "cycle"
+    SIGNAL = "signal"
+    EXCERPT = "excerpt"
+    EXPLICIT_DETAILS = "explicit_details"
+
+
+class AtlasSelectionReason(DomainModel):
+    kind: AtlasSelectionReasonKind
+    explanation: str = Field(min_length=1)
+    metric: str | None = None
+    related_node_id: str | None = None
+
+
+class AtlasNodeEvidence(DomainModel):
+    """A self-describing, bounded view of one surfaced atlas node."""
+
+    node: AtlasNodeSummary
+    reasons: list[AtlasSelectionReason] = Field(default_factory=list[AtlasSelectionReason])
+    metrics: list[AtlasMetricValue] = Field(default_factory=list[AtlasMetricValue])
+    signals: list[ObscuritySignal] = Field(default_factory=list[ObscuritySignal])
+
+
+class AtlasRelationshipEvidence(DomainModel):
+    """An atlas relationship with resolved endpoint identities."""
+
+    edge_id: str
+    edge_type: EdgeType
+    source: AtlasNodeSummary
+    target: AtlasNodeSummary
+    confidence: float = Field(ge=0, le=1)
+    location: SourceLocation | None = None
+
+
+class AtlasOverview(DomainModel):
+    """Small deterministic repository map supplied before focused investigation."""
+
+    atlas_version_id: str
+    repository_identity: str
+    node_count: int = Field(ge=0)
+    edge_count: int = Field(ge=0)
+    signal_count: int = Field(ge=0)
+    node_type_counts: dict[str, int] = Field(default_factory=dict[str, int])
+    edge_type_counts: dict[str, int] = Field(default_factory=dict[str, int])
+    signal_code_counts: dict[str, int] = Field(default_factory=dict[str, int])
+    signals: list[ObscuritySignal] = Field(
+        default_factory=list[ObscuritySignal],
+        max_length=20,
+    )
+    top_level_nodes: list[AtlasNodeSummary] = Field(
+        default_factory=list[AtlasNodeSummary],
+        max_length=20,
+    )
+    hotspots: list[AtlasNodeEvidence] = Field(
+        default_factory=list[AtlasNodeEvidence],
+        max_length=12,
+    )
+    limitations: list[str] = Field(default_factory=list[str])
 
 
 class AtlasQueryResult(DomainModel):
     query: AtlasQuery
     node_ids: list[str] = Field(default_factory=list[str])
     summary: str = ""
-    node_summaries: list[AtlasNodeSummary] = Field(
-        default_factory=list[AtlasNodeSummary]
-    )
-    metric_values: list[AtlasMetricValue] = Field(
-        default_factory=list[AtlasMetricValue]
-    )
+    node_summaries: list[AtlasNodeSummary] = Field(default_factory=list[AtlasNodeSummary])
+    metric_values: list[AtlasMetricValue] = Field(default_factory=list[AtlasMetricValue])
     relationships: list[AtlasEdge] = Field(default_factory=list[AtlasEdge])
     test_ids: list[str] = Field(default_factory=list[str])
     signals: list[ObscuritySignal] = Field(default_factory=list[ObscuritySignal])

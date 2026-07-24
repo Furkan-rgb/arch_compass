@@ -14,9 +14,15 @@ from archcompass.adapters.models.ollama import (
     OllamaReasoningProvider,
     ScenarioList,
 )
+from archcompass.application.evidence import (
+    repair_report_evidence_with_history,
+    validate_report_evidence,
+)
 from archcompass.configuration import EmbeddingModelConfig, ReasoningModelConfig
 from archcompass.domain.case import ArchitectureCase, CaseAlternative
 from archcompass.domain.consultation import (
+    Claim,
+    ClaimClassification,
     ConcernAnalysis,
     ConcernCluster,
     DesignForce,
@@ -25,7 +31,76 @@ from archcompass.domain.consultation import (
     RecommendationReport,
     ScenarioEvaluation,
 )
-from archcompass.domain.errors import ModelOutputValidationError, ProviderError
+from archcompass.domain.conversation import (
+    AnswerClaim,
+    AnswerStatement,
+    AnswerStatementKind,
+    ConversationAnswer,
+)
+from archcompass.domain.diagnostics import FailureDiagnosticCode
+from archcompass.domain.errors import (
+    ClusterPartitionError,
+    ModelOutputValidationError,
+    ProviderError,
+)
+
+
+def test_conversation_answer_repair_is_one_allowlist_constrained_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    repaired_claim = AnswerClaim(
+        text="The repaired answer uses a supplied report claim.",
+        classification=ClaimClassification.ADVISOR_INFERENCE,
+        report_claim_ids=["claim-known"],
+    )
+    repaired = ConversationAnswer(
+        direct_answer=AnswerStatement(
+            text="Unsupported citations were removed.",
+            kind=AnswerStatementKind.DIRECT_ANSWER,
+            answer_claim_ids=[repaired_claim.claim_id],
+        ),
+        claims=[repaired_claim],
+    )
+    initial_claim = AnswerClaim(
+        text="The initial answer cites an unknown policy.",
+        classification=ClaimClassification.POLICY_GUIDANCE,
+        policy_ids=["policy-unknown"],
+    )
+    initial = ConversationAnswer(
+        direct_answer=AnswerStatement(
+            text="Initial answer",
+            kind=AnswerStatementKind.DIRECT_ANSWER,
+            answer_claim_ids=[initial_claim.claim_id],
+        ),
+        claims=[initial_claim],
+    )
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        calls.append({"url": url, **kwargs})
+        return _http_response(
+            {"message": {"content": repaired.model_dump_json()}}
+        )
+
+    monkeypatch.setattr(httpx, "post", post)
+    provider = OllamaReasoningProvider(_reasoning_config())
+
+    result = provider.repair_conversation_answer(
+        initial,
+        ["Unknown policy citation"],
+        {"FIND-001"},
+        {"claim-known"},
+        {"node-known"},
+        {"policy-known"},
+    )
+
+    assert result == repaired
+    assert len(calls) == 1
+    payload = calls[0]["json"]
+    assert isinstance(payload, dict)
+    request_text = json.dumps(payload)
+    assert "policy-known" in request_text
+    assert "sole repair attempt" in request_text
 
 
 def _embedding_config(*, dimensions: int = 3) -> EmbeddingModelConfig:
@@ -119,6 +194,70 @@ def test_embedding_provider_rejects_contract_violations(
         provider.embed(["first", "second"])
 
 
+def test_scenario_evaluation_repairs_closed_set_alternative_coverage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    alternatives = [
+        CaseAlternative(
+            id="alt-local",
+            title="Keep behavior local",
+            summary="Retain the current ownership.",
+        ),
+        CaseAlternative(
+            id="alt-boundary",
+            title="Introduce a focused boundary",
+            summary="Move changing provider knowledge behind one owner.",
+        ),
+    ]
+    invalid = ScenarioEvaluation(
+        scenario="A second provider is required.",
+        assumptions=["Provider capabilities differ."],
+        alternative_results={
+            "A1": "Requires coordinated changes.",
+            "invented-alternative": "Was not supplied.",
+        },
+        conclusion="A focused boundary contains the change.",
+    )
+    repaired = invalid.model_copy(
+        update={
+            "alternative_results": {
+                "A1": "Requires coordinated changes.",
+                "A2": "Contains provider-specific variation.",
+            }
+        }
+    )
+    outputs = [
+        json.dumps([invalid.model_dump(mode="json")]),
+        json.dumps([repaired.model_dump(mode="json")]),
+    ]
+    requests: list[dict[str, object]] = []
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        requests.append({"url": url, **kwargs})
+        return _http_response({"message": {"content": outputs.pop(0)}})
+
+    monkeypatch.setattr(httpx, "post", post)
+    provider = OllamaReasoningProvider(_reasoning_config())
+
+    scenarios = provider.evaluate_scenarios(_context(), alternatives, [])
+
+    assert scenarios == [
+        repaired.model_copy(
+            update={
+                "alternative_results": {
+                    "alt-local": "Requires coordinated changes.",
+                    "alt-boundary": "Contains provider-specific variation.",
+                }
+            }
+        )
+    ]
+    assert len(requests) == 2
+    repair_request = requests[-1]["json"]
+    assert isinstance(repair_request, dict)
+    assert "omits alternative IDs" in json.dumps(repair_request)
+    assert "invents alternative IDs" in json.dumps(repair_request)
+
+
 def test_reasoning_provider_sends_schema_and_parses_structured_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -126,7 +265,6 @@ def test_reasoning_provider_sends_schema_and_parses_structured_output(
     content = json.dumps(
         [
             {
-                "force_id": "force-test",
                 "title": "Provider ownership",
                 "description": "Changing capability knowledge needs one owner.",
                 "importance": "high",
@@ -144,13 +282,18 @@ def test_reasoning_provider_sends_schema_and_parses_structured_output(
     forces = provider.discover_design_forces(_context())
 
     assert [force.title for force in forces] == ["Provider ownership"]
+    assert forces[0].force_id.startswith("force_")
     assert captured["url"] == "http://ollama.test/api/chat"
     request = captured["json"]
     assert isinstance(request, dict)
     assert request["model"] == "reasoning-test"
     assert request["stream"] is False
     assert isinstance(request["format"], dict)
-    assert request["options"] == {"num_predict": 16384}
+    assert "force_id" not in json.dumps(request["format"])
+    assert request["options"] == {
+        "num_ctx": 32768,
+        "num_predict": 16384,
+    }
 
 
 def test_reasoning_provider_distinguishes_invalid_model_output(
@@ -175,7 +318,6 @@ def test_reasoning_provider_repairs_invalid_structured_output_once(
         json.dumps(
             [
                 {
-                    "force_id": "force-owner",
                     "title": "Provider ownership",
                     "description": "Changing capability knowledge needs one owner.",
                     "importance": "high",
@@ -197,11 +339,188 @@ def test_reasoning_provider_repairs_invalid_structured_output_once(
 
     forces = provider.discover_design_forces(_context())
 
-    assert [force.force_id for force in forces] == ["force-owner"]
+    assert len(forces) == 1
+    assert forces[0].force_id.startswith("force_")
     assert len(requests) == 2
     repair_messages = requests[1]["messages"]
     assert isinstance(repair_messages, list)
     assert "failed validation" in repair_messages[-1]["content"]
+
+
+def test_reasoning_provider_mints_unique_force_ids_for_duplicate_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    content = json.dumps(
+        [
+            {
+                "title": "Provider ownership",
+                "description": "Changing capability knowledge needs one owner.",
+                "importance": "high",
+            },
+            {
+                "title": "Provider ownership",
+                "description": "Changing capability knowledge needs one owner.",
+                "importance": "high",
+            },
+        ]
+    )
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *args, **kwargs: _http_response({"message": {"content": content}}),
+    )
+
+    forces = OllamaReasoningProvider(_reasoning_config()).discover_design_forces(_context())
+
+    assert len({force.force_id for force in forces}) == 2
+
+
+def test_clustering_uses_closed_set_handles_and_maps_domain_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forces = [
+        DesignForce(
+            force_id="force-owner",
+            title="Provider ownership",
+            description="Provider knowledge needs one owner.",
+            importance="high",
+        ),
+        DesignForce(
+            force_id="force-change",
+            title="Change locality",
+            description="Provider changes should stay local.",
+            importance="high",
+        ),
+    ]
+    captured: dict[str, object] = {}
+    content = json.dumps(
+        [
+            {
+                "title": "Provider boundary",
+                "rationale": "Investigate ownership and change locality together.",
+                "force_refs": ["F1", "F2"],
+            }
+        ]
+    )
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        captured.update(url=url, **kwargs)
+        return _http_response({"message": {"content": content}})
+
+    monkeypatch.setattr(httpx, "post", post)
+    provider = OllamaReasoningProvider(_reasoning_config())
+
+    clusters = provider.cluster_design_forces(_context(), forces)
+
+    assert len(clusters) == 1
+    assert clusters[0].cluster_id.startswith("cluster_")
+    assert clusters[0].design_force_ids == ["force-owner", "force-change"]
+    request = captured["json"]
+    assert isinstance(request, dict)
+    schema = request["format"]
+    assert isinstance(schema, dict)
+    schema_text = json.dumps(schema)
+    assert "cluster_id" not in schema_text
+    assert "design_force_ids" not in schema_text
+    assert schema["items"]["properties"]["force_refs"]["items"]["enum"] == [
+        "F1",
+        "F2",
+    ]
+    messages = request["messages"]
+    assert isinstance(messages, list)
+    model_input = messages[-1]["content"]
+    assert '"force_ref":"F1"' in model_input
+    assert '"force_ref":"F2"' in model_input
+    assert "force-owner" not in model_input
+    assert "force-change" not in model_input
+
+
+def test_clustering_rejects_duplicate_canonical_force_ids_before_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    force = DesignForce(
+        force_id="force-duplicate",
+        title="Provider ownership",
+        description="Provider knowledge needs one owner.",
+        importance="high",
+    )
+
+    def unexpected_post(*args: object, **kwargs: object) -> httpx.Response:
+        del args, kwargs
+        pytest.fail("Duplicate canonical force IDs must fail before an Ollama request")
+
+    monkeypatch.setattr(httpx, "post", unexpected_post)
+    provider = OllamaReasoningProvider(_reasoning_config())
+
+    with pytest.raises(ValueError, match="Design force IDs must be unique"):
+        provider.cluster_design_forces(
+            _context(),
+            [
+                force,
+                force.model_copy(
+                    update={
+                        "title": "Change locality",
+                        "description": "Provider changes should remain local.",
+                    }
+                ),
+            ],
+        )
+
+
+def test_clustering_rejects_unknown_handle_after_one_correction_pass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forces = [
+        DesignForce(
+            force_id="force-owner",
+            title="Provider ownership",
+            description="Provider knowledge needs one owner.",
+            importance="high",
+        ),
+        DesignForce(
+            force_id="force-change",
+            title="Change locality",
+            description="Provider changes should stay local.",
+            importance="high",
+        ),
+    ]
+    invalid = json.dumps(
+        [
+            {
+                "title": "Provider boundary",
+                "rationale": "The model corrupted one constrained handle.",
+                "force_refs": ["F1", "F9"],
+            }
+        ]
+    )
+    requests: list[dict[str, object]] = []
+
+    def post(*args: object, **kwargs: object) -> httpx.Response:
+        del args
+        request = kwargs["json"]
+        assert isinstance(request, dict)
+        requests.append(request)
+        return _http_response({"message": {"content": invalid}})
+
+    monkeypatch.setattr(httpx, "post", post)
+    provider = OllamaReasoningProvider(_reasoning_config())
+
+    with pytest.raises(ClusterPartitionError) as caught:
+        provider.cluster_design_forces(_context(), forces)
+
+    assert len(requests) == 2
+    assert [item.code for item in caught.value.diagnostics] == [
+        FailureDiagnosticCode.UNKNOWN_FORCE_REFERENCES,
+        FailureDiagnosticCode.MISSING_FORCE_REFERENCES,
+    ]
+    assert caught.value.diagnostics[0].count == 1
+    assert caught.value.diagnostics[1].force_handles == ["F2"]
+    assert "force-owner" not in str(caught.value)
+    assert "force-change" not in str(caught.value)
+    repair_messages = requests[1]["messages"]
+    assert isinstance(repair_messages, list)
+    assert "unrecognized force reference" in repair_messages[-1]["content"]
+    assert "Missing force handles: F2" in repair_messages[-1]["content"]
 
 
 def test_reasoning_provider_moves_misclassified_section_claim_to_appendix() -> None:
@@ -259,7 +578,10 @@ def test_every_reasoning_stage_parses_structured_output(
         rationale="Analyze changing provider knowledge.",
         design_force_ids=[force.force_id],
     )
-    packet = FocusedAnalysisPacket(cluster=cluster)
+    packet = FocusedAnalysisPacket(
+        cluster=cluster,
+        uncertainty=["No repository evidence was supplied for this unit fixture."],
+    )
     analysis = ConcernAnalysis(
         cluster_id=cluster.cluster_id,
         concern=cluster.title,
@@ -294,6 +616,20 @@ def test_every_reasoning_stage_parses_structured_output(
             conclusion="Provider ownership contains the change.",
         )
     ]
+    model_scenarios = [
+        scenario.model_copy(
+            update={
+                "alternative_results": {
+                    f"A{ordinal}": result
+                    for ordinal, result in enumerate(
+                        scenario.alternative_results.values(),
+                        start=1,
+                    )
+                }
+            }
+        )
+        for scenario in scenarios
+    ]
     deterministic = DeterministicReasoningProvider()
     report = deterministic.synthesize_recommendation(
         case,
@@ -325,7 +661,15 @@ def test_every_reasoning_stage_parses_structured_output(
         for key, statement in OllamaReasoningProvider._statement_slots(report)
     ]
     outputs = [
-        json.dumps([cluster.model_dump(mode="json")]),
+        json.dumps(
+            [
+                {
+                    "title": cluster.title,
+                    "rationale": cluster.rationale,
+                    "force_refs": ["F1"],
+                }
+            ]
+        ),
         json.dumps(
             [
                 {
@@ -340,7 +684,7 @@ def test_every_reasoning_stage_parses_structured_output(
         ),
         analysis.model_dump_json(),
         json.dumps([item.model_dump(mode="json") for item in alternatives]),
-        json.dumps([item.model_dump(mode="json") for item in scenarios]),
+        json.dumps([item.model_dump(mode="json") for item in model_scenarios]),
         model_report.model_dump_json(),
         json.dumps(support_plan),
     ]
@@ -354,7 +698,12 @@ def test_every_reasoning_stage_parses_structured_output(
     monkeypatch.setattr(httpx, "post", post)
     provider = OllamaReasoningProvider(_reasoning_config())
 
-    assert provider.cluster_design_forces(context, [force]) == [cluster]
+    formed_clusters = provider.cluster_design_forces(context, [force])
+    assert len(formed_clusters) == 1
+    assert formed_clusters[0].title == cluster.title
+    assert formed_clusters[0].rationale == cluster.rationale
+    assert formed_clusters[0].design_force_ids == [force.force_id]
+    assert formed_clusters[0].cluster_id.startswith("cluster_")
     plans = provider.plan_atlas_queries(
         context,
         [force],
@@ -382,20 +731,111 @@ def test_every_reasoning_stage_parses_structured_output(
     assert outputs == []
     assert any("globally unique claim_id" in request for request in requests)
     assert any("copy the entire claim object exactly" in request for request in requests)
+    synthesis_request = next(
+        request
+        for request in requests
+        if '"policy_evidence"' in request and '"scenario_analysis"' in request
+    )
+    synthesis_messages = json.loads(synthesis_request)["messages"]
+    synthesis_input = synthesis_messages[-1]["content"]
+    assert '"packets":' not in synthesis_input
+    assert '"analyses":' in synthesis_input
     repair_actions = provider.consume_repair_actions()
     assert repair_actions[0] == (
         {
             "kind": "restored_canonical_synthesis_artifact",
             "field": "alternatives_considered",
-            "model_output": [
-                item.model_dump(mode="json") for item in recreated_alternatives
-            ],
-            "canonical_input": [
-                item.model_dump(mode="json") for item in alternatives
-            ],
+            "model_output": [item.model_dump(mode="json") for item in recreated_alternatives],
+            "canonical_input": [item.model_dump(mode="json") for item in alternatives],
         }
     )
     assert repair_actions[1]["kind"] == "linked_report_statement_support"
+
+
+def test_statement_support_excludes_claims_that_evidence_repair_will_remove(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = ArchitectureCase(
+        title="Provider ownership",
+        problem_statement="Provider knowledge leaks into orchestration.",
+        desired_outcome="Give discovery one owner.",
+    )
+    context = _context()
+    deterministic = DeterministicReasoningProvider()
+    forces = deterministic.discover_design_forces(context)
+    clusters = deterministic.cluster_design_forces(context, forces)
+    alternatives = deterministic.generate_alternatives(context, [])
+    scenarios = deterministic.evaluate_scenarios(context, alternatives, [])
+    packet = FocusedAnalysisPacket(
+        cluster=clusters[0],
+        uncertainty=["No repository evidence was supplied for this unit fixture."],
+    )
+    report = deterministic.synthesize_recommendation(
+        case,
+        context,
+        forces,
+        clusters,
+        [],
+        alternatives,
+        scenarios,
+        [packet],
+    )
+    invalid_repository_claim = Claim(
+        claim_id="claim-invalid-repository",
+        text="This repository observation has no surfaced source evidence.",
+        classification=ClaimClassification.REPOSITORY_OBSERVATION,
+    )
+    report = report.model_copy(
+        update={
+            "repository_observations": [invalid_repository_claim],
+            "evidence_appendix": [
+                *report.evidence_appendix,
+                invalid_repository_claim,
+            ],
+        }
+    )
+    inference_id = next(
+        claim.claim_id
+        for claim in report.evidence_appendix
+        if claim.classification == ClaimClassification.ADVISOR_INFERENCE
+    )
+    support_plan = [
+        {
+            "statement_key": key,
+            "supporting_claim_ids": [inference_id],
+        }
+        for key, _ in OllamaReasoningProvider._statement_slots(report)
+    ]
+    captured: dict[str, object] = {}
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        captured.update(url=url, **kwargs)
+        return _http_response({"message": {"content": json.dumps(support_plan)}})
+
+    monkeypatch.setattr(httpx, "post", post)
+    provider = OllamaReasoningProvider(_reasoning_config())
+
+    linked = provider._link_report_support(report, packets=[packet])
+
+    request = captured["json"]
+    assert isinstance(request, dict)
+    schema = request["format"]
+    assert isinstance(schema, dict)
+    allowed_claim_ids = schema["items"]["properties"]["supporting_claim_ids"]["items"]["enum"]
+    assert "claim-invalid-repository" not in allowed_claim_ids
+    repaired = repair_report_evidence_with_history(
+        linked,
+        allowed_nodes={},
+        allowed_policy_ids=set(),
+    ).report
+    assert (
+        validate_report_evidence(
+            repaired,
+            allowed_nodes={},
+            allowed_policy_ids=set(),
+        )
+        == []
+    )
 
 
 def test_scenario_contract_requires_at_least_one_evaluation() -> None:
@@ -434,3 +874,24 @@ def test_ollama_providers_wrap_transport_errors(
             provider.embed(["test"])
         else:
             provider.discover_design_forces(_context())
+
+
+def test_reasoning_provider_preserves_bounded_http_error_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        del kwargs
+        request = httpx.Request("POST", url)
+        return httpx.Response(
+            400,
+            json={"error": "failed to parse grammar"},
+            request=request,
+        )
+
+    monkeypatch.setattr(httpx, "post", post)
+
+    with pytest.raises(
+        ProviderError,
+        match=r"HTTP 400.*failed to parse grammar",
+    ):
+        OllamaReasoningProvider(_reasoning_config()).discover_design_forces(_context())

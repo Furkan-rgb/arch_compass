@@ -128,6 +128,42 @@ def test_web_routes_use_application_services_only() -> None:
         "case_service",
         "job_service",
         "policy_service",
-        "repository_service",
-        "run_service",
-    } <= used_attributes
+            "repository_service",
+            "run_service",
+            "conversation_service",
+        } <= used_attributes
+
+
+def test_report_conversation_context_is_assembled_before_model_adapters() -> None:
+    paths = [
+        SOURCE_ROOT / "ports" / "reasoning.py",
+        SOURCE_ROOT / "adapters" / "models" / "deterministic.py",
+        SOURCE_ROOT / "adapters" / "models" / "ollama.py",
+    ]
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        methods = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "answer_report_question"
+        ]
+        assert len(methods) == 1
+        assert [argument.arg for argument in methods[0].args.args] == [
+            "self",
+            "context",
+        ]
+
+    builder = SOURCE_ROOT / "application" / "conversation_context.py"
+    imported_names = {
+        alias.name
+        for node in ast.walk(ast.parse(builder.read_text(encoding="utf-8")))
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+    assert {
+        "ConsultationRun",
+        "ConversationMessage",
+        "ReportConversation",
+        "ReportConversationContext",
+    } <= imported_names

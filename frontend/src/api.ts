@@ -1,6 +1,7 @@
 import type {
   ArchitectureCaseInput,
   ArchitectureCaseUpdate,
+  AtlasExploreRequest,
   AtlasQueryResult,
   CaseRevision,
   CaseSummary,
@@ -8,6 +9,7 @@ import type {
   ConsultationRun,
   Policy,
   PolicySource,
+  ProblemDetail,
   ProgressEvent,
   RepositorySummary,
   RunSummary,
@@ -33,7 +35,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!response.ok) {
-    let detail: { message?: string; code?: string } = {};
+    let detail: Partial<ProblemDetail> = {};
     try {
       detail = (await response.json()) as typeof detail;
     } catch {
@@ -67,7 +69,7 @@ export const api = {
       body: source,
     });
     if (!response.ok) {
-      const detail = (await response.json()) as { message?: string; code?: string };
+      const detail = (await response.json()) as Partial<ProblemDetail>;
       throw new ApiError(detail.message || "Invalid case YAML.", response.status, detail.code);
     }
     return (await response.json()) as { case_id: string; revision: number };
@@ -95,6 +97,11 @@ export const api = {
     request<AtlasQueryResult>(
       `/api/repositories/inspect?root_path=${encodeURIComponent(rootPath)}&node_id=${encodeURIComponent(nodeId)}`,
     ),
+  repositoryExplore: (value: AtlasExploreRequest) =>
+    request<AtlasQueryResult>("/api/repositories/explore", {
+      method: "POST",
+      body: JSON.stringify(value),
+    }),
   startConsultation: (caseId: string, repositoryRoot?: string) =>
     request<ConsultationJob>("/api/consultations", {
       method: "POST",

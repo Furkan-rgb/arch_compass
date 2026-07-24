@@ -5,10 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 
-from archcompass.domain.atlas import AtlasNode
+from archcompass.domain.atlas import (
+    AtlasMetricValue,
+    AtlasNode,
+    AtlasNodeEvidence,
+    AtlasNodeSummary,
+    ObscuritySignal,
+)
 from archcompass.domain.consultation import (
+    ArchitecturalFinding,
     Claim,
     ClaimClassification,
+    ConcernAnalysis,
+    FocusedAnalysisPacket,
     RecommendationReport,
     SupportedStatement,
 )
@@ -20,11 +29,91 @@ class EvidenceRepairOutcome:
     actions: list[str]
 
 
+@dataclass(frozen=True)
+class CanonicalFindingEvidence:
+    """Exact cluster-local artifacts from a validated focused packet."""
+
+    cluster_id: str
+    claims: dict[str, Claim]
+    nodes: dict[str, AtlasNodeEvidence]
+    policy_ids: frozenset[str]
+
+
+@dataclass(frozen=True)
+class FindingCanonicalizationOutcome:
+    report: RecommendationReport
+    actions: list[dict[str, object]]
+    evidence_by_cluster: dict[str, CanonicalFindingEvidence]
+
+
+def canonicalize_report_findings(
+    report: RecommendationReport,
+    *,
+    packets: list[FocusedAnalysisPacket],
+    analyses: list[ConcernAnalysis],
+) -> FindingCanonicalizationOutcome:
+    """Replace provider-authored finding evidence with exact packet artifacts.
+
+    Providers retain responsibility for a finding's meaning, importance, confidence,
+    response, uncertainty, and claim links. A missing cluster is assigned only when
+    exactly one focused packet exists; ambiguous multi-cluster output remains invalid.
+    Node, location, metric, signal, and policy evidence is an application-owned
+    projection of those claim links.
+    """
+
+    evidence_by_cluster = _canonical_finding_evidence(packets, analyses)
+    sole_cluster_id = (
+        next(iter(evidence_by_cluster)) if len(evidence_by_cluster) == 1 else None
+    )
+    actions: list[dict[str, object]] = []
+    findings: list[ArchitecturalFinding] = []
+    for ordinal, finding in enumerate(report.findings, start=1):
+        expected_id = f"FIND-{ordinal:03d}"
+        if finding.concern_cluster_id is None and sole_cluster_id is not None:
+            finding = finding.model_copy(
+                update={"concern_cluster_id": sole_cluster_id}
+            )
+            actions.append(
+                {
+                    "kind": "assigned_single_concern_cluster_to_finding",
+                    "finding_id": expected_id,
+                    "concern_cluster_id": sole_cluster_id,
+                }
+            )
+        evidence = (
+            evidence_by_cluster.get(finding.concern_cluster_id)
+            if finding.concern_cluster_id is not None
+            else None
+        )
+        canonical = _project_finding_evidence(
+            finding,
+            evidence=evidence,
+            finding_id=expected_id,
+        )
+        if canonical != finding:
+            actions.append(
+                {
+                    "kind": "restored_canonical_finding_evidence",
+                    "finding_id": expected_id,
+                    "concern_cluster_id": finding.concern_cluster_id,
+                    "model_output": _finding_evidence_payload(finding),
+                    "canonical_input": _finding_evidence_payload(canonical),
+                }
+            )
+        findings.append(canonical)
+    return FindingCanonicalizationOutcome(
+        report=report.model_copy(update={"findings": findings}),
+        actions=actions,
+        evidence_by_cluster=evidence_by_cluster,
+    )
+
+
 def validate_report_evidence(
     report: RecommendationReport,
     *,
     allowed_nodes: dict[str, AtlasNode],
     allowed_policy_ids: set[str],
+    finding_evidence_by_cluster: dict[str, CanonicalFindingEvidence] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     claims = _all_claims(report)
@@ -62,6 +151,95 @@ def validate_report_evidence(
             errors.append(f"Supported statement references invalid claim IDs: {sorted(invalid)}")
         if not statement.supporting_claim_ids:
             errors.append("Supported statement has no supporting claim IDs")
+
+    if not report.findings:
+        errors.append("A recommendation report must contain architectural findings")
+    for finding in report.findings:
+        unknown_claims = set(finding.claim_ids) - set(claim_registry)
+        invalid_claims = set(finding.claim_ids) & invalid_claim_ids
+        if unknown_claims:
+            errors.append(
+                f"Finding {finding.finding_id} references unknown claims: "
+                f"{sorted(unknown_claims)}"
+            )
+        if invalid_claims:
+            errors.append(
+                f"Finding {finding.finding_id} references invalid claims: "
+                f"{sorted(invalid_claims)}"
+            )
+        if unknown_nodes := set(finding.atlas_node_ids) - set(allowed_nodes):
+            errors.append(
+                f"Finding {finding.finding_id} references unsurfaced Atlas nodes: "
+                f"{sorted(unknown_nodes)}"
+            )
+        if unknown_policies := set(finding.policy_ids) - allowed_policy_ids:
+            errors.append(
+                f"Finding {finding.finding_id} references unretrieved policies: "
+                f"{sorted(unknown_policies)}"
+            )
+        if finding_evidence_by_cluster is not None:
+            evidence = (
+                finding_evidence_by_cluster.get(finding.concern_cluster_id)
+                if finding.concern_cluster_id is not None
+                else None
+            )
+            if evidence is None:
+                errors.append(
+                    f"Finding {finding.finding_id} has no matching focused evidence packet"
+                )
+            else:
+                cluster_local_claim_ids = [
+                    claim_id
+                    for claim_id in finding.claim_ids
+                    if claim_id in evidence.claims
+                ]
+                if cluster_local_claim_ids != finding.claim_ids:
+                    errors.append(
+                        f"Finding {finding.finding_id} references claims outside concern "
+                        f"cluster {evidence.cluster_id}"
+                    )
+                expected = _project_finding_evidence(
+                    finding.model_copy(update={"claim_ids": cluster_local_claim_ids}),
+                    evidence=evidence,
+                    finding_id=finding.finding_id,
+                )
+                if finding.atlas_node_ids != expected.atlas_node_ids:
+                    errors.append(
+                        f"Finding {finding.finding_id} Atlas nodes do not match its "
+                        "focused packet"
+                    )
+                if finding.affected_locations != expected.affected_locations:
+                    errors.append(
+                        f"Finding {finding.finding_id} locations do not match its "
+                        "focused packet"
+                    )
+                if finding.metric_observations != expected.metric_observations:
+                    errors.append(
+                        f"Finding {finding.finding_id} metrics do not match its focused packet"
+                    )
+                if finding.obscurity_signals != expected.obscurity_signals:
+                    errors.append(
+                        f"Finding {finding.finding_id} signals do not match its focused packet"
+                    )
+                if finding.policy_ids != expected.policy_ids:
+                    errors.append(
+                        f"Finding {finding.finding_id} policies do not match its focused packet"
+                    )
+        for location in finding.affected_locations:
+            node = allowed_nodes.get(location.node_id)
+            if node is None:
+                continue
+            if location.path != node.path or location.location is None:
+                errors.append(
+                    f"Finding {finding.finding_id} location does not match "
+                    f"Atlas node {location.node_id}"
+                )
+                continue
+            if _reference_invalid(location.node_id, location.location, allowed_nodes):
+                errors.append(
+                    f"Finding {finding.finding_id} source span exceeds "
+                    f"Atlas node {location.node_id}"
+                )
 
     evidence_policy_ids = {item.id for item in report.policy_evidence}
     invented_evidence = evidence_policy_ids - allowed_policy_ids
@@ -138,9 +316,11 @@ def repair_report_evidence_with_history(
     *,
     allowed_nodes: dict[str, AtlasNode],
     allowed_policy_ids: set[str],
+    finding_evidence_by_cluster: dict[str, CanonicalFindingEvidence] | None = None,
 ) -> EvidenceRepairOutcome:
     actions: list[str] = []
     valid_claim_ids: set[str] = set()
+    valid_claims: dict[str, Claim] = {}
     report_claims = _disambiguate_claim_ids(report, actions)
 
     def repair_claim(claim: Claim) -> Claim | None:
@@ -178,6 +358,7 @@ def repair_report_evidence_with_history(
             }
         )
         valid_claim_ids.add(repaired.claim_id)
+        valid_claims[repaired.claim_id] = repaired
         return repaired
 
     updates: dict[str, list[Claim]] = {}
@@ -220,6 +401,89 @@ def repair_report_evidence_with_history(
     if len(conflicts) != len(report.policy_conflicts):
         actions.append("Removed policy conflicts with unsupported policy IDs")
 
+    repaired_findings = []
+    for finding in report.findings:
+        finding_evidence = (
+            finding_evidence_by_cluster.get(finding.concern_cluster_id)
+            if finding_evidence_by_cluster is not None
+            and finding.concern_cluster_id is not None
+            else None
+        )
+        claim_ids = [
+            claim_id
+            for claim_id in finding.claim_ids
+            if claim_id in valid_claim_ids
+            and (
+                finding_evidence_by_cluster is None
+                or (
+                    finding_evidence is not None
+                    and claim_id in finding_evidence.claims
+                )
+            )
+        ]
+        if claim_ids != finding.claim_ids:
+            actions.append(
+                f"Removed unsupported or cross-cluster claims from finding "
+                f"{finding.finding_id}"
+            )
+        if not claim_ids:
+            actions.append(f"Removed unsupported finding {finding.finding_id}")
+            continue
+        supported_nodes = {
+            reference.node_id
+            for claim_id in claim_ids
+            for reference in valid_claims[claim_id].atlas_references
+        }
+        supported_policies = {
+            policy_id
+            for claim_id in claim_ids
+            for policy_id in valid_claims[claim_id].policy_ids
+        }
+        node_ids = [
+            node_id
+            for node_id in finding.atlas_node_ids
+            if node_id in allowed_nodes and node_id in supported_nodes
+        ]
+        finding_policy_ids = [
+            policy_id
+            for policy_id in finding.policy_ids
+            if policy_id in allowed_policy_ids and policy_id in supported_policies
+        ]
+        repaired_findings.append(
+            _project_finding_evidence(
+                finding.model_copy(
+                    update={
+                        "claim_ids": claim_ids,
+                        "atlas_node_ids": node_ids,
+                        "policy_ids": finding_policy_ids,
+                        "affected_locations": [
+                            item
+                            for item in finding.affected_locations
+                            if item.node_id in node_ids
+                            and item.location is not None
+                            and not _reference_invalid(
+                                item.node_id,
+                                item.location,
+                                allowed_nodes,
+                            )
+                        ],
+                        "metric_observations": [
+                            item
+                            for item in finding.metric_observations
+                            if item.node_id in node_ids
+                        ],
+                        "obscurity_signals": [
+                            item
+                            for item in finding.obscurity_signals
+                            if item.node_id in node_ids
+                        ],
+                    }
+                ),
+                evidence=finding_evidence,
+                finding_id=finding.finding_id,
+            )
+        )
+
     repaired_adr = report.adr.model_copy(
         update={
             "decision": repair_statement(report.adr.decision),
@@ -231,6 +495,7 @@ def repair_report_evidence_with_history(
             **updates,
             "policy_evidence": policy_evidence,
             "policy_conflicts": conflicts,
+            "findings": repaired_findings,
             "decision_summary": repair_statement(report.decision_summary),
             "recommended_architecture": repair_statement(report.recommended_architecture),
             "responsibility_allocation": [
@@ -341,13 +606,147 @@ def repair_report_evidence(
     *,
     allowed_nodes: dict[str, AtlasNode],
     allowed_policy_ids: set[str],
+    finding_evidence_by_cluster: dict[str, CanonicalFindingEvidence] | None = None,
 ) -> RecommendationReport:
     """Schema-v1 API compatibility; new callers should retain the repair history."""
     return repair_report_evidence_with_history(
         report,
         allowed_nodes=allowed_nodes,
         allowed_policy_ids=allowed_policy_ids,
+        finding_evidence_by_cluster=finding_evidence_by_cluster,
     ).report
+
+
+def _canonical_finding_evidence(
+    packets: list[FocusedAnalysisPacket],
+    analyses: list[ConcernAnalysis],
+) -> dict[str, CanonicalFindingEvidence]:
+    packet_by_cluster: dict[str, FocusedAnalysisPacket] = {}
+    for packet in packets:
+        cluster_id = packet.cluster.cluster_id
+        prior = packet_by_cluster.get(cluster_id)
+        if prior is not None and prior != packet:
+            raise ValueError(f"Conflicting focused packets for concern cluster {cluster_id}")
+        packet_by_cluster[cluster_id] = packet
+
+    analysis_by_cluster: dict[str, ConcernAnalysis] = {}
+    for analysis in analyses:
+        prior = analysis_by_cluster.get(analysis.cluster_id)
+        if prior is not None and prior != analysis:
+            raise ValueError(
+                f"Conflicting concern analyses for cluster {analysis.cluster_id}"
+            )
+        analysis_by_cluster[analysis.cluster_id] = analysis
+
+    result: dict[str, CanonicalFindingEvidence] = {}
+    for cluster_id, packet in packet_by_cluster.items():
+        analysis = analysis_by_cluster.get(cluster_id)
+        if analysis is None:
+            raise ValueError(f"Focused packet {cluster_id} has no concern analysis")
+        claims: dict[str, Claim] = {}
+        for claim in analysis.findings:
+            prior = claims.get(claim.claim_id)
+            if prior is not None and prior != claim:
+                raise ValueError(
+                    f"Concern cluster {cluster_id} reuses claim ID "
+                    f"{claim.claim_id} for different claims"
+                )
+            claims[claim.claim_id] = claim
+        nodes: dict[str, AtlasNodeEvidence] = {}
+        for node in packet.node_evidence:
+            node_id = node.node.node_id
+            prior = nodes.get(node_id)
+            if prior is not None and prior != node:
+                raise ValueError(
+                    f"Focused packet {cluster_id} contains conflicting evidence "
+                    f"for Atlas node {node_id}"
+                )
+            nodes[node_id] = node
+        result[cluster_id] = CanonicalFindingEvidence(
+            cluster_id=cluster_id,
+            claims=claims,
+            nodes=nodes,
+            policy_ids=frozenset(item.policy.id for item in packet.policies),
+        )
+    return result
+
+
+def _project_finding_evidence(
+    finding: ArchitecturalFinding,
+    *,
+    evidence: CanonicalFindingEvidence | None,
+    finding_id: str,
+) -> ArchitecturalFinding:
+    if evidence is None:
+        return finding.model_copy(
+            update={
+                "finding_id": finding_id,
+                "atlas_node_ids": [],
+                "policy_ids": [],
+                "affected_locations": [],
+                "metric_observations": [],
+                "obscurity_signals": [],
+            }
+        )
+    claims = [
+        evidence.claims[claim_id]
+        for claim_id in finding.claim_ids
+        if claim_id in evidence.claims
+    ]
+    node_ids = list(
+        dict.fromkeys(
+            reference.node_id
+            for claim in claims
+            for reference in claim.atlas_references
+            if reference.node_id in evidence.nodes
+        )
+    )
+    policy_ids = list(
+        dict.fromkeys(
+            policy_id
+            for claim in claims
+            for policy_id in claim.policy_ids
+            if policy_id in evidence.policy_ids
+        )
+    )
+    node_evidence = [
+        evidence.nodes[node_id] for node_id in node_ids if node_id in evidence.nodes
+    ]
+    affected_locations: list[AtlasNodeSummary] = [item.node for item in node_evidence]
+    metric_observations: list[AtlasMetricValue] = [
+        metric for item in node_evidence for metric in item.metrics
+    ]
+    obscurity_signals: list[ObscuritySignal] = [
+        signal for item in node_evidence for signal in item.signals
+    ]
+    return finding.model_copy(
+        update={
+            "finding_id": finding_id,
+            "atlas_node_ids": node_ids,
+            "policy_ids": policy_ids,
+            "affected_locations": affected_locations,
+            "metric_observations": metric_observations,
+            "obscurity_signals": obscurity_signals,
+        }
+    )
+
+
+def _finding_evidence_payload(finding: ArchitecturalFinding) -> dict[str, object]:
+    return {
+        "finding_id": finding.finding_id,
+        "claim_ids": list(finding.claim_ids),
+        "atlas_node_ids": list(finding.atlas_node_ids),
+        "policy_ids": list(finding.policy_ids),
+        "affected_locations": [
+            item.model_dump(mode="json") for item in finding.affected_locations
+        ],
+        "metric_observations": [
+            item.model_dump(mode="json") for item in finding.metric_observations
+        ],
+        "obscurity_signals": [
+            item.model_dump(mode="json") for item in finding.obscurity_signals
+        ],
+    }
 
 
 def _reference_invalid(

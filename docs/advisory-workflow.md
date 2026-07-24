@@ -37,7 +37,7 @@ sequenceDiagram
         Workflow->>Reasoner: analyze one focused packet
     end
     Workflow->>Reasoner: alternatives and scenarios
-    Workflow->>Reasoner: synthesize from summaries and packets
+    Workflow->>Reasoner: synthesize across separate concern analyses
     Workflow->>Validator: validate claims, support, atlas locations, policies
     alt invalid
         Workflow->>Validator: one deterministic conservative repair
@@ -51,26 +51,63 @@ sequenceDiagram
 ```
 
 Global context contains only the case summary, goals, constraints, future changes, non-goals,
-actors/workflows, facts, assumptions, unresolved questions, and an optional high-level atlas
-summary. The reasoner must partition all discovered forces exactly once into one to four concern
-clusters. Invalid, duplicate, omitted, or invented force IDs fail structured-output validation.
+actors/workflows, facts, assumptions, unresolved questions, user-authored design forces, policy
+applicability identity, and an optional bounded typed `AtlasOverview`. The overview names
+top-level nodes and a small set of hotspots with metric semantics, signals, and selection reasons;
+it is not the complete graph. The reasoner must partition all discovered and preserved user
+forces exactly once into one to four concern clusters. Invalid, duplicate, omitted, or invented
+force references fail structured-output validation.
+
+The case statement is not treated as an exhaustive defect inventory. A typed atlas signal may
+seed an additional investigation force even when the user did not name the underlying concern.
+That does not turn the signal into a violation: the force and focused query preserve its
+measurement/proxy nature and limitations, and the concern analysis must inspect located evidence
+before recommending a responsibility move.
+
+Internal force and cluster IDs are application-owned and are never round-tripped through the
+reasoning model at these stages. Discovery returns force content only; ArchCompass assigns the
+canonical force IDs. For clustering, the adapter exposes the bounded force set as request-local
+handles (`F1`, `F2`, and so on), constrains `force_refs` to that closed enum, validates an exact
+partition, and maps the handles back to canonical IDs. This is an exact-reference problem, not a
+retrieval problem: embeddings and `sqlite-vec` remain appropriate for finding relevant policies
+from an open corpus, but are deliberately not used to guess which known force a cluster means.
 
 Each zoom iteration has one cluster-keyed planning call. `max_queries_per_iteration` is a global
-budget shared by every cluster in that iteration. `max_query_results` limits unique nodes per
-cluster across the complete consultation, and `max_excerpt_lines` limits total excerpt lines per
-cluster. The workflow clamps excess results and records query, node, and excerpt truncation in
-execution metadata.
+budget shared round-robin by every cluster in that iteration so an early cluster cannot consume
+all investigation capacity. `max_query_results` limits unique nodes per cluster across the
+complete consultation, and `max_excerpt_lines` limits total excerpt lines per cluster. The
+workflow clamps excess results and records query, node, relationship, test, and excerpt
+truncation in execution metadata.
 
-One `FocusedAnalysisPacket` is built per cluster. It contains explicit node summaries, metrics,
-relationships whose endpoints were selected, related test IDs, excerpts, retrieved policies,
-assumptions, and uncertainty. Each packet is analysed once. Scenario results are keyed by
-alternative ID and every scenario must cover every alternative exactly once.
+One `FocusedAnalysisPacket` is built per cluster. It contains explicit self-describing node
+evidence, metric definitions and proxy labels, resolved relationship endpoints, related tests,
+excerpts, applicable policies, assumptions, and uncertainty. Each packet is analysed once.
+Scenario results are keyed by alternative ID and every scenario must cover every alternative
+exactly once.
 
-The final reasoner receives structured concern analyses, not the full atlas. Reference validation
-permits one deterministic, conservative repair constrained to surfaced nodes and retrieved
-policies. It removes unsupported evidence rather than asking a model to regenerate the full
-report. A repository observation with an invalid source location is removed as a whole; repair
-never strips the location while leaving its prose. Remaining errors fail the run explicitly.
+Policy retrieval queries combine the cluster and its design forces with bounded case problem,
+outcome, requirements, constraints, and expected changes. Brownfield queries also include only
+atlas signals surfaced for that cluster. This lets general policies cover greenfield
+responsibility questions while allowing repository observations to sharpen brownfield retrieval.
+
+The final reasoner receives the separate structured concern analyses and canonical policy
+summaries, not the focused packets, full atlas, or source tree. Packets remain internal evidence
+allowlists for validation and statement-support linking. Reference validation permits one
+deterministic, conservative repair constrained to surfaced nodes and retrieved policies. It
+removes unsupported evidence rather than asking a model to regenerate the full report. A
+repository observation with an invalid source location is removed as a whole; repair never
+strips the location while leaving its prose. Remaining errors fail the run explicitly.
+
+Final synthesis also produces one to twelve canonical architectural findings. The model supplies
+finding meaning, contextual importance, confidence, response, uncertainty, cluster, and claim
+links. The workflow replaces temporary IDs with stable ordered `FIND-nnn` IDs, then derives each
+finding's node IDs, locations, metric observations, obscurity signals, and policies from the
+linked claims in that cluster's exact focused packet. Provider-authored copies of those artifacts
+are ignored and audited when they differ. Validation rejects cross-cluster claim links and
+rechecks full cluster coverage after the single conservative repair before rendering schema-v3
+JSON and Markdown. Report conversations begin only after this workflow has completed successfully
+and are described separately in
+[report-conversations.md](report-conversations.md).
 
 ## Atlas selection and audit
 
@@ -87,6 +124,8 @@ After a valid case revision is loaded, any terminal atlas resolution/freshness, 
 provider, structured-output, validation, rendering, or commit failure is persisted as an
 immutable failed run before the exception is returned. Runs contain only prompt identities that
 were actually executed, stage timings, clusters, plans, packets, analyses, validation errors
-before and after repair, repair actions, a failure stage, sanitized errors, and execution
-counters/truncations. Failed runs retain partial or invalid model output for diagnosis without
-applying success-only partition/coverage invariants, and they never advance the case revision.
+before and after repair, repair actions, a failure stage, sanitized errors, safe structured
+failure diagnostics, and execution counters/truncations. Clustering diagnostics expose only
+request-local `F` handles and allowlisted counts, never model prose, repository paths, or internal
+IDs. Failed runs retain partial or invalid model output for diagnosis without applying
+success-only partition/coverage invariants, and they never advance the case revision.

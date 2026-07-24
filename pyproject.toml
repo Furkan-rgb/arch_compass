@@ -36,12 +36,13 @@ module-name = "archcompass"
 module-root = "src"
 
 [tool.pytest.ini_options]
-addopts = '-q --strict-config --strict-markers -m "not ollama"'
+addopts = '-q --strict-config --strict-markers -m "not ollama and not architectural_quality"'
 testpaths = ["tests"]
 norecursedirs = ["tests/fixtures"]
 markers = [
-  "ollama: requires a locally running Ollama service",
-  "evaluation: end-to-end architectural evaluation",
+  "evaluation: deterministic workflow and evidence-integrity evaluation",
+  "architectural_quality: optional real-model architectural-quality benchmark",
+  "ollama: optional evaluation requiring a locally running Ollama service",
 ]
 
 [tool.ruff]

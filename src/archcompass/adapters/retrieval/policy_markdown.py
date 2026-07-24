@@ -67,10 +67,16 @@ def parse_policy(path: Path) -> tuple[PolicyDocument, list[PolicyChunk]]:
         _, front_matter, body = text.split("---", maxsplit=2)
         metadata = yaml.safe_load(front_matter)
         source = PolicySource.model_validate(metadata["source"])
+        scope = PolicyScope(metadata["scope"])
         policy = PolicyDocument(
             id=metadata["id"],
             title=metadata["title"],
-            scope=PolicyScope(metadata["scope"]),
+            scope=scope,
+            applies_to=_resolve_applicability(
+                path=path,
+                scope=scope,
+                authored_subject=metadata.get("applies_to"),
+            ),
             strength=PolicyStrength(metadata["strength"]),
             tags=metadata["tags"],
             source=source,
@@ -117,6 +123,40 @@ def parse_policy(path: Path) -> tuple[PolicyDocument, list[PolicyChunk]]:
             f"Policy {path} has empty required sections: {', '.join(empty)}"
         )
     return policy, chunks
+
+
+def _resolve_applicability(
+    *,
+    path: Path,
+    scope: PolicyScope,
+    authored_subject: object,
+) -> str | None:
+    if scope is PolicyScope.GENERAL:
+        if authored_subject is not None:
+            raise ValueError("General policies must not declare applies_to")
+        return None
+    if authored_subject is not None:
+        if not isinstance(authored_subject, str) or not authored_subject.strip():
+            raise ValueError("applies_to must be a nonempty string")
+        return authored_subject.strip()
+    if scope in {PolicyScope.USER, PolicyScope.ORGANISATION}:
+        raise ValueError(f"{scope.value} policies must declare applies_to")
+
+    repository_root = _repository_root_for_local_policy(path)
+    if repository_root is None:
+        raise ValueError(
+            f"{scope.value} policies outside <repository>/.archcompass/policies "
+            "must declare applies_to"
+        )
+    return stable_id("repo", str(repository_root))
+
+
+def _repository_root_for_local_policy(path: Path) -> Path | None:
+    resolved = path.expanduser().resolve(strict=True)
+    for parent in resolved.parents:
+        if parent.name == "policies" and parent.parent.name == ".archcompass":
+            return parent.parent.parent
+    return None
 
 
 def load_policy_sources(sources: list[Path]) -> list[tuple[PolicyDocument, list[PolicyChunk]]]:

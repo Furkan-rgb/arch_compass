@@ -9,13 +9,11 @@ import {
   FileText,
   HelpCircle,
   Layers3,
-  MessageSquareText,
   Scale,
-  Send,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -26,8 +24,10 @@ import {
   type AtlasNodeView,
 } from "./atlas";
 import { Badge, shortId } from "./components";
+import { policyApplicabilityLabel } from "./policy-applicability";
 import type {
   ArchitectureCase,
+  AtlasMetricValue,
   CaseAlternative,
   Claim,
   ConsultationRun,
@@ -39,8 +39,6 @@ export interface ArchitectureWorkspaceProps {
   run: ConsultationRun;
   report: RecommendationReport;
   onClaim: (claim: Claim) => void;
-  onContinue: (question: string) => Promise<unknown> | void;
-  continuing?: boolean;
 }
 
 export interface WorkspaceAtlasView {
@@ -118,14 +116,35 @@ export function buildWorkspaceAtlas(
   );
 
   for (const packet of run.focused_packets) {
-    const metrics = new Map(
+    const legacyMetrics = new Map(
       packet.metrics.map((profile) => [
         profile.node_id,
         flattenMetrics(profile),
       ]),
     );
-    for (const node of packet.node_summaries) {
+    const nodeEvidence = packet.node_evidence || [];
+    const evidenceByNode = new Map(
+      nodeEvidence.map((evidence) => [
+        evidence.node.node_id,
+        evidence,
+      ]),
+    );
+    const summaries = new Map(
+      packet.node_summaries.map((node) => [node.node_id, node]),
+    );
+    nodeEvidence.forEach((evidence) =>
+      summaries.set(evidence.node.node_id, {
+        ...evidence.node,
+        summary: "",
+        selection_reasons: evidence.reasons,
+      }),
+    );
+    for (const node of summaries.values()) {
       const existing = nodeMap.get(node.node_id);
+      const evidence = evidenceByNode.get(node.node_id);
+      const selectionSummary = evidence?.reasons
+        .map((reason) => reason.explanation)
+        .join(" ");
       nodeMap.set(node.node_id, {
         id: node.node_id,
         label: node.qualified_name.split(".").at(-1) || node.qualified_name || node.path,
@@ -134,9 +153,17 @@ export function buildWorkspaceAtlas(
           : node.path,
         kind: node.node_type,
         state: existing?.state || "normal",
-        description: node.summary || packet.cluster.rationale,
-        metrics: metrics.get(node.node_id) || existing?.metrics || [],
+        description:
+          node.summary ||
+          selectionSummary ||
+          packet.cluster.rationale,
+        metrics:
+          evidence?.metrics.map(metricView) ||
+          legacyMetrics.get(node.node_id) ||
+          existing?.metrics ||
+          [],
         evidenceCount: evidenceCounts.get(node.node_id) || 0,
+        signalCount: evidence?.signals.length || existing?.signalCount || 0,
       });
     }
     for (const relationship of packet.relationships) {
@@ -146,6 +173,15 @@ export function buildWorkspaceAtlas(
         targetId: relationship.target_id,
         kind: relationship.edge_type,
         confidence: 1,
+      });
+    }
+    for (const relationship of packet.relationship_evidence) {
+      relationshipMap.set(relationship.edge_id, {
+        id: relationship.edge_id,
+        sourceId: relationship.source.node_id,
+        targetId: relationship.target.node_id,
+        kind: relationship.edge_type,
+        confidence: relationship.confidence,
       });
     }
   }
@@ -183,8 +219,6 @@ export function ArchitectureWorkspace({
   run,
   report,
   onClaim,
-  onContinue,
-  continuing = false,
 }: ArchitectureWorkspaceProps) {
   const atlas = useMemo(
     () => buildWorkspaceAtlas(run, report, architectureCase),
@@ -197,7 +231,6 @@ export function ArchitectureWorkspace({
     report.alternatives_considered[0]?.id || "",
   );
   const [activeScenario, setActiveScenario] = useState(0);
-  const [question, setQuestion] = useState("");
   const [copied, setCopied] = useState(false);
   const claims = useMemo(
     () => uniqueClaims([
@@ -210,14 +243,6 @@ export function ArchitectureWorkspace({
   );
   const selectedScenario = report.scenario_analysis[activeScenario];
   const forces = run.design_forces.length ? run.design_forces : report.important_design_forces;
-
-  const submitQuestion = async (event: FormEvent) => {
-    event.preventDefault();
-    const value = question.trim();
-    if (!value) return;
-    await onContinue(value);
-    setQuestion("");
-  };
 
   const copyAdr = async () => {
     await navigator.clipboard.writeText(adrMarkdown(report));
@@ -300,25 +325,6 @@ export function ArchitectureWorkspace({
         </aside>
       </div>
 
-      <form className="advisor-composer" onSubmit={(event) => void submitQuestion(event)}>
-        <span className="advisor-composer__icon"><MessageSquareText size={19} /></span>
-        <label>
-          <span>Continue this ArchitectureCase</span>
-          <textarea
-            rows={1}
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            placeholder="Add a new constraint, unresolved question, or change scenario…"
-          />
-        </label>
-        <button
-          type="submit"
-          className="button button--primary"
-          disabled={!question.trim() || continuing}
-        >
-          <Send size={15} /> {continuing ? "Starting…" : "Consult again"}
-        </button>
-      </form>
     </div>
   );
 }
@@ -335,6 +341,9 @@ function ArchitectureCasePanel({
   const assumptions = architectureCase?.assumptions.map((item) => item.text) ||
     report.assumptions_and_unresolved_questions.map((item) => item.text);
   const questions = architectureCase?.unresolved_questions.map((item) => item.text) || [];
+  const userForces = architectureCase?.design_forces.map((item) => item.text) || [];
+  const advisorForces =
+    architectureCase?.advisor_design_forces.map((item) => item.text) || [];
   return (
     <section className="workspace-panel architecture-case-panel">
       <PanelHeading eyebrow="Persistent context" title="ArchitectureCase" icon={<FileText size={18} />} />
@@ -351,14 +360,25 @@ function ArchitectureCasePanel({
       <CaseItems label="Confirmed" values={facts} icon={<Check size={12} />} />
       <CaseItems label="Assumed" values={assumptions} icon={<AlertCircle size={12} />} />
       <CaseItems label="Unresolved" values={questions} icon={<HelpCircle size={12} />} />
+      <CaseItems label="User forces" values={userForces} icon={<Compass size={12} />} />
+      <CaseItems
+        label="Advisor forces"
+        values={advisorForces}
+        icon={<Sparkles size={12} />}
+      />
     </section>
   );
 }
 
 function CaseItems({ label, values, icon }: { label: string; values: string[]; icon: ReactNode }) {
+  const [open, setOpen] = useState(label === "Confirmed");
   if (!values.length) return null;
   return (
-    <details className="case-items" open={label === "Confirmed"}>
+    <details
+      className="case-items"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
       <summary>{icon} {label} <span>{values.length}</span></summary>
       <ul>{values.slice(0, 6).map((value) => <li key={value}>{value}</li>)}</ul>
     </details>
@@ -407,6 +427,12 @@ function PoliciesPanel({ report }: { report: RecommendationReport }) {
             <div><Badge tone="neutral">{policy.scope}</Badge><span>{policy.strength}</span></div>
             <h3>{policy.title}</h3>
             <p>{policy.matched_sections.slice(0, 3).join(" · ") || "Policy body matched during consultation."}</p>
+            <p>
+              Applies to{" "}
+              <strong>
+                {policyApplicabilityLabel(policy.scope, policy.applies_to)}
+              </strong>
+            </p>
             <code>{shortId(policy.id)}</code>
           </article>
         ))}
@@ -563,10 +589,10 @@ function PanelHeading({
 }
 
 function flattenMetrics(profile: {
-  local: Record<string, number>;
-  dependency: Record<string, number>;
-  change_amplification: Record<string, number>;
-  cognitive_scope: Record<string, number>;
+  local: Record<string, number | string | string[] | null>;
+  dependency: Record<string, number | string | string[] | null>;
+  change_amplification: Record<string, number | string | string[] | null>;
+  cognitive_scope: Record<string, number | string | string[] | null>;
 }): AtlasMetricView[] {
   const groups = [
     ["Local", profile.local],
@@ -575,19 +601,42 @@ function flattenMetrics(profile: {
     ["Cognitive", profile.cognitive_scope],
   ] as const;
   return groups.flatMap(([group, values]) =>
-    Object.entries(values)
-      .filter(([, value]) => typeof value === "number" && value > 0)
-      .map(([label, value]) => ({
-        group,
-        label: label.replaceAll("_", " "),
-        value,
-      })),
+    Object.entries(values).flatMap(([label, value]) =>
+      typeof value === "number" && value > 0
+        ? [{
+            group,
+            label: label.replaceAll("_", " "),
+            value,
+          }]
+        : [],
+    ),
   );
+}
+
+function metricView(metric: AtlasMetricValue): AtlasMetricView {
+  return {
+    group:
+      metric.nature === "structural_proxy"
+        ? "Structural proxy"
+        : "Objective measurement",
+    label: metric.metric.replaceAll("_", " ").replaceAll(".", " · "),
+    value: metric.value,
+    nature: metric.nature,
+    scope: metric.scope,
+    definition: metric.definition,
+    limitations: metric.limitations,
+  };
 }
 
 function numericMetric(metrics: AtlasMetricView[], labels: string[]) {
   return metrics
-    .filter((metric) => labels.includes(metric.label) && typeof metric.value === "number")
+    .filter(
+      (metric) =>
+        labels.some(
+          (label) =>
+            metric.label === label || metric.label.endsWith(` · ${label}`),
+        ) && typeof metric.value === "number",
+    )
     .reduce((sum, metric) => sum + Number(metric.value), 0);
 }
 
