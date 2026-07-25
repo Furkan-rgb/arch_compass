@@ -52,6 +52,10 @@ V1.2 is the active milestone. Preserve these report-conversation boundaries:
   `docs/adr/0001-composed-synthesis.md`.
 - Model adapters do transport, schema constraint, and one generic JSON repair. They hold no
   domain rule and may not import the application or workflow packages.
+- Recorded model responses under `tests/replay/recordings/` are captured from a live provider
+  and are never hand-edited: a hand-written "recording" proves only what its author expected.
+  Changing a prompt changes its identity and makes every recording under it stale, so a prompt
+  edit is not finished until `make capture-recordings` has refreshed them.
 - Model transport refuses an oversize request rather than letting it be truncated, and retries
   only positive-listed transient failures. Never retry a structured-output failure: the one
   schema-repair round is the only second attempt at content.

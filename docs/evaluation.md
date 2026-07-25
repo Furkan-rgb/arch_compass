@@ -117,6 +117,25 @@ architectural quality. Tests that perform an optional quality run should use the
 `architectural_quality` marker and record the model, prompt identities, configuration, and case
 revision used.
 
+## Recorded replay tier
+
+`tests/replay/` holds two complementary kinds of fixture. Hand-authored payloads prove the
+contracts reject what they should. Recorded bundles under `tests/replay/recordings/` prove
+the complement: that the pipeline still accepts what a real model actually produced.
+
+A bundle is captured from one live consultation with `make capture-recordings
+CASE=eval/cases/<name> NAME=<name>`, which needs a running Ollama. It stores each stage's
+input, the raw response, and the prompt identity that produced it. Replay runs in the
+default suite with no model.
+
+Because prompt identities embed a content fingerprint, editing a prompt makes every
+recording under it stale and the replay test fails with the re-capture command. Absent
+recordings skip. Recordings are never hand-edited: a hand-written "recording" proves only
+what its author expected.
+
+A recording is evidence about the pipeline, never about architectural quality. It is one
+model, one case, one moment. See [plans/quality-harness.md](plans/quality-harness.md).
+
 ## Optional live-model and transport evaluations
 
 Tests marked `ollama` use the models in `config/models.yaml`. They verify the live embedding

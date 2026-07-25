@@ -1,4 +1,4 @@
-.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build bundle-check test-ollama eval check build full
+.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build bundle-check capture-recordings test-ollama eval check build full
 
 sync:
 	uv sync --locked
@@ -37,6 +37,12 @@ bundle-check: frontend-build
 
 test-ollama:
 	uv run pytest -m ollama
+
+# Capture one live consultation as a replayable recording. Needs a running Ollama and a
+# workspace configured to use it. Deliberately outside `check`: it calls a real model and
+# rewrites a committed fixture, neither of which belongs in a routine verification run.
+capture-recordings:
+	uv run python scripts/capture_recordings.py --case $(CASE) --name $(NAME)
 
 eval:
 	uv run pytest -m "evaluation and not architectural_quality and not ollama"

@@ -1,0 +1,120 @@
+# Plan: advice-quality harness
+
+**Status:** Phase 1 implemented; Phases 2–4 planned
+**Scope:** Evaluation tooling. No product surface.
+
+## The problem
+
+The deterministic suite proves the pipeline bounds, validates, composes and persists
+correctly. Since WS7 it deliberately makes **no claim about advice quality** — the
+substitute reasoner relays its inputs rather than judging, so a green suite says nothing
+about whether a real model produces good architecture advice, or even whether it can
+satisfy the contracts at all.
+
+`pytest -m architectural_quality` collects **zero tests**. Quality is currently asserted
+nowhere.
+
+Running a full consultation per assertion is too slow to iterate on: a dozen model calls
+plus indexing, embedding and retrieval. The unit worth testing is one reasoning stage
+against one known input.
+
+## Three tiers
+
+| Tier | Model? | Cost | Catches |
+|---|---|---|---|
+| 1 — recorded replay | no | milliseconds | pipeline regressions against real model output |
+| 2 — live stage probe | one call | seconds | contract achievability, prompt regressions |
+| 3 — full consultation | many calls | minutes | cross-stage coherence |
+
+Tier 3 exists (`tests/integration/test_ollama.py`). Phase 1 delivers tier 1 and the
+capture step that feeds every tier.
+
+## What makes this possible
+
+Every reasoning stage takes typed, provider-neutral, serializable input — `GlobalContext`,
+`FocusedAnalysisPacket`, `ReportConversationContext`, and since WS3 a claim pool of
+handles. That seam did not exist cleanly before WS2/WS3, when the adapter received half
+the world. A stage input is now a JSON document, and a stage output is a typed proposal
+with handle references rather than free prose, which is what makes assertions mechanical
+rather than judgemental.
+
+## Phase 1 — capture and replay *(implemented)*
+
+`scripts/capture_recordings.py` runs one real consultation with a provider that keeps
+every request and response, then writes a bundle under `tests/replay/recordings/<name>/`:
+a manifest (pins, per-call task and prompt identity), `inputs.json` (the case, forces,
+clusters, analyses, alternatives, scenarios, packets, and the exact node allowlist the
+run validated against), and the raw response text per call.
+
+`tests/replay/test_recorded_synthesis.py` replays the synthesis answer through
+`validate_proposal` → `compose_recommendation` → `canonicalize_report_findings` →
+`validate_report_evidence`, with no model running.
+
+### Recorded, not reconstructed
+
+A stage input could in principle be rebuilt from a stored run's pins — handles are
+positional over stored lists, and `_global_context` is a pure function of case and atlas.
+It was still the wrong choice: `atlas_overview()` carries its own caps and limitation
+prose, so a reconstructed fixture would silently follow later edits to that code. **A
+fixture that tracks your changes cannot detect them.** The recorded bytes are what the
+model actually saw.
+
+Persisting `GlobalContext` on `ConsultationRun` was also rejected. An optional field is
+the soft contract ADR 0002 removed; a required one is permanent product surface, entering
+the OpenAPI schema and the committed frontend types, for a reader that is a test harness.
+
+### Staleness is automatic
+
+Each recorded call stores the prompt identity that produced it, and identities embed a
+content fingerprint. Editing a prompt changes its identity and every recording under it
+reports stale — so a recorded corpus cannot silently drift away from the prompts it
+describes. Absent recordings **skip** (a fresh checkout is not broken); a present but
+stale recording **fails** with the re-capture command.
+
+### What tier 1 does and does not prove
+
+It proves the pipeline still accepts what a real model actually produced — something a
+hand-authored fixture cannot, because its author already knows what the code expects. The
+existing `payloads.py` fixtures prove the complement: that the contracts reject what they
+should.
+
+It proves nothing about advice quality. One model, one case, one moment.
+
+## Phase 2 — live stage probes
+
+Load a captured stage input, call one stage against real Ollama, assert properties of the
+typed output. Two assertion classes, neither needing a judge:
+
+- **Contract achievability** — does output validate first time, or need the repair pass?
+  This is the operational signal nothing currently measures.
+- **Evidence discipline** — a packet with no repository evidence must yield no
+  `repository_observation`; a finding must cite nodes from its own packet.
+
+## Phase 3 — adversarial inputs
+
+Hand-authored packets and claim pools that harvested fixtures will not produce: no
+evidence at all, one weak proxy signal, conflicting policies, a case that asserts its own
+solution. The product thesis is that more abstraction is not better, so the cases that
+matter most are the ones that tempt over-engineering. If the advisor cannot say "don't",
+it is an abstraction generator.
+
+## Phase 4 — discrimination
+
+Contrastive assertions across those inputs — same stage, two inputs, assert the
+*structured* outputs differ. Never absolute assertions on prose: those are brittle to
+model variation and recreate the memorisation problem WS7 removed from the substitute
+reasoner.
+
+Only then, if wanted, a rubric judge — where the interesting angle is that the **policy
+corpus is the rubric**: did the recommendation apply the policies it retrieved, or name
+them decoratively?
+
+## Known limits
+
+- Capture needs a live Ollama and takes minutes; CI has neither, so refreshing after a
+  prompt change is a local step.
+- A bundle is a few hundred KB of committed JSON, dominated by focused packets. One or
+  two are fine; one per case would not be.
+- Every response is recorded, but Phase 1 replays only synthesis. The rest are the
+  faithful transcript and the seed corpus for Phase 2 — if Phase 2 does not follow, they
+  are unread files and should be trimmed.
