@@ -158,16 +158,16 @@ class FindingPattern(StrEnum):
     Named for what was observed, never for what should be done about it. Each maps to
     policies the corpus already states, because the corpus is what says which patterns
     are worth detecting at all (master plan 8A.1).
+
+    One member, deliberately: the MVP ships one detector (master plan 8A.3). It stays an
+    enum rather than a string because the pattern name is an application-owned key that
+    reaches the model as a label, and a closed set is how it stays one (12.0). Adding the
+    second direction of the catalogue should then be a member and a function, not a
+    change of type.
     """
 
-    #: The same knowledge stated in several modules with no single owner.
-    DUPLICATED_KNOWLEDGE = "duplicated_knowledge"
     #: An abstraction with exactly one implementation behind it.
     SOLE_IMPLEMENTATION = "sole_implementation"
-    #: Several bespoke implementations of one shape, with no common owner.
-    PARALLEL_IMPLEMENTATIONS = "parallel_implementations"
-    #: A public surface that forwards without hiding anything.
-    PASS_THROUGH_BOUNDARY = "pass_through_boundary"
 
 
 class FindingParticipant(DomainModel):

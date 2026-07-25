@@ -437,6 +437,11 @@ Design forces remain what they are — the case-level pressures the model weighs
 whether a candidate matters here — but they no longer need to be partitioned to bound
 evidence, because a candidate carries its own participants.
 
+With the MVP's single detector (§8A.3) most candidates share no participants, so grouping
+collapses to one candidate per cluster and does almost nothing. That is the expected
+outcome and not a defect to engineer around: clustering earns its place when the second
+pattern lands and one set of nodes starts carrying two kinds of candidate at once.
+
 ---
 
 # 8A. Finding Candidates
@@ -479,25 +484,34 @@ Detectors therefore read the atlas graph — edges, implementations, callers, re
 and not only node attributes. A detector that cannot express "these N nodes, related this
 way" cannot express the findings that matter.
 
-## 8A.3 The catalogue is symmetric
+## 8A.3 The MVP detects one pattern
 
-Unnecessary complexity has two directions, and an advisor that detects only one becomes an
-advocate for the other.
+**Sole implementation** — an abstraction with exactly one implementation behind it. That
+is the whole catalogue for the MVP. It is chosen because it is the direct structural trace
+of the failure in §3.1, because the policy corpus already states the rule it makes
+relevant, and because it is decidable from edges the atlas already records.
+
+One detector is a deliberate limit, and its cost has to be written down rather than
+discovered later. Unnecessary complexity has two directions, and an advisor that detects
+only one becomes an advocate for the other.
 
 **Indirection without hiding** — an abstraction that adds a boundary while hiding nothing:
 an interface with a single implementation and no credible variation, a module whose public
 surface only forwards calls, a configuration point with one value. The advice is usually
-*remove it, or do not add it*.
+*remove it, or do not add it*. This is the direction that ships.
 
 **Repetition without ownership** — the same knowledge or shape repeated with no common
 owner: a constant duplicated across modules, several bespoke implementations preparing the
 same request in parallel, one concept requiring coordinated edits in unrelated locations.
 The advice is usually *give this one owner* — an agnostic boundary with specific
-implementations behind it.
+implementations behind it. This is not detected yet, and is the first thing added after
+the MVP path works end to end.
 
 Both are the same underlying judgement — where should the complexity live — reached from
 opposite sides. A single-implementation interface and three parallel bespoke providers are
 each a candidate; only the case can say which one is wrong here, and often neither is.
+Until the second direction exists ArchCompass sees half the problem, so no consultation
+may present its silence on repetition as evidence that none is there.
 
 ## 8A.4 What a detector may not do
 
