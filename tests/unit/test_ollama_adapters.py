@@ -661,7 +661,15 @@ def test_every_reasoning_stage_parses_structured_output(
                 }
             ]
         ),
-        analysis.model_dump_json(),
+        # The model answers analysis content only. Cluster identity is composed from the
+        # packet, so a response carrying it would now be rejected as an extra field.
+        json.dumps(
+            {
+                "findings": [item.model_dump(mode="json") for item in analysis.findings],
+                "implications": analysis.implications,
+                "policy_conflicts": [],
+            }
+        ),
         json.dumps([item.model_dump(mode="json") for item in alternatives]),
         json.dumps([item.model_dump(mode="json") for item in model_scenarios]),
         proposal.model_dump_json(),
@@ -723,6 +731,46 @@ def test_every_reasoning_stage_parses_structured_output(
     assert statement_refs["items"]["enum"] == sorted(item.ref for item in pool.available)
     finding_cluster = synthesis_schema["$defs"]["ProposedFinding"]["properties"]["cluster_ref"]
     assert finding_cluster["enum"] == sorted(cluster_refs)
+
+
+def test_analysis_schema_admits_only_evidence_the_packet_surfaced() -> None:
+    """The node and policy allowlists must reach the model as grammar, not as advice.
+
+    Probing this stage live found the failure mode is transcription rather than
+    invention: a 24-character node ID copied with one character wrong, and real policy
+    IDs recalled from the corpus instead of from this packet. Two of three runs violated
+    the prose allowlist. An enum makes both unrepresentable.
+    """
+
+    schema = OllamaReasoningProvider._analysis_schema(
+        node_ids={"node-beta", "node-alpha"},
+        policy_ids={"policy-one"},
+    )
+
+    definitions = schema["$defs"]
+    assert definitions["AtlasEvidenceReference"]["properties"]["node_id"] == {
+        "type": "string",
+        "enum": ["node-alpha", "node-beta"],
+    }
+    assert definitions["Claim"]["properties"]["policy_ids"] == {
+        "type": "array",
+        "items": {"type": "string", "enum": ["policy-one"]},
+    }
+
+
+def test_analysis_schema_forbids_references_when_the_packet_surfaced_nothing() -> None:
+    """An empty allowlist becomes an empty array, never an empty enum.
+
+    No value satisfies an empty enum, so a schema built that way would reject every
+    response rather than constrain it. A packet that surfaced nothing cannot ground an
+    atlas reference, so the honest constraint is that it may carry none.
+    """
+
+    schema = OllamaReasoningProvider._analysis_schema(node_ids=set(), policy_ids=set())
+
+    claim = schema["$defs"]["Claim"]["properties"]
+    assert claim["atlas_references"] == {"type": "array", "maxItems": 0}
+    assert claim["policy_ids"] == {"type": "array", "maxItems": 0}
 
 
 def test_scenario_contract_requires_at_least_one_evaluation() -> None:

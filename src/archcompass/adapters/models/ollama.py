@@ -16,6 +16,7 @@ from archcompass.configuration import EmbeddingModelConfig, ReasoningModelConfig
 from archcompass.domain.base import canonical_json
 from archcompass.domain.case import ArchitectureCase, CaseAlternative
 from archcompass.domain.consultation import (
+    Claim,
     ClusterQueryPlan,
     ConcernAnalysis,
     ConcernCluster,
@@ -45,6 +46,7 @@ from archcompass.domain.errors import (
     PromptBudgetExceededError,
     ProviderError,
 )
+from archcompass.domain.policy import PolicyConflict
 from archcompass.domain.proposals import AvailableClaim, ProposedRecommendation
 from archcompass.ports.reasoning import ReasoningTask
 
@@ -109,6 +111,41 @@ def _object_mapping(value: object) -> dict[str, object] | None:
     return {str(key): item for key, item in source.items()}
 
 
+def _schema_constrainer(
+    schema: dict[str, object],
+) -> Callable[[str, str, Mapping[str, object]], None] | None:
+    """Replace one field's schema in place, for narrowing a model's output grammar.
+
+    Returns None when the schema carries no definitions to narrow, so a caller sends the
+    unconstrained schema rather than silently believing it constrained something. A
+    field the definition does not have is ignored for the same reason a rename should
+    fail loudly elsewhere: this only ever tightens what a model may emit, and tightening
+    nothing is safe where tightening the wrong thing is not.
+    """
+
+    definitions = _object_mapping(schema.get("$defs"))
+    if definitions is None:
+        return None
+    schema["$defs"] = definitions
+
+    def constrain(
+        definition_name: str,
+        field: str,
+        constraint: Mapping[str, object],
+    ) -> None:
+        definition = _object_mapping(definitions.get(definition_name))
+        properties = None if definition is None else _object_mapping(
+            definition.get("properties")
+        )
+        if properties is None or field not in properties:
+            return
+        properties[field] = dict(constraint)
+        definition["properties"] = properties  # type: ignore[index]
+        definitions[definition_name] = definition
+
+    return constrain
+
+
 class ProposedDesignForce(BaseModel):
     """Model-facing force content; identity is owned by ArchCompass."""
 
@@ -124,6 +161,22 @@ class ProposedDesignForce(BaseModel):
 
 class ProposedDesignForceList(RootModel[list[ProposedDesignForce]]):
     root: list[ProposedDesignForce] = Field(min_length=1, max_length=8)
+
+
+class ProposedConcernAnalysis(BaseModel):
+    """Model-facing analysis content for one packet; identity is owned by ArchCompass.
+
+    A packet describes exactly one cluster, so `cluster_id` and `concern` are not answers
+    the model supplies — they are values the application already holds and would only be
+    asking the model to copy back. Omitting them removes a 40-character opaque string
+    from the response contract and, with it, the repair that existed to correct it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    findings: list[Claim] = Field(min_length=1)
+    implications: list[str] = Field(min_length=1)
+    policy_conflicts: list[PolicyConflict] = Field(default_factory=list[PolicyConflict])
 
 
 class ProposedConcernCluster(BaseModel):
@@ -352,20 +405,32 @@ class OllamaReasoningProvider:
         context: GlobalContext,
         packet: FocusedAnalysisPacket,
     ) -> ConcernAnalysis:
-        allowed_node_ids = sorted(packet.surfaced_node_ids)
-        allowed_policy_ids = sorted(item.policy.id for item in packet.policies)
-        return self._complete(
+        node_ids = set(packet.surfaced_node_ids)
+        policy_ids = {item.policy.id for item in packet.policies}
+        proposed = self._complete(
             ReasoningTask.ANALYZE_CONCERN_CLUSTER,
             {"context": context.model_dump(mode="json"), "packet": packet.model_dump(mode="json")},
-            ConcernAnalysis,
+            ProposedConcernAnalysis,
             runtime_instruction=(
-                f"Set cluster_id exactly to {packet.cluster.cluster_id!r}. "
-                f"Allowed atlas node IDs: {allowed_node_ids or ['none']}. "
-                f"Allowed policy IDs: {allowed_policy_ids or ['none']}. "
-                "Use no other evidence IDs. When no atlas IDs are allowed, do not classify a "
-                "finding as a repository observation. When no policy IDs are allowed, do not "
-                "classify a finding as policy guidance."
+                f"Allowed atlas node IDs: {sorted(node_ids) or ['none']}. "
+                f"Allowed policy IDs: {sorted(policy_ids) or ['none']}. "
+                "When no atlas IDs are allowed, do not classify a finding as a repository "
+                "observation. When no policy IDs are allowed, do not classify a finding as "
+                "policy guidance."
             ),
+            # The instruction above still names the allowlists, because a model that can
+            # see which IDs are legal writes better claims than one that merely cannot
+            # emit an illegal one. The schema is what makes it true either way.
+            schema_override=self._analysis_schema(node_ids=node_ids, policy_ids=policy_ids),
+        )
+        # Identity is composed, never echoed: the packet names its own cluster, so there is
+        # no version of this response in which the model could get it wrong.
+        return ConcernAnalysis(
+            cluster_id=packet.cluster.cluster_id,
+            concern=packet.cluster.title,
+            findings=proposed.findings,
+            implications=proposed.implications,
+            policy_conflicts=proposed.policy_conflicts,
         )
 
     def generate_alternatives(
@@ -526,24 +591,9 @@ class OllamaReasoningProvider:
         """Constrain every reference to a supplied handle so none can be invented."""
 
         schema = ProposedRecommendation.model_json_schema()
-        definitions = _object_mapping(schema.get("$defs"))
-        if definitions is None:
+        constrain = _schema_constrainer(schema)
+        if constrain is None:
             return schema
-
-        def constrain(
-            definition_name: str,
-            field: str,
-            constraint: Mapping[str, object],
-        ) -> None:
-            definition = _object_mapping(definitions.get(definition_name))
-            properties = None if definition is None else _object_mapping(
-                definition.get("properties")
-            )
-            if properties is None or field not in properties:
-                return
-            properties[field] = dict(constraint)
-            definition["properties"] = properties  # type: ignore[index]
-            definitions[definition_name] = definition
 
         claim_list: Mapping[str, object] = {
             "type": "array",
@@ -552,12 +602,53 @@ class OllamaReasoningProvider:
         }
         constrain("ProposedStatement", "claim_refs", claim_list)
         constrain("ProposedFinding", "claim_refs", claim_list)
-        cluster_choice: Mapping[str, object] = {
-            "type": "string",
-            "enum": sorted(cluster_refs),
-        }
-        constrain("ProposedFinding", "cluster_ref", cluster_choice)
-        schema["$defs"] = definitions
+        constrain(
+            "ProposedFinding",
+            "cluster_ref",
+            {"type": "string", "enum": sorted(cluster_refs)},
+        )
+        return schema
+
+    @staticmethod
+    def _analysis_schema(
+        *,
+        node_ids: set[str],
+        policy_ids: set[str],
+    ) -> dict[str, object]:
+        """Constrain a concern analysis to the evidence its own packet surfaced.
+
+        Both allowlists reached the model as prose until now, and prose is advice rather
+        than a constraint. Probing the stage found the failure mode is not invention but
+        *transcription*: a 24-hex-character node ID copied with one character wrong, and
+        real policy IDs recalled from the corpus rather than from this packet. Neither
+        survives a grammar that can only emit the allowed strings.
+
+        An empty allowlist is expressed as an empty array rather than an empty enum,
+        which no schema can satisfy: a packet that surfaced nothing cannot ground an
+        atlas reference, so it must not be able to carry one.
+        """
+
+        schema = ProposedConcernAnalysis.model_json_schema()
+        constrain = _schema_constrainer(schema)
+        if constrain is None:
+            return schema
+
+        if node_ids:
+            constrain(
+                "AtlasEvidenceReference",
+                "node_id",
+                {"type": "string", "enum": sorted(node_ids)},
+            )
+        else:
+            constrain("Claim", "atlas_references", {"type": "array", "maxItems": 0})
+        if policy_ids:
+            constrain(
+                "Claim",
+                "policy_ids",
+                {"type": "array", "items": {"type": "string", "enum": sorted(policy_ids)}},
+            )
+        else:
+            constrain("Claim", "policy_ids", {"type": "array", "maxItems": 0})
         return schema
 
     def classify_report_question(

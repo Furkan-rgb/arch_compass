@@ -1069,31 +1069,10 @@ class ConsultationWorkflow:
         packet: FocusedAnalysisPacket,
         metadata: dict[str, object],
     ) -> ConcernAnalysis:
-        updates: dict[str, object] = {}
-        repairs = metadata.get("model_output_repairs")
-        if analysis.cluster_id != packet.cluster.cluster_id:
-            if isinstance(repairs, list):
-                repairs.append(
-                    {
-                        "kind": "corrected_concern_analysis_cluster",
-                        "from_cluster_id": analysis.cluster_id,
-                        "to_cluster_id": packet.cluster.cluster_id,
-                    }
-                )
-            updates["cluster_id"] = packet.cluster.cluster_id
-        if analysis.concern != packet.cluster.title:
-            if isinstance(repairs, list):
-                repairs.append(
-                    {
-                        "kind": "corrected_concern_analysis_title",
-                        "cluster_id": packet.cluster.cluster_id,
-                        "from_concern": analysis.concern,
-                        "to_concern": packet.cluster.title,
-                    }
-                )
-            updates["concern"] = packet.cluster.title
-        if updates:
-            analysis = analysis.model_copy(update=updates)
+        # No cluster identity repair here any more. Providers compose `cluster_id` and
+        # `concern` from the packet rather than restating them, so a mismatch is a broken
+        # provider rather than a stray model answer — and `_validate_concern_analysis`
+        # says so loudly instead of quietly rewriting it.
         return ConsultationWorkflow._drop_unsupported_concern_evidence(
             analysis,
             packet=packet,

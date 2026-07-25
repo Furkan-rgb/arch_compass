@@ -868,19 +868,24 @@ def test_omitted_cluster_query_plan_is_completed_and_audited(
     assert len(added) == len(run.clusters) - 1
 
 
-def test_concern_analysis_cluster_identity_is_corrected_and_audited(
+def test_an_analysis_for_the_wrong_cluster_is_rejected_rather_than_rewritten(
     runtime,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Cluster identity is composed from the packet, so a mismatch is a broken provider.
+
+    This used to be repaired and audited, because the model was asked to echo a
+    40-character cluster ID and sometimes echoed it wrong. No provider restates it now —
+    both the deterministic reasoner and the Ollama adapter compose it from the packet
+    they were handed — so the only way to reach a mismatch is a provider that does not
+    honour the port. Quietly rewriting that would hide a real bug behind a repair
+    statistic, which is what the audit trail is supposed to prevent.
+    """
+
     class WrongAnalysisClusterReasoner(DeterministicReasoningProvider):
         def analyze_concern_cluster(self, context, packet):
             analysis = super().analyze_concern_cluster(context, packet)
-            return analysis.model_copy(
-                update={
-                    "cluster_id": "invented-cluster",
-                    "concern": "invented-cluster",
-                }
-            )
+            return analysis.model_copy(update={"cluster_id": "invented-cluster"})
 
     monkeypatch.setattr(
         runtime.workflow,
@@ -889,28 +894,39 @@ def test_concern_analysis_cluster_identity_is_corrected_and_audited(
     )
     revision = runtime.case_service.create(_case())
 
+    with pytest.raises(ModelOutputValidationError, match="does not reference its input cluster"):
+        runtime.workflow.advise(revision.case_id)
+
+
+def test_concern_identity_comes_from_the_packet_not_the_provider(
+    runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provider that never states the concern title still produces a titled analysis.
+
+    The title is the packet's, so a provider leaving it blank-but-valid must not be able
+    to change what the report says the concern was.
+    """
+
+    class TerseAnalysisReasoner(DeterministicReasoningProvider):
+        def analyze_concern_cluster(self, context, packet):
+            analysis = super().analyze_concern_cluster(context, packet)
+            assert analysis.concern == packet.cluster.title
+            return analysis
+
+    monkeypatch.setattr(runtime.workflow, "_reasoning", TerseAnalysisReasoner())
+    revision = runtime.case_service.create(_case())
+
     run = runtime.workflow.advise(revision.case_id)
 
     assert run.status == ConsultationStatus.SUCCEEDED
     assert [(analysis.cluster_id, analysis.concern) for analysis in run.concern_analyses] == [
         (cluster.cluster_id, cluster.title) for cluster in run.clusters
     ]
-    assert run.execution_metadata["model_output_repairs"] == [
+    assert not [
         repair
-        for cluster in run.clusters
-        for repair in (
-            {
-                "kind": "corrected_concern_analysis_cluster",
-                "from_cluster_id": "invented-cluster",
-                "to_cluster_id": cluster.cluster_id,
-            },
-            {
-                "kind": "corrected_concern_analysis_title",
-                "cluster_id": cluster.cluster_id,
-                "from_concern": "invented-cluster",
-                "to_concern": cluster.title,
-            },
-        )
+        for repair in run.execution_metadata["model_output_repairs"]
+        if str(repair.get("kind", "")).startswith("corrected_concern_analysis")
     ]
 
 
