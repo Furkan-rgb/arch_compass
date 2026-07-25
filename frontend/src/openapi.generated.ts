@@ -255,7 +255,7 @@ export interface components {
     "finding_ids": Array<string>;
   };
     "ConcernAnalysis": {
-    "cluster_id"?: string;
+    "cluster_id": string;
     "concern": string;
     "findings": Array<components["schemas"]["Claim"]>;
     "implications": Array<string>;
@@ -278,7 +278,7 @@ export interface components {
     "max_query_results": number;
     "max_excerpt_lines": number;
   };
-    "ConsultationFailureStage": "atlas_resolution" | "policy" | "design_forces" | "clustering" | "query_planning" | "query_execution" | "policy_retrieval" | "concern_analysis" | "alternatives" | "scenarios" | "synthesis" | "validation" | "rendering" | "commit" | "legacy_unknown";
+    "ConsultationFailureStage": "atlas_resolution" | "policy" | "design_forces" | "clustering" | "query_planning" | "query_execution" | "policy_retrieval" | "concern_analysis" | "alternatives" | "scenarios" | "synthesis" | "validation" | "rendering" | "commit";
     "ConsultationJob": {
     "schema_version"?: 1;
     "run_id"?: string;
@@ -310,7 +310,7 @@ export interface components {
     "occurred_at"?: string;
   };
     "ConsultationRun": {
-    "schema_version"?: 3;
+    "schema_version": 3;
     "run_id"?: string;
     "status": components["schemas"]["ConsultationStatus"];
     "case_id": string;
@@ -676,7 +676,7 @@ export interface components {
     "ProgressEventType": "queued" | "stage_started" | "artifact_available" | "stage_completed" | "warning" | "completed" | "failed";
     "RecommendationDisposition": "introduce_boundary" | "move_responsibility" | "keep_local" | "delay" | "preserve" | "gather_information";
     "RecommendationReport": {
-    "schema_version"?: 3;
+    "schema_version": 3;
     "report_id"?: string;
     "disposition": components["schemas"]["RecommendationDisposition"];
     "decision_summary": components["schemas"]["SupportedStatement"];
@@ -834,7 +834,6 @@ export interface components {
     "text": string;
     "classification": components["schemas"]["ClaimClassification"];
     "supporting_claim_ids": Array<string>;
-    "legacy"?: boolean;
   };
     "WorkspaceModels": {
     "reasoning": components["schemas"]["ModelIdentity"];
