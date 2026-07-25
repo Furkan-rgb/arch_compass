@@ -1,0 +1,17 @@
+[
+  {
+    "title": "Maintain Distributed Definitions",
+    "summary": "Continue defining `BUILT_IN_VOICES` locally within each relevant module (`provider.py`, `preflight.py`, and `frontend.py`).",
+    "id": "alt_preserve_distributed_constants"
+  },
+  {
+    "title": "Encapsulate Discovery via Interface",
+    "summary": "Shift the responsibility of voice availability to the `VoiceProvider` interface (e.g., through a `get_available_voices()` method), so that consumers query the provider at runtime rather than referencing static local constants.",
+    "id": "alt_encapsulate_discovery"
+  },
+  {
+    "title": "Centralized Constant Module",
+    "summary": "Move the `BUILT_IN_VOICES` constant to a single shared module/package that is imported by all dependent modules, effectively creating one source of truth for the list.",
+    "id": "alt_centralize_shared_constant"
+  }
+]

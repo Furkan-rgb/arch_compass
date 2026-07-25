@@ -1,0 +1,18 @@
+[
+  {
+    "title": "Metadata Fragmentation",
+    "description": "The `BUILT_IN_VOICES` constant is identified in three separate modules (`provider.py`, `preflight.py`, and `frontend.py`). This creates a tension between the current state of distributed knowledge and the desired outcome of single-owner voice discovery, necessitating multi-module coordination for updates.",
+    "importance": "Critical: Directly drives the 'Brownfield provider leakage' problem and increases the risk of desynchronized module states."
+  },
+  {
+    "title": "High-Impact Change Propagation",
+    "description": "The `provider.py` module exhibits a high structural proxy for change amplification (5 modules) and significant fan-in (4). This creates a tension where any modification to the provider's interface or core logic threatens to trigger cascading changes across the system.",
+    "importance": "High: This fragility makes the cost of evolution in the provider module disproportionately expensive relative to its local complexity."
+  },
+  {
+    "title": "Provider Abstraction Requirement",
+    "description": "The identified future change (adding a second provider) creates a tension between the current `QwenProvider` implementation and the need for an interface that prevents implementation-specific details from leaking into higher-level modules like `workflow.py`. The exact degree of required indirection remains an unconfirmed requirement.",
+    "importance": "Medium: This structural pressure dictates whether the current provider-consumer relationship is sufficient or if a formal registry/plugin mechanism must be introduced."
+  }
+
+]

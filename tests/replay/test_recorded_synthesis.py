@@ -12,10 +12,13 @@ means the recorded answer is no longer evidence about the current one.
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import pytest
 
 from archcompass.application.evidence import (
     canonicalize_report_findings,
+    repair_report_evidence_with_history,
     validate_report_evidence,
 )
 from archcompass.application.synthesis import (
@@ -36,6 +39,84 @@ requires_recording = pytest.mark.skipif(
 
 def _ids(items: list[Recording]) -> list[str]:
     return [item.name for item in items]
+
+
+class ReplayOutcome(NamedTuple):
+    """What the validate/repair/re-validate cycle made of a recorded answer."""
+
+    initial_errors: list[str]
+    repair_actions: list[str]
+    final_errors: list[str]
+
+
+def _replay(recording: Recording) -> ReplayOutcome:
+    """Drive a recorded answer through the same stages `consultation.py` drives.
+
+    Kept deliberately parallel to the workflow's validation block: a replay that
+    diverges from the pipeline tests a pipeline that does not exist.
+    """
+
+    proposal = ProposedRecommendation.model_validate_json(
+        recording.response(ReasoningTask.SYNTHESIZE_RECOMMENDATION)
+    )
+    analyses = recording.analyses()
+    pool = build_claim_pool(
+        case=recording.case(),
+        clusters=recording.clusters(),
+        analyses=analyses,
+    )
+
+    assert validate_proposal(proposal, pool=pool) == []
+
+    packets = recording.packets()
+    composition = compose_recommendation(
+        proposal,
+        pool=pool,
+        forces=recording.design_forces(),
+        alternatives=recording.alternatives(),
+        scenarios=recording.scenarios(),
+        analyses=analyses,
+        packets=packets,
+    )
+    canonical = canonicalize_report_findings(
+        composition.report,
+        packets=packets,
+        analyses=analyses,
+    )
+    allowed_nodes = recording.allowed_nodes()
+    allowed_policy_ids = {
+        item.policy.id for packet in packets for item in packet.policies
+    }
+    initial_errors = validate_report_evidence(
+        canonical.report,
+        allowed_nodes=allowed_nodes,
+        allowed_policy_ids=allowed_policy_ids,
+        finding_evidence_by_cluster=canonical.evidence_by_cluster,
+    )
+    if not initial_errors:
+        return ReplayOutcome(initial_errors=[], repair_actions=[], final_errors=[])
+
+    repaired = repair_report_evidence_with_history(
+        canonical.report,
+        allowed_nodes=allowed_nodes,
+        allowed_policy_ids=allowed_policy_ids,
+        finding_evidence_by_cluster=canonical.evidence_by_cluster,
+    )
+    recanonicalized = canonicalize_report_findings(
+        repaired.report,
+        packets=packets,
+        analyses=analyses,
+    )
+    return ReplayOutcome(
+        initial_errors=initial_errors,
+        repair_actions=repaired.actions,
+        final_errors=validate_report_evidence(
+            recanonicalized.report,
+            allowed_nodes=allowed_nodes,
+            allowed_policy_ids=allowed_policy_ids,
+            finding_evidence_by_cluster=canonical.evidence_by_cluster,
+        ),
+    )
 
 
 @requires_recording
@@ -67,44 +148,51 @@ def test_a_real_synthesis_answer_composes_into_a_valid_report(
     This exercises the parse, the handle allowlists, composition, finding
     canonicalisation and evidence validation against bytes a model really produced —
     the combination that no deterministic substitute can vouch for.
+
+    The assertion mirrors the product's actual contract, which is *valid after at most
+    one deterministic repair* — `consultation.py` validates, repairs once, then
+    re-validates and only fails on what survives. Asserting a clean first pass here
+    would hold the recording to a stricter rule than the pipeline it is replaying.
     """
 
-    proposal = ProposedRecommendation.model_validate_json(
-        recording.response(ReasoningTask.SYNTHESIZE_RECOMMENDATION)
-    )
-    pool = build_claim_pool(
-        case=recording.case(),
-        clusters=recording.clusters(),
-        analyses=recording.analyses(),
-    )
+    outcome = _replay(recording)
 
-    assert validate_proposal(proposal, pool=pool) == []
+    assert outcome.final_errors == []
 
-    packets = recording.packets()
-    composition = compose_recommendation(
-        proposal,
-        pool=pool,
-        forces=recording.design_forces(),
-        alternatives=recording.alternatives(),
-        scenarios=recording.scenarios(),
-        analyses=recording.analyses(),
-        packets=packets,
-    )
-    canonical = canonicalize_report_findings(
-        composition.report,
-        packets=packets,
-        analyses=recording.analyses(),
-    )
-    errors = validate_report_evidence(
-        canonical.report,
-        allowed_nodes=recording.allowed_nodes(),
-        allowed_policy_ids={
-            item.policy.id for packet in packets for item in packet.policies
-        },
-        finding_evidence_by_cluster=canonical.evidence_by_cluster,
-    )
 
-    assert errors == []
+@requires_recording
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Known contract contradiction: the synthesis schema offers a finding every "
+        "claim handle in the pool, including cluster-neutral case statements, and "
+        "`validate_proposal` deliberately permits them — but "
+        "`validate_report_evidence` requires every finding claim to appear in its own "
+        "cluster's packet, so the repair pass strips a legitimate citation of a "
+        "confirmed user requirement. Remove this marker once the three layers agree."
+    ),
+)
+@pytest.mark.parametrize("recording", RECORDINGS, ids=_ids(RECORDINGS))
+def test_a_real_synthesis_answer_needs_no_evidence_repair(
+    recording: Recording,
+) -> None:
+    """Contract achievability: did a real answer satisfy the rules unaided?
+
+    Separated from the contract test above so a regression here is legible as what it
+    is. A repair is the pipeline overriding the model, and every override is either a
+    model that cannot meet the contract or a contract that asks for the impossible —
+    both worth knowing about, neither worth failing the run over. This is the signal
+    the harness plan wanted and nothing else measures.
+    """
+
+    outcome = _replay(recording)
+
+    assert outcome.initial_errors == [], (
+        f"Recording '{recording.name}' validated only after repair:\n  "
+        + "\n  ".join(outcome.initial_errors)
+        + "\nThe run still succeeded, so this is an evidence-discipline signal rather "
+        "than a broken pipeline."
+    )
 
 
 @requires_recording

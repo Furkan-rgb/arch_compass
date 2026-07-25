@@ -1,0 +1,29 @@
+[
+  {
+    "cluster_id": "cluster_e0a3c82ef00e422484933da883b3357f",
+    "plan": {
+      "iteration": 1,
+      "rationale": "To address 'Metadata Fragmentation' and 'High-Impact Change Propagation', I need to map the exact structural boundary of the leakage. By investigating the reverse dependency reach of the `provider` module and its key public components (the interface and the discovery function), I can confirm which modules (`preflight`, `frontend`) are consuming implementation-specific details or constants, effectively tracing the 'leakage' path.",
+      "queries": [
+        {
+          "kind": "reverse_neighbourhood",
+          "node_id": "node_a318f9f739ea4d81cd5c8088",
+          "depth": 2,
+          "limit": 10
+        },
+        {
+          "kind": "reverse_neighbourhood",
+          "node_id": "node_122223434af70f40539f4880",
+          "depth": 1,
+          "limit": 5
+        },
+        {
+          "kind": "reverse_neighbourhood",
+          "node_id": "node_c4f86dee4a1b0864fa1c7480",
+          "depth": 1,
+          "limit": 5
+        }
+      ]
+    }
+  }
+]

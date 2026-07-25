@@ -1,0 +1,43 @@
+{
+  "cluster_id": "cluster_e0a3c82ef00e422484933da883b3357f",
+  "concern": "Centralization of Voice Discovery and Provider Interface Stability",
+  "findings": [
+    {
+      "text": "The constant `BUILT_IN_VOICES` is duplicated across multiple modules, including `provider.py`, `preflight.py`, and `frontend.py`.",
+      "classification": "policy_guidance",
+      "policy_ids": [
+        "avoid-duplicated-knowledge"
+      ]
+    },
+    {
+      "text": "The module `provider.py` (node_a318f9_...) has a high degree of change amplification, with 5 modules likely to be affected by changes.",
+      "classification": "repository_observation",
+      "atlas_references": [
+        {
+          "node_id": "node_a318f9f739ea4d81cd5c8088"
+        }
+      ]
+    },
+    {
+      "text": "The `VoiceProvider` interface (node_c4f86...) is at the center of a high-impact dependency neighborhood, where changes to this abstraction can trigger updates in up to 5 modules.",
+      "classification": "repository_observation",
+      "atlas_references": [
+        {
+          "node_id": "node_c4f86dee4a1b0864fa1c7480"
+        }
+      ]
+    },
+    {
+      "text": "Implementation details of the Qwen provider (specifically voice list constants) have leaked into high-level presentation and validation modules, suggesting that the boundary for `VoiceProvider` is not yet sufficiently opaque.",
+      "classification": "advisor_inference"
+    },
+    {
+      "text": "To achieve the goal of stability, moving the discovery logic entirely behind the `VoiceProvider` interface would consolidate change impact within the provider implementation, adhering to the need for localizing changes and avoiding coordinated edits across `preflight.py` and `frontend.py`.",
+      "classification": "advisor_inference"
+    }
+  ],
+  "implications": [
+    "Structural risk: High potential for coordinated change amplification when adding new providers or updating voice sets.",
+    "Maintenance cost: Increased burden on maintainers to synchronize constant definitions across the dependency chain."
+  ]
+}

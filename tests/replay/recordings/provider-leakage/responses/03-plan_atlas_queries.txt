@@ -1,0 +1,30 @@
+[
+  {
+    "cluster_id": "cluster_e0a3c82ef00e422484933da883b3357f",
+    "plan": {
+      "iteration": 1,
+      "rationale": "The investigation targets the three identified design forces: metadata fragmentation (F1), change propagation risks (F2), and provider abstraction requirements (F3). Since no nodes are yet explicitly linked to this cluster's investigation scope, ID-free discovery queries are used to find high-impact modules and trace the leakage of the BUILT_IN_ constants.",
+      "queries": [
+        {
+          "kind": "hotspots",
+          "metric": "change_amplification.likely_affected_modules",
+          "limit": 5
+        },
+        {
+          "kind": "search_nodes",
+          "terms": [
+            "BUILT_IN_VOICES"
+          ],
+          "limit": 10
+        },
+        {
+          "kind": "search_nodes",
+          "terms": [
+            "VoiceProvider"
+          ],
+          "limit": 5
+        }
+      ]
+    }
+  }
+]

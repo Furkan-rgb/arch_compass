@@ -1,0 +1,15 @@
+[
+  {
+    "scenario": "Addition of a second provider",
+    "assumptions": [
+      "The new provider will have its own unique set of available voices.",
+      "The addition of a provider should not require modifications to consumer modules like `preflight.py` or `frontend.py`."
+    ],
+    "alternative_results": {
+      "A1": "Fails to meet stability goals; requires coordinated changes across the new provider module and all existing consumers to prevent inconsistent voice lists, leading to high change amplification.",
+      "A2": "Provides maximum decoupling; by moving discovery to the `VoiceProvider` interface, only the new provider implementation needs modification, leaving consumer modules untouched.",
+      "A3": "Reduces duplication but fails to resolve interface leakage; while it creates a single source of truth, adding a provider still requires updating the central module, which potentially maintains a dependency link between all providers and consumers."
+    },
+    "conclusion": "Alternative A2 is the preferred architecture as it adheres to the principle of localizing change and achieves the desired outcome of opaque provider boundaries."
+  }
+]

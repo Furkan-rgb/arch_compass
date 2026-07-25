@@ -1,0 +1,123 @@
+{
+  "disposition": "preserve",
+  "problem_and_desired_outcome": "The duplication of BUILT_IN_VOICES across multiple modules (E1) and the leakage of Qwen implementation details into high-level presentation and validation modules (E2) must be resolved to ensure that adding a second provider does not require coordinated edits across preflight.py and frontend.py (E3).",
+  "confidence": {
+    "level": "high",
+    "rationale": "The duplication of constants is an objective measurement (E1), and the need for interface-based discovery to localize change impact is supported by structural evidence (E3)."
+  },
+  "findings": [
+    {
+      "cluster_ref": "C1",
+      "title": "Fragmentation of Voice Discovery and Interface Leakage",
+      "summary": "The constant BUILT_IN_VOICES is duplicated across provider.py, preflight.py, and frontend.py (E1).",
+      "importance": "high",
+      "importance_rationale": "Because the current provider interface does not own voice discovery (E4), implementation details for Qwen have leaked into high-level modules (E2).",
+      "confidence": {
+        "level": "high",
+        "rationale": "The presence of duplicated constants and the lack of discovery ownership are confirmed facts (E1, E4)."
+      },
+      "consequence": "Updating or adding providers requires coordinated edits across multiple consumer modules like preflight.py and frontend.py (E3).",
+      "claim_refs": [
+        "E1",
+        "E2",
+        "E3",
+        "E4"
+      ],
+      "recommended_response": "Adopt the interface-based discovery pattern found in alt_encapsulate_discovery to consolidate change impact within the provider implementation (E3)."
+    }
+  ],
+  "decision_summary": {
+    "text": "Shift the responsibility of voice availability to the VoiceProvider interface via a mechanism such as get_available_voices() (alt_encapsulate_discovery).",
+    "classification": "advisor_inference",
+    "claim_refs": [
+      "E3"
+    ]
+  },
+  "recommended_architecture": {
+    "text": "Encapsulate discovery via the VoiceProvider interface (alt_encapulsate_discovery) to prevent implementation leakage (E2).",
+    "classification": "advisor_inference",
+    "claim_refs": [
+      "E3"
+    ]
+  },
+  "responsibility_allocation": [
+    {
+      "text": "The VoiceProvider interface is responsible for managing and exposing the available voice set (alt_encapsulate_discovery) to avoid leaking provider-specific details into consumers (E2).",
+      "classification": "advisor_inference",
+      "claim_refs": [
+        "E2",
+        "E3"
+      ]
+    }
+  ],
+  "change_amplification_analysis": {
+    "text": "By moving discovery behind the interface, change impact for new providers is localized to the provider implementation itself (E3).",
+    "classification": "advisor_inference",
+    "claim_refs": [
+      "E3"
+    ]
+  },
+  "trade_offs": [
+    {
+      "text": "While this approach avoids coordinated changes in preflight.py and frontend.py (E3), it requires consumers to query the provider at runtime rather than referencing static constants (alt_encapsulate_discovery).",
+      "classification": "advisor_inference",
+      "claim_refs": [
+        "E3"
+      ]
+    }
+  ],
+  "implementation_sequence": [
+    {
+      "text": "Update the VoiceProvider interface to include a discovery method (alt_encapsulate_discovery) and migrate existing BUILT_IN_VOICES logic from preflight.py and frontend.py into the provider implementation (E3).",
+      "classification": "advisor_inference",
+      "claim_refs": [
+        "E3"
+      ]
+    }
+  ],
+  "reversal_conditions": [
+    {
+      "text": "If multiple providers are not expected and the overhead of runtime discovery exceeds the cost of coordinated updates, the distributed constant approach (alt_preserve_distributed_constants) may be revisited.",
+      "classification": "advisor_inference",
+      "claim_refs": [
+        "E1"
+      ]
+    }
+  ],
+  "revisit_triggers": [
+    {
+      "text": "The architecture should be reviewed upon the addition of a second provider to ensure the interface remains opaque (alt_encapsulate_discovery).",
+      "classification": "advisor_inference",
+      "claim_refs": [
+        "E3"
+      ]
+    }
+  ],
+  "adr": {
+    "title": "Encapsulating Voice Discovery via the VoiceProvider Interface",
+    "context": "The constant BUILT_IN_VOICES is currently duplicated across provider.py, preflight.py, and frontend.py (E1). The existing provider interface lacks ownership over voice discovery (E4), which has caused Qwen implementation details to leak into high-level modules (E2).",
+    "decision": {
+      "text": "Adopt the 'Encapsulate Discovery via Interface' pattern (alt_encapsulate_discovery) by adding a discovery method to the VoiceProvider interface.",
+      "classification": "advisor_inference",
+      "claim_refs": [
+        "E3"
+      ]
+    },
+    "consequences": [
+      {
+        "text": "This decision consolidates change impact within provider implementations and avoids coordinated edits across consumer modules (E3).",
+        "classification": "advisor_inference",
+        "claim_refs": [
+          "E3"
+        ]
+      },
+      {
+        "text": "Consumers will now rely on runtime queries to the VoiceProvider instead of static module-level constants (alt_encapsulate_discovery).",
+        "classification": "advisor_inference",
+        "claim_refs": [
+          "E3"
+        ]
+      }
+    ]
+  }
+}

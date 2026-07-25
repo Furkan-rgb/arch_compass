@@ -1,0 +1,67 @@
+{
+  "format_version": 1,
+  "case_name": "provider-leakage",
+  "run_id": "run_c12288bea90148ef94c511695dfef404",
+  "case_id": "case_4747e6475ef24594b6ccdefdb8a7ab9a",
+  "case_revision": 1,
+  "atlas_version_id": "atlas_71ed4fbe692c4c2f911f4a87a7463987",
+  "policy_index_version_id": "pidx_208c4d8ff36d4466ab651b5e9a3c964b",
+  "reasoning_model": "ollama:gemma4:26b",
+  "config_hash": "cfg_cc119cbdf7759c6743d88578",
+  "calls": [
+    {
+      "ordinal": 1,
+      "task": "discover_design_forces",
+      "prompt_identity": "discover-design-forces:v5:c62571fc0a9a",
+      "response_file": "01-discover_design_forces.txt"
+    },
+    {
+      "ordinal": 2,
+      "task": "cluster_design_forces",
+      "prompt_identity": "cluster-design-forces:v3:d72c9e5cc623",
+      "response_file": "02-cluster_design_forces.txt"
+    },
+    {
+      "ordinal": 3,
+      "task": "plan_atlas_queries",
+      "prompt_identity": "plan-cluster-atlas-queries:v5:dd39dcb7fd68",
+      "response_file": "03-plan_atlas_queries.txt"
+    },
+    {
+      "ordinal": 4,
+      "task": "plan_atlas_queries",
+      "prompt_identity": "plan-cluster-atlas-queries:v5:dd39dcb7fd68",
+      "response_file": "04-plan_atlas_queries.txt"
+    },
+    {
+      "ordinal": 5,
+      "task": "plan_atlas_queries",
+      "prompt_identity": "plan-cluster-atlas-queries:v5:dd39dcb7fd68",
+      "response_file": "05-plan_atlas_queries.txt"
+    },
+    {
+      "ordinal": 6,
+      "task": "analyze_concern_cluster",
+      "prompt_identity": "analyze-concern:v4:974bafa66cea",
+      "response_file": "06-analyze_concern_cluster.txt"
+    },
+    {
+      "ordinal": 7,
+      "task": "generate_alternatives",
+      "prompt_identity": "generate-alternatives:v3:2b74e209a1ba",
+      "response_file": "07-generate_alternatives.txt"
+    },
+    {
+      "ordinal": 8,
+      "task": "evaluate_scenarios",
+      "prompt_identity": "evaluate-scenarios:v4:b54ca561a125",
+      "response_file": "08-evaluate_scenarios.txt"
+    },
+    {
+      "ordinal": 9,
+      "task": "synthesize_recommendation",
+      "prompt_identity": "synthesize-recommendation:v4:052c7ebeeb5c",
+      "response_file": "09-synthesize_recommendation.txt"
+    }
+  ]
+}

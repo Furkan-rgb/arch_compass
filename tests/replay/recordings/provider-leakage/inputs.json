@@ -1,0 +1,3224 @@
+{
+  "case": {
+    "schema_version": 2,
+    "case_id": "case_4747e6475ef24594b6ccdefdb8a7ab9a",
+    "title": "Brownfield provider leakage",
+    "problem_statement": "Qwen built-in voice knowledge appears in frontend, preflight, workflow, and root composition.",
+    "desired_outcome": "Put voice discovery under one clear owner and reduce coordinated provider changes.",
+    "actors_and_workflows": [],
+    "functional_requirements": [],
+    "quality_attributes": [],
+    "technical_constraints": [],
+    "organisational_constraints": [],
+    "expected_future_changes": [
+      "A second provider may be added."
+    ],
+    "non_goals": [],
+    "confirmed_facts": [
+      {
+        "id": "stmt_8573ef3e95174111b27243659e0174c4",
+        "text": "A provider interface exists but does not own voice discovery.",
+        "kind": "fact",
+        "source": null
+      }
+    ],
+    "derived_constraints": [],
+    "assumptions": [],
+    "unresolved_questions": [],
+    "design_forces": [],
+    "advisor_design_forces": [],
+    "repository": null,
+    "policy_applicability": {
+      "user": null,
+      "organisation": null,
+      "repository": null
+    },
+    "referenced_policy_ids": [],
+    "candidate_alternatives": [],
+    "current_recommendation": null,
+    "confidence": null,
+    "reversal_conditions": [],
+    "revisit_triggers": [],
+    "created_at": "2026-07-25T19:25:48.166996Z",
+    "updated_at": "2026-07-25T19:25:48.166998Z",
+    "revision": 1
+  },
+  "clusters": [
+    {
+      "cluster_id": "cluster_e0a3c82ef00e422484933da883b3357f",
+      "title": "Centralization of Voice Discovery and Provider Interface Stability",
+      "rationale": "These forces represent a single architectural investigation into redefining the provider boundary: F1 identifies the immediate risk of metadata leakage, F3 establishes the functional requirement for an abstract interface to support future expansion, and F2 highlights the structural risks (change amplification) that must be managed when implementing this consolidation.",
+      "design_force_ids": [
+        "force_dab0a4b3b9f84d9d86a8d1e746ff9077",
+        "force_ed3db68b1a25447eb7a1c7f4f1ee10f5",
+        "force_63449dadbdad4ef3b6be40c21cf36585"
+      ]
+    }
+  ],
+  "concern_analyses": [
+    {
+      "cluster_id": "cluster_e0a3c82ef00e422484933da883b3357f",
+      "concern": "Centralization of Voice Discovery and Provider Interface Stability",
+      "findings": [
+        {
+          "claim_id": "claim_2696971ee11a4c53b120642f84021f52",
+          "text": "The constant `BUILT_IN_VOICES` is duplicated across multiple modules, including `provider.py`, `preflight.py`, and `frontend.py`.",
+          "classification": "policy_guidance",
+          "atlas_references": [],
+          "policy_ids": [
+            "avoid-duplicated-knowledge"
+          ]
+        },
+        {
+          "claim_id": "claim_2b217a59536c4070bc042091233768c9",
+          "text": "Implementation details of the Qwen provider (specifically voice list constants) have leaked into high-level presentation and validation modules, suggesting that the boundary for `VoiceProvider` is not yet sufficiently opaque.",
+          "classification": "advisor_inference",
+          "atlas_references": [],
+          "policy_ids": []
+        },
+        {
+          "claim_id": "claim_df52611fc7444e839e951b4658541543",
+          "text": "To achieve the goal of stability, moving the discovery logic entirely behind the `VoiceProvider` interface would consolidate change impact within the provider implementation, adhering to the need for localizing changes and avoiding coordinated edits across `preflight.py` and `frontend.py`.",
+          "classification": "advisor_inference",
+          "atlas_references": [],
+          "policy_ids": []
+        }
+      ],
+      "implications": [
+        "Structural risk: High potential for coordinated change amplification when adding new providers or updating voice sets.",
+        "Maintenance cost: Increased burden on maintainers to synchronize constant definitions across the dependency chain."
+      ],
+      "policy_conflicts": []
+    }
+  ],
+  "design_forces": [
+    {
+      "force_id": "force_dab0a4b3b9f84d9d86a8d1e746ff9077",
+      "title": "Metadata Fragmentation",
+      "description": "The `BUILT_IN_VOICES` constant is identified in three separate modules (`provider.py`, `preflight.py`, and `frontend.py`). This creates a tension between the current state of distributed knowledge and the desired outcome of single-owner voice discovery, necessitating multi-module coordination for updates.",
+      "importance": "Critical: Directly drives the 'Brownfield provider leakage' problem and increases the risk of desynchronized module states."
+    },
+    {
+      "force_id": "force_ed3db68b1a25447eb7a1c7f4f1ee10f5",
+      "title": "High-Impact Change Propagation",
+      "description": "The `provider.py` module exhibits a high structural proxy for change amplification (5 modules) and significant fan-in (4). This creates a tension where any modification to the provider's interface or core logic threatens to trigger cascading changes across the system.",
+      "importance": "High: This fragility makes the cost of evolution in the provider module disproportionately expensive relative to its local complexity."
+    },
+    {
+      "force_id": "force_63449dadbdad4ef3b6be40c21cf36585",
+      "title": "Provider Abstraction Requirement",
+      "description": "The identified future change (adding a second provider) creates a tension between the current `QwenProvider` implementation and the need for an interface that prevents implementation-specific details from leaking into higher-level modules like `workflow.py`. The exact degree of required indirection remains an unconfirmed requirement.",
+      "importance": "Medium: This structural pressure dictates whether the current provider-consumer relationship is sufficient or if a formal registry/plugin mechanism must be introduced."
+    }
+  ],
+  "alternatives": [
+    {
+      "id": "alt_preserve_distributed_constants",
+      "title": "Maintain Distributed Definitions",
+      "summary": "Continue defining `BUILT_IN_VOICES` locally within each relevant module (`provider.py`, `preflight.py`, and `frontend.py`)."
+    },
+    {
+      "id": "alt_encapsulate_discovery",
+      "title": "Encapsulate Discovery via Interface",
+      "summary": "Shift the responsibility of voice availability to the `VoiceProvider` interface (e.g., through a `get_available_voices()` method), so that consumers query the provider at runtime rather than referencing static local constants."
+    },
+    {
+      "id": "alt_centralize_shared_constant",
+      "title": "Centralized Constant Module",
+      "summary": "Move the `BUILT_IN_VOICES` constant to a single shared module/package that is imported by all dependent modules, effectively creating one source of truth for the list."
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario": "Addition of a second provider",
+      "assumptions": [
+        "The new provider will have its own unique set of available voices.",
+        "The addition of a provider should not require modifications to consumer modules like `preflight.py` or `frontend.py`."
+      ],
+      "alternative_results": {
+        "alt_preserve_distributed_constants": "Fails to meet stability goals; requires coordinated changes across the new provider module and all existing consumers to prevent inconsistent voice lists, leading to high change amplification.",
+        "alt_encapsulate_discovery": "Provides maximum decoupling; by moving discovery to the `VoiceProvider` interface, only the new provider implementation needs modification, leaving consumer modules untouched.",
+        "alt_centralize_shared_constant": "Reduces duplication but fails to resolve interface leakage; while it creates a single source of truth, adding a provider still requires updating the central module, which potentially maintains a dependency link between all providers and consumers."
+      },
+      "conclusion": "Alternative A2 is the preferred architecture as it adheres to the principle of localizing change and achieves the desired outcome of opaque provider boundaries."
+    }
+  ],
+  "focused_packets": [
+    {
+      "cluster": {
+        "cluster_id": "cluster_e0a3c82ef00e422484933da883b3357f",
+        "title": "Centralization of Voice Discovery and Provider Interface Stability",
+        "rationale": "These forces represent a single architectural investigation into redefining the provider boundary: F1 identifies the immediate risk of metadata leakage, F3 establishes the functional requirement for an abstract interface to support future expansion, and F2 highlights the structural risks (change amplification) that must be managed when implementing this consolidation.",
+        "design_force_ids": [
+          "force_dab0a4b3b9f84d9d86a8d1e746ff9077",
+          "force_ed3db68b1a25447eb7a1c7f4f1ee10f5",
+          "force_63449dadbdad4ef3b6be40c21cf36585"
+        ]
+      },
+      "node_summaries": [
+        {
+          "node_id": "node_122223434af70f40539f4880",
+          "path": "provider.py",
+          "qualified_name": "provider.qwen_voices",
+          "node_type": "function",
+          "location": {
+            "path": "provider.py",
+            "start_line": 15,
+            "end_line": 16
+          },
+          "summary": "Ranked by change_amplification.likely_affected_modules",
+          "selection_reasons": [
+            {
+              "kind": "metric_rank",
+              "explanation": "rank 1 by change_amplification.likely_affected_modules=5; Modules reachable in the reverse resolved import-and-call impact graph.",
+              "metric": "change_amplification.likely_affected_modules",
+              "related_node_id": null
+            }
+          ]
+        },
+        {
+          "node_id": "node_a318f9f739ea4d81cd5c8088",
+          "path": "provider.py",
+          "qualified_name": "provider",
+          "node_type": "module",
+          "location": {
+            "path": "provider.py",
+            "start_line": 1,
+            "end_line": 17
+          },
+          "summary": "Ranked by change_amplification.likely_affected_modules",
+          "selection_reasons": [
+            {
+              "kind": "metric_rank",
+              "explanation": "rank 2 by change_amplification.likely_affected_modules=5; Modules reachable in the reverse resolved import-and-call impact graph.",
+              "metric": "change_amplification.likely_affected_modules",
+              "related_node_id": null
+            }
+          ]
+        },
+        {
+          "node_id": "node_a9da0c22cb0b396d778717c2",
+          "path": "provider.py",
+          "qualified_name": "provider.QwenProvider.synthesize",
+          "node_type": "method",
+          "location": {
+            "path": "provider.py",
+            "start_line": 11,
+            "end_line": 12
+          },
+          "summary": "Ranked by change_amplification.likely_affected_modules",
+          "selection_reasons": [
+            {
+              "kind": "metric_rank",
+              "explanation": "rank 3 by change_amplification.likely_affected_modules=5; Modules reachable in the reverse resolved import-and-call impact graph.",
+              "metric": "change_amplification.likely_affected_modules",
+              "related_node_id": null
+            }
+          ]
+        },
+        {
+          "node_id": "node_abc6e9d034c3b5bbe9eff3b9",
+          "path": "provider.py",
+          "qualified_name": "provider.QwenProvider",
+          "node_type": "class",
+          "location": {
+            "path": "provider.py",
+            "start_line": 10,
+            "end_line": 12
+          },
+          "summary": "Ranked by change_amplification.likely_affected_modules",
+          "selection_reasons": [
+            {
+              "kind": "metric_rank",
+              "explanation": "rank 4 by change_amplification.likely_affected_modules=5; Modules reachable in the reverse resolved import-and-call impact graph.",
+              "metric": "change_amplification.likely_affected_modules",
+              "related_node_id": null
+            }
+          ]
+        },
+        {
+          "node_id": "node_c4f86dee4a1b0864fa1c7480",
+          "path": "provider.py",
+          "qualified_name": "provider.VoiceProvider",
+          "node_type": "interface",
+          "location": {
+            "path": "provider.py",
+            "start_line": 6,
+            "end_line": 7
+          },
+          "summary": "Ranked by change_amplification.likely_affected_modules",
+          "selection_reasons": [
+            {
+              "kind": "metric_rank",
+              "explanation": "rank 5 by change_amplification.likely_affected_modules=5; Modules reachable in the reverse resolved import-and-call impact graph.",
+              "metric": "change_amplification.likely_affected_modules",
+              "related_node_id": null
+            },
+            {
+              "kind": "name_match",
+              "explanation": "2 name/path matches before limiting",
+              "metric": null,
+              "related_node_id": null
+            }
+          ]
+        },
+        {
+          "node_id": "node_c648c13bb45cb9826400c939",
+          "path": "provider.py",
+          "qualified_name": "provider.VoiceProvider.synthesize",
+          "node_type": "method",
+          "location": {
+            "path": "provider.py",
+            "start_line": 7,
+            "end_line": 7
+          },
+          "summary": "2 name/path matches before limiting",
+          "selection_reasons": [
+            {
+              "kind": "name_match",
+              "explanation": "2 name/path matches before limiting",
+              "metric": null,
+              "related_node_id": null
+            }
+          ]
+        },
+        {
+          "node_id": "node_536006b74f276f558fddf482",
+          "path": "frontend.py",
+          "qualified_name": "frontend",
+          "node_type": "module",
+          "location": {
+            "path": "frontend.py",
+            "start_line": 1,
+            "end_line": 8
+          },
+          "summary": "5 nodes within dependency depth 2",
+          "selection_reasons": [
+            {
+              "kind": "neighbourhood",
+              "explanation": "5 nodes within dependency depth 2",
+              "metric": null,
+              "related_node_id": "node_a318f9f739ea4d81cd5c8088"
+            }
+          ]
+        },
+        {
+          "node_id": "node_92a4630788576ec9b367ceeb",
+          "path": "preflight.py",
+          "qualified_name": "preflight",
+          "node_type": "module",
+          "location": {
+            "path": "preflight.py",
+            "start_line": 1,
+            "end_line": 9
+          },
+          "summary": "5 nodes within dependency depth 2",
+          "selection_reasons": [
+            {
+              "kind": "neighbourhood",
+              "explanation": "5 nodes within dependency depth 2",
+              "metric": null,
+              "related_node_id": "node_a318f9f739ea4d81cd5c8088"
+            }
+          ]
+        },
+        {
+          "node_id": "node_a8f64d20354d15f900248ce2",
+          "path": "workflow.py",
+          "qualified_name": "workflow",
+          "node_type": "module",
+          "location": {
+            "path": "workflow.py",
+            "start_line": 1,
+            "end_line": 8
+          },
+          "summary": "5 nodes within dependency depth 2",
+          "selection_reasons": [
+            {
+              "kind": "neighbourhood",
+              "explanation": "5 nodes within dependency depth 2",
+              "metric": null,
+              "related_node_id": "node_a318f9f739ea4d81cd5c8088"
+            }
+          ]
+        },
+        {
+          "node_id": "node_dccc5987c751ac992d36cfe8",
+          "path": "main.py",
+          "qualified_name": "main",
+          "node_type": "module",
+          "location": {
+            "path": "main.py",
+            "start_line": 1,
+            "end_line": 8
+          },
+          "summary": "5 nodes within dependency depth 2",
+          "selection_reasons": [
+            {
+              "kind": "neighbourhood",
+              "explanation": "5 nodes within dependency depth 2",
+              "metric": null,
+              "related_node_id": "node_a318f9f739ea4d81cd5c8088"
+            }
+          ]
+        },
+        {
+          "node_id": "node_910d8395daf0073452d83839",
+          "path": "tests/test_workflow.py",
+          "qualified_name": "tests.test_workflow",
+          "node_type": "test_module",
+          "location": {
+            "path": "tests/test_workflow.py",
+            "start_line": 1,
+            "end_line": 6
+          },
+          "summary": "5 nodes within dependency depth 2",
+          "selection_reasons": [
+            {
+              "kind": "neighbourhood",
+              "explanation": "5 nodes within dependency depth 2",
+              "metric": null,
+              "related_node_id": "node_a318f9f739ea4d81cd5c8088"
+            }
+          ]
+        },
+        {
+          "node_id": "node_365b5f249782edab004f7900",
+          "path": "main.py",
+          "qualified_name": "main.run",
+          "node_type": "function",
+          "location": {
+            "path": "main.py",
+            "start_line": 5,
+            "end_line": 7
+          },
+          "summary": "1 nodes within dependency depth 1",
+          "selection_reasons": [
+            {
+              "kind": "neighbourhood",
+              "explanation": "1 nodes within dependency depth 1",
+              "metric": null,
+              "related_node_id": "node_122223434af70f40539f4880"
+            }
+          ]
+        }
+      ],
+      "node_evidence": [
+        {
+          "node": {
+            "node_id": "node_122223434af70f40539f4880",
+            "qualified_name": "provider.qwen_voices",
+            "node_type": "function",
+            "path": "provider.py",
+            "location": {
+              "path": "provider.py",
+              "start_line": 15,
+              "end_line": 16
+            },
+            "is_public": true
+          },
+          "reasons": [
+            {
+              "kind": "metric_rank",
+              "explanation": "rank 1 by change_amplification.likely_affected_modules=5; Modules reachable in the reverse resolved import-and-call impact graph.",
+              "metric": "change_amplification.likely_affected_modules",
+              "related_node_id": null
+            }
+          ],
+          "metrics": [
+            {
+              "node_id": "node_122223434af70f40539f4880",
+              "metric": "dependency.reverse_dependency_reach",
+              "value": 5,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Distinct modules that transitively depend on the owning module.",
+              "limitations": "This is static reachability and may omit dynamic dependencies."
+            },
+            {
+              "node_id": "node_122223434af70f40539f4880",
+              "metric": "dependency.fan_in",
+              "value": 4,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules that statically depend on the owning module.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_122223434af70f40539f4880",
+              "metric": "dependency.fan_out",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules on which the owning module statically depends.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_122223434af70f40539f4880",
+              "metric": "change_amplification.likely_affected_modules",
+              "value": 5,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Modules reachable in the reverse resolved import-and-call impact graph.",
+              "limitations": "A reachability proxy does not prove that every module must change."
+            },
+            {
+              "node_id": "node_122223434af70f40539f4880",
+              "metric": "change_amplification.public_call_targets_in_affected_modules",
+              "value": 5,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Distinct public call targets whose endpoint owners are in the affected module set.",
+              "limitations": "This does not prove that an architectural interface or boundary is crossed."
+            },
+            {
+              "node_id": "node_122223434af70f40539f4880",
+              "metric": "local.branch_count",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "lexical_node",
+              "definition": "Lexical control-flow branch constructs owned by this node.",
+              "limitations": "Static syntax count; it is not a measure of runtime path frequency."
+            },
+            {
+              "node_id": "node_122223434af70f40539f4880",
+              "metric": "dependency.cycle_size",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Modules in the owning module's resolved import strongly connected component.",
+              "limitations": ""
+            },
+            {
+              "node_id": "node_122223434af70f40539f4880",
+              "metric": "cognitive_scope.bounded_resolved_call_chain_nodes",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "bounded_resolved_call_chain",
+              "definition": "Nodes on one deterministic resolved call chain, including the selected node.",
+              "limitations": "The chain is capped at twenty and is not claimed to be a critical runtime path."
+            }
+          ],
+          "signals": [
+            {
+              "code": "public-function-without-docstring",
+              "message": "Public callable provider.qwen_voices has no docstring",
+              "node_id": "node_122223434af70f40539f4880",
+              "location": {
+                "path": "provider.py",
+                "start_line": 15,
+                "end_line": 15
+              },
+              "nature": "objective_measurement",
+              "definition": "",
+              "limitations": ""
+            }
+          ]
+        },
+        {
+          "node": {
+            "node_id": "node_a318f9f739ea4d81cd5c8088",
+            "qualified_name": "provider",
+            "node_type": "module",
+            "path": "provider.py",
+            "location": {
+              "path": "provider.py",
+              "start_line": 1,
+              "end_line": 17
+            },
+            "is_public": true
+          },
+          "reasons": [
+            {
+              "kind": "metric_rank",
+              "explanation": "rank 2 by change_amplification.likely_affected_modules=5; Modules reachable in the reverse resolved import-and-call impact graph.",
+              "metric": "change_amplification.likely_affected_modules",
+              "related_node_id": null
+            }
+          ],
+          "metrics": [
+            {
+              "node_id": "node_a318f9f739ea4d81cd5c8088",
+              "metric": "dependency.reverse_dependency_reach",
+              "value": 5,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Distinct modules that transitively depend on the owning module.",
+              "limitations": "This is static reachability and may omit dynamic dependencies."
+            },
+            {
+              "node_id": "node_a318f9f739ea4d81cd5c8088",
+              "metric": "dependency.fan_in",
+              "value": 4,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules that statically depend on the owning module.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_a318f9f739ea4d81cd5c8088",
+              "metric": "dependency.fan_out",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules on which the owning module statically depends.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_a318f9f739ea4d81cd5c8088",
+              "metric": "change_amplification.likely_affected_modules",
+              "value": 5,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Modules reachable in the reverse resolved import-and-call impact graph.",
+              "limitations": "A reachability proxy does not prove that every module must change."
+            },
+            {
+              "node_id": "node_a318f9f739ea4d81cd5c8088",
+              "metric": "change_amplification.public_call_targets_in_affected_modules",
+              "value": 5,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Distinct public call targets whose endpoint owners are in the affected module set.",
+              "limitations": "This does not prove that an architectural interface or boundary is crossed."
+            },
+            {
+              "node_id": "node_a318f9f739ea4d81cd5c8088",
+              "metric": "local.branch_count",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "lexical_node",
+              "definition": "Lexical control-flow branch constructs owned by this node.",
+              "limitations": "Static syntax count; it is not a measure of runtime path frequency."
+            },
+            {
+              "node_id": "node_a318f9f739ea4d81cd5c8088",
+              "metric": "dependency.cycle_size",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Modules in the owning module's resolved import strongly connected component.",
+              "limitations": ""
+            },
+            {
+              "node_id": "node_a318f9f739ea4d81cd5c8088",
+              "metric": "cognitive_scope.bounded_resolved_call_chain_nodes",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "bounded_resolved_call_chain",
+              "definition": "Nodes on one deterministic resolved call chain, including the selected node.",
+              "limitations": "The chain is capped at twenty and is not claimed to be a critical runtime path."
+            }
+          ],
+          "signals": [
+            {
+              "code": "module-mutable-state",
+              "message": "Module-level mutable value",
+              "node_id": "node_a318f9f739ea4d81cd5c8088",
+              "location": {
+                "path": "provider.py",
+                "start_line": 3,
+                "end_line": 3
+              },
+              "nature": "objective_measurement",
+              "definition": "",
+              "limitations": ""
+            },
+            {
+              "code": "similarly-named-constant",
+              "message": "Constant BUILT_IN_VOICES is defined in 3 modules",
+              "node_id": "node_a318f9f739ea4d81cd5c8088",
+              "location": {
+                "path": "provider.py",
+                "start_line": 3,
+                "end_line": 3
+              },
+              "nature": "objective_measurement",
+              "definition": "",
+              "limitations": ""
+            }
+          ]
+        },
+        {
+          "node": {
+            "node_id": "node_a9da0c22cb0b396d778717c2",
+            "qualified_name": "provider.QwenProvider.synthesize",
+            "node_type": "method",
+            "path": "provider.py",
+            "location": {
+              "path": "provider.py",
+              "start_line": 11,
+              "end_line": 12
+            },
+            "is_public": true
+          },
+          "reasons": [
+            {
+              "kind": "metric_rank",
+              "explanation": "rank 3 by change_amplification.likely_affected_modules=5; Modules reachable in the reverse resolved import-and-call impact graph.",
+              "metric": "change_amplification.likely_affected_modules",
+              "related_node_id": null
+            }
+          ],
+          "metrics": [
+            {
+              "node_id": "node_a9da0c22cb0b396d778717c2",
+              "metric": "dependency.reverse_dependency_reach",
+              "value": 5,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Distinct modules that transitively depend on the owning module.",
+              "limitations": "This is static reachability and may omit dynamic dependencies."
+            },
+            {
+              "node_id": "node_a9da0c22cb0b396d778717c2",
+              "metric": "dependency.fan_in",
+              "value": 4,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules that statically depend on the owning module.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_a9da0c22cb0b396d778717c2",
+              "metric": "dependency.fan_out",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules on which the owning module statically depends.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_a9da0c22cb0b396d778717c2",
+              "metric": "change_amplification.likely_affected_modules",
+              "value": 5,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Modules reachable in the reverse resolved import-and-call impact graph.",
+              "limitations": "A reachability proxy does not prove that every module must change."
+            },
+            {
+              "node_id": "node_a9da0c22cb0b396d778717c2",
+              "metric": "change_amplification.public_call_targets_in_affected_modules",
+              "value": 5,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Distinct public call targets whose endpoint owners are in the affected module set.",
+              "limitations": "This does not prove that an architectural interface or boundary is crossed."
+            },
+            {
+              "node_id": "node_a9da0c22cb0b396d778717c2",
+              "metric": "local.branch_count",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "lexical_node",
+              "definition": "Lexical control-flow branch constructs owned by this node.",
+              "limitations": "Static syntax count; it is not a measure of runtime path frequency."
+            },
+            {
+              "node_id": "node_a9da0c22cb0b396d778717c2",
+              "metric": "dependency.cycle_size",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Modules in the owning module's resolved import strongly connected component.",
+              "limitations": ""
+            },
+            {
+              "node_id": "node_a9da0c22cb0b396d778717c2",
+              "metric": "cognitive_scope.bounded_resolved_call_chain_nodes",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "bounded_resolved_call_chain",
+              "definition": "Nodes on one deterministic resolved call chain, including the selected node.",
+              "limitations": "The chain is capped at twenty and is not claimed to be a critical runtime path."
+            }
+          ],
+          "signals": [
+            {
+              "code": "public-function-without-docstring",
+              "message": "Public callable provider.QwenProvider.synthesize has no docstring",
+              "node_id": "node_a9da0c22cb0b396d778717c2",
+              "location": {
+                "path": "provider.py",
+                "start_line": 11,
+                "end_line": 11
+              },
+              "nature": "objective_measurement",
+              "definition": "",
+              "limitations": ""
+            },
+            {
+              "code": "unresolved-call",
+              "message": "Static call target could not be resolved: encode",
+              "node_id": "node_a9da0c22cb0b396d778717c2",
+              "location": {
+                "path": "provider.py",
+                "start_line": 12,
+                "end_line": 12
+              },
+              "nature": "objective_measurement",
+              "definition": "",
+              "limitations": ""
+            }
+          ]
+        },
+        {
+          "node": {
+            "node_id": "node_abc6e9d034c3b5bbe9eff3b9",
+            "qualified_name": "provider.QwenProvider",
+            "node_type": "class",
+            "path": "provider.py",
+            "location": {
+              "path": "provider.py",
+              "start_line": 10,
+              "end_line": 12
+            },
+            "is_public": true
+          },
+          "reasons": [
+            {
+              "kind": "metric_rank",
+              "explanation": "rank 4 by change_amplification.likely_affected_modules=5; Modules reachable in the reverse resolved import-and-call impact graph.",
+              "metric": "change_amplification.likely_affected_modules",
+              "related_node_id": null
+            }
+          ],
+          "metrics": [
+            {
+              "node_id": "node_abc6e9d034c3b5bbe9eff3b9",
+              "metric": "dependency.reverse_dependency_reach",
+              "value": 5,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Distinct modules that transitively depend on the owning module.",
+              "limitations": "This is static reachability and may omit dynamic dependencies."
+            },
+            {
+              "node_id": "node_abc6e9d034c3b5bbe9eff3b9",
+              "metric": "dependency.fan_in",
+              "value": 4,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules that statically depend on the owning module.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_abc6e9d034c3b5bbe9eff3b9",
+              "metric": "dependency.fan_out",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules on which the owning module statically depends.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_abc6e9d034c3b5bbe9eff3b9",
+              "metric": "change_amplification.likely_affected_modules",
+              "value": 5,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Modules reachable in the reverse resolved import-and-call impact graph.",
+              "limitations": "A reachability proxy does not prove that every module must change."
+            },
+            {
+              "node_id": "node_abc6e9d034c3b5bbe9eff3b9",
+              "metric": "change_amplification.public_call_targets_in_affected_modules",
+              "value": 5,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Distinct public call targets whose endpoint owners are in the affected module set.",
+              "limitations": "This does not prove that an architectural interface or boundary is crossed."
+            },
+            {
+              "node_id": "node_abc6e9d034c3b5bbe9eff3b9",
+              "metric": "local.branch_count",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "lexical_node",
+              "definition": "Lexical control-flow branch constructs owned by this node.",
+              "limitations": "Static syntax count; it is not a measure of runtime path frequency."
+            },
+            {
+              "node_id": "node_abc6e9d034c3b5bbe9eff3b9",
+              "metric": "dependency.cycle_size",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Modules in the owning module's resolved import strongly connected component.",
+              "limitations": ""
+            },
+            {
+              "node_id": "node_abc6e9d034c3b5bbe9eff3b9",
+              "metric": "cognitive_scope.bounded_resolved_call_chain_nodes",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "bounded_resolved_call_chain",
+              "definition": "Nodes on one deterministic resolved call chain, including the selected node.",
+              "limitations": "The chain is capped at twenty and is not claimed to be a critical runtime path."
+            }
+          ],
+          "signals": []
+        },
+        {
+          "node": {
+            "node_id": "node_c4f86dee4a1b0864fa1c7480",
+            "qualified_name": "provider.VoiceProvider",
+            "node_type": "interface",
+            "path": "provider.py",
+            "location": {
+              "path": "provider.py",
+              "start_line": 6,
+              "end_line": 7
+            },
+            "is_public": true
+          },
+          "reasons": [
+            {
+              "kind": "metric_rank",
+              "explanation": "rank 5 by change_amplification.likely_affected_modules=5; Modules reachable in the reverse resolved import-and-call impact graph.",
+              "metric": "change_amplification.likely_affected_modules",
+              "related_node_id": null
+            },
+            {
+              "kind": "name_match",
+              "explanation": "2 name/path matches before limiting",
+              "metric": null,
+              "related_node_id": null
+            }
+          ],
+          "metrics": [
+            {
+              "node_id": "node_c4f86dee4a1b0864fa1c7480",
+              "metric": "dependency.reverse_dependency_reach",
+              "value": 5,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Distinct modules that transitively depend on the owning module.",
+              "limitations": "This is static reachability and may omit dynamic dependencies."
+            },
+            {
+              "node_id": "node_c4f86dee4a1b0864fa1c7480",
+              "metric": "dependency.fan_in",
+              "value": 4,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules that statically depend on the owning module.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_c4f86dee4a1b0864fa1c7480",
+              "metric": "dependency.fan_out",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules on which the owning module statically depends.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_c4f86dee4a1b0864fa1c7480",
+              "metric": "change_amplification.likely_affected_modules",
+              "value": 5,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Modules reachable in the reverse resolved import-and-call impact graph.",
+              "limitations": "A reachability proxy does not prove that every module must change."
+            },
+            {
+              "node_id": "node_c4f86dee4a1b0864fa1c7480",
+              "metric": "change_amplification.public_call_targets_in_affected_modules",
+              "value": 5,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Distinct public call targets whose endpoint owners are in the affected module set.",
+              "limitations": "This does not prove that an architectural interface or boundary is crossed."
+            },
+            {
+              "node_id": "node_c4f86dee4a1b0864fa1c7480",
+              "metric": "local.branch_count",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "lexical_node",
+              "definition": "Lexical control-flow branch constructs owned by this node.",
+              "limitations": "Static syntax count; it is not a measure of runtime path frequency."
+            },
+            {
+              "node_id": "node_c4f86dee4a1b0864fa1c7480",
+              "metric": "dependency.cycle_size",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Modules in the owning module's resolved import strongly connected component.",
+              "limitations": ""
+            },
+            {
+              "node_id": "node_c4f86dee4a1b0864fa1c7480",
+              "metric": "cognitive_scope.bounded_resolved_call_chain_nodes",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "bounded_resolved_call_chain",
+              "definition": "Nodes on one deterministic resolved call chain, including the selected node.",
+              "limitations": "The chain is capped at twenty and is not claimed to be a critical runtime path."
+            }
+          ],
+          "signals": []
+        },
+        {
+          "node": {
+            "node_id": "node_c648c13bb45cb9826400c939",
+            "qualified_name": "provider.VoiceProvider.synthesize",
+            "node_type": "method",
+            "path": "provider.py",
+            "location": {
+              "path": "provider.py",
+              "start_line": 7,
+              "end_line": 7
+            },
+            "is_public": true
+          },
+          "reasons": [
+            {
+              "kind": "name_match",
+              "explanation": "2 name/path matches before limiting",
+              "metric": null,
+              "related_node_id": null
+            }
+          ],
+          "metrics": [
+            {
+              "node_id": "node_c648c13bb45cb9826400c939",
+              "metric": "dependency.reverse_dependency_reach",
+              "value": 5,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Distinct modules that transitively depend on the owning module.",
+              "limitations": "This is static reachability and may omit dynamic dependencies."
+            },
+            {
+              "node_id": "node_c648c13bb45cb9826400c939",
+              "metric": "dependency.fan_in",
+              "value": 4,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules that statically depend on the owning module.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_c648c13bb45cb9826400c939",
+              "metric": "dependency.fan_out",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules on which the owning module statically depends.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_c648c13bb45cb9826400c939",
+              "metric": "change_amplification.likely_affected_modules",
+              "value": 5,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Modules reachable in the reverse resolved import-and-call impact graph.",
+              "limitations": "A reachability proxy does not prove that every module must change."
+            },
+            {
+              "node_id": "node_c648c13bb45cb9826400c939",
+              "metric": "change_amplification.public_call_targets_in_affected_modules",
+              "value": 5,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Distinct public call targets whose endpoint owners are in the affected module set.",
+              "limitations": "This does not prove that an architectural interface or boundary is crossed."
+            },
+            {
+              "node_id": "node_c648c13bb45cb9826400c939",
+              "metric": "local.branch_count",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "lexical_node",
+              "definition": "Lexical control-flow branch constructs owned by this node.",
+              "limitations": "Static syntax count; it is not a measure of runtime path frequency."
+            },
+            {
+              "node_id": "node_c648c13bb45cb9826400c939",
+              "metric": "dependency.cycle_size",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Modules in the owning module's resolved import strongly connected component.",
+              "limitations": ""
+            },
+            {
+              "node_id": "node_c648c13bb45cb9826400c939",
+              "metric": "cognitive_scope.bounded_resolved_call_chain_nodes",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "bounded_resolved_call_chain",
+              "definition": "Nodes on one deterministic resolved call chain, including the selected node.",
+              "limitations": "The chain is capped at twenty and is not claimed to be a critical runtime path."
+            }
+          ],
+          "signals": [
+            {
+              "code": "public-function-without-docstring",
+              "message": "Public callable provider.VoiceProvider.synthesize has no docstring",
+              "node_id": "node_c648c13bb45cb9826400c939",
+              "location": {
+                "path": "provider.py",
+                "start_line": 7,
+                "end_line": 7
+              },
+              "nature": "objective_measurement",
+              "definition": "",
+              "limitations": ""
+            }
+          ]
+        },
+        {
+          "node": {
+            "node_id": "node_536006b74f276f558fddf482",
+            "qualified_name": "frontend",
+            "node_type": "module",
+            "path": "frontend.py",
+            "location": {
+              "path": "frontend.py",
+              "start_line": 1,
+              "end_line": 8
+            },
+            "is_public": true
+          },
+          "reasons": [
+            {
+              "kind": "neighbourhood",
+              "explanation": "5 nodes within dependency depth 2",
+              "metric": null,
+              "related_node_id": "node_a318f9f739ea4d81cd5c8088"
+            }
+          ],
+          "metrics": [
+            {
+              "node_id": "node_536006b74f276f558fddf482",
+              "metric": "dependency.reverse_dependency_reach",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Distinct modules that transitively depend on the owning module.",
+              "limitations": "This is static reachability and may omit dynamic dependencies."
+            },
+            {
+              "node_id": "node_536006b74f276f558fddf482",
+              "metric": "dependency.fan_in",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules that statically depend on the owning module.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_536006b74f276f558fddf482",
+              "metric": "dependency.fan_out",
+              "value": 1,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules on which the owning module statically depends.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_536006b74f276f558fddf482",
+              "metric": "change_amplification.likely_affected_modules",
+              "value": 0,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Modules reachable in the reverse resolved import-and-call impact graph.",
+              "limitations": "A reachability proxy does not prove that every module must change."
+            },
+            {
+              "node_id": "node_536006b74f276f558fddf482",
+              "metric": "change_amplification.public_call_targets_in_affected_modules",
+              "value": 0,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Distinct public call targets whose endpoint owners are in the affected module set.",
+              "limitations": "This does not prove that an architectural interface or boundary is crossed."
+            },
+            {
+              "node_id": "node_536006b74f276f558fddf482",
+              "metric": "local.branch_count",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "lexical_node",
+              "definition": "Lexical control-flow branch constructs owned by this node.",
+              "limitations": "Static syntax count; it is not a measure of runtime path frequency."
+            },
+            {
+              "node_id": "node_536006b74f276f558fddf482",
+              "metric": "dependency.cycle_size",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Modules in the owning module's resolved import strongly connected component.",
+              "limitations": ""
+            },
+            {
+              "node_id": "node_536006b74f276f558fddf482",
+              "metric": "cognitive_scope.bounded_resolved_call_chain_nodes",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "bounded_resolved_call_chain",
+              "definition": "Nodes on one deterministic resolved call chain, including the selected node.",
+              "limitations": "The chain is capped at twenty and is not claimed to be a critical runtime path."
+            }
+          ],
+          "signals": [
+            {
+              "code": "module-mutable-state",
+              "message": "Module-level mutable value",
+              "node_id": "node_536006b74f276f558fddf482",
+              "location": {
+                "path": "frontend.py",
+                "start_line": 3,
+                "end_line": 3
+              },
+              "nature": "objective_measurement",
+              "definition": "",
+              "limitations": ""
+            },
+            {
+              "code": "similarly-named-constant",
+              "message": "Constant BUILT_IN_VOICES is defined in 3 modules",
+              "node_id": "node_536006b74f276f558fddf482",
+              "location": {
+                "path": "frontend.py",
+                "start_line": 3,
+                "end_line": 3
+              },
+              "nature": "objective_measurement",
+              "definition": "",
+              "limitations": ""
+            }
+          ]
+        },
+        {
+          "node": {
+            "node_id": "node_92a4630788576ec9b367ceeb",
+            "qualified_name": "preflight",
+            "node_type": "module",
+            "path": "preflight.py",
+            "location": {
+              "path": "preflight.py",
+              "start_line": 1,
+              "end_line": 9
+            },
+            "is_public": true
+          },
+          "reasons": [
+            {
+              "kind": "neighbourhood",
+              "explanation": "5 nodes within dependency depth 2",
+              "metric": null,
+              "related_node_id": "node_a318f9f739ea4d81cd5c8088"
+            }
+          ],
+          "metrics": [
+            {
+              "node_id": "node_92a4630788576ec9b367ceeb",
+              "metric": "dependency.reverse_dependency_reach",
+              "value": 3,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Distinct modules that transitively depend on the owning module.",
+              "limitations": "This is static reachability and may omit dynamic dependencies."
+            },
+            {
+              "node_id": "node_92a4630788576ec9b367ceeb",
+              "metric": "dependency.fan_in",
+              "value": 1,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules that statically depend on the owning module.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_92a4630788576ec9b367ceeb",
+              "metric": "dependency.fan_out",
+              "value": 1,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules on which the owning module statically depends.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_92a4630788576ec9b367ceeb",
+              "metric": "change_amplification.likely_affected_modules",
+              "value": 3,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Modules reachable in the reverse resolved import-and-call impact graph.",
+              "limitations": "A reachability proxy does not prove that every module must change."
+            },
+            {
+              "node_id": "node_92a4630788576ec9b367ceeb",
+              "metric": "change_amplification.public_call_targets_in_affected_modules",
+              "value": 3,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Distinct public call targets whose endpoint owners are in the affected module set.",
+              "limitations": "This does not prove that an architectural interface or boundary is crossed."
+            },
+            {
+              "node_id": "node_92a4630788576ec9b367ceeb",
+              "metric": "local.branch_count",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "lexical_node",
+              "definition": "Lexical control-flow branch constructs owned by this node.",
+              "limitations": "Static syntax count; it is not a measure of runtime path frequency."
+            },
+            {
+              "node_id": "node_92a4630788576ec9b367ceeb",
+              "metric": "dependency.cycle_size",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Modules in the owning module's resolved import strongly connected component.",
+              "limitations": ""
+            },
+            {
+              "node_id": "node_92a4630788576ec9b367ceeb",
+              "metric": "cognitive_scope.bounded_resolved_call_chain_nodes",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "bounded_resolved_call_chain",
+              "definition": "Nodes on one deterministic resolved call chain, including the selected node.",
+              "limitations": "The chain is capped at twenty and is not claimed to be a critical runtime path."
+            }
+          ],
+          "signals": [
+            {
+              "code": "module-mutable-state",
+              "message": "Module-level mutable value",
+              "node_id": "node_92a4630788576ec9b367ceeb",
+              "location": {
+                "path": "preflight.py",
+                "start_line": 3,
+                "end_line": 3
+              },
+              "nature": "objective_measurement",
+              "definition": "",
+              "limitations": ""
+            },
+            {
+              "code": "similarly-named-constant",
+              "message": "Constant BUILT_IN_VOICES is defined in 3 modules",
+              "node_id": "node_92a4630788576ec9b367ceeb",
+              "location": {
+                "path": "preflight.py",
+                "start_line": 3,
+                "end_line": 3
+              },
+              "nature": "objective_measurement",
+              "definition": "",
+              "limitations": ""
+            }
+          ]
+        },
+        {
+          "node": {
+            "node_id": "node_a8f64d20354d15f900248ce2",
+            "qualified_name": "workflow",
+            "node_type": "module",
+            "path": "workflow.py",
+            "location": {
+              "path": "workflow.py",
+              "start_line": 1,
+              "end_line": 8
+            },
+            "is_public": true
+          },
+          "reasons": [
+            {
+              "kind": "neighbourhood",
+              "explanation": "5 nodes within dependency depth 2",
+              "metric": null,
+              "related_node_id": "node_a318f9f739ea4d81cd5c8088"
+            }
+          ],
+          "metrics": [
+            {
+              "node_id": "node_a8f64d20354d15f900248ce2",
+              "metric": "dependency.reverse_dependency_reach",
+              "value": 2,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Distinct modules that transitively depend on the owning module.",
+              "limitations": "This is static reachability and may omit dynamic dependencies."
+            },
+            {
+              "node_id": "node_a8f64d20354d15f900248ce2",
+              "metric": "dependency.fan_in",
+              "value": 1,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules that statically depend on the owning module.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_a8f64d20354d15f900248ce2",
+              "metric": "dependency.fan_out",
+              "value": 2,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules on which the owning module statically depends.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_a8f64d20354d15f900248ce2",
+              "metric": "change_amplification.likely_affected_modules",
+              "value": 2,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Modules reachable in the reverse resolved import-and-call impact graph.",
+              "limitations": "A reachability proxy does not prove that every module must change."
+            },
+            {
+              "node_id": "node_a8f64d20354d15f900248ce2",
+              "metric": "change_amplification.public_call_targets_in_affected_modules",
+              "value": 2,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Distinct public call targets whose endpoint owners are in the affected module set.",
+              "limitations": "This does not prove that an architectural interface or boundary is crossed."
+            },
+            {
+              "node_id": "node_a8f64d20354d15f900248ce2",
+              "metric": "local.branch_count",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "lexical_node",
+              "definition": "Lexical control-flow branch constructs owned by this node.",
+              "limitations": "Static syntax count; it is not a measure of runtime path frequency."
+            },
+            {
+              "node_id": "node_a8f64d20354d15f900248ce2",
+              "metric": "dependency.cycle_size",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Modules in the owning module's resolved import strongly connected component.",
+              "limitations": ""
+            },
+            {
+              "node_id": "node_a8f64d20354d15f900248ce2",
+              "metric": "cognitive_scope.bounded_resolved_call_chain_nodes",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "bounded_resolved_call_chain",
+              "definition": "Nodes on one deterministic resolved call chain, including the selected node.",
+              "limitations": "The chain is capped at twenty and is not claimed to be a critical runtime path."
+            }
+          ],
+          "signals": []
+        },
+        {
+          "node": {
+            "node_id": "node_dccc5987c751ac992d36cfe8",
+            "qualified_name": "main",
+            "node_type": "module",
+            "path": "main.py",
+            "location": {
+              "path": "main.py",
+              "start_line": 1,
+              "end_line": 8
+            },
+            "is_public": true
+          },
+          "reasons": [
+            {
+              "kind": "neighbourhood",
+              "explanation": "5 nodes within dependency depth 2",
+              "metric": null,
+              "related_node_id": "node_a318f9f739ea4d81cd5c8088"
+            }
+          ],
+          "metrics": [
+            {
+              "node_id": "node_dccc5987c751ac992d36cfe8",
+              "metric": "dependency.reverse_dependency_reach",
+              "value": 1,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Distinct modules that transitively depend on the owning module.",
+              "limitations": "This is static reachability and may omit dynamic dependencies."
+            },
+            {
+              "node_id": "node_dccc5987c751ac992d36cfe8",
+              "metric": "dependency.fan_in",
+              "value": 1,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules that statically depend on the owning module.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_dccc5987c751ac992d36cfe8",
+              "metric": "dependency.fan_out",
+              "value": 2,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules on which the owning module statically depends.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_dccc5987c751ac992d36cfe8",
+              "metric": "change_amplification.likely_affected_modules",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Modules reachable in the reverse resolved import-and-call impact graph.",
+              "limitations": "A reachability proxy does not prove that every module must change."
+            },
+            {
+              "node_id": "node_dccc5987c751ac992d36cfe8",
+              "metric": "change_amplification.public_call_targets_in_affected_modules",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Distinct public call targets whose endpoint owners are in the affected module set.",
+              "limitations": "This does not prove that an architectural interface or boundary is crossed."
+            },
+            {
+              "node_id": "node_dccc5987c751ac992d36cfe8",
+              "metric": "local.branch_count",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "lexical_node",
+              "definition": "Lexical control-flow branch constructs owned by this node.",
+              "limitations": "Static syntax count; it is not a measure of runtime path frequency."
+            },
+            {
+              "node_id": "node_dccc5987c751ac992d36cfe8",
+              "metric": "dependency.cycle_size",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Modules in the owning module's resolved import strongly connected component.",
+              "limitations": ""
+            },
+            {
+              "node_id": "node_dccc5987c751ac992d36cfe8",
+              "metric": "cognitive_scope.bounded_resolved_call_chain_nodes",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "bounded_resolved_call_chain",
+              "definition": "Nodes on one deterministic resolved call chain, including the selected node.",
+              "limitations": "The chain is capped at twenty and is not claimed to be a critical runtime path."
+            }
+          ],
+          "signals": []
+        },
+        {
+          "node": {
+            "node_id": "node_910d8395daf0073452d83839",
+            "qualified_name": "tests.test_workflow",
+            "node_type": "test_module",
+            "path": "tests/test_workflow.py",
+            "location": {
+              "path": "tests/test_workflow.py",
+              "start_line": 1,
+              "end_line": 6
+            },
+            "is_public": true
+          },
+          "reasons": [
+            {
+              "kind": "neighbourhood",
+              "explanation": "5 nodes within dependency depth 2",
+              "metric": null,
+              "related_node_id": "node_a318f9f739ea4d81cd5c8088"
+            }
+          ],
+          "metrics": [
+            {
+              "node_id": "node_910d8395daf0073452d83839",
+              "metric": "dependency.reverse_dependency_reach",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Distinct modules that transitively depend on the owning module.",
+              "limitations": "This is static reachability and may omit dynamic dependencies."
+            },
+            {
+              "node_id": "node_910d8395daf0073452d83839",
+              "metric": "dependency.fan_in",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules that statically depend on the owning module.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_910d8395daf0073452d83839",
+              "metric": "dependency.fan_out",
+              "value": 1,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules on which the owning module statically depends.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_910d8395daf0073452d83839",
+              "metric": "change_amplification.likely_affected_modules",
+              "value": 0,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Modules reachable in the reverse resolved import-and-call impact graph.",
+              "limitations": "A reachability proxy does not prove that every module must change."
+            },
+            {
+              "node_id": "node_910d8395daf0073452d83839",
+              "metric": "change_amplification.public_call_targets_in_affected_modules",
+              "value": 0,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Distinct public call targets whose endpoint owners are in the affected module set.",
+              "limitations": "This does not prove that an architectural interface or boundary is crossed."
+            },
+            {
+              "node_id": "node_910d8395daf0073452d83839",
+              "metric": "local.branch_count",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "lexical_node",
+              "definition": "Lexical control-flow branch constructs owned by this node.",
+              "limitations": "Static syntax count; it is not a measure of runtime path frequency."
+            },
+            {
+              "node_id": "node_910d8395daf0073452d83839",
+              "metric": "dependency.cycle_size",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Modules in the owning module's resolved import strongly connected component.",
+              "limitations": ""
+            },
+            {
+              "node_id": "node_910d8395daf0073452d83839",
+              "metric": "cognitive_scope.bounded_resolved_call_chain_nodes",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "bounded_resolved_call_chain",
+              "definition": "Nodes on one deterministic resolved call chain, including the selected node.",
+              "limitations": "The chain is capped at twenty and is not claimed to be a critical runtime path."
+            }
+          ],
+          "signals": []
+        },
+        {
+          "node": {
+            "node_id": "node_365b5f249782edab004f7900",
+            "qualified_name": "main.run",
+            "node_type": "function",
+            "path": "main.py",
+            "location": {
+              "path": "main.py",
+              "start_line": 5,
+              "end_line": 7
+            },
+            "is_public": true
+          },
+          "reasons": [
+            {
+              "kind": "neighbourhood",
+              "explanation": "1 nodes within dependency depth 1",
+              "metric": null,
+              "related_node_id": "node_122223434af70f40539f4880"
+            }
+          ],
+          "metrics": [
+            {
+              "node_id": "node_365b5f249782edab004f7900",
+              "metric": "dependency.reverse_dependency_reach",
+              "value": 1,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Distinct modules that transitively depend on the owning module.",
+              "limitations": "This is static reachability and may omit dynamic dependencies."
+            },
+            {
+              "node_id": "node_365b5f249782edab004f7900",
+              "metric": "dependency.fan_in",
+              "value": 1,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules that statically depend on the owning module.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_365b5f249782edab004f7900",
+              "metric": "dependency.fan_out",
+              "value": 2,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Direct internal modules on which the owning module statically depends.",
+              "limitations": "Dynamic imports and unresolved calls are not included."
+            },
+            {
+              "node_id": "node_365b5f249782edab004f7900",
+              "metric": "change_amplification.likely_affected_modules",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Modules reachable in the reverse resolved import-and-call impact graph.",
+              "limitations": "A reachability proxy does not prove that every module must change."
+            },
+            {
+              "node_id": "node_365b5f249782edab004f7900",
+              "metric": "change_amplification.public_call_targets_in_affected_modules",
+              "value": 1,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "reverse_static_impact_neighbourhood",
+              "definition": "Distinct public call targets whose endpoint owners are in the affected module set.",
+              "limitations": "This does not prove that an architectural interface or boundary is crossed."
+            },
+            {
+              "node_id": "node_365b5f249782edab004f7900",
+              "metric": "local.branch_count",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "lexical_node",
+              "definition": "Lexical control-flow branch constructs owned by this node.",
+              "limitations": "Static syntax count; it is not a measure of runtime path frequency."
+            },
+            {
+              "node_id": "node_365b5f249782edab004f7900",
+              "metric": "dependency.cycle_size",
+              "value": 0,
+              "rank": null,
+              "nature": "objective_measurement",
+              "scope": "owning_module",
+              "definition": "Modules in the owning module's resolved import strongly connected component.",
+              "limitations": ""
+            },
+            {
+              "node_id": "node_365b5f249782edab004f7900",
+              "metric": "cognitive_scope.bounded_resolved_call_chain_nodes",
+              "value": 3,
+              "rank": null,
+              "nature": "structural_proxy",
+              "scope": "bounded_resolved_call_chain",
+              "definition": "Nodes on one deterministic resolved call chain, including the selected node.",
+              "limitations": "The chain is capped at twenty and is not claimed to be a critical runtime path."
+            }
+          ],
+          "signals": [
+            {
+              "code": "public-function-without-docstring",
+              "message": "Public callable main.run has no docstring",
+              "node_id": "node_365b5f249782edab004f7900",
+              "location": {
+                "path": "main.py",
+                "start_line": 5,
+                "end_line": 5
+              },
+              "nature": "objective_measurement",
+              "definition": "",
+              "limitations": ""
+            }
+          ]
+        }
+      ],
+      "metrics": [
+        {
+          "node_id": "node_122223434af70f40539f4880",
+          "local": {
+            "physical_lines": 2,
+            "logical_statements": 1,
+            "branch_count": 0,
+            "maximum_nesting_depth": 0,
+            "parameter_count": 0,
+            "public_symbol_count": 0,
+            "imported_module_count": 0,
+            "outgoing_static_calls": 0,
+            "incoming_known_callers": 1
+          },
+          "dependency": {
+            "fan_in": 4,
+            "fan_out": 0,
+            "direct_dependencies": [],
+            "direct_dependants": [
+              "node_536006b74f276f558fddf482",
+              "node_92a4630788576ec9b367ceeb",
+              "node_a8f64d20354d15f900248ce2",
+              "node_dccc5987c751ac992d36cfe8"
+            ],
+            "forward_dependency_reach": 0,
+            "reverse_dependency_reach": 5,
+            "dependency_depth": 0,
+            "strongly_connected_component": null,
+            "cycle_size": 0,
+            "interface_implementations": 0,
+            "public_interface_callers": 1,
+            "directly_associated_tests": 0,
+            "transitively_affected_test_modules": 1
+          },
+          "change_amplification": {
+            "likely_affected_modules": 5,
+            "public_call_targets_in_affected_modules": 5,
+            "coordinated_implementations": 0,
+            "configuration_locations": 0,
+            "reverse_neighbourhood_tests": 1
+          },
+          "cognitive_scope": {
+            "dependency_neighbourhood_modules": 5,
+            "bounded_resolved_call_chain_nodes": 1,
+            "abstraction_boundaries": 0,
+            "related_configuration_locations": 0,
+            "local_control_flow_complexity": 0,
+            "public_api_surface": 0
+          }
+        },
+        {
+          "node_id": "node_365b5f249782edab004f7900",
+          "local": {
+            "physical_lines": 3,
+            "logical_statements": 2,
+            "branch_count": 0,
+            "maximum_nesting_depth": 0,
+            "parameter_count": 0,
+            "public_symbol_count": 0,
+            "imported_module_count": 0,
+            "outgoing_static_calls": 3,
+            "incoming_known_callers": 1
+          },
+          "dependency": {
+            "fan_in": 1,
+            "fan_out": 2,
+            "direct_dependencies": [
+              "node_a318f9f739ea4d81cd5c8088",
+              "node_a8f64d20354d15f900248ce2"
+            ],
+            "direct_dependants": [
+              "node_910d8395daf0073452d83839"
+            ],
+            "forward_dependency_reach": 3,
+            "reverse_dependency_reach": 1,
+            "dependency_depth": 3,
+            "strongly_connected_component": null,
+            "cycle_size": 0,
+            "interface_implementations": 0,
+            "public_interface_callers": 1,
+            "directly_associated_tests": 1,
+            "transitively_affected_test_modules": 1
+          },
+          "change_amplification": {
+            "likely_affected_modules": 1,
+            "public_call_targets_in_affected_modules": 1,
+            "coordinated_implementations": 0,
+            "configuration_locations": 0,
+            "reverse_neighbourhood_tests": 1
+          },
+          "cognitive_scope": {
+            "dependency_neighbourhood_modules": 4,
+            "bounded_resolved_call_chain_nodes": 3,
+            "abstraction_boundaries": 0,
+            "related_configuration_locations": 0,
+            "local_control_flow_complexity": 0,
+            "public_api_surface": 0
+          }
+        },
+        {
+          "node_id": "node_536006b74f276f558fddf482",
+          "local": {
+            "physical_lines": 8,
+            "logical_statements": 3,
+            "branch_count": 0,
+            "maximum_nesting_depth": 0,
+            "parameter_count": 0,
+            "public_symbol_count": 1,
+            "imported_module_count": 1,
+            "outgoing_static_calls": 0,
+            "incoming_known_callers": 0
+          },
+          "dependency": {
+            "fan_in": 0,
+            "fan_out": 1,
+            "direct_dependencies": [
+              "node_a318f9f739ea4d81cd5c8088"
+            ],
+            "direct_dependants": [],
+            "forward_dependency_reach": 1,
+            "reverse_dependency_reach": 0,
+            "dependency_depth": 1,
+            "strongly_connected_component": null,
+            "cycle_size": 0,
+            "interface_implementations": 0,
+            "public_interface_callers": 0,
+            "directly_associated_tests": 0,
+            "transitively_affected_test_modules": 0
+          },
+          "change_amplification": {
+            "likely_affected_modules": 0,
+            "public_call_targets_in_affected_modules": 0,
+            "coordinated_implementations": 0,
+            "configuration_locations": 0,
+            "reverse_neighbourhood_tests": 0
+          },
+          "cognitive_scope": {
+            "dependency_neighbourhood_modules": 1,
+            "bounded_resolved_call_chain_nodes": 1,
+            "abstraction_boundaries": 0,
+            "related_configuration_locations": 0,
+            "local_control_flow_complexity": 0,
+            "public_api_surface": 1
+          }
+        },
+        {
+          "node_id": "node_910d8395daf0073452d83839",
+          "local": {
+            "physical_lines": 6,
+            "logical_statements": 2,
+            "branch_count": 0,
+            "maximum_nesting_depth": 0,
+            "parameter_count": 0,
+            "public_symbol_count": 1,
+            "imported_module_count": 1,
+            "outgoing_static_calls": 0,
+            "incoming_known_callers": 0
+          },
+          "dependency": {
+            "fan_in": 0,
+            "fan_out": 1,
+            "direct_dependencies": [
+              "node_dccc5987c751ac992d36cfe8"
+            ],
+            "direct_dependants": [],
+            "forward_dependency_reach": 4,
+            "reverse_dependency_reach": 0,
+            "dependency_depth": 4,
+            "strongly_connected_component": null,
+            "cycle_size": 0,
+            "interface_implementations": 0,
+            "public_interface_callers": 0,
+            "directly_associated_tests": 0,
+            "transitively_affected_test_modules": 0
+          },
+          "change_amplification": {
+            "likely_affected_modules": 0,
+            "public_call_targets_in_affected_modules": 0,
+            "coordinated_implementations": 0,
+            "configuration_locations": 0,
+            "reverse_neighbourhood_tests": 0
+          },
+          "cognitive_scope": {
+            "dependency_neighbourhood_modules": 4,
+            "bounded_resolved_call_chain_nodes": 1,
+            "abstraction_boundaries": 0,
+            "related_configuration_locations": 0,
+            "local_control_flow_complexity": 0,
+            "public_api_surface": 1
+          }
+        },
+        {
+          "node_id": "node_92a4630788576ec9b367ceeb",
+          "local": {
+            "physical_lines": 9,
+            "logical_statements": 3,
+            "branch_count": 0,
+            "maximum_nesting_depth": 0,
+            "parameter_count": 0,
+            "public_symbol_count": 1,
+            "imported_module_count": 1,
+            "outgoing_static_calls": 0,
+            "incoming_known_callers": 0
+          },
+          "dependency": {
+            "fan_in": 1,
+            "fan_out": 1,
+            "direct_dependencies": [
+              "node_a318f9f739ea4d81cd5c8088"
+            ],
+            "direct_dependants": [
+              "node_a8f64d20354d15f900248ce2"
+            ],
+            "forward_dependency_reach": 1,
+            "reverse_dependency_reach": 3,
+            "dependency_depth": 1,
+            "strongly_connected_component": null,
+            "cycle_size": 0,
+            "interface_implementations": 0,
+            "public_interface_callers": 0,
+            "directly_associated_tests": 0,
+            "transitively_affected_test_modules": 1
+          },
+          "change_amplification": {
+            "likely_affected_modules": 3,
+            "public_call_targets_in_affected_modules": 3,
+            "coordinated_implementations": 0,
+            "configuration_locations": 0,
+            "reverse_neighbourhood_tests": 1
+          },
+          "cognitive_scope": {
+            "dependency_neighbourhood_modules": 4,
+            "bounded_resolved_call_chain_nodes": 1,
+            "abstraction_boundaries": 0,
+            "related_configuration_locations": 0,
+            "local_control_flow_complexity": 0,
+            "public_api_surface": 1
+          }
+        },
+        {
+          "node_id": "node_a318f9f739ea4d81cd5c8088",
+          "local": {
+            "physical_lines": 17,
+            "logical_statements": 5,
+            "branch_count": 0,
+            "maximum_nesting_depth": 0,
+            "parameter_count": 0,
+            "public_symbol_count": 3,
+            "imported_module_count": 1,
+            "outgoing_static_calls": 0,
+            "incoming_known_callers": 0
+          },
+          "dependency": {
+            "fan_in": 4,
+            "fan_out": 0,
+            "direct_dependencies": [],
+            "direct_dependants": [
+              "node_536006b74f276f558fddf482",
+              "node_92a4630788576ec9b367ceeb",
+              "node_a8f64d20354d15f900248ce2",
+              "node_dccc5987c751ac992d36cfe8"
+            ],
+            "forward_dependency_reach": 0,
+            "reverse_dependency_reach": 5,
+            "dependency_depth": 0,
+            "strongly_connected_component": null,
+            "cycle_size": 0,
+            "interface_implementations": 0,
+            "public_interface_callers": 0,
+            "directly_associated_tests": 0,
+            "transitively_affected_test_modules": 1
+          },
+          "change_amplification": {
+            "likely_affected_modules": 5,
+            "public_call_targets_in_affected_modules": 5,
+            "coordinated_implementations": 0,
+            "configuration_locations": 0,
+            "reverse_neighbourhood_tests": 1
+          },
+          "cognitive_scope": {
+            "dependency_neighbourhood_modules": 5,
+            "bounded_resolved_call_chain_nodes": 1,
+            "abstraction_boundaries": 0,
+            "related_configuration_locations": 0,
+            "local_control_flow_complexity": 0,
+            "public_api_surface": 3
+          }
+        },
+        {
+          "node_id": "node_a8f64d20354d15f900248ce2",
+          "local": {
+            "physical_lines": 8,
+            "logical_statements": 3,
+            "branch_count": 0,
+            "maximum_nesting_depth": 0,
+            "parameter_count": 0,
+            "public_symbol_count": 1,
+            "imported_module_count": 2,
+            "outgoing_static_calls": 0,
+            "incoming_known_callers": 0
+          },
+          "dependency": {
+            "fan_in": 1,
+            "fan_out": 2,
+            "direct_dependencies": [
+              "node_92a4630788576ec9b367ceeb",
+              "node_a318f9f739ea4d81cd5c8088"
+            ],
+            "direct_dependants": [
+              "node_dccc5987c751ac992d36cfe8"
+            ],
+            "forward_dependency_reach": 2,
+            "reverse_dependency_reach": 2,
+            "dependency_depth": 2,
+            "strongly_connected_component": null,
+            "cycle_size": 0,
+            "interface_implementations": 0,
+            "public_interface_callers": 0,
+            "directly_associated_tests": 0,
+            "transitively_affected_test_modules": 1
+          },
+          "change_amplification": {
+            "likely_affected_modules": 2,
+            "public_call_targets_in_affected_modules": 2,
+            "coordinated_implementations": 0,
+            "configuration_locations": 0,
+            "reverse_neighbourhood_tests": 1
+          },
+          "cognitive_scope": {
+            "dependency_neighbourhood_modules": 4,
+            "bounded_resolved_call_chain_nodes": 1,
+            "abstraction_boundaries": 0,
+            "related_configuration_locations": 0,
+            "local_control_flow_complexity": 0,
+            "public_api_surface": 1
+          }
+        },
+        {
+          "node_id": "node_a9da0c22cb0b396d778717c2",
+          "local": {
+            "physical_lines": 2,
+            "logical_statements": 1,
+            "branch_count": 0,
+            "maximum_nesting_depth": 0,
+            "parameter_count": 3,
+            "public_symbol_count": 0,
+            "imported_module_count": 0,
+            "outgoing_static_calls": 0,
+            "incoming_known_callers": 0
+          },
+          "dependency": {
+            "fan_in": 4,
+            "fan_out": 0,
+            "direct_dependencies": [],
+            "direct_dependants": [
+              "node_536006b74f276f558fddf482",
+              "node_92a4630788576ec9b367ceeb",
+              "node_a8f64d20354d15f900248ce2",
+              "node_dccc5987c751ac992d36cfe8"
+            ],
+            "forward_dependency_reach": 0,
+            "reverse_dependency_reach": 5,
+            "dependency_depth": 0,
+            "strongly_connected_component": null,
+            "cycle_size": 0,
+            "interface_implementations": 0,
+            "public_interface_callers": 0,
+            "directly_associated_tests": 0,
+            "transitively_affected_test_modules": 1
+          },
+          "change_amplification": {
+            "likely_affected_modules": 5,
+            "public_call_targets_in_affected_modules": 5,
+            "coordinated_implementations": 0,
+            "configuration_locations": 0,
+            "reverse_neighbourhood_tests": 1
+          },
+          "cognitive_scope": {
+            "dependency_neighbourhood_modules": 5,
+            "bounded_resolved_call_chain_nodes": 1,
+            "abstraction_boundaries": 0,
+            "related_configuration_locations": 0,
+            "local_control_flow_complexity": 0,
+            "public_api_surface": 0
+          }
+        },
+        {
+          "node_id": "node_abc6e9d034c3b5bbe9eff3b9",
+          "local": {
+            "physical_lines": 3,
+            "logical_statements": 1,
+            "branch_count": 0,
+            "maximum_nesting_depth": 0,
+            "parameter_count": 0,
+            "public_symbol_count": 1,
+            "imported_module_count": 0,
+            "outgoing_static_calls": 0,
+            "incoming_known_callers": 1
+          },
+          "dependency": {
+            "fan_in": 4,
+            "fan_out": 0,
+            "direct_dependencies": [],
+            "direct_dependants": [
+              "node_536006b74f276f558fddf482",
+              "node_92a4630788576ec9b367ceeb",
+              "node_a8f64d20354d15f900248ce2",
+              "node_dccc5987c751ac992d36cfe8"
+            ],
+            "forward_dependency_reach": 0,
+            "reverse_dependency_reach": 5,
+            "dependency_depth": 0,
+            "strongly_connected_component": null,
+            "cycle_size": 0,
+            "interface_implementations": 0,
+            "public_interface_callers": 1,
+            "directly_associated_tests": 0,
+            "transitively_affected_test_modules": 1
+          },
+          "change_amplification": {
+            "likely_affected_modules": 5,
+            "public_call_targets_in_affected_modules": 5,
+            "coordinated_implementations": 0,
+            "configuration_locations": 0,
+            "reverse_neighbourhood_tests": 1
+          },
+          "cognitive_scope": {
+            "dependency_neighbourhood_modules": 5,
+            "bounded_resolved_call_chain_nodes": 1,
+            "abstraction_boundaries": 0,
+            "related_configuration_locations": 0,
+            "local_control_flow_complexity": 0,
+            "public_api_surface": 1
+          }
+        },
+        {
+          "node_id": "node_c4f86dee4a1b0864fa1c7480",
+          "local": {
+            "physical_lines": 2,
+            "logical_statements": 1,
+            "branch_count": 0,
+            "maximum_nesting_depth": 0,
+            "parameter_count": 0,
+            "public_symbol_count": 1,
+            "imported_module_count": 0,
+            "outgoing_static_calls": 0,
+            "incoming_known_callers": 0
+          },
+          "dependency": {
+            "fan_in": 4,
+            "fan_out": 0,
+            "direct_dependencies": [],
+            "direct_dependants": [
+              "node_536006b74f276f558fddf482",
+              "node_92a4630788576ec9b367ceeb",
+              "node_a8f64d20354d15f900248ce2",
+              "node_dccc5987c751ac992d36cfe8"
+            ],
+            "forward_dependency_reach": 0,
+            "reverse_dependency_reach": 5,
+            "dependency_depth": 0,
+            "strongly_connected_component": null,
+            "cycle_size": 0,
+            "interface_implementations": 1,
+            "public_interface_callers": 0,
+            "directly_associated_tests": 0,
+            "transitively_affected_test_modules": 1
+          },
+          "change_amplification": {
+            "likely_affected_modules": 5,
+            "public_call_targets_in_affected_modules": 5,
+            "coordinated_implementations": 1,
+            "configuration_locations": 0,
+            "reverse_neighbourhood_tests": 1
+          },
+          "cognitive_scope": {
+            "dependency_neighbourhood_modules": 5,
+            "bounded_resolved_call_chain_nodes": 1,
+            "abstraction_boundaries": 0,
+            "related_configuration_locations": 0,
+            "local_control_flow_complexity": 0,
+            "public_api_surface": 1
+          }
+        },
+        {
+          "node_id": "node_c648c13bb45cb9826400c939",
+          "local": {
+            "physical_lines": 1,
+            "logical_statements": 1,
+            "branch_count": 0,
+            "maximum_nesting_depth": 0,
+            "parameter_count": 3,
+            "public_symbol_count": 0,
+            "imported_module_count": 0,
+            "outgoing_static_calls": 0,
+            "incoming_known_callers": 0
+          },
+          "dependency": {
+            "fan_in": 4,
+            "fan_out": 0,
+            "direct_dependencies": [],
+            "direct_dependants": [
+              "node_536006b74f276f558fddf482",
+              "node_92a4630788576ec9b367ceeb",
+              "node_a8f64d20354d15f900248ce2",
+              "node_dccc5987c751ac992d36cfe8"
+            ],
+            "forward_dependency_reach": 0,
+            "reverse_dependency_reach": 5,
+            "dependency_depth": 0,
+            "strongly_connected_component": null,
+            "cycle_size": 0,
+            "interface_implementations": 0,
+            "public_interface_callers": 0,
+            "directly_associated_tests": 0,
+            "transitively_affected_test_modules": 1
+          },
+          "change_amplification": {
+            "likely_affected_modules": 5,
+            "public_call_targets_in_affected_modules": 5,
+            "coordinated_implementations": 0,
+            "configuration_locations": 0,
+            "reverse_neighbourhood_tests": 1
+          },
+          "cognitive_scope": {
+            "dependency_neighbourhood_modules": 5,
+            "bounded_resolved_call_chain_nodes": 1,
+            "abstraction_boundaries": 0,
+            "related_configuration_locations": 0,
+            "local_control_flow_complexity": 0,
+            "public_api_surface": 0
+          }
+        },
+        {
+          "node_id": "node_dccc5987c751ac992d36cfe8",
+          "local": {
+            "physical_lines": 8,
+            "logical_statements": 3,
+            "branch_count": 0,
+            "maximum_nesting_depth": 0,
+            "parameter_count": 0,
+            "public_symbol_count": 1,
+            "imported_module_count": 2,
+            "outgoing_static_calls": 0,
+            "incoming_known_callers": 0
+          },
+          "dependency": {
+            "fan_in": 1,
+            "fan_out": 2,
+            "direct_dependencies": [
+              "node_a318f9f739ea4d81cd5c8088",
+              "node_a8f64d20354d15f900248ce2"
+            ],
+            "direct_dependants": [
+              "node_910d8395daf0073452d83839"
+            ],
+            "forward_dependency_reach": 3,
+            "reverse_dependency_reach": 1,
+            "dependency_depth": 3,
+            "strongly_connected_component": null,
+            "cycle_size": 0,
+            "interface_implementations": 0,
+            "public_interface_callers": 0,
+            "directly_associated_tests": 1,
+            "transitively_affected_test_modules": 1
+          },
+          "change_amplification": {
+            "likely_affected_modules": 1,
+            "public_call_targets_in_affected_modules": 1,
+            "coordinated_implementations": 0,
+            "configuration_locations": 0,
+            "reverse_neighbourhood_tests": 1
+          },
+          "cognitive_scope": {
+            "dependency_neighbourhood_modules": 4,
+            "bounded_resolved_call_chain_nodes": 1,
+            "abstraction_boundaries": 0,
+            "related_configuration_locations": 0,
+            "local_control_flow_complexity": 0,
+            "public_api_surface": 1
+          }
+        }
+      ],
+      "relationships": [
+        {
+          "edge_id": "edge_3f2c8166d602aea4714f20d9",
+          "source_id": "node_910d8395daf0073452d83839",
+          "target_id": "node_dccc5987c751ac992d36cfe8",
+          "edge_type": "imports",
+          "confidence": 1.0,
+          "location": {
+            "path": "tests/test_workflow.py",
+            "start_line": 1,
+            "end_line": 1
+          }
+        },
+        {
+          "edge_id": "edge_4a952a5a69704d34d56ceab6",
+          "source_id": "node_92a4630788576ec9b367ceeb",
+          "target_id": "node_a318f9f739ea4d81cd5c8088",
+          "edge_type": "imports",
+          "confidence": 1.0,
+          "location": {
+            "path": "preflight.py",
+            "start_line": 1,
+            "end_line": 1
+          }
+        },
+        {
+          "edge_id": "edge_4cd8a1701a0a6272ad08921e",
+          "source_id": "node_dccc5987c751ac992d36cfe8",
+          "target_id": "node_a318f9f739ea4d81cd5c8088",
+          "edge_type": "imports",
+          "confidence": 1.0,
+          "location": {
+            "path": "main.py",
+            "start_line": 1,
+            "end_line": 1
+          }
+        },
+        {
+          "edge_id": "edge_4dc4c9de74f101aa2b4f65f1",
+          "source_id": "node_a8f64d20354d15f900248ce2",
+          "target_id": "node_a318f9f739ea4d81cd5c8088",
+          "edge_type": "imports",
+          "confidence": 1.0,
+          "location": {
+            "path": "workflow.py",
+            "start_line": 2,
+            "end_line": 2
+          }
+        },
+        {
+          "edge_id": "edge_5f825246b4a35efa79f82a47",
+          "source_id": "node_536006b74f276f558fddf482",
+          "target_id": "node_a318f9f739ea4d81cd5c8088",
+          "edge_type": "imports",
+          "confidence": 1.0,
+          "location": {
+            "path": "frontend.py",
+            "start_line": 1,
+            "end_line": 1
+          }
+        },
+        {
+          "edge_id": "edge_9e92d3baf39c81792d35dd71",
+          "source_id": "node_a8f64d20354d15f900248ce2",
+          "target_id": "node_92a4630788576ec9b367ceeb",
+          "edge_type": "imports",
+          "confidence": 1.0,
+          "location": {
+            "path": "workflow.py",
+            "start_line": 1,
+            "end_line": 1
+          }
+        },
+        {
+          "edge_id": "edge_e883c87f2c003769e10dcf81",
+          "source_id": "node_dccc5987c751ac992d36cfe8",
+          "target_id": "node_a8f64d20354d15f900248ce2",
+          "edge_type": "imports",
+          "confidence": 1.0,
+          "location": {
+            "path": "main.py",
+            "start_line": 2,
+            "end_line": 2
+          }
+        },
+        {
+          "edge_id": "edge_ad3a5bd81c3d74b15a44e174",
+          "source_id": "node_365b5f249782edab004f7900",
+          "target_id": "node_122223434af70f40539f4880",
+          "edge_type": "calls",
+          "confidence": 1.0,
+          "location": {
+            "path": "main.py",
+            "start_line": 6,
+            "end_line": 6
+          }
+        }
+      ],
+      "relationship_evidence": [
+        {
+          "edge_id": "edge_3f2c8166d602aea4714f20d9",
+          "edge_type": "imports",
+          "source": {
+            "node_id": "node_910d8395daf0073452d83839",
+            "qualified_name": "tests.test_workflow",
+            "node_type": "test_module",
+            "path": "tests/test_workflow.py",
+            "location": {
+              "path": "tests/test_workflow.py",
+              "start_line": 1,
+              "end_line": 6
+            },
+            "is_public": true
+          },
+          "target": {
+            "node_id": "node_dccc5987c751ac992d36cfe8",
+            "qualified_name": "main",
+            "node_type": "module",
+            "path": "main.py",
+            "location": {
+              "path": "main.py",
+              "start_line": 1,
+              "end_line": 8
+            },
+            "is_public": true
+          },
+          "confidence": 1.0,
+          "location": {
+            "path": "tests/test_workflow.py",
+            "start_line": 1,
+            "end_line": 1
+          }
+        },
+        {
+          "edge_id": "edge_4a952a5a69704d34d56ceab6",
+          "edge_type": "imports",
+          "source": {
+            "node_id": "node_92a4630788576ec9b367ceeb",
+            "qualified_name": "preflight",
+            "node_type": "module",
+            "path": "preflight.py",
+            "location": {
+              "path": "preflight.py",
+              "start_line": 1,
+              "end_line": 9
+            },
+            "is_public": true
+          },
+          "target": {
+            "node_id": "node_a318f9f739ea4d81cd5c8088",
+            "qualified_name": "provider",
+            "node_type": "module",
+            "path": "provider.py",
+            "location": {
+              "path": "provider.py",
+              "start_line": 1,
+              "end_line": 17
+            },
+            "is_public": true
+          },
+          "confidence": 1.0,
+          "location": {
+            "path": "preflight.py",
+            "start_line": 1,
+            "end_line": 1
+          }
+        },
+        {
+          "edge_id": "edge_4cd8a1701a0a6272ad08921e",
+          "edge_type": "imports",
+          "source": {
+            "node_id": "node_dccc5987c751ac992d36cfe8",
+            "qualified_name": "main",
+            "node_type": "module",
+            "path": "main.py",
+            "location": {
+              "path": "main.py",
+              "start_line": 1,
+              "end_line": 8
+            },
+            "is_public": true
+          },
+          "target": {
+            "node_id": "node_a318f9f739ea4d81cd5c8088",
+            "qualified_name": "provider",
+            "node_type": "module",
+            "path": "provider.py",
+            "location": {
+              "path": "provider.py",
+              "start_line": 1,
+              "end_line": 17
+            },
+            "is_public": true
+          },
+          "confidence": 1.0,
+          "location": {
+            "path": "main.py",
+            "start_line": 1,
+            "end_line": 1
+          }
+        },
+        {
+          "edge_id": "edge_4dc4c9de74f101aa2b4f65f1",
+          "edge_type": "imports",
+          "source": {
+            "node_id": "node_a8f64d20354d15f900248ce2",
+            "qualified_name": "workflow",
+            "node_type": "module",
+            "path": "workflow.py",
+            "location": {
+              "path": "workflow.py",
+              "start_line": 1,
+              "end_line": 8
+            },
+            "is_public": true
+          },
+          "target": {
+            "node_id": "node_a318f9f739ea4d81cd5c8088",
+            "qualified_name": "provider",
+            "node_type": "module",
+            "path": "provider.py",
+            "location": {
+              "path": "provider.py",
+              "start_line": 1,
+              "end_line": 17
+            },
+            "is_public": true
+          },
+          "confidence": 1.0,
+          "location": {
+            "path": "workflow.py",
+            "start_line": 2,
+            "end_line": 2
+          }
+        },
+        {
+          "edge_id": "edge_5f825246b4a35efa79f82a47",
+          "edge_type": "imports",
+          "source": {
+            "node_id": "node_536006b74f276f558fddf482",
+            "qualified_name": "frontend",
+            "node_type": "module",
+            "path": "frontend.py",
+            "location": {
+              "path": "frontend.py",
+              "start_line": 1,
+              "end_line": 8
+            },
+            "is_public": true
+          },
+          "target": {
+            "node_id": "node_a318f9f739ea4d81cd5c8088",
+            "qualified_name": "provider",
+            "node_type": "module",
+            "path": "provider.py",
+            "location": {
+              "path": "provider.py",
+              "start_line": 1,
+              "end_line": 17
+            },
+            "is_public": true
+          },
+          "confidence": 1.0,
+          "location": {
+            "path": "frontend.py",
+            "start_line": 1,
+            "end_line": 1
+          }
+        },
+        {
+          "edge_id": "edge_9e92d3baf39c81792d35dd71",
+          "edge_type": "imports",
+          "source": {
+            "node_id": "node_a8f64d20354d15f900248ce2",
+            "qualified_name": "workflow",
+            "node_type": "module",
+            "path": "workflow.py",
+            "location": {
+              "path": "workflow.py",
+              "start_line": 1,
+              "end_line": 8
+            },
+            "is_public": true
+          },
+          "target": {
+            "node_id": "node_92a4630788576ec9b367ceeb",
+            "qualified_name": "preflight",
+            "node_type": "module",
+            "path": "preflight.py",
+            "location": {
+              "path": "preflight.py",
+              "start_line": 1,
+              "end_line": 9
+            },
+            "is_public": true
+          },
+          "confidence": 1.0,
+          "location": {
+            "path": "workflow.py",
+            "start_line": 1,
+            "end_line": 1
+          }
+        },
+        {
+          "edge_id": "edge_e883c87f2c003769e10dcf81",
+          "edge_type": "imports",
+          "source": {
+            "node_id": "node_dccc5987c751ac992d36cfe8",
+            "qualified_name": "main",
+            "node_type": "module",
+            "path": "main.py",
+            "location": {
+              "path": "main.py",
+              "start_line": 1,
+              "end_line": 8
+            },
+            "is_public": true
+          },
+          "target": {
+            "node_id": "node_a8f64d20354d15f900248ce2",
+            "qualified_name": "workflow",
+            "node_type": "module",
+            "path": "workflow.py",
+            "location": {
+              "path": "workflow.py",
+              "start_line": 1,
+              "end_line": 8
+            },
+            "is_public": true
+          },
+          "confidence": 1.0,
+          "location": {
+            "path": "main.py",
+            "start_line": 2,
+            "end_line": 2
+          }
+        },
+        {
+          "edge_id": "edge_ad3a5bd81c3d74b15a44e174",
+          "edge_type": "calls",
+          "source": {
+            "node_id": "node_365b5f249782edab004f7900",
+            "qualified_name": "main.run",
+            "node_type": "function",
+            "path": "main.py",
+            "location": {
+              "path": "main.py",
+              "start_line": 5,
+              "end_line": 7
+            },
+            "is_public": true
+          },
+          "target": {
+            "node_id": "node_122223434af70f40539f4880",
+            "qualified_name": "provider.qwen_voices",
+            "node_type": "function",
+            "path": "provider.py",
+            "location": {
+              "path": "provider.py",
+              "start_line": 15,
+              "end_line": 16
+            },
+            "is_public": true
+          },
+          "confidence": 1.0,
+          "location": {
+            "path": "main.py",
+            "start_line": 6,
+            "end_line": 6
+          }
+        }
+      ],
+      "test_ids": [
+        "node_06a3c0ae9ed90ef44a374deb",
+        "node_910d8395daf0073452d83839"
+      ],
+      "test_evidence": [
+        {
+          "node_id": "node_06a3c0ae9ed90ef44a374deb",
+          "qualified_name": "tests.test_workflow.test_run",
+          "node_type": "test_function",
+          "path": "tests/test_workflow.py",
+          "location": {
+            "path": "tests/test_workflow.py",
+            "start_line": 4,
+            "end_line": 5
+          },
+          "is_public": true
+        },
+        {
+          "node_id": "node_910d8395daf0073452d83839",
+          "qualified_name": "tests.test_workflow",
+          "node_type": "test_module",
+          "path": "tests/test_workflow.py",
+          "location": {
+            "path": "tests/test_workflow.py",
+            "start_line": 1,
+            "end_line": 6
+          },
+          "is_public": true
+        }
+      ],
+      "excerpts": [],
+      "policies": [
+        {
+          "policy": {
+            "schema_version": 2,
+            "id": "model-stable-concepts",
+            "title": "Define interfaces around stable concepts, not incidental mechanisms",
+            "scope": "general",
+            "applies_to": null,
+            "strength": "guidance",
+            "tags": [
+              "interfaces",
+              "domain-model",
+              "stability"
+            ],
+            "source": {
+              "author": "ArchCompass",
+              "inspiration": [
+                "domain-driven design literature"
+              ]
+            },
+            "body": "## Intent\nKeep short-lived implementation choices from shaping long-lived application contracts.\n## Guidance\nName domain capabilities and results independently from the first provider or framework.\n## Signals\nPublic interfaces contain vendor names, transport fields, or framework lifecycle objects.\n## Diagnostic questions\nWould this concept still exist if the current implementation were replaced?\n## Likely consequences\nContracts change for domain reasons rather than adapter churn.\n## Exceptions\nProvider-specific features may remain explicitly provider-specific when portability is not a goal.\n## Positive example\n`VoiceCatalog` represents an application capability while Qwen owns its construction.\n## Counterexample\nRenaming every concrete object to `Generic*` without changing its semantics.\n## Related policies\nSee `contain-dependencies` and `keep-interfaces-simple`.",
+            "source_path": "/home/furkan/Documents/arch_compass/src/archcompass/policies/general/model-stable-concepts.md",
+            "content_hash": "014900eb7eb9462e6115d146c9b48cac702530a453bcafa9741c5c5e1b8f508e"
+          },
+          "chunks": [
+            {
+              "chunk_id": "pchunk_338f3d0a4ce32e1472f35302",
+              "policy_id": "model-stable-concepts",
+              "section": "Positive example",
+              "ordinal": 6,
+              "text": "`VoiceCatalog` represents an application capability while Qwen owns its construction.",
+              "content_hash": "a2bb55f401c1b3beaaf1b5de9c1734df60b226dd4ae2075de98bc7bead4d9687"
+            },
+            {
+              "chunk_id": "pchunk_d615cc2b05c454135c278eed",
+              "policy_id": "model-stable-concepts",
+              "section": "Related policies",
+              "ordinal": 8,
+              "text": "See `contain-dependencies` and `keep-interfaces-simple`.",
+              "content_hash": "d0244faee9850fec2a38241e8546feaa860c3bbccbed548b1bda3279b3815eee"
+            }
+          ],
+          "distance": 0.9812436699867249
+        },
+        {
+          "policy": {
+            "schema_version": 2,
+            "id": "avoid-duplicated-knowledge",
+            "title": "Keep each architectural fact in one authoritative place",
+            "scope": "general",
+            "applies_to": null,
+            "strength": "guidance",
+            "tags": [
+              "knowledge",
+              "duplication",
+              "change-amplification"
+            ],
+            "source": {
+              "author": "ArchCompass",
+              "inspiration": [
+                "software-design literature"
+              ]
+            },
+            "body": "## Intent\nPrevent one conceptual change from requiring synchronized edits.\n## Guidance\nConsolidate duplicated rules, mappings, and capability knowledge under their natural owner.\n## Signals\nThe same list, constant, validation rule, or conditional appears in unrelated modules.\n## Diagnostic questions\nAre these copies accidental, cached, or intentionally independent?\n## Likely consequences\nChanges become atomic and contradictory definitions are less likely.\n## Exceptions\nDeliberate denormalization is valid when synchronization and ownership are explicit.\n## Positive example\nBuilt-in voices are declared by the provider and consumed by preflight and presentation.\n## Counterexample\nUnrelated code is merged merely because two fragments happen to look alike.\n## Related policies\nSee `explicit-source-of-truth` and `assign-clear-ownership`.",
+            "source_path": "/home/furkan/Documents/arch_compass/src/archcompass/policies/general/avoid-duplicated-knowledge.md",
+            "content_hash": "8f12c192c3f2913c1aab2bb3ff9eb39f42db6f298b920d67a00eb041f6698a5d"
+          },
+          "chunks": [
+            {
+              "chunk_id": "pchunk_893eebbd84db7b56039ce20e",
+              "policy_id": "avoid-duplicated-knowledge",
+              "section": "Positive example",
+              "ordinal": 6,
+              "text": "Built-in voices are declared by the provider and consumed by preflight and presentation.",
+              "content_hash": "0c17ecc178382aa96c5c573f4bf4520af96aab69c2732b59add35395484f9d20"
+            }
+          ],
+          "distance": 1.0031241178512573
+        },
+        {
+          "policy": {
+            "schema_version": 2,
+            "id": "hide-implementation-details",
+            "title": "Hide implementation details behind the owning boundary",
+            "scope": "general",
+            "applies_to": null,
+            "strength": "guidance",
+            "tags": [
+              "information-hiding",
+              "dependencies",
+              "ownership"
+            ],
+            "source": {
+              "author": "ArchCompass",
+              "inspiration": [
+                "David Parnas, information hiding",
+                "John Ousterhout, A Philosophy of Software Design"
+              ]
+            },
+            "body": "## Intent\nPrevent callers from depending on decisions that belong to another module.\n## Guidance\nExpose the capability a caller needs while keeping formats, provider rules, and algorithms private.\n## Signals\nSeveral callers reproduce the same internal rule or inspect an implementation-specific type.\n## Diagnostic questions\nWhich decisions can the module change without coordinating with callers?\n## Likely consequences\nCallers become simpler and implementation changes affect fewer locations.\n## Exceptions\nTransparent data types are appropriate when their representation is the stable shared concept.\n## Positive example\nA provider returns a voice catalog without exposing how its built-in voices are discovered.\n## Counterexample\nA wrapper forwards every provider option and therefore hides nothing.\n## Related policies\nSee `assign-clear-ownership` and `contain-dependencies`.",
+            "source_path": "/home/furkan/Documents/arch_compass/src/archcompass/policies/general/hide-implementation-details.md",
+            "content_hash": "37bef177b85fc5721ec2e5514668a6863dced22c07579dc61d4bced101c39fb7"
+          },
+          "chunks": [
+            {
+              "chunk_id": "pchunk_93c9d14541745f6b98fbc785",
+              "policy_id": "hide-implementation-details",
+              "section": "Positive example",
+              "ordinal": 6,
+              "text": "A provider returns a voice catalog without exposing how its built-in voices are discovered.",
+              "content_hash": "e5311ef91499eb84520d651af8a1e0e3f19a06fd613b45fa7ef79fd3f72f983c"
+            }
+          ],
+          "distance": 1.0122029781341553
+        },
+        {
+          "policy": {
+            "schema_version": 2,
+            "id": "apply-consistency-deliberately",
+            "title": "Apply consistency where it reduces interpretation cost",
+            "scope": "general",
+            "applies_to": null,
+            "strength": "guidance",
+            "tags": [
+              "consistency",
+              "conventions",
+              "clarity"
+            ],
+            "source": {
+              "author": "ArchCompass",
+              "inspiration": [
+                "software-design literature"
+              ]
+            },
+            "body": "## Intent\nMake similar concepts behave similarly without forcing unlike responsibilities into one pattern.\n## Guidance\nStandardize naming, error handling, and lifecycle conventions at genuine shared boundaries.\n## Signals\nEquivalent operations use different terminology or error semantics without a domain reason.\n## Diagnostic questions\nAre the cases conceptually alike, and what does consistency let a maintainer infer?\n## Likely consequences\nExisting knowledge transfers and surprising special cases decline.\n## Exceptions\nDifferent domain semantics should remain visibly different.\n## Positive example\nAll repositories use the same not-found and revision-conflict semantics.\n## Counterexample\nEvery component is forced through one base class despite different ownership and lifecycle.\n## Related policies\nSee `make-relationships-discoverable` and `keep-interfaces-simple`.",
+            "source_path": "/home/furkan/Documents/arch_compass/src/archcompass/policies/general/apply-consistency-deliberately.md",
+            "content_hash": "42372356b32e97346dccb72b27a57ced04a52440e22c9c8d039af888bee29f3f"
+          },
+          "chunks": [
+            {
+              "chunk_id": "pchunk_f96065d01d2cb42e4a0fad7c",
+              "policy_id": "apply-consistency-deliberately",
+              "section": "Related policies",
+              "ordinal": 8,
+              "text": "See `make-relationships-discoverable` and `keep-interfaces-simple`.",
+              "content_hash": "43f213b40ca636196c01792558cf7d00b301293ee476f6379b0eccff91bbf2d0"
+            },
+            {
+              "chunk_id": "pchunk_82f9d6f74406c65ef058d99f",
+              "policy_id": "apply-consistency-deliberately",
+              "section": "Diagnostic questions",
+              "ordinal": 3,
+              "text": "Are the cases conceptually alike, and what does consistency let a maintainer infer?",
+              "content_hash": "1d5ab7498773dbab69592f1286b5df77bd419920cd8780ee5ed6d3148a93be22"
+            }
+          ],
+          "distance": 1.0868287086486816
+        },
+        {
+          "policy": {
+            "schema_version": 2,
+            "id": "different-layer-different-abstraction",
+            "title": "Give each layer a distinct abstraction",
+            "scope": "general",
+            "applies_to": null,
+            "strength": "guidance",
+            "tags": [
+              "layers",
+              "abstraction",
+              "pass-through",
+              "complexity"
+            ],
+            "source": {
+              "author": "ArchCompass",
+              "inspiration": [
+                "John Ousterhout, A Philosophy of Software Design (2nd ed.)"
+              ]
+            },
+            "body": "## Intent\nEnsure that an additional layer hides, translates, or consolidates complexity instead of merely adding another name and call hop.\n## Guidance\nMake each layer express concepts appropriate to its responsibility. A layer should aggregate operations, enforce invariants, translate representations, or otherwise provide a simpler view than the layer below it; collapse layers that only repeat another interface.\n## Signals\nMethods mostly forward the same arguments to similarly named methods and return the same result, or adjacent interfaces expose nearly identical concepts and sequencing.\n## Diagnostic questions\nWhat knowledge or decision does this layer hide, and could its caller use the lower-level interface with essentially the same understanding?\n## Likely consequences\nCall paths become shorter, interfaces earn their maintenance cost, and each remaining layer provides a meaningful place for change.\n## Exceptions\nA deliberately transparent adapter, decorator, security boundary, or compatibility seam may mirror an interface when isolation itself has concrete value and the extra hop remains obvious.\n## Positive example\nA repository exposes a domain aggregate assembled from storage rows, while the application service exposes a complete use-case result rather than forwarding row-oriented operations.\n## Counterexample\nA controller calls a service that calls a client with the same method name, parameters, and result, with no validation, translation, policy, or aggregation at either boundary.\n## Related policies\nSee `prefer-deep-modules`, `keep-interfaces-simple`, and `contain-dependencies`.",
+            "source_path": "/home/furkan/Documents/arch_compass/src/archcompass/policies/general/different-layer-different-abstraction.md",
+            "content_hash": "759114a05f2f2bafda33f8bff69557952fb77d313e540b6859f46194613e0b4a"
+          },
+          "chunks": [
+            {
+              "chunk_id": "pchunk_65903ef0011d7a25e0f807e9",
+              "policy_id": "different-layer-different-abstraction",
+              "section": "Related policies",
+              "ordinal": 8,
+              "text": "See `prefer-deep-modules`, `keep-interfaces-simple`, and `contain-dependencies`.",
+              "content_hash": "2e20db6631f5d64a50321e056d9d7126b2e184fffa8926645febee6c1e2341ea"
+            }
+          ],
+          "distance": 1.0878044366836548
+        },
+        {
+          "policy": {
+            "schema_version": 2,
+            "id": "optimize-locality-of-change",
+            "title": "Keep one conceptual change local",
+            "scope": "general",
+            "applies_to": null,
+            "strength": "guidance",
+            "tags": [
+              "locality",
+              "change-amplification",
+              "dependencies"
+            ],
+            "source": {
+              "author": "ArchCompass",
+              "inspiration": [
+                "software-design literature"
+              ]
+            },
+            "body": "## Intent\nReduce coordinated edits caused by a single decision.\n## Guidance\nGroup knowledge that changes together while separating responsibilities that change independently.\n## Signals\nAdding one provider requires changes in presentation, validation, workflow, and root composition.\n## Diagnostic questions\nWhich files change together, and is there one responsibility behind those edits?\n## Likely consequences\nFeature changes touch fewer locations and partial updates become less likely.\n## Exceptions\nCross-cutting security or compliance changes may intentionally affect many boundaries.\n## Positive example\nAdding a provider requires one adapter and one composition registration.\n## Counterexample\nA large central module is justified only because all changes are now in one file.\n## Related policies\nSee `avoid-duplicated-knowledge` and `contain-dependencies`.",
+            "source_path": "/home/furkan/Documents/arch_compass/src/archcompass/policies/general/optimize-locality-of-change.md",
+            "content_hash": "173d5fd199dd230c7ffa5e46b3039fbb152abd804b3336539b514f30636f26d4"
+          },
+          "chunks": [
+            {
+              "chunk_id": "pchunk_bb62ab165feda46bfa91de3b",
+              "policy_id": "optimize-locality-of-change",
+              "section": "Related policies",
+              "ordinal": 8,
+              "text": "See `avoid-duplicated-knowledge` and `contain-dependencies`.",
+              "content_hash": "584d44225ad3844212c90f20d3524dd1c1da0930f59f7e1d5c0fd18b83bc9b42"
+            },
+            {
+              "chunk_id": "pchunk_183d0b8e3e8540fc0a94c595",
+              "policy_id": "optimize-locality-of-change",
+              "section": "Signals",
+              "ordinal": 2,
+              "text": "Adding one provider requires changes in presentation, validation, workflow, and root composition.",
+              "content_hash": "d38970f929ef4ed9da8d36954c5693bb2989386cc784b4accad41d16a08d58a0"
+            }
+          ],
+          "distance": 1.0927461385726929
+        }
+      ],
+      "assumptions": [],
+      "uncertainty": [
+        "Static call resolution is conservative and runtime behavior is not observed."
+      ]
+    }
+  ],
+  "allowed_nodes": [
+    {
+      "atlas_id": "node_122223434af70f40539f4880",
+      "path": "provider.py",
+      "symbol_name": "qwen_voices",
+      "qualified_name": "provider.qwen_voices",
+      "node_type": "function",
+      "start_line": 15,
+      "end_line": 16,
+      "parent_id": "node_a318f9f739ea4d81cd5c8088",
+      "is_public": true,
+      "has_docstring": false,
+      "language": "python",
+      "parser_version": "python-ast-3.12-v3"
+    },
+    {
+      "atlas_id": "node_365b5f249782edab004f7900",
+      "path": "main.py",
+      "symbol_name": "run",
+      "qualified_name": "main.run",
+      "node_type": "function",
+      "start_line": 5,
+      "end_line": 7,
+      "parent_id": "node_dccc5987c751ac992d36cfe8",
+      "is_public": true,
+      "has_docstring": false,
+      "language": "python",
+      "parser_version": "python-ast-3.12-v3"
+    },
+    {
+      "atlas_id": "node_536006b74f276f558fddf482",
+      "path": "frontend.py",
+      "symbol_name": "frontend",
+      "qualified_name": "frontend",
+      "node_type": "module",
+      "start_line": 1,
+      "end_line": 8,
+      "parent_id": "node_5da4727a78af1c197561c14a",
+      "is_public": true,
+      "has_docstring": false,
+      "language": "python",
+      "parser_version": "python-ast-3.12-v3"
+    },
+    {
+      "atlas_id": "node_910d8395daf0073452d83839",
+      "path": "tests/test_workflow.py",
+      "symbol_name": "test_workflow",
+      "qualified_name": "tests.test_workflow",
+      "node_type": "test_module",
+      "start_line": 1,
+      "end_line": 6,
+      "parent_id": "node_592392c08afd5f4e473c2155",
+      "is_public": true,
+      "has_docstring": false,
+      "language": "python",
+      "parser_version": "python-ast-3.12-v3"
+    },
+    {
+      "atlas_id": "node_92a4630788576ec9b367ceeb",
+      "path": "preflight.py",
+      "symbol_name": "preflight",
+      "qualified_name": "preflight",
+      "node_type": "module",
+      "start_line": 1,
+      "end_line": 9,
+      "parent_id": "node_5da4727a78af1c197561c14a",
+      "is_public": true,
+      "has_docstring": false,
+      "language": "python",
+      "parser_version": "python-ast-3.12-v3"
+    },
+    {
+      "atlas_id": "node_a318f9f739ea4d81cd5c8088",
+      "path": "provider.py",
+      "symbol_name": "provider",
+      "qualified_name": "provider",
+      "node_type": "module",
+      "start_line": 1,
+      "end_line": 17,
+      "parent_id": "node_5da4727a78af1c197561c14a",
+      "is_public": true,
+      "has_docstring": false,
+      "language": "python",
+      "parser_version": "python-ast-3.12-v3"
+    },
+    {
+      "atlas_id": "node_a8f64d20354d15f900248ce2",
+      "path": "workflow.py",
+      "symbol_name": "workflow",
+      "qualified_name": "workflow",
+      "node_type": "module",
+      "start_line": 1,
+      "end_line": 8,
+      "parent_id": "node_5da4727a78af1c197561c14a",
+      "is_public": true,
+      "has_docstring": false,
+      "language": "python",
+      "parser_version": "python-ast-3.12-v3"
+    },
+    {
+      "atlas_id": "node_a9da0c22cb0b396d778717c2",
+      "path": "provider.py",
+      "symbol_name": "synthesize",
+      "qualified_name": "provider.QwenProvider.synthesize",
+      "node_type": "method",
+      "start_line": 11,
+      "end_line": 12,
+      "parent_id": "node_abc6e9d034c3b5bbe9eff3b9",
+      "is_public": true,
+      "has_docstring": false,
+      "language": "python",
+      "parser_version": "python-ast-3.12-v3"
+    },
+    {
+      "atlas_id": "node_abc6e9d034c3b5bbe9eff3b9",
+      "path": "provider.py",
+      "symbol_name": "QwenProvider",
+      "qualified_name": "provider.QwenProvider",
+      "node_type": "class",
+      "start_line": 10,
+      "end_line": 12,
+      "parent_id": "node_a318f9f739ea4d81cd5c8088",
+      "is_public": true,
+      "has_docstring": false,
+      "language": "python",
+      "parser_version": "python-ast-3.12-v3"
+    },
+    {
+      "atlas_id": "node_c4f86dee4a1b0864fa1c7480",
+      "path": "provider.py",
+      "symbol_name": "VoiceProvider",
+      "qualified_name": "provider.VoiceProvider",
+      "node_type": "interface",
+      "start_line": 6,
+      "end_line": 7,
+      "parent_id": "node_a318f9f739ea4d81cd5c8088",
+      "is_public": true,
+      "has_docstring": false,
+      "language": "python",
+      "parser_version": "python-ast-3.12-v3"
+    },
+    {
+      "atlas_id": "node_c648c13bb45cb9826400c939",
+      "path": "provider.py",
+      "symbol_name": "synthesize",
+      "qualified_name": "provider.VoiceProvider.synthesize",
+      "node_type": "method",
+      "start_line": 7,
+      "end_line": 7,
+      "parent_id": "node_c4f86dee4a1b0864fa1c7480",
+      "is_public": true,
+      "has_docstring": false,
+      "language": "python",
+      "parser_version": "python-ast-3.12-v3"
+    },
+    {
+      "atlas_id": "node_dccc5987c751ac992d36cfe8",
+      "path": "main.py",
+      "symbol_name": "main",
+      "qualified_name": "main",
+      "node_type": "module",
+      "start_line": 1,
+      "end_line": 8,
+      "parent_id": "node_5da4727a78af1c197561c14a",
+      "is_public": true,
+      "has_docstring": false,
+      "language": "python",
+      "parser_version": "python-ast-3.12-v3"
+    }
+  ]
+}
