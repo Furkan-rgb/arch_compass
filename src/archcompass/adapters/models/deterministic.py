@@ -692,7 +692,7 @@ class DeterministicReasoningProvider:
             )
 
         return ProposedRecommendation(
-            disposition=disposition.value,
+            disposition=disposition,
             problem_and_desired_outcome=(
                 f"{case.problem_statement}\n\nDesired outcome: {case.desired_outcome}"
             ),

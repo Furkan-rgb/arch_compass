@@ -7,9 +7,9 @@ either impossible to express or rejected outright.
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from archcompass.application.synthesis import (
-    ProposalCompositionError,
     build_claim_pool,
     compose_recommendation,
     validate_proposal,
@@ -30,6 +30,7 @@ from archcompass.domain.consultation import (
     ConcernCluster,
     DesignForce,
     FindingImportance,
+    RecommendationDisposition,
     ScenarioEvaluation,
 )
 from archcompass.domain.proposals import (
@@ -272,6 +273,24 @@ def test_every_concern_cluster_must_receive_a_finding() -> None:
     assert any("No finding was produced" in error and "C2" in error for error in errors)
 
 
-def test_an_unknown_disposition_fails_composition() -> None:
-    with pytest.raises(ProposalCompositionError, match="disposition"):
-        _compose(_proposal(claim_refs=["E1"], disposition="do_something_clever"))
+def test_an_unknown_disposition_cannot_be_expressed() -> None:
+    """The disposition set is closed, so an invalid one fails at the wire boundary.
+
+    A real model returned "Recommendation" here when the field was free text; the JSON
+    schema now enumerates the set, so the grammar cannot produce it and the DTO cannot
+    hold it.
+    """
+
+    with pytest.raises(ValidationError, match="disposition"):
+        _proposal(claim_refs=["E1"], disposition="do_something_clever")
+
+
+def test_the_wire_schema_enumerates_every_disposition() -> None:
+    """The constraint must reach the JSON schema, which is what constrains the model."""
+
+    schema = ProposedRecommendation.model_json_schema()
+    reference = schema["properties"]["disposition"]["$ref"].rsplit("/", 1)[-1]
+
+    assert set(schema["$defs"][reference]["enum"]) == {
+        item.value for item in RecommendationDisposition
+    }

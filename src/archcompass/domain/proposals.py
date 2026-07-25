@@ -26,7 +26,11 @@ from pydantic import Field, model_validator
 
 from archcompass.domain.base import DomainModel
 from archcompass.domain.case import Confidence
-from archcompass.domain.consultation import ClaimClassification, FindingImportance
+from archcompass.domain.consultation import (
+    ClaimClassification,
+    FindingImportance,
+    RecommendationDisposition,
+)
 
 #: Classifications a provider may author on its own authority. Everything else is
 #: evidence that must already exist in the supplied claim pool.
@@ -108,7 +112,9 @@ class ProposedRecommendation(DomainModel):
     schema version. ArchCompass owns each of those and injects them during composition.
     """
 
-    disposition: str = Field(min_length=1)
+    #: Typed, not free text: the set is closed and known before the request, so the
+    #: JSON schema constrains it and an invalid disposition cannot be expressed.
+    disposition: RecommendationDisposition
     problem_and_desired_outcome: str = Field(min_length=1)
     confidence: Confidence
     advisor_claims: list[ProposedAdvisorClaim] = Field(

@@ -37,7 +37,6 @@ from archcompass.domain.consultation import (
     ConcernCluster,
     DesignForce,
     FocusedAnalysisPacket,
-    RecommendationDisposition,
     RecommendationReport,
     ScenarioEvaluation,
     SupportedStatement,
@@ -194,13 +193,6 @@ def validate_proposal(
                 f"Statement {ordinal} cites unknown claim handles: {sorted(unknown)}"
             )
 
-    try:
-        RecommendationDisposition(proposal.disposition)
-    except ValueError:
-        errors.append(
-            f"Unknown recommendation disposition: {proposal.disposition!r}"
-        )
-
     covered_clusters: set[str] = set()
     for ordinal, finding in enumerate(proposal.findings, start=1):
         cluster_id = pool.cluster_id_by_ref.get(finding.cluster_ref)
@@ -323,7 +315,7 @@ def compose_recommendation(
 
     report = RecommendationReport(
         schema_version=3,
-        disposition=RecommendationDisposition(proposal.disposition),
+        disposition=proposal.disposition,
         decision_summary=compose(proposal.decision_summary),
         problem_and_desired_outcome=proposal.problem_and_desired_outcome,
         confirmed_context=sections["confirmed_context"],

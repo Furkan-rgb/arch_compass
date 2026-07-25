@@ -531,7 +531,15 @@ def test_unrepairable_proposal_persists_a_failed_run_with_full_history(
     class UnrepairableProposalReasoner(DeterministicReasoningProvider):
         def propose_recommendation(self, *args, **kwargs):
             proposal = super().propose_recommendation(*args, **kwargs)
-            return proposal.model_copy(update={"disposition": "invent_a_new_outcome"})
+            # An unknown claim handle: still expressible in the DTO, unlike a bad
+            # disposition, which the enumerated schema now makes unrepresentable.
+            return proposal.model_copy(
+                update={
+                    "decision_summary": proposal.decision_summary.model_copy(
+                        update={"claim_refs": ["E-invented"]}
+                    )
+                }
+            )
 
         def repair_recommendation_proposal(self, proposal, errors, **kwargs):
             return proposal
