@@ -22,7 +22,6 @@ from archcompass.domain.case import (
     ConfidenceLevel,
 )
 from archcompass.domain.consultation import (
-    ADRRecord,
     ArchitecturalFinding,
     AtlasEvidenceReference,
     Claim,
@@ -36,9 +35,7 @@ from archcompass.domain.consultation import (
     FocusedNodeSummary,
     GlobalContext,
     RecommendationDisposition,
-    RecommendationReport,
     ScenarioEvaluation,
-    SupportedStatement,
 )
 from archcompass.domain.conversation import (
     AnswerClaim,
@@ -66,7 +63,14 @@ from archcompass.domain.conversation import (
     SearchAtlasNodesAction,
 )
 from archcompass.domain.errors import ConversationValidationError
-from archcompass.domain.policy import canonical_policy_evidence
+from archcompass.domain.proposals import (
+    AvailableClaim,
+    ProposedADR,
+    ProposedAdvisorClaim,
+    ProposedFinding,
+    ProposedRecommendation,
+    ProposedStatement,
+)
 from archcompass.ports.reasoning import ReasoningTask
 
 _BOUNDARY_PREPARATION_SIGNAL_CODES = frozenset(
@@ -107,7 +111,8 @@ class DeterministicReasoningProvider:
         ReasoningTask.ANALYZE_CONCERN_CLUSTER: "analyze-concern:v2",
         ReasoningTask.GENERATE_ALTERNATIVES: "generate-alternatives:v2",
         ReasoningTask.EVALUATE_SCENARIOS: "evaluate-scenarios:v2",
-        ReasoningTask.SYNTHESIZE_RECOMMENDATION: "synthesize-recommendation:v2",
+        ReasoningTask.SYNTHESIZE_RECOMMENDATION: "synthesize-recommendation:v3",
+        ReasoningTask.REPAIR_RECOMMENDATION_PROPOSAL: "repair-recommendation-proposal:v1",
         ReasoningTask.CLASSIFY_REPORT_QUESTION: "classify-report-question:v2",
         ReasoningTask.ANSWER_REPORT_QUESTION: "answer-report-question:v3",
         ReasoningTask.SUMMARIZE_REPORT_CONVERSATION: "summarize-report-conversation:v2",
@@ -120,9 +125,6 @@ class DeterministicReasoningProvider:
 
     def prompt_identity(self, task: ReasoningTask) -> str:
         return self._PROMPTS[task]
-
-    def consume_repair_actions(self) -> list[dict[str, object]]:
-        return []
 
     def discover_design_forces(self, context: GlobalContext) -> list[DesignForce]:
         forces = [
@@ -558,7 +560,7 @@ class DeterministicReasoningProvider:
             for scenario in scenarios[:4]
         ]
 
-    def synthesize_recommendation(
+    def propose_recommendation(
         self,
         case: ArchitectureCase,
         context: GlobalContext,
@@ -568,8 +570,11 @@ class DeterministicReasoningProvider:
         alternatives: list[CaseAlternative],
         scenarios: list[ScenarioEvaluation],
         packets: list[FocusedAnalysisPacket],
-    ) -> RecommendationReport:
-        del context, clusters
+        *,
+        available_claims: list[AvailableClaim],
+        cluster_refs: dict[str, str],
+    ) -> ProposedRecommendation:
+        del context, clusters, alternatives, scenarios
         text = (
             f"{case.title} {case.problem_statement} {' '.join(case.expected_future_changes)}"
         ).casefold()
@@ -604,6 +609,43 @@ class DeterministicReasoningProvider:
                     "structured-output parsing, and error translation."
                 ),
             ]
+            interfaces = [
+                (
+                    "ConversationContextBuilder.build(conversation, run, question, "
+                    "history, retrieval_results) -> ReportConversationContext"
+                ),
+                (
+                    "ReportConversationReasoner.answer_report_question(context) "
+                    "-> ConversationAnswer"
+                ),
+            ]
+            amplification = (
+                "The located adapter currently has two independent reasons to change: report "
+                "and evidence-selection rules, and model transport details. Moving selection "
+                "behind the application contract keeps report-schema, claim-attribution, "
+                "truncation, and history changes out of transport code."
+            )
+            trade_offs = [
+                (
+                    "An application dossier adds one explicit contract but removes report "
+                    "interpretation and evidence-selection knowledge from transport code."
+                ),
+                (
+                    "The adapter may still project the authoritative dossier into the "
+                    "model's request format."
+                ),
+            ]
+            sequence = [
+                "Define the bounded ReportConversationContext and its claim-reference rules.",
+                (
+                    "Move report, finding, evidence, and history selection into an "
+                    "application context builder."
+                ),
+                (
+                    "Change the reasoning port and model adapter to consume that context, "
+                    "then test application selection and transport projection separately."
+                ),
+            ]
         elif premature:
             disposition = RecommendationDisposition.KEEP_LOCAL
             decision = (
@@ -613,6 +655,25 @@ class DeterministicReasoningProvider:
             responsibilities = [
                 "The existing module continues to own the single behavior.",
                 "Introduce a boundary only when independent variation appears.",
+            ]
+            interfaces = []
+            amplification = "No current blast-radius reduction justifies another abstraction."
+            trade_offs = [
+                (
+                    "Keeping the behavior local avoids interface, factory, registry, "
+                    "and configuration overhead."
+                ),
+                (
+                    "Delaying abstraction trades immediate extension flexibility for "
+                    "lower present complexity."
+                ),
+            ]
+            sequence = [
+                "Retain the direct local formatter and its behavior tests.",
+                (
+                    "Do not add an interface, factory, registry, or configuration key "
+                    "until a second credible implementation appears."
+                ),
             ]
         elif provider:
             disposition = RecommendationDisposition.MOVE_RESPONSIBILITY
@@ -625,6 +686,24 @@ class DeterministicReasoningProvider:
                 "Each provider adapter owns voice discovery and provider-specific identifiers.",
                 "Presentation consumes provider-neutral capability results.",
             ]
+            interfaces = [
+                "ProviderCapabilities.discover_voices() -> VoiceCatalog",
+                "NarrationProvider.synthesize(request) -> AudioArtifact",
+                "NarrationWorkflow.resume(job_id) -> JobStatus",
+            ]
+            amplification = (
+                "Provider changes remain within one adapter instead of coordinating "
+                "presentation and workflow edits."
+            )
+            trade_offs = [
+                "The chosen boundary adds one explicit contract.",
+                "Static evidence cannot prove runtime behavior.",
+            ]
+            sequence = [
+                "Name the responsibility and its owner.",
+                "Move knowledge without changing behavior.",
+                "Add contract and workflow tests before removing duplication.",
+            ]
         else:
             disposition = RecommendationDisposition.INTRODUCE_BOUNDARY
             decision = (
@@ -634,150 +713,87 @@ class DeterministicReasoningProvider:
             responsibilities = [
                 "Assign one owner to each piece of knowledge that changes together."
             ]
+            interfaces = []
+            amplification = "No current blast-radius reduction justifies another abstraction."
+            trade_offs = [
+                "The chosen boundary adds one explicit contract.",
+                "Static evidence cannot prove runtime behavior.",
+            ]
+            sequence = [
+                "Name the responsibility and its owner.",
+                "Move knowledge without changing behavior.",
+                "Add contract and workflow tests before removing duplication.",
+            ]
 
-        repository_claims = [
-            claim
-            for analysis in analyses
-            for claim in analysis.findings
-            if claim.classification == ClaimClassification.REPOSITORY_OBSERVATION
-        ]
-        policy_claims = [
-            claim
-            for analysis in analyses
-            for claim in analysis.findings
-            if claim.classification == ClaimClassification.POLICY_GUIDANCE
-        ]
-        analysis_claims = [
-            claim for analysis in analyses for claim in analysis.findings
-        ]
-        confirmed = [
-            Claim(
-                claim_id=item.id,
-                text=item.text,
-                classification=ClaimClassification.CONFIRMED_REQUIREMENT,
-            )
-            for item in case.confirmed_facts
-        ]
-        assumptions = [
-            Claim(
-                claim_id=item.id,
-                text=item.text,
-                classification=ClaimClassification.SCENARIO_ASSUMPTION,
-            )
-            for item in [*case.assumptions, *case.unresolved_questions]
-        ]
-        inference = Claim(
-            text=(
-                "The recommendation follows from the combined ownership, locality, policy, "
-                "and repository evidence."
-            ),
-            classification=ClaimClassification.ADVISOR_INFERENCE,
-        )
-        support_ids = list(
-            dict.fromkeys(
-                claim.claim_id for claim in [*confirmed, *analysis_claims, inference]
-            )
-        )
+        inference_ref = "X1"
+        refs_by_cluster: dict[str, list[str]] = {ref: [] for ref in cluster_refs}
+        for claim in available_claims:
+            if claim.cluster_ref in refs_by_cluster:
+                refs_by_cluster[claim.cluster_ref].append(claim.ref)
+        support = [*(claim.ref for claim in available_claims), inference_ref]
 
-        # At least the synthesis inference is always available.
-        def supported(value: str) -> SupportedStatement:
-            return SupportedStatement(
+        def statement(value: str) -> ProposedStatement:
+            return ProposedStatement(
                 text=value,
                 classification=ClaimClassification.ADVISOR_INFERENCE,
-                supporting_claim_ids=support_ids,
+                claim_refs=support,
             )
 
+        repository_backed = any(
+            claim.classification == ClaimClassification.REPOSITORY_OBSERVATION
+            for claim in available_claims
+        )
         confidence = Confidence(
             level=(
-                ConfidenceLevel.HIGH if packets and repository_claims else ConfidenceLevel.MEDIUM
+                ConfidenceLevel.HIGH if packets and repository_backed else ConfidenceLevel.MEDIUM
             ),
             rationale=(
                 "Repository evidence and policies support the allocation."
-                if repository_claims
+                if repository_backed
                 else "The recommendation is grounded in case context without repository evidence."
             ),
         )
-        evidence = list(
-            {
-                claim.claim_id: claim
-                for claim in [
-                    *confirmed,
-                    *analysis_claims,
-                    *assumptions,
-                    inference,
-                ]
-            }.values()
-        )
-        policy_evidence = canonical_policy_evidence(
-            retrieved
-            for packet in packets
-            for retrieved in packet.policies
-        )
-        conflicts = [conflict for analysis in analyses for conflict in analysis.policy_conflicts]
-        packet_by_cluster = {
-            packet.cluster.cluster_id: packet for packet in packets
+        analysis_by_cluster_ref = {
+            cluster_ref_of: analysis
+            for analysis in analyses
+            for cluster_ref_of in [
+                next(
+                    (
+                        claim.cluster_ref
+                        for claim in available_claims
+                        if claim.cluster_ref is not None
+                        and claim.text
+                        in {item.text for item in analysis.findings}
+                    ),
+                    None,
+                )
+            ]
+            if cluster_ref_of is not None
         }
-        architectural_findings: list[ArchitecturalFinding] = []
-        for ordinal, analysis in enumerate(analyses, start=1):
-            finding_claim_ids = list(
-                dict.fromkeys(claim.claim_id for claim in analysis.findings)
-            )
-            atlas_node_ids = list(
-                dict.fromkeys(
-                    reference.node_id
-                    for claim in analysis.findings
-                    for reference in claim.atlas_references
-                )
-            )
-            finding_policy_ids = list(
-                dict.fromkeys(
-                    policy_id
-                    for claim in analysis.findings
-                    for policy_id in claim.policy_ids
-                )
-            )
-            packet = packet_by_cluster.get(analysis.cluster_id)
-            node_evidence = (
-                {
-                    evidence.node.node_id: evidence
-                    for evidence in packet.node_evidence
-                }
-                if packet is not None
-                else {}
-            )
-            affected_locations = [
-                node_item.node
-                for node_id in atlas_node_ids
-                if (node_item := node_evidence.get(node_id)) is not None
-            ]
-            metric_observations = [
-                metric
-                for node_id in atlas_node_ids
-                if (node_item := node_evidence.get(node_id)) is not None
-                for metric in node_item.metrics
-            ]
-            obscurity_signals = [
-                signal
-                for node_id in atlas_node_ids
-                if (node_item := node_evidence.get(node_id)) is not None
-                for signal in node_item.signals
-            ]
+        packet_by_cluster_title = {packet.cluster.title: packet for packet in packets}
+        findings: list[ProposedFinding] = []
+        for cluster_ref, claim_refs in refs_by_cluster.items():
+            if not claim_refs:
+                continue
+            analysis = analysis_by_cluster_ref.get(cluster_ref)
+            title = cluster_refs[cluster_ref]
+            packet = packet_by_cluster_title.get(title)
             high_importance = any(
                 force.importance.casefold() in {"high", "critical"}
                 for force in forces
-                if packet is not None
-                and force.force_id in packet.cluster.design_force_ids
+                if packet is not None and force.force_id in packet.cluster.design_force_ids
             )
-            architectural_findings.append(
-                ArchitecturalFinding(
-                    finding_id=f"FIND-{ordinal:03d}",
-                    title=analysis.concern,
-                    summary=" ".join(claim.text for claim in analysis.findings),
-                    concern_cluster_id=analysis.cluster_id,
+            findings.append(
+                ProposedFinding(
+                    cluster_ref=cluster_ref,
+                    title=title,
+                    summary=" ".join(
+                        claim.text
+                        for claim in available_claims
+                        if claim.ref in set(claim_refs)
+                    ),
                     importance=(
-                        FindingImportance.HIGH
-                        if high_importance
-                        else FindingImportance.MEDIUM
+                        FindingImportance.HIGH if high_importance else FindingImportance.MEDIUM
                     ),
                     importance_rationale=(
                         "The concern combines a high-priority design force with located "
@@ -788,15 +804,10 @@ class DeterministicReasoningProvider:
                     confidence=confidence,
                     consequence=(
                         analysis.implications[0]
-                        if analysis.implications
+                        if analysis is not None and analysis.implications
                         else "The concern may increase change amplification."
                     ),
-                    claim_ids=finding_claim_ids,
-                    atlas_node_ids=atlas_node_ids,
-                    policy_ids=finding_policy_ids,
-                    affected_locations=affected_locations,
-                    metric_observations=metric_observations,
-                    obscurity_signals=obscurity_signals,
+                    claim_refs=claim_refs,
                     recommended_response=decision,
                     uncertainty=(
                         packet.uncertainty
@@ -808,13 +819,14 @@ class DeterministicReasoningProvider:
                     ),
                 )
             )
-        if not architectural_findings:
-            architectural_findings.append(
-                ArchitecturalFinding(
-                    finding_id="FIND-001",
+        for cluster_ref in cluster_refs:
+            if any(item.cluster_ref == cluster_ref for item in findings):
+                continue
+            findings.append(
+                ProposedFinding(
+                    cluster_ref=cluster_ref,
                     title="Architecture recommendation",
-                    summary=inference.text,
-                    concern_cluster_id=None,
+                    summary=decision,
                     importance=FindingImportance.MEDIUM,
                     importance_rationale=(
                         "The recommendation is material, but no concern analysis or repository "
@@ -825,156 +837,111 @@ class DeterministicReasoningProvider:
                         "The recommendation should be revisited when concern analysis or "
                         "repository evidence becomes available."
                     ),
-                    claim_ids=[inference.claim_id],
-                    atlas_node_ids=[],
-                    policy_ids=[],
-                    affected_locations=[],
-                    metric_observations=[],
-                    obscurity_signals=[],
+                    claim_refs=support,
                     recommended_response=decision,
                     uncertainty=[
                         "No concern analysis was supplied for this recommendation."
                     ],
                 )
             )
-        return RecommendationReport(
-            schema_version=3,
-            disposition=disposition,
-            decision_summary=supported(decision),
+
+        return ProposedRecommendation(
+            disposition=disposition.value,
             problem_and_desired_outcome=(
                 f"{case.problem_statement}\n\nDesired outcome: {case.desired_outcome}"
             ),
-            confirmed_context=confirmed,
-            assumptions_and_unresolved_questions=assumptions,
-            important_design_forces=forces,
-            findings=architectural_findings,
-            repository_observations=repository_claims,
-            relevant_policies=policy_claims,
-            policy_evidence=policy_evidence,
-            policy_conflicts=conflicts,
-            recommended_architecture=supported(decision),
-            responsibility_allocation=[supported(item) for item in responsibilities],
-            conceptual_interfaces=(
-                [
-                    supported(
-                        "ConversationContextBuilder.build(conversation, run, question, "
-                        "history, retrieval_results) -> ReportConversationContext"
-                    ),
-                    supported(
-                        "ReportConversationReasoner.answer_report_question(context) "
-                        "-> ConversationAnswer"
-                    ),
-                ]
-                if boundary_context_spill
-                else [
-                    supported("ProviderCapabilities.discover_voices() -> VoiceCatalog"),
-                    supported("NarrationProvider.synthesize(request) -> AudioArtifact"),
-                    supported("NarrationWorkflow.resume(job_id) -> JobStatus"),
-                ]
-                if provider
-                else []
-            ),
-            alternatives_considered=alternatives,
-            scenario_analysis=scenarios,
-            change_amplification_analysis=supported(
-                (
-                    "The located adapter currently has two independent reasons to change: report "
-                    "and evidence-selection rules, and model transport details. Moving selection "
-                    "behind the application contract keeps report-schema, claim-attribution, "
-                    "truncation, and history changes out of transport code."
-                )
-                if boundary_context_spill
-                else (
-                    "Provider changes remain within one adapter instead of coordinating "
-                    "presentation and workflow edits."
-                )
-                if provider
-                else "No current blast-radius reduction justifies another abstraction."
-            ),
-            trade_offs=[
-                supported(item)
-                for item in (
-                    [
-                        (
-                            "An application dossier adds one explicit contract but removes report "
-                            "interpretation and evidence-selection knowledge from transport code."
-                        ),
-                        (
-                            "The adapter may still project the authoritative dossier into the "
-                            "model's request format."
-                        ),
-                    ]
-                    if boundary_context_spill
-                    else [
-                        (
-                            "Keeping the behavior local avoids interface, factory, registry, "
-                            "and configuration overhead."
-                        ),
-                        (
-                            "Delaying abstraction trades immediate extension flexibility for "
-                            "lower present complexity."
-                        ),
-                    ]
-                    if premature
-                    else [
-                        "The chosen boundary adds one explicit contract.",
-                        "Static evidence cannot prove runtime behavior.",
-                    ]
-                )
-            ],
-            implementation_sequence=[
-                supported(item)
-                for item in (
-                    [
-                        (
-                            "Define the bounded ReportConversationContext and its "
-                            "claim-reference rules."
-                        ),
-                        (
-                            "Move report, finding, evidence, and history selection into an "
-                            "application context builder."
-                        ),
-                        (
-                            "Change the reasoning port and model adapter to consume that context, "
-                            "then test application selection and transport projection separately."
-                        ),
-                    ]
-                    if boundary_context_spill
-                    else [
-                        "Retain the direct local formatter and its behavior tests.",
-                        (
-                            "Do not add an interface, factory, registry, or configuration key "
-                            "until a second credible implementation appears."
-                        ),
-                    ]
-                    if premature
-                    else [
-                        "Name the responsibility and its owner.",
-                        "Move knowledge without changing behavior.",
-                        "Add contract and workflow tests before removing duplication.",
-                    ]
-                )
-            ],
             confidence=confidence,
+            advisor_claims=[
+                ProposedAdvisorClaim(
+                    ref=inference_ref,
+                    text=(
+                        "The recommendation follows from the combined ownership, locality, "
+                        "policy, and repository evidence."
+                    ),
+                    classification=ClaimClassification.ADVISOR_INFERENCE,
+                )
+            ],
+            findings=findings,
+            decision_summary=statement(decision),
+            recommended_architecture=statement(decision),
+            responsibility_allocation=[statement(item) for item in responsibilities],
+            conceptual_interfaces=[statement(item) for item in interfaces],
+            change_amplification_analysis=statement(amplification),
+            trade_offs=[statement(item) for item in trade_offs],
+            implementation_sequence=[statement(item) for item in sequence],
             reversal_conditions=[
-                supported(
+                statement(
                     "New evidence shows the responsibility changes independently from its owner."
                 )
             ],
             revisit_triggers=[
-                supported("A second concrete implementation appears."),
-                supported("A future scenario becomes a committed requirement."),
+                statement("A second concrete implementation appears."),
+                statement("A future scenario becomes a committed requirement."),
             ],
-            adr=ADRRecord(
+            adr=ProposedADR(
                 title=f"Architecture decision for {case.title}",
                 context=case.problem_statement,
-                decision=supported(decision),
+                decision=statement(decision),
                 consequences=[
-                    supported("Changing knowledge gains a single explicit owner."),
-                    supported("Unused extension infrastructure is not introduced."),
+                    statement("Changing knowledge gains a single explicit owner."),
+                    statement("Unused extension infrastructure is not introduced."),
                 ],
             ),
-            evidence_appendix=evidence,
+        )
+
+    def repair_recommendation_proposal(
+        self,
+        proposal: ProposedRecommendation,
+        errors: list[str],
+        *,
+        available_claims: list[AvailableClaim],
+        cluster_refs: dict[str, str],
+    ) -> ProposedRecommendation:
+        del errors, cluster_refs
+        allowed = {claim.ref for claim in available_claims} | {
+            claim.ref for claim in proposal.advisor_claims
+        }
+        cluster_of = {
+            claim.ref: claim.cluster_ref
+            for claim in available_claims
+            if claim.cluster_ref is not None
+        }
+
+        def prune(statement: ProposedStatement) -> ProposedStatement:
+            refs = [ref for ref in statement.claim_refs if ref in allowed]
+            return statement.model_copy(update={"claim_refs": refs or sorted(allowed)[:1]})
+
+        def prune_finding(finding: ProposedFinding) -> ProposedFinding:
+            refs = [
+                ref
+                for ref in finding.claim_refs
+                if ref in allowed
+                and cluster_of.get(ref, finding.cluster_ref) == finding.cluster_ref
+            ]
+            own = sorted(
+                ref for ref, owner in cluster_of.items() if owner == finding.cluster_ref
+            )
+            return finding.model_copy(update={"claim_refs": refs or own[:1]})
+
+        return proposal.model_copy(
+            update={
+                "findings": [prune_finding(item) for item in proposal.findings],
+                "decision_summary": prune(proposal.decision_summary),
+                "recommended_architecture": prune(proposal.recommended_architecture),
+                "responsibility_allocation": [
+                    prune(item) for item in proposal.responsibility_allocation
+                ],
+                "conceptual_interfaces": [
+                    prune(item) for item in proposal.conceptual_interfaces
+                ],
+                "change_amplification_analysis": prune(proposal.change_amplification_analysis),
+                "trade_offs": [prune(item) for item in proposal.trade_offs],
+                "implementation_sequence": [
+                    prune(item) for item in proposal.implementation_sequence
+                ],
+                "reversal_conditions": [prune(item) for item in proposal.reversal_conditions],
+                "revisit_triggers": [prune(item) for item in proposal.revisit_triggers],
+            }
         )
 
     def classify_report_question(

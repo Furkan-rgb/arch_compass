@@ -46,6 +46,13 @@ V1.2 is the active milestone. Preserve these report-conversation boundaries:
   failure is recorded and must not turn a valid persisted answer into a failed request.
 - Keep the deprecated `report_follow_ups` table and its data during V1.2 migration; its API and UI
   remain removed and its rows are not converted into conversations.
+- Synthesis returns a `ProposedRecommendation`, never a report. Do not add fields to it for
+  anything ArchCompass owns: design forces, alternatives, scenarios, policy evidence, claim or
+  finding identity, report section placement, or finding Atlas/metric/signal/policy evidence.
+  `application/synthesis.py` composes the persisted report. See
+  `docs/adr/0001-composed-synthesis.md`.
+- Model adapters do transport, schema constraint, and one generic JSON repair. They hold no
+  domain rule and may not import the application or workflow packages.
 - Conversation adapters and services are composed only in `bootstrap.py`.
 - There is no conversation React UI in V1.2.
 - Domain models validate the current schema only. Do not add upgrade validators, defaulted

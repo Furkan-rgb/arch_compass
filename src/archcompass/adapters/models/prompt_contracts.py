@@ -212,37 +212,58 @@ EVALUATE_SCENARIOS: Final = PromptContract(
 
 SYNTHESIZE_RECOMMENDATION: Final = PromptContract(
     name="synthesize-recommendation",
-    version=3,
+    version=4,
     stage_contract=_text(
         """
         Synthesize across all concern analyses without flattening their distinct evidence or policy
         context. Explain cross-cluster reinforcement, tension, and dependency where material.
         Produce one or more canonical architectural findings for every concern cluster. A finding
         must explain its concern, contextual importance and rationale, consequence, confidence,
-        recommended response, uncertainty, and exact supporting claim, Atlas-node, and policy
-        references. Importance is qualitative and contextual; never derive or expose a universal
-        numeric score.
+        recommended response, and uncertainty. Importance is qualitative and contextual; never
+        derive or expose a universal numeric score.
         Recommend the smallest responsibility allocation and conceptual interface set justified by
         the evidence. Preserve useful local complexity when it reduces system-wide complexity.
         Include uncertainty, reversal conditions, and revisit triggers. A no-change or keep-local
         decision is a complete architectural recommendation when the evidence supports it.
 
-        Never invent evidence references. First create classified claims with stable claim_id
-        values. Every semantically different claim must have a globally unique claim_id across all
-        report sections. Never reuse a claim_id for different content or evidence. If the evidence
-        appendix repeats a claim, copy the entire claim object exactly.
+        You do not restate evidence. Every claim you may cite is supplied with a handle in
+        available_claims. Cite handles; never copy claim text, invent a handle, or repeat the
+        design forces, alternatives, scenarios, or policy evidence supplied to you. ArchCompass
+        owns claim identity, finding identity, report section placement, Atlas node and policy
+        references, source locations, and metric and signal evidence, and derives all of them from
+        the handles you cite.
         """
     ),
     request=_text(
         """
-        Produce one coherent recommendation and ADR and populate every required report section. Even
-        when no code change is recommended, provide concrete preservation and decision-recording
-        steps. Use temporary distinct FIND-nnn values for findings; ArchCompass replaces them with
-        canonical ordered IDs after validation. Every SupportedStatement must contain one or more
-        exact claim IDs from the report.
-        Use confirmed_user_requirement only for confirmed context, scenario_assumption only for
-        assumptions or unresolved questions, repository_observation only for surfaced repository
-        evidence, and policy_guidance only for retrieved applicable policy evidence.
+        Produce one coherent recommendation and ADR. Every statement must cite at least one claim
+        handle that directly supports its actual meaning; shared vocabulary is not support. Each
+        finding must name its concern cluster handle and cite at least one evidence claim handle
+        belonging to that same cluster.
+        Use advisor_claims only for reasoning that goes beyond the supplied evidence, classified as
+        advisor_inference or derived_constraint, and cite those handles like any other.
+        """
+    ),
+)
+
+
+REPAIR_RECOMMENDATION_PROPOSAL: Final = PromptContract(
+    name="repair-recommendation-proposal",
+    version=1,
+    stage_contract=_text(
+        """
+        Repair one recommendation proposal only by correcting the handles it cites against the
+        supplied allowlists. Do not add new findings, statements, or reasoning, and do not change
+        the meaning of existing prose. Replace an unusable handle with a supplied handle that
+        genuinely supports the same statement, or remove the statement when none does. This is one
+        repair attempt.
+        """
+    ),
+    request=_text(
+        """
+        Return one complete corrected proposal that uses only supplied claim and cluster handles,
+        covers every concern cluster with at least one finding, and cites at least one same-cluster
+        evidence claim in each finding.
         """
     ),
 )
@@ -341,26 +362,6 @@ REPAIR_CONVERSATION_ANSWER: Final = PromptContract(
 )
 
 
-LINK_STATEMENT_SUPPORT: Final = PromptContract(
-    name="link-statement-support",
-    version=1,
-    stage_contract=_text(
-        """
-        Link recommendation statements only to claims that directly support their actual meaning.
-        Shared vocabulary or general topical relevance is not support. Prefer the smallest
-        sufficient support set. Do not use a policy claim as proof of repository state, a
-        repository observation as proof of user intent, or an assumption as a confirmed fact.
-        """
-    ),
-    request=_text(
-        """
-        Return every supplied statement_key exactly once with one or more exact claim_id values from
-        the supplied claims. Do not create, rewrite, or omit claims or statements.
-        """
-    ),
-)
-
-
 OLLAMA_STAGE_PROMPTS: Final[dict[ReasoningTask, PromptContract]] = {
     ReasoningTask.DISCOVER_DESIGN_FORCES: DISCOVER_DESIGN_FORCES,
     ReasoningTask.CLUSTER_DESIGN_FORCES: CLUSTER_DESIGN_FORCES,
@@ -373,5 +374,5 @@ OLLAMA_STAGE_PROMPTS: Final[dict[ReasoningTask, PromptContract]] = {
     ReasoningTask.ANSWER_REPORT_QUESTION: ANSWER_REPORT_QUESTION,
     ReasoningTask.SUMMARIZE_REPORT_CONVERSATION: SUMMARIZE_REPORT_CONVERSATION,
     ReasoningTask.REPAIR_CONVERSATION_ANSWER: REPAIR_CONVERSATION_ANSWER,
-    ReasoningTask.LINK_STATEMENT_SUPPORT: LINK_STATEMENT_SUPPORT,
+    ReasoningTask.REPAIR_RECOMMENDATION_PROPOSAL: REPAIR_RECOMMENDATION_PROPOSAL,
 }

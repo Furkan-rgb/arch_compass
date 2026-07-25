@@ -1,3 +1,5 @@
+from tests.synthesis_support import synthesize_report
+
 from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
 from archcompass.application.evidence import (
     repair_report_evidence_with_history,
@@ -36,7 +38,8 @@ def test_invented_evidence_is_rejected() -> None:
     scenarios = provider.evaluate_scenarios(context, alternatives, [])
     forces = provider.discover_design_forces(context)
     clusters = provider.cluster_design_forces(context, forces)
-    report = provider.synthesize_recommendation(
+    report = synthesize_report(
+        provider,
         case, context, forces, clusters, [], alternatives, scenarios, []
     )
     bad = Claim(
@@ -96,7 +99,8 @@ def test_invented_policy_ids_are_removed() -> None:
     scenarios = provider.evaluate_scenarios(context, alternatives, [])
     forces = provider.discover_design_forces(context)
     clusters = provider.cluster_design_forces(context, forces)
-    report = provider.synthesize_recommendation(
+    report = synthesize_report(
+        provider,
         case, context, forces, clusters, [], alternatives, scenarios, []
     )
     invented = Claim(
@@ -154,7 +158,8 @@ def test_duplicate_claim_id_is_reassigned_only_when_support_is_unambiguous() -> 
     scenarios = provider.evaluate_scenarios(context, alternatives, [])
     forces = provider.discover_design_forces(context)
     clusters = provider.cluster_design_forces(context, forces)
-    report = provider.synthesize_recommendation(
+    report = synthesize_report(
+        provider,
         case, context, forces, clusters, [], alternatives, scenarios, []
     )
     assumption = Claim(
@@ -234,7 +239,8 @@ def test_ambiguous_duplicate_claim_id_remains_invalid() -> None:
     scenarios = provider.evaluate_scenarios(context, alternatives, [])
     forces = provider.discover_design_forces(context)
     clusters = provider.cluster_design_forces(context, forces)
-    report = provider.synthesize_recommendation(
+    report = synthesize_report(
+        provider,
         case, context, forces, clusters, [], alternatives, scenarios, []
     )
     first = Claim(

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from tests.synthesis_support import synthesize_report
 
 from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
 from archcompass.application.evidence import (
@@ -76,7 +77,8 @@ def _base_report() -> RecommendationReport:
     clusters = provider.cluster_design_forces(context, forces)
     alternatives = provider.generate_alternatives(context, [])
     scenarios = provider.evaluate_scenarios(context, alternatives, [])
-    return provider.synthesize_recommendation(
+    return synthesize_report(
+        provider,
         case,
         context,
         forces,

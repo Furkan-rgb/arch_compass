@@ -91,10 +91,18 @@ Global context remains concise. Detailed code is requested only through a valida
 `AtlasQueryPlan`; the query executor bounds types, IDs, result sizes, depth, and source excerpts.
 Design forces are partitioned into validated concern clusters, and detailed results are assembled
 into one focused packet per cluster under cumulative node and excerpt budgets. Final synthesis
-receives the case, global context, forces, clusters, concern analyses, alternatives, scenarios,
-and canonical policy summaries. Focused packets remain internal evidence allowlists and are not
-sent to synthesis. The model never receives an `Atlas` aggregate, repository root, or complete
-source tree.
+receives the case, global context, forces, concern analyses, alternatives, scenarios, and a pool
+of citable claims under request-local handles. Focused packets remain internal evidence
+allowlists and are not sent to synthesis. The model never receives an `Atlas` aggregate,
+repository root, or complete source tree.
+
+Synthesis returns a `ProposedRecommendation`, not a report. The proposal carries the disposition,
+prose, findings, and the claim handles that support them; it has no field for design forces,
+alternatives, scenarios, policy evidence, claim identity, section placement, or finding evidence,
+because ArchCompass owns all of those. `application/synthesis.py` composes the persisted report by
+resolving handles, placing claims into sections by classification, assigning content-derived claim
+IDs, and injecting the workflow's canonical artifacts. See
+[adr/0001-composed-synthesis.md](adr/0001-composed-synthesis.md).
 
 Embedding retrieval and exact reference selection are intentionally separate. Policies are an
 open corpus, so their sections are embedded and retrieved before the original text is supplied to

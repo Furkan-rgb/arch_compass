@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Callable, Mapping
-from hashlib import sha256
 from typing import ClassVar, TypeVar, cast
 
 import httpx
@@ -19,10 +17,10 @@ from archcompass.adapters.models.prompt_contracts import (
     DISCOVER_DESIGN_FORCES,
     EVALUATE_SCENARIOS,
     GENERATE_ALTERNATIVES,
-    LINK_STATEMENT_SUPPORT,
     OLLAMA_STAGE_PROMPTS,
     PLAN_ATLAS_QUERIES,
     REPAIR_CONVERSATION_ANSWER,
+    REPAIR_RECOMMENDATION_PROPOSAL,
     SUMMARIZE_REPORT_CONVERSATION,
     SYNTHESIZE_RECOMMENDATION,
     PromptContract,
@@ -31,8 +29,6 @@ from archcompass.configuration import EmbeddingModelConfig, ReasoningModelConfig
 from archcompass.domain.base import canonical_json
 from archcompass.domain.case import ArchitectureCase, CaseAlternative
 from archcompass.domain.consultation import (
-    Claim,
-    ClaimClassification,
     ClusterQueryPlan,
     ConcernAnalysis,
     ConcernCluster,
@@ -40,9 +36,7 @@ from archcompass.domain.consultation import (
     FocusedAnalysisPacket,
     FocusedNodeSummary,
     GlobalContext,
-    RecommendationReport,
     ScenarioEvaluation,
-    SupportedStatement,
 )
 from archcompass.domain.conversation import (
     ConversationAnswer,
@@ -62,8 +56,7 @@ from archcompass.domain.errors import (
     ModelOutputValidationError,
     ProviderError,
 )
-from archcompass.domain.evidence_rules import location_within
-from archcompass.domain.policy import canonical_policy_evidence
+from archcompass.domain.proposals import AvailableClaim, ProposedRecommendation
 from archcompass.ports.reasoning import ReasoningTask
 
 Item = TypeVar("Item", bound=BaseModel)
@@ -120,15 +113,6 @@ class ScenarioList(RootModel[list[ScenarioEvaluation]]):
     root: list[ScenarioEvaluation] = Field(min_length=1, max_length=4)
 
 
-class StatementSupportAssignment(BaseModel):
-    statement_key: str = Field(min_length=1)
-    supporting_claim_ids: list[str] = Field(min_length=1)
-
-
-class StatementSupportPlan(RootModel[list[StatementSupportAssignment]]):
-    root: list[StatementSupportAssignment] = Field(min_length=1)
-
-
 class EmbeddingResponse(BaseModel):
     embeddings: list[list[float]]
 
@@ -174,7 +158,6 @@ class OllamaReasoningProvider:
 
     def __init__(self, config: ReasoningModelConfig) -> None:
         self._config = config
-        self._repair_actions: list[dict[str, object]] = []
 
     @property
     def model_identity(self) -> str:
@@ -182,11 +165,6 @@ class OllamaReasoningProvider:
 
     def prompt_identity(self, task: ReasoningTask) -> str:
         return self._PROMPTS[task]
-
-    def consume_repair_actions(self) -> list[dict[str, object]]:
-        actions = list(self._repair_actions)
-        self._repair_actions.clear()
-        return actions
 
     def discover_design_forces(self, context: GlobalContext) -> list[DesignForce]:
         proposed = self._complete(
@@ -377,7 +355,7 @@ class OllamaReasoningProvider:
             for scenario in completed
         ]
 
-    def synthesize_recommendation(
+    def propose_recommendation(
         self,
         case: ArchitectureCase,
         context: GlobalContext,
@@ -387,45 +365,124 @@ class OllamaReasoningProvider:
         alternatives: list[CaseAlternative],
         scenarios: list[ScenarioEvaluation],
         packets: list[FocusedAnalysisPacket],
-    ) -> RecommendationReport:
-        allowed_node_ids = sorted(
-            {node_id for packet in packets for node_id in packet.surfaced_node_ids}
-        )
-        allowed_policy_ids = sorted(
-            {retrieved.policy.id for packet in packets for retrieved in packet.policies}
-        )
-        policy_evidence = canonical_policy_evidence(
-            retrieved for packet in packets for retrieved in packet.policies
-        )
-        report = self._complete(
+        *,
+        available_claims: list[AvailableClaim],
+        cluster_refs: dict[str, str],
+    ) -> ProposedRecommendation:
+        del clusters, packets  # Reachable only through the supplied handles.
+        return self._complete(
             SYNTHESIZE_RECOMMENDATION,
             {
                 "case": case.model_dump(mode="json"),
                 "context": context.model_dump(mode="json"),
-                "forces": [item.model_dump(mode="json") for item in forces],
-                "clusters": [item.model_dump(mode="json") for item in clusters],
-                "analyses": [item.model_dump(mode="json") for item in analyses],
+                "design_forces": [item.model_dump(mode="json") for item in forces],
+                "concern_analyses": [item.model_dump(mode="json") for item in analyses],
                 "alternatives": [item.model_dump(mode="json") for item in alternatives],
                 "scenarios": [item.model_dump(mode="json") for item in scenarios],
-                "policy_evidence": [item.model_dump(mode="json") for item in policy_evidence],
+                "available_claims": [item.model_dump(mode="json") for item in available_claims],
+                "concern_clusters": [
+                    {"cluster_ref": ref, "title": title}
+                    for ref, title in sorted(cluster_refs.items())
+                ],
             },
-            RecommendationReport,
-            runtime_instruction=(
-                f"Allowed atlas node IDs: {allowed_node_ids or ['none']}. "
-                f"Allowed policy IDs: {allowed_policy_ids or ['none']}. "
-                "Use no other evidence IDs. When no atlas IDs are allowed, "
-                "repository_observations must be empty and no claim may contain an atlas "
-                "reference. Every policy-guidance claim must reference at least one allowed "
-                "policy ID."
+            ProposedRecommendation,
+            runtime_instruction=self._proposal_instruction(available_claims, cluster_refs),
+            schema_override=self._proposal_schema(
+                claim_refs={item.ref for item in available_claims},
+                cluster_refs=set(cluster_refs),
             ),
-            normalization_context={
-                "important_design_forces": [item.model_dump(mode="json") for item in forces],
-                "alternatives_considered": [item.model_dump(mode="json") for item in alternatives],
-                "scenario_analysis": [item.model_dump(mode="json") for item in scenarios],
-                "policy_evidence": [item.model_dump(mode="json") for item in policy_evidence],
-            },
         )
-        return self._link_report_support(report, packets=packets)
+
+    def repair_recommendation_proposal(
+        self,
+        proposal: ProposedRecommendation,
+        errors: list[str],
+        *,
+        available_claims: list[AvailableClaim],
+        cluster_refs: dict[str, str],
+    ) -> ProposedRecommendation:
+        return self._complete(
+            REPAIR_RECOMMENDATION_PROPOSAL,
+            {
+                "proposal": proposal.model_dump(mode="json"),
+                "errors": errors,
+                "available_claims": [item.model_dump(mode="json") for item in available_claims],
+                "concern_clusters": [
+                    {"cluster_ref": ref, "title": title}
+                    for ref, title in sorted(cluster_refs.items())
+                ],
+            },
+            ProposedRecommendation,
+            runtime_instruction=self._proposal_instruction(available_claims, cluster_refs),
+            schema_override=self._proposal_schema(
+                claim_refs={item.ref for item in available_claims},
+                cluster_refs=set(cluster_refs),
+            ),
+            allow_repair=False,
+        )
+
+    @staticmethod
+    def _proposal_instruction(
+        available_claims: list[AvailableClaim],
+        cluster_refs: dict[str, str],
+    ) -> str:
+        by_cluster: dict[str, list[str]] = {ref: [] for ref in cluster_refs}
+        unscoped: list[str] = []
+        for claim in available_claims:
+            if claim.cluster_ref in by_cluster:
+                by_cluster[claim.cluster_ref].append(claim.ref)
+            else:
+                unscoped.append(claim.ref)
+        return (
+            f"Allowed concern cluster handles: {sorted(cluster_refs)}. "
+            f"Evidence claim handles by cluster: {by_cluster}. "
+            f"Case-context claim handles usable anywhere: {unscoped or ['none']}. "
+            "Every cluster handle must appear on at least one finding, and each finding "
+            "must cite at least one evidence claim handle from its own cluster."
+        )
+
+    @staticmethod
+    def _proposal_schema(
+        *,
+        claim_refs: set[str],
+        cluster_refs: set[str],
+    ) -> dict[str, object]:
+        """Constrain every reference to a supplied handle so none can be invented."""
+
+        schema = ProposedRecommendation.model_json_schema()
+        definitions = _object_mapping(schema.get("$defs"))
+        if definitions is None:
+            return schema
+
+        def constrain(
+            definition_name: str,
+            field: str,
+            constraint: Mapping[str, object],
+        ) -> None:
+            definition = _object_mapping(definitions.get(definition_name))
+            properties = None if definition is None else _object_mapping(
+                definition.get("properties")
+            )
+            if properties is None or field not in properties:
+                return
+            properties[field] = dict(constraint)
+            definition["properties"] = properties  # type: ignore[index]
+            definitions[definition_name] = definition
+
+        claim_list: Mapping[str, object] = {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "enum": sorted(claim_refs)},
+        }
+        constrain("ProposedStatement", "claim_refs", claim_list)
+        constrain("ProposedFinding", "claim_refs", claim_list)
+        cluster_choice: Mapping[str, object] = {
+            "type": "string",
+            "enum": sorted(cluster_refs),
+        }
+        constrain("ProposedFinding", "cluster_ref", cluster_choice)
+        schema["$defs"] = definitions
+        return schema
 
     def classify_report_question(
         self,
@@ -523,7 +580,6 @@ class OllamaReasoningProvider:
         output_type: type[Item],
         *,
         runtime_instruction: str = "",
-        normalization_context: Mapping[str, object] | None = None,
         schema_override: Mapping[str, object] | None = None,
         candidate_validator: Callable[[Item], list[str]] | None = None,
         candidate_error_factory: (Callable[[Item], ModelOutputValidationError] | None) = None,
@@ -546,16 +602,12 @@ class OllamaReasoningProvider:
             },
         ]
         try:
-            content = self._normalize_output(
+            content = self._chat(
                 output_type,
-                self._chat(
-                    output_type,
-                    messages,
-                    schema_override=schema_override,
-                    think=think,
-                    temperature=temperature,
-                ),
-                normalization_context=normalization_context,
+                messages,
+                schema_override=schema_override,
+                think=think,
+                temperature=temperature,
             )
             try:
                 candidate = output_type.model_validate_json(content)
@@ -585,16 +637,12 @@ class OllamaReasoningProvider:
                     ),
                 },
             ]
-            repaired = self._normalize_output(
+            repaired = self._chat(
                 output_type,
-                self._chat(
-                    output_type,
-                    repair_messages,
-                    schema_override=schema_override,
-                    think=think,
-                    temperature=temperature,
-                ),
-                normalization_context=normalization_context,
+                repair_messages,
+                schema_override=schema_override,
+                think=think,
+                temperature=temperature,
             )
             try:
                 candidate = output_type.model_validate_json(repaired)
@@ -731,253 +779,6 @@ class OllamaReasoningProvider:
             )
         return diagnostics
 
-    def _link_report_support(
-        self,
-        report: RecommendationReport,
-        *,
-        packets: list[FocusedAnalysisPacket],
-    ) -> RecommendationReport:
-        slots = self._statement_slots(report)
-        nodes_by_id = {node.node_id: node for packet in packets for node in packet.node_summaries}
-        allowed_policy_ids = {
-            retrieved.policy.id for packet in packets for retrieved in packet.policies
-        }
-        report_claims = [
-            *report.confirmed_context,
-            *report.assumptions_and_unresolved_questions,
-            *report.repository_observations,
-            *report.relevant_policies,
-            *report.evidence_appendix,
-        ]
-        claims_by_id = {
-            claim.claim_id: claim
-            for claim in report_claims
-            if self._claim_can_survive_evidence_repair(
-                claim,
-                nodes_by_id=nodes_by_id,
-                allowed_policy_ids=allowed_policy_ids,
-            )
-        }
-        excluded_claim_ids = sorted({claim.claim_id for claim in report_claims} - set(claims_by_id))
-        if excluded_claim_ids:
-            self._repair_actions.append(
-                {
-                    "kind": "excluded_invalid_statement_support_claims",
-                    "claim_ids": excluded_claim_ids,
-                }
-            )
-        if not claims_by_id:
-            raise ModelOutputValidationError(
-                "The synthesized report contains no claims that can survive evidence validation"
-            )
-        payload = {
-            "claims": [claim.model_dump(mode="json") for claim in claims_by_id.values()],
-            "statements": [
-                {
-                    "statement_key": key,
-                    "text": statement.text,
-                    "classification": statement.classification,
-                }
-                for key, statement in slots
-            ],
-        }
-        schema = self._support_plan_schema(
-            statement_keys={key for key, _ in slots},
-            claim_ids=set(claims_by_id),
-            statement_count=len(slots),
-        )
-        plan = self._complete(
-            LINK_STATEMENT_SUPPORT,
-            payload,
-            StatementSupportPlan,
-            schema_override=schema,
-        ).root
-        errors = self._support_plan_errors(plan, slots, set(claims_by_id))
-        if errors:
-            plan = self._complete(
-                LINK_STATEMENT_SUPPORT,
-                payload,
-                StatementSupportPlan,
-                runtime_instruction=("Correct these prior mapping errors: " + "; ".join(errors)),
-                schema_override=schema,
-            ).root
-            errors = self._support_plan_errors(plan, slots, set(claims_by_id))
-        if errors:
-            raise ModelOutputValidationError(
-                "Ollama returned an invalid statement support plan: " + "; ".join(errors)
-            )
-        assignments = {item.statement_key: item.supporting_claim_ids for item in plan}
-        linked = self._apply_statement_support(report, assignments)
-        self._repair_actions.append(
-            {
-                "kind": "linked_report_statement_support",
-                "previous_support": {
-                    key: statement.supporting_claim_ids for key, statement in slots
-                },
-                "assignments": assignments,
-            }
-        )
-        return linked
-
-    @staticmethod
-    def _claim_can_survive_evidence_repair(
-        claim: Claim,
-        *,
-        nodes_by_id: dict[str, FocusedNodeSummary],
-        allowed_policy_ids: set[str],
-    ) -> bool:
-        if claim.classification == ClaimClassification.POLICY_GUIDANCE:
-            return any(policy_id in allowed_policy_ids for policy_id in claim.policy_ids)
-        if claim.classification != ClaimClassification.REPOSITORY_OBSERVATION:
-            return True
-        if not claim.atlas_references:
-            return False
-        if any(policy_id not in allowed_policy_ids for policy_id in claim.policy_ids):
-            return False
-        return all(
-            location_within(
-                node.location if (node := nodes_by_id.get(reference.node_id)) else None,
-                reference.location,
-            )
-            for reference in claim.atlas_references
-        )
-
-    @staticmethod
-    def _support_plan_schema(
-        *,
-        statement_keys: set[str],
-        claim_ids: set[str],
-        statement_count: int,
-    ) -> dict[str, object]:
-        return {
-            "type": "array",
-            "minItems": statement_count,
-            "maxItems": statement_count,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["statement_key", "supporting_claim_ids"],
-                "properties": {
-                    "statement_key": {
-                        "type": "string",
-                        "enum": sorted(statement_keys),
-                    },
-                    "supporting_claim_ids": {
-                        "type": "array",
-                        "minItems": 1,
-                        "items": {
-                            "type": "string",
-                            "enum": sorted(claim_ids),
-                        },
-                    },
-                },
-            },
-        }
-
-    @staticmethod
-    def _statement_slots(
-        report: RecommendationReport,
-    ) -> list[tuple[str, SupportedStatement]]:
-        slots = [
-            ("decision_summary", report.decision_summary),
-            ("recommended_architecture", report.recommended_architecture),
-            (
-                "change_amplification_analysis",
-                report.change_amplification_analysis,
-            ),
-            ("adr.decision", report.adr.decision),
-        ]
-        for field in (
-            "responsibility_allocation",
-            "conceptual_interfaces",
-            "trade_offs",
-            "implementation_sequence",
-            "reversal_conditions",
-            "revisit_triggers",
-        ):
-            slots.extend(
-                (f"{field}.{index}", statement)
-                for index, statement in enumerate(getattr(report, field))
-            )
-        slots.extend(
-            (f"adr.consequences.{index}", statement)
-            for index, statement in enumerate(report.adr.consequences)
-        )
-        return slots
-
-    @staticmethod
-    def _support_plan_errors(
-        plan: list[StatementSupportAssignment],
-        slots: list[tuple[str, SupportedStatement]],
-        known_claim_ids: set[str],
-    ) -> list[str]:
-        expected = {key for key, _ in slots}
-        actual = [item.statement_key for item in plan]
-        errors: list[str] = []
-        if set(actual) != expected or len(actual) != len(set(actual)):
-            errors.append(
-                "Statement keys must match exactly; "
-                f"missing={sorted(expected - set(actual))}, "
-                f"extra={sorted(set(actual) - expected)}"
-            )
-        unknown = sorted(
-            {
-                claim_id
-                for item in plan
-                for claim_id in item.supporting_claim_ids
-                if claim_id not in known_claim_ids
-            }
-        )
-        if unknown:
-            errors.append(
-                f"Support plan references unknown claim IDs {unknown}; "
-                f"allowed={sorted(known_claim_ids)}"
-            )
-        return errors
-
-    @staticmethod
-    def _apply_statement_support(
-        report: RecommendationReport,
-        assignments: dict[str, list[str]],
-    ) -> RecommendationReport:
-        def linked(key: str, statement: SupportedStatement) -> SupportedStatement:
-            return statement.model_copy(update={"supporting_claim_ids": assignments[key]})
-
-        adr = report.adr.model_copy(
-            update={
-                "decision": linked("adr.decision", report.adr.decision),
-                "consequences": [
-                    linked(f"adr.consequences.{index}", statement)
-                    for index, statement in enumerate(report.adr.consequences)
-                ],
-            }
-        )
-        updates: dict[str, object] = {
-            "decision_summary": linked("decision_summary", report.decision_summary),
-            "recommended_architecture": linked(
-                "recommended_architecture",
-                report.recommended_architecture,
-            ),
-            "change_amplification_analysis": linked(
-                "change_amplification_analysis",
-                report.change_amplification_analysis,
-            ),
-            "adr": adr,
-        }
-        for field in (
-            "responsibility_allocation",
-            "conceptual_interfaces",
-            "trade_offs",
-            "implementation_sequence",
-            "reversal_conditions",
-            "revisit_triggers",
-        ):
-            updates[field] = [
-                linked(f"{field}.{index}", statement)
-                for index, statement in enumerate(getattr(report, field))
-            ]
-        return report.model_copy(update=updates)
-
     def _chat(
         self,
         output_type: type[Item],
@@ -1014,130 +815,3 @@ class OllamaReasoningProvider:
         if not isinstance(content, str):
             raise TypeError("Ollama response content is not text")
         return content
-
-    def _normalize_output(
-        self,
-        output_type: type[Item],
-        content: str,
-        *,
-        normalization_context: Mapping[str, object] | None = None,
-    ) -> str:
-        if output_type is not RecommendationReport:
-            return content
-        try:
-            decoded: object = json.loads(content)
-        except (TypeError, ValueError):
-            return content
-        payload = _object_mapping(decoded)
-        if payload is None:
-            return content
-
-        if normalization_context is not None:
-            for field in (
-                "important_design_forces",
-                "alternatives_considered",
-                "scenario_analysis",
-                "policy_evidence",
-            ):
-                canonical = normalization_context.get(field)
-                if canonical is None or payload.get(field) == canonical:
-                    continue
-                self._repair_actions.append(
-                    {
-                        "kind": "restored_canonical_synthesis_artifact",
-                        "field": field,
-                        "model_output": payload.get(field),
-                        "canonical_input": canonical,
-                    }
-                )
-                payload[field] = canonical
-
-        section_classifications = {
-            "confirmed_context": "confirmed_user_requirement",
-            "assumptions_and_unresolved_questions": "scenario_assumption",
-            "repository_observations": "repository_observation",
-            "relevant_policies": "policy_guidance",
-        }
-        raw_appendix = payload.get("evidence_appendix")
-        appendix = list(cast(list[object], raw_appendix)) if isinstance(raw_appendix, list) else []
-        payload["evidence_appendix"] = appendix
-        appendix_ids = {
-            item.get("claim_id")
-            for raw_item in appendix
-            if (item := _object_mapping(raw_item)) is not None
-            and isinstance(item.get("claim_id"), str)
-        }
-
-        for section, expected in section_classifications.items():
-            raw_claims = payload.get(section)
-            if not isinstance(raw_claims, list):
-                continue
-            retained: list[object] = []
-            for raw_claim in cast(list[object], raw_claims):
-                claim = _object_mapping(raw_claim)
-                if claim is None or claim.get("classification") == expected:
-                    retained.append(raw_claim)
-                    continue
-                claim_id = claim.get("claim_id")
-                if isinstance(claim_id, str) and claim_id not in appendix_ids:
-                    appendix.append(claim)
-                    appendix_ids.add(claim_id)
-                self._repair_actions.append(
-                    {
-                        "kind": "moved_misclassified_report_claim",
-                        "section": section,
-                        "expected_classification": expected,
-                        "claim": claim,
-                    }
-                )
-            payload[section] = retained
-
-        registry: dict[str, str] = {}
-        reassignments: dict[tuple[str, str], str] = {}
-        occupied_ids: set[str] = set()
-        for section in (
-            "confirmed_context",
-            "assumptions_and_unresolved_questions",
-            "repository_observations",
-            "relevant_policies",
-            "evidence_appendix",
-        ):
-            raw_claims = payload.get(section)
-            if not isinstance(raw_claims, list):
-                continue
-            normalized_claims: list[object] = []
-            for raw_claim in cast(list[object], raw_claims):
-                claim = _object_mapping(raw_claim)
-                claim_id = None if claim is None else claim.get("claim_id")
-                if claim is None or not isinstance(claim_id, str):
-                    normalized_claims.append(raw_claim)
-                    continue
-                serialized = json.dumps(claim, sort_keys=True)
-                replacement = reassignments.get((claim_id, serialized))
-                prior = registry.get(claim_id)
-                if replacement is None and prior is not None and prior != serialized:
-                    digest = sha256(f"{claim_id}\0{serialized}".encode()).hexdigest()
-                    replacement = f"claim_{digest[:32]}"
-                    counter = 1
-                    while replacement in occupied_ids:
-                        digest = sha256(f"{claim_id}\0{serialized}\0{counter}".encode()).hexdigest()
-                        replacement = f"claim_{digest[:32]}"
-                        counter += 1
-                    reassignments[(claim_id, serialized)] = replacement
-                    self._repair_actions.append(
-                        {
-                            "kind": "reassigned_duplicate_report_claim_id",
-                            "section": section,
-                            "from_claim_id": claim_id,
-                            "to_claim_id": replacement,
-                            "claim": claim,
-                        }
-                    )
-                if replacement is not None:
-                    claim["claim_id"] = replacement
-                else:
-                    registry[claim_id] = serialized
-                    occupied_ids.add(claim_id)
-                normalized_claims.append(claim)
-            payload[section] = normalized_claims
-        return json.dumps(payload)

@@ -14,21 +14,16 @@ from archcompass.adapters.models.ollama import (
     OllamaReasoningProvider,
     ScenarioList,
 )
-from archcompass.application.evidence import (
-    repair_report_evidence_with_history,
-    validate_report_evidence,
-)
+from archcompass.application.synthesis import build_claim_pool
 from archcompass.configuration import EmbeddingModelConfig, ReasoningModelConfig
 from archcompass.domain.case import ArchitectureCase, CaseAlternative
 from archcompass.domain.consultation import (
-    Claim,
     ClaimClassification,
     ConcernAnalysis,
     ConcernCluster,
     DesignForce,
     FocusedAnalysisPacket,
     GlobalContext,
-    RecommendationReport,
     ScenarioEvaluation,
 )
 from archcompass.domain.conversation import (
@@ -523,38 +518,6 @@ def test_clustering_rejects_unknown_handle_after_one_correction_pass(
     assert "Missing force handles: F2" in repair_messages[-1]["content"]
 
 
-def test_reasoning_provider_moves_misclassified_section_claim_to_appendix() -> None:
-    provider = OllamaReasoningProvider(_reasoning_config())
-    claim = {
-        "claim_id": "claim-inference",
-        "text": "This is an inference, not confirmed context.",
-        "classification": "advisor_inference",
-        "atlas_references": [],
-        "policy_ids": [],
-    }
-    content = json.dumps(
-        {
-            "confirmed_context": [claim],
-            "evidence_appendix": [],
-        }
-    )
-
-    normalized = json.loads(
-        provider._normalize_output(RecommendationReport, content)  # pyright: ignore[reportPrivateUsage]
-    )
-
-    assert normalized["confirmed_context"] == []
-    assert normalized["evidence_appendix"] == [claim]
-    assert provider.consume_repair_actions() == [
-        {
-            "kind": "moved_misclassified_report_claim",
-            "section": "confirmed_context",
-            "expected_classification": "confirmed_user_requirement",
-            "claim": claim,
-        }
-    ]
-
-
 def test_every_reasoning_stage_parses_structured_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -631,7 +594,9 @@ def test_every_reasoning_stage_parses_structured_output(
         for scenario in scenarios
     ]
     deterministic = DeterministicReasoningProvider()
-    report = deterministic.synthesize_recommendation(
+    pool = build_claim_pool(case=case, clusters=[cluster], analyses=[analysis])
+    cluster_refs = {pool.cluster_ref_by_id[cluster.cluster_id]: cluster.title}
+    proposal = deterministic.propose_recommendation(
         case,
         context,
         [force],
@@ -640,26 +605,9 @@ def test_every_reasoning_stage_parses_structured_output(
         alternatives,
         scenarios,
         [packet],
+        available_claims=pool.available,
+        cluster_refs=cluster_refs,
     )
-    recreated_alternatives = [
-        alternative.model_copy(update={"id": f"recreated-{index}"})
-        for index, alternative in enumerate(alternatives, start=1)
-    ]
-    model_report = report.model_copy(
-        update={
-            "alternatives_considered": recreated_alternatives,
-            "decision_summary": report.decision_summary.model_copy(
-                update={"supporting_claim_ids": ["claim-unknown"]}
-            ),
-        }
-    )
-    support_plan = [
-        {
-            "statement_key": key,
-            "supporting_claim_ids": statement.supporting_claim_ids,
-        }
-        for key, statement in OllamaReasoningProvider._statement_slots(report)
-    ]
     outputs = [
         json.dumps(
             [
@@ -685,8 +633,7 @@ def test_every_reasoning_stage_parses_structured_output(
         analysis.model_dump_json(),
         json.dumps([item.model_dump(mode="json") for item in alternatives]),
         json.dumps([item.model_dump(mode="json") for item in model_scenarios]),
-        model_report.model_dump_json(),
-        json.dumps(support_plan),
+        proposal.model_dump_json(),
     ]
     requests: list[str] = []
 
@@ -716,7 +663,7 @@ def test_every_reasoning_stage_parses_structured_output(
     assert provider.generate_alternatives(context, [analysis]) == alternatives
     assert provider.evaluate_scenarios(context, alternatives, [analysis]) == scenarios
     assert (
-        provider.synthesize_recommendation(
+        provider.propose_recommendation(
             case,
             context,
             [force],
@@ -725,117 +672,26 @@ def test_every_reasoning_stage_parses_structured_output(
             alternatives,
             scenarios,
             [packet],
+            available_claims=pool.available,
+            cluster_refs=cluster_refs,
         )
-        == report
+        == proposal
     )
     assert outputs == []
-    assert any("globally unique claim_id" in request for request in requests)
-    assert any("copy the entire claim object exactly" in request for request in requests)
+    assert any("never copy claim text" in request for request in requests)
     synthesis_request = next(
-        request
-        for request in requests
-        if '"policy_evidence"' in request and '"scenario_analysis"' in request
+        request for request in requests if "ProposedFinding" in request
     )
     synthesis_messages = json.loads(synthesis_request)["messages"]
     synthesis_input = synthesis_messages[-1]["content"]
     assert '"packets":' not in synthesis_input
-    assert '"analyses":' in synthesis_input
-    repair_actions = provider.consume_repair_actions()
-    assert repair_actions[0] == (
-        {
-            "kind": "restored_canonical_synthesis_artifact",
-            "field": "alternatives_considered",
-            "model_output": [item.model_dump(mode="json") for item in recreated_alternatives],
-            "canonical_input": [item.model_dump(mode="json") for item in alternatives],
-        }
-    )
-    assert repair_actions[1]["kind"] == "linked_report_statement_support"
-
-
-def test_statement_support_excludes_claims_that_evidence_repair_will_remove(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    case = ArchitectureCase(
-        title="Provider ownership",
-        problem_statement="Provider knowledge leaks into orchestration.",
-        desired_outcome="Give discovery one owner.",
-    )
-    context = _context()
-    deterministic = DeterministicReasoningProvider()
-    forces = deterministic.discover_design_forces(context)
-    clusters = deterministic.cluster_design_forces(context, forces)
-    alternatives = deterministic.generate_alternatives(context, [])
-    scenarios = deterministic.evaluate_scenarios(context, alternatives, [])
-    packet = FocusedAnalysisPacket(
-        cluster=clusters[0],
-        uncertainty=["No repository evidence was supplied for this unit fixture."],
-    )
-    report = deterministic.synthesize_recommendation(
-        case,
-        context,
-        forces,
-        clusters,
-        [],
-        alternatives,
-        scenarios,
-        [packet],
-    )
-    invalid_repository_claim = Claim(
-        claim_id="claim-invalid-repository",
-        text="This repository observation has no surfaced source evidence.",
-        classification=ClaimClassification.REPOSITORY_OBSERVATION,
-    )
-    report = report.model_copy(
-        update={
-            "repository_observations": [invalid_repository_claim],
-            "evidence_appendix": [
-                *report.evidence_appendix,
-                invalid_repository_claim,
-            ],
-        }
-    )
-    inference_id = next(
-        claim.claim_id
-        for claim in report.evidence_appendix
-        if claim.classification == ClaimClassification.ADVISOR_INFERENCE
-    )
-    support_plan = [
-        {
-            "statement_key": key,
-            "supporting_claim_ids": [inference_id],
-        }
-        for key, _ in OllamaReasoningProvider._statement_slots(report)
-    ]
-    captured: dict[str, object] = {}
-
-    def post(url: str, **kwargs: object) -> httpx.Response:
-        captured.update(url=url, **kwargs)
-        return _http_response({"message": {"content": json.dumps(support_plan)}})
-
-    monkeypatch.setattr(httpx, "post", post)
-    provider = OllamaReasoningProvider(_reasoning_config())
-
-    linked = provider._link_report_support(report, packets=[packet])
-
-    request = captured["json"]
-    assert isinstance(request, dict)
-    schema = request["format"]
-    assert isinstance(schema, dict)
-    allowed_claim_ids = schema["items"]["properties"]["supporting_claim_ids"]["items"]["enum"]
-    assert "claim-invalid-repository" not in allowed_claim_ids
-    repaired = repair_report_evidence_with_history(
-        linked,
-        allowed_nodes={},
-        allowed_policy_ids=set(),
-    ).report
-    assert (
-        validate_report_evidence(
-            repaired,
-            allowed_nodes={},
-            allowed_policy_ids=set(),
-        )
-        == []
-    )
+    assert '"available_claims":' in synthesis_input
+    assert '"concern_analyses":' in synthesis_input
+    synthesis_schema = json.loads(synthesis_request)["format"]
+    statement_refs = synthesis_schema["$defs"]["ProposedStatement"]["properties"]["claim_refs"]
+    assert statement_refs["items"]["enum"] == sorted(item.ref for item in pool.available)
+    finding_cluster = synthesis_schema["$defs"]["ProposedFinding"]["properties"]["cluster_ref"]
+    assert finding_cluster["enum"] == sorted(cluster_refs)
 
 
 def test_scenario_contract_requires_at_least_one_evaluation() -> None:

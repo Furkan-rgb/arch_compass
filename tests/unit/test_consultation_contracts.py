@@ -5,6 +5,7 @@ from typing import cast
 
 import pytest
 from pydantic import ValidationError
+from tests.synthesis_support import synthesize_report
 
 from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
 from archcompass.application.evidence import (
@@ -76,7 +77,8 @@ def _report() -> RecommendationReport:
     clusters = provider.cluster_design_forces(context, forces)
     alternatives = provider.generate_alternatives(context, [])
     scenarios = provider.evaluate_scenarios(context, alternatives, [])
-    return provider.synthesize_recommendation(
+    return synthesize_report(
+        provider,
         case,
         context,
         forces,

@@ -13,7 +13,6 @@ from archcompass.domain.atlas import (
     NodeDetailsQuery,
     RepositorySummaryQuery,
     SearchNodesQuery,
-    SourceLocation,
 )
 from archcompass.domain.case import (
     ArchitectureCase,
@@ -22,7 +21,6 @@ from archcompass.domain.case import (
     StatementKind,
 )
 from archcompass.domain.consultation import (
-    AtlasEvidenceReference,
     Claim,
     ClaimClassification,
     ClusterQueryPlan,
@@ -35,11 +33,11 @@ from archcompass.domain.consultation import (
 from archcompass.domain.diagnostics import FailureDiagnosticCode
 from archcompass.domain.errors import (
     ClusterPartitionError,
-    EvidenceReferenceError,
     ModelOutputValidationError,
     PolicyFormatError,
 )
-from archcompass.domain.policy import PolicyApplicabilityContext
+from archcompass.domain.policy import PolicyApplicabilityContext, canonical_policy_evidence
+from archcompass.domain.proposals import ProposedFinding, ProposedRecommendation
 from archcompass.workflows.consultation import ConsultationWorkflow
 
 
@@ -268,59 +266,22 @@ def test_brownfield_workflow_uses_focused_packets_not_raw_atlas(
     assert set(updated.referenced_policy_ids) == expected_policy_ids
 
 
-def test_finding_evidence_is_projected_exactly_from_its_focused_packet(
+def test_finding_evidence_cannot_be_asserted_by_a_provider(
     runtime,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    invented_value = 987_654
+    """Findings carry no provider-stated Atlas, metric, or signal evidence.
 
-    class InventedFindingEvidenceReasoner(DeterministicReasoningProvider):
-        def synthesize_recommendation(
-            self,
-            case,
-            context,
-            forces,
-            clusters,
-            analyses,
-            alternatives,
-            scenarios,
-            packets,
-        ):
-            report = super().synthesize_recommendation(
-                case,
-                context,
-                forces,
-                clusters,
-                analyses,
-                alternatives,
-                scenarios,
-                packets,
-            )
-            target_index = next(
-                index
-                for index, finding in enumerate(report.findings)
-                if finding.metric_observations
-            )
-            target = report.findings[target_index]
-            invented_metric = target.metric_observations[0].model_copy(
-                update={"value": invented_value}
-            )
-            findings = list(report.findings)
-            findings[target_index] = target.model_copy(
-                update={
-                    "metric_observations": [
-                        invented_metric,
-                        *target.metric_observations[1:],
-                    ]
-                }
-            )
-            return report.model_copy(update={"findings": findings})
+    The wire contract has no field for it, so an invented metric value is not
+    something a provider can express. What reaches the report is projected from the
+    finding's own focused packet.
+    """
 
-    monkeypatch.setattr(
-        runtime.workflow,
-        "_reasoning",
-        InventedFindingEvidenceReasoner(),
-    )
+    assert "metric_observations" not in ProposedFinding.model_fields
+    assert "obscurity_signals" not in ProposedFinding.model_fields
+    assert "affected_locations" not in ProposedFinding.model_fields
+    assert "atlas_node_ids" not in ProposedFinding.model_fields
+    assert "policy_ids" not in ProposedFinding.model_fields
+
     atlas = runtime.analyzer.analyze(
         Path("eval/cases/provider-leakage/repository").resolve()
     )
@@ -332,63 +293,41 @@ def test_finding_evidence_is_projected_exactly_from_its_focused_packet(
     )
 
     assert run.report is not None
-    assert all(
-        metric.value != invented_value
-        for finding in run.report.findings
-        for metric in finding.metric_observations
-    )
     canonical = canonicalize_report_findings(
         run.report,
         packets=run.focused_packets,
         analyses=run.concern_analyses,
     )
-    assert canonical.report == run.report
-    assert canonical.actions == []
-    repairs = [
-        repair
-        for repair in run.execution_metadata["model_output_repairs"]
-        if repair["kind"] == "restored_canonical_finding_evidence"
-    ]
-    assert any(
-        any(
-            metric["value"] == invented_value
-            for metric in repair["model_output"]["metric_observations"]
-        )
-        for repair in repairs
+    assert canonical.report.findings == run.report.findings
+    surfaced = {
+        metric.model_dump_json()
+        for packet in run.focused_packets
+        for node in packet.node_evidence
+        for metric in node.metrics
+    }
+    assert all(
+        metric.model_dump_json() in surfaced
+        for finding in run.report.findings
+        for metric in finding.metric_observations
     )
 
 
-def test_cross_cluster_finding_claim_is_removed_by_the_single_repair(
+def test_cross_cluster_finding_claim_triggers_the_single_proposal_repair(
     runtime,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A finding citing another cluster's evidence is caught before composition."""
+
     class CrossClusterFindingReasoner(DeterministicReasoningProvider):
-        def synthesize_recommendation(
-            self,
-            case,
-            context,
-            forces,
-            clusters,
-            analyses,
-            alternatives,
-            scenarios,
-            packets,
-        ):
-            report = super().synthesize_recommendation(
-                case,
-                context,
-                forces,
-                clusters,
-                analyses,
-                alternatives,
-                scenarios,
-                packets,
-            )
-            first, second, *remaining = report.findings
+        def propose_recommendation(self, *args, **kwargs):
+            proposal = super().propose_recommendation(*args, **kwargs)
+            first, second, *remaining = proposal.findings
             mixed = first.model_copy(
-                update={"claim_ids": [*first.claim_ids, second.claim_ids[0]]}
+                update={"claim_refs": [*first.claim_refs, second.claim_refs[0]]}
             )
-            return report.model_copy(update={"findings": [mixed, second, *remaining]})
+            return proposal.model_copy(
+                update={"findings": [mixed, second, *remaining]}
+            )
 
     monkeypatch.setattr(
         runtime.workflow,
@@ -400,10 +339,17 @@ def test_cross_cluster_finding_claim_is_removed_by_the_single_repair(
     run = runtime.workflow.advise(revision.case_id)
 
     assert run.report is not None
-    assert any("outside concern cluster" in error for error in run.initial_validation_errors)
-    assert any(
-        "cross-cluster claims" in action for action in run.repair_actions
+    repairs = run.execution_metadata["model_output_repairs"]
+    assert isinstance(repairs, list)
+    repaired = next(
+        item
+        for item in repairs
+        if isinstance(item, dict) and item.get("kind") == "repaired_recommendation_proposal"
     )
+    assert any(
+        "another concern cluster" in error for error in repaired["errors"]
+    )
+    assert "repair-recommendation-proposal:v1" in run.prompt_identities
     assert {
         finding.concern_cluster_id for finding in run.report.findings
     } == {cluster.cluster_id for cluster in run.clusters}
@@ -566,68 +512,30 @@ def test_invalid_cluster_partition_is_persisted_as_a_failed_run(
     ]
 
 
-def test_failed_evidence_repair_remains_loadable_with_full_history(
+def test_unrepairable_proposal_persists_a_failed_run_with_full_history(
     runtime,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class UnsupportedReportReasoner(DeterministicReasoningProvider):
-        def synthesize_recommendation(self, *args, **kwargs):
-            report = super().synthesize_recommendation(*args, **kwargs)
-            invented = Claim(
-                claim_id="claim-invented-repository",
-                text="An unsurfaced repository node proves the recommendation.",
-                classification=ClaimClassification.REPOSITORY_OBSERVATION,
-                atlas_references=[
-                    AtlasEvidenceReference(
-                        node_id="node-invented",
-                        location=SourceLocation(
-                            path="invented.py",
-                            start_line=1,
-                            end_line=1,
-                        ),
-                    )
-                ],
-            )
+    """A proposal that survives its one repair still invalid fails the run explicitly.
 
-            def unsupported(statement):
-                return statement.model_copy(update={"supporting_claim_ids": [invented.claim_id]})
+    Report-level evidence validation is no longer reachable from provider error, because
+    synthesis can only cite claims the concern analyses already validated against their
+    own packets. It is retained as defence in depth; the reachable synthesis failure is
+    a proposal that cannot be composed.
+    """
 
-            return report.model_copy(
-                update={
-                    "repository_observations": [invented],
-                    "evidence_appendix": [*report.evidence_appendix, invented],
-                    "decision_summary": unsupported(report.decision_summary),
-                    "recommended_architecture": unsupported(report.recommended_architecture),
-                    "responsibility_allocation": [
-                        unsupported(item) for item in report.responsibility_allocation
-                    ],
-                    "conceptual_interfaces": [
-                        unsupported(item) for item in report.conceptual_interfaces
-                    ],
-                    "change_amplification_analysis": unsupported(
-                        report.change_amplification_analysis
-                    ),
-                    "trade_offs": [unsupported(item) for item in report.trade_offs],
-                    "implementation_sequence": [
-                        unsupported(item) for item in report.implementation_sequence
-                    ],
-                    "reversal_conditions": [
-                        unsupported(item) for item in report.reversal_conditions
-                    ],
-                    "revisit_triggers": [unsupported(item) for item in report.revisit_triggers],
-                    "adr": report.adr.model_copy(
-                        update={
-                            "decision": unsupported(report.adr.decision),
-                            "consequences": [unsupported(item) for item in report.adr.consequences],
-                        }
-                    ),
-                }
-            )
+    class UnrepairableProposalReasoner(DeterministicReasoningProvider):
+        def propose_recommendation(self, *args, **kwargs):
+            proposal = super().propose_recommendation(*args, **kwargs)
+            return proposal.model_copy(update={"disposition": "invent_a_new_outcome"})
 
-    monkeypatch.setattr(runtime.workflow, "_reasoning", UnsupportedReportReasoner())
+        def repair_recommendation_proposal(self, proposal, errors, **kwargs):
+            return proposal
+
+    monkeypatch.setattr(runtime.workflow, "_reasoning", UnrepairableProposalReasoner())
     revision = runtime.case_service.create(_case())
 
-    with pytest.raises(EvidenceReferenceError, match="evidence validation failed"):
+    with pytest.raises(ModelOutputValidationError, match="could not be composed"):
         runtime.workflow.advise(revision.case_id)
 
     with runtime.database.connect() as connection:
@@ -637,14 +545,12 @@ def test_failed_evidence_repair_remains_loadable_with_full_history(
         ).fetchone()
     assert row is not None
     failed = runtime.run_repository.get(str(row["run_id"]))
-    assert failed.failure_stage == ConsultationFailureStage.VALIDATION
-    assert failed.initial_validation_errors
-    assert failed.repair_actions
-    assert failed.final_validation_errors
-    assert failed.report is not None
-    assert failed.report.repository_observations[0].claim_id == ("claim-invented-repository")
+    assert failed.status == ConsultationStatus.FAILED
+    assert failed.failure_stage == ConsultationFailureStage.SYNTHESIS
+    assert failed.sanitized_errors
+    assert failed.design_forces and failed.clusters and failed.concern_analyses
+    assert "repair-recommendation-proposal:v1" in failed.prompt_identities
     assert runtime.case_service.show(revision.case_id).revision == 1
-
 
 def test_cluster_query_budget_is_global_and_case_records_persisted_atlas(
     runtime,
@@ -1095,147 +1001,94 @@ def test_fully_invalid_concern_analysis_fails_without_regeneration(
     assert runtime.case_service.show(revision.case_id).revision == 1
 
 
-def test_synthesis_reuses_canonical_upstream_artifacts_and_audits_repairs(
+def test_canonical_upstream_artifacts_are_injected_not_reproduced(
     runtime,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class RecreatedSynthesisArtifactsReasoner(DeterministicReasoningProvider):
-        def synthesize_recommendation(
-            self,
-            case,
-            context,
-            forces,
-            clusters,
-            analyses,
-            alternatives,
-            scenarios,
-            packets,
-        ):
-            report = super().synthesize_recommendation(
-                case,
-                context,
-                forces,
-                clusters,
-                analyses,
-                alternatives,
-                scenarios,
-                packets,
-            )
-            recreated_forces = [
-                force.model_copy(update={"force_id": f"recreated-{index}"})
-                for index, force in enumerate(forces, start=1)
-            ]
-            recreated_policy_evidence = [
-                report.policy_evidence[0].model_copy(
-                    update={
-                        "title": report.policy_evidence[0].id,
-                        "matched_sections": ["Invented section"],
-                    }
-                ),
-                *report.policy_evidence[1:],
-            ]
-            return report.model_copy(
-                update={
-                    "important_design_forces": recreated_forces,
-                    "policy_evidence": recreated_policy_evidence,
-                }
-            )
+    """Synthesis never restates forces, alternatives, scenarios, or policy evidence.
 
-    monkeypatch.setattr(
-        runtime.workflow,
-        "_reasoning",
-        RecreatedSynthesisArtifactsReasoner(),
+    These were previously echoed by the provider and diffed against the truth in two
+    separate places. The wire contract now has no field for any of them, so the
+    persisted report carries the workflow's own artifacts by construction.
+    """
+
+    atlas = runtime.analyzer.analyze(
+        Path("eval/cases/provider-leakage/repository").resolve()
     )
-    revision = runtime.case_service.create(_case())
+    runtime.atlas_repository.save(atlas)
+    revision = runtime.case_service.create(_case(brownfield=True))
 
-    run = runtime.workflow.advise(revision.case_id)
+    run = runtime.workflow.advise(
+        revision.case_id, atlas_version_id=atlas.version.version_id
+    )
 
-    assert run.status == ConsultationStatus.SUCCEEDED
     assert run.report is not None
     assert run.report.important_design_forces == run.design_forces
-    repairs = [
-        repair
-        for repair in run.execution_metadata["model_output_repairs"]
-        if repair["kind"] == "restored_canonical_synthesis_artifact"
-    ]
-    assert [repair["field"] for repair in repairs] == ["important_design_forces"]
-    assert [force["force_id"] for force in repairs[0]["model_output"]] == [
-        f"recreated-{index}" for index in range(1, len(run.design_forces) + 1)
-    ]
-    assert repairs[0]["canonical_input"] == [
-        force.model_dump(mode="json") for force in run.design_forces
-    ]
-    policy_repairs = [
-        repair
-        for repair in run.execution_metadata["model_output_repairs"]
-        if repair["kind"] == "restored_canonical_policy_evidence"
-        and repair["model_output"]["matched_sections"] == ["Invented section"]
-    ]
-    assert len(policy_repairs) == 1
-    assert policy_repairs[0]["model_output"]["matched_sections"] == ["Invented section"]
-    assert policy_repairs[0]["canonical_input"] == (
-        run.report.policy_evidence[0].model_dump(mode="json")
+    assert run.report.alternatives_considered == run.alternatives
+    assert run.report.scenario_analysis == run.scenarios
+    expected_policy_evidence = canonical_policy_evidence(
+        item for packet in run.focused_packets for item in packet.policies
     )
+    assert run.report.policy_evidence == expected_policy_evidence
 
+    for field in (
+        "important_design_forces",
+        "alternatives_considered",
+        "scenario_analysis",
+        "policy_evidence",
+        "policy_conflicts",
+    ):
+        assert field not in ProposedRecommendation.model_fields
 
-def test_invalid_synthesis_fails_after_deterministic_repair_without_regeneration(
+    repairs = run.execution_metadata["model_output_repairs"]
+    assert isinstance(repairs, list)
+    assert not any(
+        isinstance(item, dict)
+        and item.get("kind") == "restored_canonical_synthesis_artifact"
+        for item in repairs
+    )
+    composition = run.execution_metadata["synthesis_composition"]
+    assert isinstance(composition, list)
+    assert composition[0]["kind"] == "composed_report_from_proposal"
+    assert run.execution_metadata["synthesis_proposal_hash"]
+
+def test_invalid_proposal_is_repaired_once_without_regenerating_synthesis(
     runtime,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class InvalidSynthesisReasoner(DeterministicReasoningProvider):
-        attempts = 0
+    """One repair attempt, and synthesis itself is never re-run."""
 
-        def synthesize_recommendation(
-            self,
-            case,
-            context,
-            forces,
-            clusters,
-            analyses,
-            alternatives,
-            scenarios,
-            packets,
-        ):
-            self.attempts += 1
-            report = super().synthesize_recommendation(
-                case,
-                context,
-                forces,
-                clusters,
-                analyses,
-                alternatives,
-                scenarios,
-                packets,
-            )
-            return report.model_copy(
+    class InvalidProposalReasoner(DeterministicReasoningProvider):
+        synthesis_attempts = 0
+        repair_attempts = 0
+
+        def propose_recommendation(self, *args, **kwargs):
+            self.synthesis_attempts += 1
+            proposal = super().propose_recommendation(*args, **kwargs)
+            return proposal.model_copy(
                 update={
-                    "decision_summary": report.decision_summary.model_copy(
-                        update={"supporting_claim_ids": ["claim-invented"]}
+                    "decision_summary": proposal.decision_summary.model_copy(
+                        update={"claim_refs": ["E-invented"]}
                     )
                 }
             )
 
-    reasoner = InvalidSynthesisReasoner()
+        def repair_recommendation_proposal(self, proposal, errors, **kwargs):
+            self.repair_attempts += 1
+            return super().repair_recommendation_proposal(proposal, errors, **kwargs)
+
+    reasoner = InvalidProposalReasoner()
     monkeypatch.setattr(runtime.workflow, "_reasoning", reasoner)
     revision = runtime.case_service.create(_case())
 
-    with pytest.raises(EvidenceReferenceError, match="no supporting claim IDs"):
-        runtime.workflow.advise(revision.case_id)
+    run = runtime.workflow.advise(revision.case_id)
 
-    assert reasoner.attempts == 1
-    with runtime.database.connect() as connection:
-        row = connection.execute(
-            "SELECT run_id FROM consultation_runs WHERE case_id = ?",
-            (revision.case_id,),
-        ).fetchone()
-    assert row is not None
-    failed = runtime.run_repository.get(str(row["run_id"]))
-    assert failed.status == ConsultationStatus.FAILED
-    assert failed.failure_stage == ConsultationFailureStage.VALIDATION
-    assert failed.initial_validation_errors
-    assert failed.final_validation_errors
-    assert failed.prompt_identities.count("synthesize-recommendation:v2") == 1
-    assert runtime.case_service.show(revision.case_id).revision == 1
+    assert reasoner.synthesis_attempts == 1
+    assert reasoner.repair_attempts == 1
+    assert run.status == ConsultationStatus.SUCCEEDED
+    assert run.prompt_identities.count("synthesize-recommendation:v3") == 1
+    assert run.report is not None
+    assert run.report.decision_summary.supporting_claim_ids
+
 
 
 def test_explicit_repository_precedes_case_atlas_and_uses_its_latest_version(

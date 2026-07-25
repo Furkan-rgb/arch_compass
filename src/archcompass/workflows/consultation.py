@@ -20,6 +20,13 @@ from archcompass.application.evidence import (
     validate_report_evidence,
 )
 from archcompass.application.reporting import render_markdown
+from archcompass.application.synthesis import (
+    ProposalCompositionError,
+    build_claim_pool,
+    compose_recommendation,
+    proposal_content_hash,
+    validate_proposal,
+)
 from archcompass.configuration import AppConfig
 from archcompass.domain.atlas import (
     Atlas,
@@ -79,7 +86,6 @@ from archcompass.domain.evidence_rules import location_within
 from archcompass.domain.execution import ProgressEventType
 from archcompass.domain.policy import (
     PolicyApplicabilityContext,
-    PolicyEvidenceSummary,
     PolicyIndexVersion,
     RetrievedPolicy,
     canonical_policy_evidence,
@@ -617,11 +623,16 @@ class ConsultationWorkflow:
                 ConsultationFailureStage.SYNTHESIS,
                 "Synthesizing recommendation",
             )
-            report = self._reason(
+            pool = build_claim_pool(case=case, clusters=clusters, analyses=analyses)
+            cluster_refs = {
+                pool.cluster_ref_by_id[cluster.cluster_id]: cluster.title
+                for cluster in clusters
+            }
+            proposal = self._reason(
                 ReasoningTask.SYNTHESIZE_RECOMMENDATION,
                 prompt_identities,
                 stage_timings,
-                lambda: self._reasoning.synthesize_recommendation(
+                lambda: self._reasoning.propose_recommendation(
                     case,
                     context,
                     forces,
@@ -630,20 +641,49 @@ class ConsultationWorkflow:
                     alternatives,
                     scenarios,
                     packets,
+                    available_claims=pool.available,
+                    cluster_refs=cluster_refs,
                 ),
             )
-            provider_repairs = self._reasoning.consume_repair_actions()
             output_repairs = execution_metadata.get("model_output_repairs")
-            if isinstance(output_repairs, list):
-                output_repairs.extend(provider_repairs)
-                report, synthesis_repairs = self._restore_synthesis_artifacts(
-                    report,
+            proposal_errors = validate_proposal(proposal, pool=pool)
+            if proposal_errors:
+                if isinstance(output_repairs, list):
+                    output_repairs.append(
+                        {
+                            "kind": "repaired_recommendation_proposal",
+                            "errors": proposal_errors,
+                        }
+                    )
+                proposal = self._reason(
+                    ReasoningTask.REPAIR_RECOMMENDATION_PROPOSAL,
+                    prompt_identities,
+                    stage_timings,
+                    lambda: self._reasoning.repair_recommendation_proposal(
+                        proposal,
+                        proposal_errors,
+                        available_claims=pool.available,
+                        cluster_refs=cluster_refs,
+                    ),
+                )
+            try:
+                composition = compose_recommendation(
+                    proposal,
+                    pool=pool,
                     forces=forces,
                     alternatives=alternatives,
                     scenarios=scenarios,
+                    analyses=analyses,
                     packets=packets,
                 )
-                output_repairs.extend(synthesis_repairs)
+            except ProposalCompositionError as exc:
+                raise ModelOutputValidationError(
+                    f"The synthesis proposal could not be composed: {exc}"
+                ) from exc
+            report = composition.report
+            # Composition is the normal path, not a repair: keep it out of the repair audit.
+            execution_metadata["synthesis_proposal_hash"] = proposal_content_hash(proposal)
+            execution_metadata["synthesis_composition"] = composition.actions  # type: ignore[assignment]
             try:
                 canonical_findings = canonicalize_report_findings(
                     report,
@@ -1737,67 +1777,6 @@ class ConsultationWorkflow:
                 raise ModelOutputValidationError(
                     "Every scenario must evaluate every alternative exactly once"
                 )
-
-    @staticmethod
-    def _restore_synthesis_artifacts(
-        report: RecommendationReport,
-        *,
-        forces: list[DesignForce],
-        alternatives: list[CaseAlternative],
-        scenarios: list[ScenarioEvaluation],
-        packets: list[FocusedAnalysisPacket],
-    ) -> tuple[RecommendationReport, list[dict[str, object]]]:
-        """Restore validated upstream artifacts that synthesis may only reproduce."""
-        canonical = {
-            "important_design_forces": forces,
-            "alternatives_considered": alternatives,
-            "scenario_analysis": scenarios,
-        }
-        updates: dict[str, object] = {}
-        actions: list[dict[str, object]] = []
-        for field, expected in canonical.items():
-            actual = getattr(report, field)
-            if actual == expected:
-                continue
-            updates[field] = expected
-            actions.append(
-                {
-                    "kind": "restored_canonical_synthesis_artifact",
-                    "field": field,
-                    "model_output": [item.model_dump(mode="json") for item in actual],
-                    "canonical_input": [item.model_dump(mode="json") for item in expected],
-                }
-            )
-        canonical_policy_by_id = {
-            summary.id: summary
-            for summary in canonical_policy_evidence(
-                item for packet in packets for item in packet.policies
-            )
-        }
-        policy_evidence: list[PolicyEvidenceSummary] = []
-        policy_evidence_changed = False
-        for summary in report.policy_evidence:
-            expected_summary = canonical_policy_by_id.get(summary.id)
-            if expected_summary is None:
-                policy_evidence.append(summary)
-                continue
-            policy_evidence.append(expected_summary)
-            if summary == expected_summary:
-                continue
-            policy_evidence_changed = True
-            actions.append(
-                {
-                    "kind": "restored_canonical_policy_evidence",
-                    "policy_id": summary.id,
-                    "model_output": summary.model_dump(mode="json"),
-                    "canonical_input": expected_summary.model_dump(mode="json"),
-                }
-            )
-        if policy_evidence_changed:
-            updates["policy_evidence"] = policy_evidence
-        if not updates:
-            return report, actions
-        return report.model_copy(update=updates), actions
 
     @staticmethod
     def _validate_synthesis_coverage(

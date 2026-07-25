@@ -14,9 +14,9 @@ from archcompass.adapters.models.prompt_contracts import (
     CLASSIFY_REPORT_QUESTION,
     CLUSTER_DESIGN_FORCES,
     DISCOVER_DESIGN_FORCES,
-    LINK_STATEMENT_SUPPORT,
     OLLAMA_STAGE_PROMPTS,
     REPAIR_CONVERSATION_ANSWER,
+    REPAIR_RECOMMENDATION_PROPOSAL,
     SUMMARIZE_REPORT_CONVERSATION,
     SYNTHESIZE_RECOMMENDATION,
 )
@@ -81,8 +81,8 @@ def test_stage_prompt_identities_are_versioned_unique_and_content_bound() -> Non
         ReasoningTask.ANALYZE_CONCERN_CLUSTER: 4,
         ReasoningTask.GENERATE_ALTERNATIVES: 3,
         ReasoningTask.EVALUATE_SCENARIOS: 4,
-        ReasoningTask.SYNTHESIZE_RECOMMENDATION: 3,
-        ReasoningTask.LINK_STATEMENT_SUPPORT: 1,
+        ReasoningTask.SYNTHESIZE_RECOMMENDATION: 4,
+        ReasoningTask.REPAIR_RECOMMENDATION_PROPOSAL: 1,
         ReasoningTask.CLASSIFY_REPORT_QUESTION: 2,
         ReasoningTask.ANSWER_REPORT_QUESTION: 6,
         ReasoningTask.SUMMARIZE_REPORT_CONVERSATION: 2,
@@ -159,9 +159,11 @@ def test_prompt_contracts_cover_architectural_judgement_rules() -> None:
     assert "allowlist" in repair_contract
     assert "one repair" in repair_contract
 
-    support_contract = _normalized(LINK_STATEMENT_SUPPORT.stage_contract)
-    assert "directly support their actual meaning" in support_contract
-    assert "general topical relevance is not support" in support_contract
+    synthesis_contract = _normalized(SYNTHESIZE_RECOMMENDATION.stage_contract)
+    assert "cite handles" in synthesis_contract
+    assert "owns claim identity" in synthesis_contract
+    proposal_repair = _normalized(REPAIR_RECOMMENDATION_PROPOSAL.stage_contract)
+    assert "one repair attempt" in proposal_repair
 
 
 def test_ollama_request_uses_the_stage_contract_and_default_sampling(
@@ -221,6 +223,4 @@ def test_deterministic_provider_resolves_identities_for_the_stages_it_runs() -> 
 
     provider = DeterministicReasoningProvider()
     for task in ReasoningTask:
-        if task is ReasoningTask.LINK_STATEMENT_SUPPORT:
-            continue  # The fake links statement support directly, without a model call.
         assert provider.prompt_identity(task)

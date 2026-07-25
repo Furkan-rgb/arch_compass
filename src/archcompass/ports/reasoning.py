@@ -14,7 +14,6 @@ from archcompass.domain.consultation import (
     FocusedAnalysisPacket,
     FocusedNodeSummary,
     GlobalContext,
-    RecommendationReport,
     ScenarioEvaluation,
 )
 from archcompass.domain.conversation import (
@@ -25,6 +24,7 @@ from archcompass.domain.conversation import (
     ReportQuestionPlan,
     ReportQuestionPlanningContext,
 )
+from archcompass.domain.proposals import AvailableClaim, ProposedRecommendation
 
 
 class ReasoningTask(StrEnum):
@@ -42,7 +42,7 @@ class ReasoningTask(StrEnum):
     GENERATE_ALTERNATIVES = "generate_alternatives"
     EVALUATE_SCENARIOS = "evaluate_scenarios"
     SYNTHESIZE_RECOMMENDATION = "synthesize_recommendation"
-    LINK_STATEMENT_SUPPORT = "link_statement_support"
+    REPAIR_RECOMMENDATION_PROPOSAL = "repair_recommendation_proposal"
     CLASSIFY_REPORT_QUESTION = "classify_report_question"
     ANSWER_REPORT_QUESTION = "answer_report_question"
     SUMMARIZE_REPORT_CONVERSATION = "summarize_report_conversation"
@@ -83,8 +83,6 @@ class ReportConversationReasoner(Protocol):
 
 
 class FocusedReasoningProvider(ReportConversationReasoner, Protocol):
-    def consume_repair_actions(self) -> list[dict[str, object]]: ...
-
     def discover_design_forces(self, context: GlobalContext) -> list[DesignForce]: ...
 
     def cluster_design_forces(
@@ -118,7 +116,7 @@ class FocusedReasoningProvider(ReportConversationReasoner, Protocol):
         analyses: list[ConcernAnalysis],
     ) -> list[ScenarioEvaluation]: ...
 
-    def synthesize_recommendation(
+    def propose_recommendation(
         self,
         case: ArchitectureCase,
         context: GlobalContext,
@@ -128,4 +126,16 @@ class FocusedReasoningProvider(ReportConversationReasoner, Protocol):
         alternatives: list[CaseAlternative],
         scenarios: list[ScenarioEvaluation],
         packets: list[FocusedAnalysisPacket],
-    ) -> RecommendationReport: ...
+        *,
+        available_claims: list[AvailableClaim],
+        cluster_refs: dict[str, str],
+    ) -> ProposedRecommendation: ...
+
+    def repair_recommendation_proposal(
+        self,
+        proposal: ProposedRecommendation,
+        errors: list[str],
+        *,
+        available_claims: list[AvailableClaim],
+        cluster_refs: dict[str, str],
+    ) -> ProposedRecommendation: ...

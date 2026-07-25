@@ -190,16 +190,16 @@ def test_model_adapters_do_not_import_application_or_workflow_layers() -> None:
 def test_evidence_containment_rule_has_a_single_implementation() -> None:
     """The "is this cited span inside its surfaced node" rule lives in the domain.
 
-    It previously existed in four places (two in the workflow, one in the Ollama
-    adapter, one in application evidence validation), which is exactly the kind of
-    duplicated knowledge the policy corpus warns about.
+    It previously existed in six places: twice in the workflow, twice in application
+    evidence validation, twice in conversation validation, and once in the Ollama
+    adapter. That last copy is gone entirely — composed synthesis means the adapter no
+    longer decides whether a claim can survive evidence repair.
     """
 
     users = {
         SOURCE_ROOT / "application" / "evidence.py",
         SOURCE_ROOT / "application" / "conversation_validation.py",
         SOURCE_ROOT / "workflows" / "consultation.py",
-        SOURCE_ROOT / "adapters" / "models" / "ollama.py",
     }
     for path in users:
         assert "archcompass.domain.evidence_rules" in _imports(path), (

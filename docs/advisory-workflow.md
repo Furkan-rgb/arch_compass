@@ -99,13 +99,16 @@ repository observation with an invalid source location is removed as a whole; re
 strips the location while leaving its prose. Remaining errors fail the run explicitly.
 
 Final synthesis also produces one to twelve canonical architectural findings. The model supplies
-finding meaning, contextual importance, confidence, response, uncertainty, cluster, and claim
-links. The workflow replaces temporary IDs with stable ordered `FIND-nnn` IDs, then derives each
-finding's node IDs, locations, metric observations, obscurity signals, and policies from the
-linked claims in that cluster's exact focused packet. Provider-authored copies of those artifacts
-are ignored and audited when they differ. Validation rejects cross-cluster claim links and
-rechecks full cluster coverage after the single conservative repair before rendering schema-v3
-JSON and Markdown. Report conversations begin only after this workflow has completed successfully
+finding meaning, contextual importance, confidence, response, uncertainty, its concern-cluster
+handle, and its claim handles. It supplies no finding evidence: the proposal has no field for
+node IDs, locations, metric observations, obscurity signals, or policies, and the application
+derives each from the linked claims in that cluster's exact focused packet. The workflow assigns
+stable ordered `FIND-nnn` IDs during composition.
+
+A proposal that cites an unknown handle, mixes claims across concern clusters, leaves a cluster
+without a finding, or names an unknown disposition is rejected before composition and returned for
+one constrained repair. Synthesis itself is never re-run. If the repaired proposal is still
+invalid the run fails explicitly at the synthesis stage, and the ArchitectureCase is unchanged. Report conversations begin only after this workflow has completed successfully
 and are described separately in
 [report-conversations.md](report-conversations.md).
 

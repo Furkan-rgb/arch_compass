@@ -243,7 +243,7 @@ before the wire DTO exists:
   carries claim-key references in band.
 - `consume_repair_actions` still carries the audit trail for both of the above.
 
-### WS3 — Composed synthesis (the centerpiece)
+### WS3 — Composed synthesis (the centerpiece) *(done)*
 
 *Goal: the model proposes; the application composes. Repair mechanisms #2, #3, #6
 disappear by construction.*
@@ -409,6 +409,8 @@ Then, against the existing contracts only:
   documents the panel; master plan §18 and AGENTS.md no longer contradict the shipped UI.
 
 ## 4. Sequencing
+
+Progress: WS0, WS1, WS2, and WS3 are complete. WS4, WS5, WS6, WS7, and WS8 remain.
 
 ```text
 WS0 (replay tier)

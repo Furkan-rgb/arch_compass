@@ -92,7 +92,9 @@ def canonicalize_report_findings(
             evidence=evidence,
             finding_id=expected_id,
         )
-        if canonical != finding:
+        # Filling in evidence a finding never asserted is projection, not restoration.
+        # Only a finding that stated differing evidence has anything to restore.
+        if canonical != finding and _asserts_projected_evidence(finding):
             actions.append(
                 {
                     "kind": "restored_canonical_finding_evidence",
@@ -703,6 +705,18 @@ def _project_finding_evidence(
             "metric_observations": metric_observations,
             "obscurity_signals": obscurity_signals,
         }
+    )
+
+
+def _asserts_projected_evidence(finding: ArchitecturalFinding) -> bool:
+    """True when the finding stated evidence that projection would have to overwrite."""
+
+    return bool(
+        finding.atlas_node_ids
+        or finding.policy_ids
+        or finding.affected_locations
+        or finding.metric_observations
+        or finding.obscurity_signals
     )
 
 

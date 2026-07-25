@@ -139,7 +139,7 @@ def test_live_audiobook_greenfield_consultation(
     assert run.focused_packets
     assert run.alternatives
     assert run.scenarios
-    assert run.validation_errors == []
+    assert run.final_validation_errors == []
     assert run.report is not None
     assert run.report.decision_summary
     assert run.report.recommended_architecture
