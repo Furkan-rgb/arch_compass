@@ -141,6 +141,12 @@ Delegated to the implementing agent; confirmed where noted.
     warnings recorded on the message, not turn failures. The renderer increasingly injects
     exact figures from cited evidence rather than trusting model restatement (same
     composition principle as decision 1).
+13. **A report-conversation panel joins the web workspace (confirmed by owner).** Master
+    plan §18 currently lists a React conversation frontend as a non-goal; the owner has
+    decided to lift that. WS8 begins by amending master plan §18 and `.agents/AGENTS.md`
+    and recording `docs/adr/0003-conversation-panel.md`, then builds the panel against the
+    existing `/api/conversations` contracts. It is sequenced after WS4 so the UI is built
+    on clarification-answer behavior, never on today's exception-throwing behavior.
 
 Deliberately kept as-is:
 
@@ -360,6 +366,33 @@ survive.*
 - Acceptance: `deterministic.py` shrinks to a fixture player (~300 lines); eval matrix
   green; no eval-case vocabulary appears in `src/`.
 
+### WS8 — Report-conversation panel in the web workspace
+
+*Goal: converse about a run's findings directly from the report overview.*
+
+Scope amendment first (decision 13): amend master plan §18 (remove the conversation-UI
+non-goal), update `.agents/AGENTS.md` ("no conversation React UI" no longer applies), and
+record `docs/adr/0003-conversation-panel.md` (previous direction, new direction,
+justification, consequences) before any UI code.
+
+Then, against the existing contracts only:
+
+- A conversation panel on the run detail page: create a conversation for the viewed run,
+  list existing conversations, show history, ask questions, and render clarification
+  answers distinctly from evidence-grounded answers.
+- Consume the existing endpoints (`/api/conversations` create/list/show/history/messages/
+  export) via the OpenAPI-generated types (`scripts/generate_openapi_types.py`); no new
+  backend routes and no changes to conversation semantics — the panel is a pure client of
+  the WS4-hardened service.
+- Render structured answers from their typed statements (direct answer, supporting points,
+  uncertainty) with finding/claim/policy references visible; markdown export via the
+  existing export endpoint.
+- Surface turn failures as recorded failed attempts (they already persist as error
+  records), never as silent drops.
+- Rebuild and commit the static bundle through the WS6 staleness check.
+- Acceptance: panel works against a live local workspace end to end; `docs/web-workspace.md`
+  documents the panel; master plan §18 and AGENTS.md no longer contradict the shipped UI.
+
 ## 4. Sequencing
 
 ```text
@@ -369,11 +402,12 @@ WS0 (replay tier)
   → WS3 (composed synthesis)                [largest; the confirmed decision]
       → WS7 (evaluation honesty)            [fixtures written against final ports]
 WS4 (conversation)                          [independent; parallel after WS0]
+  → WS8 (conversation panel)                [scope amendment + UI; needs WS4 behavior]
 WS5 (transport)                             [independent; parallel after WS0]
-  → WS6 (decomposition + docs + ADRs)       [last; needs the dust settled]
+  → WS6 (decomposition + docs + ADRs)       [after WS0–WS5; WS8 may follow or overlap]
 ```
 
-Approximate sizes: WS0 M, WS1 M, WS2 M, WS3 L, WS4 M, WS5 S, WS6 M, WS7 M.
+Approximate sizes: WS0 M, WS1 M, WS2 M, WS3 L, WS4 M, WS5 S, WS6 M, WS7 M, WS8 M.
 
 ## 5. Invariant Compliance
 
