@@ -34,6 +34,7 @@ from archcompass.domain.atlas import (
     SourceExcerptQuery,
     SubsystemSummaryQuery,
 )
+from archcompass.domain.atlas_metrics import signal_investigation_rank
 from archcompass.domain.consultation import GlobalContext
 from archcompass.domain.errors import (
     AtlasQueryValidationError,
@@ -841,3 +842,9 @@ def test_boundary_signals_outrank_default_codes_regardless_of_alphabet() -> None
         "aaa-routine-code",
     ]
     assert ordered != sorted(ordered), "a plain alphabetical sort must not satisfy this"
+
+    # The ranking is domain metadata, not overview presentation: any other consumer
+    # must be able to reach the same order without rebuilding an Atlas.
+    assert signal_investigation_rank("broad-input-boundary-preparation") < (
+        signal_investigation_rank("aaa-routine-code")
+    )

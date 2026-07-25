@@ -393,9 +393,14 @@ adversarial verifier) produced these verdicts:
 8 policies / depth 2 / 120–180 excerpt lines) — they bound the reasoning loop and the
 audit rows and nothing observed fights them; the summary batch mechanism (values are
 §16 numerology but the CAS/coverage machinery is sound and low-risk); durable row shape
-caps. **Noted for WS6:** several budget values are restated as bare literals across
-layers (the 96-reference family, repository read guards, domain Field caps) and should
-reference `domain/budgets.py` constants instead of duplicating them by value.
+caps. **Done in WS6:** every budget value now has one named home in `domain/budgets.py` and
+is referenced rather than restated — domain `Field` caps, repository read guards, and the
+service's prior-reference read. Deduplicating by *meaning* rather than by value mattered:
+the prior-evidence read window (96) and the durable record cap (128) had been the same
+number in my first pass, and a test caught the conflation. The Atlas signal
+investigation ranking moved from a literal map inside the consultation workflow to
+`domain/atlas_metrics.py`, beside the other interpretation metadata, so the overview,
+the evaluations and any later consumer share one definition.
 
 ### WS5 — Transport hardening *(done)*
 

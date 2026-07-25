@@ -74,8 +74,8 @@ _MAX_FACT_WARNINGS = 16
 #: long-line excerpt can legitimately carry more text than a row may keep, so the
 #: durable copy is clipped with an audited note while reasoning still receives the
 #: full excerpt.
-_SNAPSHOT_CHARACTERS = 24_000
-_SNAPSHOT_TOTAL_CHARACTERS = 24_000
+_SNAPSHOT_CHARACTERS = budgets.MAX_SNAPSHOT_CHARACTERS
+_SNAPSHOT_TOTAL_CHARACTERS = budgets.MAX_SNAPSHOT_CHARACTERS
 
 
 def _bounded_snapshot_text(text: str, *, remaining: int) -> tuple[str | None, bool]:
@@ -214,7 +214,7 @@ class ReportConversationService:
             )
             prior_references = self._conversations.recent_evidence_references(
                 conversation_id,
-                limit=96,
+                limit=budgets.MAX_PRIOR_EVIDENCE_REFERENCES,
             )
             latest_summary = self._conversations.latest_summary(conversation_id)
             planning_context = self._context_builder.build_planning(

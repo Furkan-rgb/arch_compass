@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.adapters.persistence.stored_records import decode_stored_json
+from archcompass.domain import budgets
 from archcompass.domain.atlas import SourceExcerpt
 from archcompass.domain.base import canonical_json
 from archcompass.domain.consultation import ConsultationRun, ConsultationStatus
@@ -170,7 +171,9 @@ class SQLiteReportConversationRepository:
         *,
         limit: int = 8,
     ) -> list[ConversationMessage]:
-        self._bounded_limit(limit, maximum=8, name="recent-message")
+        self._bounded_limit(
+            limit, maximum=budgets.RECENT_MESSAGE_LIMIT, name="recent-message"
+        )
         self.get(conversation_id)
         with self._database.connect() as connection:
             rows = connection.execute(
@@ -196,7 +199,9 @@ class SQLiteReportConversationRepository:
             raise ConversationValidationError(
                 "Message-batch starting ordinal must be non-negative"
             )
-        self._bounded_limit(limit, maximum=12, name="message-batch")
+        self._bounded_limit(
+            limit, maximum=budgets.SUMMARIZE_AFTER_MESSAGES, name="message-batch"
+        )
         self.get(conversation_id)
         with self._database.connect() as connection:
             rows = connection.execute(
@@ -217,7 +222,11 @@ class SQLiteReportConversationRepository:
         *,
         limit: int = 96,
     ) -> list[ConversationEvidenceReference]:
-        self._bounded_limit(limit, maximum=96, name="evidence-reference")
+        self._bounded_limit(
+            limit,
+            maximum=budgets.MAX_PRIOR_EVIDENCE_REFERENCES,
+            name="evidence-reference",
+        )
         self.get(conversation_id)
         with self._database.connect() as connection:
             rows = connection.execute(

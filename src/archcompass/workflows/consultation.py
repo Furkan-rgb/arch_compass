@@ -49,6 +49,7 @@ from archcompass.domain.atlas import (
 from archcompass.domain.atlas_metrics import (
     canonical_metric_name,
     salient_profile_observations,
+    signal_investigation_rank,
 )
 from archcompass.domain.base import canonical_json, new_id, utc_now
 from archcompass.domain.case import (
@@ -1983,18 +1984,13 @@ class ConsultationWorkflow:
         signals_by_node: dict[str, list[ObscuritySignal]] = {}
         for signal in atlas.signals:
             signals_by_node.setdefault(signal.node_id, []).append(signal)
-        signal_priority = {
-            "broad-input-boundary-preparation": 0,
-            "parallel-boundary-preparation": 1,
-            "cyclic-dependency": 2,
-        }
         representative_signals: list[ObscuritySignal] = []
         signals_by_code: dict[str, list[ObscuritySignal]] = {}
         for signal in atlas.signals:
             signals_by_code.setdefault(signal.code, []).append(signal)
         for code in sorted(
             signals_by_code,
-            key=lambda value: (signal_priority.get(value, 2), value),
+            key=lambda value: (signal_investigation_rank(value), value),
         ):
             representative_signals.extend(
                 sorted(

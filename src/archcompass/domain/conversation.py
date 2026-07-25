@@ -8,6 +8,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
+from archcompass.domain import budgets
 from archcompass.domain.atlas import (
     AtlasMetricValue,
     AtlasNodeSummary,
@@ -73,7 +74,7 @@ class ConversationExcerptSnapshot(DomainModel):
 
     evidence_id: str = Field(min_length=1)
     location: SourceLocation
-    text: str = Field(min_length=1, max_length=24_000)
+    text: str = Field(min_length=1, max_length=budgets.MAX_SNAPSHOT_CHARACTERS)
 
     @model_validator(mode="after")
     def validate_line_budget(self) -> ConversationExcerptSnapshot:
@@ -111,12 +112,12 @@ class GetFindingAction(DomainModel):
 
 class CompareFindingsAction(DomainModel):
     kind: Literal["compare_findings"]
-    finding_ids: list[str] = Field(min_length=2, max_length=12)
+    finding_ids: list[str] = Field(min_length=2, max_length=budgets.MAX_FINDINGS)
 
 
 class GetReportClaimsAction(DomainModel):
     kind: Literal["get_report_claims"]
-    claim_ids: list[str] = Field(min_length=1, max_length=16)
+    claim_ids: list[str] = Field(min_length=1, max_length=budgets.MAX_REPORT_CLAIMS)
 
 
 class GetClusterAnalysisAction(DomainModel):
@@ -136,7 +137,7 @@ class GetScenarioAction(DomainModel):
 
 class GetAtlasNodesAction(DomainModel):
     kind: Literal["get_atlas_nodes"]
-    node_ids: list[str] = Field(min_length=1, max_length=24)
+    node_ids: list[str] = Field(min_length=1, max_length=budgets.MAX_ATLAS_NODES)
 
 
 class SearchAtlasNodesAction(DomainModel):
@@ -147,12 +148,12 @@ class SearchAtlasNodesAction(DomainModel):
 
 class GetMetricProfilesAction(DomainModel):
     kind: Literal["get_metric_profiles"]
-    node_ids: list[str] = Field(min_length=1, max_length=24)
+    node_ids: list[str] = Field(min_length=1, max_length=budgets.MAX_ATLAS_NODES)
 
 
 class GetObscuritySignalsAction(DomainModel):
     kind: Literal["get_obscurity_signals"]
-    node_ids: list[str] = Field(min_length=1, max_length=24)
+    node_ids: list[str] = Field(min_length=1, max_length=budgets.MAX_ATLAS_NODES)
 
 
 class GetDependencyNeighbourhoodAction(DomainModel):
@@ -178,7 +179,7 @@ class GetSourceExcerptAction(DomainModel):
 
 class GetPoliciesAction(DomainModel):
     kind: Literal["get_policies"]
-    policy_ids: list[str] = Field(min_length=1, max_length=8)
+    policy_ids: list[str] = Field(min_length=1, max_length=budgets.MAX_POLICIES)
 
 
 class ExplainMetricDefinitionAction(DomainModel):
@@ -209,12 +210,22 @@ ConversationRetrievalAction = Annotated[
 
 class ReportQuestionPlan(DomainModel):
     question_types: list[ReportQuestionType] = Field(min_length=1)
-    finding_ids: list[str] = Field(default_factory=list[str], max_length=12)
-    report_claim_ids: list[str] = Field(default_factory=list[str], max_length=16)
-    atlas_node_ids: list[str] = Field(default_factory=list[str], max_length=24)
-    policy_ids: list[str] = Field(default_factory=list[str], max_length=8)
+    finding_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_FINDINGS
+    )
+    report_claim_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_REPORT_CLAIMS
+    )
+    atlas_node_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_ATLAS_NODES
+    )
+    policy_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_POLICIES
+    )
     search_terms: list[str] = Field(default_factory=list[str], max_length=10)
-    retrieval_actions: list[ConversationRetrievalAction] = Field(max_length=8)
+    retrieval_actions: list[ConversationRetrievalAction] = Field(
+        max_length=budgets.MAX_ACTIONS_PER_QUESTION
+    )
     rationale: str = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -288,9 +299,15 @@ class AnswerClaim(DomainModel):
     text: str = Field(min_length=1)
     classification: ClaimClassification
     evidence_ids: list[str] = Field(default_factory=list[str], max_length=48)
-    finding_ids: list[str] = Field(default_factory=list[str], max_length=12)
-    report_claim_ids: list[str] = Field(default_factory=list[str], max_length=16)
-    policy_ids: list[str] = Field(default_factory=list[str], max_length=8)
+    finding_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_FINDINGS
+    )
+    report_claim_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_REPORT_CLAIMS
+    )
+    policy_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_POLICIES
+    )
 
     @model_validator(mode="after")
     def require_unique_support(self) -> AnswerClaim:
@@ -326,8 +343,12 @@ class AnswerStatement(DomainModel):
     text: str = Field(min_length=1)
     kind: AnswerStatementKind
     answer_claim_ids: list[str] = Field(default_factory=list[str], max_length=20)
-    finding_ids: list[str] = Field(default_factory=list[str], max_length=12)
-    report_claim_ids: list[str] = Field(default_factory=list[str], max_length=16)
+    finding_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_FINDINGS
+    )
+    report_claim_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_REPORT_CLAIMS
+    )
 
     @model_validator(mode="after")
     def require_support(self) -> AnswerStatement:
@@ -355,7 +376,9 @@ class ConversationAnswer(DomainModel):
         max_length=12,
     )
     claims: list[AnswerClaim] = Field(default_factory=list[AnswerClaim], max_length=20)
-    relevant_finding_ids: list[str] = Field(default_factory=list[str], max_length=12)
+    relevant_finding_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_FINDINGS
+    )
     uncertainty: list[AnswerStatement] = Field(
         default_factory=list[AnswerStatement],
         max_length=10,
@@ -425,20 +448,30 @@ class ConversationRetrievalRecord(DomainModel):
     atlas_version_id: str | None = None
     policy_index_version_id: str | None = None
     question_plan: ReportQuestionPlan
-    retrieval_actions: list[ConversationRetrievalAction] = Field(max_length=8)
+    retrieval_actions: list[ConversationRetrievalAction] = Field(
+        max_length=budgets.MAX_ACTIONS_PER_QUESTION
+    )
     evidence_references: list[ConversationEvidenceReference] = Field(
         default_factory=list[ConversationEvidenceReference],
-        max_length=128,
+        max_length=budgets.MAX_EVIDENCE_REFERENCES,
     )
-    supplied_finding_ids: list[str] = Field(default_factory=list[str], max_length=12)
+    supplied_finding_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_FINDINGS
+    )
     supplied_report_claim_ids: list[str] = Field(
         default_factory=list[str],
         max_length=16,
     )
-    supplied_evidence_ids: list[str] = Field(default_factory=list[str], max_length=128)
-    supplied_policy_ids: list[str] = Field(default_factory=list[str], max_length=8)
+    supplied_evidence_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_EVIDENCE_REFERENCES
+    )
+    supplied_policy_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_POLICIES
+    )
     summary_revision: int | None = Field(default=None, ge=1)
-    recent_message_ordinals: list[int] = Field(default_factory=list[int], max_length=8)
+    recent_message_ordinals: list[int] = Field(
+        default_factory=list[int], max_length=budgets.RECENT_MESSAGE_LIMIT
+    )
     truncations: list[str] = Field(default_factory=list[str], max_length=16)
     unavailable_reasons: list[str] = Field(default_factory=list[str], max_length=8)
     #: Prose observations that did not fabricate evidence and so did not fail the turn.
@@ -482,11 +515,14 @@ class ConversationRetrievalRecord(DomainModel):
             raise ValueError(
                 f"Excerpt snapshots reference unsupplied evidence IDs: {sorted(unknown)}"
             )
-        if sum(len(item.text) for item in self.excerpt_snapshots) > 24_000:
+        if (
+            sum(len(item.text) for item in self.excerpt_snapshots)
+            > budgets.MAX_SNAPSHOT_CHARACTERS
+        ):
             raise ValueError("Durable excerpt snapshots exceed the turn text budget")
         if (
             sum(item.text.count("\n") + 1 for item in self.excerpt_snapshots)
-            > 180
+            > budgets.MAX_TOTAL_EXCERPT_LINES
         ):
             raise ValueError("Durable excerpt snapshots exceed the turn line budget")
         return self
@@ -500,7 +536,9 @@ class ConversationRole(StrEnum):
 class ConversationSummaryItem(DomainModel):
     text: str = Field(min_length=1, max_length=1000)
     source_ordinals: list[int] = Field(min_length=1, max_length=8)
-    finding_ids: list[str] = Field(default_factory=list[str], max_length=12)
+    finding_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_FINDINGS
+    )
     evidence_ids: list[str] = Field(default_factory=list[str], max_length=24)
 
     @model_validator(mode="after")
@@ -519,7 +557,7 @@ class ConversationSummaryItem(DomainModel):
 
 
 class ConversationSummary(DomainModel):
-    narrative: str = Field(min_length=1, max_length=6000)
+    narrative: str = Field(min_length=1, max_length=budgets.MAX_SUMMARY_CHARACTERS)
     discussed_finding_ids: list[str] = Field(default_factory=list[str], max_length=12)
     discussed_evidence_ids: list[str] = Field(default_factory=list[str], max_length=96)
     user_corrections: list[ConversationSummaryItem] = Field(
@@ -616,7 +654,9 @@ class ConversationMessageView(DomainModel):
     ordinal: int = Field(ge=1)
     role: ConversationRole
     text: str = Field(max_length=2000)
-    relevant_finding_ids: list[str] = Field(default_factory=list[str], max_length=12)
+    relevant_finding_ids: list[str] = Field(
+        default_factory=list[str], max_length=budgets.MAX_FINDINGS
+    )
     relevant_evidence_ids: list[str] = Field(default_factory=list[str], max_length=48)
     uncertainty: list[str] = Field(default_factory=list[str], max_length=10)
 
@@ -743,7 +783,7 @@ class ConversationAtlasEvidence(DomainModel):
         default_factory=list[ConversationEvidenceReference],
         max_length=96,
     )
-    query_summary: str = Field(default="", max_length=24_000)
+    query_summary: str = Field(default="", max_length=budgets.MAX_TRANSIENT_PROSE_CHARACTERS)
     ordered_node_ids: list[str] = Field(default_factory=list[str], max_length=24)
     nodes: list[AtlasNodeSummary] = Field(default_factory=list[AtlasNodeSummary], max_length=24)
     relationships: list[AtlasRelationshipEvidence] = Field(
@@ -763,7 +803,9 @@ class ConversationAtlasEvidence(DomainModel):
         max_length=8,
     )
     test_ids: list[str] = Field(default_factory=list[str], max_length=24)
-    unavailable_reason: str | None = Field(default=None, max_length=24_000)
+    unavailable_reason: str | None = Field(
+        default=None, max_length=budgets.MAX_TRANSIENT_PROSE_CHARACTERS
+    )
     truncated: bool = False
 
 
@@ -783,7 +825,7 @@ class ReportConversationContext(DomainModel):
     recent_messages: list[ConversationMessageView] = Field(max_length=8)
     evidence_references: list[ConversationEvidenceReference] = Field(
         default_factory=list[ConversationEvidenceReference],
-        max_length=128,
+        max_length=budgets.MAX_EVIDENCE_REFERENCES,
     )
     retrieved_findings: list[ArchitecturalFinding] = Field(max_length=12)
     retrieved_claims: list[Claim] = Field(max_length=16)

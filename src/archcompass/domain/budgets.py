@@ -71,6 +71,22 @@ def retrieved_character_budget(
     derived = int(prompt_characters * RETRIEVED_EVIDENCE_SHARE)
     return max(MIN_RETRIEVED_TEXT_CHARACTERS, derived)
 
+#: Report claims one turn may cite. Mirrors the report contract rather than standing
+#: on its own.
+MAX_REPORT_CLAIMS: Final = 16
+#: Exact evidence references one durable turn record may carry.
+MAX_EVIDENCE_REFERENCES: Final = 128
+#: One transient prose field in an assembled context (a query summary, an
+#: unavailability reason). Writers truncate to fit; this is the shape bound that keeps
+#: an oversized string from failing a turn silently far from its source.
+MAX_TRANSIENT_PROSE_CHARACTERS: Final = 24_000
+#: How far back a turn reads earlier turns' evidence references when deciding what is
+#: already in scope. Distinct from the row cap above: this bounds a query, not a row.
+MAX_PRIOR_EVIDENCE_REFERENCES: Final = 96
+#: Durable excerpt-snapshot text, per snapshot and per turn. Bounds a stored row, not
+#: model context: reasoning always receives the full excerpt.
+MAX_SNAPSHOT_CHARACTERS: Final = 24_000
+
 # Bounded conversation context.
 RECENT_MESSAGE_LIMIT: Final = 8
 MAX_SUMMARY_CHARACTERS: Final = 6_000

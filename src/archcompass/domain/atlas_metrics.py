@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 from archcompass.domain.atlas import (
     AtlasMetricValue,
@@ -10,6 +11,27 @@ from archcompass.domain.atlas import (
     MetricProfile,
     MetricScope,
 )
+
+#: How soon a signal warrants investigation, lowest first. Signals needing
+#: architectural interpretation outrank routine measurements, which are numerous and
+#: rarely the reason to look somewhere. Codes absent here take the default rank, so a
+#: new analyzer signal is ordinary until someone decides otherwise.
+#:
+#: This lives beside the other interpretation metadata rather than in the workflow that
+#: consumes it: the ranking is a judgement about what an Atlas signal *means*, and the
+#: consultation overview, evaluations and any later consumer must all agree on it.
+_DEFAULT_SIGNAL_RANK: Final = 2
+_SIGNAL_INVESTIGATION_RANK: Final[dict[str, int]] = {
+    "broad-input-boundary-preparation": 0,
+    "parallel-boundary-preparation": 1,
+    "cyclic-dependency": 2,
+}
+
+
+def signal_investigation_rank(code: str) -> int:
+    """Rank one obscurity-signal code for overview ordering."""
+
+    return _SIGNAL_INVESTIGATION_RANK.get(code, _DEFAULT_SIGNAL_RANK)
 
 
 @dataclass(frozen=True)
