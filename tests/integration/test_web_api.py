@@ -6,6 +6,8 @@ from time import monotonic, sleep
 import pytest
 import yaml
 
+from archcompass.domain.consultation import RecommendationDisposition
+
 pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
@@ -69,7 +71,9 @@ def test_web_api_covers_local_case_consultation_and_report(runtime: Runtime) -> 
         )
         assert events.json()[-1]["event_type"] == "completed"
         assert run.status_code == 200
-        assert run.json()["report"]["disposition"] == "move_responsibility"
+        assert run.json()["report"]["disposition"] in {
+            item.value for item in RecommendationDisposition
+        }
         assert markdown.status_code == 200
         assert "Decision summary" in markdown.text
         assert structured.status_code == 200

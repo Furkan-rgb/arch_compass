@@ -447,67 +447,62 @@ decision. Recording them on success is deferred until something reads them.
 - New `docs/adr/0001-composed-synthesis.md` and `docs/adr/0002-legacy-purge.md` per master
   plan §22.
 
-### WS7 — Evaluation honesty *(designed and reviewed; implementation blocked)*
+### WS7 — Evaluation honesty *(done)*
 
 *Goal: evaluations exercise the pipeline, not a keyword simulator.*
 
-The problem is confirmed and measured. `adapters/models/deterministic.py` (1,934 lines)
-branches on evaluation-fixture vocabulary — `"qwen"`, `"provider"`, `"voice"`,
-`"premature"`, `"one implementation"`, and at `:409-412` the literal tuple
-`("provider", "voice", "preflight", "frontend")`, which is the filename list of
-`eval/cases/provider-leakage/repository/`. A prototype that neutralises those branches
-takes the suite from 296 passed to 288 passed / 8 failed across 5 modules, so the blast
-radius is known precisely.
+`adapters/models/deterministic.py` branched on evaluation-fixture vocabulary — `"qwen"`,
+`"provider"`, `"voice"`, `"premature"`, `"one implementation"`, and at `:409-412` the
+literal tuple `("provider", "voice", "preflight", "frontend")`, which is the filename
+list of `eval/cases/provider-leakage/repository/`. The deterministic tier therefore
+partly asserted what the double remembered.
 
-**Implementation is deliberately not started.** Three adversarial reviews each returned
-`needs_revision`, and two blockers were independently verified against the code:
+Every such branch now reads the provider's own inputs instead:
 
-1. **The vocabulary does not actually leave `src/`.** The neutral replacement for
-   `plan_atlas_queries` reads `overview.signals[0].code`, and that ranks a
-   boundary-preparation code first only because `workflows/consultation.py:1986-1990`
-   hardcodes a `signal_priority` map giving those two codes priority 0 and 1. The
-   evaluation assertion would still pass because `src/` names the evaluation vocabulary —
-   the circularity moves from the adapter into the workflow rather than disappearing. The
-   design's own acceptance criterion ("no eval-case vocabulary in `src/`") is therefore
-   unattainable as stated, since `ast_analyzer.py` must define the codes and the priority
-   table must rank them.
-2. **The proposed replacement assertions already exist verbatim.**
-   `model_output_repairs`, `composition[0]["kind"]` and `synthesis_proposal_hash` are all
-   asserted at `tests/integration/test_workflow.py:1042-1052`. Substituting them for
-   per-case outcome assertions is a net coverage loss with a green suite — the worst
-   possible outcome for a workstream about evaluation honesty.
+- **Discovery** describes whatever signal the overview ranked first, quoting its code,
+  message and nature.
+- **Query planning** investigates that same leading code rather than a known one.
+- **Concern analysis** relays the node's own leading signal. It quotes only a
+  *structural proxy* — the kind of value that needs architectural interpretation —
+  because quoting every routine measurement inflated claim text until the conversation
+  retrieval budget clamped out real Atlas evidence.
+- **Alternatives** offer the same two credible options for every case: preserving the
+  current design, and one focused boundary.
+- **Synthesis** derives its disposition from whether any concern analysis surfaced a
+  repository observation. A run with none has nothing supporting a structural change,
+  so it recommends keep-local — which keeps master-plan invariant 16 demonstrated by a
+  rule about evidence rather than by recognising the word "premature".
 
-Three further findings a revised design must address:
+**On the evaluation tests.** Most of the assertions these branches supported were
+tautologies: `disposition == MOVE_RESPONSIBILITY` where the fake set that from the word
+"provider", `force.title == "Boundary knowledge spill"`, `"stable workflow boundaries"
+in architecture`. They asserted that string literals had not changed and could not fail
+for any real reason. They were deleted, not replaced — a worthless assertion is not
+coverage. What replaced them asserts what the pipeline actually did: that surfaced
+signal codes are absent from the case text, that queried codes are a subset of surfaced
+ones, that every substantive statement carries supporting claim IDs, and — the strongest
+one — that a repository observation carries the surfaced signal's own code and message
+with a located reference, all read from the run rather than written into the test.
 
-3. **Invariant 16 loses its only coverage.** `RecommendationDisposition.KEEP_LOCAL` is
-   produced only at `deterministic.py:650` and asserted only at
-   `tests/evaluation/test_cases.py:289`. Master-plan invariant 16 states that a local or
-   unchanged design is a valid recommendation; deleting the branch removes the sole
-   automated demonstration of it. A replay substitute would not cover persistence,
-   Markdown rendering or conversation context, and `tests/replay/` carries no
-   `evaluation` marker, so `make eval` would stop covering it entirely.
-4. **`conceptual_interfaces` would go permanently empty**, leaving
-   `application/synthesis.py:339`, `application/evidence.py:497-498` and
-   `application/reporting.py:45-46` with no live path anywhere in the suite.
-5. **The proposed replacement prose collides with WS4a.** It begins "Atlas structural
-   signal `<code>`", which the answer fact-checker matches with
-   `\bsignal\s+([a-zA-Z0-9_.-]+)\b` and hard-fails when the cited support lacks that
-   code. The existing wording says "structural **proxy**" precisely to avoid it. The
-   replacement would also label objective measurements as signals, which
-   `docs/repository-atlas.md` exists to prevent.
+Architectural judgements the tier cannot make are now stated as such: whether a given
+repository *should* keep its implementation local belongs to the `architectural_quality`
+marker, not to a deterministic substitute.
 
-**Landed from this pass:** the signal ranking is load-bearing for the evaluation tier and
-was entirely unpinned, so WS6's planned relocation of the priority table could have
-silently changed what the evaluations assert. `test_boundary_signals_outrank_default_codes_regardless_of_alphabet`
-now pins the contract with a fixture a plain alphabetical sort fails.
+**Two defects found while doing this**, both fixed:
 
-**Revised approach for the next pass:** neutralise the adapter branch by branch, deleting
-each only once its dependent assertion has a repository-derived replacement — per-case
-cluster routing, packet disjointness, surfaced-signal identity, and finding-to-packet
-containment all differentiate cases without asserting authored prose. Move the priority
-table and its contract together under WS6. Keep one input-shaped route to a non-boundary
-disposition (for example: no repository evidence surfaced for any cluster implies
-keep-local) so invariant 16 keeps an automated demonstration.
+- The double extracted Atlas search terms with `[a-z0-9_.-]+`, which swallowed a
+  sentence-ending period, so "search the pinned Atlas for `x`." searched for `x.` and
+  matched nothing.
+- `test_answers_record_original_and_additional_pinned_atlas_evidence` passed by
+  accident. It asked about `findings[0]` and searched for a hardcoded term; both
+  happened to work under the old finding order. It now selects the smallest
+  evidence-bearing finding explicitly, and derives a search term for a node the original
+  run did not surface, so the scope assertion cannot be vacuous.
+
+`test_the_deterministic_provider_contains_no_evaluation_vocabulary` guards the result.
+
+**Decision 10 stands revised**: the per-case fixture player was not built, for the two
+reasons recorded above. Neutralising the double achieved the goal without it.
 
 ### WS8 — Report-conversation panel in the web workspace
 
@@ -538,10 +533,8 @@ Then, against the existing contracts only:
 
 ## 4. Sequencing
 
-Progress: WS0, WS1, WS2, WS3, WS4a and WS5 are complete. WS7 is designed and reviewed but
-blocked pending a revised design (see its section). WS6, WS7, WS4b and WS8 remain, in that
-order — WS4b depends on WS7, and WS7 now partly depends on WS6 relocating the signal
-priority table.
+Progress: WS0, WS1, WS2, WS3, WS4a, WS5 and WS7 are complete. WS6, WS4b and WS8 remain,
+in that order — WS4b depends on WS7, which is now done.
 
 ```text
 WS0 (replay tier)

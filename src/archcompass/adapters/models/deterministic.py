@@ -11,6 +11,7 @@ from archcompass.domain.atlas import (
     AtlasQuery,
     AtlasQueryPlan,
     HotspotsQuery,
+    MetricNature,
     NodeDetailsQuery,
     SignalsQuery,
     SourceExcerptQuery,
@@ -72,13 +73,6 @@ from archcompass.domain.proposals import (
     ProposedStatement,
 )
 from archcompass.ports.reasoning import ReasoningTask
-
-_BOUNDARY_PREPARATION_SIGNAL_CODES = frozenset(
-    {
-        "broad-input-boundary-preparation",
-        "parallel-boundary-preparation",
-    }
-)
 
 
 class DeterministicEmbeddingProvider:
@@ -160,18 +154,16 @@ class DeterministicReasoningProvider:
                     importance="medium",
                 )
             )
-        if context.atlas_overview is not None and any(
-            signal.code in _BOUNDARY_PREPARATION_SIGNAL_CODES
-            for signal in context.atlas_overview.signals
-        ):
+        if context.atlas_overview is not None and context.atlas_overview.signals:
+            leading = context.atlas_overview.signals[0]
             forces.append(
                 DesignForce(
-                    title="Boundary knowledge spill",
+                    title=f"Structural observation: {leading.code}",
                     description=(
-                        "A structural proxy found a port implementation reading several nested "
-                        "paths from a broad input while preparing request-shaped data. Inspect "
-                        "whether transport code has absorbed evidence-selection or domain "
-                        "interpretation responsibilities."
+                        f"The repository overview ranked {leading.code} first. "
+                        f"{leading.message} This is a {leading.nature.value}; the static shape "
+                        "alone does not establish misplaced responsibility, so it justifies an "
+                        "investigation rather than a conclusion."
                     ),
                     importance="high",
                 )
@@ -257,14 +249,9 @@ class DeterministicReasoningProvider:
                 }[category]
                 signal_queries: list[AtlasQuery] = []
                 boundary_signal_codes = (
-                    sorted(
-                        {
-                            signal.code
-                            for signal in context.atlas_overview.signals
-                            if signal.code in _BOUNDARY_PREPARATION_SIGNAL_CODES
-                        }
-                    )
+                    [context.atlas_overview.signals[0].code]
                     if context.atlas_overview is not None
+                    and context.atlas_overview.signals
                     and category == "ownership"
                     else []
                 )
@@ -394,39 +381,39 @@ class DeterministicReasoningProvider:
             if summary.location is None:
                 continue
             node_evidence = evidence_by_node.get(summary.node_id)
-            boundary_preparation = (
+            # Relay whatever the packet surfaced for this node. Recognising particular
+            # codes would make the fake's output a function of the fixture rather than
+            # of its inputs, which is what the evaluation tier must not reward.
+            # Quote only a structural proxy: it is the kind of value that needs
+            # architectural interpretation, so relaying its own message is the point.
+            # Quoting every routine measurement instead would inflate the claim text
+            # until the conversation retrieval budget clamps out real evidence.
+            leading_signal = (
                 next(
                     (
                         signal
                         for signal in node_evidence.signals
-                        if signal.code in _BOUNDARY_PREPARATION_SIGNAL_CODES
+                        if signal.nature is MetricNature.STRUCTURAL_PROXY
                     ),
                     None,
                 )
                 if node_evidence is not None
                 else None
             )
-            provider_knowledge = any(
-                token in f"{summary.path} {summary.qualified_name}".casefold()
-                for token in ("provider", "voice", "preflight", "frontend")
-            )
             findings.append(
                 Claim(
                     text=(
                         (
-                            f"Atlas structural proxy {boundary_preparation.code} reports: "
-                            f"{boundary_preparation.message} This locates "
-                            f"{summary.qualified_name or summary.node_id} at the boundary where "
-                            "broad input traversal and request preparation meet. The static shape "
+                            # "proxy", never "signal": the answer fact-checker treats
+                            # "signal <code>" as a citation and would reject prose that
+                            # names a code its cited support does not carry.
+                            f"Atlas structural proxy {leading_signal.code} reports: "
+                            f"{leading_signal.message} This locates "
+                            f"{summary.qualified_name or summary.node_id} for investigation. "
+                            f"The value is a {leading_signal.nature.value}; the static shape "
                             "alone does not prove misplaced responsibility."
                         )
-                        if boundary_preparation is not None
-                        else (
-                            f"{summary.qualified_name or summary.node_id} contains "
-                            "provider-specific voice knowledge, contributing to duplicated "
-                            "ownership and coordinated provider changes."
-                        )
-                        if provider_knowledge
+                        if leading_signal is not None
                         else (
                             f"{summary.qualified_name or summary.node_id} is relevant to "
                             f"{packet.concern}."
@@ -466,65 +453,16 @@ class DeterministicReasoningProvider:
     def generate_alternatives(
         self, context: GlobalContext, analyses: list[ConcernAnalysis]
     ) -> list[CaseAlternative]:
-        text = f"{context.title} {context.problem} {' '.join(context.future_changes)}".casefold()
-        boundary_context_spill = any(
-            any(code in finding.text.casefold() for code in _BOUNDARY_PREPARATION_SIGNAL_CODES)
-            for analysis in analyses
-            for finding in analysis.findings
-        )
-        if boundary_context_spill:
-            return [
-                CaseAlternative(
-                    title="Application-owned report context",
-                    summary=(
-                        "Build one validated report-question dossier in the application before "
-                        "crossing the model boundary."
-                    ),
-                ),
-                CaseAlternative(
-                    title="Adapter-owned context assembly",
-                    summary=(
-                        "Keep report interpretation, evidence selection, and request encoding "
-                        "together in the current model adapter."
-                    ),
-                ),
-                CaseAlternative(
-                    title="Dedicated report conversation service",
-                    summary=(
-                        "Introduce a separate conversation domain service that owns report "
-                        "evidence selection and model interaction."
-                    ),
-                ),
-            ]
-        if "one implementation" in text or "premature" in text:
-            return [
-                CaseAlternative(
-                    title="Keep the behavior local",
-                    summary="Retain the direct implementation until credible variation appears.",
-                ),
-                CaseAlternative(
-                    title="Introduce abstraction now",
-                    summary="Add an interface, factory, and configuration immediately.",
-                ),
-            ]
-        if any(token in text for token in ("qwen", "provider", "voice")):
-            return [
-                CaseAlternative(
-                    title="Provider-owned variation",
-                    summary=(
-                        "Keep stable orchestration outside and provider-specific capabilities "
-                        "inside providers."
-                    ),
-                ),
-                CaseAlternative(
-                    title="Central capability registry",
-                    summary="Centralize provider capability knowledge in shared orchestration.",
-                ),
-                CaseAlternative(
-                    title="Universal plugin platform",
-                    summary="Define dynamic plugins, factories, and metadata up front.",
-                ),
-            ]
+        """Offer the same two credible options for every case.
+
+        Choosing options by scanning the case prose made this fake recognise the
+        evaluation fixtures, so the deterministic tier ended up asserting what the fake
+        remembered. Preserving the current design is always credible, and one focused
+        boundary is always the minimum alternative to it; anything more specific is a
+        judgement only a real model can make.
+        """
+
+        del context, analyses
         return [
             CaseAlternative(
                 title="Preserve the current design",
@@ -575,154 +513,63 @@ class DeterministicReasoningProvider:
         cluster_refs: dict[str, str],
     ) -> ProposedRecommendation:
         del context, clusters, alternatives, scenarios
-        text = (
-            f"{case.title} {case.problem_statement} {' '.join(case.expected_future_changes)}"
-        ).casefold()
-        boundary_context_spill = any(
-            any(code in finding.text.casefold() for code in _BOUNDARY_PREPARATION_SIGNAL_CODES)
+
+        # Derived from the evidence this provider was actually handed, not from words in
+        # the case. A run whose concern analyses surfaced no repository observation has
+        # nothing supporting a structural change, and "keep it local" is a complete
+        # recommendation in that situation (master plan invariant 16).
+        repository_backed_analysis = any(
+            finding.classification == ClaimClassification.REPOSITORY_OBSERVATION
             for analysis in analyses
             for finding in analysis.findings
         )
-        premature = "one implementation" in text or "premature" in text
-        provider = not premature and not boundary_context_spill and any(
-            token in text for token in ("qwen", "provider", "voice")
-        )
-        if boundary_context_spill:
-            disposition = RecommendationDisposition.MOVE_RESPONSIBILITY
-            decision = (
-                "Move report-question evidence selection into an application-owned "
-                "ReportConversationContext builder. Pass that validated dossier through the "
-                "reasoning port; keep the model adapter responsible only for transport, model "
-                "options, schema handling, parsing, and failures."
-            )
-            responsibilities = [
-                (
-                    "The application owns bounded report evidence selection, claim allowlisting, "
-                    "and conversation-history rules."
-                ),
-                (
-                    "The reasoning port accepts one provider-neutral ReportConversationContext "
-                    "instead of a complete consultation run."
-                ),
-                (
-                    "Each model adapter owns only provider-specific request encoding, transport, "
-                    "structured-output parsing, and error translation."
-                ),
-            ]
-            interfaces = [
-                (
-                    "ConversationContextBuilder.build(conversation, run, question, "
-                    "history, retrieval_results) -> ReportConversationContext"
-                ),
-                (
-                    "ReportConversationReasoner.answer_report_question(context) "
-                    "-> ConversationAnswer"
-                ),
-            ]
-            amplification = (
-                "The located adapter currently has two independent reasons to change: report "
-                "and evidence-selection rules, and model transport details. Moving selection "
-                "behind the application contract keeps report-schema, claim-attribution, "
-                "truncation, and history changes out of transport code."
-            )
-            trade_offs = [
-                (
-                    "An application dossier adds one explicit contract but removes report "
-                    "interpretation and evidence-selection knowledge from transport code."
-                ),
-                (
-                    "The adapter may still project the authoritative dossier into the "
-                    "model's request format."
-                ),
-            ]
-            sequence = [
-                "Define the bounded ReportConversationContext and its claim-reference rules.",
-                (
-                    "Move report, finding, evidence, and history selection into an "
-                    "application context builder."
-                ),
-                (
-                    "Change the reasoning port and model adapter to consume that context, "
-                    "then test application selection and transport projection separately."
-                ),
-            ]
-        elif premature:
+        if not repository_backed_analysis:
             disposition = RecommendationDisposition.KEEP_LOCAL
             decision = (
-                "Keep the implementation local. The proposed abstraction adds concepts and "
-                "configuration without containing credible variation."
+                "Keep the current structure. No repository observation was surfaced for any "
+                "concern cluster, so no evidence supports moving a responsibility yet."
             )
             responsibilities = [
-                "The existing module continues to own the single behavior.",
-                "Introduce a boundary only when independent variation appears.",
+                "The existing owner keeps the behaviour until evidence indicates otherwise.",
             ]
-            interfaces = []
-            amplification = "No current blast-radius reduction justifies another abstraction."
-            trade_offs = [
-                (
-                    "Keeping the behavior local avoids interface, factory, registry, "
-                    "and configuration overhead."
-                ),
-                (
-                    "Delaying abstraction trades immediate extension flexibility for "
-                    "lower present complexity."
-                ),
-            ]
-            sequence = [
-                "Retain the direct local formatter and its behavior tests.",
-                (
-                    "Do not add an interface, factory, registry, or configuration key "
-                    "until a second credible implementation appears."
-                ),
-            ]
-        elif provider:
-            disposition = RecommendationDisposition.MOVE_RESPONSIBILITY
-            decision = (
-                "Use stable workflow boundaries while each provider owns capability discovery "
-                "and provider-specific voice variation. Do not build a universal plugin platform."
-            )
-            responsibilities = [
-                "Application workflow owns sequencing and provider-neutral job state.",
-                "Each provider adapter owns voice discovery and provider-specific identifiers.",
-                "Presentation consumes provider-neutral capability results.",
-            ]
-            interfaces = [
-                "ProviderCapabilities.discover_voices() -> VoiceCatalog",
-                "NarrationProvider.synthesize(request) -> AudioArtifact",
-                "NarrationWorkflow.resume(job_id) -> JobStatus",
-            ]
+            interfaces: list[str] = []
             amplification = (
-                "Provider changes remain within one adapter instead of coordinating "
-                "presentation and workflow edits."
+                "No blast radius was measured, because no repository evidence reached the "
+                "analysis. Change amplification is unknown rather than low."
             )
             trade_offs = [
-                "The chosen boundary adds one explicit contract.",
-                "Static evidence cannot prove runtime behavior.",
+                "Deferring a boundary avoids interface and configuration overhead now.",
+                "It also defers discovering whether one is needed.",
             ]
             sequence = [
-                "Name the responsibility and its owner.",
-                "Move knowledge without changing behavior.",
-                "Add contract and workflow tests before removing duplication.",
+                "Record the decision and the evidence that was unavailable.",
+                "Revisit once repository evidence or a second implementation appears.",
             ]
         else:
             disposition = RecommendationDisposition.INTRODUCE_BOUNDARY
             decision = (
-                "Introduce only the focused responsibility boundary supported by current design "
-                "forces; preserve all other local behavior."
+                "Introduce one focused responsibility boundary around the surfaced evidence, "
+                "and preserve all other local behaviour."
             )
             responsibilities = [
-                "Assign one owner to each piece of knowledge that changes together."
+                "Assign one owner to each piece of knowledge that changes together.",
+                "Leave behaviour with no surfaced evidence exactly where it is.",
             ]
-            interfaces = []
-            amplification = "No current blast-radius reduction justifies another abstraction."
+            interfaces = [
+                "One narrow port owning the responsibility the evidence located.",
+            ]
+            amplification = (
+                "The surfaced nodes are the measured extent of the change; nodes outside the "
+                "focused packets were not examined and are not claimed to be unaffected."
+            )
             trade_offs = [
-                "The chosen boundary adds one explicit contract.",
-                "Static evidence cannot prove runtime behavior.",
+                "One explicit contract in exchange for a contained reason to change.",
+                "Static evidence locates structure but cannot prove runtime behaviour.",
             ]
             sequence = [
                 "Name the responsibility and its owner.",
-                "Move knowledge without changing behavior.",
-                "Add contract and workflow tests before removing duplication.",
+                "Move knowledge without changing behaviour.",
+                "Add contract tests before removing duplication.",
             ]
 
         inference_ref = "X1"
@@ -1047,7 +894,13 @@ class DeterministicReasoningProvider:
         )
         search_terms: list[str] = []
         if atlas_search:
-            search_terms = re.findall(r"[a-z0-9_.-]+", atlas_search.group(1))[:10]
+            # Dotted names are real (module.symbol), but a sentence-ending period is
+            # not part of the identifier being searched for.
+            search_terms = [
+                stripped
+                for term in re.findall(r"[a-z0-9_.-]+", atlas_search.group(1))
+                if (stripped := term.strip(".-"))
+            ][:10]
             if search_terms:
                 question_types.append(ReportQuestionType.EVIDENCE_TRACE)
                 actions.append(

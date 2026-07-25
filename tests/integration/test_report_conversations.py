@@ -271,7 +271,15 @@ def test_answers_record_original_and_additional_pinned_atlas_evidence(
     run = _successful_run(runtime, brownfield=True)
     assert run.report is not None
     conversation = runtime.conversation_service.create(run.run_id)
-    finding_id = run.report.findings[0].finding_id
+    # Ask about the smallest evidence-bearing finding. Finding order is the pipeline's
+    # to decide, and this fixture's findings are large enough that projecting the
+    # biggest one exhausts the per-turn character budget before any Atlas artifact is
+    # reached - which would make this test assert budget behaviour rather than scope
+    # assignment. Selecting explicitly keeps the subject of the test stable.
+    finding_id = min(
+        (item for item in run.report.findings if item.atlas_node_ids),
+        key=lambda item: (len(item.obscurity_signals), item.finding_id),
+    ).finding_id
 
     original_answer = runtime.conversation_service.ask(
         conversation.conversation_id,
@@ -310,9 +318,19 @@ def test_answers_record_original_and_additional_pinned_atlas_evidence(
     )
     assert len(original_record.context_hash) == 64
     assert not hasattr(original_record, "retrieval_results")
+    # Search for a node the original run did not surface, so the retrieved artifact is
+    # genuinely new to the conversation. Picking a term the report already mentions
+    # would return original-run artifacts and make the scope assertion below vacuous.
+    pinned_atlas = runtime.atlas_repository.get(str(run.atlas_version_id))
+    already_surfaced = ConversationEvidenceRetriever.original_node_ids(run)
+    unseen_term = next(
+        node.symbol_name
+        for node in pinned_atlas.nodes
+        if node.atlas_id not in already_surfaced and node.symbol_name
+    )
     additional_answer = runtime.conversation_service.ask(
         conversation.conversation_id,
-        "Search the pinned Atlas for frontend.",
+        f"Search the pinned Atlas for {unseen_term}.",
     )
     assert additional_answer.retrieved_context is not None
     record = additional_answer.retrieved_context

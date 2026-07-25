@@ -442,7 +442,11 @@ def test_structural_provider_context_fixture_is_visible_before_a_case_names_it()
     )
     reasoner = DeterministicReasoningProvider()
     forces = reasoner.discover_design_forces(context)
-    assert any(force.title == "Boundary knowledge spill" for force in forces)
+    # The discovered force must name the signal the overview ranked first, which is
+    # evidence the overview reached discovery. Asserting a fixed title would only
+    # prove the fake still contains that string.
+    leading_code = overview.signals[0].code
+    assert any(leading_code in force.description for force in forces)
     clusters = reasoner.cluster_design_forces(context, forces)
     plans = reasoner.plan_atlas_queries(
         context,

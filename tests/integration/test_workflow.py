@@ -29,6 +29,7 @@ from archcompass.domain.consultation import (
     ConsultationFailureStage,
     ConsultationStatus,
     DesignForce,
+    RecommendationDisposition,
 )
 from archcompass.domain.diagnostics import FailureDiagnosticCode
 from archcompass.domain.errors import (
@@ -126,7 +127,10 @@ def test_greenfield_workflow_never_requires_atlas(runtime) -> None:
         f"FIND-{ordinal:03d}"
         for ordinal in range(1, len(run.report.findings) + 1)
     ]
-    assert "provider" in run.report.recommended_architecture.text.casefold()
+    # Invariant 16: with no repository evidence, an unchanged design is a complete
+    # recommendation. Asserting the wording instead would only test the fake.
+    assert run.report.disposition == RecommendationDisposition.KEEP_LOCAL
+    assert run.report.repository_observations == []
     assert runtime.case_service.show(revision.case_id).revision == 2
 
 
