@@ -36,7 +36,7 @@ sequenceDiagram
         Service->>Store: CAS append assistant message
         opt 12 messages or 8 more unsummarized messages
             Service->>Reasoner: summarize next fixed message batch
-            Service->>Validator: validate typed facts, ordinals and known evidence IDs
+            Service->>Validator: validate typed facts and known evidence IDs
             Service->>Store: CAS append summary revision
         end
         Service-->>Client: structured answer or dedicated rendering
@@ -54,11 +54,12 @@ rebuilds do not change an existing conversation.
 ## Planning and retrieval
 
 The classifier receives a bounded planning context and returns a typed `ReportQuestionPlan`.
-Finding IDs, normalized exact titles, numeric or word ordinals from one through twelve, and
-unambiguous references to recent messages are resolved before execution. Multiple exact-title
-matches may be retained for an explicit comparison; otherwise ambiguity is reported rather than
-guessed. Every ID and action is validated against the pinned run or exact evidence already
-surfaced in the conversation.
+Question intent — including ordinals, demonstratives, and comparison phrasing — is the
+classifier's to interpret; the service deterministically resolves only explicit references
+(canonical finding IDs and exact titles, with a shared title resolving to every finding that
+carries it) and grounds the plan in the pinned report's evidence. A reference the classifier
+cannot resolve yields a smaller plan, never a failed turn. Every ID and action is validated
+against the pinned run or exact evidence already surfaced in the conversation.
 
 The mandated hard ceilings are defined once, as constants in `archcompass.domain.budgets`.
 Workspace configuration may lower any of them to tighten a run; none can be raised, and the two
@@ -72,7 +73,8 @@ batches of eight — are not exposed as configuration at all. The ceilings are:
 - dependency-neighbourhood depth 2;
 - 120 lines in one excerpt;
 - 180 excerpt lines in one turn;
-- 24,000 characters of serialized retrieved results.
+- a serialized-results budget derived from the configured model context window
+  (half the prompt budget; `domain/budgets.py`), with the transport guard as the hard backstop.
 
 These are per-turn cumulative ceilings, not per-action allowances. Retrieval clamps each action to
 the remaining finding, node, policy, excerpt-line, and character capacities, records truncation or
@@ -182,8 +184,8 @@ Equivalent local FastAPI routes live under `/api/conversations`. They publish re
 `ProblemDetail` contracts for not-found, conflict, validation, and provider-unavailable responses;
 exports advertise both `application/json` and `text/markdown`. V1.2 intentionally has no React
 conversation interface. A missing consultation run raises the dedicated `RunNotFoundError` and
-maps to HTTP 404. The former run follow-up route and UI are removed. Its deprecated SQLite table
-and rows remain intact and are not converted into conversations.
+maps to HTTP 404. The former run follow-up route, UI, and storage are removed; migration 007
+drops the deprecated table.
 
 ## Limitations
 

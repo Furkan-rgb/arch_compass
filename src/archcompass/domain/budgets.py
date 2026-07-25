@@ -1,12 +1,19 @@
-"""Mandated V1.2 evidence and context ceilings.
+"""Evidence and context budgets.
 
-These values are contract, not configuration. The master plan fixes them so that a
-persisted conversation turn has a known bound regardless of workspace settings.
+Two regimes live here, and the difference matters:
 
-Configuration may *lower* a ceiling — that is a useful test and troubleshooting
-seam — but never raise one, so every configurable budget is bounded above by the
-constant of the same name here. Values that admit exactly one setting are not
-exposed as configuration at all.
+* **Count and shape ceilings** (actions, findings, nodes, policies, depth, excerpt
+  lines) are fixed contract values. Configuration may lower one, never raise it, and
+  each configurable field is bounded above by the constant of the same name.
+* **Character budgets** are derived from the configured reasoning model, because the
+  real constraint is the model's context window and a frozen number either fights the
+  data (the former 24,000-character ceiling could not fit one projected finding of the
+  project's own evaluation fixture) or wastes a larger window. The transport guard
+  measures the real request and remains the hard backstop; an explicit configuration
+  value may narrow a derived budget but never exceed it.
+
+The retrieval floor is deliberately shared by the context derivation: both protect the
+same thing, a turn that can still carry at least a minimal evidence payload.
 """
 
 from __future__ import annotations
@@ -21,7 +28,48 @@ MAX_POLICIES: Final = 8
 MAX_NEIGHBOURHOOD_DEPTH: Final = 2
 MAX_EXCERPT_LINES: Final = 120
 MAX_TOTAL_EXCERPT_LINES: Final = 180
-MAX_RETRIEVED_TEXT_CHARACTERS: Final = 24_000
+
+# The serialized-evidence budget is derived, not fixed. The former mandated ceiling of
+# 24,000 characters was written before the prompt was measurable and could not fit one
+# projected finding of the project's own evaluation fixture; the real constraint is the
+# configured model window, which the transport guard enforces as the hard backstop.
+MIN_RETRIEVED_TEXT_CHARACTERS: Final = 1_000
+#: Share of the model's prompt budget available to retrieved evidence. The remainder is
+#: reserved for the pinned case summary, finding digests, recent messages, instructions
+#: and the response schema.
+RETRIEVED_EVIDENCE_SHARE: Final = 0.5
+
+
+#: Share of the model's prompt budget the fully assembled conversation context may
+#: occupy. The remainder is reserved for the stage instruction and the response
+#: schema; the transport guard enforces the true window as the hard backstop.
+CONTEXT_PROMPT_SHARE: Final = 0.9
+
+
+def conversation_context_budget(
+    *,
+    context_window_tokens: int,
+    max_output_tokens: int,
+    chars_per_token: float,
+) -> int:
+    """The serialized cap for one assembled conversation context."""
+
+    prompt_characters = (context_window_tokens - max_output_tokens) * chars_per_token
+    derived = int(prompt_characters * CONTEXT_PROMPT_SHARE)
+    return max(MIN_RETRIEVED_TEXT_CHARACTERS, derived)
+
+
+def retrieved_character_budget(
+    *,
+    context_window_tokens: int,
+    max_output_tokens: int,
+    chars_per_token: float,
+) -> int:
+    """The per-turn serialized-evidence budget for the configured model."""
+
+    prompt_characters = (context_window_tokens - max_output_tokens) * chars_per_token
+    derived = int(prompt_characters * RETRIEVED_EVIDENCE_SHARE)
+    return max(MIN_RETRIEVED_TEXT_CHARACTERS, derived)
 
 # Bounded conversation context.
 RECENT_MESSAGE_LIMIT: Final = 8

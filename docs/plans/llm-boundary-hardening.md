@@ -126,8 +126,9 @@ Delegated to the implementing agent; confirmed where noted.
    `advise(atlas=)` shim, and the dead modules in §1.3 are removed. Reading a stored pre-v3
    row fails loudly with a clear "re-run this consultation" message; no SQL migration
    deletes any data. *Fallback if the owner holds stored runs worth keeping: a one-time
-   export command before this lands — decide when WS1 starts.* The deprecated
-   `report_follow_ups` table stays per the V1.2 milestone.
+   export command before this lands — decide when WS1 starts.* *Amended by ADR 0003:*
+   the deprecated `report_follow_ups` table is dropped by migration 007 under owner
+   authorization; the "no SQL migration deletes data" clause is amended with it.
 10. **REVISED — the deterministic provider is neutralised, not scripted.** The original
     decision called for a per-case fixture player. Investigation and three independent
     adversarial reviews agree it should not be built, for two verified reasons:
@@ -344,38 +345,57 @@ distinguishes `node-level` (prose) from `node-invented` (fabrication) by shape, 
 admitting a fabricated repository identifier would breach invariants 13 and 14. The
 false-positive shape is documented rather than silently accepted.
 
-### WS4b — Clarification answers *(deferred; must follow WS7)*
+### WS4b — Clarification answers *(retired by ADR 0003)*
 
-The advisory-intent and clarification-answer half of WS4 is **not** implemented, and the
-sequencing in decision 4/5 was wrong. Investigation surfaced a hard dependency and three
-design hazards that were not visible when the plan was written:
+The failure modes this workstream was chartered to soften were created by the service's
+own English phrasing parser. The reflection pass (below) removed the parser instead of
+softening its failures: no conversation turn can now fail because of how a question was
+phrased, and a real classifier can already produce a digest-cited clarifying answer
+within the existing schema when a reference is genuinely unresolvable. Nothing remains
+for WS4b to do.
 
-1. **`DeterministicReasoningProvider` duplicates five of the resolution rules and raises
-   first.** `classify_report_question` runs before `_resolve_and_enrich_plan`, and the
-   fake — which every integration and evaluation test uses — raises its own
-   `ConversationValidationError` at `deterministic.py:967` and `:980`. Changing
-   `conversations.py` alone would leave the clarification path unobservable in every
-   test tier, and writing clarification logic into a fake that WS7 replaces wholesale is
-   wasted work. **WS4b must follow WS7.**
-2. **A `kind: clarification` field on `ConversationAnswer` would be the `legacy` escape
-   hatch again.** That model is simultaneously the model-facing wire schema and the
-   persisted shape, so a kind that relaxes `AnswerStatement.require_support` is
-   structurally what ADR 0002 removed. The clarification must therefore be constructed
-   by the application and never offered to the model.
-3. **A clarification that cites nothing is not constructible**, and should not become
-   so. The minimum valid form cites the candidate finding digests, which is honest and
-   passes validation unchanged. Whatever it puts in `relevant_finding_ids` becomes the
-   next turn's contextual anchor — for a two-candidate clarification that is correct
-   behaviour, not a bug, but it must be deliberate.
-4. **Persisting one is non-trivial**: the assistant message needs a full
-   `ConversationRetrievalRecord` whose `supplied_finding_ids` equals the entire ordered
-   pinned finding list and whose `summary_revision` is exactly current. A clarification
-   also adds two messages where a failed turn added one, shifting rolling-summary
-   pacing.
+### Reflection pass — inherited numerology audit *(done; ADR 0003)*
 
-Eleven raise sites are in scope (`conversations.py` 534, 542, 546, 716, 727, 739, 747,
-770, 779, 788, 797); six others are genuine contract violations that must keep raising
-(118, 154, 156, 164, 356, 1019).
+The owner asked what the 24,000-character retrieval budget was for and authorized
+removing mechanisms frozen by master plan §16 rather than derived from principles. A
+full audit of every numeric ceiling and bespoke mechanism (two inventory agents, one
+adversarial verifier) produced these verdicts:
+
+**Derived from the model window (was frozen):**
+- The 24,000-character retrieved-evidence budget — could not fit one projected finding
+  of the project's own evaluation fixture; now half the real prompt budget.
+- The 56,000-character assembled-context cap — same disease one layer up; now nine
+  tenths of the prompt budget. Both floored, both backstopped by the transport guard,
+  both narrowable (never raisable) by configuration, which is enforced rather than
+  merely documented.
+
+**Removed:**
+- The English phrasing parser (ordinal words, demonstratives, comparison keywords,
+  phrase→question-type tables) and its eleven phrasing-driven raise sites; the
+  deterministic provider's mirrored raises became graceful degradation. Explicit
+  references (canonical IDs, exact titles) remain deterministically resolved, and a
+  shared title resolves to **every** finding that carries it — covering explicitly
+  named findings is resolution, not guessing.
+- The `report_follow_ups` table (migration 007) and its retention mandate.
+
+**Fixed while auditing:**
+- Transient `unavailable_reason` fields could exceed their own 24k caps on a long
+  error dump, turning an honest unavailability record into a failed turn — bounded at
+  the writer.
+- Durable excerpt-snapshot rows keep their fixed caps (they bound storage, not
+  context), but with a derived evidence budget a long-line excerpt can exceed them, so
+  the durable copy is clipped with an audited note while reasoning receives the full
+  excerpt.
+- Dropped classifier finding references and clipped fact warnings now leave audit
+  markers instead of vanishing.
+
+**Deliberately kept:** the per-turn count ceilings (8 actions / 12 findings / 24 nodes /
+8 policies / depth 2 / 120–180 excerpt lines) — they bound the reasoning loop and the
+audit rows and nothing observed fights them; the summary batch mechanism (values are
+§16 numerology but the CAS/coverage machinery is sound and low-risk); durable row shape
+caps. **Noted for WS6:** several budget values are restated as bare literals across
+layers (the 96-reference family, repository read guards, domain Field caps) and should
+reference `domain/budgets.py` constants instead of duplicating them by value.
 
 ### WS5 — Transport hardening *(done)*
 

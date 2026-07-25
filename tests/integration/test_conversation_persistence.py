@@ -171,21 +171,13 @@ def test_create_validates_exact_successful_run_pins_and_preserves_legacy_data(
         repository.create(_conversation(failed, title="Failed run"))
 
     with runtime.database.connect() as connection:
-        connection.execute(
+        legacy_table = connection.execute(
             """
-            INSERT INTO report_follow_ups(follow_up_id, run_id, created_at, entry_json)
-            VALUES ('follow_up_retained', ?, '2026-07-24T00:00:00+00:00', '{}')
-            """,
-            (run.run_id,),
-        )
-        connection.commit()
-    runtime.database.initialize()
-    with runtime.database.connect() as connection:
-        retained = connection.execute(
-            "SELECT entry_json FROM report_follow_ups WHERE follow_up_id = ?",
-            ("follow_up_retained",),
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name = 'report_follow_ups'
+            """
         ).fetchone()
-    assert retained is not None
+    assert legacy_table is None
 
 
 def test_message_reads_are_bounded_and_error_links_require_same_user_message(

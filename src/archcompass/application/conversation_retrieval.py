@@ -8,7 +8,8 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from archcompass.configuration import ConversationConfig
+from archcompass.configuration import ConversationConfig, ReasoningModelConfig
+from archcompass.domain import budgets
 from archcompass.domain.atlas import (
     Atlas,
     AtlasNode,
@@ -346,6 +347,19 @@ def _result_references(
     return list(references.values())
 
 
+def _bounded_reason(reason: str) -> str:
+    """Fit an unavailability reason inside its transient field.
+
+    The reason is often a provider or validation error; a multi-kilobyte dump must
+    become a bounded honest record, not a ValidationError that fails the turn.
+    """
+
+    limit = 2_000
+    if len(reason) <= limit:
+        return reason
+    return reason[: limit - 1].rstrip() + "…"
+
+
 def _append_truncation(
     result: ConversationRetrievalResult,
     reason: str,
@@ -386,9 +400,11 @@ class _TurnRetrievalBudget:
         self,
         *,
         config: ConversationConfig,
+        character_budget: int,
         original_evidence_registry: _OriginalEvidenceRegistry,
     ) -> None:
         self._config = config
+        self._character_budget = character_budget
         self._original_evidence_registry = original_evidence_registry
         self._finding_ids: set[str] = set()
         self._node_ids: set[str] = set()
@@ -411,13 +427,11 @@ class _TurnRetrievalBudget:
 
         reserved = sum(self._minimum_result_size(action) for action in future_actions)
         available = (
-            self._config.max_retrieved_text_characters - self._serialized_characters - reserved
+            self._character_budget - self._serialized_characters - reserved
         )
         projected = self._fit_serialized_characters(projected, available)
         size = len(projected.model_dump_json())
-        if self._serialized_characters + size + reserved > (
-            self._config.max_retrieved_text_characters
-        ):
+        if self._serialized_characters + size + reserved > self._character_budget:
             raise ConversationRetrievalError(
                 "Question plan action metadata exceeds the serialized retrieval budget"
             )
@@ -928,10 +942,24 @@ class ConversationEvidenceRetriever:
         atlases: AtlasRepository,
         queries: AtlasQueryService,
         config: ConversationConfig,
+        reasoning: ReasoningModelConfig,
     ) -> None:
         self._atlases = atlases
         self._queries = queries
         self._config = config
+        # The evidence budget tracks the configured model window; a workspace value may
+        # narrow it but never raise it past what the window supports, so the derived
+        # figure is the ceiling and the transport guard the hard backstop.
+        derived_budget = budgets.retrieved_character_budget(
+            context_window_tokens=reasoning.context_window_tokens,
+            max_output_tokens=reasoning.max_output_tokens,
+            chars_per_token=reasoning.chars_per_token,
+        )
+        self._character_budget = (
+            min(config.max_retrieved_text_characters, derived_budget)
+            if config.max_retrieved_text_characters is not None
+            else derived_budget
+        )
 
     def execute(
         self,
@@ -981,6 +1009,7 @@ class ConversationEvidenceRetriever:
         results: list[ConversationRetrievalResult] = []
         budget = _TurnRetrievalBudget(
             config=self._config,
+            character_budget=self._character_budget,
             original_evidence_registry=original_evidence_registry,
         )
         for index, action in enumerate(plan.retrieval_actions):
@@ -1242,7 +1271,7 @@ class ConversationEvidenceRetriever:
         except StaleAtlasError as error:
             return ConversationRetrievalResult(
                 action=action,
-                unavailable_reason=str(error),
+                unavailable_reason=_bounded_reason(str(error)),
             )
         atlas_results = [
             self._enrich_relationship_endpoints(atlas, atlas_result)

@@ -732,14 +732,15 @@ The milestone should deliver:
 - Durable conversations pinned to one successful run.
 - Validated recent-context-aware classification and cumulative bounded retrieval against exact
   persisted artifact identities.
-- Deterministic finding resolution by ID, exact title, numeric or word ordinal, and unambiguous
-  recent reference; multiple exact titles are retained for comparisons and ambiguity fails
-  explicitly.
+- Deterministic resolution of explicit finding references (canonical ID, exact title; a shared
+  title resolves to every finding that carries it). Interpretation of phrasing — ordinals,
+  demonstratives, comparison wording — belongs to the classifier, whose output is validated
+  against the pinned report's closed identity sets.
 - Provider-neutral bounded contexts with all finding digests, the pinned case summary, typed
   rolling summaries, and eight recent messages.
-- Per-turn retrieval ceilings of eight actions, twelve findings, twenty-four unique Atlas/path
-  nodes, eight policies, neighbourhood depth two, 120 lines per excerpt, 180 excerpt lines total,
-  and 24,000 retrieved characters, with truncation and unavailability retained in the audit.
+- Per-turn retrieval ceilings on actions, findings, Atlas/path nodes, policies, neighbourhood
+  depth and excerpt lines, plus a serialized-evidence budget derived from the configured model
+  context window, with truncation and unavailability retained in the audit.
 - Support-linked structured answers, exact item-level evidence scopes, one constrained repair,
   and complete failed-attempt records.
 - Compare-and-swap append ordering and immutable summary revisions covering exactly twelve
@@ -752,7 +753,7 @@ The milestone should deliver:
 - Canonical JSON for Ollama prompt inputs and context hashes, with every executed prompt identity
   versioned and recorded.
 - CLI and FastAPI create/list/show/ask/history/export access.
-- Removal of the legacy follow-up API and React controls while retaining deprecated stored rows.
+- Removal of the legacy follow-up API, React controls, and storage.
 - Deterministic conversation evaluations and complete documentation.
 
 The V1.1 clustered advisory workflow remains authoritative. V1.2 adds this read-only path:

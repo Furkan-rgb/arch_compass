@@ -46,7 +46,6 @@ from archcompass.domain.conversation import (
     ReportQuestionType,
     ReportSummary,
 )
-from archcompass.domain.errors import ConversationValidationError
 from archcompass.domain.policy import (
     PolicyChunk,
     PolicyDocument,
@@ -780,18 +779,23 @@ def test_unambiguous_recent_finding_reference_is_resolved() -> None:
 
 
 @pytest.mark.evaluation
-def test_duplicate_exact_title_is_ambiguous_outside_comparison() -> None:
+def test_duplicate_exact_title_resolves_to_every_matching_finding() -> None:
+    """A shared title names all of its findings; covering each is honest resolution.
+
+    This previously raised and failed the user's turn - a phrasing-driven hard error
+    the classifier is better placed to avoid. Guessing one finding would be wrong;
+    answering about both is not.
+    """
+
     findings = _findings()
     findings[0] = findings[0].model_copy(update={"title": "Shared Boundary"})
     findings[1] = findings[1].model_copy(update={"title": "Shared Boundary"})
 
-    with pytest.raises(
-        ConversationValidationError,
-        match="multiple finding titles",
-    ):
-        DeterministicReasoningProvider().classify_report_question(
-            _planning_context("Explain Shared Boundary.", findings=findings)
-        )
+    plan = DeterministicReasoningProvider().classify_report_question(
+        _planning_context("Explain Shared Boundary.", findings=findings)
+    )
+
+    assert plan.finding_ids == ["FIND-001", "FIND-002"]
 
 
 @pytest.mark.evaluation
@@ -808,14 +812,21 @@ def test_duplicate_exact_title_can_select_both_for_comparison() -> None:
 
 
 @pytest.mark.evaluation
-def test_comparison_without_explicit_references_is_rejected() -> None:
-    with pytest.raises(
-        ConversationValidationError,
-        match=r"comparison.*finding",
-    ):
-        DeterministicReasoningProvider().classify_report_question(
-            _planning_context("Compare the findings.")
-        )
+def test_comparison_without_resolvable_references_degrades_to_no_compare_action() -> None:
+    """An under-specified comparison resolves less instead of failing the turn.
+
+    The plan carries the comparison intent but no compare action, so the answer can
+    say what could not be identified rather than the request raising.
+    """
+
+    plan = DeterministicReasoningProvider().classify_report_question(
+        _planning_context("Compare the findings.")
+    )
+
+    assert ReportQuestionType.COMPARE_FINDINGS in plan.question_types
+    assert not any(
+        action.kind == "compare_findings" for action in plan.retrieval_actions
+    )
 
 
 @pytest.mark.evaluation

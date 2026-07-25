@@ -8,7 +8,8 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from archcompass.configuration import ConversationConfig
+from archcompass.configuration import ConversationConfig, ReasoningModelConfig
+from archcompass.domain import budgets
 from archcompass.domain.atlas import (
     Atlas,
     AtlasNode,
@@ -43,13 +44,25 @@ from archcompass.domain.conversation import (
 )
 from archcompass.domain.errors import ConversationValidationError
 
-MAX_CONVERSATION_CONTEXT_CHARACTERS = 56_000
 ContextItem = TypeVar("ContextItem", bound=BaseModel)
 
 
 class ConversationContextBuilder:
-    def __init__(self, config: ConversationConfig) -> None:
+    def __init__(
+        self,
+        config: ConversationConfig,
+        *,
+        reasoning: ReasoningModelConfig,
+    ) -> None:
         self._config = config
+        # The assembled context becomes the model prompt, so its cap is derived from
+        # the configured window rather than frozen. The former fixed 56,000-character
+        # cap predates the transport guard that now measures the real request.
+        self._context_budget = budgets.conversation_context_budget(
+            context_window_tokens=reasoning.context_window_tokens,
+            max_output_tokens=reasoning.max_output_tokens,
+            chars_per_token=reasoning.chars_per_token,
+        )
 
     def build_planning(
         self,
@@ -545,9 +558,8 @@ class ConversationContextBuilder:
             unique.setdefault(key, item)
         return list(unique.values())
 
-    @staticmethod
-    def _require_bounded(context: BaseModel, name: str) -> None:
-        if len(canonical_json(context)) > MAX_CONVERSATION_CONTEXT_CHARACTERS:
+    def _require_bounded(self, context: BaseModel, name: str) -> None:
+        if len(canonical_json(context)) > self._context_budget:
             raise ConversationValidationError(
                 f"The report conversation {name} context exceeds the hard serialized budget"
             )

@@ -211,8 +211,12 @@ def build_runtime(
             atlases=atlases,
             queries=queries,
             config=config.conversation,
+            reasoning=config.models.reasoning,
         ),
-        context_builder=ConversationContextBuilder(config.conversation),
+        context_builder=ConversationContextBuilder(
+            config.conversation,
+            reasoning=config.models.reasoning,
+        ),
         renderer=ConversationRenderer(),
         config=config.conversation,
     )

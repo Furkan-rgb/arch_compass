@@ -63,7 +63,6 @@ from archcompass.domain.conversation import (
     ReportQuestionType,
     SearchAtlasNodesAction,
 )
-from archcompass.domain.errors import ConversationValidationError
 from archcompass.domain.proposals import (
     AvailableClaim,
     ProposedADR,
@@ -804,16 +803,6 @@ class DeterministicReasoningProvider:
             term in text
             for term in ("compare", "difference", "versus", " vs ", "between")
         )
-        normalized_question = " ".join(question.casefold().split())
-        title_matches = [
-            item.finding_id
-            for item in findings
-            if " ".join(item.title.casefold().split()) in normalized_question
-        ]
-        if len(title_matches) > 1 and not comparison_question:
-            raise ConversationValidationError(
-                "The question references multiple finding titles outside a comparison"
-            )
         finding_ids = self._resolve_contextual_finding_references(
             context,
             finding_ids,
@@ -823,13 +812,12 @@ class DeterministicReasoningProvider:
         actions: list[ConversationRetrievalAction] = []
         if comparison_question:
             question_types.append(ReportQuestionType.COMPARE_FINDINGS)
-            if len(finding_ids) < 2:
-                raise ConversationValidationError(
-                    "A comparison requires at least two unambiguous finding references"
+            if len(finding_ids) >= 2:
+                actions.append(
+                    CompareFindingsAction(
+                        kind="compare_findings", finding_ids=finding_ids
+                    )
                 )
-            actions.append(
-                CompareFindingsAction(kind="compare_findings", finding_ids=finding_ids)
-            )
         elif any(term in text for term in ("most important", "highest priority", "priority")):
             question_types.append(ReportQuestionType.FINDING_PRIORITY)
         elif any(term in text for term in ("finding", "findings", "main result")):
@@ -941,11 +929,9 @@ class DeterministicReasoningProvider:
                     and reference.evidence_id in set(recent_evidence_ids)
                 )
             )
-            if len(contextual_nodes) != 1:
-                raise ConversationValidationError(
-                    "The recent conversation does not identify one unambiguous Atlas node"
-                )
-            node_ids = contextual_nodes
+            # An ambiguous contextual reference resolves to nothing; the answer will
+            # say what it could not identify rather than the turn failing.
+            node_ids = contextual_nodes if len(contextual_nodes) == 1 else []
         policy_ids: list[str] = []
         if "metric" in text and any(
             term in text for term in ("define", "definition", "mean")
@@ -1048,38 +1034,21 @@ class DeterministicReasoningProvider:
         resolved = list(explicit)
         if singular:
             candidates = recent or summary_ids
-            if len(candidates) != 1:
-                raise ConversationValidationError(
-                    "The bounded conversation context does not identify one finding"
-                )
-            resolved.extend(candidates)
+            if len(candidates) == 1:
+                resolved.extend(candidates)
         if plural:
             candidates = recent or summary_ids
-            if len(candidates) != 2:
-                raise ConversationValidationError(
-                    "The bounded conversation context does not identify exactly two findings"
-                )
-            resolved.extend(candidates)
+            if len(candidates) == 2:
+                resolved.extend(candidates)
         if any(phrase in text for phrase in ("the former", "former finding")):
             candidates = recent or summary_ids
-            if len(candidates) < 2:
-                raise ConversationValidationError(
-                    "The bounded conversation context has no unambiguous former finding"
-                )
-            resolved.append(candidates[0])
+            if len(candidates) >= 2:
+                resolved.append(candidates[0])
         if any(phrase in text for phrase in ("the latter", "latter finding")):
             candidates = recent or summary_ids
-            if len(candidates) < 2:
-                raise ConversationValidationError(
-                    "The bounded conversation context has no unambiguous latter finding"
-                )
-            resolved.append(candidates[1])
-        resolved = list(dict.fromkeys(resolved))
-        if len(resolved) > 1 and singular and not comparison:
-            raise ConversationValidationError(
-                "The question resolves to multiple findings; use canonical finding IDs"
-            )
-        return resolved[:12]
+            if len(candidates) >= 2:
+                resolved.append(candidates[1])
+        return list(dict.fromkeys(resolved))[:12]
 
     @staticmethod
     def _finding_references(

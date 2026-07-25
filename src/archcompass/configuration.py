@@ -95,10 +95,11 @@ class ConversationConfig(DomainModel):
     max_total_excerpt_lines: int = Field(
         default=budgets.MAX_TOTAL_EXCERPT_LINES, ge=1, le=budgets.MAX_TOTAL_EXCERPT_LINES
     )
-    max_retrieved_text_characters: int = Field(
-        default=budgets.MAX_RETRIEVED_TEXT_CHARACTERS,
-        ge=1000,
-        le=budgets.MAX_RETRIEVED_TEXT_CHARACTERS,
+    #: None derives the budget from the reasoning model's context window; a value
+    #: lowers it explicitly (useful in tests and for deliberately terse turns).
+    max_retrieved_text_characters: int | None = Field(
+        default=None,
+        ge=budgets.MIN_RETRIEVED_TEXT_CHARACTERS,
     )
     recent_message_limit: int = Field(
         default=budgets.RECENT_MESSAGE_LIMIT, ge=1, le=budgets.RECENT_MESSAGE_LIMIT

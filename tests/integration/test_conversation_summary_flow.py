@@ -13,6 +13,7 @@ from archcompass.application.conversation_rendering import ConversationRenderer
 from archcompass.application.conversation_retrieval import ConversationEvidenceRetriever
 from archcompass.application.conversations import ReportConversationService
 from archcompass.bootstrap import Runtime
+from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.case import ArchitectureCase
 from archcompass.domain.consultation import ConsultationRun
 from archcompass.domain.conversation import (
@@ -29,6 +30,14 @@ from archcompass.domain.errors import (
     ConversationValidationError,
 )
 
+
+def _reasoning_model_config() -> ReasoningModelConfig:
+    return ReasoningModelConfig(
+        provider="fake",
+        model="deterministic",
+        base_url="http://ollama.test",
+        timeout_seconds=1,
+    )
 
 def _successful_run(runtime: Runtime) -> ConsultationRun:
     source = yaml.safe_load(
@@ -56,11 +65,15 @@ def _service(
             policies=runtime.policy_store,
             reasoning=reasoning,
             retrieval=ConversationEvidenceRetriever(
+                reasoning=_reasoning_model_config(),
                 atlases=runtime.atlas_repository,
                 queries=runtime.query_service,
                 config=runtime.config.conversation,
             ),
-            context_builder=ConversationContextBuilder(runtime.config.conversation),
+            context_builder=ConversationContextBuilder(
+                runtime.config.conversation,
+                reasoning=_reasoning_model_config(),
+            ),
             renderer=ConversationRenderer(),
             config=runtime.config.conversation,
         ),

@@ -50,9 +50,10 @@ hidden model reasoning. Terminal consultation runs remain immutable and authorit
 exists only to support queuing, live progress, reconnect replay, warnings, and interruption
 recovery.
 
-Migration `006_report_conversations.sql` leaves the deprecated `report_follow_ups` table and its
-rows intact. V1.2 removes the old route and UI and does not backfill those rows into conversations;
-retention is solely a non-destructive migration guarantee.
+Migration `007_drop_report_follow_ups.sql` removes the deprecated `report_follow_ups` table.
+The follow-up feature's route and UI were removed by V1.2 and its rows were never read again;
+carrying unreadable storage indefinitely was a pre-release migration habit, not a guarantee
+anyone relied on.
 
 Conversation creation validates the exact successful run, validated report, case revision, Atlas
 version, and policy-index version inside the same immediate transaction that creates the pinned

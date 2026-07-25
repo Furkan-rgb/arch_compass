@@ -22,14 +22,15 @@ V1.2 is the active milestone. Preserve these report-conversation boundaries:
   finding evidence only for the current question.
 - Never pass a full Atlas, repository root/tree, policy corpus, or unlimited history to reasoning.
 - Apply the cumulative per-turn ceilings: eight actions, twelve findings, twenty-four unique
-  Atlas/path nodes, eight policies, neighbourhood depth two, 120 lines per excerpt, 180 excerpt
-  lines total, and 24,000 retrieved characters. Scope every exact retrieved artifact independently
+  Atlas/path nodes, eight policies, neighbourhood depth two, 120 lines per excerpt, and 180
+  excerpt lines total. The serialized-evidence budget is derived from the configured model
+  context window (`domain/budgets.py`), never frozen. Scope every exact retrieved artifact independently
   as original-run or additional-conversation evidence.
 - Every factual answer statement must identify its supporting answer claims, findings, or report
   claims. Rendering is derived from the validated structured answer.
-- Resolve finding references by ID, exact title, numeric/word ordinal, and unambiguous recent
-  reference. Preserve multiple explicit titles for comparisons and report ambiguity instead of
-  guessing.
+- Resolve finding references deterministically only for explicit forms: canonical ID and exact
+  title, with a shared title resolving to every finding that carries it. Phrasing interpretation
+  is the classifier's; never add English keyword tables to the service.
 - Keep deterministic behavior for summaries, details, all-finding priority, comparisons,
   evidence/source traces, policy applicability/exceptions, alternatives, scenarios, assumptions,
   implementation order, strengthening/weakening counterfactuals, and unsupported questions.
@@ -44,8 +45,6 @@ V1.2 is the active milestone. Preserve these report-conversation boundaries:
 - Summaries cover exactly the first twelve messages and fixed batches of eight thereafter, only
   after an assistant answer is committed. Invalid summaries do not advance coverage; a summary
   failure is recorded and must not turn a valid persisted answer into a failed request.
-- Keep the deprecated `report_follow_ups` table and its data during V1.2 migration; its API and UI
-  remain removed and its rows are not converted into conversations.
 - Synthesis returns a `ProposedRecommendation`, never a report. Do not add fields to it for
   anything ArchCompass owns: design forces, alternatives, scenarios, policy evidence, claim or
   finding identity, report section placement, or finding Atlas/metric/signal/policy evidence.

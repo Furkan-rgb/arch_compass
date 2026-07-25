@@ -10,7 +10,7 @@ import pytest
 from archcompass.application.conversation_retrieval import (
     ConversationEvidenceRetriever,
 )
-from archcompass.configuration import ConversationConfig
+from archcompass.configuration import ConversationConfig, ReasoningModelConfig
 from archcompass.domain.atlas import (
     Atlas,
     AtlasEdge,
@@ -62,6 +62,14 @@ from archcompass.domain.policy import (
 from archcompass.ports.atlas import AtlasQueryService
 from archcompass.ports.repositories import AtlasRepository
 
+
+def _reasoning_model_config() -> ReasoningModelConfig:
+    return ReasoningModelConfig(
+        provider="fake",
+        model="deterministic",
+        base_url="http://ollama.test",
+        timeout_seconds=1,
+    )
 
 class _AtlasStore:
     def __init__(self, nodes: list[AtlasNode] | None = None) -> None:
@@ -138,6 +146,7 @@ def _retriever(
     atlas_nodes: list[AtlasNode] | None = None,
 ) -> ConversationEvidenceRetriever:
     return ConversationEvidenceRetriever(
+        reasoning=_reasoning_model_config(),
         atlases=cast(AtlasRepository, _AtlasStore(atlas_nodes)),
         queries=cast(AtlasQueryService, queries),
         config=config or ConversationConfig(),

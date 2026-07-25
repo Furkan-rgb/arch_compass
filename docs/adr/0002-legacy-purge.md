@@ -1,6 +1,6 @@
 # ADR 0002 — Remove pre-release schema compatibility
 
-**Status:** Accepted
+**Status:** Accepted (amended by ADR 0003)
 **Date:** 2026-07-25
 **Supersedes:** none
 **Related:** `docs/plans/llm-boundary-hardening.md` (decision 9, WS1)
@@ -66,4 +66,5 @@ schema only.
 - Invariant 21 (old consultations retain the exact case, atlas and policy versions they used)
   is preserved as data retention. What is removed is schema-tolerance code, not rows.
 - The deprecated `report_follow_ups` table and its data are retained, as the V1.2 milestone
-  requires.
+  required at the time. *Amended:* ADR 0003 drops the table with the owner's explicit
+  authorization; its rows were never read after the feature's removal.

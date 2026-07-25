@@ -13,7 +13,7 @@ from archcompass.application.conversation_rendering import ConversationRenderer
 from archcompass.application.conversation_retrieval import ConversationEvidenceRetriever
 from archcompass.application.conversations import ReportConversationService
 from archcompass.bootstrap import Runtime
-from archcompass.configuration import ConversationConfig
+from archcompass.configuration import ConversationConfig, ReasoningModelConfig
 from archcompass.domain.case import ArchitectureCase
 from archcompass.domain.consultation import (
     ClaimClassification,
@@ -44,6 +44,14 @@ from archcompass.domain.errors import (
     ConversationValidationError,
 )
 
+
+def _reasoning_model_config() -> ReasoningModelConfig:
+    return ReasoningModelConfig(
+        provider="fake",
+        model="deterministic",
+        base_url="http://ollama.test",
+        timeout_seconds=1,
+    )
 
 def _successful_run(
     runtime: Runtime,
@@ -144,11 +152,15 @@ def _conversation_service(
             policies=runtime.policy_store,
             reasoning=reasoning,
             retrieval=ConversationEvidenceRetriever(
+                reasoning=_reasoning_model_config(),
                 atlases=runtime.atlas_repository,
                 queries=runtime.query_service,
                 config=runtime.config.conversation,
             ),
-            context_builder=ConversationContextBuilder(runtime.config.conversation),
+            context_builder=ConversationContextBuilder(
+                runtime.config.conversation,
+                reasoning=_reasoning_model_config(),
+            ),
             renderer=ConversationRenderer(),
             config=runtime.config.conversation,
         ),
@@ -156,7 +168,7 @@ def _conversation_service(
     )
 
 
-def test_conversation_creation_is_gated_and_legacy_table_is_retained(
+def test_conversation_creation_is_gated_and_legacy_storage_is_gone(
     runtime: Runtime,
 ) -> None:
     run = _successful_run(runtime)
@@ -166,6 +178,8 @@ def test_conversation_creation_is_gated_and_legacy_table_is_retained(
     assert conversation.case_revision == run.input_case_revision
     assert conversation.atlas_version_id == run.atlas_version_id
     assert conversation.policy_index_version_id == run.policy_index_version_id
+    # The pre-V1.2 follow-up feature's storage is dropped, not merely deprecated:
+    # its rows were never read again after the API and UI were removed.
     with runtime.database.connect() as connection:
         table = connection.execute(
             """
@@ -173,26 +187,7 @@ def test_conversation_creation_is_gated_and_legacy_table_is_retained(
             WHERE type = 'table' AND name = 'report_follow_ups'
             """
         ).fetchone()
-    assert table is not None
-    with runtime.database.connect() as connection:
-        connection.execute(
-            """
-            INSERT INTO report_follow_ups(
-                follow_up_id, run_id, created_at, entry_json
-            ) VALUES ('follow_up_retained', ?, '2026-07-24T00:00:00+00:00', '{}')
-            """,
-            (run.run_id,),
-        )
-        connection.commit()
-    runtime.database.initialize()
-    with runtime.database.connect() as connection:
-        retained = connection.execute(
-            """
-            SELECT entry_json FROM report_follow_ups
-            WHERE follow_up_id = 'follow_up_retained'
-            """
-        ).fetchone()
-    assert retained is not None
+    assert table is None
 
     failed = ConsultationRun(
         schema_version=3,
@@ -482,6 +477,7 @@ def test_retrieval_and_provider_context_are_bounded(
     run = _successful_run(runtime)
     assert run.report is not None
     retriever = ConversationEvidenceRetriever(
+        reasoning=_reasoning_model_config(),
         atlases=runtime.atlas_repository,
         queries=runtime.query_service,
         config=ConversationConfig(max_actions_per_question=1),
@@ -568,3 +564,28 @@ def test_finding_titles_ordinals_and_recent_references_are_resolved(
     )
     assert recent.retrieved_context is not None
     assert recent.retrieved_context.question_plan.finding_ids == [second.finding_id]
+
+
+def test_long_line_excerpt_snapshots_are_clipped_not_fatal() -> None:
+    """A durable snapshot copy that cannot fit its row is clipped with an audit note.
+
+    With the evidence budget derived from the model window, an excerpt within the
+    line ceilings can carry more characters than the durable row may keep. The row
+    caps bound storage, not reasoning - so the copy degrades and the turn survives.
+    """
+
+    from archcompass.application.conversations import _bounded_snapshot_text
+
+    within, clipped = _bounded_snapshot_text("x" * 100, remaining=24_000)
+    assert within == "x" * 100
+    assert clipped is False
+
+    bounded, clipped = _bounded_snapshot_text("y" * 30_000, remaining=24_000)
+    assert bounded is not None
+    assert clipped is True
+    assert len(bounded) <= 24_000
+    assert bounded.endswith("…")
+
+    exhausted, clipped = _bounded_snapshot_text("z" * 100, remaining=0)
+    assert exhausted is None
+    assert clipped is False

@@ -69,20 +69,31 @@ _ConversationStage = Literal[
 #: Matches ConversationRetrievalRecord.fact_warnings; the audit stays bounded.
 _MAX_FACT_WARNINGS = 16
 
-_ORDINAL_WORDS = {
-    "first finding": 0,
-    "second finding": 1,
-    "third finding": 2,
-    "fourth finding": 3,
-    "fifth finding": 4,
-    "sixth finding": 5,
-    "seventh finding": 6,
-    "eighth finding": 7,
-    "ninth finding": 8,
-    "tenth finding": 9,
-    "eleventh finding": 10,
-    "twelfth finding": 11,
-}
+#: Durable excerpt-snapshot row caps (per snapshot and per turn). These bound stored
+#: rows, not model context: with the evidence budget derived from the model window a
+#: long-line excerpt can legitimately carry more text than a row may keep, so the
+#: durable copy is clipped with an audited note while reasoning still receives the
+#: full excerpt.
+_SNAPSHOT_CHARACTERS = 24_000
+_SNAPSHOT_TOTAL_CHARACTERS = 24_000
+
+
+def _bounded_snapshot_text(text: str, *, remaining: int) -> tuple[str | None, bool]:
+    """Fit one durable snapshot copy inside the row and turn budgets.
+
+    Returns the bounded text and whether it was clipped; None when no meaningful
+    copy fits this turn.
+    """
+
+    limit = min(_SNAPSHOT_CHARACTERS, remaining)
+    if limit <= 0:
+        return None, False
+    if len(text) <= limit:
+        return text, False
+    clipped = text[: limit - 1].rstrip()
+    if not clipped:
+        return None, False
+    return clipped + "…", True
 
 
 class ReportConversationService:
@@ -222,8 +233,6 @@ class ReportConversationService:
                 report_policy_ids=[
                     item.id for item in run.report.policy_evidence
                 ],
-                recent_messages=recent_messages,
-                summary=after_user.current_summary,
             )
 
             stage = "retrieval"
@@ -311,13 +320,14 @@ class ReportConversationService:
 
             stage = "persistence"
             if validation.warnings:
-                record = record.model_copy(
-                    update={
-                        "fact_warnings": validation.warnings[
-                            : _MAX_FACT_WARNINGS
-                        ]
-                    }
-                )
+                kept = validation.warnings[: _MAX_FACT_WARNINGS]
+                if len(validation.warnings) > len(kept):
+                    omitted = len(validation.warnings) - len(kept) + 1
+                    kept = [
+                        *kept[:-1],
+                        f"{omitted} further observations were omitted from this audit.",
+                    ]
+                record = record.model_copy(update={"fact_warnings": kept})
             assistant = ConversationMessage(
                 conversation_id=conversation_id,
                 ordinal=after_user.message_count + 1,
@@ -508,32 +518,33 @@ class ReportConversationService:
         question: str,
         findings: list[ArchitecturalFinding],
         report_policy_ids: list[str],
-        recent_messages: list[ConversationMessage],
-        summary: ConversationSummary | None,
     ) -> tuple[ReportQuestionPlan, list[str]]:
-        normalized = " ".join(question.casefold().split())
-        comparison = self._is_comparison(normalized)
-        resolved = self._resolve_finding_references(
-            normalized,
-            findings=findings,
-            recent_messages=recent_messages,
-            summary=summary,
-            comparison=comparison,
-        )
-        question_types = list(plan.question_types)
-        if comparison and ReportQuestionType.COMPARE_FINDINGS not in question_types:
-            question_types.append(ReportQuestionType.COMPARE_FINDINGS)
-        for phrase, question_type in (
-            (
-                ("evidence", "support", "code behind", "depend", "blast radius"),
-                ReportQuestionType.EVIDENCE_TRACE,
-            ),
-            (("source", "source code"), ReportQuestionType.SOURCE_EXPLANATION),
-            (("polic",), ReportQuestionType.POLICY_EXPLANATION),
-        ):
-            if any(item in normalized for item in phrase) and question_type not in question_types:
-                question_types.append(question_type)
+        """Ground the classifier's plan in the pinned report.
 
+        Intent is the classifier's: question types and retrieval actions come from the
+        plan and are validated against closed allowlists downstream. The service adds
+        what it can do deterministically - resolving explicit finding references
+        (canonical IDs, exact titles) and projecting the selected findings' own policy
+        and node evidence into the plan. It never second-guesses phrasing: the English
+        keyword tables this method once carried turned ordinary wording into hard
+        failures, which is the classifier's ambiguity to handle, not the service's.
+        """
+
+        normalized = " ".join(question.casefold().split())
+        known_ids = {item.finding_id for item in findings}
+        unknown_plan_ids = [
+            item for item in plan.finding_ids if item not in known_ids
+        ]
+        resolved = list(
+            dict.fromkeys(
+                [
+                    *self._resolve_finding_references(normalized, findings=findings),
+                    *(item for item in plan.finding_ids if item in known_ids),
+                ]
+            )
+        )[: self._config.max_findings]
+        question_types = list(dict.fromkeys(plan.question_types))
+        comparison = ReportQuestionType.COMPARE_FINDINGS in question_types
         detailed_question = bool(
             {
                 ReportQuestionType.FINDING_DETAILS,
@@ -543,28 +554,12 @@ class ReportConversationService:
             }
             & set(question_types)
         )
-        if comparison and len(resolved) < 2:
-            raise ConversationValidationError(
-                "A comparison requires at least two unambiguous finding references"
-            )
-        if (
-            ReportQuestionType.FINDING_DETAILS in question_types
-            and not resolved
-            and "finding" in normalized
-        ):
-            raise ConversationValidationError(
-                "The question does not identify one unambiguous finding"
-            )
-        if len(resolved) > 1 and not comparison:
-            raise ConversationValidationError(
-                "The question resolves to multiple findings outside a comparison"
-            )
 
         selected = [
             finding for finding in findings if finding.finding_id in set(resolved)
         ]
         required_actions: list[ConversationRetrievalAction] = []
-        if comparison:
+        if comparison and len(resolved) >= 2:
             required_actions.append(
                 CompareFindingsAction(
                     kind="compare_findings",
@@ -635,10 +630,7 @@ class ReportConversationService:
                 )
                 for node_id in node_ids
             )
-        if (
-            ReportQuestionType.EVIDENCE_TRACE in question_types
-            and any(term in normalized for term in ("depend", "blast radius"))
-        ):
+        if ReportQuestionType.EVIDENCE_TRACE in question_types:
             required_actions.extend(
                 GetDependencyNeighbourhoodAction(
                     kind="get_dependency_neighbourhood",
@@ -668,6 +660,13 @@ class ReportConversationService:
             [*required_actions, *preserved_actions]
         )
         truncations: list[str] = []
+        if unknown_plan_ids:
+            # A hallucinated reference is dropped, not fatal - but the audit must
+            # show the classified intent was narrowed.
+            truncations.append(
+                "The classifier referenced findings absent from the pinned report "
+                f"and they were dropped: {sorted(unknown_plan_ids)}."
+            )
         if len(all_actions) > self._config.max_actions_per_question:
             truncations.append(
                 "Retrieval actions were clamped to the cumulative per-turn ceiling of "
@@ -677,7 +676,7 @@ class ReportConversationService:
         return (
             plan.model_copy(
                 update={
-                    "question_types": list(dict.fromkeys(question_types)),
+                    "question_types": question_types,
                     "finding_ids": resolved,
                     "atlas_node_ids": node_ids,
                     "policy_ids": policy_ids,
@@ -692,10 +691,16 @@ class ReportConversationService:
         normalized: str,
         *,
         findings: list[ArchitecturalFinding],
-        recent_messages: list[ConversationMessage],
-        summary: ConversationSummary | None,
-        comparison: bool,
     ) -> list[str]:
+        """Resolve the references a reader stated explicitly.
+
+        Canonical IDs and exact titles are the two forms with a deterministic answer.
+        A title shared by several findings resolves to all of them - covering each
+        explicitly is honest, guessing one is not. Everything softer (ordinals,
+        "the former", comparison phrasing) is interpretation, which belongs to the
+        classifier whose output is validated against the pinned report downstream.
+        """
+
         known_ids = {item.finding_id.casefold(): item.finding_id for item in findings}
         resolved = [
             finding_id
@@ -725,107 +730,14 @@ class ReportConversationService:
                 for start, end in occupied_spans
             ):
                 continue
-            if len(finding_ids) > 1 and not comparison:
-                raise ConversationValidationError(
-                    "A referenced finding title is ambiguous; use canonical finding IDs"
-                )
             title_matches.append((match.start(), finding_ids))
             occupied_spans.append(match.span())
-        ordered_title_matches = [
+        resolved.extend(
             finding_id
             for _, finding_ids in sorted(title_matches, key=lambda item: item[0])
             for finding_id in finding_ids
-        ]
-        if len(ordered_title_matches) > 1 and not comparison:
-            raise ConversationValidationError(
-                "The question references multiple finding titles outside a comparison"
-            )
-        resolved.extend(ordered_title_matches)
-
-        for match in re.finditer(
-            r"\b(?:(?:finding\s+)(\d+)|(\d+)(?:st|nd|rd|th)?\s+finding)\b",
-            normalized,
-        ):
-            raw = match.group(1) or match.group(2)
-            index = int(raw) - 1
-            if not 0 <= index < len(findings):
-                raise ConversationValidationError(
-                    "The referenced finding ordinal is out of range"
-                )
-            resolved.append(findings[index].finding_id)
-        for phrase, index in _ORDINAL_WORDS.items():
-            if phrase not in normalized:
-                continue
-            if index >= len(findings):
-                raise ConversationValidationError(
-                    "The referenced finding ordinal is out of range"
-                )
-            resolved.append(findings[index].finding_id)
-
-        recent_ids = next(
-            (
-                message.answer.relevant_finding_ids
-                for message in reversed(recent_messages)
-                if message.answer is not None
-                and message.answer.relevant_finding_ids
-            ),
-            list[str](),
         )
-        summary_ids = (
-            summary.discussed_finding_ids if summary is not None else []
-        )
-        contextual_ids = recent_ids or summary_ids
-        if any(
-            phrase in normalized
-            for phrase in ("this finding", "that finding", "this issue", "that issue")
-        ):
-            if len(contextual_ids) != 1:
-                raise ConversationValidationError(
-                    "The bounded conversation context does not identify one finding"
-                )
-            resolved.extend(contextual_ids)
-        if any(
-            phrase in normalized
-            for phrase in ("these two", "both findings", "the two findings")
-        ):
-            if len(contextual_ids) != 2:
-                raise ConversationValidationError(
-                    "The bounded conversation context does not identify exactly two findings"
-                )
-            resolved.extend(contextual_ids)
-        if any(
-            phrase in normalized
-            for phrase in ("the former", "former finding")
-        ):
-            if len(contextual_ids) < 2:
-                raise ConversationValidationError(
-                    "The bounded conversation context has no unambiguous former finding"
-                )
-            resolved.append(contextual_ids[0])
-        if any(
-            phrase in normalized
-            for phrase in ("the latter", "latter finding")
-        ):
-            if len(contextual_ids) < 2:
-                raise ConversationValidationError(
-                    "The bounded conversation context has no unambiguous latter finding"
-                )
-            resolved.append(contextual_ids[1])
         return list(dict.fromkeys(resolved))
-
-    @staticmethod
-    def _is_comparison(normalized: str) -> bool:
-        return any(
-            term in normalized
-            for term in (
-                "compare",
-                "difference",
-                "versus",
-                " vs ",
-                "between",
-                "both findings",
-            )
-        )
 
     @staticmethod
     def _unique_actions(
@@ -853,6 +765,7 @@ class ReportConversationService:
             raise TypeError("Conversation retrieval records require an answer context")
         references = context.evidence_references
         snapshots: list[ConversationExcerptSnapshot] = []
+        snapshot_notes: list[str] = []
         seen_snapshots: set[str] = set()
         source_references = [
             item
@@ -880,11 +793,29 @@ class ReportConversationService:
                     or reference.evidence_id in seen_snapshots
                 ):
                     continue
+                remaining = _SNAPSHOT_TOTAL_CHARACTERS - sum(
+                    len(item.text) for item in snapshots
+                )
+                bounded_text, clipped = _bounded_snapshot_text(
+                    excerpt.text, remaining=remaining
+                )
+                if bounded_text is None:
+                    snapshot_notes.append(
+                        f"Excerpt snapshot {reference.evidence_id} was not copied: "
+                        "the durable snapshot budget for this turn is exhausted. "
+                        "The excerpt itself was supplied to reasoning in full."
+                    )
+                    continue
+                if clipped:
+                    snapshot_notes.append(
+                        f"Excerpt snapshot {reference.evidence_id} was clipped to fit "
+                        "the durable row budget; reasoning received the full excerpt."
+                    )
                 snapshots.append(
                     ConversationExcerptSnapshot(
                         evidence_id=reference.evidence_id,
                         location=excerpt.location,
-                        text=excerpt.text,
+                        text=bounded_text,
                     )
                 )
                 seen_snapshots.add(reference.evidence_id)
@@ -897,6 +828,7 @@ class ReportConversationService:
                     for result in results
                     for reason in result.truncation_reasons
                 ),
+                *snapshot_notes,
             ],
             limit=16,
             marker="Additional retrieval truncation metadata was omitted.",
