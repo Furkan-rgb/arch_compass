@@ -25,8 +25,17 @@ class ReasoningModelConfig(DomainModel):
     model: str
     base_url: str
     timeout_seconds: float = Field(gt=0)
+    #: Applied to short, low-token stages; falls back to `timeout_seconds` when unset,
+    #: so a workspace configuration written before this existed behaves as it did.
+    fast_timeout_seconds: float | None = Field(default=None, gt=0)
+    #: Applied to stages that produce a full structured artifact.
+    deep_timeout_seconds: float | None = Field(default=None, gt=0)
     context_window_tokens: int = Field(default=32768, ge=512)
     max_output_tokens: int = Field(default=16384, ge=512, le=32768)
+    #: Characters per token used to estimate a request against the context window.
+    #: Deliberately generous: over-estimating refuses a borderline request explicitly,
+    #: while under-estimating lets the model silently truncate it.
+    chars_per_token: float = Field(default=4.0, gt=0)
 
     @model_validator(mode="after")
     def output_fits_context_window(self) -> ReasoningModelConfig:

@@ -53,6 +53,9 @@ V1.2 is the active milestone. Preserve these report-conversation boundaries:
   `docs/adr/0001-composed-synthesis.md`.
 - Model adapters do transport, schema constraint, and one generic JSON repair. They hold no
   domain rule and may not import the application or workflow packages.
+- Model transport refuses an oversize request rather than letting it be truncated, and retries
+  only positive-listed transient failures. Never retry a structured-output failure: the one
+  schema-repair round is the only second attempt at content.
 - Conversation adapters and services are composed only in `bootstrap.py`.
 - There is no conversation React UI in V1.2.
 - Domain models validate the current schema only. Do not add upgrade validators, defaulted

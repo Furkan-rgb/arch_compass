@@ -296,44 +296,115 @@ Acceptance: replay and evaluation tests green; a replay fixture proves a proposa
 misclassified/duplicate/unknown references composes or fails deterministically;
 `_link_report_support`, `_restore_synthesis_artifacts`, and `_normalize_output` are gone.
 
-### WS4 — Conversation robustness: advisory intent, clarifications, precise fact checks
+### WS4a — Precise repository-fact verification *(done)*
 
-*Goal: no user turn hard-fails because of phrasing or a false-positive prose check.*
+*Goal: a correctly cited answer is never rejected for how its prose reads.*
 
-- `_resolve_finding_references` (IDs, exact titles, ordinals, contextual references):
-  unchanged, authoritative, deterministic (master plan §16).
-- `_is_comparison` and the phrase→question-type tables become advisory: they may add
-  question types and retrieval actions; they never remove LLM-planned actions and never
-  raise.
-- Ambiguity outcomes return a typed clarification answer — a `ConversationAnswer` variant
-  with kind `clarification`, no evidence claims, listing what was ambiguous and the
-  resolvable candidates. Persisted as a normal assistant message, not an error record.
-- `_validate_supported_facts` split per decision 12: hard-fail checks retained for artifact
-  IDs, source locations, and paths; bare-number, relationship-word, metric-mention, and
-  quoted-substring checks demoted to audit warnings stored with the message.
-- `docs/report-conversations.md` and `.agents/AGENTS.md` updated: "report ambiguity instead
-  of guessing" is satisfied by the clarification answer; deterministic behavior applies to
-  explicit reference forms.
-- Acceptance: conversation matrix updated; phrasings like "what's the relation between
-  module X and its tests?" produce answers or clarifications, never exceptions;
-  explicit-reference determinism tests unchanged and green.
+Two strict-xfail replay tests from WS0 pinned false positives in the prose fact
+checker. Both now pass. Investigation found three distinct causes, fixed separately
+rather than by blanket demotion:
 
-### WS5 — Transport hardening
+- **A missing guard, not a heuristic.** Relationship words were checked even when no
+  relationship evidence was supplied, so with only a metric cited every ordinary use of
+  "imports", "calls" or "contains" read as an invented edge. The structurally identical
+  signal-code check three lines below already guarded on its supplied set. It now does
+  too, and two new tests pin both directions: once an edge *is* cited, naming a
+  different edge type still fails the turn.
+- **A too-narrow supplied set.** A path counted as supplied only when its evidence also
+  carried `start_line`/`end_line`, so citing a node summary without a span made its own
+  path look invented. Bare `path` fields now count.
+- **A genuine over-reach.** A bare number is a repository fact only when offered as a
+  metric's value. It is now a hard error when the text also names a supplied metric —
+  so a wrong `dependency.fan_in` still fails — and an audit warning otherwise. Quoted
+  fragments became warnings for the same reason.
+
+`validate_conversation_answer` returns `AnswerValidation(errors, warnings)`; the service
+records warnings on the message's retrieval record, alongside the truncation and
+unavailability audit it already carries.
+
+**Correction to decision 12.** The decision assumed artifact IDs, source locations and
+paths were all high-precision. Investigation reproduced false positives in two of the
+three: `node-level` and `test-coverage` scrape as artifact IDs, and the path case above.
+The path derivation is fixed. Artifact IDs stay a hard failure deliberately: no rule
+distinguishes `node-level` (prose) from `node-invented` (fabrication) by shape, and
+admitting a fabricated repository identifier would breach invariants 13 and 14. The
+false-positive shape is documented rather than silently accepted.
+
+### WS4b — Clarification answers *(deferred; must follow WS7)*
+
+The advisory-intent and clarification-answer half of WS4 is **not** implemented, and the
+sequencing in decision 4/5 was wrong. Investigation surfaced a hard dependency and three
+design hazards that were not visible when the plan was written:
+
+1. **`DeterministicReasoningProvider` duplicates five of the resolution rules and raises
+   first.** `classify_report_question` runs before `_resolve_and_enrich_plan`, and the
+   fake — which every integration and evaluation test uses — raises its own
+   `ConversationValidationError` at `deterministic.py:967` and `:980`. Changing
+   `conversations.py` alone would leave the clarification path unobservable in every
+   test tier, and writing clarification logic into a fake that WS7 replaces wholesale is
+   wasted work. **WS4b must follow WS7.**
+2. **A `kind: clarification` field on `ConversationAnswer` would be the `legacy` escape
+   hatch again.** That model is simultaneously the model-facing wire schema and the
+   persisted shape, so a kind that relaxes `AnswerStatement.require_support` is
+   structurally what ADR 0002 removed. The clarification must therefore be constructed
+   by the application and never offered to the model.
+3. **A clarification that cites nothing is not constructible**, and should not become
+   so. The minimum valid form cites the candidate finding digests, which is honest and
+   passes validation unchanged. Whatever it puts in `relevant_finding_ids` becomes the
+   next turn's contextual anchor — for a two-candidate clarification that is correct
+   behaviour, not a bug, but it must be deliberate.
+4. **Persisting one is non-trivial**: the assistant message needs a full
+   `ConversationRetrievalRecord` whose `supplied_finding_ids` equals the entire ordered
+   pinned finding list and whose `summary_revision` is exactly current. A clarification
+   also adds two messages where a failed turn added one, shifting rolling-summary
+   pacing.
+
+Eleven raise sites are in scope (`conversations.py` 534, 542, 546, 716, 727, 739, 747,
+770, 779, 788, 797); six others are genuine contract violations that must keep raising
+(118, 154, 156, 164, 356, 1019).
+
+### WS5 — Transport hardening *(done)*
 
 *Goal: the most likely real-world failures are explicit, attributable, and cheap to
 survive.*
 
-- Prompt-size guard in the Ollama adapter: estimate serialized prompt tokens (configurable
-  chars-per-token ratio, default 4); fail with a `ProviderError` naming the stage and sizes
-  when `estimated_prompt_tokens + max_output_tokens > context_window_tokens`. Record
-  per-stage serialized prompt characters in `execution_metadata`.
-- Bounded retry (default 3 attempts, exponential backoff) on connect errors, timeouts, and
-  5xx only. Validation failures never trigger transport retry.
-- Two timeout classes in `ReasoningModelConfig` (`fast_timeout_seconds`,
-  `deep_timeout_seconds`) with a per-task mapping; `resources/models.yaml` updated;
-  existing `timeout_seconds` remains as fallback.
-- Acceptance: mocked-transport unit tests for oversize-prompt failure, retry-then-succeed,
-  retry exhaustion, and no-retry-on-validation-failure.
+- **Prompt-size guard** in `_chat`, covering the schema-repair round as well as the
+  first call. Raises `PromptBudgetExceededError` naming the stage and both measured
+  sizes rather than letting Ollama truncate from the front and lose the system prompt.
+- **Bounded retry** (3 attempts, exponential backoff) via one `_post_with_retry` helper
+  shared by the reasoning and embedding providers. The transient set is positive-listed
+  — timeouts, network errors, remote protocol errors, proxy errors, and 408/429/5xx —
+  so `LocalProtocolError` and `UnsupportedProtocol`, which are configuration faults,
+  are never retried. A structured-output failure is not a transport failure: a stage
+  still makes exactly two calls however malformed the responses are, which a test pins.
+- **Two timeout classes** with `timeout_seconds` as fallback, so a workspace written
+  before they existed behaves identically. `_complete` now takes a `ReasoningTask` and
+  resolves its contract from the registry, which is what both the guard message and the
+  timeout class need; twelve contract imports collapse to one.
+
+**Corrections applied after adversarial review.** Three of the four reviewers returned
+`needs_revision` on the first design, and the criticism was right:
+
+- The design excluded the response schema from the guarded estimate, citing a 400
+  "failed to parse grammar" response as server-side evidence. That response is
+  fabricated by a test's own monkeypatched stub; no Ollama server is involved. The
+  schema is now **counted**, which is the fail-safe direction: over-counting refuses a
+  borderline request explicitly, under-counting reproduces the silent truncation the
+  guard exists to remove.
+- `PromptBudgetExceededError` derives from `ArchCompassError`, not `ProviderError`. The
+  stated rationale for `ProviderError` (surviving `_sanitize_error`) was a non-sequitur —
+  the `else` branch preserves any non-`ModelOutputValidationError` message — and
+  `ProviderError` maps to 503 `retryable=True`, which misdescribes a deterministic
+  failure.
+- A proposed `ports/prompt_metering.py` using process-global context state was dropped.
+  It was not a port, and `ThreadPoolExecutor.submit` does not propagate context, so a
+  scope opened on the wrong thread would have recorded nothing with a green suite.
+
+**Deferred: per-stage prompt sizes in `execution_metadata`.** Decision 6 asks for these
+on the success path. Every mechanism considered either smuggled application state into
+the adapter or added a collaborator with no reader, which master-plan §18 forbids. The
+guard's exception already carries the sizes on the only path where they change a
+decision. Recording them on success is deferred until something reads them.
 
 ### WS6 — Structural decomposition and containment (mechanical, behavior-preserving)
 
@@ -410,7 +481,8 @@ Then, against the existing contracts only:
 
 ## 4. Sequencing
 
-Progress: WS0, WS1, WS2, and WS3 are complete. WS4, WS5, WS6, WS7, and WS8 remain.
+Progress: WS0, WS1, WS2, WS3, WS4a and WS5 are complete. WS6, WS7, WS4b and WS8 remain,
+in that order — WS4b now depends on WS7.
 
 ```text
 WS0 (replay tier)
@@ -418,8 +490,10 @@ WS0 (replay tier)
   → WS2 (adapter slimming)                  [prerequisite for WS3]
   → WS3 (composed synthesis)                [largest; the confirmed decision]
       → WS7 (evaluation honesty)            [fixtures written against final ports]
-WS4 (conversation)                          [independent; parallel after WS0]
-  → WS8 (conversation panel)                [scope amendment + UI; needs WS4 behavior]
+WS4a (fact precision)                       [done; independent]
+WS7 (evaluation honesty)
+  → WS4b (clarification answers)            [needs the fixture player, not the fake]
+     → WS8 (conversation panel)             [scope amendment + UI]
 WS5 (transport)                             [independent; parallel after WS0]
   → WS6 (decomposition + docs + ADRs)       [after WS0–WS5; WS8 may follow or overlap]
 ```

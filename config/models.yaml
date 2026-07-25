@@ -4,6 +4,8 @@ models:
     model: gemma4:26b
     base_url: http://127.0.0.1:11434
     timeout_seconds: 360
+    fast_timeout_seconds: 90
+    deep_timeout_seconds: 360
     context_window_tokens: 32768
     max_output_tokens: 16384
   embedding:

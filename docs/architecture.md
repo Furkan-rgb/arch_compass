@@ -48,6 +48,18 @@ calling the consultation workflow.
 Report-conversation access remains in the CLI and local FastAPI routes. The retained React
 workspace has no report-conversation or generic chat controls in V1.2.
 
+Model transport is bounded and explicit. Before any request is sent, the Ollama adapter
+estimates the serialized prompt plus the response schema against the context window and
+refuses with `PromptBudgetExceededError` when the request cannot fit, naming the stage and
+both sizes; Ollama would otherwise truncate from the front and discard the system prompt,
+producing degraded output that fails validation with no attributable cause. Transport
+failures that a later identical request might survive — timeouts, network and remote
+protocol errors, proxy errors, 408/429/5xx — are retried up to three times with
+exponential backoff. Configuration faults and structured-output failures are never
+retried; the single sanctioned schema-repair round remains the only second attempt at
+content. Stages are timed by class, with the single configured timeout as the fallback so
+a workspace written before the classes existed behaves identically.
+
 Heavyweight or provider-specific behavior is constructed explicitly. Imports have no side effects.
 The packaged model configuration is a resource; workspace initialization copies it only when the
 selected configuration path does not exist.

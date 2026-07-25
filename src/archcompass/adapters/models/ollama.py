@@ -3,28 +3,14 @@
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Callable, Mapping
-from typing import ClassVar, TypeVar, cast
+from typing import ClassVar, Final, TypeVar, cast
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError
 
-from archcompass.adapters.models.prompt_contracts import (
-    ANALYZE_CONCERN_CLUSTER,
-    ANSWER_REPORT_QUESTION,
-    CLASSIFY_REPORT_QUESTION,
-    CLUSTER_DESIGN_FORCES,
-    DISCOVER_DESIGN_FORCES,
-    EVALUATE_SCENARIOS,
-    GENERATE_ALTERNATIVES,
-    OLLAMA_STAGE_PROMPTS,
-    PLAN_ATLAS_QUERIES,
-    REPAIR_CONVERSATION_ANSWER,
-    REPAIR_RECOMMENDATION_PROPOSAL,
-    SUMMARIZE_REPORT_CONVERSATION,
-    SYNTHESIZE_RECOMMENDATION,
-    PromptContract,
-)
+from archcompass.adapters.models.prompt_contracts import OLLAMA_STAGE_PROMPTS
 from archcompass.configuration import EmbeddingModelConfig, ReasoningModelConfig
 from archcompass.domain.base import canonical_json
 from archcompass.domain.case import ArchitectureCase, CaseAlternative
@@ -54,12 +40,59 @@ from archcompass.domain.diagnostics import (
 from archcompass.domain.errors import (
     ClusterPartitionError,
     ModelOutputValidationError,
+    PromptBudgetExceededError,
     ProviderError,
 )
 from archcompass.domain.proposals import AvailableClaim, ProposedRecommendation
 from archcompass.ports.reasoning import ReasoningTask
 
 Item = TypeVar("Item", bound=BaseModel)
+
+_MAX_TRANSPORT_ATTEMPTS: Final = 3
+_BACKOFF_BASE_SECONDS: Final = 0.5
+#: Retryable by construction: the request never reached a model, or the server failed
+#: in a way a later identical request may not. `LocalProtocolError` and
+#: `UnsupportedProtocol` are deliberately absent - they are configuration faults that
+#: fail identically every time.
+_TRANSIENT_TRANSPORT_ERRORS: Final = (
+    httpx.TimeoutException,
+    httpx.NetworkError,
+    httpx.RemoteProtocolError,
+    httpx.ProxyError,
+)
+_TRANSIENT_STATUS_CODES: Final = frozenset({408, 429, 500, 502, 503, 504})
+
+
+def _is_transient_status(error: httpx.HTTPStatusError) -> bool:
+    return error.response.status_code in _TRANSIENT_STATUS_CODES
+
+
+def _post_with_retry(url: str, *, json: dict[str, object], timeout: float) -> httpx.Response:
+    """POST, retrying only failures that a later identical request might survive.
+
+    A structured-output validation failure is never retried here: it is raised by the
+    caller after this returns, so the single sanctioned repair round stays the only
+    second attempt at content.
+    """
+
+    last_error: Exception | None = None
+    for attempt in range(1, _MAX_TRANSPORT_ATTEMPTS + 1):
+        try:
+            response = httpx.post(url, json=json, timeout=timeout)
+            response.raise_for_status()
+            return response
+        except httpx.HTTPStatusError as error:
+            if not _is_transient_status(error) or attempt == _MAX_TRANSPORT_ATTEMPTS:
+                raise
+            last_error = error
+        except _TRANSIENT_TRANSPORT_ERRORS as error:
+            if attempt == _MAX_TRANSPORT_ATTEMPTS:
+                raise
+            last_error = error
+        time.sleep(_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
+    raise ProviderError(  # pragma: no cover - the loop always returns or raises
+        f"Ollama request failed after {_MAX_TRANSPORT_ATTEMPTS} attempts: {last_error}"
+    )
 
 
 def _object_mapping(value: object) -> dict[str, object] | None:
@@ -127,12 +160,11 @@ class OllamaEmbeddingProvider:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         try:
-            response = httpx.post(
+            response = _post_with_retry(
                 f"{self._config.base_url.rstrip('/')}/api/embed",
                 json={"model": self._config.model, "input": texts},
                 timeout=self._config.timeout_seconds,
             )
-            response.raise_for_status()
             payload = EmbeddingResponse.model_validate_json(response.content)
             if len(payload.embeddings) != len(texts):
                 raise ValueError(
@@ -168,7 +200,7 @@ class OllamaReasoningProvider:
 
     def discover_design_forces(self, context: GlobalContext) -> list[DesignForce]:
         proposed = self._complete(
-            DISCOVER_DESIGN_FORCES,
+            ReasoningTask.DISCOVER_DESIGN_FORCES,
             context,
             ProposedDesignForceList,
         ).root
@@ -198,7 +230,7 @@ class OllamaReasoningProvider:
         handled_forces = [(f"F{index}", force) for index, force in enumerate(forces, start=1)]
         ids_by_handle = {handle: force.force_id for handle, force in handled_forces}
         proposed = self._complete(
-            CLUSTER_DESIGN_FORCES,
+            ReasoningTask.CLUSTER_DESIGN_FORCES,
             {
                 "context": context.model_dump(mode="json"),
                 "forces": [
@@ -265,7 +297,7 @@ class OllamaReasoningProvider:
             for cluster in clusters
         }
         return self._complete(
-            PLAN_ATLAS_QUERIES,
+            ReasoningTask.PLAN_ATLAS_QUERIES,
             payload,
             ClusterQueryPlanList,
             runtime_instruction=f"Allowed node IDs by cluster: {allowed_node_ids}.",
@@ -279,7 +311,7 @@ class OllamaReasoningProvider:
         allowed_node_ids = sorted(packet.surfaced_node_ids)
         allowed_policy_ids = sorted(item.policy.id for item in packet.policies)
         return self._complete(
-            ANALYZE_CONCERN_CLUSTER,
+            ReasoningTask.ANALYZE_CONCERN_CLUSTER,
             {"context": context.model_dump(mode="json"), "packet": packet.model_dump(mode="json")},
             ConcernAnalysis,
             runtime_instruction=(
@@ -296,7 +328,7 @@ class OllamaReasoningProvider:
         self, context: GlobalContext, analyses: list[ConcernAnalysis]
     ) -> list[CaseAlternative]:
         return self._complete(
-            GENERATE_ALTERNATIVES,
+            ReasoningTask.GENERATE_ALTERNATIVES,
             {
                 "context": context.model_dump(mode="json"),
                 "analyses": [item.model_dump(mode="json") for item in analyses],
@@ -315,7 +347,7 @@ class OllamaReasoningProvider:
             for ordinal, item in enumerate(alternatives, start=1)
         }
         completed = self._complete(
-            EVALUATE_SCENARIOS,
+            ReasoningTask.EVALUATE_SCENARIOS,
             {
                 "context": context.model_dump(mode="json"),
                 "alternatives": [
@@ -371,7 +403,7 @@ class OllamaReasoningProvider:
     ) -> ProposedRecommendation:
         del clusters, packets  # Reachable only through the supplied handles.
         return self._complete(
-            SYNTHESIZE_RECOMMENDATION,
+            ReasoningTask.SYNTHESIZE_RECOMMENDATION,
             {
                 "case": case.model_dump(mode="json"),
                 "context": context.model_dump(mode="json"),
@@ -402,7 +434,7 @@ class OllamaReasoningProvider:
         cluster_refs: dict[str, str],
     ) -> ProposedRecommendation:
         return self._complete(
-            REPAIR_RECOMMENDATION_PROPOSAL,
+            ReasoningTask.REPAIR_RECOMMENDATION_PROPOSAL,
             {
                 "proposal": proposal.model_dump(mode="json"),
                 "errors": errors,
@@ -489,7 +521,7 @@ class OllamaReasoningProvider:
         context: ReportQuestionPlanningContext,
     ) -> ReportQuestionPlan:
         return self._complete(
-            CLASSIFY_REPORT_QUESTION,
+            ReasoningTask.CLASSIFY_REPORT_QUESTION,
             context,
             ReportQuestionPlan,
             runtime_instruction=(
@@ -515,7 +547,7 @@ class OllamaReasoningProvider:
         allowed_policy_ids = {item.policy.id for item in context.retrieved_policies}
 
         return self._complete(
-            ANSWER_REPORT_QUESTION,
+            ReasoningTask.ANSWER_REPORT_QUESTION,
             {
                 "question": context.question,
                 "context": context.model_dump(mode="json"),
@@ -538,7 +570,7 @@ class OllamaReasoningProvider:
         messages: list[ConversationMessageView],
     ) -> ConversationSummary:
         return self._complete(
-            SUMMARIZE_REPORT_CONVERSATION,
+            ReasoningTask.SUMMARIZE_REPORT_CONVERSATION,
             {
                 "current_summary": current_summary,
                 "messages": [item.model_dump(mode="json") for item in messages],
@@ -558,7 +590,7 @@ class OllamaReasoningProvider:
         allowed_policy_ids: set[str],
     ) -> ConversationAnswer:
         return self._complete(
-            REPAIR_CONVERSATION_ANSWER,
+            ReasoningTask.REPAIR_CONVERSATION_ANSWER,
             {
                 "answer": answer.model_dump(mode="json"),
                 "errors": errors,
@@ -575,7 +607,7 @@ class OllamaReasoningProvider:
 
     def _complete(
         self,
-        contract: PromptContract,
+        task: ReasoningTask,
         payload: BaseModel | Mapping[str, object],
         output_type: type[Item],
         *,
@@ -587,6 +619,7 @@ class OllamaReasoningProvider:
         think: bool | str | None = None,
         temperature: float | None = None,
     ) -> Item:
+        contract = OLLAMA_STAGE_PROMPTS[task]
         data = payload.model_dump(mode="json") if isinstance(payload, BaseModel) else dict(payload)
         instruction = contract.request
         if runtime_instruction:
@@ -605,6 +638,7 @@ class OllamaReasoningProvider:
             content = self._chat(
                 output_type,
                 messages,
+                task=task,
                 schema_override=schema_override,
                 think=think,
                 temperature=temperature,
@@ -640,6 +674,7 @@ class OllamaReasoningProvider:
             repaired = self._chat(
                 output_type,
                 repair_messages,
+                task=task,
                 schema_override=schema_override,
                 think=think,
                 temperature=temperature,
@@ -779,11 +814,66 @@ class OllamaReasoningProvider:
             )
         return diagnostics
 
+    #: Stages whose response is a short structured decision rather than a full
+    #: artifact. Every other task produces a complete document and gets the deep
+    #: budget; a repair is classed with the call it repairs, since it regenerates the
+    #: same output type.
+    _FAST_TASKS: ClassVar[frozenset[ReasoningTask]] = frozenset(
+        {
+            ReasoningTask.CLASSIFY_REPORT_QUESTION,
+            ReasoningTask.SUMMARIZE_REPORT_CONVERSATION,
+        }
+    )
+
+    def _timeout_for(self, task: ReasoningTask) -> float:
+        configured = (
+            self._config.fast_timeout_seconds
+            if task in self._FAST_TASKS
+            else self._config.deep_timeout_seconds
+        )
+        return configured if configured is not None else self._config.timeout_seconds
+
+    def _guard_prompt_budget(
+        self,
+        task: ReasoningTask,
+        messages: list[dict[str, str]],
+        format_value: Mapping[str, object],
+    ) -> None:
+        """Refuse a request that cannot fit, rather than let it be truncated.
+
+        The response schema is counted. Whether Ollama spends prompt tokens on it or
+        compiles it to a sampler grammar is a property of the build being talked to,
+        and the fail-safe direction is to count it: over-counting refuses a borderline
+        request with an explicit message, while under-counting reproduces exactly the
+        silent front-truncation this exists to prevent.
+        """
+
+        prompt_characters = sum(
+            len(message["role"]) + len(message["content"]) for message in messages
+        )
+        schema_characters = len(canonical_json(dict(format_value)))
+        estimated_tokens = math.ceil(
+            (prompt_characters + schema_characters) / self._config.chars_per_token
+        )
+        budget = self._config.context_window_tokens - self._config.max_output_tokens
+        if estimated_tokens <= budget:
+            return
+        raise PromptBudgetExceededError(
+            f"The {task.value} request does not fit the context window: "
+            f"~{estimated_tokens} estimated prompt tokens "
+            f"({prompt_characters} prompt characters plus {schema_characters} schema "
+            f"characters at {self._config.chars_per_token} characters per token) "
+            f"exceed the {budget} tokens left by a "
+            f"{self._config.context_window_tokens}-token window reserving "
+            f"{self._config.max_output_tokens} for output."
+        )
+
     def _chat(
         self,
         output_type: type[Item],
         messages: list[dict[str, str]],
         *,
+        task: ReasoningTask,
         schema_override: Mapping[str, object] | None = None,
         think: bool | str | None = None,
         temperature: float | None = None,
@@ -794,23 +884,26 @@ class OllamaReasoningProvider:
         }
         if temperature is not None:
             options["temperature"] = temperature
+        resolved_format: Mapping[str, object] = (
+            schema_override
+            if schema_override is not None
+            else output_type.model_json_schema()
+        )
         request: dict[str, object] = {
             "model": self._config.model,
             "stream": False,
-            "format": (
-                schema_override if schema_override is not None else output_type.model_json_schema()
-            ),
+            "format": resolved_format,
             "options": options,
             "messages": messages,
         }
         if think is not None:
             request["think"] = think
-        response = httpx.post(
+        self._guard_prompt_budget(task, messages, resolved_format)
+        response = _post_with_retry(
             f"{self._config.base_url.rstrip('/')}/api/chat",
             json=request,
-            timeout=self._config.timeout_seconds,
+            timeout=self._timeout_for(task),
         )
-        response.raise_for_status()
         content = response.json()["message"]["content"]
         if not isinstance(content, str):
             raise TypeError("Ollama response content is not text")

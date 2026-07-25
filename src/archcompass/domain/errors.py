@@ -65,6 +65,17 @@ class ProviderError(ArchCompassError):
     pass
 
 
+class PromptBudgetExceededError(ArchCompassError):
+    """The serialized request cannot fit the model's context window.
+
+    Deliberately not a `ProviderError`: the provider is healthy and an identical
+    retry fails identically. Ollama would silently discard the front of an oversize
+    prompt - the system prompt first - so this refuses to send and names the sizes
+    instead of producing degraded output that fails validation with no attributable
+    cause.
+    """
+
+
 class ModelOutputValidationError(ArchCompassError):
     pass
 

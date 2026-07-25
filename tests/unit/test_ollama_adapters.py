@@ -7,6 +7,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+from archcompass.adapters.models import ollama as ollama_adapters
 from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
 from archcompass.adapters.models.ollama import (
     AlternativeList,
@@ -36,8 +37,10 @@ from archcompass.domain.diagnostics import FailureDiagnosticCode
 from archcompass.domain.errors import (
     ClusterPartitionError,
     ModelOutputValidationError,
+    PromptBudgetExceededError,
     ProviderError,
 )
+from archcompass.ports.reasoning import ReasoningTask
 
 
 def test_conversation_answer_repair_is_one_allowlist_constrained_call(
@@ -719,10 +722,17 @@ def test_ollama_providers_wrap_transport_errors(
     monkeypatch: pytest.MonkeyPatch,
     provider_factory: Callable[[], OllamaEmbeddingProvider | OllamaReasoningProvider],
 ) -> None:
+    """A transient failure is retried to the cap, then surfaced as a ProviderError."""
+
+    attempts = 0
+
     def post(*args: object, **kwargs: object) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
         raise httpx.ConnectError("offline")
 
     monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(ollama_adapters.time, "sleep", lambda _seconds: None)
     provider = provider_factory()
 
     with pytest.raises(ProviderError, match=r"Ollama .* request failed: offline"):
@@ -730,6 +740,8 @@ def test_ollama_providers_wrap_transport_errors(
             provider.embed(["test"])
         else:
             provider.discover_design_forces(_context())
+
+    assert attempts == ollama_adapters._MAX_TRANSPORT_ATTEMPTS
 
 
 def test_reasoning_provider_preserves_bounded_http_error_detail(
@@ -751,3 +763,183 @@ def test_reasoning_provider_preserves_bounded_http_error_detail(
         match=r"HTTP 400.*failed to parse grammar",
     ):
         OllamaReasoningProvider(_reasoning_config()).discover_design_forces(_context())
+
+
+def _small_window_config() -> ReasoningModelConfig:
+    """A window too small for any real stage prompt."""
+
+    return ReasoningModelConfig(
+        provider="ollama",
+        model="test-model",
+        base_url="http://ollama.test",
+        timeout_seconds=30,
+        context_window_tokens=1024,
+        max_output_tokens=512,
+    )
+
+
+def test_reasoning_provider_refuses_an_oversize_prompt_before_sending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ollama truncates an oversize prompt from the front, silently losing the system
+    prompt. The guard refuses instead, naming the stage and both measured sizes."""
+
+    sent = 0
+
+    def post(*args: object, **kwargs: object) -> httpx.Response:
+        nonlocal sent
+        sent += 1
+        raise AssertionError("the guard must refuse before any request is sent")
+
+    monkeypatch.setattr(httpx, "post", post)
+    provider = OllamaReasoningProvider(_small_window_config())
+
+    with pytest.raises(PromptBudgetExceededError) as failure:
+        provider.discover_design_forces(_context())
+
+    message = str(failure.value)
+    assert "discover_design_forces" in message
+    assert "prompt characters" in message
+    assert "schema characters" in message
+    assert sent == 0
+
+
+def test_prompt_guard_counts_the_response_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The schema is part of the request, so it is part of the budget.
+
+    Under-counting would let a request through that the model then truncates, which is
+    the exact silent failure the guard exists to remove.
+    """
+
+    del monkeypatch
+    provider = OllamaReasoningProvider(_small_window_config())
+    messages = [{"role": "system", "content": "x"}, {"role": "user", "content": "y"}]
+
+    provider._guard_prompt_budget(  # pyright: ignore[reportPrivateUsage]
+        ReasoningTask.DISCOVER_DESIGN_FORCES,
+        messages,
+        {},
+    )
+
+    huge_schema = {"description": "d" * 8_000}
+    with pytest.raises(PromptBudgetExceededError, match="schema characters"):
+        provider._guard_prompt_budget(  # pyright: ignore[reportPrivateUsage]
+            ReasoningTask.DISCOVER_DESIGN_FORCES,
+            messages,
+            huge_schema,
+        )
+
+
+def test_transport_retry_recovers_from_a_transient_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    def post(*args: object, **kwargs: object) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ConnectError("blip")
+        return _http_response({"embeddings": [[0.0] * 8]})
+
+    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(ollama_adapters.time, "sleep", lambda _seconds: None)
+    provider = OllamaEmbeddingProvider(
+        EmbeddingModelConfig(
+            provider="ollama",
+            model="test-embed",
+            base_url="http://ollama.test",
+            dimensions=8,
+            timeout_seconds=5,
+        )
+    )
+
+    assert provider.embed(["one"]) == [[0.0] * 8]
+    assert attempts == 2
+
+
+def test_transport_retry_does_not_retry_a_terminal_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 400 fails identically on every attempt; retrying it only wastes time."""
+
+    attempts = 0
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        del kwargs
+        return httpx.Response(
+            400,
+            json={"error": "bad request"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(ollama_adapters.time, "sleep", lambda _seconds: None)
+    provider = OllamaReasoningProvider(_reasoning_config())
+
+    with pytest.raises(ProviderError):
+        provider.discover_design_forces(_context())
+
+    assert attempts == 1
+
+
+def test_transport_retry_does_not_retry_structured_output_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid content is a model failure, not a transport one.
+
+    The single sanctioned schema-repair round stays the only second attempt, so a
+    stage makes exactly two calls however malformed the responses are.
+    """
+
+    attempts = 0
+
+    def post(*args: object, **kwargs: object) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return _http_response({"message": {"content": "{}"}})
+
+    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(ollama_adapters.time, "sleep", lambda _seconds: None)
+    provider = OllamaReasoningProvider(_reasoning_config())
+
+    with pytest.raises(ModelOutputValidationError):
+        provider.discover_design_forces(_context())
+
+    assert attempts == 2
+
+
+def test_every_reasoning_task_has_a_declared_timeout_class() -> None:
+    """A task added later inherits the deep budget deliberately, not by omission."""
+
+    provider = OllamaReasoningProvider(
+        _reasoning_config().model_copy(
+            update={"fast_timeout_seconds": 5, "deep_timeout_seconds": 50}
+        )
+    )
+    fast = OllamaReasoningProvider._FAST_TASKS  # pyright: ignore[reportPrivateUsage]
+
+    for task in ReasoningTask:
+        expected = 5 if task in fast else 50
+        assert provider._timeout_for(task) == expected  # pyright: ignore[reportPrivateUsage]
+
+    assert fast == {
+        ReasoningTask.CLASSIFY_REPORT_QUESTION,
+        ReasoningTask.SUMMARIZE_REPORT_CONVERSATION,
+    }
+
+
+def test_timeout_classes_fall_back_to_the_single_configured_timeout() -> None:
+    """A workspace written before the classes existed keeps its exact behaviour."""
+
+    provider = OllamaReasoningProvider(_reasoning_config())
+
+    assert _reasoning_config().fast_timeout_seconds is None
+    for task in ReasoningTask:
+        assert provider._timeout_for(task) == (  # pyright: ignore[reportPrivateUsage]
+            _reasoning_config().timeout_seconds
+        )
