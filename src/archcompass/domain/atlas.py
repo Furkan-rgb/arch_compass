@@ -152,6 +152,75 @@ class ObscuritySignal(DomainModel):
     limitations: str = ""
 
 
+class FindingPattern(StrEnum):
+    """Structural shapes a detector can establish from the atlas graph.
+
+    Named for what was observed, never for what should be done about it. Each maps to
+    policies the corpus already states, because the corpus is what says which patterns
+    are worth detecting at all (master plan 8A.1).
+    """
+
+    #: The same knowledge stated in several modules with no single owner.
+    DUPLICATED_KNOWLEDGE = "duplicated_knowledge"
+    #: An abstraction with exactly one implementation behind it.
+    SOLE_IMPLEMENTATION = "sole_implementation"
+    #: Several bespoke implementations of one shape, with no common owner.
+    PARALLEL_IMPLEMENTATIONS = "parallel_implementations"
+    #: A public surface that forwards without hiding anything.
+    PASS_THROUGH_BOUNDARY = "pass_through_boundary"
+
+
+class FindingParticipant(DomainModel):
+    """One node's part in a candidate, and why it is implicated."""
+
+    node_id: str = Field(min_length=1)
+    qualified_name: str = Field(min_length=1)
+    location: SourceLocation | None = None
+    #: What this participant contributes — the duplicated literal, the implementing
+    #: method, the forwarded call. Prose, because the model reads it; never a key.
+    role: str = Field(min_length=1)
+
+
+class FindingMeasurement(DomainModel):
+    """One quantity that establishes the pattern, with its own honesty attached."""
+
+    name: str = Field(min_length=1)
+    value: float
+    unit: str = ""
+    nature: MetricNature = MetricNature.MEASUREMENT
+    definition: str = ""
+    limitations: str = ""
+
+
+class FindingCandidate(DomainModel):
+    """A structural pattern that could make a policy relevant — never a violation.
+
+    N-ary by construction: duplicated knowledge is a fact about a set of modules, and a
+    type holding one node would discard the finding while appearing to record it. The
+    candidate carries the relationships between its participants too, because a pattern
+    judged from nodes in isolation is a lint rather than an architectural finding
+    (master plan 8A.2).
+
+    A detector states what it found and how it knows. Whether it matters here is decided
+    later, against the case, and "it does not" is a first-class answer.
+    """
+
+    candidate_id: str = Field(default_factory=lambda: new_id("cand"), min_length=1)
+    pattern: FindingPattern
+    summary: str = Field(min_length=1)
+    participants: list[FindingParticipant] = Field(min_length=1)
+    measurements: list[FindingMeasurement] = Field(default_factory=list[FindingMeasurement])
+    #: Edges among the participants, so blast radius is visible without a second lookup.
+    relationships: list[AtlasEdge] = Field(default_factory=list[AtlasEdge])
+    #: What this detection method cannot see. Always populated: a detector that claims no
+    #: limitations is claiming the static view is complete, which it never is.
+    limitations: str = Field(min_length=1)
+
+    @property
+    def node_ids(self) -> list[str]:
+        return [participant.node_id for participant in self.participants]
+
+
 class AtlasVersion(DomainModel):
     schema_version: int = Field(default=2, ge=1, le=2)
     version_id: str = Field(default_factory=lambda: new_id("atlas"))

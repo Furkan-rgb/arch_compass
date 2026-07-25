@@ -82,6 +82,26 @@ ArchCompass should not assume that more modularisation, more interfaces or more 
 
 A locally complicated module may improve the overall system when it hides complexity from the rest of the application. Conversely, a simple-looking value or function may create substantial system-wide complexity when many unrelated parts depend on it.
 
+## 3.1 The failure ArchCompass exists to correct
+
+Code generation is no longer the constraint. Structure is.
+
+A coding agent asked to satisfy a requirement will satisfy it, and will tend to reach for
+an interface, a layer, a registry or a configuration point at each decision — each one
+locally defensible, and collectively producing software that is more complex than the
+problem requires and harder to understand than the code it replaced. The agent has no
+memory of the decisions it already made, no view of the system it is adding to, and no
+cost model for indirection, so it cannot tell a boundary that hides complexity from one
+that only forwards calls across it.
+
+The result is not incorrect code. It is unnecessarily complex code: abstractions without
+credible variation, knowledge duplicated because nothing looked for it first, and
+behaviour spread across locations that must now change together.
+
+ArchCompass exists to make that visible and to argue the other way. Its most valuable
+answer is frequently **"do not add that"** — and a system that cannot say so is an
+abstraction generator, not an advisor.
+
 ---
 
 # 4. Unified Greenfield and Brownfield Model
@@ -410,6 +430,83 @@ Related forces should be grouped into concern clusters. Typical clusters include
 
 Concern clusters are an internal reasoning mechanism. The user does not need to provide multiple candidate plans.
 
+Clusters group **finding candidates that share participants**, which is a fact about the
+graph rather than a partition of abstract forces. Grouping this way is derivable, stable and
+explainable, and it makes the workspace's islands correspond to something real in the code.
+Design forces remain what they are — the case-level pressures the model weighs when deciding
+whether a candidate matters here — but they no longer need to be partitioned to bound
+evidence, because a candidate carries its own participants.
+
+---
+
+# 8A. Finding Candidates
+
+## 8A.1 What a finding candidate is
+
+> A finding candidate is a structural pattern that could make a policy in the corpus
+> relevant.
+
+The policy corpus is the specification. Every policy that can be violated *structurally*
+implies a detector; the detector finds where the policy might apply; the model decides
+whether it does. Policies that cannot be checked structurally — deliberate consistency,
+designing it twice — remain judgement input rather than detector targets.
+
+A candidate carries:
+
+- **Pattern** — which shape of complexity was detected.
+- **Participants** — every node involved, located. A candidate is **N-ary by construction**:
+  duplicated knowledge is a fact about a set of modules, and a type that holds one node
+  would discard the finding while appearing to record it.
+- **Measurements** — what made it detectable, so the candidate is evidence rather than
+  opinion, with each measurement's nature and limitations retained (§9.3, §9.4).
+- **Relationships** — the dependencies, dependants and implementations that connect the
+  participants, so the model can judge blast radius rather than inspecting nodes in
+  isolation.
+
+A candidate is explicitly **not a violation**. Materiality depends on circumstances the
+static view cannot see, so "this does not matter here" must remain a first-class answer at
+every stage that consumes one.
+
+## 8A.2 Detection is relational, not isolated
+
+A pattern found by looking at one node in isolation is nearly always a lint, not an
+architectural finding. Architecture is about placement, so the detectable evidence is
+almost always a relationship: the same knowledge in several modules, one concept edited in
+several places, an abstraction with nothing behind it, several implementations with no
+common owner.
+
+Detectors therefore read the atlas graph — edges, implementations, callers, reverse reach —
+and not only node attributes. A detector that cannot express "these N nodes, related this
+way" cannot express the findings that matter.
+
+## 8A.3 The catalogue is symmetric
+
+Unnecessary complexity has two directions, and an advisor that detects only one becomes an
+advocate for the other.
+
+**Indirection without hiding** — an abstraction that adds a boundary while hiding nothing:
+an interface with a single implementation and no credible variation, a module whose public
+surface only forwards calls, a configuration point with one value. The advice is usually
+*remove it, or do not add it*.
+
+**Repetition without ownership** — the same knowledge or shape repeated with no common
+owner: a constant duplicated across modules, several bespoke implementations preparing the
+same request in parallel, one concept requiring coordinated edits in unrelated locations.
+The advice is usually *give this one owner* — an agnostic boundary with specific
+implementations behind it.
+
+Both are the same underlying judgement — where should the complexity live — reached from
+opposite sides. A single-implementation interface and three parallel bespoke providers are
+each a candidate; only the case can say which one is wrong here, and often neither is.
+
+## 8A.4 What a detector may not do
+
+A detector may not decide importance, assign severity, or state that a policy was violated.
+It reports that a pattern is present, with the evidence that establishes it and the
+limitations of the method that found it. Ranking and prioritisation, when they exist, are
+application concerns computed from measurements — never from model output, and never
+smuggled into the detector as a threshold that encodes an opinion.
+
 ---
 
 # 9. RepositoryAtlas Principles
@@ -588,6 +685,34 @@ Conflicting relevant policies should remain visible so the advisor can explain t
 ---
 
 # 12. Evidence and Claim Discipline
+
+## 12.0 Division of labour
+
+> **The application decides what to look at. The model decides what it means. Nothing the model writes is ever used as a key.**
+
+This governs every reasoning stage.
+
+*What to look at* is search and bookkeeping: which nodes are relevant, which policies were
+retrieved, which cluster a packet describes, which claim supports which finding. All of it
+is derivable, reproducible and testable, and the application already holds the answer on
+both sides of the call.
+
+*What it means* is judgement: whether a structural pattern matters given this case,
+which policies bear on it, what the consequence is, what should change. Only the model can
+do this, and it is the only thing worth spending a model call on.
+
+The third clause is the operational one. A model that must reproduce an identifier to be
+understood will eventually reproduce it wrongly — not by inventing it, but by copying it
+imperfectly — and the failure is silent because the value looks plausible. So an
+application-owned identifier must never cross the wire in either direction. Where a stage
+needs the model to point at something, it presents a bounded set and takes back either a
+short request-local handle constrained by the response schema, or a position in the set it
+presented. Where the application already knows the answer, the stage does not ask.
+
+This extends §9.3: opaque IDs are necessary for validation and insufficient as reasoning
+context — and they are also unsafe as model output.
+
+## 12.1 Claim classification
 
 Every important report claim must be classified as one of:
 
