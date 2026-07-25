@@ -1,15 +1,18 @@
-# Implementation Plan: LLM Boundary Hardening
+# Implementation Plan: LLM Boundary Hardening and Codebase Cleanup
 
 **Status:** Accepted plan, implementation pending
 **Scope:** Master plan Phase 1 ("Strengthen prompt contracts", "Complete per-cluster retrieval
-and analysis"). No new product capabilities, no roadmap phases pulled forward.
-**Drives:** Removal of model-output brittleness identified in the July 2026 architecture review.
+and analysis") plus removal of speculative and dead structures. No new product capabilities,
+no roadmap phases pulled forward.
+**Drives:** Removal of model-output brittleness and accumulated implementation debt identified
+in the July 2026 architecture review (two passes).
 
 ## 1. Problem Statement
 
-The reasoning boundary currently asks the model to produce far more than it uniquely
-contributes, then compensates with eight distinct repair/normalization mechanisms spread
-across three layers:
+### 1.1 The reasoning boundary
+
+The model is asked to produce far more than it uniquely contributes, and the system
+compensates with eight distinct repair/normalization mechanisms across three layers:
 
 | # | Mechanism | Layer |
 |---|-----------|-------|
@@ -22,67 +25,136 @@ across three layers:
 | 7 | `repair_report_evidence_with_history` deterministic evidence repair | Application |
 | 8 | `repair_conversation_answer` constrained answer repair | Application |
 
-Additional defects:
+### 1.2 Evidence-discipline holes
 
-- **Latent bug:** `RecommendationReport.upgrade_schema_v1` treats any payload without
-  `schema_version` as legacy v1. The JSON schema sent to Ollama does not require
-  `schema_version` (the field has a default), so fresh model output can silently fall into
-  keyword-based disposition inference and `_legacy_findings` fabrication.
-- **Duplicated knowledge:** atlas-reference validity is implemented three times
-  (`ollama.py::_claim_can_survive_evidence_repair`, workflow
-  `_drop_unsupported_concern_evidence`, `evidence.py::_reference_invalid`).
-- **Doc/code conflict:** `docs/architecture.md` states model adapters "do not choose evidence,
-  history, citation, or truncation rules"; the Ollama adapter currently does.
-- **Product brittleness:** conversation intent keywords (`between`, `compare`, `polic`, …)
-  override the LLM classifier and raise hard errors for reasonable phrasings.
-- **Transport blind spots:** no prompt-size check against `num_ctx` (Ollama silently truncates
-  from the front), no transient-failure retry, one timeout for all stages.
+- **Latent bug — silent legacy migration of fresh output:**
+  `RecommendationReport.upgrade_schema_v1` treats any payload without `schema_version` as
+  legacy v1. The JSON schema sent to Ollama does not require `schema_version` (defaulted
+  field), so fresh model output can silently fall into keyword-based disposition inference
+  and `_legacy_findings` fabrication.
+- **Latent hole — the `legacy` escape hatch:** `SupportedStatement.legacy` is part of the
+  model-facing JSON schema. A statement with `legacy: true` bypasses the
+  supporting-claim-IDs requirement (`domain/consultation.py:462`) and is skipped by evidence
+  validation (`application/evidence.py:138,380`). The model can opt out of the evidence
+  contract in-band.
+
+### 1.3 Speculative legacy compatibility and dead code
+
+The codebase carries three schema generations of in-validator migration code for a
+pre-release, single-user tool whose earlier schemas were never shipped:
+
+- Legacy upgrade validators embedded in domain models: `RecommendationReport.upgrade_schema_v1`,
+  `ADRRecord.upgrade_legacy_strings`, `FocusedAnalysisPacket.upgrade_legacy_packet`,
+  `ConcernAnalysis.upgrade_legacy_results`, the `ConsultationRun` legacy branch,
+  `SupportedStatement.legacy_value`, `_legacy_statement`, `_legacy_findings`,
+  `_upgrade_scenario_mappings`.
+- Masking defaults: `ConcernAnalysis.cluster_id = "cluster_legacy"` hides missing data.
+- Schema-v1 metric-name aliases and compat properties in `domain/atlas.py`
+  (`public_interfaces_crossed`, `symbols_in_representative_path`).
+- The `legacy` flag threading through `application/evidence.py` and
+  `application/reporting.py`.
+- Dead code: `CaseExtraction` (zero references), `ports/services.py` compat re-export module
+  (zero importers), `prompt_identities` property on both providers (never called),
+  `DEFAULT_CONFIG_TEXT` (unused alias, evaluated at import time), the `advise(atlas=...)`
+  schema-v1 shim parameter (no caller passes it).
+
+### 1.4 Evaluation circularity
+
+`DeterministicReasoningProvider` (1,971 lines — larger than the real adapter) is not a
+neutral fake: it keys behavior off eval-fixture tokens (`"qwen"`, `"provider"`, `"voice"`,
+`"premature"`, `"one implementation"`) and special-cases the boundary-preparation signal
+codes in five places. The deterministic evaluations therefore validate the fake's knowledge
+of the fixtures, not the pipeline's contracts.
+
+### 1.5 Conversation-layer brittleness
+
+- Intent keywords (`between`, `compare`, `polic`, …) override the LLM classifier and raise
+  hard errors for reasonable phrasings.
+- `_validate_supported_facts` regex-scrapes answer prose for bare numbers, relationship
+  words, and quoted strings and fails the turn when a token is absent from serialized
+  support JSON — a false-positive machine (e.g. a model writing a derived count fails
+  validation even when every cited artifact is correct).
+
+### 1.6 Transport blind spots
+
+No prompt-size check against `num_ctx` (Ollama silently truncates from the front), no
+transient-failure retry, one timeout for every stage.
+
+### 1.7 Structural hygiene
+
+- `workflows/consultation.py` is 2,166 lines; roughly a third of `advise()` is progress
+  plumbing.
+- `adapters/repository/ast_analyzer.py` is 2,079 lines, ~800 of which implement the two
+  boundary-preparation signals; knowledge of those two signal codes is additionally
+  scattered across the workflow's hardcoded overview ordering
+  (`consultation.py:2018`), the deterministic provider, docs, and tests.
+- `ConversationConfig` presents mandated V1.2 ceilings as configuration: most fields allow
+  exactly one value (`summarize_after_messages: ge=12, le=12`) or a range capped at the
+  mandated ceiling. Constants are dressed as knobs.
+- `bootstrap.Runtime` exposes concrete adapter types (`SQLiteCaseRepository`, …) as public
+  fields; only the AST boundary test keeps presentation honest.
+- `presentation/web/app.py` is a single 716-line module for all routes.
+- Stage names are stringly-typed across three locations.
+- The built React bundle is committed under `presentation/web/static/` with no staleness
+  check against `frontend/`.
 
 ## 2. Decisions
 
-These decisions govern the workstreams below. They were delegated to the implementing agent
-and confirmed where noted.
+Delegated to the implementing agent; confirmed where noted.
 
 1. **Composition over reproduction (confirmed by owner).** Synthesis returns a
    `ProposedRecommendation` wire DTO containing only what the model uniquely contributes.
    The application composes the persisted `RecommendationReport` from canonical upstream
-   artifacts plus that proposal. The persisted report is system-composed; provenance is
-   recorded in `execution_metadata` (proposal content hash + composition actions).
+   artifacts plus that proposal. Provenance is recorded in `execution_metadata`.
 2. **Wire contracts and storage contracts are separate.** Model-facing DTOs live in
-   `domain/proposals.py` and validate strictly against the current schema. Legacy-upgrade
-   logic moves to the persistence read path. Domain model validators never contain migration
-   heuristics.
+   `domain/proposals.py` and validate strictly. Domain model validators never contain
+   migration heuristics.
 3. **One validation authority.** All domain-aware validation and repair lives in the
    application layer. Adapters do transport + schema constraint + one generic JSON-repair
-   round only. The `consume_repair_actions` port method is removed; repairs are recorded
-   where they happen.
+   round only. `consume_repair_actions` is removed from the port.
 4. **Explicit-reference resolution stays deterministic and authoritative; intent keywords
-   become advisory.** Finding resolution by ID, exact title, numeric/word ordinal, and
-   unambiguous recent reference (master plan §16) is unchanged. Keyword intent detection may
-   add retrieval actions but never vetoes the LLM plan and never raises.
-5. **Ambiguity produces a clarification answer, not an exception.** An ambiguous reference
-   or under-specified comparison yields a structured clarification response persisted as a
-   normal assistant message. This still "reports ambiguity instead of guessing".
+   become advisory.** Master plan §16 finding resolution (ID, exact title, ordinal,
+   unambiguous recent reference) is unchanged.
+5. **Ambiguity produces a clarification answer, not an exception.**
 6. **No silent truncation, ever.** The adapter fails explicitly when the serialized prompt
-   plus output budget cannot fit `num_ctx`. Prompt sizes are recorded per stage.
-7. **Transport retries are bounded and transport-only.** Connect errors, timeouts, and 5xx
-   responses retry with backoff; validation failures never retry beyond the single sanctioned
-   repair pass.
-8. **A golden-replay test tier is added before refactoring starts.** Recorded stage outputs
-   (valid and deliberately malformed) replay through validators and composers without a
-   model.
+   plus output budget cannot fit `num_ctx`; prompt sizes are recorded per stage.
+7. **Transport retries are bounded and transport-only.**
+8. **A golden-replay test tier is added before refactoring starts.**
+9. **Pre-release legacy compatibility is deleted, not ported.** ArchCompass 0.1.0 has never
+   been released; the v1/v2 schemas existed only inside this repository's history. All
+   legacy upgrade validators, the `legacy` statement flag, compat aliases/properties, the
+   `advise(atlas=)` shim, and the dead modules in §1.3 are removed. Reading a stored pre-v3
+   row fails loudly with a clear "re-run this consultation" message; no SQL migration
+   deletes any data. *Fallback if the owner holds stored runs worth keeping: a one-time
+   export command before this lands — decide when WS1 starts.* The deprecated
+   `report_follow_ups` table stays per the V1.2 milestone.
+10. **The deterministic provider becomes a scripted fixture player.** Per-eval-case response
+    fixtures live next to the eval cases; the provider replays them. It contains no
+    keyword heuristics and no knowledge of signal codes. Pipeline contracts are tested by
+    the validators and the replay tier, not by a simulated reasoner.
+11. **Mandated ceilings become constants.** V1.2 budget ceilings move to domain constants
+    with names matching the documentation. `ConversationConfig` retains only genuinely
+    tunable values. Same review applied to the other config sections.
+12. **Prose fact-checking keeps only high-precision token classes.** Artifact IDs, source
+    locations, and paths remain hard-fail checks (near-zero false positives). Bare numbers,
+    relationship words, metric-name mentions, and quoted-substring checks become audit
+    warnings recorded on the message, not turn failures. The renderer increasingly injects
+    exact figures from cited evidence rather than trusting model restatement (same
+    composition principle as decision 1).
 
 Deliberately kept as-is:
 
-- Query-plan enforcement (#4 above) and packet budget enforcement: these are allowlist/budget
-  enforcement with audit records, not model-output repair. They stay in the workflow.
-- Post-hoc validation for `plan_atlas_queries` node references (instead of per-cluster schema
-  enums): conditional per-cluster enum schemas are more complex than the drop-and-audit
-  enforcement they would replace.
-- The committed React bundle under `presentation/web/static/` (out of scope; separate
-  decision).
+- Query-plan and packet budget enforcement in the workflow (allowlist/budget enforcement
+  with audit records, not model-output repair).
+- Post-hoc validation for `plan_atlas_queries` node references (conditional per-cluster
+  enum schemas cost more than drop-and-audit).
+- The boundary-preparation signals themselves: documented in `docs/atlas-metrics.md` and
+  `docs/repository-atlas.md`, tested in `test_atlas_alignment.py`. They are contained and
+  de-scattered (WS6), not removed.
+- The committed React bundle (local-first distribution); WS6 adds a staleness check and
+  regeneration instructions instead of moving the build.
 
-Target end state: **four mechanisms, each with a single owner and a single pass** —
+Target end state: **four repair mechanisms, each with a single owner and a single pass** —
 adapter schema repair, workflow plan/budget enforcement, application evidence repair,
 application conversation-answer repair.
 
@@ -95,56 +167,60 @@ suite green.
 
 *Goal: pin current intended semantics before anything moves.*
 
-- New `tests/replay/` tier: fixtures of persisted stage outputs (from the deterministic
-  provider and hand-written malformed variants) replayed through
-  `validate_report_evidence`, `canonicalize_report_findings`,
+- New `tests/replay/` tier: fixtures of persisted stage outputs (valid and deliberately
+  malformed) replayed through `validate_report_evidence`, `canonicalize_report_findings`,
   `validate_conversation_answer`, and (once it exists) the report composer.
-- Malformed fixtures to cover, per stage: missing `schema_version`, misclassified section
-  claims, duplicate claim IDs, unknown node/policy references, missing cluster coverage,
-  scenario alternative-key drift, unknown force handles.
-- Acceptance: replay tests fail today on the missing-`schema_version` fixture (documenting
-  the latent bug) and are updated to the fixed behavior in WS1.
+- Malformed fixtures per stage: missing `schema_version`, `legacy: true` statements,
+  misclassified section claims, duplicate claim IDs, unknown node/policy references,
+  missing cluster coverage, scenario alternative-key drift, unknown force handles.
+- These fixtures double as the seed corpus for the WS7 fixture player.
+- Acceptance: replay tests document today's behavior for the two evidence-discipline holes
+  (§1.2) and are updated to the fixed behavior in WS1.
 
-### WS1 — Separate wire and storage contracts (fixes the latent bug)
+### WS1 — Contract honesty: legacy purge, wire/storage split, constants
 
-*Goal: fresh model output can never enter legacy-migration heuristics.*
+*Goal: fresh model output can never enter legacy paths; the schema surface tells the truth.*
 
-- Move `upgrade_schema_v1`, `_legacy_statement`, `_legacy_findings`,
-  `_upgrade_scenario_mappings` (and the `ADRRecord` legacy validator) out of
-  `domain/consultation.py` into a persistence-side migration module under
-  `adapters/persistence/migrations/`. The run repository applies migrations when reading
-  stored rows before constructing domain models.
-- `RecommendationReport` and `ADRRecord` validate the current schema strictly. A payload
-  without `schema_version` is invalid, loudly.
-- Audit `domain/conversation.py` for the same pattern; move any found upgrade validators the
-  same way.
-- Acceptance: replay fixture from WS0 now fails validation instead of silently mutating;
-  stored legacy rows still load through the repository path (covered by existing persistence
-  tests plus one new legacy-row fixture).
+- Delete everything in §1.3: legacy validators, `legacy` flag and `legacy_value`,
+  `_legacy_statement` / `_legacy_findings` / `_upgrade_scenario_mappings`, metric-name
+  aliases and compat properties, `cluster_legacy` defaults, `CaseExtraction`,
+  `ports/services.py`, `prompt_identities`, `DEFAULT_CONFIG_TEXT`, the `advise(atlas=)`
+  parameter. Remove the `legacy` branches from `application/evidence.py` and
+  `application/reporting.py`.
+- `RecommendationReport`, `ADRRecord`, `ConsultationRun`, `FocusedAnalysisPacket`,
+  `ConcernAnalysis` validate the current schema strictly; `schema_version` is required
+  where it exists. Repository read paths translate a strict-validation failure on a stored
+  row into a clear "pre-V1.2 row; re-run this consultation" error (decision 9).
+- Move mandated V1.2 ceilings from `ConversationConfig` to domain constants (decision 11);
+  config keeps genuinely tunable knobs only.
+- Acceptance: WS0 fixtures for §1.2 now fail validation loudly; no source file matches
+  `legacy|compat` outside persistence read-path errors and the policy corpus; test suite
+  green.
 
 ### WS2 — Slim the adapter; consolidate validation authority
 
-*Goal: the Ollama adapter contains no domain rules; evidence validity has one implementation.*
+*Goal: the Ollama adapter contains no domain rules; evidence validity has one
+implementation.*
 
-- Delete from `adapters/models/ollama.py`: `_normalize_output` (claim moves, duplicate-ID
-  reassignment, canonical restore), `_claim_can_survive_evidence_repair`,
-  `_link_report_support`, `_statement_slots`, `_apply_statement_support`,
-  `_support_plan_schema`, `_support_plan_errors`, `normalization_context`. (Most of this
-  becomes unnecessary by construction in WS3; anything still needed interim moves to
-  `application/evidence.py`.)
+- Delete from `adapters/models/ollama.py`: `_normalize_output`,
+  `_claim_can_survive_evidence_repair`, `_link_report_support`, `_statement_slots`,
+  `_apply_statement_support`, `_support_plan_schema`, `_support_plan_errors`,
+  `normalization_context`. (Interim needs move to `application/evidence.py`; most of this
+  disappears in WS3.)
 - The adapter keeps: canonical JSON serialization, schema constraint (including
-  caller-supplied `schema_override` enums), one generic repair round driven by schema
-  validation plus an optional caller-supplied `candidate_validator`, HTTP error mapping.
-- Single implementation of atlas-reference validity in `application/evidence.py`, used by the
-  workflow's concern-analysis validation and by evidence repair. The other two copies are
-  deleted.
-- Remove `consume_repair_actions` from `FocusedReasoningProvider`; the workflow and
-  application record repair/composition actions themselves.
-- Replace stringly-typed stage names with a `ReasoningTask` StrEnum in `ports/reasoning.py`;
-  `prompt_identity(task: ReasoningTask)`; `OLLAMA_STAGE_PROMPTS` keyed by it.
-- New boundary test: `adapters/models` must not import `application.*`.
-- Acceptance: existing unit tests for normalization move to `application/evidence` tests;
-  boundary tests green; adapter file materially smaller.
+  caller-supplied `schema_override` enums), one generic repair round (schema validation
+  plus optional caller-supplied `candidate_validator`), HTTP error mapping.
+- Single implementation of atlas-reference validity in `application/evidence.py`; the other
+  two copies (adapter, workflow) are deleted.
+- Remove `consume_repair_actions` from `FocusedReasoningProvider`.
+- `ReasoningTask` StrEnum in `ports/reasoning.py`; `prompt_identity(task: ReasoningTask)`;
+  `OLLAMA_STAGE_PROMPTS` keyed by it.
+- Type `bootstrap.Runtime` fields by port protocols instead of concrete adapter classes;
+  keep concrete construction local to `build_runtime`.
+- New boundary tests: `adapters/models` must not import `application.*`; extend the
+  existing layer test accordingly.
+- Acceptance: normalization unit tests move to `application/evidence` tests; boundary tests
+  green; adapter materially smaller.
 
 ### WS3 — Composed synthesis (the centerpiece)
 
@@ -163,123 +239,150 @@ New wire DTO in `domain/proposals.py` — `ProposedRecommendation`:
   triggers, change amplification, ADR decision/consequences) each referencing supporting
   model-local claim keys;
 - proposed findings with cluster handles and claim/node/policy handle references;
-- **no** echo of forces, alternatives, scenarios, or policy evidence.
+- **no** echo of forces, alternatives, scenarios, or policy evidence; **no** `legacy` or
+  `schema_version` fields on the wire.
 
 New composer in `application/synthesis.py`:
 
 1. Validate the proposal: intra-response claim-key references resolve; cluster coverage
-   (≥1 finding per cluster); evidence references valid against the packets (single authority
-   from WS2).
+   (≥1 finding per cluster); evidence references valid against the packets (single
+   authority from WS2).
 2. On errors: one constrained repair via a new port method
    `repair_recommendation_proposal(proposal, errors, allowed_*)` (mirrors
    `repair_conversation_answer`), then revalidate.
 3. Compose the `RecommendationReport`: system-assigned claim IDs (deterministic content
-   hash — duplicate-ID handling disappears by construction), claims placed into sections **by
-   classification** (misclassification shuffling disappears by construction), canonical
-   forces/alternatives/scenarios/policy evidence injected from workflow state (canonical
-   restore disappears by construction), statement supports mapped from claim keys
-   (statement-support linking call disappears).
-4. Existing pipeline continues unchanged: `canonicalize_report_findings` →
-   `validate_report_evidence` → deterministic evidence repair (kept as the single evidence
-   repair) → final validation → commit or fail.
+   hash — duplicate-ID handling disappears by construction), claims placed into sections
+   **by classification** (misclassification shuffling disappears by construction),
+   canonical forces/alternatives/scenarios/policy evidence injected from workflow state
+   (canonical restore disappears by construction), statement supports mapped from claim
+   keys (the statement-support linking call disappears).
+4. The existing pipeline continues unchanged: `canonicalize_report_findings` →
+   `validate_report_evidence` → deterministic evidence repair (the single evidence repair)
+   → final validation → commit or fail.
 
 Port and prompt changes:
 
 - `synthesize_recommendation` → `propose_recommendation(...) -> ProposedRecommendation`;
   add `repair_recommendation_proposal`.
 - `SYNTHESIZE_RECOMMENDATION` contract rewritten for the proposal schema; version bumped.
-- `DeterministicReasoningProvider` emits proposals; its report-assembly logic moves into
-  shared use of the real composer, shrinking the fake and eliminating fake/live divergence
-  on this path.
-- Also in this WS (cheap hardening, no DTO change): `analyze_concern_cluster` gets a
-  `schema_override` with enum-constrained node and policy IDs from its packet, replacing
-  prose-only allowlists.
+- Cheap hardening, no DTO change: `analyze_concern_cluster` gets a `schema_override` with
+  enum-constrained node and policy IDs from its packet, replacing prose-only allowlists.
 
 Persistence: the composed `RecommendationReport` keeps schema v3 — the persisted shape does
 not change. `execution_metadata` gains `synthesis_proposal_hash` and `composition_actions`.
 
-Acceptance: all replay and evaluation tests green; a new replay fixture proves a proposal
-with misclassified/duplicate/unknown references composes or fails deterministically;
-`_link_report_support`, `_restore_synthesis_artifacts`, and adapter `_normalize_output` are
-gone.
+Acceptance: replay and evaluation tests green; a replay fixture proves a proposal with
+misclassified/duplicate/unknown references composes or fails deterministically;
+`_link_report_support`, `_restore_synthesis_artifacts`, and `_normalize_output` are gone.
 
-### WS4 — Conversation intent demotion and clarification answers
+### WS4 — Conversation robustness: advisory intent, clarifications, precise fact checks
 
-*Goal: no user turn hard-fails because of phrasing.*
+*Goal: no user turn hard-fails because of phrasing or a false-positive prose check.*
 
-- `_resolve_finding_references` (IDs, exact titles, ordinals, contextual this/that/former/
-  latter): unchanged, authoritative, deterministic (master plan §16).
+- `_resolve_finding_references` (IDs, exact titles, ordinals, contextual references):
+  unchanged, authoritative, deterministic (master plan §16).
 - `_is_comparison` and the phrase→question-type tables become advisory: they may add
   question types and retrieval actions; they never remove LLM-planned actions and never
   raise.
-- Ambiguity outcomes (`comparison with <2 resolvable findings`, `ambiguous title`,
-  `contextual reference without unique antecedent`, `ordinal out of range`) return a typed
-  clarification answer — a `ConversationAnswer` variant with kind `clarification`, no
-  evidence claims, listing what was ambiguous and the resolvable candidates. It is rendered,
-  validated (trivially), and persisted as a normal assistant message; it is not an error
-  record.
+- Ambiguity outcomes return a typed clarification answer — a `ConversationAnswer` variant
+  with kind `clarification`, no evidence claims, listing what was ambiguous and the
+  resolvable candidates. Persisted as a normal assistant message, not an error record.
+- `_validate_supported_facts` split per decision 12: hard-fail checks retained for artifact
+  IDs, source locations, and paths; bare-number, relationship-word, metric-mention, and
+  quoted-substring checks demoted to audit warnings stored with the message.
 - `docs/report-conversations.md` and `.agents/AGENTS.md` updated: "report ambiguity instead
   of guessing" is satisfied by the clarification answer; deterministic behavior applies to
   explicit reference forms.
-- Acceptance: existing conversation matrix tests updated; new tests assert that "what's the
-  relation between module X and its tests?" and similar phrasings produce answers or
-  clarifications, never exceptions; explicit-reference determinism tests unchanged and green.
+- Acceptance: conversation matrix updated; phrasings like "what's the relation between
+  module X and its tests?" produce answers or clarifications, never exceptions;
+  explicit-reference determinism tests unchanged and green.
 
 ### WS5 — Transport hardening
 
-*Goal: the most likely real-world failures are explicit, attributable, and cheap to survive.*
+*Goal: the most likely real-world failures are explicit, attributable, and cheap to
+survive.*
 
-- Prompt-size guard in the Ollama adapter: estimate serialized prompt tokens
-  (configurable chars-per-token ratio, default 4), fail with a `ProviderError` naming the
-  stage and sizes when `estimated_prompt_tokens + max_output_tokens > context_window_tokens`.
-  Record per-stage serialized prompt characters in `execution_metadata`.
+- Prompt-size guard in the Ollama adapter: estimate serialized prompt tokens (configurable
+  chars-per-token ratio, default 4); fail with a `ProviderError` naming the stage and sizes
+  when `estimated_prompt_tokens + max_output_tokens > context_window_tokens`. Record
+  per-stage serialized prompt characters in `execution_metadata`.
 - Bounded retry (default 3 attempts, exponential backoff) on connect errors, timeouts, and
   5xx only. Validation failures never trigger transport retry.
 - Two timeout classes in `ReasoningModelConfig` (`fast_timeout_seconds`,
-  `deep_timeout_seconds`) with a per-task mapping (classification/summarize/repair = fast;
-  discovery/analysis/synthesis/alternatives/scenarios = deep). `resources/models.yaml`
-  updated with commented defaults; existing single `timeout_seconds` remains as fallback for
-  backward compatibility.
-- Acceptance: unit tests with mocked transport for oversize-prompt failure, retry-then-
-  succeed, retry-exhaustion, and no-retry-on-validation-failure.
+  `deep_timeout_seconds`) with a per-task mapping; `resources/models.yaml` updated;
+  existing `timeout_seconds` remains as fallback.
+- Acceptance: mocked-transport unit tests for oversize-prompt failure, retry-then-succeed,
+  retry exhaustion, and no-retry-on-validation-failure.
 
-### WS6 — Workflow decomposition (mechanical, behavior-preserving)
+### WS6 — Structural decomposition and containment (mechanical, behavior-preserving)
 
-*Goal: `workflows/consultation.py` (2,166 lines) becomes a readable pipeline.*
+*Goal: no module carries responsibilities it doesn't own; large files become navigable.*
 
-- Extract a `StageRunner` that wraps started/artifact/completed progress events, stage
-  timing, prompt-identity recording, and the current-stage marker; `advise()` shrinks to the
-  pipeline sequence.
-- Split into modules under `workflows/`: orchestration (`consultation.py`), evidence
-  accumulation (`evidence_accumulation.py`: `_accumulate_query_result`, budgets, selection
-  reasons), plan enforcement (`plan_enforcement.py`), packet building, and case-revision
-  assembly. Target: no file above ~600 lines.
-- No behavior change; the WS0 replay tier and existing integration tests are the guard.
-- Documentation pass: `docs/architecture.md` (adapter responsibilities now true as written),
-  `docs/report-contract.md` (composition provenance), `docs/advisory-workflow.md`,
-  `docs/report-conversations.md`, `.agents/AGENTS.md`.
-- New `docs/adr/0001-composed-synthesis.md` recording decision 1 (previous direction, new
-  direction, justification, consequences) per master plan §22.
+- Extract a `StageRunner` wrapping progress events, stage timing, prompt-identity
+  recording, and the current-stage marker; `advise()` shrinks to the pipeline sequence.
+- Split `workflows/consultation.py` into orchestration, evidence accumulation, plan
+  enforcement, packet building, and case-revision assembly modules; target no file above
+  ~600 lines.
+- Split `ast_analyzer.py`: the two boundary-preparation signal implementations move to
+  `adapters/repository/boundary_signals.py`; the analyzer core keeps parsing, graph
+  construction, and metrics.
+- Contain signal knowledge: signal ordering/priority metadata moves next to the signal
+  definitions (a small registry in the repository adapter); the workflow's hardcoded
+  priority map at `consultation.py:2018` reads from it. (The deterministic provider's
+  special-casing disappears in WS7.)
+- Split `presentation/web/app.py` routes by resource (cases, runs, jobs, atlas, policies,
+  conversations); shared error mapping stays in one place.
+- Bundle staleness check: a script target that rebuilds `frontend/` and fails when the
+  committed `static/` bundle differs; regeneration instructions in
+  `docs/web-workspace.md`.
+- Documentation pass: `docs/architecture.md` (adapter responsibilities now true as
+  written), `docs/report-contract.md` (composition provenance),
+  `docs/advisory-workflow.md`, `docs/report-conversations.md`, `.agents/AGENTS.md`.
+- New `docs/adr/0001-composed-synthesis.md` and `docs/adr/0002-legacy-purge.md` per master
+  plan §22.
+
+### WS7 — Evaluation honesty
+
+*Goal: evaluations exercise the pipeline, not a keyword simulator.*
+
+- Replace `DeterministicReasoningProvider`'s heuristic reasoning with a scripted fixture
+  player: per-eval-case response files (YAML/JSON, stored under `eval/cases/<case>/responses/`)
+  keyed by `ReasoningTask`; the provider validates that requested task/inputs match the
+  fixture's recorded expectations and replays the response.
+- Delete all token- and signal-code-keyed behavior (`"qwen"`, `"provider"`, `"voice"`,
+  `"premature"`, `_BOUNDARY_PREPARATION_SIGNAL_CODES`) from the provider.
+- Evaluation assertions move from "the fake produced the expected recommendation" to "the
+  pipeline validated, bounded, composed, and persisted the scripted responses correctly" —
+  plus the existing evidence-integrity assertions, which stay.
+- Where an eval case needs live-model quality signal, it uses the existing `ollama` /
+  `architectural_quality` markers; the deterministic tier makes no quality claims.
+- Runs after WS3 so fixtures are written once against the final port signatures.
+- Acceptance: `deterministic.py` shrinks to a fixture player (~300 lines); eval matrix
+  green; no eval-case vocabulary appears in `src/`.
 
 ## 4. Sequencing
 
 ```text
 WS0 (replay tier)
-  → WS1 (wire/storage split)      [small, fixes latent bug]
-  → WS2 (adapter slimming)        [prerequisite for WS3]
-  → WS3 (composed synthesis)      [largest; the confirmed decision]
-WS4 (conversation)                [independent of WS2/WS3; may run in parallel after WS0]
-WS5 (transport)                   [independent; may run in parallel after WS0]
-  → WS6 (decomposition + docs)    [last; needs the dust settled]
+  → WS1 (legacy purge + contract honesty)   [fixes both evidence-discipline holes]
+  → WS2 (adapter slimming)                  [prerequisite for WS3]
+  → WS3 (composed synthesis)                [largest; the confirmed decision]
+      → WS7 (evaluation honesty)            [fixtures written against final ports]
+WS4 (conversation)                          [independent; parallel after WS0]
+WS5 (transport)                             [independent; parallel after WS0]
+  → WS6 (decomposition + docs + ADRs)       [last; needs the dust settled]
 ```
 
-Approximate sizes: WS0 M, WS1 S, WS2 M, WS3 L, WS4 M, WS5 S, WS6 M.
+Approximate sizes: WS0 M, WS1 M, WS2 M, WS3 L, WS4 M, WS5 S, WS6 M, WS7 M.
 
 ## 5. Invariant Compliance
 
 Master plan invariants directly exercised: #8/#9 (bounded contexts — strengthened by the
-prompt-size guard), #13 (claim classifications — now correct by construction), #14/#15
-(validated references, failed validation cannot mutate the case — unchanged), #17 (no
-provider tech in core — strengthened by WS2), #19 (the only new abstractions are the wire
-DTOs, the composer, and the StageRunner, each with a concrete responsibility). Invariant #21
-(old consultations keep their exact versions) is preserved by WS1's read-path migrations.
+prompt-size guard), #13 (claim classifications — correct by construction; the `legacy`
+escape hatch closes), #14/#15 (validated references, failed validation cannot mutate the
+case — unchanged), #17 (no provider tech in core — strengthened by WS2), #19 (new
+abstractions limited to the wire DTOs, the composer, the StageRunner, and the fixture
+player, each with a concrete responsibility). Invariant #21 (old consultations retain their
+exact versions) is interpreted as data retention: decision 9 deletes schema-tolerance code,
+not rows, and pre-release rows that no longer parse fail with an explicit re-run message
+rather than being silently reinterpreted.
