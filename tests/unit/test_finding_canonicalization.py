@@ -380,6 +380,93 @@ def test_missing_finding_cluster_remains_invalid_when_assignment_is_ambiguous() 
     )
 
 
+def test_a_finding_may_rest_on_a_claim_that_belongs_to_no_cluster() -> None:
+    """A case statement is evidence for the whole consultation, not for one cluster.
+
+    The synthesis schema offers every claim handle to every finding, and
+    `validate_proposal` permits the cluster-neutral ones, so a finding grounded in a
+    confirmed user requirement is legitimate output. Rejecting it here would make the
+    repair pass strip a citation the model was invited to make — and grounding a
+    finding in the user's own stated requirement makes it stronger, not weaker.
+    """
+
+    first = _cluster_fixture("a", line=10)
+    second = _cluster_fixture("b", line=20)
+    statement = Claim(
+        claim_id="stmt-neutral",
+        text="A provider interface exists but does not own voice discovery.",
+        classification=ClaimClassification.CONFIRMED_REQUIREMENT,
+    )
+    grounded = first.finding.model_copy(
+        update={
+            "finding_id": "FIND-001",
+            "claim_ids": [first.claim.claim_id, statement.claim_id],
+        }
+    )
+    report = _report_with_findings([first, second], [grounded])
+    # The registry is what separates a neutral claim from a fabricated ID: an ID absent
+    # from the report is rejected as unknown regardless of cluster scope.
+    report = report.model_copy(
+        update={"evidence_appendix": [*report.evidence_appendix, statement]}
+    )
+    packets = [first.packet, second.packet]
+    canonical = canonicalize_report_findings(
+        report,
+        packets=packets,
+        analyses=[first.analysis, second.analysis],
+    )
+
+    errors = validate_report_evidence(
+        canonical.report,
+        allowed_nodes={
+            first.atlas_node.atlas_id: first.atlas_node,
+            second.atlas_node.atlas_id: second.atlas_node,
+        },
+        allowed_policy_ids={
+            first.packet.policies[0].policy.id,
+            second.packet.policies[0].policy.id,
+        },
+        finding_evidence_by_cluster=canonical.evidence_by_cluster,
+    )
+
+    assert errors == []
+    assert canonical.report.findings[0].claim_ids == [
+        first.claim.claim_id,
+        statement.claim_id,
+    ]
+
+
+def test_a_finding_citing_an_unknown_claim_is_still_rejected() -> None:
+    """The neutral-claim allowance must not become a hole for invented IDs.
+
+    "Owned by no cluster" describes case statements; an ID that appears nowhere in the
+    report is not neutral, it is fabricated, and the unknown-claim rule catches it.
+    """
+
+    fixture = _cluster_fixture("a", line=10)
+    finding = fixture.finding.model_copy(
+        update={
+            "finding_id": "FIND-001",
+            "claim_ids": [fixture.claim.claim_id, "claim-never-produced"],
+        }
+    )
+    report = _report_with_findings([fixture], [finding])
+    canonical = canonicalize_report_findings(
+        report,
+        packets=[fixture.packet],
+        analyses=[fixture.analysis],
+    )
+
+    errors = validate_report_evidence(
+        canonical.report,
+        allowed_nodes={fixture.atlas_node.atlas_id: fixture.atlas_node},
+        allowed_policy_ids={fixture.packet.policies[0].policy.id},
+        finding_evidence_by_cluster=canonical.evidence_by_cluster,
+    )
+
+    assert any("references unknown claims" in error for error in errors)
+
+
 def test_cross_cluster_claim_is_removed_before_final_ordered_ids_are_assigned() -> None:
     first = _cluster_fixture("a", line=10)
     second = _cluster_fixture("b", line=20)
@@ -425,7 +512,7 @@ def test_cross_cluster_claim_is_removed_before_final_ordered_ids_are_assigned() 
         analyses=analyses,
     )
 
-    assert any("outside concern cluster" in error for error in initial_errors)
+    assert any("from another concern cluster" in error for error in initial_errors)
     assert any("cross-cluster claims" in action for action in repaired.actions)
     assert [finding.finding_id for finding in final.report.findings] == [
         "FIND-001",

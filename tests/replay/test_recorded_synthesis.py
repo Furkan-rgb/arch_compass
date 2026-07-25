@@ -161,17 +161,6 @@ def test_a_real_synthesis_answer_composes_into_a_valid_report(
 
 
 @requires_recording
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Known contract contradiction: the synthesis schema offers a finding every "
-        "claim handle in the pool, including cluster-neutral case statements, and "
-        "`validate_proposal` deliberately permits them — but "
-        "`validate_report_evidence` requires every finding claim to appear in its own "
-        "cluster's packet, so the repair pass strips a legitimate citation of a "
-        "confirmed user requirement. Remove this marker once the three layers agree."
-    ),
-)
 @pytest.mark.parametrize("recording", RECORDINGS, ids=_ids(RECORDINGS))
 def test_a_real_synthesis_answer_needs_no_evidence_repair(
     recording: Recording,

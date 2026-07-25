@@ -112,6 +112,27 @@ def canonicalize_report_findings(
     )
 
 
+def _cluster_owned_claim_ids(
+    finding_evidence_by_cluster: dict[str, CanonicalFindingEvidence] | None,
+) -> set[str]:
+    """Claim IDs that belong to some cluster's focused investigation.
+
+    A claim outside this set is owned by no cluster — a case statement or an advisor
+    claim — and belongs to the consultation rather than to one investigation, so any
+    finding may rest on it. Only a claim owned by a *different* cluster is foreign.
+    Fabricated IDs cannot hide here: an ID absent from the report's claim registry is
+    rejected as unknown before scope is considered.
+    """
+
+    if finding_evidence_by_cluster is None:
+        return set()
+    return {
+        claim_id
+        for evidence in finding_evidence_by_cluster.values()
+        for claim_id in evidence.claims
+    }
+
+
 def validate_report_evidence(
     report: RecommendationReport,
     *,
@@ -156,6 +177,7 @@ def validate_report_evidence(
 
     if not report.findings:
         errors.append("A recommendation report must contain architectural findings")
+    cluster_owned_claim_ids = _cluster_owned_claim_ids(finding_evidence_by_cluster)
     for finding in report.findings:
         unknown_claims = set(finding.claim_ids) - set(claim_registry)
         invalid_claims = set(finding.claim_ids) & invalid_claim_ids
@@ -190,18 +212,21 @@ def validate_report_evidence(
                     f"Finding {finding.finding_id} has no matching focused evidence packet"
                 )
             else:
-                cluster_local_claim_ids = [
+                foreign = [
                     claim_id
                     for claim_id in finding.claim_ids
-                    if claim_id in evidence.claims
+                    if claim_id not in evidence.claims
+                    and claim_id in cluster_owned_claim_ids
                 ]
-                if cluster_local_claim_ids != finding.claim_ids:
+                if foreign:
                     errors.append(
-                        f"Finding {finding.finding_id} references claims outside concern "
-                        f"cluster {evidence.cluster_id}"
+                        f"Finding {finding.finding_id} references claims from another "
+                        f"concern cluster: {sorted(foreign)}"
                     )
+                # Projection reads only this cluster's claims, so passing the finding
+                # whole is equivalent to pre-filtering it and says less.
                 expected = _project_finding_evidence(
-                    finding.model_copy(update={"claim_ids": cluster_local_claim_ids}),
+                    finding,
                     evidence=evidence,
                     finding_id=finding.finding_id,
                 )
@@ -395,6 +420,7 @@ def repair_report_evidence_with_history(
         actions.append("Removed policy conflicts with unsupported policy IDs")
 
     repaired_findings = []
+    cluster_owned_claim_ids = _cluster_owned_claim_ids(finding_evidence_by_cluster)
     for finding in report.findings:
         finding_evidence = (
             finding_evidence_by_cluster.get(finding.concern_cluster_id)
@@ -408,6 +434,7 @@ def repair_report_evidence_with_history(
             if claim_id in valid_claim_ids
             and (
                 finding_evidence_by_cluster is None
+                or claim_id not in cluster_owned_claim_ids
                 or (
                     finding_evidence is not None
                     and claim_id in finding_evidence.claims
