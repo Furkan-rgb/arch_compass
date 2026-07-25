@@ -445,32 +445,35 @@ the adapter or added a collaborator with no reader, which master-plan §18 forbi
 guard's exception already carries the sizes on the only path where they change a
 decision. Recording them on success is deferred until something reads them.
 
-### WS6 — Structural decomposition and containment (mechanical, behavior-preserving)
+### WS6 — Structural containment *(partly done)*
 
-*Goal: no module carries responsibilities it doesn't own; large files become navigable.*
+*Goal: no module carries responsibilities it doesn't own.*
 
-- Extract a `StageRunner` wrapping progress events, stage timing, prompt-identity
-  recording, and the current-stage marker; `advise()` shrinks to the pipeline sequence.
-- Split `workflows/consultation.py` into orchestration, evidence accumulation, plan
-  enforcement, packet building, and case-revision assembly modules; target no file above
-  ~600 lines.
-- Split `ast_analyzer.py`: the two boundary-preparation signal implementations move to
-  `adapters/repository/boundary_signals.py`; the analyzer core keeps parsing, graph
-  construction, and metrics.
-- Contain signal knowledge: signal ordering/priority metadata moves next to the signal
-  definitions (a small registry in the repository adapter); the workflow's hardcoded
-  priority map at `consultation.py:2018` reads from it. (The deterministic provider's
-  special-casing disappears in WS7.)
-- Split `presentation/web/app.py` routes by resource (cases, runs, jobs, atlas, policies,
-  conversations); shared error mapping stays in one place.
-- Bundle staleness check: a script target that rebuilds `frontend/` and fails when the
-  committed `static/` bundle differs; regeneration instructions in
-  `docs/web-workspace.md`.
-- Documentation pass: `docs/architecture.md` (adapter responsibilities now true as
-  written), `docs/report-contract.md` (composition provenance),
-  `docs/advisory-workflow.md`, `docs/report-conversations.md`, `.agents/AGENTS.md`.
-- New `docs/adr/0001-composed-synthesis.md` and `docs/adr/0002-legacy-purge.md` per master
-  plan §22.
+**Done:**
+- **One home per budget.** Domain `Field` caps, repository read guards and the service's
+  prior-reference read now reference `domain/budgets.py` by name instead of restating
+  integers. Three previously unnamed caps gained names. Deduplicating by *meaning*
+  rather than value mattered: the prior-evidence read window (96) and the durable
+  record cap (128) are different rules that briefly became one constant, and a
+  bounded-reads test caught it.
+- **Signal ranking contained.** The investigation-priority map moved out of
+  `ConsultationWorkflow._atlas_overview` into `domain/atlas_metrics.py`, beside the
+  other interpretation metadata, with a contract test that a plain alphabetical sort
+  fails. The evaluation tier depends on this order, so it is now a stated contract
+  rather than an incidental literal.
+- **Stage plumbing extracted.** `workflows/stage_progress.py` owns the three progress
+  events and the running-stage marker together. The marker was previously a local kept
+  in step by hand at every stage, where a missed update would attribute a failure to
+  the wrong stage; it now advances only with the announcement. `advise` drops from 791
+  to 702 lines and reads as its pipeline.
+
+**Remaining:** splitting the large files themselves — `workflows/consultation.py`
+(1,977 lines; evidence accumulation, plan enforcement and packet building are the
+natural seams), `adapters/repository/ast_analyzer.py` (2,079, of which the two
+boundary-preparation signal implementations are ~800), and
+`presentation/web/app.py` (716, splits by resource). Also outstanding: the committed
+React bundle has no staleness check against `frontend/`. These are mechanical and
+behaviour-preserving; the suite and the new stage tests are the guard.
 
 ### WS7 — Evaluation honesty *(done)*
 
@@ -558,8 +561,8 @@ Then, against the existing contracts only:
 
 ## 4. Sequencing
 
-Progress: WS0, WS1, WS2, WS3, WS4a, WS5 and WS7 are complete. WS6, WS4b and WS8 remain,
-in that order — WS4b depends on WS7, which is now done.
+Progress: WS0–WS3, WS4a, WS5 and WS7 are complete, plus the ADR 0003 reflection pass
+(which retired WS4b). WS6 is partly done; WS8 remains.
 
 ```text
 WS0 (replay tier)

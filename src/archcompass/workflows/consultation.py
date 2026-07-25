@@ -10,9 +10,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from time import perf_counter
-from typing import TypeVar, cast
-
-from pydantic import JsonValue
+from typing import TypeVar
 
 from archcompass.application.evidence import (
     canonicalize_report_findings,
@@ -84,7 +82,6 @@ from archcompass.domain.errors import (
     ModelOutputValidationError,
 )
 from archcompass.domain.evidence_rules import location_within
-from archcompass.domain.execution import ProgressEventType
 from archcompass.domain.policy import (
     PolicyApplicabilityContext,
     PolicyIndexVersion,
@@ -101,6 +98,7 @@ from archcompass.ports.repositories import (
     ConsultationCommitRepository,
     ConsultationRunRepository,
 )
+from archcompass.workflows.stage_progress import StageProgress
 
 Result = TypeVar("Result")
 POLICY_QUERY_CHARACTER_BUDGET = 8_000
@@ -189,13 +187,12 @@ class ConsultationWorkflow:
         }
         atlas_query_count = 0
         retrieved_policy_count = 0
-        current_stage = ConsultationFailureStage.ATLAS_RESOLUTION
+        stages = StageProgress(progress)
         resolved_atlas: Atlas | None = None
         policy_version: PolicyIndexVersion | None = None
 
         try:
-            self._progress_started(
-                progress,
+            stages.begin(
                 ConsultationFailureStage.ATLAS_RESOLUTION,
                 "Preparing repository context",
             )
@@ -222,9 +219,7 @@ class ConsultationWorkflow:
                     "atlas_freshness",
                     lambda: freshness.ensure_fresh(resolved_atlas),
                 )
-            self._progress_artifact(
-                progress,
-                ConsultationFailureStage.ATLAS_RESOLUTION,
+            stages.artifact(
                 "Repository context ready",
                 (
                     "Greenfield consultation; no repository atlas selected."
@@ -240,14 +235,10 @@ class ConsultationWorkflow:
                     ),
                 },
             )
-            self._progress_completed(
-                progress,
-                ConsultationFailureStage.ATLAS_RESOLUTION,
+            stages.finish(
                 "Repository context prepared",
             )
-            current_stage = ConsultationFailureStage.POLICY
-            self._progress_started(
-                progress,
+            stages.begin(
                 ConsultationFailureStage.POLICY,
                 "Preparing policy corpus",
             )
@@ -265,9 +256,7 @@ class ConsultationWorkflow:
                 "policy_preflight",
                 lambda: self._policy_index.ensure_current(policy_sources),
             )
-            self._progress_artifact(
-                progress,
-                ConsultationFailureStage.POLICY,
+            stages.artifact(
                 "Policy index ready",
                 f"Using immutable policy index {policy_version.version_id}.",
                 {
@@ -275,16 +264,12 @@ class ConsultationWorkflow:
                     "embedding_model": policy_version.embedding_model,
                 },
             )
-            self._progress_completed(
-                progress,
-                ConsultationFailureStage.POLICY,
+            stages.finish(
                 "Policy corpus prepared",
             )
             context = self._global_context(case, resolved_atlas)
 
-            current_stage = ConsultationFailureStage.DESIGN_FORCES
-            self._progress_started(
-                progress,
+            stages.begin(
                 ConsultationFailureStage.DESIGN_FORCES,
                 "Discovering design forces",
             )
@@ -296,22 +281,16 @@ class ConsultationWorkflow:
             )
             forces = self._merge_user_design_forces(case, advisor_forces)
             advisor_forces = forces[len(case.design_forces) :]
-            self._progress_artifact(
-                progress,
-                ConsultationFailureStage.DESIGN_FORCES,
+            stages.artifact(
                 "Design forces discovered",
                 f"Found {len(forces)} forces shaping this decision.",
                 {"design_forces": [item.model_dump(mode="json") for item in forces]},
             )
-            self._progress_completed(
-                progress,
-                ConsultationFailureStage.DESIGN_FORCES,
+            stages.finish(
                 "Design forces discovered",
             )
 
-            current_stage = ConsultationFailureStage.CLUSTERING
-            self._progress_started(
-                progress,
+            stages.begin(
                 ConsultationFailureStage.CLUSTERING,
                 "Organizing concerns",
             )
@@ -324,16 +303,12 @@ class ConsultationWorkflow:
             partition_diagnostics = cluster_partition_diagnostics(forces, clusters)
             if partition_diagnostics:
                 raise ClusterPartitionError(partition_diagnostics)
-            self._progress_artifact(
-                progress,
-                ConsultationFailureStage.CLUSTERING,
+            stages.artifact(
                 "Concern clusters formed",
                 f"Organized the forces into {len(clusters)} focused clusters.",
                 {"clusters": [item.model_dump(mode="json") for item in clusters]},
             )
-            self._progress_completed(
-                progress,
-                ConsultationFailureStage.CLUSTERING,
+            stages.finish(
                 "Concerns organized",
             )
 
@@ -357,12 +332,10 @@ class ConsultationWorkflow:
             if resolved_atlas is not None:
                 nodes = {node.atlas_id: node for node in resolved_atlas.nodes}
                 for iteration in range(1, self._config.consultation.max_zoom_iterations + 1):
-                    current_stage = ConsultationFailureStage.QUERY_PLANNING
-                    self._progress_started(
-                        progress,
-                        ConsultationFailureStage.QUERY_PLANNING,
-                        f"Planning repository zoom {iteration}",
-                    )
+                    stages.begin(
+                ConsultationFailureStage.QUERY_PLANNING,
+                f"Planning repository zoom {iteration}",
+            )
                     iteration_plans = self._reason(
                         ReasoningTask.PLAN_ATLAS_QUERIES,
                         prompt_identities,
@@ -401,9 +374,7 @@ class ConsultationWorkflow:
                     )
                     plans.extend(clamped)
                     query_count = sum(len(item.plan.queries) for item in clamped)
-                    self._progress_artifact(
-                        progress,
-                        ConsultationFailureStage.QUERY_PLANNING,
+                    stages.artifact(
                         f"Repository zoom {iteration} planned",
                         f"Planned {query_count} bounded atlas queries.",
                         {
@@ -411,20 +382,16 @@ class ConsultationWorkflow:
                             "query_plans": [item.model_dump(mode="json") for item in clamped],
                         },
                     )
-                    self._progress_completed(
-                        progress,
-                        ConsultationFailureStage.QUERY_PLANNING,
-                        f"Repository zoom {iteration} planned",
-                    )
+                    stages.finish(
+                f"Repository zoom {iteration} planned",
+            )
                     execution_metadata["zoom_iterations"] = iteration
                     if query_count == 0:
                         break
-                    current_stage = ConsultationFailureStage.QUERY_EXECUTION
-                    self._progress_started(
-                        progress,
-                        ConsultationFailureStage.QUERY_EXECUTION,
-                        f"Inspecting repository evidence for zoom {iteration}",
-                    )
+                    stages.begin(
+                ConsultationFailureStage.QUERY_EXECUTION,
+                f"Inspecting repository evidence for zoom {iteration}",
+            )
                     for cluster_plan in clamped:
                         cluster_id = cluster_plan.cluster_id
                         for query_index, query in enumerate(cluster_plan.plan.queries, start=1):
@@ -447,9 +414,7 @@ class ConsultationWorkflow:
                                 excerpt_line_counts=excerpt_lines_by_cluster,
                                 execution_metadata=execution_metadata,
                             )
-                            self._progress_artifact(
-                                progress,
-                                ConsultationFailureStage.QUERY_EXECUTION,
+                            stages.artifact(
                                 "Repository evidence surfaced",
                                 result.summary,
                                 {
@@ -465,20 +430,16 @@ class ConsultationWorkflow:
                                     "excerpt_count": len(result.excerpts),
                                 },
                             )
-                    self._progress_completed(
-                        progress,
-                        ConsultationFailureStage.QUERY_EXECUTION,
-                        f"Repository zoom {iteration} completed",
-                    )
+                    stages.finish(
+                f"Repository zoom {iteration} completed",
+            )
 
             all_retrieved: dict[str, list[RetrievedPolicy]] = {}
             for cluster in clusters:
-                current_stage = ConsultationFailureStage.POLICY_RETRIEVAL
-                self._progress_started(
-                    progress,
-                    ConsultationFailureStage.POLICY_RETRIEVAL,
-                    f"Retrieving policies for {cluster.title}",
-                )
+                stages.begin(
+                ConsultationFailureStage.POLICY_RETRIEVAL,
+                f"Retrieving policies for {cluster.title}",
+            )
                 force_lookup = {force.force_id: force for force in forces}
                 cluster_query = self._policy_retrieval_query(
                     case=case,
@@ -513,9 +474,7 @@ class ConsultationWorkflow:
                     execution_metadata=execution_metadata,
                 )
                 packets.append(packet)
-                self._progress_artifact(
-                    progress,
-                    ConsultationFailureStage.POLICY_RETRIEVAL,
+                stages.artifact(
                     f"Evidence packet ready: {cluster.title}",
                     (
                         f"{len(packet.node_summaries)} nodes, "
@@ -524,18 +483,14 @@ class ConsultationWorkflow:
                     ),
                     {"packet": packet.model_dump(mode="json")},
                 )
-                self._progress_completed(
-                    progress,
-                    ConsultationFailureStage.POLICY_RETRIEVAL,
-                    f"Policies retrieved for {cluster.title}",
-                )
+                stages.finish(
+                f"Policies retrieved for {cluster.title}",
+            )
 
-                current_stage = ConsultationFailureStage.CONCERN_ANALYSIS
-                self._progress_started(
-                    progress,
-                    ConsultationFailureStage.CONCERN_ANALYSIS,
-                    f"Analyzing {cluster.title}",
-                )
+                stages.begin(
+                ConsultationFailureStage.CONCERN_ANALYSIS,
+                f"Analyzing {cluster.title}",
+            )
                 analysis = self._reason(
                     ReasoningTask.ANALYZE_CONCERN_CLUSTER,
                     prompt_identities,
@@ -550,26 +505,20 @@ class ConsultationWorkflow:
                 )
                 self._validate_concern_analysis(analysis, packet)
                 analyses.append(analysis)
-                self._progress_artifact(
-                    progress,
-                    ConsultationFailureStage.CONCERN_ANALYSIS,
+                stages.artifact(
                     f"Concern analyzed: {cluster.title}",
                     f"Produced {len(analysis.findings)} evidence-classified findings.",
                     {"analysis": analysis.model_dump(mode="json")},
                 )
-                self._progress_completed(
-                    progress,
-                    ConsultationFailureStage.CONCERN_ANALYSIS,
-                    f"Analysis completed for {cluster.title}",
-                )
+                stages.finish(
+                f"Analysis completed for {cluster.title}",
+            )
 
             analyses = self._canonicalize_analysis_claim_ids(
                 analyses,
                 metadata=execution_metadata,
             )
-            current_stage = ConsultationFailureStage.ALTERNATIVES
-            self._progress_started(
-                progress,
+            stages.begin(
                 ConsultationFailureStage.ALTERNATIVES,
                 "Generating credible alternatives",
             )
@@ -579,22 +528,16 @@ class ConsultationWorkflow:
                 stage_timings,
                 lambda: self._reasoning.generate_alternatives(context, analyses),
             )
-            self._progress_artifact(
-                progress,
-                ConsultationFailureStage.ALTERNATIVES,
+            stages.artifact(
                 "Alternatives generated",
                 f"Generated {len(alternatives)} credible options.",
                 {"alternatives": [item.model_dump(mode="json") for item in alternatives]},
             )
-            self._progress_completed(
-                progress,
-                ConsultationFailureStage.ALTERNATIVES,
+            stages.finish(
                 "Alternatives generated",
             )
 
-            current_stage = ConsultationFailureStage.SCENARIOS
-            self._progress_started(
-                progress,
+            stages.begin(
                 ConsultationFailureStage.SCENARIOS,
                 "Testing future scenarios",
             )
@@ -605,22 +548,16 @@ class ConsultationWorkflow:
                 lambda: self._reasoning.evaluate_scenarios(context, alternatives, analyses),
             )
             self._validate_scenario_coverage(scenarios, alternatives)
-            self._progress_artifact(
-                progress,
-                ConsultationFailureStage.SCENARIOS,
+            stages.artifact(
                 "Scenarios evaluated",
                 f"Compared every alternative across {len(scenarios)} scenarios.",
                 {"scenarios": [item.model_dump(mode="json") for item in scenarios]},
             )
-            self._progress_completed(
-                progress,
-                ConsultationFailureStage.SCENARIOS,
+            stages.finish(
                 "Scenario evaluation completed",
             )
 
-            current_stage = ConsultationFailureStage.SYNTHESIS
-            self._progress_started(
-                progress,
+            stages.begin(
                 ConsultationFailureStage.SYNTHESIS,
                 "Synthesizing recommendation",
             )
@@ -706,9 +643,7 @@ class ConsultationWorkflow:
                 alternatives,
                 packets,
             )
-            self._progress_artifact(
-                progress,
-                ConsultationFailureStage.SYNTHESIS,
+            stages.artifact(
                 "Recommendation synthesized",
                 report.decision_summary.text,
                 {
@@ -716,15 +651,11 @@ class ConsultationWorkflow:
                     "confidence": report.confidence.model_dump(mode="json"),
                 },
             )
-            self._progress_completed(
-                progress,
-                ConsultationFailureStage.SYNTHESIS,
+            stages.finish(
                 "Recommendation synthesized",
             )
 
-            current_stage = ConsultationFailureStage.VALIDATION
-            self._progress_started(
-                progress,
+            stages.begin(
                 ConsultationFailureStage.VALIDATION,
                 "Validating evidence references",
             )
@@ -774,9 +705,7 @@ class ConsultationWorkflow:
                 raise EvidenceReferenceError(
                     "Recommendation evidence validation failed: " + "; ".join(final_errors)
                 )
-            self._progress_artifact(
-                progress,
-                ConsultationFailureStage.VALIDATION,
+            stages.artifact(
                 "Evidence validation completed",
                 (
                     "The report passed validation without repair."
@@ -789,15 +718,11 @@ class ConsultationWorkflow:
                     "final_errors": final_errors,
                 },
             )
-            self._progress_completed(
-                progress,
-                ConsultationFailureStage.VALIDATION,
+            stages.finish(
                 "Evidence validated",
             )
 
-            current_stage = ConsultationFailureStage.RENDERING
-            self._progress_started(
-                progress,
+            stages.begin(
                 ConsultationFailureStage.RENDERING,
                 "Rendering report",
             )
@@ -832,9 +757,7 @@ class ConsultationWorkflow:
                 completed_at=utc_now(),
                 execution_metadata=execution_metadata,  # type: ignore[arg-type]
             )
-            self._progress_completed(
-                progress,
-                ConsultationFailureStage.RENDERING,
+            stages.finish(
                 "Report rendered",
             )
             updated_case = self._updated_case(
@@ -846,9 +769,7 @@ class ConsultationWorkflow:
                 alternatives=alternatives,
                 analyses=analyses,
             )
-            current_stage = ConsultationFailureStage.COMMIT
-            self._progress_started(
-                progress,
+            stages.begin(
                 ConsultationFailureStage.COMMIT,
                 "Saving immutable run and case revision",
             )
@@ -859,26 +780,18 @@ class ConsultationWorkflow:
                     run, updated_case, expected_revision=revision.revision
                 ),
             )
-            self._progress_completed(
-                progress,
-                ConsultationFailureStage.COMMIT,
+            stages.finish(
                 "Run and case revision saved",
             )
-            self._progress_emit(
-                progress,
-                event_type=ProgressEventType.COMPLETED,
-                stage=ConsultationFailureStage.COMMIT,
-                title="Consultation completed",
-                summary=report.decision_summary.text,
-                data=cast(
-                    dict[str, JsonValue],
-                    {
-                        "run_id": run.run_id,
-                        "report_id": report.report_id,
-                        "disposition": report.disposition,
-                        "result_case_revision": run.result_case_revision,
-                    },
-                ),
+            stages.completed(
+                "Consultation completed",
+                report.decision_summary.text,
+                {
+                    "run_id": run.run_id,
+                    "report_id": report.report_id,
+                    "disposition": report.disposition,
+                    "result_case_revision": run.result_case_revision,
+                },
             )
             return run
         except Exception as error:
@@ -915,7 +828,7 @@ class ConsultationWorkflow:
                 repair_actions=repair_actions,
                 final_validation_errors=final_errors,
                 stage_timings=stage_timings,
-                failure_stage=current_stage,
+                failure_stage=stages.current,
                 sanitized_errors=[sanitized_error],
                 failure_diagnostics=failure_diagnostics,
                 started_at=started,
@@ -926,82 +839,15 @@ class ConsultationWorkflow:
             # fails, persistence is the unavoidable terminal exception.
             self._runs.save(failed)
             with suppress(Exception):
-                self._progress_emit(
-                    progress,
-                    event_type=ProgressEventType.FAILED,
-                    stage=current_stage,
-                    title="Consultation failed",
-                    summary=sanitized_error,
-                    data={
+                stages.failed(
+                    sanitized_error,
+                    {
                         "failure_diagnostics": [
                             item.model_dump(mode="json") for item in failure_diagnostics
                         ]
                     },
                 )
             raise
-
-    def _progress_started(
-        self,
-        progress: ConsultationProgressSink | None,
-        stage: ConsultationFailureStage,
-        title: str,
-    ) -> None:
-        self._progress_emit(
-            progress,
-            event_type=ProgressEventType.STAGE_STARTED,
-            stage=stage,
-            title=title,
-        )
-
-    def _progress_artifact(
-        self,
-        progress: ConsultationProgressSink | None,
-        stage: ConsultationFailureStage,
-        title: str,
-        summary: str,
-        data: dict[str, object],
-    ) -> None:
-        self._progress_emit(
-            progress,
-            event_type=ProgressEventType.ARTIFACT_AVAILABLE,
-            stage=stage,
-            title=title,
-            summary=summary,
-            data=cast(dict[str, JsonValue], data),
-        )
-
-    def _progress_completed(
-        self,
-        progress: ConsultationProgressSink | None,
-        stage: ConsultationFailureStage,
-        title: str,
-    ) -> None:
-        self._progress_emit(
-            progress,
-            event_type=ProgressEventType.STAGE_COMPLETED,
-            stage=stage,
-            title=title,
-        )
-
-    @staticmethod
-    def _progress_emit(
-        progress: ConsultationProgressSink | None,
-        *,
-        event_type: ProgressEventType,
-        stage: ConsultationFailureStage,
-        title: str,
-        summary: str = "",
-        data: dict[str, JsonValue] | None = None,
-    ) -> None:
-        if progress is None:
-            return
-        progress.emit(
-            event_type=event_type,
-            stage=stage,
-            title=title,
-            summary=summary,
-            data=data,
-        )
 
     def _resolve_atlas(
         self,
