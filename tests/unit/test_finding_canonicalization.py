@@ -28,9 +28,9 @@ from archcompass.domain.consultation import (
     ClaimClassification,
     ConcernAnalysis,
     ConcernCluster,
-    FindingImportance,
     FocusedAnalysisPacket,
     GlobalContext,
+    ImportanceLevel,
     RecommendationReport,
 )
 from archcompass.domain.policy import (
@@ -185,7 +185,7 @@ def _cluster_fixture(label: str, *, line: int) -> _ClusterFixture:
         title=cluster.title,
         summary=claim.text,
         concern_cluster_id=cluster_id,
-        importance=FindingImportance.HIGH,
+        importance=ImportanceLevel.HIGH,
         importance_rationale="The focused evidence makes this concern material.",
         confidence=Confidence(
             level=ConfidenceLevel.HIGH,

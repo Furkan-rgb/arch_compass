@@ -30,6 +30,7 @@ const report: RecommendationReport = {
     title: "One owner",
     description: "Provider knowledge needs one accountable owner.",
     importance: "high",
+    importance_rationale: "Three modules currently share the knowledge.",
   }],
   findings: [{
     finding_id: "FIND-001",

@@ -76,30 +76,35 @@ def test_live_clustering_maps_closed_set_references_to_canonical_ids(
             title="Provider-neutral ownership",
             description="Provider capability knowledge needs one clear owner.",
             importance="high",
+            importance_rationale="Stated by the fixture.",
         ),
         DesignForce(
             force_id="force_382d88fef7894aa39b2df88461652109",
             title="Resource lifecycle",
             description="Provider resources need explicit acquisition and cleanup ownership.",
             importance="high",
+            importance_rationale="Stated by the fixture.",
         ),
         DesignForce(
             force_id="force_9abd553fc67f4851b1619cebd450c8c8",
             title="Change locality",
             description="Adding a provider should not require coordinated changes everywhere.",
             importance="high",
+            importance_rationale="Stated by the fixture.",
         ),
         DesignForce(
             force_id="force_9bfef0aed0a441f7ac8b6ce77727f67a",
             title="Dependency spread",
             description="Existing provider knowledge crosses several application layers.",
             importance="high",
+            importance_rationale="Stated by the fixture.",
         ),
         DesignForce(
             force_id="force_e2a09841996a425c83787838ff8d20a1",
             title="Bounded extensibility",
             description="A credible second provider does not justify a universal plugin system.",
             importance="medium",
+            importance_rationale="Stated by the fixture.",
         ),
     ]
 

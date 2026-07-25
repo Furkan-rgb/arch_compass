@@ -1,15 +1,15 @@
 [
   {
-    "scenario": "Addition of a second provider",
+    "scenario": "Expansion of Provider Ecosystem",
     "assumptions": [
-      "The new provider will have its own unique set of available voices.",
-      "The addition of a provider should not require modifications to consumer modules like `preflight.py` or `frontend.py`."
+      "A second provider implementation will be introduced with its own unique set of capabilities and voice metadata.",
+      "The existing requirement for 'BUILT_IN_VOICES' to be available in preflight and frontend logic remains a functional necessity."
     ],
     "alternative_results": {
-      "A1": "Fails to meet stability goals; requires coordinated changes across the new provider module and all existing consumers to prevent inconsistent voice lists, leading to high change amplification.",
-      "A2": "Provides maximum decoupling; by moving discovery to the `VoiceProvider` interface, only the new provider implementation needs modification, leaving consumer modules untouched.",
-      "A3": "Reduces duplication but fails to resolve interface leakage; while it creates a single source of truth, adding a provider still requires updating the central module, which potentially maintains a dependency link between all providers and consumers."
+      "A1": "High risk of architectural fragility. Adding a second provider will necessitate coordinated, manual updates to the 'provider', 'preflight', and 'frontend' modules to synchronize 'BUILT_IN_VOICES'. This increases the probability of desynchronization errors across the module boundaries (as evidenced by claim_671553e2267c4a77b7decc2a5fe79ca5).",
+      "A2": "Moderate improvement in decoupling. Moving discovery to `get_available_voices()` within the `VoiceProvider` interface eliminates the need for consumers to maintain duplicated constants (addressing the signal 'similarly-named-constant'). However, it still relies on consumers having access to a specific provider instance, which does not fully address the high reverse dependency reach (5) of the provider module.",
+      "A3": "Optimal for long-term extensibility. By introducing a centralized registry, the system achieves the highest degree of decoupling. Consumers query a single source of truth, which minimizes change amplification across the 'preflight' and 'frontend' modules when new providers are added, directly addressing the structural bottleneck identified in node_a318f9f739ea4d81cd5c8088."
     },
-    "conclusion": "Alternative A2 is the preferred architecture as it adheres to the principle of localizing change and achieves the desired outcome of opaque provider boundaries."
+    "conclusion": "Advisor inference: Alternative A3 is recommended to minimize coordinated change and reduce the risk of desynchronization during provider expansion, though it introduces a new architectural component (the registry)."
   }
 ]

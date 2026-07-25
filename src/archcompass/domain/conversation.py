@@ -26,7 +26,7 @@ from archcompass.domain.consultation import (
     ClaimClassification,
     ConcernAnalysis,
     DesignForce,
-    FindingImportance,
+    ImportanceLevel,
     RecommendationDisposition,
     ScenarioEvaluation,
     SupportedStatement,
@@ -711,7 +711,7 @@ class FindingDigest(DomainModel):
     title: str = Field(min_length=1)
     summary: str = Field(min_length=1)
     concern_cluster_id: str | None = None
-    importance: FindingImportance
+    importance: ImportanceLevel
     importance_rationale: str = Field(min_length=1)
     confidence: Confidence
     consequence: str = Field(min_length=1)

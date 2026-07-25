@@ -71,11 +71,22 @@ class Claim(DomainModel):
         return self
 
 
+class ImportanceLevel(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
 class DesignForce(DomainModel):
     force_id: str = Field(default_factory=lambda: new_id("force"), min_length=1)
     title: str = Field(min_length=1)
     description: str = Field(min_length=1)
-    importance: str = Field(min_length=1)
+    #: The level is a closed set, so it is typed rather than described. Left as free
+    #: text a model writes "Critical: <reason>" into the one field, which is the
+    #: schema admitting it is missing the field below.
+    importance: ImportanceLevel
+    importance_rationale: str = Field(min_length=1)
 
 
 class ConcernCluster(DomainModel):
@@ -311,19 +322,12 @@ class RecommendationDisposition(StrEnum):
     GATHER_INFORMATION = "gather_information"
 
 
-class FindingImportance(StrEnum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
-
-
 class ArchitecturalFinding(DomainModel):
     finding_id: str = Field(pattern=r"^FIND-[0-9]{3}$")
     title: str = Field(min_length=1)
     summary: str = Field(min_length=1)
     concern_cluster_id: str | None = None
-    importance: FindingImportance
+    importance: ImportanceLevel
     importance_rationale: str = Field(min_length=1)
     confidence: Confidence
     consequence: str = Field(min_length=1)
@@ -436,7 +440,8 @@ class RecommendationReport(DomainModel):
             *[
                 text
                 for force in self.important_design_forces
-                for text in (force.title, force.description, force.importance)
+                # The level is a label, not prose; the rationale is what a reader searches.
+                for text in (force.title, force.description, force.importance_rationale)
             ],
             *[
                 text

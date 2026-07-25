@@ -44,6 +44,8 @@ from archcompass.domain.case import (
     StatementKind,
 )
 from archcompass.domain.consultation import (
+    AtlasEvidenceReference,
+    Claim,
     ClaimClassification,
     ClusterQueryPlan,
     ConcernAnalysis,
@@ -55,6 +57,7 @@ from archcompass.domain.consultation import (
     FocusedAnalysisPacket,
     FocusedNodeSummary,
     GlobalContext,
+    ImportanceLevel,
     RecommendationReport,
     ScenarioEvaluation,
     cluster_partition_diagnostics,
@@ -107,6 +110,42 @@ def _surfaced_span(
 
     summary = node_summaries.get(node_id)
     return summary.location if summary is not None else None
+
+
+def _ground_repository_references(
+    finding: Claim,
+    node_summaries: dict[str, FocusedNodeSummary],
+) -> Claim | None:
+    """Give a repository observation the surfaced span it cites but did not name.
+
+    An observation about a whole node — a fan-out count, a change-amplification proxy —
+    has no line range narrower than the node, and the packet already carries the node's
+    span. Asking the model to echo it is reproduction of data the application owns
+    (ADR 0001), and the omission then reads as an unsupported claim even though the
+    node it names was surfaced.
+
+    Node membership is what proves a claim is about surfaced code, so that is what is
+    required. A span the model *does* supply is still held to lie inside its node, and
+    a claim naming a node the packet never surfaced is still unsupported — returned as
+    None for the caller to drop.
+    """
+
+    if not finding.atlas_references:
+        return None
+    references: list[AtlasEvidenceReference] = []
+    for reference in finding.atlas_references:
+        span = _surfaced_span(node_summaries, reference.node_id)
+        if span is None:
+            return None
+        if reference.location is None:
+            references.append(reference.model_copy(update={"location": span}))
+            continue
+        if not location_within(span, reference.location):
+            return None
+        references.append(reference)
+    if references == list(finding.atlas_references):
+        return finding
+    return finding.model_copy(update={"atlas_references": references})
 
 
 class ConsultationWorkflow:
@@ -1079,14 +1118,8 @@ class ConsultationWorkflow:
 
         for finding in analysis.findings:
             if finding.classification == ClaimClassification.REPOSITORY_OBSERVATION:
-                supported = bool(finding.atlas_references) and all(
-                    location_within(
-                        _surfaced_span(node_summaries, reference.node_id),
-                        reference.location,
-                    )
-                    for reference in finding.atlas_references
-                )
-                if not supported:
+                grounded = _ground_repository_references(finding, node_summaries)
+                if grounded is None:
                     record(
                         "dropped_unsupported_repository_finding",
                         {
@@ -1095,6 +1128,24 @@ class ConsultationWorkflow:
                         },
                     )
                     continue
+                if grounded is not finding:
+                    record(
+                        "projected_surfaced_span_for_repository_finding",
+                        {
+                            "cluster_id": packet.cluster.cluster_id,
+                            "claim_id": finding.claim_id,
+                            "node_ids": [
+                                reference.node_id
+                                for reference, original in zip(
+                                    grounded.atlas_references,
+                                    finding.atlas_references,
+                                    strict=True,
+                                )
+                                if original.location is None
+                            ],
+                        },
+                    )
+                    finding = grounded
             if finding.classification == ClaimClassification.POLICY_GUIDANCE and (
                 not finding.policy_ids or not set(finding.policy_ids) <= policy_ids
             ):
@@ -1340,7 +1391,11 @@ class ConsultationWorkflow:
                     force_id=statement.id,
                     title=title,
                     description=description,
-                    importance="user-specified",
+                    # The old free-text field carried "user-specified" here, which was a
+                    # provenance note wearing a level's clothing. Provenance now lives in
+                    # the rationale, and the level says what a level says.
+                    importance=ImportanceLevel.HIGH,
+                    importance_rationale="The case states this force directly.",
                 )
             )
         used_ids = {force.force_id for force in user_forces}

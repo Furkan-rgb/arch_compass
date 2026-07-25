@@ -1,21 +1,29 @@
 [
   {
-    "cluster_id": "cluster_e0a3c82ef00e422484933da883b3357f",
+    "cluster_id": "cluster_d405d39296484af5ac9370ad30bd0668",
     "plan": {
-      "iteration": 1,
-      "rationale": "To address the tension between metadata fragmentation (Force 1) and high-impact change propagation (Force 2), we must identify the specific modules that depend on the VoiceProvider interface and locate all instances of the fragmented BUILT_IN_VOICES constant.",
+      "iteration": 3,
+      "rationale": "To address the fragmented metadata ownership and high change propagation, I need to inspect the implementation details within the modules identified as containing duplicated or leaked metadata (provider, preflight, frontend) and investigate the impact of unresolved calls in the workflow module.",
       "queries": [
         {
-          "kind": "reverse_neighbourhood",
-          "node_id": "node_c4f86dee4a1b0864fa1c7480",
-          "depth": 1,
-          "limit": 10
+          "kind": "implementations",
+          "node_id": "node_a318f9f739ea4d81cd5c8088",
+          "limit": 100
         },
         {
-          "kind": "search_nodes",
-          "terms": [
-            "BUILT_IN_VOICES"
-          ]
+          "kind": "implementations",
+          "node_id": "node_92a4630788576ec9b367ceeb",
+          "limit": 100
+        },
+        {
+          "kind": "implementations",
+          "node_id": "node_536006b74f276f558fddf482",
+          "limit": 100
+        },
+        {
+          "kind": "implementations",
+          "node_id": "node_a8f64d20354d15f900248ce2",
+          "limit": 100
         }
       ]
     }

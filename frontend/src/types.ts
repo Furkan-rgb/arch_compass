@@ -366,7 +366,8 @@ export interface DesignForce {
   force_id: string;
   title: string;
   description: string;
-  importance: string;
+  importance: "low" | "medium" | "high" | "critical";
+  importance_rationale: string;
 }
 
 export interface ConcernCluster {
@@ -416,12 +417,7 @@ export interface RecommendationReport {
   problem_and_desired_outcome: string;
   confirmed_context: Claim[];
   assumptions_and_unresolved_questions: Claim[];
-  important_design_forces: Array<{
-    force_id: string;
-    title: string;
-    description: string;
-    importance: string;
-  }>;
+  important_design_forces: DesignForce[];
   findings: ArchitecturalFinding[];
   repository_observations: Claim[];
   relevant_policies: Claim[];

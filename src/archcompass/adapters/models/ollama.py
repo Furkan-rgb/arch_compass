@@ -23,6 +23,7 @@ from archcompass.domain.consultation import (
     FocusedAnalysisPacket,
     FocusedNodeSummary,
     GlobalContext,
+    ImportanceLevel,
     ScenarioEvaluation,
 )
 from archcompass.domain.conversation import (
@@ -115,7 +116,10 @@ class ProposedDesignForce(BaseModel):
 
     title: str = Field(min_length=1)
     description: str = Field(min_length=1)
-    importance: str = Field(min_length=1)
+    #: Typed, not free text: the set is closed and known before the request, so the
+    #: JSON schema constrains it and the level cannot arrive as prose.
+    importance: ImportanceLevel
+    importance_rationale: str = Field(min_length=1)
 
 
 class ProposedDesignForceList(RootModel[list[ProposedDesignForce]]):
@@ -245,12 +249,14 @@ class OllamaReasoningProvider:
                 title=item.title,
                 description=item.description,
                 importance=item.importance,
+                importance_rationale=item.importance_rationale,
             )
             while force.force_id in known_ids:
                 force = DesignForce(
                     title=item.title,
                     description=item.description,
                     importance=item.importance,
+                    importance_rationale=item.importance_rationale,
                 )
             known_ids.add(force.force_id)
             forces.append(force)
@@ -272,7 +278,11 @@ class OllamaReasoningProvider:
                         "force_ref": handle,
                         "title": force.title,
                         "description": force.description,
-                        "importance": force.importance,
+                        "importance": force.importance.value,
+                        # The old free-text field carried the reasoning inside the level,
+                        # so clustering already saw it. Splitting the fields must not
+                        # quietly take it away.
+                        "importance_rationale": force.importance_rationale,
                     }
                     for handle, force in handled_forces
                 ],

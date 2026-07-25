@@ -76,10 +76,10 @@ def test_canonical_json_uses_one_serializer_for_models_and_prompt_mappings() -> 
 
 def test_stage_prompt_identities_are_versioned_unique_and_content_bound() -> None:
     expected_versions = {
-        ReasoningTask.DISCOVER_DESIGN_FORCES: 5,
+        ReasoningTask.DISCOVER_DESIGN_FORCES: 6,
         ReasoningTask.CLUSTER_DESIGN_FORCES: 3,
         ReasoningTask.PLAN_ATLAS_QUERIES: 5,
-        ReasoningTask.ANALYZE_CONCERN_CLUSTER: 4,
+        ReasoningTask.ANALYZE_CONCERN_CLUSTER: 5,
         ReasoningTask.GENERATE_ALTERNATIVES: 3,
         ReasoningTask.EVALUATE_SCENARIOS: 4,
         ReasoningTask.SYNTHESIZE_RECOMMENDATION: 4,
@@ -177,6 +177,7 @@ def test_ollama_request_uses_the_stage_contract_and_default_sampling(
                 "title": "Provider ownership",
                 "description": "Changing capability knowledge needs one owner.",
                 "importance": "high",
+                "importance_rationale": "Ownership is contested across three modules today.",
             }
         ]
     )

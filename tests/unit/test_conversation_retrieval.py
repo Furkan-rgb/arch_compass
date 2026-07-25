@@ -36,7 +36,7 @@ from archcompass.domain.consultation import (
     Claim,
     ClaimClassification,
     ConsultationRun,
-    FindingImportance,
+    ImportanceLevel,
 )
 from archcompass.domain.conversation import (
     ConversationEvidenceScope,
@@ -192,7 +192,7 @@ def _finding(
         finding_id=f"FIND-{ordinal:03d}",
         title=f"Finding {ordinal}",
         summary="A bounded finding.",
-        importance=FindingImportance.MEDIUM,
+        importance=ImportanceLevel.MEDIUM,
         importance_rationale="It affects the decision.",
         confidence=Confidence(
             level=ConfidenceLevel.HIGH,

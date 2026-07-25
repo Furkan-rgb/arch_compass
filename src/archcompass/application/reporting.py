@@ -28,7 +28,11 @@ def render_markdown(report: RecommendationReport) -> str:
         "## 5. Important design forces",
         _bullets(
             [
-                (f"`{force.force_id}` — {force.title} ({force.importance}): {force.description}")
+                (
+                    f"`{force.force_id}` — {force.title} "
+                    f"({force.importance.value.title()}): {force.description} "
+                    f"Why it matters now: {force.importance_rationale}"
+                )
                 for force in report.important_design_forces
             ]
         ),

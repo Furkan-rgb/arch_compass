@@ -97,12 +97,14 @@ def test_clusters_must_be_an_exact_force_partition() -> None:
             title="A",
             description="A force",
             importance="high",
+            importance_rationale="Stated by the fixture.",
         ),
         DesignForce(
             force_id="force-b",
             title="B",
             description="Another force",
             importance="high",
+            importance_rationale="Stated by the fixture.",
         ),
     ]
     clusters = [
@@ -150,24 +152,28 @@ def test_deterministic_reasoner_partitions_generic_forces_and_focuses_queries() 
             title="Responsibility ownership",
             description="Give changing knowledge one owner.",
             importance="high",
+            importance_rationale="Stated by the fixture.",
         ),
         DesignForce(
             force_id="force-change",
             title="Evolution pressure",
             description="Contain credible variation and growth.",
             importance="high",
+            importance_rationale="Stated by the fixture.",
         ),
         DesignForce(
             force_id="force-lifecycle",
             title="Resource lifecycle",
             description="Make uncertain resource lifetime constraints explicit.",
             importance="medium",
+            importance_rationale="Stated by the fixture.",
         ),
         DesignForce(
             force_id="force-uncertainty",
             title="Evidence uncertainty",
             description="Keep unknown repository details explicit.",
             importance="medium",
+            importance_rationale="Stated by the fixture.",
         ),
     ]
     context = GlobalContext(
@@ -481,6 +487,7 @@ def test_greenfield_policy_query_contains_case_intent_and_is_bounded() -> None:
         title="Provider-neutral evidence",
         description="Keep authoritative report evidence stable across providers.",
         importance="high",
+        importance_rationale="Stated by the fixture.",
     )
     cluster = ConcernCluster(
         cluster_id="cluster-provider",

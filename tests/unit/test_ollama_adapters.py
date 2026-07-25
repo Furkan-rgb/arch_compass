@@ -284,6 +284,7 @@ def test_reasoning_provider_sends_schema_and_parses_structured_output(
                 "title": "Provider ownership",
                 "description": "Changing capability knowledge needs one owner.",
                 "importance": "high",
+                "importance_rationale": "Ownership is contested today.",
             }
         ]
     )
@@ -336,6 +337,7 @@ def test_reasoning_provider_repairs_invalid_structured_output_once(
                     "title": "Provider ownership",
                     "description": "Changing capability knowledge needs one owner.",
                     "importance": "high",
+                    "importance_rationale": "Ownership is contested today.",
                 }
             ]
         ),
@@ -371,11 +373,13 @@ def test_reasoning_provider_mints_unique_force_ids_for_duplicate_content(
                 "title": "Provider ownership",
                 "description": "Changing capability knowledge needs one owner.",
                 "importance": "high",
+                "importance_rationale": "Ownership is contested today.",
             },
             {
                 "title": "Provider ownership",
                 "description": "Changing capability knowledge needs one owner.",
                 "importance": "high",
+                "importance_rationale": "Ownership is contested today.",
             },
         ]
     )
@@ -400,12 +404,14 @@ def test_clustering_uses_closed_set_handles_and_maps_domain_ids(
             title="Provider ownership",
             description="Provider knowledge needs one owner.",
             importance="high",
+            importance_rationale="Stated by the fixture.",
         ),
         DesignForce(
             force_id="force-change",
             title="Change locality",
             description="Provider changes should stay local.",
             importance="high",
+            importance_rationale="Stated by the fixture.",
         ),
     ]
     captured: dict[str, object] = {}
@@ -459,6 +465,7 @@ def test_clustering_rejects_duplicate_canonical_force_ids_before_request(
         title="Provider ownership",
         description="Provider knowledge needs one owner.",
         importance="high",
+        importance_rationale="Stated by the fixture.",
     )
 
     def unexpected_post(*args: object, **kwargs: object) -> httpx.Response:
@@ -492,12 +499,14 @@ def test_clustering_rejects_unknown_handle_after_one_correction_pass(
             title="Provider ownership",
             description="Provider knowledge needs one owner.",
             importance="high",
+            importance_rationale="Stated by the fixture.",
         ),
         DesignForce(
             force_id="force-change",
             title="Change locality",
             description="Provider changes should stay local.",
             importance="high",
+            importance_rationale="Stated by the fixture.",
         ),
     ]
     invalid = json.dumps(
@@ -555,6 +564,7 @@ def test_every_reasoning_stage_parses_structured_output(
         title="Provider ownership",
         description="Provider knowledge needs one owner.",
         importance="high",
+        importance_rationale="Stated by the fixture.",
     )
     cluster = ConcernCluster(
         cluster_id="cluster-owner",

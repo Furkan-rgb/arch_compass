@@ -93,6 +93,13 @@ checks in the Ollama adapter. A structural test fails if a hand-rolled containme
 reappears. Reasoning stages are named once by the `ReasoningTask` enum rather than by repeated
 string literals, and the enum is asserted to match the prompt registry.
 
+A finding's evidence is scoped by ownership rather than by absence. A claim owned by another
+concern cluster is foreign and rejected; a claim owned by no cluster — a case statement, an
+advisor claim — belongs to the consultation, so any finding may rest on it. Every finding must
+still cite at least one claim from its own cluster, and an ID absent from the report's claim
+registry is rejected as unknown before scope is considered. See
+[adr/0005-scope-of-finding-evidence-and-typed-importance.md](adr/0005-scope-of-finding-evidence-and-typed-importance.md).
+
 `bootstrap.Runtime` names its dependencies by port, so nothing outside the composition root
 depends on a concrete SQLite, AST, or vector-store type. Conversation adapters and services are
 composed only in `bootstrap.py`.

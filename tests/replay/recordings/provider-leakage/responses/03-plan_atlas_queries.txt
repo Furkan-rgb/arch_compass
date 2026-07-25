@@ -1,15 +1,10 @@
 [
   {
-    "cluster_id": "cluster_e0a3c82ef00e422484933da883b3357f",
+    "cluster_id": "cluster_d405d39296484af5ac9370ad30bd0668",
     "plan": {
       "iteration": 1,
-      "rationale": "The investigation targets the three identified design forces: metadata fragmentation (F1), change propagation risks (F2), and provider abstraction requirements (F3). Since no nodes are yet explicitly linked to this cluster's investigation scope, ID-free discovery queries are used to find high-impact modules and trace the leakage of the BUILT_IN_ constants.",
+      "rationale": "The plan aims to quantify the extent of metadata fragmentation (Force 1) and map the structural impact boundaries of the provider module (Force 2). Searching for 'BUILT_IN_VOICES' will pinpoint all instances of leaked configuration. A repository summary is required to identify high-impact nodes (fan-in/reverse reach) that constitute the 'fragile dependency network'. Filtering signals by 'similarly-named-constant' will determine if this pattern is a localized symptom or a systemic architectural issue.",
       "queries": [
-        {
-          "kind": "hotspots",
-          "metric": "change_amplification.likely_affected_modules",
-          "limit": 5
-        },
         {
           "kind": "search_nodes",
           "terms": [
@@ -18,11 +13,13 @@
           "limit": 10
         },
         {
-          "kind": "search_nodes",
-          "terms": [
-            "VoiceProvider"
-          ],
-          "limit": 5
+          "kind": "repository_summary"
+        },
+        {
+          "kind": "signals",
+          "codes": [
+            "similarly-named-constant"
+          ]
         }
       ]
     }

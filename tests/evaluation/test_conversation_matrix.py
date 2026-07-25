@@ -24,7 +24,7 @@ from archcompass.domain.consultation import (
     Claim,
     ClaimClassification,
     DesignForce,
-    FindingImportance,
+    ImportanceLevel,
     RecommendationDisposition,
     ScenarioEvaluation,
     SupportedStatement,
@@ -103,11 +103,11 @@ def _findings() -> list[ArchitecturalFinding]:
     findings: list[ArchitecturalFinding] = []
     for ordinal, title in enumerate(_FINDING_TITLES, start=1):
         importance = (
-            FindingImportance.CRITICAL
+            ImportanceLevel.CRITICAL
             if ordinal == 12
-            else FindingImportance.HIGH
+            else ImportanceLevel.HIGH
             if ordinal in {1, 4}
-            else FindingImportance.MEDIUM
+            else ImportanceLevel.MEDIUM
         )
         findings.append(
             ArchitecturalFinding(
@@ -266,6 +266,7 @@ def _report_summary() -> ReportSummary:
                 title="Responsibility ownership",
                 description="Changing knowledge should have one owner.",
                 importance="high",
+                importance_rationale="Stated by the fixture.",
             )
         ],
         recommended_architecture=_supported(

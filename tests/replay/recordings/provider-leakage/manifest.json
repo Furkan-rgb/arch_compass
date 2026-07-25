@@ -1,18 +1,18 @@
 {
   "format_version": 1,
   "case_name": "provider-leakage",
-  "run_id": "run_c12288bea90148ef94c511695dfef404",
-  "case_id": "case_4747e6475ef24594b6ccdefdb8a7ab9a",
+  "run_id": "run_c7170097a3f14a61bc5704c595cacbda",
+  "case_id": "case_5ffeb884210843c99364d7263711ce3f",
   "case_revision": 1,
-  "atlas_version_id": "atlas_71ed4fbe692c4c2f911f4a87a7463987",
-  "policy_index_version_id": "pidx_208c4d8ff36d4466ab651b5e9a3c964b",
+  "atlas_version_id": "atlas_58cd1b6662c241fba33dafb1e998ef54",
+  "policy_index_version_id": "pidx_a96e83925e3143959e8c36e176d885d0",
   "reasoning_model": "ollama:gemma4:26b",
   "config_hash": "cfg_cc119cbdf7759c6743d88578",
   "calls": [
     {
       "ordinal": 1,
       "task": "discover_design_forces",
-      "prompt_identity": "discover-design-forces:v5:c62571fc0a9a",
+      "prompt_identity": "discover-design-forces:v6:0bfbd65422e0",
       "response_file": "01-discover_design_forces.txt"
     },
     {
@@ -42,7 +42,7 @@
     {
       "ordinal": 6,
       "task": "analyze_concern_cluster",
-      "prompt_identity": "analyze-concern:v4:974bafa66cea",
+      "prompt_identity": "analyze-concern:v5:c08522156201",
       "response_file": "06-analyze_concern_cluster.txt"
     },
     {

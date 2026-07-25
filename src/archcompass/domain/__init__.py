@@ -11,7 +11,7 @@ from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
 from archcompass.domain.consultation import (
     ArchitecturalFinding,
     ConsultationRun,
-    FindingImportance,
+    ImportanceLevel,
     RecommendationReport,
 )
 from archcompass.domain.conversation import (
@@ -50,7 +50,7 @@ __all__ = [
     "ConversationMessage",
     "ConversationSummary",
     "FindingDigest",
-    "FindingImportance",
+    "ImportanceLevel",
     "PinnedCaseSummary",
     "PolicyApplicabilityContext",
     "PolicyDocument",

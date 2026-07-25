@@ -1,123 +1,147 @@
 {
-  "disposition": "preserve",
-  "problem_and_desired_outcome": "The duplication of BUILT_IN_VOICES across multiple modules (E1) and the leakage of Qwen implementation details into high-level presentation and validation modules (E2) must be resolved to ensure that adding a second provider does not require coordinated edits across preflight.py and frontend.py (E3).",
+  "disposition": "delay",
+  "problem_and_desired_outcome": "The current duplication of voice metadata [E1] creates a high-risk bottleneck [E3] that will amplify changes [E4] during provider expansion [E2]. The goal is to centralize discovery under one owner [E6].",
   "confidence": {
     "level": "high",
-    "rationale": "The duplication of constants is an objective measurement (E1), and the need for interface-based discovery to localize change impact is supported by structural evidence (E3)."
+    "rationale": "The structural impact and dependency density of the provider module [E3, E4] are objectively measured, making the risk of expansion-related fragmentation [E2] a measurable architectural concern."
   },
   "findings": [
     {
       "cluster_ref": "C1",
-      "title": "Fragmentation of Voice Discovery and Interface Leakage",
-      "summary": "The constant BUILT_IN_VOICES is duplicated across provider.py, preflight.py, and frontend.py (E1).",
+      "title": "Provider Discovery Fragmentation and Expansion Risk",
+      "summary": "The duplication of 'BUILT_IN_DSS' across multiple modules [E1] leverages the provider's high structural impact [E3] to create a system-wide change amplification risk [E4] whenever new providers are added [E2].",
       "importance": "high",
-      "importance_rationale": "Because the current provider interface does not own voice discovery (E4), implementation details for Qwen have leaked into high-level modules (E2).",
+      "importance_rationale": "The existing dependency density of the provider module acts as a bottleneck for extensibility [E4], making this fragmentation a primary driver of architectural fragility [E2].",
       "confidence": {
         "level": "high",
-        "rationale": "The presence of duplicated constants and the lack of discovery ownership are confirmed facts (E1, E4)."
+        "rationale": "Supported by explicit repository observations of constant duplication [E1] and structural metrics [E3]."
       },
-      "consequence": "Updating or adding providers requires coordinated edits across multiple consumer modules like preflight.py and frontend.py (E3).",
+      "consequence": "Expanding the provider ecosystem will require coordinated, error-prone updates to preflight and frontend logic [E2].",
       "claim_refs": [
         "E1",
         "E2",
         "E3",
         "E4"
       ],
-      "recommended_response": "Adopt the interface-based discovery pattern found in alt_encapsulate_discovery to consolidate change impact within the provider implementation (E3)."
+      "recommended_response": "Implement a centralized registry (alt_centralized_registry_metadata) to serve as the single source of truth.",
+      "uncertainty": [
+        "The exact scale of change amplification depends on the number of new providers introduced."
+      ]
     }
   ],
   "decision_summary": {
-    "text": "Shift the responsibility of voice availability to the VoiceProvider interface via a mechanism such as get_available_voices() (alt_encapsulate_discovery).",
+    "text": "Adopt the 'Introduce Centralized Provider Registry' alternative (alt_centralized_registry_metadata) to decouple discovery from provider implementation.",
     "classification": "advisor_inference",
     "claim_refs": [
-      "E3"
+      "E1",
+      "E2",
+      "E3",
+      "E4"
     ]
   },
   "recommended_architecture": {
-    "text": "Encapsulate discovery via the VoiceProvider interface (alt_encapulsate_discovery) to prevent implementation leakage (E2).",
+    "text": "Introduce a dedicated metadata module that aggregates voice information from all active providers, allowing consumers to query a single source of truth.",
     "classification": "advisor_inference",
     "claim_refs": [
-      "E3"
+      "E3",
+      "E4"
     ]
   },
   "responsibility_allocation": [
     {
-      "text": "The VoiceProvider interface is responsible for managing and exposing the available voice set (alt_encapsulate_discovery) to avoid leaking provider-specific details into consumers (E2).",
+      "text": "The VoiceProvider interface should be refactored to include a method for retrieving available voices, thereby assuming ownership of discovery [E6].",
       "classification": "advisor_inference",
       "claim_refs": [
-        "E2",
-        "E3"
+        "E6"
       ]
-    }
-  ],
-  "change_amplification_analysis": {
-    "text": "By moving discovery behind the interface, change impact for new providers is localized to the provider implementation itself (E3).",
-    "classification": "advisor_inference",
-    "claim_refs": [
-      "E3"
-    ]
-  },
-  "trade_offs": [
+    },
     {
-      "text": "While this approach avoids coordinated changes in preflight.py and frontend.py (E3), it requires consumers to query the provider at runtime rather than referencing static constants (alt_encapsulate_discovery).",
-      "classification": "advisor_inference",
-      "claim_refs": [
-        "E3"
-      ]
-    }
-  ],
-  "implementation_sequence": [
-    {
-      "text": "Update the VoiceProvider interface to include a discovery method (alt_encapsulate_discovery) and migrate existing BUILT_IN_VOICES logic from preflight.py and frontend.py into the provider implementation (E3).",
-      "classification": "advisor_inference",
-      "claim_refs": [
-        "E3"
-      ]
-    }
-  ],
-  "reversal_conditions": [
-    {
-      "text": "If multiple providers are not expected and the overhead of runtime discovery exceeds the cost of coordinated updates, the distributed constant approach (alt_preserve_distributed_constants) may be revisited.",
+      "text": "The new registry module will act as the aggregator for all provider-specific metadata.",
       "classification": "advisor_inference",
       "claim_refs": [
         "E1"
       ]
     }
   ],
-  "revisit_triggers": [
+  "change_amplification_analysis": {
+    "text": "The current pattern of leaking constants [E1] into consumer modules creates a high-effort, multi-module change requirement during provider expansion [E2].",
+    "classification": "advisor_inference",
+    "claim_refs": [
+      "E1",
+      "E2"
+    ]
+  },
+  "trade_offs": [
     {
-      "text": "The architecture should be reviewed upon the addition of a second provider to ensure the interface remains opaque (alt_encapsulate_discovery).",
+      "text": "While the registry introduces a new architectural component, it eliminates the need for coordinated updates to the preflight and frontend modules.",
       "classification": "advisor_inference",
       "claim_refs": [
-        "E3"
+        "E2"
+      ]
+    }
+  ],
+  "implementation_sequence": [
+    {
+      "text": "Define the new registry module structure and metadata schema.",
+      "classification": "advisor_inference",
+      "claim_refs": [
+        "E1"
+      ]
+    },
+    {
+      "text": "Update the VoiceProvider interface to support discovery via retrieval methods [E6].",
+      "classification": "advisor_inference",
+      "claim_refs": [
+        "E6"
+      ]
+    }
+  ],
+  "reversal_conditions": [
+    {
+      "text": "If the number of providers remains strictly limited to one, the complexity of a registry may exceed its benefits.",
+      "classification": "advisor_inference",
+      "claim_refs": [
+        "E4"
+      ]
+    }
+  ],
+  "revisit_triggers": [
+    {
+      "text": "The architecture should be revisited when the requirement for a second provider is formally initiated.",
+      "classification": "advisor_inference",
+      "claim_refs": [
+        "E4"
       ]
     }
   ],
   "adr": {
-    "title": "Encapsulating Voice Discovery via the VoiceProvider Interface",
-    "context": "The constant BUILT_IN_VOICES is currently duplicated across provider.py, preflight.py, and frontend.py (E1). The existing provider interface lacks ownership over voice discovery (E4), which has caused Qwen implementation details to leak into high-level modules (E2).",
+    "title": "Centralized Voice Discovery Registry",
+    "context": "The provider interface currently does not own voice discovery [E6], leading to duplicated 'BUILT_IN_VOICES' constants across the provider, preflight, and frontend modules [E1]. This fragmentation creates significant risk of error-prone updates during expansion [E2].",
     "decision": {
-      "text": "Adopt the 'Encapsulate Discovery via Interface' pattern (alt_encapsulate_discovery) by adding a discovery method to the VoiceProvider interface.",
+      "text": "Implement a centralized registry or metadata module that aggregates voice information from all active providers (alt_centralized_registry_metadata).",
       "classification": "advisor_inference",
       "claim_refs": [
-        "E3"
+        "E1",
+        "E2"
       ]
     },
     "consequences": [
       {
-        "text": "This decision consolidates change impact within provider implementations and avoids coordinated edits across consumer modules (E3).",
+        "text": "Reduces change amplification in the provider module and its downstream dependents [E3, E4].",
         "classification": "advisor_inference",
         "claim_refs": [
-          "E3"
+          "E3",
+          "E4"
         ]
       },
       {
-        "text": "Consumers will now rely on runtime queries to the VoiceProvider instead of static module-level constants (alt_encapsulate_discovery).",
+        "text": "Centralizes the source of truth for voice metadata, reducing desynchronization risk between modules [E1].",
         "classification": "advisor_inference",
         "claim_refs": [
-          "E3"
+          "E1"
         ]
       }
-    ]
+    ],
+    "status": "Proposed"
   }
 }

@@ -29,7 +29,7 @@ from archcompass.domain.consultation import (
     ConcernAnalysis,
     ConcernCluster,
     DesignForce,
-    FindingImportance,
+    ImportanceLevel,
     RecommendationDisposition,
     ScenarioEvaluation,
 )
@@ -52,6 +52,7 @@ _FORCE = DesignForce(
     title="Provider variation",
     description="A second provider is plausible.",
     importance="medium",
+    importance_rationale="Stated by the fixture.",
 )
 _ALTERNATIVES = [
     CaseAlternative(id="alt-keep", title="Keep local", summary="Change nothing."),
@@ -133,7 +134,7 @@ def _proposal(
                 cluster_ref=cluster_ref,
                 title="Transport crosses the boundary",
                 summary="The adapter's vocabulary reaches application code.",
-                importance=FindingImportance.HIGH,
+                importance=ImportanceLevel.HIGH,
                 importance_rationale="Every change must reason about transport.",
                 confidence=_CONFIDENCE,
                 consequence="Application changes require transport knowledge.",

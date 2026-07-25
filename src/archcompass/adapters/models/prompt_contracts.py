@@ -67,7 +67,7 @@ class PromptContract:
 
 DISCOVER_DESIGN_FORCES: Final = PromptContract(
     name="discover-design-forces",
-    version=5,
+    version=6,
     stage_contract=_text(
         """
         Identify the pressures, constraints, uncertainties, and credible changes that materially
@@ -84,9 +84,11 @@ DISCOVER_DESIGN_FORCES: Final = PromptContract(
     request=_text(
         """
         Return the most important software-architecture design forces. Use concise, discriminating
-        titles and descriptions, explain why each matters now, and reflect uncertainty explicitly
-        rather than presenting assumptions as confirmed facts. Return force content only;
-        ArchCompass owns force identity and assigns internal IDs after validating the response.
+        titles and descriptions, and reflect uncertainty explicitly rather than presenting
+        assumptions as confirmed facts. Rate each force with an importance level, and put the
+        reasoning for that level in importance_rationale — say why the force matters now, not
+        merely that it does. Return force content only; ArchCompass owns force identity and
+        assigns internal IDs after validating the response.
         """
     ),
 )
@@ -143,16 +145,19 @@ PLAN_ATLAS_QUERIES: Final = PromptContract(
 
 ANALYZE_CONCERN_CLUSTER: Final = PromptContract(
     name="analyze-concern",
-    version=4,
+    version=5,
     stage_contract=_text(
         """
         Analyze exactly one concern cluster from its focused packet. Keep repository observation,
         policy guidance, confirmed context, assumptions, and advisor inference distinct. Repository
-        observations require supplied node IDs and locations; policy guidance requires supplied
-        policy IDs. Interpret metrics according to their documented semantics and call a proxy a
-        proxy. Consider policy exceptions and conflicts. Explain whether local complexity contains
-        system-wide complexity or instead spreads change across responsibilities. Do not generalize
-        from an incomplete packet; record material unknowns.
+        observations require supplied node IDs; policy guidance requires supplied policy IDs. Name
+        a source location only when the observation concerns a span narrower than the node, and
+        then only a span the packet surfaced: an observation about a whole node needs none, and an
+        invented span is rejected where an omitted one is not. Interpret metrics according to their
+        documented semantics and call a proxy a proxy. Consider policy exceptions and conflicts.
+        Explain whether local complexity contains system-wide complexity or instead spreads change
+        across responsibilities. Do not generalize from an incomplete packet; record material
+        unknowns.
         """
     ),
     request=_text(

@@ -80,6 +80,30 @@ should.
 
 It proves nothing about advice quality. One model, one case, one moment.
 
+### What the first capture found
+
+Three defects, none of which the deterministic suite could reach, because a substitute
+reasoner satisfies whatever the code expects of it:
+
+- **A free-text recommendation disposition.** The model returned `"Recommendation"` and
+  the run died at composition. Typed on the wire now, so the JSON schema constrains it.
+- **Two layers disagreeing on evidence scope.** The repair pass was stripping a
+  legitimate citation of a confirmed user requirement from every finding that made one
+  (ADR 0005).
+- **A committed model configuration that could not complete a consultation.** 32768/16384
+  left 16384 tokens for input against a ~29k-token concern packet.
+- **A contract only the prompt stated.** Repository observations were required to carry a
+  source location by prompt prose, while the schema left it nullable and the validator
+  rejected its absence. Two of three captures died there (ADR 0005).
+
+The pattern worth keeping: each one lived in the gap between what a layer *stated* and
+what an adjacent layer *enforced*, with a repair pass absorbing the difference. Nothing
+that never ran a real model could see them.
+
+This is also why the two questions are asserted separately. *Did the report end valid*
+is the contract; *did it get there unaided* is the achievability signal. Collapsing them
+would have hidden the second defect behind a green run, since the pipeline did recover.
+
 ## Phase 2 — live stage probes
 
 Load a captured stage input, call one stage against real Ollama, assert properties of the

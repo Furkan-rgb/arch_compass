@@ -1,18 +1,20 @@
 [
   {
-    "title": "Metadata Fragmentation",
-    "description": "The `BUILT_IN_VOICES` constant is identified in three separate modules (`provider.py`, `preflight.py`, and `frontend.py`). This creates a tension between the current state of distributed knowledge and the desired outcome of single-owner voice discovery, necessitating multi-module coordination for updates.",
-    "importance": "Critical: Directly drives the 'Brownfield provider leakage' problem and increases the risk of desynchronized module states."
+    "title": "Distributed Voice Metadata Ownership",
+    "description": "The responsibility for defining and accessing built-in voice information (e.g., `BUILT_IN_VOICES`) is currently fragmented across the `provider`, `preflight`, and `frontend` modules.",
+    "importance": "high",
+    "importance_rationale": "This fragmentation is the primary driver of the current 'leakage' problem; without centralized ownership, adding new capabilities requires coordinated changes across multiple disconnected boundaries."
   },
   {
-    "title": "High-Impact Change Propagation",
-    "description": "The `provider.py` module exhibits a high structural proxy for change amplification (5 modules) and significant fan-in (4). This creates a tension where any modification to the provider's interface or core logic threatens to trigger cascading changes across the system.",
-    "importance": "High: This fragility makes the cost of evolution in the provider module disproportionately expensive relative to its local complexity."
+    "title": "High Change Propagation in Provider Module",
+    "description": "The `provider` module exhibits high structural impact, with a high likelihood of affecting up to 5 downstream modules during changes.",
+    "importance": "high",
+    "importance_rationale": "Because the provider is a significant dependency bottleneck (high fan-in and reverse reach), any refinement to its interface or logic forces widespread coordination and increases regression risk."
   },
   {
-    "title": "Provider Abstraction Requirement",
-    "description": "The identified future change (adding a second provider) creates a tension between the current `QwenProvider` implementation and the need for an interface that prevents implementation-specific details from leaking into higher-level modules like `workflow.py`. The exact degree of required indirection remains an unconfirmed requirement.",
-    "importance": "Medium: This structural pressure dictates whether the current provider-consumer relationship is sufficient or if a formal registry/plugin mechanism must be introduced."
+    "title": "Second Provider Extensibility Pressure",
+    "description": "The system must accommodate the introduction of an additional provider without replicating existing discovery logic in upstream modules.",
+    "importance": "medium",
+    "importance_rationale": "While not yet a realized change, this future requirement makes the current leakage of discovery logic into `preflight` and `frontend` a significant architectural debt that will prevent localized implementation."
   }
-
 ]

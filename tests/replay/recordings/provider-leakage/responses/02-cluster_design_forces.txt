@@ -1,7 +1,7 @@
 [
   {
-    "title": "Centralization of Voice Discovery and Provider Interface Stability",
-    "rationale": "These forces represent a single architectural investigation into redefining the provider boundary: F1 identifies the immediate risk of metadata leakage, F3 establishes the functional requirement for an abstract interface to support future expansion, and F2 highlights the structural risks (change amplification) that must be managed when implementing this consolidation.",
+    "title": "Provider Refactoring and Extensibility",
+    "rationale": "The investigation must address the current risk where fragmented metadata ownership (F1) and high structural change propagation in the provider module (F2) create a fragile dependency network, which directly threatens the ability to add a second provider (F3) without replicating existing leakage patterns.",
     "force_refs": [
       "F1",
       "F2",

@@ -278,6 +278,9 @@ export function ArchitectureWorkspace({
                   <span>{force.importance}</span>
                   <strong>{force.title}</strong>
                   <p>{force.description}</p>
+                  <p className="design-force__rationale">
+                    <em>Why it matters now:</em> {force.importance_rationale}
+                  </p>
                 </li>
               ))}
             </ol>

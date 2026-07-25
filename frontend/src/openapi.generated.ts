@@ -35,7 +35,7 @@ export interface components {
     "title": string;
     "summary": string;
     "concern_cluster_id"?: string | null;
-    "importance": components["schemas"]["FindingImportance"];
+    "importance": components["schemas"]["ImportanceLevel"];
     "importance_rationale": string;
     "confidence": components["schemas"]["Confidence"];
     "consequence": string;
@@ -451,7 +451,8 @@ export interface components {
     "force_id"?: string;
     "title": string;
     "description": string;
-    "importance": string;
+    "importance": components["schemas"]["ImportanceLevel"];
+    "importance_rationale": string;
   };
     "EdgeType": "contains" | "imports" | "calls" | "inherits" | "implements" | "references" | "tests" | "configures";
     "EmbeddingModelIdentity": {
@@ -469,7 +470,6 @@ export interface components {
     "count"?: number | null;
   };
     "FailureDiagnosticCode": "cluster_count_out_of_range" | "unknown_force_references" | "missing_force_references" | "duplicate_force_references" | "duplicate_cluster_ids";
-    "FindingImportance": "low" | "medium" | "high" | "critical";
     "FocusedAnalysisPacket": {
     "cluster": components["schemas"]["ConcernCluster"];
     "node_summaries"?: Array<components["schemas"]["FocusedNodeSummary"]>;
@@ -552,6 +552,7 @@ export interface components {
     "metric": string;
     "limit"?: number;
   };
+    "ImportanceLevel": "low" | "medium" | "high" | "critical";
     "JsonValue": unknown;
     "ListFindingsAction": {
     "kind": "list_findings";

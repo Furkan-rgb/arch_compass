@@ -31,10 +31,10 @@ from archcompass.domain.consultation import (
     ConcernAnalysis,
     ConcernCluster,
     DesignForce,
-    FindingImportance,
     FocusedAnalysisPacket,
     FocusedNodeSummary,
     GlobalContext,
+    ImportanceLevel,
     RecommendationDisposition,
     ScenarioEvaluation,
 )
@@ -124,12 +124,18 @@ class DeterministicReasoningProvider:
             DesignForce(
                 title="Responsibility ownership",
                 description="Place changing knowledge behind the boundary that owns it.",
-                importance="high",
+                importance=ImportanceLevel.HIGH,
+                importance_rationale=(
+                    "Misplaced ownership is the failure this consultation exists to catch."
+                ),
             ),
             DesignForce(
                 title="Locality of change",
                 description="Minimize the modules and interfaces changed by one decision.",
-                importance="high",
+                importance=ImportanceLevel.HIGH,
+                importance_rationale=(
+                    "Change amplification is the cost the case is asking to reduce."
+                ),
             ),
         ]
         if context.future_changes:
@@ -139,7 +145,11 @@ class DeterministicReasoningProvider:
                     description=(
                         "Accommodate stated future changes without a universal plugin platform."
                     ),
-                    importance="medium",
+                    importance=ImportanceLevel.MEDIUM,
+                    importance_rationale=(
+                        "The case names future changes, so they are credible rather than "
+                        "speculative."
+                    ),
                 )
             )
         if not context.atlas_summary:
@@ -150,7 +160,10 @@ class DeterministicReasoningProvider:
                         "No repository evidence is available; implementation details remain "
                         "assumptions."
                     ),
-                    importance="medium",
+                    importance=ImportanceLevel.MEDIUM,
+                    importance_rationale=(
+                        "Advice without repository evidence rests on the case alone."
+                    ),
                 )
             )
         if context.atlas_overview is not None and context.atlas_overview.signals:
@@ -164,7 +177,10 @@ class DeterministicReasoningProvider:
                         "alone does not establish misplaced responsibility, so it justifies an "
                         "investigation rather than a conclusion."
                     ),
-                    importance="high",
+                    importance=ImportanceLevel.HIGH,
+                    importance_rationale=(
+                        f"{leading.code} led the repository overview's ranked signals."
+                    ),
                 )
             )
         return forces
@@ -625,7 +641,7 @@ class DeterministicReasoningProvider:
             title = cluster_refs[cluster_ref]
             packet = packet_by_cluster_title.get(title)
             high_importance = any(
-                force.importance.casefold() in {"high", "critical"}
+                force.importance in {ImportanceLevel.HIGH, ImportanceLevel.CRITICAL}
                 for force in forces
                 if packet is not None and force.force_id in packet.cluster.design_force_ids
             )
@@ -639,7 +655,7 @@ class DeterministicReasoningProvider:
                         if claim.ref in set(claim_refs)
                     ),
                     importance=(
-                        FindingImportance.HIGH if high_importance else FindingImportance.MEDIUM
+                        ImportanceLevel.HIGH if high_importance else ImportanceLevel.MEDIUM
                     ),
                     importance_rationale=(
                         "The concern combines a high-priority design force with located "
@@ -673,7 +689,7 @@ class DeterministicReasoningProvider:
                     cluster_ref=cluster_ref,
                     title="Architecture recommendation",
                     summary=decision,
-                    importance=FindingImportance.MEDIUM,
+                    importance=ImportanceLevel.MEDIUM,
                     importance_rationale=(
                         "The recommendation is material, but no concern analysis or repository "
                         "evidence was supplied to this deterministic synthesis path."
@@ -1261,10 +1277,10 @@ class DeterministicReasoningProvider:
             )
         elif ReportQuestionType.FINDING_PRIORITY in question_types:
             order = {
-                FindingImportance.CRITICAL: 3,
-                FindingImportance.HIGH: 2,
-                FindingImportance.MEDIUM: 1,
-                FindingImportance.LOW: 0,
+                ImportanceLevel.CRITICAL: 3,
+                ImportanceLevel.HIGH: 2,
+                ImportanceLevel.MEDIUM: 1,
+                ImportanceLevel.LOW: 0,
             }
             confidence_order = {
                 ConfidenceLevel.HIGH: 2,

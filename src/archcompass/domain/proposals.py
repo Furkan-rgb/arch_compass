@@ -28,7 +28,7 @@ from archcompass.domain.base import DomainModel
 from archcompass.domain.case import Confidence
 from archcompass.domain.consultation import (
     ClaimClassification,
-    FindingImportance,
+    ImportanceLevel,
     RecommendationDisposition,
 )
 
@@ -87,7 +87,7 @@ class ProposedFinding(DomainModel):
     cluster_ref: str = Field(min_length=1)
     title: str = Field(min_length=1)
     summary: str = Field(min_length=1)
-    importance: FindingImportance
+    importance: ImportanceLevel
     importance_rationale: str = Field(min_length=1)
     confidence: Confidence
     consequence: str = Field(min_length=1)

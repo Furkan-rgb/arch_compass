@@ -13,6 +13,7 @@ from archcompass.domain.atlas import (
     NodeDetailsQuery,
     RepositorySummaryQuery,
     SearchNodesQuery,
+    SourceLocation,
 )
 from archcompass.domain.case import (
     ArchitectureCase,
@@ -21,6 +22,7 @@ from archcompass.domain.case import (
     StatementKind,
 )
 from archcompass.domain.consultation import (
+    AtlasEvidenceReference,
     Claim,
     ClaimClassification,
     ClusterQueryPlan,
@@ -698,12 +700,14 @@ def test_advisor_force_id_collisions_are_reminted_without_losing_forces(
                     title="Provider ownership",
                     description="Provider knowledge needs one owner.",
                     importance="high",
+                    importance_rationale="Stated by the fixture.",
                 ),
                 DesignForce(
                     force_id=user_force.id,
                     title="Change locality",
                     description="Provider changes should remain local.",
                     importance="high",
+                    importance_rationale="Stated by the fixture.",
                 ),
             ]
 
@@ -934,8 +938,113 @@ def test_unsupported_repository_finding_is_dropped_and_audited(
     run = runtime.workflow.advise(revision.case_id)
 
     assert run.status == ConsultationStatus.SUCCEEDED
+    # Claim IDs are reassigned upstream, so asserting the injected ID is absent would
+    # pass whether or not the claim survived. The text is the stable handle.
     assert all(
-        finding.claim_id != "claim-unsupported-repository"
+        not finding.text.startswith("This repository claim has no surfaced source support")
+        for analysis in run.concern_analyses
+        for finding in analysis.findings
+    )
+    assert any(
+        repair["kind"] == "dropped_unsupported_repository_finding"
+        for repair in run.execution_metadata["model_output_repairs"]
+    )
+
+
+def test_repository_finding_naming_a_surfaced_node_gets_its_span_projected(
+    runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A whole-node observation need not echo a span the packet already carries.
+
+    Two live captures failed here: the model made observations like "this interface has
+    high change amplification" — true of the node, not of any line range — and omitted
+    the location. Dropping those claims emptied the analysis and killed the run. Node
+    membership is what proves the claim is about surfaced code, so the span is projected
+    rather than demanded back.
+    """
+
+    class WholeNodeObservationReasoner(DeterministicReasoningProvider):
+        def analyze_concern_cluster(self, context, packet):
+            analysis = super().analyze_concern_cluster(context, packet)
+            surfaced = packet.node_summaries[0]
+            whole_node = Claim(
+                claim_id="claim-whole-node",
+                text="This node concentrates change amplification across the package.",
+                classification=ClaimClassification.REPOSITORY_OBSERVATION,
+                atlas_references=[AtlasEvidenceReference(node_id=surfaced.node_id)],
+            )
+            return analysis.model_copy(update={"findings": [*analysis.findings, whole_node]})
+
+    monkeypatch.setattr(runtime.workflow, "_reasoning", WholeNodeObservationReasoner())
+    atlas = runtime.analyzer.analyze(Path("eval/cases/provider-leakage/repository").resolve())
+    runtime.atlas_repository.save(atlas)
+    revision = runtime.case_service.create(_case(brownfield=True))
+
+    run = runtime.workflow.advise(revision.case_id, atlas_version_id=atlas.version.version_id)
+
+    assert run.status == ConsultationStatus.SUCCEEDED
+    # Claim IDs are reassigned to content-derived ones upstream, so the text is the
+    # only stable handle on the claim this test injected.
+    projected = [
+        finding
+        for analysis in run.concern_analyses
+        for finding in analysis.findings
+        if finding.text.startswith("This node concentrates change amplification")
+    ]
+    assert projected, "The claim was dropped instead of grounded"
+    assert all(
+        reference.location is not None
+        for finding in projected
+        for reference in finding.atlas_references
+    )
+    assert any(
+        repair["kind"] == "projected_surfaced_span_for_repository_finding"
+        for repair in run.execution_metadata["model_output_repairs"]
+    )
+
+
+def test_repository_finding_claiming_a_span_outside_its_node_is_still_dropped(
+    runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Projecting an absent span must not excuse a span that was asserted and is wrong.
+
+    An omitted location is a claim about the node; a location outside the node is a
+    claim of precision the packet does not support, and stays unsupported.
+    """
+
+    class MisplacedSpanReasoner(DeterministicReasoningProvider):
+        def analyze_concern_cluster(self, context, packet):
+            analysis = super().analyze_concern_cluster(context, packet)
+            surfaced = packet.node_summaries[0]
+            misplaced = Claim(
+                claim_id="claim-misplaced-span",
+                text="This claim cites lines the packet never surfaced.",
+                classification=ClaimClassification.REPOSITORY_OBSERVATION,
+                atlas_references=[
+                    AtlasEvidenceReference(
+                        node_id=surfaced.node_id,
+                        location=SourceLocation(
+                            path=surfaced.location.path,
+                            start_line=surfaced.location.end_line + 500,
+                            end_line=surfaced.location.end_line + 600,
+                        ),
+                    )
+                ],
+            )
+            return analysis.model_copy(update={"findings": [*analysis.findings, misplaced]})
+
+    monkeypatch.setattr(runtime.workflow, "_reasoning", MisplacedSpanReasoner())
+    atlas = runtime.analyzer.analyze(Path("eval/cases/provider-leakage/repository").resolve())
+    runtime.atlas_repository.save(atlas)
+    revision = runtime.case_service.create(_case(brownfield=True))
+
+    run = runtime.workflow.advise(revision.case_id, atlas_version_id=atlas.version.version_id)
+
+    assert run.status == ConsultationStatus.SUCCEEDED
+    assert all(
+        not finding.text.startswith("This claim cites lines the packet never surfaced")
         for analysis in run.concern_analyses
         for finding in analysis.findings
     )

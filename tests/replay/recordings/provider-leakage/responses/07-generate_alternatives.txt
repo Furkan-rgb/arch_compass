@@ -1,17 +1,17 @@
 [
   {
-    "title": "Maintain Distributed Definitions",
-    "summary": "Continue defining `BUILT_IN_VOICES` locally within each relevant module (`provider.py`, `preflight.py`, and `frontend.py`).",
-    "id": "alt_preserve_distributed_constants"
+    "title": "Preserve Current Distributed State",
+    "summary": "Maintain the existing pattern of duplicating 'BUILT_IN_VOICES' across the provider, preflight, and frontend modules.",
+    "id": "alt_status_quo_fragmented_constants"
   },
   {
-    "title": "Encapsulate Discovery via Interface",
-    "summary": "Shift the responsibility of voice availability to the `VoiceProvider` interface (e.g., through a `get_available_voices()` method), so that consumers query the provider at runtime rather than referencing static local constants.",
-    "id": "alt_encapsulate_discovery"
+    "title": "Delegate Discovery to Provider Interface",
+    "summary": "Refactor the 'VoiceProvider' interface to include a method for retrieving available voices (e.g., `get_available_voices()`), moving responsibility from consumers back to the provider implementation.",
+    "id": "alt_interface_delegation_discovery"
   },
   {
-    "title": "Centralized Constant Module",
-    "summary": "Move the `BUILT_IN_VOICES` constant to a single shared module/package that is imported by all dependent modules, effectively creating one source of truth for the list.",
-    "id": "alt_centralize_shared_constant"
+    "title": "Introduce Centralized Provider Registry",
+    "summary": "Create a dedicated registry or metadata module that aggregates voice information from all active providers, allowing consumers to query a single source of truth.",
+    "id": "alt_centralized_registry_metadata"
   }
 ]

@@ -122,6 +122,9 @@ def valid_report() -> dict[str, Any]:
                 "title": "Provider variation",
                 "description": "A second provider is plausible but uncommitted.",
                 "importance": "medium",
+                "importance_rationale": (
+                    "The case names a second provider without committing to one."
+                ),
             }
         ],
         "findings": [
