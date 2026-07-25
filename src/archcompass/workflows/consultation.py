@@ -136,16 +136,11 @@ class ConsultationWorkflow:
         *,
         atlas_version_id: str | None = None,
         repository_root: Path | None = None,
-        atlas: Atlas | None = None,
         run_id: str | None = None,
         input_case_revision: int | None = None,
         progress: ConsultationProgressSink | None = None,
     ) -> ConsultationRun:
-        """Advise from persisted evidence.
-
-        ``atlas`` is a schema-v1 call compatibility shim: its content is ignored
-        and its ID is reloaded from the atlas repository. Unsaved aggregates fail.
-        """
+        """Advise from persisted evidence."""
         started = datetime.now(UTC)
         revision = self._cases.get(case_id, input_case_revision)
         case = revision.snapshot
@@ -193,7 +188,6 @@ class ConsultationWorkflow:
                     case,
                     atlas_version_id=atlas_version_id,
                     repository_root=repository_root,
-                    legacy_atlas=atlas,
                 ),
             )
             if resolved_atlas is not None:
@@ -963,7 +957,6 @@ class ConsultationWorkflow:
         *,
         atlas_version_id: str | None,
         repository_root: Path | None,
-        legacy_atlas: Atlas | None,
     ) -> Atlas | None:
         if repository_root is not None:
             atlas = self._atlases.latest_for_path(repository_root)
@@ -972,9 +965,6 @@ class ConsultationWorkflow:
             return atlas
         if atlas_version_id is not None:
             return self._atlases.get(atlas_version_id)
-        if legacy_atlas is not None:
-            # Ignore the supplied aggregate and prove persistence by reloading it.
-            return self._atlases.get(legacy_atlas.version.version_id)
         if case.repository is None:
             return None
         if case.repository.atlas_version_id is not None:

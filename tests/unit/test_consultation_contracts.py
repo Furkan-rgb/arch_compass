@@ -232,48 +232,26 @@ def test_case_statement_collections_enforce_their_kind() -> None:
         )
 
 
-def test_schema_v1_report_strings_upgrade_losslessly() -> None:
-    current = _report()
-    payload = current.model_dump(mode="json")
+def test_report_requires_an_explicit_schema_version() -> None:
+    """A payload without schema_version is invalid, not a pre-release report."""
+
+    payload = _report().model_dump(mode="json")
     payload.pop("schema_version")
-    payload.pop("disposition")
-    for field in (
-        "decision_summary",
-        "recommended_architecture",
-        "change_amplification_analysis",
-    ):
-        payload[field] = cast(dict[str, object], payload[field])["text"]
-    for field in (
-        "responsibility_allocation",
-        "conceptual_interfaces",
-        "trade_offs",
-        "implementation_sequence",
-        "reversal_conditions",
-        "revisit_triggers",
-    ):
-        payload[field] = [
-            cast(dict[str, object], item)["text"] for item in cast(list[object], payload[field])
-        ]
-    adr = cast(dict[str, object], payload["adr"])
-    adr["decision"] = cast(dict[str, object], adr["decision"])["text"]
-    adr["consequences"] = [
-        cast(dict[str, object], item)["text"] for item in cast(list[object], adr["consequences"])
-    ]
+
+    with pytest.raises(ValidationError, match="schema_version"):
+        RecommendationReport.model_validate_json(json.dumps(payload))
+
+
+def test_report_rejects_unstructured_scenario_results() -> None:
+    """Scenario results are keyed by alternative ID; a positional list is invalid."""
+
+    payload = _report().model_dump(mode="json")
     for scenario in cast(list[dict[str, object]], payload["scenario_analysis"]):
         results = cast(dict[str, str], scenario["alternative_results"])
         scenario["alternative_results"] = list(results.values())
-    payload.pop("policy_evidence")
-    payload.pop("policy_conflicts")
 
-    loaded = RecommendationReport.model_validate_json(json.dumps(payload))
-
-    assert loaded.schema_version == 3
-    assert loaded.findings[0].finding_id == "FIND-001"
-    assert loaded.decision_summary.text == current.decision_summary.text
-    assert loaded.decision_summary.legacy is True
-    assert set(loaded.scenario_analysis[0].alternative_results) == {
-        item.id for item in loaded.alternatives_considered
-    }
+    with pytest.raises(ValidationError):
+        RecommendationReport.model_validate_json(json.dumps(payload))
 
 
 def test_schema_v3_report_rejects_unstructured_substantive_prose() -> None:
@@ -284,16 +262,14 @@ def test_schema_v3_report_rejects_unstructured_substantive_prose() -> None:
         RecommendationReport.model_validate(payload)
 
 
-def test_schema_v2_report_upgrades_to_uncertain_compatibility_finding() -> None:
+def test_report_without_findings_is_rejected_rather_than_synthesized() -> None:
+    """Findings are authored evidence; they are never fabricated from claims."""
+
     payload = _report().model_dump(mode="json")
-    payload["schema_version"] = 2
     payload.pop("findings")
 
-    loaded = RecommendationReport.model_validate(payload)
-
-    assert loaded.schema_version == 3
-    assert [item.finding_id for item in loaded.findings] == ["FIND-001"]
-    assert "compatibility" in loaded.findings[0].uncertainty[0].casefold()
+    with pytest.raises(ValidationError):
+        RecommendationReport.model_validate(payload)
 
 
 def test_schema_v3_report_requires_authored_findings() -> None:
@@ -480,7 +456,7 @@ def test_markdown_preserves_scenario_and_support_metadata() -> None:
 def test_failed_run_requires_auditable_failure_details() -> None:
     with pytest.raises(ValidationError, match="failure stage"):
         ConsultationRun(
-            schema_version=2,
+            schema_version=3,
             status=ConsultationStatus.FAILED,
             case_id="case-test",
             input_case_revision=1,
@@ -525,10 +501,12 @@ def test_greenfield_policy_query_contains_case_intent_and_is_bounded() -> None:
     assert len(query) <= POLICY_QUERY_CHARACTER_BUDGET
 
 
-def test_schema_v1_run_json_loads_with_new_audit_defaults() -> None:
+def test_run_requires_an_explicit_schema_version() -> None:
+    """A stored run without schema_version fails loudly instead of being upgraded."""
+
     report = _report()
     current = ConsultationRun(
-        schema_version=2,
+        schema_version=3,
         status=ConsultationStatus.SUCCEEDED,
         case_id="case-test",
         input_case_revision=1,
@@ -541,25 +519,6 @@ def test_schema_v1_run_json_loads_with_new_audit_defaults() -> None:
     )
     payload = current.model_dump(mode="json")
     payload.pop("schema_version")
-    payload.pop("clusters")
-    payload.pop("concern_analyses")
-    payload.pop("stage_timings")
-    payload.pop("failure_stage")
-    payload.pop("sanitized_errors")
-    payload["validation_errors"] = payload.pop("final_validation_errors")
-    payload["repair_attempted"] = False
-    payload.pop("initial_validation_errors")
-    payload.pop("repair_actions")
 
-    loaded = ConsultationRun.model_validate_json(json.dumps(payload))
-
-    assert loaded.schema_version == 3
-    assert loaded.clusters == []
-    assert loaded.concern_analyses == []
-    assert loaded.stage_timings == {}
-    assert loaded.validation_errors == []
-
-    payload["schema_version"] = 1
-    explicit_v1 = ConsultationRun.model_validate_json(json.dumps(payload))
-    assert explicit_v1.schema_version == 3
-    assert explicit_v1.clusters == []
+    with pytest.raises(ValidationError, match="schema_version"):
+        ConsultationRun.model_validate_json(json.dumps(payload))

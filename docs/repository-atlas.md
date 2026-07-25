@@ -59,10 +59,9 @@ already knowing a node ID.
 Every result has typed fields for node summaries, metric values, relationships, test IDs,
 signals, and excerpts in addition to its bounded summary and node IDs. Hotspot metric values
 include deterministic ranks, canonical names, measurement/proxy classification, calculation
-scope, definitions, and limitations. The former
-`public_interfaces_crossed` and `symbols_in_representative_path` query names remain accepted for
-compatibility, while new output uses `public_call_targets_in_affected_modules` and
-`bounded_resolved_call_chain_nodes`. Unsupported metric names and unknown node IDs are rejected.
+scope, definitions, and limitations. Metrics are named `public_call_targets_in_affected_modules`
+and `bounded_resolved_call_chain_nodes`; the earlier overstated spellings are not accepted.
+Unsupported metric names and unknown node IDs are rejected.
 
 Before focused querying, brownfield reasoning receives a deterministic `AtlasOverview`, not a
 raw graph or count-only prose string. It contains bounded inventory counts, top-level named

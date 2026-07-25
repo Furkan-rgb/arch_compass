@@ -11,11 +11,6 @@ from archcompass.domain.atlas import (
     MetricScope,
 )
 
-METRIC_ALIASES = {
-    "public_interfaces_crossed": "public_call_targets_in_affected_modules",
-    "symbols_in_representative_path": "bounded_resolved_call_chain_nodes",
-}
-
 
 @dataclass(frozen=True)
 class _MetricMetadata:
@@ -75,8 +70,8 @@ def canonical_metric_name(name: str) -> str:
     normalized = name.replace("-", "_")
     if "." in normalized:
         group, metric = normalized.split(".", maxsplit=1)
-        return f"{group}.{METRIC_ALIASES.get(metric, metric)}"
-    return METRIC_ALIASES.get(normalized, normalized)
+        return f"{group}.{metric}"
+    return normalized
 
 
 def metric_observation(

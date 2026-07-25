@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import AliasChoices, Field, model_validator
+from pydantic import Field, model_validator
 
 from archcompass.domain.base import DomainModel, new_id, utc_now
 
@@ -117,41 +117,19 @@ class DependencyMetrics(DomainModel):
 
 class ChangeAmplificationMetrics(DomainModel):
     likely_affected_modules: int = 0
-    public_call_targets_in_affected_modules: int = Field(
-        default=0,
-        validation_alias=AliasChoices(
-            "public_call_targets_in_affected_modules",
-            "public_interfaces_crossed",
-        ),
-    )
+    public_call_targets_in_affected_modules: int = 0
     coordinated_implementations: int = 0
     configuration_locations: int = 0
     reverse_neighbourhood_tests: int = 0
 
-    @property
-    def public_interfaces_crossed(self) -> int:
-        """Schema-v1 compatibility for the former, overstated metric name."""
-        return self.public_call_targets_in_affected_modules
-
 
 class CognitiveScopeMetrics(DomainModel):
     dependency_neighbourhood_modules: int = 0
-    bounded_resolved_call_chain_nodes: int = Field(
-        default=0,
-        validation_alias=AliasChoices(
-            "bounded_resolved_call_chain_nodes",
-            "symbols_in_representative_path",
-        ),
-    )
+    bounded_resolved_call_chain_nodes: int = 0
     abstraction_boundaries: int = 0
     related_configuration_locations: int = 0
     local_control_flow_complexity: int = 0
     public_api_surface: int = 0
-
-    @property
-    def symbols_in_representative_path(self) -> int:
-        """Schema-v1 compatibility for the former, ambiguous metric name."""
-        return self.bounded_resolved_call_chain_nodes
 
 
 class MetricProfile(DomainModel):

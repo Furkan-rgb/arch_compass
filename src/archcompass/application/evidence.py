@@ -135,8 +135,6 @@ def validate_report_evidence(
             errors.extend(claim_errors)
 
     for statement in report.supported_statements():
-        if statement.legacy:
-            continue
         unknown = [
             claim_id
             for claim_id in statement.supporting_claim_ids
@@ -377,8 +375,6 @@ def repair_report_evidence_with_history(
         updates[field] = _unique_claims(repaired_claims)
 
     def repair_statement(statement: SupportedStatement) -> SupportedStatement:
-        if statement.legacy:
-            return statement
         supporting = [
             claim_id for claim_id in statement.supporting_claim_ids if claim_id in valid_claim_ids
         ]
@@ -599,22 +595,6 @@ def _disambiguate_claim_ids(
         ]
         for field, claims in claims_by_field.items()
     }
-
-
-def repair_report_evidence(
-    report: RecommendationReport,
-    *,
-    allowed_nodes: dict[str, AtlasNode],
-    allowed_policy_ids: set[str],
-    finding_evidence_by_cluster: dict[str, CanonicalFindingEvidence] | None = None,
-) -> RecommendationReport:
-    """Schema-v1 API compatibility; new callers should retain the repair history."""
-    return repair_report_evidence_with_history(
-        report,
-        allowed_nodes=allowed_nodes,
-        allowed_policy_ids=allowed_policy_ids,
-        finding_evidence_by_cluster=finding_evidence_by_cluster,
-    ).report
 
 
 def _canonical_finding_evidence(

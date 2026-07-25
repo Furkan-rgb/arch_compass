@@ -2,22 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal, cast
+from typing import Literal
 
 from pydantic import Field, model_validator
 
 from archcompass.domain.base import DomainModel, new_id, utc_now
 from archcompass.domain.policy import PolicyApplicabilityContext
-
-
-def _mapping(value: object) -> dict[str, object] | None:
-    if not isinstance(value, Mapping):
-        return None
-    source = cast(Mapping[object, object], value)
-    return {str(key): item for key, item in source.items()}
 
 
 class StatementKind(StrEnum):
@@ -96,32 +88,6 @@ class ArchitectureCase(DomainModel):
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
     revision: int = Field(default=1, ge=1)
-
-    @model_validator(mode="before")
-    @classmethod
-    def upgrade_schema_v1(cls, value: object) -> object:
-        data = _mapping(value)
-        if data is None:
-            return value
-        data["schema_version"] = 2
-        if "advisor_design_forces" not in data:
-            raw_forces = data.get("design_forces")
-            if isinstance(raw_forces, list):
-                force_items = cast(list[object], raw_forces)
-                user_forces: list[object] = []
-                advisor_forces: list[object] = []
-                for force in force_items:
-                    force_data = _mapping(force)
-                    source = force_data.get("source") if force_data is not None else None
-                    destination = (
-                        advisor_forces
-                        if isinstance(source, str) and source.startswith("run_")
-                        else user_forces
-                    )
-                    destination.append(force)
-                data["design_forces"] = user_forces
-                data["advisor_design_forces"] = advisor_forces
-        return data
 
     @model_validator(mode="after")
     def validate_statement_kinds(self) -> ArchitectureCase:

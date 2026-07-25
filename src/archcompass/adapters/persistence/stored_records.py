@@ -1,0 +1,30 @@
+"""Strict decoding of stored JSON documents.
+
+Domain models validate the current schema only: migration heuristics never run
+against live model output. Rows written by an earlier, unreleased schema therefore
+fail validation, and this module turns that failure into an explicit instruction
+rather than a raw Pydantic traceback.
+"""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, ValidationError
+
+from archcompass.domain.errors import UnreadableStoredRecordError
+
+
+def decode_stored_json[Record: BaseModel](
+    model: type[Record],
+    document: str,
+    *,
+    description: str,
+) -> Record:
+    """Validate ``document`` or explain that the row must be regenerated."""
+
+    try:
+        return model.model_validate_json(document)
+    except ValidationError as error:
+        raise UnreadableStoredRecordError(
+            f"{description} was written by an unsupported earlier schema and cannot be "
+            f"read. Re-run the consultation to regenerate it. Details: {error}"
+        ) from error

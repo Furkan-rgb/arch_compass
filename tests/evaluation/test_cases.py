@@ -74,11 +74,11 @@ def test_report_conversation_summarizes_prioritizes_and_explains_policy(
     assert summary.answer.relevant_finding_ids == [
         item.finding_id for item in run.report.findings[:8]
     ]
-    assert "canonical findings" in summary.answer.direct_answer.casefold()
+    assert "canonical findings" in summary.answer.direct_answer.text.casefold()
     assert priority.answer is not None
-    assert "highest contextual priority" in priority.answer.direct_answer.casefold()
+    assert "highest contextual priority" in priority.answer.direct_answer.text.casefold()
     assert policy.answer is not None
-    assert "pinned policies" in policy.answer.direct_answer.casefold()
+    assert "pinned policies" in policy.answer.direct_answer.text.casefold()
     assert any(claim.policy_ids for claim in policy.answer.claims)
 
 
@@ -100,10 +100,10 @@ def test_report_counterfactual_and_runtime_limits_remain_read_only(
     )
 
     assert counterfactual.answer is not None
-    assert "historical decision" in counterfactual.answer.direct_answer.casefold()
-    assert "counterfactual" in counterfactual.answer.uncertainty[0].casefold()
+    assert "historical decision" in counterfactual.answer.direct_answer.text.casefold()
+    assert "counterfactual" in counterfactual.answer.uncertainty[0].text.casefold()
     assert runtime_question.answer is not None
-    assert "no runtime production evidence" in runtime_question.answer.direct_answer.casefold()
+    assert "no runtime production evidence" in runtime_question.answer.direct_answer.text.casefold()
     assert runtime.case_service.show(run.case_id).revision == revision_before
 
 

@@ -641,13 +641,13 @@ def test_call_path_and_public_interface_metrics_are_resolved_and_deterministic(
 
     assert entry_profile.cognitive_scope.bounded_resolved_call_chain_nodes >= 2
     assert (
-        entry_profile.cognitive_scope.symbols_in_representative_path
+        entry_profile.cognitive_scope.bounded_resolved_call_chain_nodes
         == entry_profile.cognitive_scope.bounded_resolved_call_chain_nodes
     )
     assert boundary_profile.cognitive_scope.abstraction_boundaries == 1
     assert target_profile.change_amplification.public_call_targets_in_affected_modules >= 1
     assert (
-        target_profile.change_amplification.public_interfaces_crossed
+        target_profile.change_amplification.public_call_targets_in_affected_modules
         == target_profile.change_amplification.public_call_targets_in_affected_modules
     )
     serialized = target_profile.model_dump(mode="json")

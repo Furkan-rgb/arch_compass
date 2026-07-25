@@ -1,6 +1,5 @@
 from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
 from archcompass.application.evidence import (
-    repair_report_evidence,
     repair_report_evidence_with_history,
     validate_report_evidence,
 )
@@ -54,11 +53,11 @@ def test_invented_evidence_is_rejected() -> None:
     errors = validate_report_evidence(report, allowed_nodes={}, allowed_policy_ids=set())
     assert any("unknown atlas node" in error for error in errors)
 
-    repaired = repair_report_evidence(
+    repaired = repair_report_evidence_with_history(
         report,
         allowed_nodes={},
         allowed_policy_ids=set(),
-    )
+    ).report
 
     assert repaired.repository_observations == []
     assert repaired.evidence_appendix == []
@@ -117,11 +116,11 @@ def test_invented_policy_ids_are_removed() -> None:
         allowed_nodes={},
         allowed_policy_ids=set(),
     )
-    repaired = repair_report_evidence(
+    repaired = repair_report_evidence_with_history(
         report,
         allowed_nodes={},
         allowed_policy_ids=set(),
-    )
+    ).report
 
     assert any("policy that was not retrieved" in error for error in errors)
     assert repaired.relevant_policies == []

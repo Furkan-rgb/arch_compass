@@ -15,6 +15,7 @@ from archcompass.application.conversation_validation import (
     validate_conversation_summary,
 )
 from archcompass.configuration import ConversationConfig
+from archcompass.domain import budgets
 from archcompass.domain.base import canonical_json
 from archcompass.domain.consultation import (
     ArchitecturalFinding,
@@ -394,9 +395,9 @@ class ReportConversationService:
     ) -> ReportConversation:
         latest = self._conversations.latest_summary(conversation.conversation_id)
         required = (
-            self._config.summarize_every_messages
+            budgets.SUMMARIZE_EVERY_MESSAGES
             if latest is not None
-            else self._config.summarize_after_messages
+            else budgets.SUMMARIZE_AFTER_MESSAGES
         )
         through_ordinal = latest.through_ordinal if latest is not None else 0
         if conversation.message_count - through_ordinal < required:

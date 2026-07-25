@@ -156,6 +156,7 @@ def test_create_validates_exact_successful_run_pins_and_preserves_legacy_data(
         )
 
     failed = ConsultationRun(
+        schema_version=3,
         status=ConsultationStatus.FAILED,
         case_id=run.case_id,
         input_case_revision=run.result_case_revision or 2,

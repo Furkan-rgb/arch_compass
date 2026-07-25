@@ -60,7 +60,10 @@ matches may be retained for an explicit comparison; otherwise ambiguity is repor
 guessed. Every ID and action is validated against the pinned run or exact evidence already
 surfaced in the conversation.
 
-The default hard ceilings are:
+The mandated hard ceilings are defined once, as constants in `archcompass.domain.budgets`.
+Workspace configuration may lower any of them to tighten a run; none can be raised, and the two
+values that admit exactly one setting — summary coverage of the first twelve messages, then fixed
+batches of eight — are not exposed as configuration at all. The ceilings are:
 
 - 8 retrieval actions;
 - 12 retrieved findings;

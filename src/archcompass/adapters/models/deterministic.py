@@ -123,11 +123,6 @@ class DeterministicReasoningProvider:
     def consume_repair_actions(self) -> list[dict[str, object]]:
         return []
 
-    @property
-    def prompt_identities(self) -> list[str]:
-        """Compatibility for callers that inspect the provider catalog."""
-        return list(self._PROMPTS.values())
-
     def discover_design_forces(self, context: GlobalContext) -> list[DesignForce]:
         forces = [
             DesignForce(

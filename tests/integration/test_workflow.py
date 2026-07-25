@@ -128,7 +128,7 @@ def test_greenfield_workflow_never_requires_atlas(runtime) -> None:
         f"FIND-{ordinal:03d}"
         for ordinal in range(1, len(run.report.findings) + 1)
     ]
-    assert "provider" in run.report.recommended_architecture.casefold()
+    assert "provider" in run.report.recommended_architecture.text.casefold()
     assert runtime.case_service.show(revision.case_id).revision == 2
 
 
@@ -219,10 +219,12 @@ def test_brownfield_workflow_uses_focused_packets_not_raw_atlas(
     atlas = runtime.analyzer.analyze(Path("eval/cases/provider-leakage/repository").resolve())
     runtime.atlas_repository.save(atlas)
     revision = runtime.case_service.create(_case(brownfield=True))
-    run = runtime.workflow.advise(revision.case_id, atlas=atlas)
+    run = runtime.workflow.advise(
+        revision.case_id, atlas_version_id=atlas.version.version_id
+    )
     assert run.status == ConsultationStatus.SUCCEEDED
     assert run.focused_packets
-    assert all(packet.query_results for packet in run.focused_packets)
+    assert all(packet.node_summaries for packet in run.focused_packets)
     assert captured_contexts[0].atlas_overview is not None
     assert captured_contexts[0].atlas_overview.hotspots
     assert all(
@@ -325,7 +327,9 @@ def test_finding_evidence_is_projected_exactly_from_its_focused_packet(
     runtime.atlas_repository.save(atlas)
     revision = runtime.case_service.create(_case(brownfield=True))
 
-    run = runtime.workflow.advise(revision.case_id, atlas=atlas)
+    run = runtime.workflow.advise(
+        revision.case_id, atlas_version_id=atlas.version.version_id
+    )
 
     assert run.report is not None
     assert all(
@@ -426,7 +430,9 @@ def test_brownfield_preflight_includes_repository_policies(
     runtime.atlas_repository.save(atlas)
     revision = runtime.case_service.create(_case(brownfield=True))
 
-    run = runtime.workflow.advise(revision.case_id, atlas=atlas)
+    run = runtime.workflow.advise(
+        revision.case_id, atlas_version_id=atlas.version.version_id
+    )
 
     assert run.policy_index_version_id is not None
     policies = runtime.policy_store.list_policies(run.policy_index_version_id)

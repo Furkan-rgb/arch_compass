@@ -29,20 +29,12 @@ def test_baseline_payload_is_accepted_without_errors() -> None:
     assert _validate(payloads.valid_report()) == []
 
 
-@pytest.mark.xfail(
-    reason=(
-        "WS1: schema_version is defaulted, so its absence is currently read as a "
-        "legacy schema-v1 report and routed into migration heuristics"
-    ),
-    strict=True,
-)
 def test_report_without_schema_version_is_rejected() -> None:
     """A provider that omits schema_version must not be read as a legacy report.
 
-    ``schema_version`` is a defaulted field, so the JSON schema handed to the model
-    does not require it. Treating its absence as "schema v1" silently routes fresh
-    output into migration heuristics that infer a disposition from keywords and
-    fabricate findings from claims.
+    ``schema_version`` is required, so a payload that omits it fails loudly instead
+    of being reinterpreted as a pre-release schema whose migration heuristics infer a
+    disposition from keywords and fabricate findings from claims.
     """
 
     payload = payloads.without(payloads.valid_report(), "schema_version")
@@ -50,13 +42,6 @@ def test_report_without_schema_version_is_rejected() -> None:
         RecommendationReport.model_validate(payload)
 
 
-@pytest.mark.xfail(
-    reason=(
-        "WS1: SupportedStatement.legacy is part of the model-facing schema and "
-        "exempts a statement from citing supporting claims"
-    ),
-    strict=True,
-)
 def test_statement_cannot_opt_out_of_evidence_support() -> None:
     """No in-band flag may exempt a statement from citing its supporting claims."""
 

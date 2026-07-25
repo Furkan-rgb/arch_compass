@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from archcompass.adapters.persistence.database import SQLiteDatabase
+from archcompass.adapters.persistence.stored_records import decode_stored_json
 from archcompass.domain.case import ArchitectureCase, CaseRevision
 from archcompass.domain.errors import CaseNotFoundError, CaseRevisionConflictError
 from archcompass.domain.workspace import CaseSummary
@@ -124,7 +125,11 @@ class SQLiteCaseRepository:
             ).fetchall()
         summaries: list[CaseSummary] = []
         for row in rows:
-            snapshot = ArchitectureCase.model_validate_json(row["snapshot_json"])
+            snapshot = decode_stored_json(
+                ArchitectureCase,
+                row["snapshot_json"],
+                description="A stored case revision",
+            )
             summaries.append(
                 CaseSummary(
                     case_id=snapshot.case_id,

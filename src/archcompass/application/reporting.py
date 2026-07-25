@@ -108,10 +108,9 @@ def _findings(report: RecommendationReport) -> str:
 
 def _statement(statement: SupportedStatement) -> str:
     support = ", ".join(statement.supporting_claim_ids) or "none"
-    legacy = "; legacy schema-v1 value" if statement.legacy else ""
     return (
         f"{statement.text}\n\n"
-        f"_Classification: `{statement.classification}`; supports: `{support}`{legacy}._"
+        f"_Classification: `{statement.classification}`; supports: `{support}`._"
     )
 
 
@@ -200,8 +199,7 @@ def _supported_numbered(items: list[SupportedStatement]) -> str:
 
 def _statement_metadata(statement: SupportedStatement) -> str:
     support = ", ".join(statement.supporting_claim_ids) or "none"
-    legacy = "; legacy" if statement.legacy else ""
-    return f"_(classification=`{statement.classification}`; supports=`{support}`{legacy})_"
+    return f"_(classification=`{statement.classification}`; supports=`{support}`)_"
 
 
 def _bullets(items: list[str]) -> str:

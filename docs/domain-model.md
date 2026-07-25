@@ -18,8 +18,9 @@ forces are distinct statement collections; validation rejects a statement placed
 with the wrong kind, and user-authored design-force IDs must be unique. A successful consultation
 replaces only `advisor_design_forces`.
 `design_forces` remains byte-for-byte user intent and is deterministically included in the next
-clustering pass. Compatibility loading moves legacy run-sourced forces into the advisor
-collection.
+clustering pass. Force ownership is explicit in the schema: a case states its user-authored
+and advisor-authored forces in separate fields rather than inferring ownership from a source
+string.
 
 ## RepositoryAtlas
 
@@ -124,7 +125,9 @@ revisit triggers, and ADR decision/consequences. `RecommendationDisposition` sep
 whether advice introduces a boundary, moves responsibility, keeps behavior local, delays,
 preserves, or gathers information.
 
-Pydantic models reject unknown fields. Compatibility validators load schema-v1/v2 report and run
-shapes alongside the existing case, packet, and scenario compatibility rules. Legacy reports gain
-an explicitly uncertain compatibility finding derived only from their persisted claims. New
-reports and runs use schema version 3; other durable schema versions are unchanged.
+Pydantic models reject unknown fields and validate the current schema only. Reports and runs
+declare schema version 3 explicitly: the field is required, so a payload that omits it fails
+validation instead of being reinterpreted as an earlier shape. Migration heuristics never run
+against live model output, and findings are authored evidence that is never synthesized from
+claims. Rows written by an earlier, unreleased schema are reported through
+`UnreadableStoredRecordError`, which names the record and asks for the consultation to be re-run.

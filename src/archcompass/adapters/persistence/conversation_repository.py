@@ -8,6 +8,7 @@ from hashlib import sha256
 from pydantic import ValidationError
 
 from archcompass.adapters.persistence.database import SQLiteDatabase
+from archcompass.adapters.persistence.stored_records import decode_stored_json
 from archcompass.domain.atlas import SourceExcerpt
 from archcompass.domain.base import canonical_json
 from archcompass.domain.consultation import ConsultationRun, ConsultationStatus
@@ -45,7 +46,11 @@ class SQLiteReportConversationRepository:
                 raise RunNotFoundError(
                     f"Consultation run {conversation.consultation_run_id} was not found"
                 )
-            run = ConsultationRun.model_validate_json(row["run_json"])
+            run = decode_stored_json(
+                ConsultationRun,
+                row["run_json"],
+                description="The pinned consultation run",
+            )
             self._validate_creation(connection, conversation, run)
             connection.execute(
                 """

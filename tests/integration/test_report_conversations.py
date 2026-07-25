@@ -195,6 +195,7 @@ def test_conversation_creation_is_gated_and_legacy_table_is_retained(
     assert retained is not None
 
     failed = ConsultationRun(
+        schema_version=3,
         status=ConsultationStatus.FAILED,
         case_id=run.case_id,
         input_case_revision=run.result_case_revision or 2,

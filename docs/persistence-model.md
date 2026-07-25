@@ -39,9 +39,10 @@ equal or be contained by an analysed repository. Database and report paths are r
 the workspace and reject traversal or symlink escapes.
 
 Migration `002_policy_source_registrations.sql` adds the source registry without replacing
-existing tables. Stored schema-v1 cases and schema-v1/v2 runs and reports remain readable through
-model upgrade validators. New report and run output uses schema version 3; other durable schemas
-remain at their existing versions.
+existing tables. Report and run output uses schema version 3, and stored documents are decoded
+strictly: a row written by an earlier, unreleased schema raises `UnreadableStoredRecordError`
+naming the record rather than being reinterpreted. No migration deletes stored rows; the owning
+consultation is re-run to regenerate a readable record.
 
 Migration `003_consultation_jobs.sql` adds list-query indexes plus the local execution tables.
 Progress events contain validated structured artifacts and sanitized errors, not full prompts or

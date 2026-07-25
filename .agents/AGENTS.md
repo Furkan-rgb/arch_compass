@@ -48,3 +48,9 @@ V1.2 is the active milestone. Preserve these report-conversation boundaries:
   remain removed and its rows are not converted into conversations.
 - Conversation adapters and services are composed only in `bootstrap.py`.
 - There is no conversation React UI in V1.2.
+- Domain models validate the current schema only. Do not add upgrade validators, defaulted
+  `schema_version` fields, validation aliases for superseded names, or in-band flags that exempt
+  a value from validation; a stored row that no longer parses is reported through
+  `UnreadableStoredRecordError` and the consultation is re-run. See `docs/adr/0002-legacy-purge.md`.
+- Mandated V1.2 ceilings live in `archcompass.domain.budgets`. Configuration may lower a ceiling,
+  never raise one.

@@ -24,7 +24,9 @@ def test_public_models_forbid_unknown_fields() -> None:
         )
 
 
-def test_legacy_run_sourced_forces_upgrade_without_erasing_user_forces() -> None:
+def test_architecture_case_keeps_user_and_advisor_forces_in_separate_fields() -> None:
+    """Force ownership is explicit in the schema, never inferred from a source string."""
+
     architecture_case = ArchitectureCase.model_validate(
         {
             "schema_version": 2,
@@ -38,6 +40,8 @@ def test_legacy_run_sourced_forces_upgrade_without_erasing_user_forces() -> None
                     "kind": "force",
                     "source": "user",
                 },
+            ],
+            "advisor_design_forces": [
                 {
                     "id": "force-advisor",
                     "text": "Prior observation",
@@ -78,9 +82,20 @@ def test_architecture_case_rejects_duplicate_user_force_ids() -> None:
         )
 
 
-def test_legacy_metric_names_load_but_new_json_uses_truthful_names() -> None:
-    amplification = ChangeAmplificationMetrics.model_validate({"public_interfaces_crossed": 4})
-    cognitive = CognitiveScopeMetrics.model_validate({"symbols_in_representative_path": 7})
+def test_metric_models_accept_only_their_truthful_names() -> None:
+    """The overstated pre-release metric names are gone, not aliased."""
+
+    with pytest.raises(ValidationError):
+        ChangeAmplificationMetrics.model_validate({"public_interfaces_crossed": 4})
+    with pytest.raises(ValidationError):
+        CognitiveScopeMetrics.model_validate({"symbols_in_representative_path": 7})
+
+    amplification = ChangeAmplificationMetrics.model_validate(
+        {"public_call_targets_in_affected_modules": 4}
+    )
+    cognitive = CognitiveScopeMetrics.model_validate(
+        {"bounded_resolved_call_chain_nodes": 7}
+    )
 
     assert amplification.public_call_targets_in_affected_modules == 4
     assert cognitive.bounded_resolved_call_chain_nodes == 7

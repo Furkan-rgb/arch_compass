@@ -178,10 +178,6 @@ class OllamaReasoningProvider:
     def model_identity(self) -> str:
         return f"{self._config.provider}:{self._config.model}"
 
-    @property
-    def prompt_identities(self) -> list[str]:
-        return list(self._PROMPTS.values())
-
     def prompt_identity(self, task: str) -> str:
         return self._PROMPTS[task]
 

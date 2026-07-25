@@ -37,10 +37,6 @@ class AtlasFreshnessService:
         if mismatches:
             raise self._stale(atlas, " and ".join(mismatches) + " changed")
 
-    def assert_fresh(self, atlas: Atlas) -> None:
-        """Compatibility spelling for callers that model freshness as an assertion."""
-        self.ensure_fresh(atlas)
-
     @staticmethod
     def _stale(atlas: Atlas, reason: str) -> StaleAtlasError:
         return StaleAtlasError(

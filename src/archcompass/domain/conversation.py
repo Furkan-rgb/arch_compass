@@ -347,10 +347,6 @@ class AnswerStatement(DomainModel):
     def __str__(self) -> str:
         return self.text
 
-    def casefold(self) -> str:
-        """Offer text compatibility without weakening the typed contract."""
-        return self.text.casefold()
-
 
 class ConversationAnswer(DomainModel):
     direct_answer: AnswerStatement

@@ -71,8 +71,7 @@ policy conflicts. Unknown references never survive validation.
 Confidence is `low`, `medium`, or `high` with prose rationale. It is not a probability or
 complexity score.
 
-Schema-v1 and schema-v2 standalone and stored reports remain readable. Compatibility validation
-wraps legacy substantive strings as explicitly marked legacy statements and maps positional
-scenario results to the corresponding alternative IDs. Pre-v3 reports gain one explicitly
-uncertain compatibility finding derived only from persisted claims. New schema-v3 reports reject
-missing findings and unstructured substantive prose.
+Reports declare schema version 3 explicitly and are validated against that schema alone. A
+report with missing findings, unstructured substantive prose, or positional scenario results is
+rejected rather than upgraded, and every substantive statement must cite at least one supporting
+claim. There is no in-band flag that exempts a statement from that requirement.

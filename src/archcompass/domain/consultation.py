@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal, cast
+from typing import Literal
 
 from pydantic import Field, JsonValue, RootModel, model_validator
 
@@ -25,29 +24,14 @@ from archcompass.domain.atlas import (
     SourceLocation,
 )
 from archcompass.domain.base import DomainModel, new_id, utc_now
-from archcompass.domain.case import ArchitectureCase, CaseAlternative, Confidence
+from archcompass.domain.case import CaseAlternative, Confidence
 from archcompass.domain.diagnostics import FailureDiagnostic, FailureDiagnosticCode
 from archcompass.domain.policy import (
     PolicyApplicabilityContext,
     PolicyConflict,
     PolicyEvidenceSummary,
-    PolicyScope,
-    PolicyStrength,
     RetrievedPolicy,
 )
-
-
-def _mapping(value: object) -> dict[str, object] | None:
-    if not isinstance(value, Mapping):
-        return None
-    source = cast(Mapping[object, object], value)
-    return {str(key): item for key, item in source.items()}
-
-
-def _objects(value: object) -> list[object] | None:
-    if not isinstance(value, list):
-        return None
-    return cast(list[object], value)
 
 
 class ClaimClassification(StrEnum):
@@ -61,8 +45,8 @@ class ClaimClassification(StrEnum):
 
 class AtlasEvidenceReference(DomainModel):
     node_id: str = Field(min_length=1)
-    # Optional only so schema-v1 reports remain readable. New repository
-    # observations are rejected by evidence validation unless this is present.
+    # Optional because non-repository claims may cite a node without a span.
+    # Evidence validation rejects a repository observation that omits it.
     location: SourceLocation | None = None
 
 
@@ -287,55 +271,9 @@ class FocusedAnalysisPacket(DomainModel):
     assumptions: list[str] = Field(default_factory=list[str])
     uncertainty: list[str] = Field(min_length=1)
 
-    @model_validator(mode="before")
-    @classmethod
-    def upgrade_legacy_packet(cls, value: object) -> object:
-        data = _mapping(value)
-        if data is None or "cluster" in data:
-            return value
-        query_results = _objects(data.pop("query_results", [])) or []
-        force_ids = [str(item) for item in (_objects(data.pop("design_force_ids", [])) or [])]
-        concern = str(data.pop("concern", "Legacy concern"))
-        reason = str(data.pop("reason", "Loaded from a schema-v1 consultation run"))
-        summaries: dict[str, FocusedNodeSummary] = {}
-        excerpts: list[object] = []
-        for result in query_results:
-            result_data = _mapping(result)
-            if result_data is None:
-                continue
-            summary = str(result_data.get("summary", ""))
-            for node_id in _objects(result_data.get("node_ids", [])) or []:
-                summaries.setdefault(
-                    str(node_id),
-                    FocusedNodeSummary(node_id=str(node_id), summary=summary),
-                )
-            excerpts.extend(_objects(result_data.get("excerpts", [])) or [])
-        data.update(
-            {
-                "cluster": {
-                    "cluster_id": "cluster_legacy",
-                    "title": concern,
-                    "rationale": reason,
-                    "design_force_ids": force_ids or ["force_legacy"],
-                },
-                "node_summaries": [
-                    summary.model_dump(mode="json") for summary in summaries.values()
-                ],
-                "metrics": [],
-                "relationships": [],
-                "test_ids": [],
-                "excerpts": excerpts,
-            }
-        )
-        return data
-
     @property
     def concern(self) -> str:
         return self.cluster.title
-
-    @property
-    def reason(self) -> str:
-        return self.cluster.rationale
 
     @property
     def design_force_ids(self) -> list[str]:
@@ -348,14 +286,9 @@ class FocusedAnalysisPacket(DomainModel):
             *(excerpt.node_id for excerpt in self.excerpts),
         }
 
-    @property
-    def query_results(self) -> list[FocusedNodeSummary]:
-        """Schema-v1 API compatibility without serializing raw query results."""
-        return self.node_summaries
-
 
 class ConcernAnalysis(DomainModel):
-    cluster_id: str = "cluster_legacy"
+    cluster_id: str = Field(min_length=1)
     concern: str = Field(min_length=1)
     findings: list[Claim] = Field(min_length=1)
     implications: list[str] = Field(min_length=1)
@@ -367,19 +300,6 @@ class ScenarioEvaluation(DomainModel):
     assumptions: list[str]
     alternative_results: dict[str, str] = Field(min_length=1)
     conclusion: str = Field(min_length=1)
-
-    @model_validator(mode="before")
-    @classmethod
-    def upgrade_legacy_results(cls, value: object) -> object:
-        data = _mapping(value)
-        if data is None:
-            return value
-        results = _objects(data.get("alternative_results"))
-        if results is not None:
-            data["alternative_results"] = {
-                f"legacy_{index}": str(result) for index, result in enumerate(results, start=1)
-            }
-        return data
 
 
 class RecommendationDisposition(StrEnum):
@@ -451,7 +371,6 @@ class SupportedStatement(DomainModel):
     text: str = Field(min_length=1)
     classification: ClaimClassification
     supporting_claim_ids: list[str] = Field(json_schema_extra={"minItems": 1})
-    legacy: bool = False
 
     @model_validator(mode="after")
     def require_support(self) -> SupportedStatement:
@@ -459,36 +378,12 @@ class SupportedStatement(DomainModel):
             raise ValueError("Supported statement text must not be blank")
         if len(self.supporting_claim_ids) != len(set(self.supporting_claim_ids)):
             raise ValueError("Supporting claim IDs must be unique")
-        if not self.legacy and not self.supporting_claim_ids:
-            raise ValueError("A new supported statement must cite at least one claim")
+        if not self.supporting_claim_ids:
+            raise ValueError("A supported statement must cite at least one claim")
         return self
-
-    @classmethod
-    def legacy_value(cls, text: str) -> SupportedStatement:
-        return cls(
-            text=text,
-            classification=ClaimClassification.ADVISOR_INFERENCE,
-            supporting_claim_ids=[],
-            legacy=True,
-        )
-
-    def casefold(self) -> str:
-        """Allow schema-v1 string-style assertions while preserving the typed value."""
-        return self.text.casefold()
 
     def __str__(self) -> str:
         return self.text
-
-
-def _legacy_statement(value: object) -> object:
-    if isinstance(value, str):
-        return {
-            "text": value,
-            "classification": ClaimClassification.ADVISOR_INFERENCE,
-            "supporting_claim_ids": [],
-            "legacy": True,
-        }
-    return value
 
 
 class ADRRecord(DomainModel):
@@ -498,158 +393,9 @@ class ADRRecord(DomainModel):
     decision: SupportedStatement
     consequences: list[SupportedStatement] = Field(min_length=1)
 
-    @model_validator(mode="before")
-    @classmethod
-    def upgrade_legacy_strings(cls, value: object) -> object:
-        data = _mapping(value)
-        if data is None:
-            return value
-        data["decision"] = _legacy_statement(data.get("decision"))
-        consequences = _objects(data.get("consequences"))
-        if consequences is not None:
-            data["consequences"] = [_legacy_statement(item) for item in consequences]
-        return data
-
-
-def _upgrade_scenario_mappings(scenarios: object, alternatives: object) -> object:
-    scenario_items = _objects(scenarios)
-    alternative_items = _objects(alternatives)
-    if scenario_items is None or alternative_items is None:
-        return scenarios
-    alternative_ids: list[str] = []
-    for raw_alternative in alternative_items:
-        alternative = _mapping(raw_alternative)
-        if alternative is not None and alternative.get("id"):
-            alternative_ids.append(str(alternative["id"]))
-    upgraded: list[object] = []
-    for raw_scenario in scenario_items:
-        scenario = _mapping(raw_scenario)
-        if scenario is None:
-            upgraded.append(raw_scenario)
-            continue
-        results = _objects(scenario.get("alternative_results"))
-        if results is not None and len(results) == len(alternative_ids):
-            scenario["alternative_results"] = dict(zip(alternative_ids, results, strict=True))
-        upgraded.append(scenario)
-    return upgraded
-
-
-def _legacy_findings(data: dict[str, object]) -> list[dict[str, object]]:
-    raw_claims: list[dict[str, object]] = []
-    for field in (
-        "repository_observations",
-        "evidence_appendix",
-        "confirmed_context",
-        "assumptions_and_unresolved_questions",
-        "relevant_policies",
-    ):
-        for item in _objects(data.get(field, [])) or []:
-            mapped = _mapping(item)
-            if mapped is not None and mapped.get("claim_id"):
-                raw_claims.append(mapped)
-    if not raw_claims:
-        return []
-
-    raw_claims = list(
-        {
-            str(item["claim_id"]): item
-            for item in raw_claims
-        }.values()
-    )
-    claim_ids = list(dict.fromkeys(str(item["claim_id"]) for item in raw_claims))
-    raw_references = [
-        reference
-        for claim in raw_claims
-        for reference in (_objects(claim.get("atlas_references", [])) or [])
-    ]
-    references = [
-        mapped
-        for raw_reference in raw_references
-        if (mapped := _mapping(raw_reference)) is not None
-    ]
-    atlas_node_ids = list(
-        dict.fromkeys(
-            str(reference["node_id"])
-            for reference in references
-            if reference.get("node_id")
-        )
-    )
-    affected_locations: list[dict[str, object]] = []
-    seen_locations: set[str] = set()
-    for reference in references:
-        if not reference.get("node_id"):
-            continue
-        node_id = str(reference["node_id"])
-        location = _mapping(reference.get("location"))
-        if location is None or node_id in seen_locations:
-            continue
-        seen_locations.add(node_id)
-        affected_locations.append(
-            {
-                "node_id": node_id,
-                "qualified_name": node_id,
-                "node_type": "module",
-                "path": str(location.get("path", "")),
-                "location": location,
-            }
-        )
-    policy_ids = list(
-        dict.fromkeys(
-            str(policy_id)
-            for claim in raw_claims
-            for policy_id in (_objects(claim.get("policy_ids", [])) or [])
-        )
-    )
-
-    def statement_text(field: str, fallback: str) -> str:
-        value = data.get(field)
-        mapped = _mapping(value)
-        if mapped is not None and mapped.get("text"):
-            return str(mapped["text"])
-        if isinstance(value, str) and value.strip():
-            return value
-        return fallback
-
-    confidence = data.get("confidence")
-    if _mapping(confidence) is None:
-        confidence = {
-            "level": "low",
-            "rationale": "The legacy report did not retain finding-level confidence.",
-        }
-    return [
-        {
-            "finding_id": "FIND-001",
-            "title": "Legacy architectural finding",
-            "summary": str(raw_claims[0].get("text", "Legacy architectural concern")),
-            "concern_cluster_id": None,
-            "importance": FindingImportance.MEDIUM,
-            "importance_rationale": (
-                "The legacy report did not retain a contextual finding-importance assessment."
-            ),
-            "confidence": confidence,
-            "consequence": statement_text(
-                "change_amplification_analysis",
-                "Consult the original legacy report for the recorded consequence.",
-            ),
-            "claim_ids": claim_ids,
-            "atlas_node_ids": atlas_node_ids,
-            "policy_ids": policy_ids,
-            "affected_locations": affected_locations,
-            "metric_observations": [],
-            "obscurity_signals": [],
-            "recommended_response": statement_text(
-                "recommended_architecture",
-                "Consult the original legacy recommendation.",
-            ),
-            "uncertainty": [
-                "This finding was derived for compatibility from a pre-V1.2 report."
-            ],
-        }
-    ]
-
 
 class RecommendationReport(DomainModel):
-    schema_version: Literal[3] = 3
+    schema_version: Literal[3]
     report_id: str = Field(default_factory=lambda: new_id("report"))
     disposition: RecommendationDisposition
     decision_summary: SupportedStatement
@@ -677,97 +423,6 @@ class RecommendationReport(DomainModel):
     revisit_triggers: list[SupportedStatement] = Field(min_length=1)
     adr: ADRRecord
     evidence_appendix: list[Claim]
-
-    @model_validator(mode="before")
-    @classmethod
-    def upgrade_schema_v1(cls, value: object) -> object:
-        data = _mapping(value)
-        if data is None:
-            return value
-        source_version = int(str(data.get("schema_version", 1)))
-        legacy = source_version < 2
-        data["schema_version"] = 3
-        if not legacy:
-            scalar_fields = (
-                "decision_summary",
-                "recommended_architecture",
-                "change_amplification_analysis",
-            )
-            list_fields = (
-                "responsibility_allocation",
-                "conceptual_interfaces",
-                "trade_offs",
-                "implementation_sequence",
-                "reversal_conditions",
-                "revisit_triggers",
-            )
-            if any(isinstance(data.get(field), str) for field in scalar_fields):
-                raise ValueError("Schema-v2 substantive report prose must use SupportedStatement")
-            if any(
-                any(isinstance(item, str) for item in (_objects(data.get(field)) or []))
-                for field in list_fields
-            ):
-                raise ValueError("Schema-v2 substantive report lists must use SupportedStatement")
-            if source_version < 3 and not (_objects(data.get("findings")) or []):
-                data["findings"] = _legacy_findings(data)
-            return data
-        text = str(data.get("decision_summary", "")).casefold()
-        data.setdefault(
-            "disposition",
-            (
-                RecommendationDisposition.KEEP_LOCAL
-                if "keep" in text and "local" in text
-                else (
-                    RecommendationDisposition.MOVE_RESPONSIBILITY
-                    if "provider" in text or "owner" in text
-                    else RecommendationDisposition.GATHER_INFORMATION
-                )
-            ),
-        )
-        statement_fields = (
-            "decision_summary",
-            "recommended_architecture",
-            "change_amplification_analysis",
-        )
-        for field in statement_fields:
-            data[field] = _legacy_statement(data.get(field))
-        list_fields = (
-            "responsibility_allocation",
-            "conceptual_interfaces",
-            "trade_offs",
-            "implementation_sequence",
-            "reversal_conditions",
-            "revisit_triggers",
-        )
-        for field in list_fields:
-            items = _objects(data.get(field))
-            if items is not None:
-                data[field] = [_legacy_statement(item) for item in items]
-        data["scenario_analysis"] = _upgrade_scenario_mappings(
-            data.get("scenario_analysis"), data.get("alternatives_considered")
-        )
-        if "policy_evidence" not in data:
-            policy_ids: list[str] = []
-            for field in ("relevant_policies", "evidence_appendix"):
-                for raw_claim in _objects(data.get(field, [])) or []:
-                    claim = _mapping(raw_claim)
-                    if claim is not None:
-                        policy_ids.extend(
-                            str(item) for item in (_objects(claim.get("policy_ids", [])) or [])
-                        )
-            data["policy_evidence"] = [
-                {
-                    "id": policy_id,
-                    "title": policy_id,
-                    "scope": PolicyScope.GENERAL,
-                    "strength": PolicyStrength.GUIDANCE,
-                    "matched_sections": ["Legacy report; section metadata unavailable"],
-                }
-                for policy_id in dict.fromkeys(policy_ids)
-            ]
-        data.setdefault("policy_conflicts", [])
-        data["findings"] = _legacy_findings(data)
-        return data
 
     @model_validator(mode="after")
     def validate_report_contract(self) -> RecommendationReport:
@@ -809,11 +464,8 @@ class RecommendationReport(DomainModel):
             raise ValueError("Report prose must not contain blank content")
         if any(not scenario.assumptions for scenario in self.scenario_analysis):
             raise ValueError("Every scenario requires at least one explicit assumption")
-        if (
-            any(not statement.legacy for statement in self.supported_statements())
-            and not self.evidence_appendix
-        ):
-            raise ValueError("A schema-v2 report requires a nonempty evidence appendix")
+        if not self.evidence_appendix:
+            raise ValueError("A recommendation report requires a nonempty evidence appendix")
         section_kinds = (
             (
                 "confirmed_context",
@@ -956,7 +608,6 @@ class ConsultationFailureStage(StrEnum):
     VALIDATION = "validation"
     RENDERING = "rendering"
     COMMIT = "commit"
-    LEGACY_UNKNOWN = "legacy_unknown"
 
 
 class ClusterQueryPlan(DomainModel):
@@ -977,7 +628,7 @@ class ClusterQueryPlan(DomainModel):
 
 
 class ConsultationRun(DomainModel):
-    schema_version: Literal[3] = 3
+    schema_version: Literal[3]
     run_id: str = Field(default_factory=lambda: new_id("run"))
     status: ConsultationStatus
     case_id: str
@@ -1012,58 +663,6 @@ class ConsultationRun(DomainModel):
     started_at: datetime = Field(default_factory=utc_now)
     completed_at: datetime = Field(default_factory=utc_now)
     execution_metadata: dict[str, JsonValue] = Field(default_factory=dict[str, JsonValue])
-
-    @model_validator(mode="before")
-    @classmethod
-    def upgrade_schema_v1(cls, value: object) -> object:
-        data = _mapping(value)
-        if data is None:
-            return value
-        legacy = int(str(data.get("schema_version", 1))) < 2
-        data["schema_version"] = 3
-        if not legacy:
-            return data
-        validation_errors = [
-            str(item) for item in (_objects(data.pop("validation_errors", [])) or [])
-        ]
-        repair_attempted = bool(data.pop("repair_attempted", False))
-        data.setdefault("initial_validation_errors", validation_errors)
-        data.setdefault("final_validation_errors", validation_errors)
-        data.setdefault(
-            "repair_actions",
-            ["Schema-v1 run recorded a repair attempt"] if repair_attempted else [],
-        )
-        data.setdefault("clusters", [])
-        data.setdefault("concern_analyses", [])
-        data.setdefault("stage_timings", {})
-        plans = _objects(data.get("query_plans"))
-        if plans is not None:
-            upgraded_plans: list[object] = []
-            for item in plans:
-                if isinstance(item, ClusterQueryPlan):
-                    upgraded_plans.append(item)
-                    continue
-                item_data = _mapping(item)
-                upgraded_plans.append(
-                    item_data
-                    if item_data is not None and "plan" in item_data
-                    else {"cluster_id": "cluster_legacy", "plan": item}
-                )
-            data["query_plans"] = upgraded_plans
-        if "scenarios" in data:
-            data["scenarios"] = _upgrade_scenario_mappings(
-                data.get("scenarios"), data.get("alternatives")
-            )
-        if legacy and data.get("status") == ConsultationStatus.FAILED:
-            data.setdefault("failure_stage", ConsultationFailureStage.LEGACY_UNKNOWN)
-            data.setdefault(
-                "sanitized_errors",
-                validation_errors or ["Legacy consultation failed without a recorded error"],
-            )
-        elif legacy:
-            data.setdefault("failure_stage", None)
-            data.setdefault("sanitized_errors", [])
-        return data
 
     @model_validator(mode="after")
     def validate_run_contract(self) -> ConsultationRun:
@@ -1132,17 +731,3 @@ class ConsultationRun(DomainModel):
                         f"{sorted(unknown_finding_clusters)}"
                     )
         return self
-
-    @property
-    def validation_errors(self) -> list[str]:
-        """Schema-v1 read compatibility."""
-        return self.final_validation_errors
-
-    @property
-    def repair_attempted(self) -> bool:
-        """Schema-v1 read compatibility."""
-        return bool(self.repair_actions)
-
-
-class CaseExtraction(DomainModel):
-    update: ArchitectureCase

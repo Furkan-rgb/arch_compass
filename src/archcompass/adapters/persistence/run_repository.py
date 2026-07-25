@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from archcompass.adapters.persistence.database import SQLiteDatabase
+from archcompass.adapters.persistence.stored_records import decode_stored_json
 from archcompass.domain.consultation import ConsultationRun
 from archcompass.domain.errors import RunNotFoundError
 from archcompass.domain.workspace import RunSummary
@@ -24,7 +25,11 @@ class SQLiteRunRepository:
             ).fetchone()
         if row is None:
             raise RunNotFoundError(f"Consultation run {run_id} was not found")
-        return ConsultationRun.model_validate_json(row["run_json"])
+        return decode_stored_json(
+            ConsultationRun,
+            row["run_json"],
+            description=f"Consultation run {run_id}",
+        )
 
     def list(
         self,
@@ -53,7 +58,11 @@ class SQLiteRunRepository:
             rows = connection.execute(query, parameters).fetchall()
         summaries: list[RunSummary] = []
         for row in rows:
-            run = ConsultationRun.model_validate_json(row["run_json"])
+            run = decode_stored_json(
+                ConsultationRun,
+                row["run_json"],
+                description="A stored consultation run",
+            )
             summaries.append(
                 RunSummary(
                     run_id=run.run_id,

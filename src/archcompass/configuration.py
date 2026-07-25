@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 from pydantic import Field, ValidationError, model_validator
 
+from archcompass.domain import budgets
 from archcompass.domain.base import DomainModel, canonical_json, stable_id
 from archcompass.domain.errors import ConfigurationError
 
@@ -17,9 +18,6 @@ def default_config_text() -> str:
     """Return the packaged default model configuration."""
     return files("archcompass.resources").joinpath("models.yaml").read_text(encoding="utf-8")
 
-
-# Backwards-compatible import for callers that previously consumed the template.
-DEFAULT_CONFIG_TEXT = default_config_text()
 
 
 class ReasoningModelConfig(DomainModel):
@@ -65,18 +63,40 @@ class ConsultationConfig(DomainModel):
 
 
 class ConversationConfig(DomainModel):
-    max_actions_per_question: int = Field(default=8, ge=1, le=8)
-    max_findings: int = Field(default=12, ge=1, le=12)
-    max_atlas_nodes: int = Field(default=24, ge=1, le=24)
-    max_policies: int = Field(default=8, ge=1, le=8)
-    max_neighbourhood_depth: int = Field(default=2, ge=1, le=2)
-    max_excerpt_lines: int = Field(default=120, ge=1, le=120)
-    max_total_excerpt_lines: int = Field(default=180, ge=1, le=180)
-    max_retrieved_text_characters: int = Field(default=24_000, ge=1000, le=24_000)
-    recent_message_limit: int = Field(default=8, ge=1, le=8)
-    summarize_after_messages: int = Field(default=12, ge=12, le=12)
-    summarize_every_messages: int = Field(default=8, ge=8, le=8)
-    max_summary_characters: int = Field(default=6000, ge=500, le=6000)
+    """Per-turn budgets, bounded above by the mandated ceilings in `domain.budgets`.
+
+    A workspace may lower any of these to tighten a run; none may be raised. Values
+    that admit exactly one setting live in `domain.budgets` instead of here.
+    """
+
+    max_actions_per_question: int = Field(
+        default=budgets.MAX_ACTIONS_PER_QUESTION, ge=1, le=budgets.MAX_ACTIONS_PER_QUESTION
+    )
+    max_findings: int = Field(default=budgets.MAX_FINDINGS, ge=1, le=budgets.MAX_FINDINGS)
+    max_atlas_nodes: int = Field(
+        default=budgets.MAX_ATLAS_NODES, ge=1, le=budgets.MAX_ATLAS_NODES
+    )
+    max_policies: int = Field(default=budgets.MAX_POLICIES, ge=1, le=budgets.MAX_POLICIES)
+    max_neighbourhood_depth: int = Field(
+        default=budgets.MAX_NEIGHBOURHOOD_DEPTH, ge=1, le=budgets.MAX_NEIGHBOURHOOD_DEPTH
+    )
+    max_excerpt_lines: int = Field(
+        default=budgets.MAX_EXCERPT_LINES, ge=1, le=budgets.MAX_EXCERPT_LINES
+    )
+    max_total_excerpt_lines: int = Field(
+        default=budgets.MAX_TOTAL_EXCERPT_LINES, ge=1, le=budgets.MAX_TOTAL_EXCERPT_LINES
+    )
+    max_retrieved_text_characters: int = Field(
+        default=budgets.MAX_RETRIEVED_TEXT_CHARACTERS,
+        ge=1000,
+        le=budgets.MAX_RETRIEVED_TEXT_CHARACTERS,
+    )
+    recent_message_limit: int = Field(
+        default=budgets.RECENT_MESSAGE_LIMIT, ge=1, le=budgets.RECENT_MESSAGE_LIMIT
+    )
+    max_summary_characters: int = Field(
+        default=budgets.MAX_SUMMARY_CHARACTERS, ge=500, le=budgets.MAX_SUMMARY_CHARACTERS
+    )
 
 
 class AppConfig(DomainModel):
