@@ -75,6 +75,7 @@ from archcompass.domain.errors import (
     EvidenceReferenceError,
     ModelOutputValidationError,
 )
+from archcompass.domain.evidence_rules import location_within
 from archcompass.domain.execution import ProgressEventType
 from archcompass.domain.policy import (
     PolicyApplicabilityContext,
@@ -86,7 +87,7 @@ from archcompass.domain.policy import (
 from archcompass.ports.atlas import AtlasFreshnessChecker, AtlasQueryService
 from archcompass.ports.policies import PolicyIndex, PolicyRetriever
 from archcompass.ports.progress import ConsultationProgressSink
-from archcompass.ports.reasoning import FocusedReasoningProvider
+from archcompass.ports.reasoning import FocusedReasoningProvider, ReasoningTask
 from archcompass.ports.repositories import (
     AtlasRepository,
     CaseRepository,
@@ -96,6 +97,16 @@ from archcompass.ports.repositories import (
 
 Result = TypeVar("Result")
 POLICY_QUERY_CHARACTER_BUDGET = 8_000
+
+
+def _surfaced_span(
+    node_summaries: dict[str, FocusedNodeSummary],
+    node_id: str,
+) -> SourceLocation | None:
+    """The span a packet surfaced for a node, or None when it surfaced no node."""
+
+    summary = node_summaries.get(node_id)
+    return summary.location if summary is not None else None
 
 
 class ConsultationWorkflow:
@@ -271,7 +282,7 @@ class ConsultationWorkflow:
                 "Discovering design forces",
             )
             advisor_forces = self._reason(
-                "discover_design_forces",
+                ReasoningTask.DISCOVER_DESIGN_FORCES,
                 prompt_identities,
                 stage_timings,
                 lambda: self._reasoning.discover_design_forces(context),
@@ -298,7 +309,7 @@ class ConsultationWorkflow:
                 "Organizing concerns",
             )
             clusters = self._reason(
-                "cluster_design_forces",
+                ReasoningTask.CLUSTER_DESIGN_FORCES,
                 prompt_identities,
                 stage_timings,
                 lambda: self._reasoning.cluster_design_forces(context, forces),
@@ -346,7 +357,7 @@ class ConsultationWorkflow:
                         f"Planning repository zoom {iteration}",
                     )
                     iteration_plans = self._reason(
-                        "plan_atlas_queries",
+                        ReasoningTask.PLAN_ATLAS_QUERIES,
                         prompt_identities,
                         stage_timings,
                         lambda iteration=iteration: self._reasoning.plan_atlas_queries(
@@ -519,7 +530,7 @@ class ConsultationWorkflow:
                     f"Analyzing {cluster.title}",
                 )
                 analysis = self._reason(
-                    "analyze_concern_cluster",
+                    ReasoningTask.ANALYZE_CONCERN_CLUSTER,
                     prompt_identities,
                     stage_timings,
                     lambda packet=packet: self._reasoning.analyze_concern_cluster(context, packet),
@@ -556,7 +567,7 @@ class ConsultationWorkflow:
                 "Generating credible alternatives",
             )
             alternatives = self._reason(
-                "generate_alternatives",
+                ReasoningTask.GENERATE_ALTERNATIVES,
                 prompt_identities,
                 stage_timings,
                 lambda: self._reasoning.generate_alternatives(context, analyses),
@@ -581,7 +592,7 @@ class ConsultationWorkflow:
                 "Testing future scenarios",
             )
             scenarios = self._reason(
-                "evaluate_scenarios",
+                ReasoningTask.EVALUATE_SCENARIOS,
                 prompt_identities,
                 stage_timings,
                 lambda: self._reasoning.evaluate_scenarios(context, alternatives, analyses),
@@ -607,7 +618,7 @@ class ConsultationWorkflow:
                 "Synthesizing recommendation",
             )
             report = self._reason(
-                "synthesize_recommendation",
+                ReasoningTask.SYNTHESIZE_RECOMMENDATION,
                 prompt_identities,
                 stage_timings,
                 lambda: self._reasoning.synthesize_recommendation(
@@ -983,7 +994,7 @@ class ConsultationWorkflow:
 
     def _reason(
         self,
-        task: str,
+        task: ReasoningTask,
         prompt_identities: list[str],
         timings: dict[str, float],
         operation: Callable[[], Result],
@@ -991,7 +1002,7 @@ class ConsultationWorkflow:
         timing_suffix: str | None = None,
     ) -> Result:
         prompt_identities.append(self._reasoning.prompt_identity(task))
-        timing_key = task if timing_suffix is None else f"{task}.{timing_suffix}"
+        timing_key = task.value if timing_suffix is None else f"{task.value}.{timing_suffix}"
         return self._timed(timings, timing_key, operation)
 
     @staticmethod
@@ -1625,18 +1636,13 @@ class ConsultationWorkflow:
 
         for finding in analysis.findings:
             if finding.classification == ClaimClassification.REPOSITORY_OBSERVATION:
-                supported = bool(finding.atlas_references)
-                for reference in finding.atlas_references:
-                    summary = node_summaries.get(reference.node_id)
-                    location = reference.location
-                    supported = supported and (
-                        summary is not None
-                        and summary.location is not None
-                        and location is not None
-                        and location.path == summary.location.path
-                        and location.start_line >= summary.location.start_line
-                        and location.end_line <= summary.location.end_line
+                supported = bool(finding.atlas_references) and all(
+                    location_within(
+                        _surfaced_span(node_summaries, reference.node_id),
+                        reference.location,
                     )
+                    for reference in finding.atlas_references
+                )
                 if not supported:
                     record(
                         "dropped_unsupported_repository_finding",
@@ -1703,15 +1709,9 @@ class ConsultationWorkflow:
                         "Repository findings require a surfaced atlas node and source location"
                     )
                 for reference in finding.atlas_references:
-                    summary = node_summaries.get(reference.node_id)
-                    location = reference.location
-                    if (
-                        summary is None
-                        or summary.location is None
-                        or location is None
-                        or location.path != summary.location.path
-                        or location.start_line < summary.location.start_line
-                        or location.end_line > summary.location.end_line
+                    if not location_within(
+                        _surfaced_span(node_summaries, reference.node_id),
+                        reference.location,
                     ):
                         raise ModelOutputValidationError(
                             "Repository finding has an invalid or unsurfaced source location"

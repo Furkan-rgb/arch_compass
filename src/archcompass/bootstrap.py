@@ -53,8 +53,16 @@ from archcompass.application.safety import (
 from archcompass.application.workspace import WorkspaceConfigurationService
 from archcompass.configuration import AppConfig, load_config, resolve_config_path
 from archcompass.domain.errors import ConfigurationError
+from archcompass.ports.atlas import AtlasQueryService, RepositoryAnalyzer
 from archcompass.ports.models import EmbeddingProvider
+from archcompass.ports.policies import PolicyIndex
+from archcompass.ports.progress import ConsultationJobRepository
 from archcompass.ports.reasoning import FocusedReasoningProvider
+from archcompass.ports.repositories import (
+    AtlasRepository,
+    CaseRepository,
+    ConsultationRunRepository,
+)
 from archcompass.workflows import ConsultationWorkflow
 
 BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
@@ -62,16 +70,24 @@ BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
 
 @dataclass(frozen=True)
 class Runtime:
+    """The composed application surface.
+
+    Dependencies are named by their port, not their adapter, so nothing outside this
+    module can depend on a concrete SQLite, AST, or vector-store type. `database` is
+    the exception: it is this module's own infrastructure handle rather than a
+    swappable dependency, and structural tests keep presentation away from it.
+    """
+
     workspace: Path
     config: AppConfig
     database: SQLiteDatabase
-    case_repository: SQLiteCaseRepository
-    run_repository: SQLiteRunRepository
-    job_repository: SQLiteConsultationJobRepository
-    atlas_repository: SQLiteAtlasRepository
-    analyzer: PythonAstRepositoryAnalyzer
-    query_service: DeterministicAtlasQueryService
-    policy_store: SQLitePolicyStore
+    case_repository: CaseRepository
+    run_repository: ConsultationRunRepository
+    job_repository: ConsultationJobRepository
+    atlas_repository: AtlasRepository
+    analyzer: RepositoryAnalyzer
+    query_service: AtlasQueryService
+    policy_store: PolicyIndex
     policy_sources: tuple[Path, ...]
     case_service: CaseService
     workflow: ConsultationWorkflow

@@ -167,3 +167,49 @@ def test_report_conversation_context_is_assembled_before_model_adapters() -> Non
         "ReportConversation",
         "ReportConversationContext",
     } <= imported_names
+
+
+def test_model_adapters_do_not_import_application_or_workflow_layers() -> None:
+    """Adapters own transport and schema constraint, never application policy.
+
+    `docs/architecture.md` states that model adapters "do not choose evidence,
+    history, citation, or truncation rules". This pins the import direction that
+    makes the statement enforceable rather than aspirational.
+    """
+
+    forbidden = ("archcompass.application", "archcompass.workflows")
+    for path in (SOURCE_ROOT / "adapters" / "models").rglob("*.py"):
+        imports = _imports(path)
+        assert not any(
+            imported == prefix or imported.startswith(f"{prefix}.")
+            for imported in imports
+            for prefix in forbidden
+        ), f"{path.relative_to(SOURCE_ROOT)} imports the application or workflow layer"
+
+
+def test_evidence_containment_rule_has_a_single_implementation() -> None:
+    """The "is this cited span inside its surfaced node" rule lives in the domain.
+
+    It previously existed in four places (two in the workflow, one in the Ollama
+    adapter, one in application evidence validation), which is exactly the kind of
+    duplicated knowledge the policy corpus warns about.
+    """
+
+    users = {
+        SOURCE_ROOT / "application" / "evidence.py",
+        SOURCE_ROOT / "application" / "conversation_validation.py",
+        SOURCE_ROOT / "workflows" / "consultation.py",
+        SOURCE_ROOT / "adapters" / "models" / "ollama.py",
+    }
+    for path in users:
+        assert "archcompass.domain.evidence_rules" in _imports(path), (
+            f"{path.relative_to(SOURCE_ROOT)} should use the shared containment rule"
+        )
+
+    hand_rolled = [
+        path
+        for path in SOURCE_ROOT.rglob("*.py")
+        if path.name != "evidence_rules.py"
+        and "end_line > " in path.read_text(encoding="utf-8")
+    ]
+    assert hand_rolled == [], f"Hand-rolled span containment remains in {hand_rolled}"

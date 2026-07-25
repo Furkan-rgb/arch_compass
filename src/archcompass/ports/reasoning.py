@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Protocol
 
 from archcompass.domain.case import ArchitectureCase, CaseAlternative
@@ -26,11 +27,33 @@ from archcompass.domain.conversation import (
 )
 
 
+class ReasoningTask(StrEnum):
+    """Every reasoning stage that carries its own versioned prompt contract.
+
+    Stage names were previously repeated as bare strings in the prompt registry, the
+    workflow call sites, and the conversation service, so a typo surfaced only as a
+    runtime KeyError. Naming them once makes the set checkable.
+    """
+
+    DISCOVER_DESIGN_FORCES = "discover_design_forces"
+    CLUSTER_DESIGN_FORCES = "cluster_design_forces"
+    PLAN_ATLAS_QUERIES = "plan_atlas_queries"
+    ANALYZE_CONCERN_CLUSTER = "analyze_concern_cluster"
+    GENERATE_ALTERNATIVES = "generate_alternatives"
+    EVALUATE_SCENARIOS = "evaluate_scenarios"
+    SYNTHESIZE_RECOMMENDATION = "synthesize_recommendation"
+    LINK_STATEMENT_SUPPORT = "link_statement_support"
+    CLASSIFY_REPORT_QUESTION = "classify_report_question"
+    ANSWER_REPORT_QUESTION = "answer_report_question"
+    SUMMARIZE_REPORT_CONVERSATION = "summarize_report_conversation"
+    REPAIR_CONVERSATION_ANSWER = "repair_conversation_answer"
+
+
 class ReportConversationReasoner(Protocol):
     @property
     def model_identity(self) -> str: ...
 
-    def prompt_identity(self, task: str) -> str: ...
+    def prompt_identity(self, task: ReasoningTask) -> str: ...
 
     def classify_report_question(
         self,

@@ -6,6 +6,7 @@ from dataclasses import replace
 import httpx
 import pytest
 
+from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
 from archcompass.adapters.models.ollama import OllamaReasoningProvider
 from archcompass.adapters.models.prompt_contracts import (
     ANALYZE_CONCERN_CLUSTER,
@@ -22,6 +23,7 @@ from archcompass.adapters.models.prompt_contracts import (
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.base import canonical_json
 from archcompass.domain.consultation import GlobalContext
+from archcompass.ports.reasoning import ReasoningTask
 
 
 def _config() -> ReasoningModelConfig:
@@ -73,17 +75,18 @@ def test_canonical_json_uses_one_serializer_for_models_and_prompt_mappings() -> 
 
 def test_stage_prompt_identities_are_versioned_unique_and_content_bound() -> None:
     expected_versions = {
-        "discover_design_forces": 5,
-        "cluster_design_forces": 3,
-        "plan_atlas_queries": 5,
-        "analyze_concern_cluster": 4,
-        "generate_alternatives": 3,
-        "evaluate_scenarios": 4,
-        "synthesize_recommendation": 3,
-        "classify_report_question": 2,
-        "answer_report_question": 6,
-        "summarize_report_conversation": 2,
-        "repair_conversation_answer": 2,
+        ReasoningTask.DISCOVER_DESIGN_FORCES: 5,
+        ReasoningTask.CLUSTER_DESIGN_FORCES: 3,
+        ReasoningTask.PLAN_ATLAS_QUERIES: 5,
+        ReasoningTask.ANALYZE_CONCERN_CLUSTER: 4,
+        ReasoningTask.GENERATE_ALTERNATIVES: 3,
+        ReasoningTask.EVALUATE_SCENARIOS: 4,
+        ReasoningTask.SYNTHESIZE_RECOMMENDATION: 3,
+        ReasoningTask.LINK_STATEMENT_SUPPORT: 1,
+        ReasoningTask.CLASSIFY_REPORT_QUESTION: 2,
+        ReasoningTask.ANSWER_REPORT_QUESTION: 6,
+        ReasoningTask.SUMMARIZE_REPORT_CONVERSATION: 2,
+        ReasoningTask.REPAIR_CONVERSATION_ANSWER: 2,
     }
 
     assert set(OLLAMA_STAGE_PROMPTS) == set(expected_versions)
@@ -184,7 +187,9 @@ def test_ollama_request_uses_the_stage_contract_and_default_sampling(
 
     provider.discover_design_forces(_context())
 
-    assert provider.prompt_identity("discover_design_forces") == (DISCOVER_DESIGN_FORCES.identity)
+    assert provider.prompt_identity(ReasoningTask.DISCOVER_DESIGN_FORCES) == (
+        DISCOVER_DESIGN_FORCES.identity
+    )
     request = captured["json"]
     assert isinstance(request, dict)
     messages = request["messages"]
@@ -203,3 +208,19 @@ def test_ollama_request_uses_the_stage_contract_and_default_sampling(
     }
     assert "temperature" not in request
     assert "temperature" not in request["options"]
+
+
+def test_every_reasoning_task_has_a_versioned_prompt_contract() -> None:
+    """The task enum and the Ollama prompt registry describe the same stage set."""
+
+    assert set(OLLAMA_STAGE_PROMPTS) == set(ReasoningTask)
+
+
+def test_deterministic_provider_resolves_identities_for_the_stages_it_runs() -> None:
+    """The fake answers for every stage except the one it has no call for."""
+
+    provider = DeterministicReasoningProvider()
+    for task in ReasoningTask:
+        if task is ReasoningTask.LINK_STATEMENT_SUPPORT:
+            continue  # The fake links statement support directly, without a model call.
+        assert provider.prompt_identity(task)

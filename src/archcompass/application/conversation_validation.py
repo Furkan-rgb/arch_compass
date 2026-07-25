@@ -22,6 +22,7 @@ from archcompass.domain.conversation import (
     ExplainMetricDefinitionAction,
     ReportConversationContext,
 )
+from archcompass.domain.evidence_rules import location_within, node_source_span
 
 _REPOSITORY_EVIDENCE_KINDS = {
     ConversationEvidenceKind.ATLAS_NODE,
@@ -175,15 +176,8 @@ def validate_conversation_answer(
                 errors.append(
                     f"Repository reference path does not match pinned node {node.atlas_id}"
                 )
-            if (
-                reference.kind is not ConversationEvidenceKind.SOURCE_EXCERPT
-                and (
-                location.end_line < location.start_line
-                or node.start_line is None
-                or node.end_line is None
-                or location.start_line < node.start_line
-                or location.end_line > node.end_line
-                )
+            if reference.kind is not ConversationEvidenceKind.SOURCE_EXCERPT and (
+                not location_within(node_source_span(node), location)
             ):
                 errors.append(
                     f"Repository reference span exceeds pinned node {node.atlas_id}"
@@ -563,10 +557,7 @@ def validate_conversation_context(
                 f"Repository reference path does not match pinned node {node.atlas_id}"
             )
         if reference.kind is not ConversationEvidenceKind.SOURCE_EXCERPT and (
-            node.start_line is None
-            or node.end_line is None
-            or location.start_line < node.start_line
-            or location.end_line > node.end_line
+            not location_within(node_source_span(node), location)
         ):
             errors.append(
                 f"Repository reference span exceeds pinned node {node.atlas_id}"

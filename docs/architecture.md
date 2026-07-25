@@ -70,8 +70,20 @@ policy documents.
 The narrow `ReportConversationReasoner` receives only provider-neutral typed dossiers. The
 application owns reference resolution, exact artifact scope, cumulative budgets, validation,
 repair allowlists, rendering, and summary coverage. Model adapters serialize the same canonical
-JSON used for hashes and do not choose evidence, history, citation, or truncation rules.
-Conversation adapters and services are composed only in `bootstrap.py`.
+JSON used for hashes and do not choose evidence, history, citation, or truncation rules. A
+structural test enforces that direction: `adapters/models` may not import the application or
+workflow packages.
+
+Domain rules have one implementation. Whether a cited source span is supported by a surfaced
+node is decided by `domain/evidence_rules.py`, used by concern-analysis validation in the
+workflow, report and conversation evidence validation in the application, and claim-survival
+checks in the Ollama adapter. A structural test fails if a hand-rolled containment check
+reappears. Reasoning stages are named once by the `ReasoningTask` enum rather than by repeated
+string literals, and the enum is asserted to match the prompt registry.
+
+`bootstrap.Runtime` names its dependencies by port, so nothing outside the composition root
+depends on a concrete SQLite, AST, or vector-store type. Conversation adapters and services are
+composed only in `bootstrap.py`.
 
 ## Information flow
 

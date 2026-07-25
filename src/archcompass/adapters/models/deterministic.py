@@ -67,6 +67,7 @@ from archcompass.domain.conversation import (
 )
 from archcompass.domain.errors import ConversationValidationError
 from archcompass.domain.policy import canonical_policy_evidence
+from archcompass.ports.reasoning import ReasoningTask
 
 _BOUNDARY_PREPARATION_SIGNAL_CODES = frozenset(
     {
@@ -99,25 +100,25 @@ class DeterministicEmbeddingProvider:
 
 
 class DeterministicReasoningProvider:
-    _PROMPTS: ClassVar[dict[str, str]] = {
-        "discover_design_forces": "discover-design-forces:v3",
-        "cluster_design_forces": "cluster-design-forces:v2",
-        "plan_atlas_queries": "plan-cluster-atlas-queries:v4",
-        "analyze_concern_cluster": "analyze-concern:v2",
-        "generate_alternatives": "generate-alternatives:v2",
-        "evaluate_scenarios": "evaluate-scenarios:v2",
-        "synthesize_recommendation": "synthesize-recommendation:v2",
-        "classify_report_question": "classify-report-question:v2",
-        "answer_report_question": "answer-report-question:v3",
-        "summarize_report_conversation": "summarize-report-conversation:v2",
-        "repair_conversation_answer": "repair-conversation-answer:v2",
+    _PROMPTS: ClassVar[dict[ReasoningTask, str]] = {
+        ReasoningTask.DISCOVER_DESIGN_FORCES: "discover-design-forces:v3",
+        ReasoningTask.CLUSTER_DESIGN_FORCES: "cluster-design-forces:v2",
+        ReasoningTask.PLAN_ATLAS_QUERIES: "plan-cluster-atlas-queries:v4",
+        ReasoningTask.ANALYZE_CONCERN_CLUSTER: "analyze-concern:v2",
+        ReasoningTask.GENERATE_ALTERNATIVES: "generate-alternatives:v2",
+        ReasoningTask.EVALUATE_SCENARIOS: "evaluate-scenarios:v2",
+        ReasoningTask.SYNTHESIZE_RECOMMENDATION: "synthesize-recommendation:v2",
+        ReasoningTask.CLASSIFY_REPORT_QUESTION: "classify-report-question:v2",
+        ReasoningTask.ANSWER_REPORT_QUESTION: "answer-report-question:v3",
+        ReasoningTask.SUMMARIZE_REPORT_CONVERSATION: "summarize-report-conversation:v2",
+        ReasoningTask.REPAIR_CONVERSATION_ANSWER: "repair-conversation-answer:v2",
     }
 
     @property
     def model_identity(self) -> str:
         return "fake:deterministic-architecture-v3"
 
-    def prompt_identity(self, task: str) -> str:
+    def prompt_identity(self, task: ReasoningTask) -> str:
         return self._PROMPTS[task]
 
     def consume_repair_actions(self) -> list[dict[str, object]]:

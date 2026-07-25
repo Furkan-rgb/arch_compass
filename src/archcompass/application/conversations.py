@@ -50,7 +50,7 @@ from archcompass.domain.conversation import (
 )
 from archcompass.domain.errors import ConversationValidationError
 from archcompass.ports.policies import PolicyIndex
-from archcompass.ports.reasoning import ReportConversationReasoner
+from archcompass.ports.reasoning import ReasoningTask, ReportConversationReasoner
 from archcompass.ports.repositories import (
     AtlasRepository,
     CaseRepository,
@@ -187,7 +187,7 @@ class ReportConversationService:
 
         stage: _ConversationStage = "classification"
         prompt_identities = [
-            self._reasoning.prompt_identity("classify_report_question")
+            self._reasoning.prompt_identity(ReasoningTask.CLASSIFY_REPORT_QUESTION)
         ]
         plan: ReportQuestionPlan | None = None
         record: ConversationRetrievalRecord | None = None
@@ -263,7 +263,7 @@ class ReportConversationService:
 
             stage = "answering"
             prompt_identities.append(
-                self._reasoning.prompt_identity("answer_report_question")
+                self._reasoning.prompt_identity(ReasoningTask.ANSWER_REPORT_QUESTION)
             )
             attempted_answer = self._reasoning.answer_report_question(context)
 
@@ -282,7 +282,7 @@ class ReportConversationService:
             )
             if errors:
                 prompt_identities.append(
-                    self._reasoning.prompt_identity("repair_conversation_answer")
+                    self._reasoning.prompt_identity(ReasoningTask.REPAIR_CONVERSATION_ANSWER)
                 )
                 attempted_answer = self._reasoning.repair_conversation_answer(
                     attempted_answer,
@@ -365,7 +365,7 @@ class ReportConversationService:
         user_message_id: str,
     ) -> None:
         prompt_identity = self._reasoning.prompt_identity(
-            "summarize_report_conversation"
+            ReasoningTask.SUMMARIZE_REPORT_CONVERSATION
         )
         try:
             self._maybe_summarize(

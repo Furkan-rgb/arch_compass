@@ -11,6 +11,7 @@ from archcompass.domain.atlas import (
     AtlasNodeEvidence,
     AtlasNodeSummary,
     ObscuritySignal,
+    SourceLocation,
 )
 from archcompass.domain.consultation import (
     ArchitecturalFinding,
@@ -21,6 +22,7 @@ from archcompass.domain.consultation import (
     RecommendationReport,
     SupportedStatement,
 )
+from archcompass.domain.evidence_rules import location_within, node_source_span
 
 
 @dataclass(frozen=True)
@@ -292,14 +294,7 @@ def _claim_errors(
             continue
         if location.path != node.path:
             errors.append(f"Claim {claim.claim_id} source path does not match node {node.atlas_id}")
-        if location.end_line < location.start_line:
-            errors.append(f"Claim {claim.claim_id} source span is reversed")
-        if (
-            node.start_line is None
-            or node.end_line is None
-            or location.start_line < node.start_line
-            or location.end_line > node.end_line
-        ):
+        elif not location_within(node_source_span(node), location):
             errors.append(f"Claim {claim.claim_id} source span exceeds node {node.atlas_id}")
     for policy_id in claim.policy_ids:
         if policy_id not in allowed_policy_ids:
@@ -731,27 +726,17 @@ def _finding_evidence_payload(finding: ArchitecturalFinding) -> dict[str, object
 
 def _reference_invalid(
     node_id: str,
-    location: object,
+    location: SourceLocation | None,
     allowed_nodes: dict[str, AtlasNode],
 ) -> bool:
+    """An unknown node is always invalid; a cited span must lie inside its node."""
+
     node = allowed_nodes.get(node_id)
     if node is None:
         return True
     if location is None:
         return False
-    start_line = getattr(location, "start_line", None)
-    end_line = getattr(location, "end_line", None)
-    path = getattr(location, "path", None)
-    return bool(
-        path != node.path
-        or not isinstance(start_line, int)
-        or not isinstance(end_line, int)
-        or end_line < start_line
-        or node.start_line is None
-        or node.end_line is None
-        or start_line < node.start_line
-        or end_line > node.end_line
-    )
+    return not location_within(node_source_span(node), location)
 
 
 def _all_claims(report: RecommendationReport) -> list[Claim]:

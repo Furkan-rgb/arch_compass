@@ -62,7 +62,9 @@ from archcompass.domain.errors import (
     ModelOutputValidationError,
     ProviderError,
 )
+from archcompass.domain.evidence_rules import location_within
 from archcompass.domain.policy import canonical_policy_evidence
+from archcompass.ports.reasoning import ReasoningTask
 
 Item = TypeVar("Item", bound=BaseModel)
 
@@ -166,7 +168,7 @@ class OllamaEmbeddingProvider:
 
 
 class OllamaReasoningProvider:
-    _PROMPTS: ClassVar[dict[str, str]] = {
+    _PROMPTS: ClassVar[dict[ReasoningTask, str]] = {
         task: contract.identity for task, contract in OLLAMA_STAGE_PROMPTS.items()
     }
 
@@ -178,7 +180,7 @@ class OllamaReasoningProvider:
     def model_identity(self) -> str:
         return f"{self._config.provider}:{self._config.model}"
 
-    def prompt_identity(self, task: str) -> str:
+    def prompt_identity(self, task: ReasoningTask) -> str:
         return self._PROMPTS[task]
 
     def consume_repair_actions(self) -> list[dict[str, object]]:
@@ -832,19 +834,13 @@ class OllamaReasoningProvider:
             return False
         if any(policy_id not in allowed_policy_ids for policy_id in claim.policy_ids):
             return False
-        for reference in claim.atlas_references:
-            node = nodes_by_id.get(reference.node_id)
-            location = reference.location
-            if node is None or node.location is None or location is None:
-                return False
-            if location.path != node.path or location.end_line < location.start_line:
-                return False
-            if (
-                location.start_line < node.location.start_line
-                or location.end_line > node.location.end_line
-            ):
-                return False
-        return True
+        return all(
+            location_within(
+                node.location if (node := nodes_by_id.get(reference.node_id)) else None,
+                reference.location,
+            )
+            for reference in claim.atlas_references
+        )
 
     @staticmethod
     def _support_plan_schema(

@@ -203,30 +203,45 @@ suite green.
   `legacy|compat` outside persistence read-path errors and the policy corpus; test suite
   green.
 
-### WS2 — Slim the adapter; consolidate validation authority
+### WS2 — Consolidate validation authority *(done)*
 
-*Goal: the Ollama adapter contains no domain rules; evidence validity has one
-implementation.*
+*Goal: one implementation of each domain rule; the adapter contains no policy it owns
+alone.*
 
-- Delete from `adapters/models/ollama.py`: `_normalize_output`,
-  `_claim_can_survive_evidence_repair`, `_link_report_support`, `_statement_slots`,
-  `_apply_statement_support`, `_support_plan_schema`, `_support_plan_errors`,
-  `normalization_context`. (Interim needs move to `application/evidence.py`; most of this
-  disappears in WS3.)
-- The adapter keeps: canonical JSON serialization, schema constraint (including
-  caller-supplied `schema_override` enums), one generic repair round (schema validation
-  plus optional caller-supplied `candidate_validator`), HTTP error mapping.
-- Single implementation of atlas-reference validity in `application/evidence.py`; the other
-  two copies (adapter, workflow) are deleted.
-- Remove `consume_repair_actions` from `FocusedReasoningProvider`.
-- `ReasoningTask` StrEnum in `ports/reasoning.py`; `prompt_identity(task: ReasoningTask)`;
-  `OLLAMA_STAGE_PROMPTS` keyed by it.
-- Type `bootstrap.Runtime` fields by port protocols instead of concrete adapter classes;
-  keep concrete construction local to `build_runtime`.
-- New boundary tests: `adapters/models` must not import `application.*`; extend the
-  existing layer test accordingly.
-- Acceptance: normalization unit tests move to `application/evidence` tests; boundary tests
-  green; adapter materially smaller.
+Delivered:
+
+- **One containment rule.** "Is this cited span inside its surfaced node" existed in
+  *six* places, not the three the review found: `application/evidence.py` twice
+  (`_claim_errors` and `_reference_invalid`), `workflows/consultation.py` twice
+  (the concern-analysis repair pass and its validation pass), `adapters/models/ollama.py`
+  once, and `application/conversation_validation.py` twice. All now call
+  `domain/evidence_rules.py::location_within`. The two extra copies in conversation
+  validation were found by the guard test, not by reading.
+- **Guard tests.** `adapters/models` may not import `application` or `workflows`
+  (the invariant already held; it is now enforced). A second test fails if hand-rolled
+  span containment reappears anywhere outside the domain rule.
+- **`ReasoningTask` StrEnum** replaces stringly-typed stage names across the prompt
+  registry, both providers, the workflow, and the conversation service. A consistency
+  test asserts the enum and the Ollama registry describe the same stage set — which
+  surfaced that `LINK_STATEMENT_SUPPORT` executed without being registered, so its
+  identity could never be resolved or recorded. It is now registered.
+- **`Runtime` typed by ports** rather than concrete SQLite/AST/vector adapters, with
+  `database` documented as the deliberate exception (the composition root's own
+  infrastructure handle, already fenced off from presentation by a structural test).
+
+**Deferred to WS3, with reason.** The plan listed `_normalize_output`,
+`_link_report_support`, and `consume_repair_actions` for removal here. They cannot move
+before the wire DTO exists:
+
+- `_normalize_output` runs *before* Pydantic validation, because misclassified section
+  claims and duplicate claim IDs raise in `validate_report_contract`. Relocating it to
+  the application would mean validating first — which is exactly what fails. The
+  composer removes the need entirely by placing claims into sections by classification
+  and assigning claim IDs itself.
+- `_link_report_support` issues its own model call. Moving it to the application in WS2
+  would mean adding a port method in WS2 and deleting it in WS3, since the proposal DTO
+  carries claim-key references in band.
+- `consume_repair_actions` still carries the audit trail for both of the above.
 
 ### WS3 — Composed synthesis (the centerpiece)
 

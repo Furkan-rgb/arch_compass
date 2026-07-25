@@ -7,6 +7,8 @@ from hashlib import sha256
 from textwrap import dedent
 from typing import Final
 
+from archcompass.ports.reasoning import ReasoningTask
+
 
 def _text(value: str) -> str:
     return dedent(value).strip()
@@ -359,16 +361,17 @@ LINK_STATEMENT_SUPPORT: Final = PromptContract(
 )
 
 
-OLLAMA_STAGE_PROMPTS: Final[dict[str, PromptContract]] = {
-    "discover_design_forces": DISCOVER_DESIGN_FORCES,
-    "cluster_design_forces": CLUSTER_DESIGN_FORCES,
-    "plan_atlas_queries": PLAN_ATLAS_QUERIES,
-    "analyze_concern_cluster": ANALYZE_CONCERN_CLUSTER,
-    "generate_alternatives": GENERATE_ALTERNATIVES,
-    "evaluate_scenarios": EVALUATE_SCENARIOS,
-    "synthesize_recommendation": SYNTHESIZE_RECOMMENDATION,
-    "classify_report_question": CLASSIFY_REPORT_QUESTION,
-    "answer_report_question": ANSWER_REPORT_QUESTION,
-    "summarize_report_conversation": SUMMARIZE_REPORT_CONVERSATION,
-    "repair_conversation_answer": REPAIR_CONVERSATION_ANSWER,
+OLLAMA_STAGE_PROMPTS: Final[dict[ReasoningTask, PromptContract]] = {
+    ReasoningTask.DISCOVER_DESIGN_FORCES: DISCOVER_DESIGN_FORCES,
+    ReasoningTask.CLUSTER_DESIGN_FORCES: CLUSTER_DESIGN_FORCES,
+    ReasoningTask.PLAN_ATLAS_QUERIES: PLAN_ATLAS_QUERIES,
+    ReasoningTask.ANALYZE_CONCERN_CLUSTER: ANALYZE_CONCERN_CLUSTER,
+    ReasoningTask.GENERATE_ALTERNATIVES: GENERATE_ALTERNATIVES,
+    ReasoningTask.EVALUATE_SCENARIOS: EVALUATE_SCENARIOS,
+    ReasoningTask.SYNTHESIZE_RECOMMENDATION: SYNTHESIZE_RECOMMENDATION,
+    ReasoningTask.CLASSIFY_REPORT_QUESTION: CLASSIFY_REPORT_QUESTION,
+    ReasoningTask.ANSWER_REPORT_QUESTION: ANSWER_REPORT_QUESTION,
+    ReasoningTask.SUMMARIZE_REPORT_CONVERSATION: SUMMARIZE_REPORT_CONVERSATION,
+    ReasoningTask.REPAIR_CONVERSATION_ANSWER: REPAIR_CONVERSATION_ANSWER,
+    ReasoningTask.LINK_STATEMENT_SUPPORT: LINK_STATEMENT_SUPPORT,
 }
