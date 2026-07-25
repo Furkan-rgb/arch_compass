@@ -30,24 +30,8 @@ from archcompass.domain.atlas import (
     Atlas,
     AtlasEdge,
     AtlasNode,
-    AtlasNodeEvidence,
-    AtlasNodeSummary,
-    AtlasOverview,
-    AtlasQuery,
-    AtlasQueryPlan,
-    AtlasQueryResult,
-    AtlasRelationshipEvidence,
-    AtlasSelectionReason,
-    AtlasSelectionReasonKind,
-    NodeType,
-    ObscuritySignal,
     SourceExcerpt,
     SourceLocation,
-)
-from archcompass.domain.atlas_metrics import (
-    canonical_metric_name,
-    salient_profile_observations,
-    signal_investigation_rank,
 )
 from archcompass.domain.base import canonical_json, new_id, utc_now
 from archcompass.domain.case import (
@@ -97,6 +81,17 @@ from archcompass.ports.repositories import (
     CaseRepository,
     ConsultationCommitRepository,
     ConsultationRunRepository,
+)
+from archcompass.workflows.evidence_accumulation import (
+    accumulate_query_result,
+    atlas_overview,
+    build_packet,
+)
+from archcompass.workflows.query_plans import (
+    clamp_iteration_plans,
+    drop_unsurfaced_query_references,
+    repair_cluster_plans,
+    validate_cluster_plans,
 )
 from archcompass.workflows.stage_progress import StageProgress
 
@@ -352,14 +347,14 @@ class ConsultationWorkflow:
                         ),
                         timing_suffix=str(iteration),
                     )
-                    iteration_plans = self._repair_cluster_plans(
+                    iteration_plans = repair_cluster_plans(
                         iteration_plans,
                         clusters=clusters,
                         iteration=iteration,
                         metadata=execution_metadata,
                     )
-                    self._validate_cluster_plans(iteration_plans, clusters, iteration)
-                    executable = self._drop_unsurfaced_query_references(
+                    validate_cluster_plans(iteration_plans, clusters, iteration)
+                    executable = drop_unsurfaced_query_references(
                         iteration_plans,
                         surfaced_by_cluster={
                             cluster_id: set(items)
@@ -367,7 +362,7 @@ class ConsultationWorkflow:
                         },
                         metadata=execution_metadata,
                     )
-                    clamped = self._clamp_iteration_plans(
+                    clamped = clamp_iteration_plans(
                         executable,
                         self._config.consultation.max_queries_per_iteration,
                         execution_metadata,
@@ -402,7 +397,8 @@ class ConsultationWorkflow:
                             )
                             atlas_query_count += 1
                             execution_metadata["atlas_queries"] = atlas_query_count
-                            self._accumulate_query_result(
+                            accumulate_query_result(
+                                self._config.consultation,
                                 cluster_id=cluster_id,
                                 result=result,
                                 nodes=nodes,
@@ -461,7 +457,8 @@ class ConsultationWorkflow:
                 all_retrieved[cluster.cluster_id] = retrieved
                 retrieved_policy_count += len(retrieved)
                 execution_metadata["retrieved_policies"] = retrieved_policy_count
-                packet = self._build_packet(
+                packet = build_packet(
+                    self._config.consultation,
                     case=case,
                     cluster=cluster,
                     atlas=resolved_atlas,
@@ -901,367 +898,17 @@ class ConsultationWorkflow:
             timings[key] = timings.get(key, 0.0) + (perf_counter() - before)
 
     @staticmethod
-    def _validate_cluster_plans(
-        plans: list[ClusterQueryPlan],
-        clusters: list[ConcernCluster],
-        iteration: int,
-    ) -> None:
-        expected = {cluster.cluster_id for cluster in clusters}
-        actual = [plan.cluster_id for plan in plans]
-        if set(actual) != expected or len(actual) != len(set(actual)):
-            raise ModelOutputValidationError(
-                "Cluster query plans must contain exactly one plan per concern cluster"
-            )
-        if any(item.plan.iteration != iteration for item in plans):
-            raise ModelOutputValidationError(
-                "Cluster query plan iteration does not match the requested iteration"
-            )
 
     @staticmethod
-    def _repair_cluster_plans(
-        plans: list[ClusterQueryPlan],
-        *,
-        clusters: list[ConcernCluster],
-        iteration: int,
-        metadata: dict[str, object],
-    ) -> list[ClusterQueryPlan]:
-        expected = {cluster.cluster_id for cluster in clusters}
-        accepted: dict[str, ClusterQueryPlan] = {}
-        repairs = metadata.get("query_plan_repairs")
-
-        def record(repair: dict[str, object]) -> None:
-            if isinstance(repairs, list):
-                repairs.append(repair)
-
-        for item in plans:
-            if item.cluster_id not in expected:
-                record(
-                    {
-                        "kind": "dropped_unknown_cluster_plan",
-                        "cluster_id": item.cluster_id,
-                        "iteration": iteration,
-                        "plan": item.model_dump(mode="json"),
-                    }
-                )
-                continue
-            if item.cluster_id in accepted:
-                record(
-                    {
-                        "kind": "dropped_duplicate_cluster_plan",
-                        "cluster_id": item.cluster_id,
-                        "iteration": iteration,
-                        "plan": item.model_dump(mode="json"),
-                    }
-                )
-                continue
-            if item.plan.iteration != iteration:
-                record(
-                    {
-                        "kind": "corrected_query_plan_iteration",
-                        "cluster_id": item.cluster_id,
-                        "from_iteration": item.plan.iteration,
-                        "to_iteration": iteration,
-                    }
-                )
-                item = item.model_copy(
-                    update={"plan": item.plan.model_copy(update={"iteration": iteration})}
-                )
-            accepted[item.cluster_id] = item
-
-        normalized: list[ClusterQueryPlan] = []
-        for cluster in clusters:
-            item = accepted.get(cluster.cluster_id)
-            if item is None:
-                record(
-                    {
-                        "kind": "added_empty_cluster_plan",
-                        "cluster_id": cluster.cluster_id,
-                        "iteration": iteration,
-                    }
-                )
-                item = ClusterQueryPlan(
-                    cluster_id=cluster.cluster_id,
-                    plan=AtlasQueryPlan(
-                        iteration=iteration,
-                        rationale="The model omitted this cluster; no atlas queries were executed.",
-                        queries=[],
-                    ),
-                )
-            normalized.append(item)
-        return normalized
 
     @staticmethod
-    def _clamp_iteration_plans(
-        plans: list[ClusterQueryPlan],
-        budget: int,
-        metadata: dict[str, object],
-    ) -> list[ClusterQueryPlan]:
-        accepted: dict[str, list[AtlasQuery]] = {item.cluster_id: [] for item in plans}
-        next_index = {item.cluster_id: 0 for item in plans}
-        remaining = budget
-        while remaining:
-            progressed = False
-            for item in plans:
-                index = next_index[item.cluster_id]
-                if index >= len(item.plan.queries):
-                    continue
-                accepted[item.cluster_id].append(item.plan.queries[index])
-                next_index[item.cluster_id] = index + 1
-                remaining -= 1
-                progressed = True
-                if remaining == 0:
-                    break
-            if not progressed:
-                break
-
-        clamped: list[ClusterQueryPlan] = []
-        for item in plans:
-            queries = accepted[item.cluster_id]
-            dropped = len(item.plan.queries) - len(queries)
-            if dropped:
-                truncations = metadata["truncations"]
-                if isinstance(truncations, list):
-                    truncations.append(
-                        {
-                            "kind": "query_budget",
-                            "cluster_id": item.cluster_id,
-                            "iteration": item.plan.iteration,
-                            "dropped": dropped,
-                        }
-                    )
-            clamped.append(
-                item.model_copy(update={"plan": item.plan.model_copy(update={"queries": queries})})
-            )
-        return clamped
 
     @staticmethod
-    def _drop_unsurfaced_query_references(
-        plans: list[ClusterQueryPlan],
-        *,
-        surfaced_by_cluster: dict[str, set[str]],
-        metadata: dict[str, object],
-    ) -> list[ClusterQueryPlan]:
-        repaired: list[ClusterQueryPlan] = []
-        repairs = metadata.get("query_plan_repairs")
-        for item in plans:
-            allowed = surfaced_by_cluster.get(item.cluster_id, set())
-            queries = []
-            for query in item.plan.queries:
-                referenced = {
-                    value
-                    for field in ("node_id", "source_id", "target_id")
-                    if isinstance((value := getattr(query, field, None)), str)
-                }
-                unknown = sorted(referenced - allowed)
-                if unknown:
-                    if isinstance(repairs, list):
-                        repairs.append(
-                            {
-                                "kind": "dropped_unsurfaced_node_query",
-                                "cluster_id": item.cluster_id,
-                                "iteration": item.plan.iteration,
-                                "unknown_node_ids": unknown,
-                                "query": query.model_dump(mode="json"),
-                            }
-                        )
-                    continue
-                queries.append(query)
-            repaired.append(
-                item.model_copy(update={"plan": item.plan.model_copy(update={"queries": queries})})
-            )
-        return repaired
 
-    def _accumulate_query_result(
-        self,
-        *,
-        cluster_id: str,
-        result: AtlasQueryResult,
-        nodes: dict[str, AtlasNode],
-        selected: dict[str, list[str]],
-        summaries: dict[str, dict[str, FocusedNodeSummary]],
-        excerpts: dict[str, list[SourceExcerpt]],
-        relationships: dict[str, dict[str, AtlasEdge]],
-        test_ids: dict[str, set[str]],
-        excerpt_line_counts: dict[str, int],
-        execution_metadata: dict[str, object],
-    ) -> None:
-        selected_ids = selected[cluster_id]
-        returned_summaries = {summary.node_id: summary for summary in result.node_summaries}
-        reasons = self._selection_reasons(result)
-        for node_id in result.node_ids:
-            if node_id in selected_ids:
-                existing = summaries[cluster_id].get(node_id)
-                if existing is not None:
-                    merged = {
-                        reason.model_dump_json(): reason
-                        for reason in [
-                            *existing.selection_reasons,
-                            *reasons.get(node_id, []),
-                        ]
-                    }
-                    summaries[cluster_id][node_id] = existing.model_copy(
-                        update={"selection_reasons": list(merged.values())}
-                    )
-                continue
-            if len(selected_ids) >= self._config.consultation.max_query_results:
-                self._record_truncation(
-                    execution_metadata,
-                    kind="node_budget",
-                    cluster_id=cluster_id,
-                    dropped=1,
-                )
-                continue
-            node = nodes.get(node_id)
-            if node is None:
-                continue
-            selected_ids.append(node_id)
-            returned = returned_summaries.get(node_id)
-            summaries[cluster_id][node_id] = (
-                FocusedNodeSummary.from_summary(
-                    returned,
-                    summary=result.summary,
-                    selection_reasons=reasons.get(node_id, []),
-                )
-                if returned is not None
-                else FocusedNodeSummary.from_node(
-                    node,
-                    summary=result.summary,
-                ).model_copy(update={"selection_reasons": reasons.get(node_id, [])})
-            )
-
-        relationship_limit = self._config.consultation.max_query_results * 4
-        cluster_relationships = relationships[cluster_id]
-        for edge in result.relationships:
-            if edge.edge_id in cluster_relationships:
-                continue
-            if len(cluster_relationships) >= relationship_limit:
-                self._record_truncation(
-                    execution_metadata,
-                    kind="relationship_budget",
-                    cluster_id=cluster_id,
-                    dropped=1,
-                )
-                continue
-            cluster_relationships[edge.edge_id] = edge
-        remaining_tests = self._config.consultation.max_query_results - len(test_ids[cluster_id])
-        if remaining_tests > 0:
-            test_ids[cluster_id].update(result.test_ids[:remaining_tests])
-        if len(result.test_ids) > max(remaining_tests, 0):
-            self._record_truncation(
-                execution_metadata,
-                kind="test_evidence_budget",
-                cluster_id=cluster_id,
-                dropped=len(result.test_ids) - max(remaining_tests, 0),
-            )
-
-        for excerpt in result.excerpts:
-            if excerpt.node_id not in selected_ids:
-                continue
-            remaining = (
-                self._config.consultation.max_excerpt_lines - excerpt_line_counts[cluster_id]
-            )
-            if remaining <= 0:
-                self._record_truncation(
-                    execution_metadata,
-                    kind="excerpt_budget",
-                    cluster_id=cluster_id,
-                    dropped=len(excerpt.text.splitlines()),
-                )
-                continue
-            lines = excerpt.text.splitlines()
-            kept_lines = lines[:remaining]
-            if len(kept_lines) < len(lines):
-                self._record_truncation(
-                    execution_metadata,
-                    kind="excerpt_budget",
-                    cluster_id=cluster_id,
-                    dropped=len(lines) - len(kept_lines),
-                )
-            if not kept_lines:
-                continue
-            location = SourceLocation(
-                path=excerpt.location.path,
-                start_line=excerpt.location.start_line,
-                end_line=excerpt.location.start_line + len(kept_lines) - 1,
-            )
-            excerpts[cluster_id].append(
-                excerpt.model_copy(update={"location": location, "text": "\n".join(kept_lines)})
-            )
-            excerpt_line_counts[cluster_id] += len(kept_lines)
 
     @staticmethod
-    def _selection_reasons(
-        result: AtlasQueryResult,
-    ) -> dict[str, list[AtlasSelectionReason]]:
-        reason_kind = {
-            "repository_summary": AtlasSelectionReasonKind.OVERVIEW,
-            "subsystem_summary": AtlasSelectionReasonKind.RELATION,
-            "node_details": AtlasSelectionReasonKind.EXPLICIT_DETAILS,
-            "direct_dependencies": AtlasSelectionReasonKind.RELATION,
-            "direct_dependants": AtlasSelectionReasonKind.RELATION,
-            "known_callers": AtlasSelectionReasonKind.RELATION,
-            "implementations": AtlasSelectionReasonKind.RELATION,
-            "related_tests": AtlasSelectionReasonKind.RELATION,
-            "forward_neighbourhood": AtlasSelectionReasonKind.NEIGHBOURHOOD,
-            "reverse_neighbourhood": AtlasSelectionReasonKind.NEIGHBOURHOOD,
-            "shortest_dependency_path": AtlasSelectionReasonKind.PATH,
-            "cyclic_components": AtlasSelectionReasonKind.CYCLE,
-            "signals": AtlasSelectionReasonKind.SIGNAL,
-            "hotspots": AtlasSelectionReasonKind.METRIC_RANK,
-            "search_nodes": AtlasSelectionReasonKind.NAME_MATCH,
-            "source_excerpt": AtlasSelectionReasonKind.EXCERPT,
-        }[result.query.kind]
-        metric_by_node = {observation.node_id: observation for observation in result.metric_values}
-        related_node_id = next(
-            (
-                value
-                for field in ("node_id", "source_id")
-                if isinstance((value := getattr(result.query, field, None)), str)
-            ),
-            None,
-        )
-        reasons: dict[str, list[AtlasSelectionReason]] = {}
-        for node_id in result.node_ids:
-            metric = metric_by_node.get(node_id)
-            if metric is not None and metric.rank is not None:
-                explanation = (
-                    f"rank {metric.rank} by {metric.metric}={metric.value}; {metric.definition}"
-                )
-            else:
-                explanation = result.summary or (
-                    f"Selected by {result.query.kind.replace('_', ' ')}"
-                )
-            reasons[node_id] = [
-                AtlasSelectionReason(
-                    kind=reason_kind,
-                    explanation=explanation,
-                    metric=metric.metric if metric is not None else None,
-                    related_node_id=(
-                        related_node_id
-                        if related_node_id is not None and related_node_id != node_id
-                        else None
-                    ),
-                )
-            ]
-        return reasons
 
     @staticmethod
-    def _record_truncation(
-        metadata: dict[str, object],
-        *,
-        kind: str,
-        cluster_id: str,
-        dropped: int,
-    ) -> None:
-        truncations = metadata["truncations"]
-        if isinstance(truncations, list):
-            truncations.append(
-                {
-                    "kind": kind,
-                    "cluster_id": cluster_id,
-                    "dropped": dropped,
-                }
-            )
 
     @staticmethod
     def _policy_retrieval_query(
@@ -1313,97 +960,6 @@ class ConsultationWorkflow:
         return "\n".join(parts)[:POLICY_QUERY_CHARACTER_BUDGET]
 
     @staticmethod
-    def _build_packet(
-        *,
-        case: ArchitectureCase,
-        cluster: ConcernCluster,
-        atlas: Atlas | None,
-        selected_ids: list[str],
-        summaries: list[FocusedNodeSummary],
-        excerpts: list[SourceExcerpt],
-        relationships: list[AtlasEdge],
-        test_ids: list[str],
-        policies: list[RetrievedPolicy],
-        execution_metadata: dict[str, object],
-    ) -> FocusedAnalysisPacket:
-        selected = set(selected_ids)
-        metrics = (
-            [profile for profile in atlas.metrics if profile.node_id in selected] if atlas else []
-        )
-        nodes = {node.atlas_id: node for node in atlas.nodes} if atlas else {}
-        profiles = {profile.node_id: profile for profile in metrics}
-        signals_by_node: dict[str, list[ObscuritySignal]] = {}
-        if atlas:
-            for signal in atlas.signals:
-                if signal.node_id in selected:
-                    signals_by_node.setdefault(signal.node_id, []).append(signal)
-        node_evidence: list[AtlasNodeEvidence] = []
-        for summary in summaries:
-            node = nodes.get(summary.node_id)
-            if node is None:
-                continue
-            profile = profiles.get(summary.node_id)
-            node_evidence.append(
-                AtlasNodeEvidence(
-                    node=ConsultationWorkflow._atlas_node_summary(node),
-                    reasons=summary.selection_reasons,
-                    metrics=(salient_profile_observations(profile) if profile is not None else []),
-                    signals=signals_by_node.get(summary.node_id, [])[:5],
-                )
-            )
-        allowed_relationship_nodes = {*selected_ids, *test_ids}
-        surfaced_relationships = [
-            edge
-            for edge in relationships
-            if edge.source_id in allowed_relationship_nodes
-            and edge.target_id in allowed_relationship_nodes
-            and edge.source_id in nodes
-            and edge.target_id in nodes
-        ]
-        dropped_relationships = len(relationships) - len(surfaced_relationships)
-        if dropped_relationships:
-            ConsultationWorkflow._record_truncation(
-                execution_metadata,
-                kind="relationship_endpoint_not_surfaced",
-                cluster_id=cluster.cluster_id,
-                dropped=dropped_relationships,
-            )
-        relationship_evidence = [
-            AtlasRelationshipEvidence(
-                edge_id=edge.edge_id,
-                edge_type=edge.edge_type,
-                source=ConsultationWorkflow._atlas_node_summary(nodes[edge.source_id]),
-                target=ConsultationWorkflow._atlas_node_summary(nodes[edge.target_id]),
-                confidence=edge.confidence,
-                location=edge.location,
-            )
-            for edge in surfaced_relationships
-        ]
-        test_evidence = [
-            ConsultationWorkflow._atlas_node_summary(nodes[node_id])
-            for node_id in test_ids
-            if node_id in nodes
-        ]
-        return FocusedAnalysisPacket(
-            cluster=cluster,
-            node_summaries=summaries,
-            node_evidence=node_evidence,
-            metrics=metrics,
-            relationships=surfaced_relationships,
-            relationship_evidence=relationship_evidence,
-            test_ids=[item.node_id for item in test_evidence],
-            test_evidence=test_evidence,
-            excerpts=excerpts,
-            policies=policies,
-            assumptions=[item.text for item in case.assumptions],
-            uncertainty=(
-                ["Repository evidence is unavailable."]
-                if atlas is None
-                else [
-                    "Static call resolution is conservative and runtime behavior is not observed."
-                ]
-            ),
-        )
 
     @staticmethod
     def _canonicalize_analysis_claim_ids(
@@ -1798,146 +1354,8 @@ class ConsultationWorkflow:
         return [*user_forces, *normalized_advisor_forces]
 
     @staticmethod
-    def _atlas_node_summary(node: AtlasNode) -> AtlasNodeSummary:
-        return AtlasNodeSummary(
-            node_id=node.atlas_id,
-            qualified_name=node.qualified_name,
-            node_type=node.node_type,
-            path=node.path,
-            location=(
-                SourceLocation(
-                    path=node.path,
-                    start_line=node.start_line,
-                    end_line=node.end_line,
-                )
-                if node.start_line is not None and node.end_line is not None
-                else None
-            ),
-            is_public=node.is_public,
-        )
 
     @staticmethod
-    def _atlas_overview(atlas: Atlas) -> AtlasOverview:
-        root = next(
-            (node for node in atlas.nodes if node.node_type == NodeType.REPOSITORY),
-            None,
-        )
-        top_level = sorted(
-            [node for node in atlas.nodes if root is not None and node.parent_id == root.atlas_id],
-            key=lambda node: (node.node_type.value, node.qualified_name),
-        )[:20]
-        profiles = {profile.node_id: profile for profile in atlas.metrics}
-        signals_by_node: dict[str, list[ObscuritySignal]] = {}
-        for signal in atlas.signals:
-            signals_by_node.setdefault(signal.node_id, []).append(signal)
-        representative_signals: list[ObscuritySignal] = []
-        signals_by_code: dict[str, list[ObscuritySignal]] = {}
-        for signal in atlas.signals:
-            signals_by_code.setdefault(signal.code, []).append(signal)
-        for code in sorted(
-            signals_by_code,
-            key=lambda value: (signal_investigation_rank(value), value),
-        ):
-            representative_signals.extend(
-                sorted(
-                    signals_by_code[code],
-                    key=lambda signal: (signal.node_id, signal.message),
-                )[:2]
-            )
-            if len(representative_signals) >= 20:
-                break
-        representative_signals = representative_signals[:20]
-
-        candidate_types = {
-            NodeType.MODULE,
-            NodeType.TEST_MODULE,
-            NodeType.CONFIGURATION,
-            NodeType.CLASS,
-            NodeType.INTERFACE,
-        }
-
-        def hotspot_values(node: AtlasNode) -> tuple[int, int, int, int]:
-            profile = profiles.get(node.atlas_id)
-            if profile is None:
-                return (0, 0, 0, 0)
-            return (
-                profile.change_amplification.likely_affected_modules,
-                profile.dependency.reverse_dependency_reach,
-                profile.dependency.fan_out,
-                profile.local.branch_count,
-            )
-
-        candidates = [
-            node
-            for node in atlas.nodes
-            if node.node_type in candidate_types and any(hotspot_values(node))
-        ]
-        candidates.sort(
-            key=lambda node: (
-                *[-value for value in hotspot_values(node)],
-                node.qualified_name,
-                node.atlas_id,
-            )
-        )
-        hotspots: list[AtlasNodeEvidence] = []
-        metric_names = (
-            "change_amplification.likely_affected_modules",
-            "dependency.reverse_dependency_reach",
-            "dependency.fan_out",
-            "local.branch_count",
-        )
-        for node in candidates[:8]:
-            profile = profiles[node.atlas_id]
-            values = hotspot_values(node)
-            selected_index = max(
-                range(len(values)),
-                key=lambda index: (values[index], -index),
-            )
-            metric_name = canonical_metric_name(metric_names[selected_index])
-            hotspots.append(
-                AtlasNodeEvidence(
-                    node=ConsultationWorkflow._atlas_node_summary(node),
-                    reasons=[
-                        AtlasSelectionReason(
-                            kind=AtlasSelectionReasonKind.METRIC_RANK,
-                            explanation=(
-                                f"Selected for elevated {metric_name}={values[selected_index]}."
-                            ),
-                            metric=metric_name,
-                        )
-                    ],
-                    metrics=salient_profile_observations(profile),
-                    signals=signals_by_node.get(node.atlas_id, [])[:5],
-                )
-            )
-        return AtlasOverview(
-            atlas_version_id=atlas.version.version_id,
-            repository_identity=atlas.version.repository_identity,
-            node_count=len(atlas.nodes),
-            edge_count=len(atlas.edges),
-            signal_count=len(atlas.signals),
-            node_type_counts=dict(
-                sorted(Counter(node.node_type.value for node in atlas.nodes).items())
-            ),
-            edge_type_counts=dict(
-                sorted(Counter(edge.edge_type.value for edge in atlas.edges).items())
-            ),
-            signal_code_counts=dict(
-                sorted(Counter(signal.code for signal in atlas.signals).items())
-            ),
-            signals=representative_signals,
-            top_level_nodes=[ConsultationWorkflow._atlas_node_summary(node) for node in top_level],
-            hotspots=hotspots,
-            limitations=[
-                "The atlas is derived from conservative static resolution; runtime dispatch "
-                "and dynamic imports may be absent.",
-                "Change-amplification and cognitive-scope values are structural proxies, "
-                "not model interpretations or maintainability scores.",
-                "Atlas signals are bounded static observations or explicitly labelled "
-                "structural proxies; they identify investigation targets, not architecture "
-                "violations.",
-            ],
-        )
 
     @staticmethod
     def _global_context(case: ArchitectureCase, atlas: Atlas | None) -> GlobalContext:
@@ -1966,7 +1384,7 @@ class ConsultationWorkflow:
                 repository=(atlas.version.repository_identity if atlas is not None else None),
             ),
             atlas_overview=(
-                ConsultationWorkflow._atlas_overview(atlas) if atlas is not None else None
+                atlas_overview(atlas) if atlas is not None else None
             ),
             atlas_summary=(
                 f"{len(atlas.nodes)} nodes, {len(atlas.edges)} edges, "

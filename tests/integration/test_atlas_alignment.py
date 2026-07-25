@@ -41,7 +41,7 @@ from archcompass.domain.errors import (
     PathValidationError,
     StaleAtlasError,
 )
-from archcompass.workflows.consultation import ConsultationWorkflow
+from archcompass.workflows.evidence_accumulation import atlas_overview
 
 PROVIDER_CONTEXT_FIXTURE = Path(
     "eval/cases/provider-context-assembly/repository"
@@ -397,7 +397,7 @@ def test_structural_provider_context_fixture_is_visible_before_a_case_names_it()
     atlas = PythonAstRepositoryAnalyzer().analyze(PROVIDER_CONTEXT_FIXTURE)
     queries = DeterministicAtlasQueryService(SafeSourceReader())
 
-    overview = ConsultationWorkflow._atlas_overview(  # pyright: ignore[reportPrivateUsage]
+    overview = atlas_overview(
         atlas
     )
     assert overview.signal_code_counts["broad-input-boundary-preparation"] == 1
@@ -834,7 +834,7 @@ def test_boundary_signals_outrank_default_codes_regardless_of_alphabet() -> None
         ],
     )
 
-    ordered = [item.code for item in ConsultationWorkflow._atlas_overview(atlas).signals]  # pyright: ignore[reportPrivateUsage]
+    ordered = [item.code for item in atlas_overview(atlas).signals]
 
     assert ordered == [
         "broad-input-boundary-preparation",
