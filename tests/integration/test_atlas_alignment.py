@@ -17,12 +17,15 @@ from archcompass.application.safety import (
 from archcompass.domain.atlas import (
     Atlas,
     AtlasNode,
+    AtlasVersion,
     CyclesQuery,
     EdgeType,
     HotspotsQuery,
+    MetricNature,
     NeighbourhoodQuery,
     NodeDetailsQuery,
     NodeType,
+    ObscuritySignal,
     RelationQuery,
     RepositorySummaryQuery,
     SearchNodesQuery,
@@ -785,3 +788,52 @@ def test_every_numeric_metric_is_queryable_deterministically(tmp_path: Path) -> 
 
     assert all(first_run.values())
     assert first_run == second_run
+
+
+def test_boundary_signals_outrank_default_codes_regardless_of_alphabet() -> None:
+    """The Atlas overview ranks interpretive signals ahead of routine ones.
+
+    The evaluation tier reads `overview.signals[0]` to decide which signal a
+    consultation investigates first, so this ordering is a contract rather than a
+    presentation detail. Pinning it here means relocating the priority table cannot
+    silently change what those evaluations assert.
+
+    The fixture is chosen so a plain alphabetical sort fails: `aaa-routine-code`
+    sorts first by name and must still rank last by priority.
+    """
+
+    def signal(code: str) -> ObscuritySignal:
+        return ObscuritySignal(
+            code=code,
+            message=f"{code} observed for the ranking fixture.",
+            node_id="node-ranking",
+            nature=MetricNature.STRUCTURAL_PROXY,
+            definition="Fixture signal.",
+        )
+
+    atlas = Atlas(
+        version=AtlasVersion(
+            root_path="/tmp/ranking",
+            repository_identity="ranking-fixture",
+            content_fingerprint="ranking",
+            parser_version="test",
+            analysis_config_hash="ranking-config",
+        ),
+        nodes=[],
+        edges=[],
+        metrics=[],
+        signals=[
+            signal("aaa-routine-code"),
+            signal("parallel-boundary-preparation"),
+            signal("broad-input-boundary-preparation"),
+        ],
+    )
+
+    ordered = [item.code for item in ConsultationWorkflow._atlas_overview(atlas).signals]  # pyright: ignore[reportPrivateUsage]
+
+    assert ordered == [
+        "broad-input-boundary-preparation",
+        "parallel-boundary-preparation",
+        "aaa-routine-code",
+    ]
+    assert ordered != sorted(ordered), "a plain alphabetical sort must not satisfy this"

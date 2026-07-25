@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +15,15 @@ from archcompass.presentation.cli.app import app
 
 runner = CliRunner()
 
+_STYLE_CODES = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def unstyled(output: str) -> str:
+    """Typer styles help output whenever it detects a terminal, and CI counts as
+    one. The styling splits option names across escape sequences, so assertions
+    about the rendered text have to read it without them."""
+    return _STYLE_CODES.sub("", output)
+
 
 def test_web_accepts_workspace_after_command(tmp_path: Path) -> None:
     result = runner.invoke(
@@ -22,10 +32,11 @@ def test_web_accepts_workspace_after_command(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 0, result.output
-    assert "--workspace" in result.output
-    assert "Defaults to" in result.output
-    assert "the current directory" in result.output
-    assert "--no-open" in result.output
+    help_text = unstyled(result.output)
+    assert "--workspace" in help_text
+    assert "Defaults to" in help_text
+    assert "the current directory" in help_text
+    assert "--no-open" in help_text
 
 
 def test_web_defaults_workspace_to_current_directory(

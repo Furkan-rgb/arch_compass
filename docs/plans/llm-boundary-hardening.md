@@ -128,10 +128,24 @@ Delegated to the implementing agent; confirmed where noted.
    deletes any data. *Fallback if the owner holds stored runs worth keeping: a one-time
    export command before this lands — decide when WS1 starts.* The deprecated
    `report_follow_ups` table stays per the V1.2 milestone.
-10. **The deterministic provider becomes a scripted fixture player.** Per-eval-case response
-    fixtures live next to the eval cases; the provider replays them. It contains no
-    keyword heuristics and no knowledge of signal codes. Pipeline contracts are tested by
-    the validators and the replay tier, not by a simulated reasoner.
+10. **REVISED — the deterministic provider is neutralised, not scripted.** The original
+    decision called for a per-case fixture player. Investigation and three independent
+    adversarial reviews agree it should not be built, for two verified reasons:
+
+    - **Runtime identity makes it impossible for most stages.** `new_id()`
+      (`domain/base.py:24`) is uuid4 and is the default factory for force, cluster, claim
+      and alternative IDs. Clustering, query planning, concern analysis and scenario
+      evaluation must each echo identities minted earlier in the same process, and the
+      workflow hard-validates the echo. A "fixture player" for those stages would not be a
+      loader but a resolver copying identity fields off the live request — a generic fake
+      with extra indirection. Only `ProposedRecommendation` is scriptable, because WS3
+      made it carry handles instead of identities.
+    - **Scripting relocates the circularity rather than removing it.** Asserting a
+      disposition against a Python branch that hardcodes it and against a YAML file that
+      hardcodes it are the same tautology.
+
+    The goal stands: the fake must stop *recognising* evaluation fixtures. The means is to
+    make its branches read its own inputs, not to script its outputs.
 11. **Mandated ceilings become constants.** V1.2 budget ceilings move to domain constants
     with names matching the documentation. `ConversationConfig` retains only genuinely
     tunable values. Same review applied to the other config sections.
@@ -433,24 +447,67 @@ decision. Recording them on success is deferred until something reads them.
 - New `docs/adr/0001-composed-synthesis.md` and `docs/adr/0002-legacy-purge.md` per master
   plan §22.
 
-### WS7 — Evaluation honesty
+### WS7 — Evaluation honesty *(designed and reviewed; implementation blocked)*
 
 *Goal: evaluations exercise the pipeline, not a keyword simulator.*
 
-- Replace `DeterministicReasoningProvider`'s heuristic reasoning with a scripted fixture
-  player: per-eval-case response files (YAML/JSON, stored under `eval/cases/<case>/responses/`)
-  keyed by `ReasoningTask`; the provider validates that requested task/inputs match the
-  fixture's recorded expectations and replays the response.
-- Delete all token- and signal-code-keyed behavior (`"qwen"`, `"provider"`, `"voice"`,
-  `"premature"`, `_BOUNDARY_PREPARATION_SIGNAL_CODES`) from the provider.
-- Evaluation assertions move from "the fake produced the expected recommendation" to "the
-  pipeline validated, bounded, composed, and persisted the scripted responses correctly" —
-  plus the existing evidence-integrity assertions, which stay.
-- Where an eval case needs live-model quality signal, it uses the existing `ollama` /
-  `architectural_quality` markers; the deterministic tier makes no quality claims.
-- Runs after WS3 so fixtures are written once against the final port signatures.
-- Acceptance: `deterministic.py` shrinks to a fixture player (~300 lines); eval matrix
-  green; no eval-case vocabulary appears in `src/`.
+The problem is confirmed and measured. `adapters/models/deterministic.py` (1,934 lines)
+branches on evaluation-fixture vocabulary — `"qwen"`, `"provider"`, `"voice"`,
+`"premature"`, `"one implementation"`, and at `:409-412` the literal tuple
+`("provider", "voice", "preflight", "frontend")`, which is the filename list of
+`eval/cases/provider-leakage/repository/`. A prototype that neutralises those branches
+takes the suite from 296 passed to 288 passed / 8 failed across 5 modules, so the blast
+radius is known precisely.
+
+**Implementation is deliberately not started.** Three adversarial reviews each returned
+`needs_revision`, and two blockers were independently verified against the code:
+
+1. **The vocabulary does not actually leave `src/`.** The neutral replacement for
+   `plan_atlas_queries` reads `overview.signals[0].code`, and that ranks a
+   boundary-preparation code first only because `workflows/consultation.py:1986-1990`
+   hardcodes a `signal_priority` map giving those two codes priority 0 and 1. The
+   evaluation assertion would still pass because `src/` names the evaluation vocabulary —
+   the circularity moves from the adapter into the workflow rather than disappearing. The
+   design's own acceptance criterion ("no eval-case vocabulary in `src/`") is therefore
+   unattainable as stated, since `ast_analyzer.py` must define the codes and the priority
+   table must rank them.
+2. **The proposed replacement assertions already exist verbatim.**
+   `model_output_repairs`, `composition[0]["kind"]` and `synthesis_proposal_hash` are all
+   asserted at `tests/integration/test_workflow.py:1042-1052`. Substituting them for
+   per-case outcome assertions is a net coverage loss with a green suite — the worst
+   possible outcome for a workstream about evaluation honesty.
+
+Three further findings a revised design must address:
+
+3. **Invariant 16 loses its only coverage.** `RecommendationDisposition.KEEP_LOCAL` is
+   produced only at `deterministic.py:650` and asserted only at
+   `tests/evaluation/test_cases.py:289`. Master-plan invariant 16 states that a local or
+   unchanged design is a valid recommendation; deleting the branch removes the sole
+   automated demonstration of it. A replay substitute would not cover persistence,
+   Markdown rendering or conversation context, and `tests/replay/` carries no
+   `evaluation` marker, so `make eval` would stop covering it entirely.
+4. **`conceptual_interfaces` would go permanently empty**, leaving
+   `application/synthesis.py:339`, `application/evidence.py:497-498` and
+   `application/reporting.py:45-46` with no live path anywhere in the suite.
+5. **The proposed replacement prose collides with WS4a.** It begins "Atlas structural
+   signal `<code>`", which the answer fact-checker matches with
+   `\bsignal\s+([a-zA-Z0-9_.-]+)\b` and hard-fails when the cited support lacks that
+   code. The existing wording says "structural **proxy**" precisely to avoid it. The
+   replacement would also label objective measurements as signals, which
+   `docs/repository-atlas.md` exists to prevent.
+
+**Landed from this pass:** the signal ranking is load-bearing for the evaluation tier and
+was entirely unpinned, so WS6's planned relocation of the priority table could have
+silently changed what the evaluations assert. `test_boundary_signals_outrank_default_codes_regardless_of_alphabet`
+now pins the contract with a fixture a plain alphabetical sort fails.
+
+**Revised approach for the next pass:** neutralise the adapter branch by branch, deleting
+each only once its dependent assertion has a repository-derived replacement — per-case
+cluster routing, packet disjointness, surfaced-signal identity, and finding-to-packet
+containment all differentiate cases without asserting authored prose. Move the priority
+table and its contract together under WS6. Keep one input-shaped route to a non-boundary
+disposition (for example: no repository evidence surfaced for any cluster implies
+keep-local) so invariant 16 keeps an automated demonstration.
 
 ### WS8 — Report-conversation panel in the web workspace
 
@@ -481,8 +538,10 @@ Then, against the existing contracts only:
 
 ## 4. Sequencing
 
-Progress: WS0, WS1, WS2, WS3, WS4a and WS5 are complete. WS6, WS7, WS4b and WS8 remain,
-in that order — WS4b now depends on WS7.
+Progress: WS0, WS1, WS2, WS3, WS4a and WS5 are complete. WS7 is designed and reviewed but
+blocked pending a revised design (see its section). WS6, WS7, WS4b and WS8 remain, in that
+order — WS4b depends on WS7, and WS7 now partly depends on WS6 relocating the signal
+priority table.
 
 ```text
 WS0 (replay tier)
