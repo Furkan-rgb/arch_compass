@@ -117,7 +117,7 @@ def test_answer_validation_rejects_invented_metric_value() -> None:
         _answer(claim),
         context=context,
         atlas_nodes=_pinned_nodes(context),
-    )
+    ).errors
 
     assert any("numeric values absent" in error and "999" in error for error in errors)
 
@@ -169,7 +169,7 @@ def test_answer_validation_accepts_exact_metric_value() -> None:
         _answer(claim),
         context=context,
         atlas_nodes=_pinned_nodes(context),
-    )
+    ).errors
 
     assert errors == []
 
@@ -262,6 +262,6 @@ def test_answer_validation_rejects_invented_relationship_type() -> None:
         _answer(claim),
         context=context,
         atlas_nodes=_pinned_nodes(context),
-    )
+    ).errors
 
     assert any("relationship types absent" in error and "calls" in error for error in errors)

@@ -66,6 +66,9 @@ _ConversationStage = Literal[
     "persistence",
 ]
 
+#: Matches ConversationRetrievalRecord.fact_warnings; the audit stays bounded.
+_MAX_FACT_WARNINGS = 16
+
 _ORDINAL_WORDS = {
     "first finding": 0,
     "second finding": 1,
@@ -274,12 +277,13 @@ class ReportConversationService:
                 else {}
             )
             original_registry = self._retrieval.original_evidence_registry(run)
-            errors = validate_conversation_answer(
+            validation = validate_conversation_answer(
                 attempted_answer,
                 context=context,
                 atlas_nodes=atlas_nodes,
                 original_evidence_registry=original_registry,
             )
+            errors = validation.errors
             if errors:
                 prompt_identities.append(
                     self._reasoning.prompt_identity(ReasoningTask.REPAIR_CONVERSATION_ANSWER)
@@ -292,12 +296,13 @@ class ReportConversationService:
                     {item.evidence_id for item in context.evidence_references},
                     {item.policy.id for item in context.retrieved_policies},
                 )
-                errors = validate_conversation_answer(
+                validation = validate_conversation_answer(
                     attempted_answer,
                     context=context,
                     atlas_nodes=atlas_nodes,
                     original_evidence_registry=original_registry,
                 )
+                errors = validation.errors
             if errors:
                 raise ConversationValidationError(
                     "Conversation answer evidence validation failed after one repair: "
@@ -305,6 +310,14 @@ class ReportConversationService:
                 )
 
             stage = "persistence"
+            if validation.warnings:
+                record = record.model_copy(
+                    update={
+                        "fact_warnings": validation.warnings[
+                            : _MAX_FACT_WARNINGS
+                        ]
+                    }
+                )
             assistant = ConversationMessage(
                 conversation_id=conversation_id,
                 ordinal=after_user.message_count + 1,

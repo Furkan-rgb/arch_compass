@@ -441,6 +441,8 @@ class ConversationRetrievalRecord(DomainModel):
     recent_message_ordinals: list[int] = Field(default_factory=list[int], max_length=8)
     truncations: list[str] = Field(default_factory=list[str], max_length=16)
     unavailable_reasons: list[str] = Field(default_factory=list[str], max_length=8)
+    #: Prose observations that did not fabricate evidence and so did not fail the turn.
+    fact_warnings: list[str] = Field(default_factory=list[str], max_length=16)
     excerpt_snapshots: list[ConversationExcerptSnapshot] = Field(
         default_factory=list[ConversationExcerptSnapshot],
         max_length=8,

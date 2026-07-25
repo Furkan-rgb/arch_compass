@@ -409,6 +409,7 @@ export interface components {
     "recent_message_ordinals"?: Array<number>;
     "truncations"?: Array<string>;
     "unavailable_reasons"?: Array<string>;
+    "fact_warnings"?: Array<string>;
     "excerpt_snapshots"?: Array<components["schemas"]["ConversationExcerptSnapshot"]>;
     "context_hash": string;
   };

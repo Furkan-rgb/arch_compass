@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from typing import cast
@@ -65,18 +66,39 @@ _REPOSITORY_ARTIFACT_ID_RE = re.compile(
 )
 
 
+@dataclass(frozen=True)
+class FactObservations:
+    """Contract breaks that fail a turn, and observations that only get recorded."""
+
+    errors: list[str]
+    warnings: list[str]
+
+
+@dataclass(frozen=True)
+class AnswerValidation:
+    """The outcome of validating one structured answer."""
+
+    errors: list[str]
+    warnings: list[str]
+
+    @property
+    def is_valid(self) -> bool:
+        return not self.errors
+
+
 def validate_conversation_answer(
     answer: ConversationAnswer,
     *,
     context: ReportConversationContext,
     atlas_nodes: dict[str, AtlasNode],
     original_evidence_registry: Mapping[str, set[str]] | None = None,
-) -> list[str]:
+) -> AnswerValidation:
     errors = validate_conversation_context(
         context,
         atlas_nodes=atlas_nodes,
         original_evidence_registry=original_evidence_registry,
     )
+    warnings: list[str] = []
     allowed_finding_ids = {item.finding_id for item in context.finding_digests}
     allowed_claim_ids = {item.claim_id for item in context.retrieved_claims}
     evidence_by_id = {
@@ -204,17 +226,17 @@ def validate_conversation_answer(
             if policy_id in policies_by_id
         )
         claim_support_values[claim.claim_id] = support_values
-        errors.extend(
-            _validate_supported_facts(
-                claim.text,
-                support_values=support_values,
-                label=f"Answer claim {claim.claim_id}",
-                strict=(
-                    claim.classification
-                    is ClaimClassification.REPOSITORY_OBSERVATION
-                ),
-            )
+        observed = _validate_supported_facts(
+            claim.text,
+            support_values=support_values,
+            label=f"Answer claim {claim.claim_id}",
+            strict=(
+                claim.classification
+                is ClaimClassification.REPOSITORY_OBSERVATION
+            ),
         )
+        errors.extend(observed.errors)
+        warnings.extend(observed.warnings)
         repository_scopes = {item.scope for item in repository_references}
         normalized_claim_text = claim.text.casefold()
         if (
@@ -289,27 +311,27 @@ def validate_conversation_answer(
             for claim_id in statement.report_claim_ids
             if claim_id in report_claims_by_id
         )
-        errors.extend(
-            _validate_supported_facts(
-                statement.text,
-                support_values=statement_support_values,
-                label=f"Answer {statement.kind.value} statement",
+        observed = _validate_supported_facts(
+            statement.text,
+            support_values=statement_support_values,
+            label=f"Answer {statement.kind.value} statement",
                 strict=(
-                    bool(
-                        _REPOSITORY_ARTIFACT_ID_RE.search(statement.text)
-                        or _METRIC_RE.search(statement.text)
-                        or _PATH_RE.search(statement.text)
-                        or _LOCATION_RE.search(statement.text)
-                    )
-                    or any(
-                        claims_by_id[answer_claim_id].classification
-                        is ClaimClassification.REPOSITORY_OBSERVATION
-                        for answer_claim_id in statement.answer_claim_ids
-                        if answer_claim_id in claims_by_id
-                    )
-                ),
-            )
+                bool(
+                    _REPOSITORY_ARTIFACT_ID_RE.search(statement.text)
+                    or _METRIC_RE.search(statement.text)
+                    or _PATH_RE.search(statement.text)
+                    or _LOCATION_RE.search(statement.text)
+                )
+                or any(
+                    claims_by_id[answer_claim_id].classification
+                    is ClaimClassification.REPOSITORY_OBSERVATION
+                    for answer_claim_id in statement.answer_claim_ids
+                    if answer_claim_id in claims_by_id
+                )
+            ),
         )
+        errors.extend(observed.errors)
+        warnings.extend(observed.warnings)
     foreign_run_ids = {
         match
         for value in [
@@ -323,7 +345,10 @@ def validate_conversation_answer(
         errors.append(
             f"Answer references another consultation run: {sorted(foreign_run_ids)}"
         )
-    return list(dict.fromkeys(errors))
+    return AnswerValidation(
+        errors=list(dict.fromkeys(errors)),
+        warnings=list(dict.fromkeys(warnings)),
+    )
 
 
 def validate_conversation_context(
@@ -678,10 +703,22 @@ def _validate_supported_facts(
     support_values: list[str | BaseModel],
     label: str,
     strict: bool,
-) -> list[str]:
-    """Reject exact-looking repository facts absent from the cited support values."""
+) -> FactObservations:
+    """Separate fabricated repository facts from merely unverifiable prose.
+
+    A statement that names an artifact, a source span, a path, a metric or a signal
+    that its cited support does not contain is asserting a repository fact it cannot
+    back, and that fails the turn.
+
+    Prose is noisier than that. A count the reader can derive from the citation, or a
+    quoted fragment that paraphrases rather than reproduces, fabricates nothing: those
+    become warnings recorded on the message instead of rejecting a correctly cited
+    answer. Relationship vocabulary is only checked when relationship evidence was
+    actually supplied, mirroring the signal-code rule below - otherwise every ordinary
+    use of "contains" or "calls" would be read as an invented edge.
+    """
     if not strict or not support_values:
-        return []
+        return FactObservations(errors=[], warnings=[])
     serialized_values = [
         canonical_json({"value": value})
         if isinstance(value, str)
@@ -690,6 +727,7 @@ def _validate_supported_facts(
     ]
     support_blob = "\n".join(serialized_values).casefold()
     errors: list[str] = []
+    warnings: list[str] = []
 
     mentioned_ids = {
         item.casefold() for item in _SENSITIVE_IDENTIFIER_RE.findall(text)
@@ -724,10 +762,16 @@ def _validate_supported_facts(
         for number in _decimal_tokens(value)
     }
     if unknown_numbers := _decimal_tokens(text) - supplied_numbers:
-        errors.append(
+        detail = (
             f"{label} states numeric values absent from its exact support: "
             f"{sorted(str(item) for item in unknown_numbers)}"
         )
+        # Naming a supplied metric makes the surrounding numbers that metric's value,
+        # so a wrong one is a fabricated measurement. Otherwise it is derived prose.
+        if mentioned_metrics & supplied_metrics:
+            errors.append(detail)
+        else:
+            warnings.append(detail)
 
     supplied_locations = {
         (path.casefold(), start, end)
@@ -751,6 +795,10 @@ def _validate_supported_facts(
         path.casefold()
         for value in support_values
         for path, _, _ in _source_locations(value)
+    } | {
+        path.casefold()
+        for value in support_values
+        for path in _bare_paths(value)
     }
     if unknown_paths := mentioned_paths - supplied_paths:
         errors.append(
@@ -766,7 +814,7 @@ def _validate_supported_facts(
     mentioned_relationships = {
         item.casefold() for item in _RELATIONSHIP_WORD_RE.findall(text)
     }
-    if unknown := mentioned_relationships - edge_types:
+    if edge_types and (unknown := mentioned_relationships - edge_types):
         errors.append(
             f"{label} states relationship types absent from its exact support: "
             f"{sorted(unknown)}"
@@ -803,10 +851,36 @@ def _validate_supported_facts(
     if has_text_payload:
         for quoted in quoted_values:
             if quoted not in support_blob:
-                errors.append(
+                warnings.append(
                     f"{label} quotes text absent from its exact support"
                 )
-    return list(dict.fromkeys(errors))
+    return FactObservations(
+        errors=list(dict.fromkeys(errors)),
+        warnings=list(dict.fromkeys(warnings)),
+    )
+
+
+def _bare_paths(value: str | BaseModel) -> list[str]:
+    """Every ``path`` an evidence artifact names, span or no span."""
+
+    if isinstance(value, str):
+        return []
+    found: list[str] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            mapping = cast(dict[str, object], node)
+            candidate = mapping.get("path")
+            if isinstance(candidate, str) and candidate:
+                found.append(candidate)
+            for item in mapping.values():
+                walk(item)
+        elif isinstance(node, list):
+            for item in cast(list[object], node):
+                walk(item)
+
+    walk(value.model_dump(mode="json"))
+    return found
 
 
 def _decimal_tokens(value: str) -> set[Decimal]:
@@ -847,6 +921,12 @@ def _nested_source_locations(value: object) -> list[tuple[str, int, int]]:
 
 
 def _edge_types(value: str | BaseModel) -> list[str]:
+    """The relationship kind an evidence artifact establishes.
+
+    Conversation retrieval projects every `AtlasRelationshipEvidence` into an
+    `AtlasEdge` before it reaches validation, so this one shape is sufficient.
+    """
+
     if isinstance(value, str):
         return []
     dumped = cast(dict[str, object], value.model_dump(mode="json"))
