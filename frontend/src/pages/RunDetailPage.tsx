@@ -28,6 +28,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import { ArchitectureWorkspace } from "../architecture-workspace";
+import { ConversationPanel } from "../conversation-panel";
 import {
   Badge,
   ErrorPanel,
@@ -357,6 +358,8 @@ export function RunDetailPage() {
           </div>
         </>
       )}
+
+      {report && !active && !failed && <ConversationPanel runId={runId} />}
 
       {selectedClaim && (
         <EvidenceDrawer

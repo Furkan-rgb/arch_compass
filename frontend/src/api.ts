@@ -7,10 +7,12 @@ import type {
   CaseSummary,
   ConsultationJob,
   ConsultationRun,
+  ConversationMessage,
   Policy,
   PolicySource,
   ProblemDetail,
   ProgressEvent,
+  ReportConversation,
   RepositorySummary,
   RunSummary,
   WorkspaceSummary,
@@ -116,6 +118,24 @@ export const api = {
     request<ProgressEvent[]>(`/api/consultations/${runId}/events`),
   runs: () => request<RunSummary[]>("/api/runs"),
   run: (runId: string) => request<ConsultationRun>(`/api/runs/${runId}`),
+  conversations: (runId: string) =>
+    request<ReportConversation[]>(
+      `/api/conversations?run_id=${encodeURIComponent(runId)}`,
+    ),
+  createConversation: (runId: string, title?: string) =>
+    request<ReportConversation>("/api/conversations", {
+      method: "POST",
+      body: JSON.stringify({ run_id: runId, title: title ?? null }),
+    }),
+  conversationHistory: (conversationId: string) =>
+    request<ConversationMessage[]>(
+      `/api/conversations/${conversationId}/history`,
+    ),
+  askConversation: (conversationId: string, question: string) =>
+    request<ConversationMessage>(
+      `/api/conversations/${conversationId}/messages`,
+      { method: "POST", body: JSON.stringify({ question }) },
+    ),
   policies: () => request<Policy[]>("/api/policies"),
   policySources: () => request<PolicySource[]>("/api/policies/sources"),
   addPolicySource: (source: string) =>

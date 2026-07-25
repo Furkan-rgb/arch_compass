@@ -1,6 +1,8 @@
 import type { components as OpenAPIComponents } from "./openapi.generated";
 
 export type ProblemDetail = OpenAPIComponents["schemas"]["ProblemDetail"];
+export type ReportConversation = OpenAPIComponents["schemas"]["ReportConversation"];
+export type ConversationMessage = OpenAPIComponents["schemas"]["ConversationMessage"];
 
 export interface WorkspaceSummary {
   workspace: string;

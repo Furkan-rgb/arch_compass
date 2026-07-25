@@ -56,7 +56,9 @@ V1.2 is the active milestone. Preserve these report-conversation boundaries:
   only positive-listed transient failures. Never retry a structured-output failure: the one
   schema-repair round is the only second attempt at content.
 - Conversation adapters and services are composed only in `bootstrap.py`.
-- There is no conversation React UI in V1.2.
+- The web workspace has a report-conversation panel on the run detail page. It is a pure
+  client of the existing `/api/conversations` routes: no new backend path, no alternate
+  domain flow. See `docs/adr/0004-conversation-panel.md`.
 - Domain models validate the current schema only. Do not add upgrade validators, defaulted
   `schema_version` fields, validation aliases for superseded names, or in-band flags that exempt
   a value from validation; a stored row that no longer parses is reported through

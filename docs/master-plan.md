@@ -752,8 +752,9 @@ The milestone should deliver:
   counterfactuals, and unsupported questions.
 - Canonical JSON for Ollama prompt inputs and context hashes, with every executed prompt identity
   versioned and recorded.
-- CLI and FastAPI create/list/show/ask/history/export access.
-- Removal of the legacy follow-up API, React controls, and storage.
+- CLI, FastAPI, and local web-workspace create/list/show/ask/history/export access.
+- Removal of the legacy follow-up API, React controls, and storage, replaced by a
+  report-conversation panel on the run detail page.
 - Deterministic conversation evaluations and complete documentation.
 
 The V1.1 clustered advisory workflow remains authoritative. V1.2 adds this read-only path:
@@ -851,7 +852,6 @@ Do not currently add:
 
 - Autonomous code modification.
 - Automatic pull-request comments.
-- A React report-conversation or generic chat frontend beyond the existing local web workspace.
 - Continuous repository monitoring.
 - Fine-tuning.
 - Model training.

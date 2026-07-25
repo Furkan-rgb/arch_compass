@@ -445,7 +445,7 @@ the adapter or added a collaborator with no reader, which master-plan §18 forbi
 guard's exception already carries the sizes on the only path where they change a
 decision. Recording them on success is deferred until something reads them.
 
-### WS6 — Structural containment *(partly done)*
+### WS6 — Structural containment *(done)*
 
 *Goal: no module carries responsibilities it doesn't own.*
 
@@ -467,13 +467,18 @@ decision. Recording them on success is deferred until something reads them.
   the wrong stage; it now advances only with the announcement. `advise` drops from 791
   to 702 lines and reads as its pipeline.
 
-**Remaining:** splitting the large files themselves — `workflows/consultation.py`
-(1,977 lines; evidence accumulation, plan enforcement and packet building are the
-natural seams), `adapters/repository/ast_analyzer.py` (2,079, of which the two
-boundary-preparation signal implementations are ~800), and
-`presentation/web/app.py` (716, splits by resource). Also outstanding: the committed
-React bundle has no staleness check against `frontend/`. These are mechanical and
-behaviour-preserving; the suite and the new stage tests are the guard.
+- **Files split.** `workflows/consultation.py` 2,135 → 1,395 (evidence accumulation and
+  plan enforcement moved out, with the consultation budgets passed explicitly);
+  `adapters/repository/ast_analyzer.py` 2,079 → 1,183 (the two boundary-preparation
+  signals became one reviewable subject, with the helpers both sides need in
+  `ast_support.py` so neither module imports the other).
+- **Bundle staleness caught.** `make bundle-check` fails when the committed static
+  bundle no longer matches `frontend/`.
+
+**Deliberately not split:** `presentation/web/app.py` (716 lines). Its routes are
+closures over one `runtime`, and separating them by resource would add indirection and a
+weaker structural test for little gain. The size is the cost of a cohesive registration
+function, not of mixed responsibilities.
 
 ### WS7 — Evaluation honesty *(done)*
 
@@ -532,37 +537,31 @@ marker, not to a deterministic substitute.
 **Decision 10 stands revised**: the per-case fixture player was not built, for the two
 reasons recorded above. Neutralising the double achieved the goal without it.
 
-### WS8 — Report-conversation panel in the web workspace
+### WS8 — Report-conversation panel *(done)*
 
-*Goal: converse about a run's findings directly from the report overview.*
+Master plan §18 listed a conversation UI as a non-goal; `docs/adr/0004-conversation-panel.md`
+records lifting it and why now rather than earlier — ADR 0003 removed the phrasing parser,
+so ordinary wording no longer produces hard errors, which is the precondition for putting a
+conversational surface in front of users.
 
-Scope amendment first (decision 13): amend master plan §18 (remove the conversation-UI
-non-goal), update `.agents/AGENTS.md` ("no conversation React UI" no longer applies), and
-record `docs/adr/0003-conversation-panel.md` (previous direction, new direction,
-justification, consequences) before any UI code.
+The run detail page gains a panel that starts a conversation, selects between existing
+ones, shows history, and asks questions. It is a pure client of the existing
+`/api/conversations` routes: no new backend path and no alternate domain flow, which is
+the line the original non-goal was protecting. It appears only for a finished successful
+run, matching the service rule, and surfaces a failed turn as an alert rather than
+dropping it. Three component tests cover starting, asking, and failure.
 
-Then, against the existing contracts only:
-
-- A conversation panel on the run detail page: create a conversation for the viewed run,
-  list existing conversations, show history, ask questions, and render clarification
-  answers distinctly from evidence-grounded answers.
-- Consume the existing endpoints (`/api/conversations` create/list/show/history/messages/
-  export) via the OpenAPI-generated types (`scripts/generate_openapi_types.py`); no new
-  backend routes and no changes to conversation semantics — the panel is a pure client of
-  the WS4-hardened service.
-- Render structured answers from their typed statements (direct answer, supporting points,
-  uncertainty) with finding/claim/policy references visible; markdown export via the
-  existing export endpoint.
-- Surface turn failures as recorded failed attempts (they already persist as error
-  records), never as silent drops.
-- Rebuild and commit the static bundle through the WS6 staleness check.
-- Acceptance: panel works against a live local workspace end to end; `docs/web-workspace.md`
-  documents the panel; master plan §18 and AGENTS.md no longer contradict the shipped UI.
+`make bundle-check` now fails when the committed static bundle no longer matches
+`frontend/`, closing the last documented gap: the bundle is committed so the workspace
+serves without a Node toolchain, and staleness was previously invisible until someone
+loaded an old page.
 
 ## 4. Sequencing
 
-Progress: WS0–WS3, WS4a, WS5 and WS7 are complete, plus the ADR 0003 reflection pass
-(which retired WS4b). WS6 is partly done; WS8 remains.
+Progress: every workstream is complete. WS4b was retired by ADR 0003, which removed the
+failures it existed to soften. The remaining known item is splitting
+`presentation/web/app.py` (716 lines), deliberately left: its routes are closures over one
+runtime and splitting them adds indirection for little gain.
 
 ```text
 WS0 (replay tier)

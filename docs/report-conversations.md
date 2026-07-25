@@ -182,8 +182,8 @@ archcompass conversation export CONVERSATION_ID --format markdown|json
 
 Equivalent local FastAPI routes live under `/api/conversations`. They publish reusable
 `ProblemDetail` contracts for not-found, conflict, validation, and provider-unavailable responses;
-exports advertise both `application/json` and `text/markdown`. V1.2 intentionally has no React
-conversation interface. A missing consultation run raises the dedicated `RunNotFoundError` and
+exports advertise both `application/json` and `text/markdown`. The web workspace adds a
+conversation panel on the run detail page, which consumes these same routes. A missing consultation run raises the dedicated `RunNotFoundError` and
 maps to HTTP 404. The former run follow-up route, UI, and storage are removed; migration 007
 drops the deprecated table.
 
