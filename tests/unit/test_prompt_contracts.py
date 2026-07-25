@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import httpx
 import pytest
+from tests.unit.test_ollama_adapters import _patch_transport
 
 from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
 from archcompass.adapters.models.ollama import OllamaReasoningProvider
@@ -182,9 +183,9 @@ def test_ollama_request_uses_the_stage_contract_and_default_sampling(
 
     def post(url: str, **kwargs: object) -> httpx.Response:
         captured.update(url=url, **kwargs)
-        return _response({"message": {"content": content}})
+        return _response({"message": {"role": "assistant", "content": content}})
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
     provider = OllamaReasoningProvider(_config())
 
     provider.discover_design_forces(_context())

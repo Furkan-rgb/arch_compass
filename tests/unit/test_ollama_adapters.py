@@ -77,10 +77,10 @@ def test_conversation_answer_repair_is_one_allowlist_constrained_call(
     def post(url: str, **kwargs: object) -> httpx.Response:
         calls.append({"url": url, **kwargs})
         return _http_response(
-            {"message": {"content": repaired.model_dump_json()}}
+            {"message": {"role": "assistant", "content": repaired.model_dump_json()}}
         )
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
     provider = OllamaReasoningProvider(_reasoning_config())
 
     result = provider.repair_conversation_answer(
@@ -143,6 +143,23 @@ def _http_response(payload: object, *, status_code: int = 200) -> httpx.Response
     return httpx.Response(status_code, json=payload, request=request)
 
 
+def _patch_transport(monkeypatch: pytest.MonkeyPatch, handler: object) -> None:
+    """Stub the HTTP layer beneath the real Ollama client.
+
+    Patching `httpx.Client.request` rather than a module-level function keeps the
+    library's own request building, response parsing and error mapping in the path, so
+    these tests exercise the transport we actually ship.
+    """
+
+    def request(
+        _self: object, _method: str, url: str, **kwargs: object
+    ) -> httpx.Response:
+        # Present the same (url, **kwargs) shape the stubs were written against.
+        return handler(url, **kwargs)  # type: ignore[operator]
+
+    monkeypatch.setattr(httpx.Client, "request", request)
+
+
 def test_embedding_provider_sends_batch_and_validates_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -152,18 +169,19 @@ def test_embedding_provider_sends_batch_and_validates_response(
         captured.update(url=url, **kwargs)
         return _http_response({"embeddings": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]})
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
     provider = OllamaEmbeddingProvider(_embedding_config())
 
     vectors = provider.embed(["first", "second"])
 
     assert vectors == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
-    assert captured["url"] == "http://ollama.test/api/embed"
+    assert captured["url"] == "/api/embed"
     assert captured["json"] == {
         "model": "embedding-test",
         "input": ["first", "second"],
     }
-    assert captured["timeout"] == 5
+    # The timeout now belongs to the client rather than the request, and is asserted
+    # per task class in the timeout tests below.
 
 
 @pytest.mark.parametrize(
@@ -185,7 +203,7 @@ def test_embedding_provider_rejects_contract_violations(
     payload: object,
     message: str,
 ) -> None:
-    monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: _http_response(payload))
+    _patch_transport(monkeypatch, lambda *args, **kwargs: _http_response(payload))
     provider = OllamaEmbeddingProvider(_embedding_config())
 
     with pytest.raises(ProviderError, match=message):
@@ -232,9 +250,9 @@ def test_scenario_evaluation_repairs_closed_set_alternative_coverage(
 
     def post(url: str, **kwargs: object) -> httpx.Response:
         requests.append({"url": url, **kwargs})
-        return _http_response({"message": {"content": outputs.pop(0)}})
+        return _http_response({"message": {"role": "assistant", "content": outputs.pop(0)}})
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
     provider = OllamaReasoningProvider(_reasoning_config())
 
     scenarios = provider.evaluate_scenarios(_context(), alternatives, [])
@@ -272,16 +290,16 @@ def test_reasoning_provider_sends_schema_and_parses_structured_output(
 
     def post(url: str, **kwargs: object) -> httpx.Response:
         captured.update(url=url, **kwargs)
-        return _http_response({"message": {"content": content}})
+        return _http_response({"message": {"role": "assistant", "content": content}})
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
     provider = OllamaReasoningProvider(_reasoning_config())
 
     forces = provider.discover_design_forces(_context())
 
     assert [force.title for force in forces] == ["Provider ownership"]
     assert forces[0].force_id.startswith("force_")
-    assert captured["url"] == "http://ollama.test/api/chat"
+    assert captured["url"] == "/api/chat"
     request = captured["json"]
     assert isinstance(request, dict)
     assert request["model"] == "reasoning-test"
@@ -297,10 +315,9 @@ def test_reasoning_provider_sends_schema_and_parses_structured_output(
 def test_reasoning_provider_distinguishes_invalid_model_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        httpx,
-        "post",
-        lambda *args, **kwargs: _http_response({"message": {"content": "{}"}}),
+    _patch_transport(
+        monkeypatch,
+        lambda *args, **kwargs: _http_response({"message": {"role": "assistant", "content": "{}"}}),
     )
     provider = OllamaReasoningProvider(_reasoning_config())
 
@@ -330,9 +347,9 @@ def test_reasoning_provider_repairs_invalid_structured_output_once(
         request = kwargs["json"]
         assert isinstance(request, dict)
         requests.append(request)
-        return _http_response({"message": {"content": outputs.pop(0)}})
+        return _http_response({"message": {"role": "assistant", "content": outputs.pop(0)}})
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
     provider = OllamaReasoningProvider(_reasoning_config())
 
     forces = provider.discover_design_forces(_context())
@@ -362,10 +379,11 @@ def test_reasoning_provider_mints_unique_force_ids_for_duplicate_content(
             },
         ]
     )
-    monkeypatch.setattr(
-        httpx,
-        "post",
-        lambda *args, **kwargs: _http_response({"message": {"content": content}}),
+    _patch_transport(
+        monkeypatch,
+        lambda *args, **kwargs: _http_response(
+            {"message": {"role": "assistant", "content": content}}
+        ),
     )
 
     forces = OllamaReasoningProvider(_reasoning_config()).discover_design_forces(_context())
@@ -403,9 +421,9 @@ def test_clustering_uses_closed_set_handles_and_maps_domain_ids(
 
     def post(url: str, **kwargs: object) -> httpx.Response:
         captured.update(url=url, **kwargs)
-        return _http_response({"message": {"content": content}})
+        return _http_response({"message": {"role": "assistant", "content": content}})
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
     provider = OllamaReasoningProvider(_reasoning_config())
 
     clusters = provider.cluster_design_forces(_context(), forces)
@@ -447,7 +465,7 @@ def test_clustering_rejects_duplicate_canonical_force_ids_before_request(
         del args, kwargs
         pytest.fail("Duplicate canonical force IDs must fail before an Ollama request")
 
-    monkeypatch.setattr(httpx, "post", unexpected_post)
+    _patch_transport(monkeypatch, unexpected_post)
     provider = OllamaReasoningProvider(_reasoning_config())
 
     with pytest.raises(ValueError, match="Design force IDs must be unique"):
@@ -498,9 +516,9 @@ def test_clustering_rejects_unknown_handle_after_one_correction_pass(
         request = kwargs["json"]
         assert isinstance(request, dict)
         requests.append(request)
-        return _http_response({"message": {"content": invalid}})
+        return _http_response({"message": {"role": "assistant", "content": invalid}})
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
     provider = OllamaReasoningProvider(_reasoning_config())
 
     with pytest.raises(ClusterPartitionError) as caught:
@@ -643,9 +661,9 @@ def test_every_reasoning_stage_parses_structured_output(
     def post(*args: object, **kwargs: object) -> httpx.Response:
         del args
         requests.append(json.dumps(kwargs.get("json")))
-        return _http_response({"message": {"content": outputs.pop(0)}})
+        return _http_response({"message": {"role": "assistant", "content": outputs.pop(0)}})
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
     provider = OllamaReasoningProvider(_reasoning_config())
 
     formed_clusters = provider.cluster_design_forces(context, [force])
@@ -731,11 +749,13 @@ def test_ollama_providers_wrap_transport_errors(
         attempts += 1
         raise httpx.ConnectError("offline")
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
     monkeypatch.setattr(ollama_adapters.time, "sleep", lambda _seconds: None)
     provider = provider_factory()
 
-    with pytest.raises(ProviderError, match=r"Ollama .* request failed: offline"):
+    # The client substitutes its own guidance for a connect error, so the original
+    # detail is gone; what must survive is the ProviderError wrapping and the retry.
+    with pytest.raises(ProviderError, match=r"Ollama .* request failed: .*Ollama"):
         if isinstance(provider, OllamaEmbeddingProvider):
             provider.embed(["test"])
         else:
@@ -756,7 +776,7 @@ def test_reasoning_provider_preserves_bounded_http_error_detail(
             request=request,
         )
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
 
     with pytest.raises(
         ProviderError,
@@ -791,7 +811,7 @@ def test_reasoning_provider_refuses_an_oversize_prompt_before_sending(
         sent += 1
         raise AssertionError("the guard must refuse before any request is sent")
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
     provider = OllamaReasoningProvider(_small_window_config())
 
     with pytest.raises(PromptBudgetExceededError) as failure:
@@ -844,7 +864,7 @@ def test_transport_retry_recovers_from_a_transient_failure(
             raise httpx.ConnectError("blip")
         return _http_response({"embeddings": [[0.0] * 8]})
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
     monkeypatch.setattr(ollama_adapters.time, "sleep", lambda _seconds: None)
     provider = OllamaEmbeddingProvider(
         EmbeddingModelConfig(
@@ -877,7 +897,7 @@ def test_transport_retry_does_not_retry_a_terminal_status(
             request=httpx.Request("POST", url),
         )
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
     monkeypatch.setattr(ollama_adapters.time, "sleep", lambda _seconds: None)
     provider = OllamaReasoningProvider(_reasoning_config())
 
@@ -901,9 +921,9 @@ def test_transport_retry_does_not_retry_structured_output_failures(
     def post(*args: object, **kwargs: object) -> httpx.Response:
         nonlocal attempts
         attempts += 1
-        return _http_response({"message": {"content": "{}"}})
+        return _http_response({"message": {"role": "assistant", "content": "{}"}})
 
-    monkeypatch.setattr(httpx, "post", post)
+    _patch_transport(monkeypatch, post)
     monkeypatch.setattr(ollama_adapters.time, "sleep", lambda _seconds: None)
     provider = OllamaReasoningProvider(_reasoning_config())
 

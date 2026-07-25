@@ -5,9 +5,10 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Callable, Mapping
-from typing import ClassVar, Final, TypeVar, cast
+from typing import ClassVar, Final, Literal, TypeVar, cast
 
 import httpx
+from ollama import Client, ResponseError
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError
 
 from archcompass.adapters.models.prompt_contracts import OLLAMA_STAGE_PROMPTS
@@ -48,6 +49,9 @@ from archcompass.ports.reasoning import ReasoningTask
 
 Item = TypeVar("Item", bound=BaseModel)
 
+#: Ollama's reasoning-effort control: off, on, or an explicit level.
+ThinkLevel = bool | Literal["low", "medium", "high"] | None
+
 _MAX_TRANSPORT_ATTEMPTS: Final = 3
 _BACKOFF_BASE_SECONDS: Final = 0.5
 #: Retryable by construction: the request never reached a model, or the server failed
@@ -63,35 +67,37 @@ _TRANSIENT_TRANSPORT_ERRORS: Final = (
 _TRANSIENT_STATUS_CODES: Final = frozenset({408, 429, 500, 502, 503, 504})
 
 
-def _is_transient_status(error: httpx.HTTPStatusError) -> bool:
-    return error.response.status_code in _TRANSIENT_STATUS_CODES
+def _is_transient(error: Exception) -> bool:
+    """Whether a later identical request might survive this failure.
+
+    The client converts `httpx.ConnectError` into a builtin `ConnectionError` and
+    `httpx.HTTPStatusError` into `ResponseError`, so both shapes appear here; other
+    httpx errors reach us unwrapped. A 4xx other than 408/429 is a request the server
+    rejects identically every time and is never retried.
+    """
+
+    if isinstance(error, ResponseError):
+        return error.status_code in _TRANSIENT_STATUS_CODES
+    return isinstance(error, (ConnectionError, *_TRANSIENT_TRANSPORT_ERRORS))
 
 
-def _post_with_retry(url: str, *, json: dict[str, object], timeout: float) -> httpx.Response:
-    """POST, retrying only failures that a later identical request might survive.
+def _with_retry[Result](operation: Callable[[], Result]) -> Result:
+    """Run one model request, retrying only transient transport failures.
 
     A structured-output validation failure is never retried here: it is raised by the
     caller after this returns, so the single sanctioned repair round stays the only
     second attempt at content.
     """
 
-    last_error: Exception | None = None
     for attempt in range(1, _MAX_TRANSPORT_ATTEMPTS + 1):
         try:
-            response = httpx.post(url, json=json, timeout=timeout)
-            response.raise_for_status()
-            return response
-        except httpx.HTTPStatusError as error:
-            if not _is_transient_status(error) or attempt == _MAX_TRANSPORT_ATTEMPTS:
+            return operation()
+        except Exception as error:
+            if not _is_transient(error) or attempt == _MAX_TRANSPORT_ATTEMPTS:
                 raise
-            last_error = error
-        except _TRANSIENT_TRANSPORT_ERRORS as error:
-            if attempt == _MAX_TRANSPORT_ATTEMPTS:
-                raise
-            last_error = error
         time.sleep(_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
     raise ProviderError(  # pragma: no cover - the loop always returns or raises
-        f"Ollama request failed after {_MAX_TRANSPORT_ATTEMPTS} attempts: {last_error}"
+        f"Ollama request failed after {_MAX_TRANSPORT_ATTEMPTS} attempts"
     )
 
 
@@ -153,6 +159,7 @@ class EmbeddingResponse(BaseModel):
 class OllamaEmbeddingProvider:
     def __init__(self, config: EmbeddingModelConfig) -> None:
         self._config = config
+        self._client = Client(host=config.base_url, timeout=config.timeout_seconds)
 
     @property
     def identity(self) -> tuple[str, str, int]:
@@ -160,12 +167,12 @@ class OllamaEmbeddingProvider:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         try:
-            response = _post_with_retry(
-                f"{self._config.base_url.rstrip('/')}/api/embed",
-                json={"model": self._config.model, "input": texts},
-                timeout=self._config.timeout_seconds,
+            response = _with_retry(
+                lambda: self._client.embed(model=self._config.model, input=texts)
             )
-            payload = EmbeddingResponse.model_validate_json(response.content)
+            payload = EmbeddingResponse(
+                embeddings=[list(vector) for vector in response.embeddings]
+            )
             if len(payload.embeddings) != len(texts):
                 raise ValueError(
                     f"Ollama returned {len(payload.embeddings)} embeddings for {len(texts)} inputs"
@@ -179,7 +186,14 @@ class OllamaEmbeddingProvider:
                 if any(not math.isfinite(value) for value in vector):
                     raise ValueError(f"Ollama embedding {index} contains a non-finite value")
             return payload.embeddings
-        except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
+        except (
+            httpx.HTTPError,
+            ResponseError,
+            ConnectionError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as error:
             raise ProviderError(f"Ollama embedding request failed: {error}") from error
 
 
@@ -190,6 +204,26 @@ class OllamaReasoningProvider:
 
     def __init__(self, config: ReasoningModelConfig) -> None:
         self._config = config
+        # The client fixes its timeout at construction, so a timeout class is a client.
+        # Two is the whole set, and building them once keeps connection reuse.
+        self._clients: dict[bool, Client] = {
+            is_fast: Client(
+                host=config.base_url,
+                timeout=self._timeout_seconds(is_fast=is_fast),
+            )
+            for is_fast in (True, False)
+        }
+
+    def _timeout_seconds(self, *, is_fast: bool) -> float:
+        configured = (
+            self._config.fast_timeout_seconds
+            if is_fast
+            else self._config.deep_timeout_seconds
+        )
+        return configured if configured is not None else self._config.timeout_seconds
+
+    def _client_for(self, task: ReasoningTask) -> Client:
+        return self._clients[task in self._FAST_TASKS]
 
     @property
     def model_identity(self) -> str:
@@ -616,7 +650,7 @@ class OllamaReasoningProvider:
         candidate_validator: Callable[[Item], list[str]] | None = None,
         candidate_error_factory: (Callable[[Item], ModelOutputValidationError] | None) = None,
         allow_repair: bool = True,
-        think: bool | str | None = None,
+        think: ThinkLevel = None,
         temperature: float | None = None,
     ) -> Item:
         contract = OLLAMA_STAGE_PROMPTS[task]
@@ -697,15 +731,23 @@ class OllamaReasoningProvider:
                     + "; ".join(candidate_errors)
                 )
             return candidate
-        except httpx.HTTPStatusError as error:
-            detail = error.response.text.strip()
+        except ResponseError as error:
+            # The client turns an HTTP error into ResponseError, keeping the body and
+            # status. Preserve both, bounded, so a failed run records why.
+            detail = error.error.strip()
             if len(detail) > 1000:
                 detail = detail[:999].rstrip() + "…"
             suffix = f": {detail}" if detail else ""
             raise ProviderError(
-                f"Ollama reasoning request failed with HTTP {error.response.status_code}{suffix}"
+                f"Ollama reasoning request failed with HTTP {error.status_code}{suffix}"
             ) from error
-        except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
+        except (
+            httpx.HTTPError,
+            ConnectionError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as error:
             raise ProviderError(f"Ollama reasoning request failed: {error}") from error
 
     @staticmethod
@@ -826,12 +868,9 @@ class OllamaReasoningProvider:
     )
 
     def _timeout_for(self, task: ReasoningTask) -> float:
-        configured = (
-            self._config.fast_timeout_seconds
-            if task in self._FAST_TASKS
-            else self._config.deep_timeout_seconds
-        )
-        return configured if configured is not None else self._config.timeout_seconds
+        """The timeout a stage runs under, which is its class's client timeout."""
+
+        return self._timeout_seconds(is_fast=task in self._FAST_TASKS)
 
     def _guard_prompt_budget(
         self,
@@ -875,7 +914,7 @@ class OllamaReasoningProvider:
         *,
         task: ReasoningTask,
         schema_override: Mapping[str, object] | None = None,
-        think: bool | str | None = None,
+        think: ThinkLevel = None,
         temperature: float | None = None,
     ) -> str:
         options: dict[str, object] = {
@@ -889,22 +928,21 @@ class OllamaReasoningProvider:
             if schema_override is not None
             else output_type.model_json_schema()
         )
-        request: dict[str, object] = {
-            "model": self._config.model,
-            "stream": False,
-            "format": resolved_format,
-            "options": options,
-            "messages": messages,
-        }
-        if think is not None:
-            request["think"] = think
         self._guard_prompt_budget(task, messages, resolved_format)
-        response = _post_with_retry(
-            f"{self._config.base_url.rstrip('/')}/api/chat",
-            json=request,
-            timeout=self._timeout_for(task),
+        # `format` carries the full JSON Schema, not the generic "json" flag: that
+        # constrains generation to the exact shape rather than merely to valid JSON,
+        # which is what makes enumerated handles and dispositions unrepresentable.
+        client = self._client_for(task)
+        response = _with_retry(
+            lambda: client.chat(
+                model=self._config.model,
+                messages=messages,
+                format=dict(resolved_format),
+                options=options,
+                think=think,
+            )
         )
-        content = response.json()["message"]["content"]
+        content = response.message.content
         if not isinstance(content, str):
             raise TypeError("Ollama response content is not text")
         return content

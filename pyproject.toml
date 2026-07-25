@@ -9,6 +9,7 @@ authors = [{ name = "ArchCompass contributors" }]
 dependencies = [
   "fastapi>=0.115,<0.116",
   "httpx>=0.27,<1",
+  "ollama>=0.6.2",
   "pydantic>=2.8,<3",
   "pyyaml>=6.0.2,<7",
   "sqlite-vec>=0.1.6,<0.2",
