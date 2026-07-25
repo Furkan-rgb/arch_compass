@@ -1,11 +1,12 @@
 [
   {
-    "title": "Provider Refactoring and Extensibility",
-    "rationale": "The investigation must address the current risk where fragmented metadata ownership (F1) and high structural change propagation in the provider module (F2) create a fragile dependency network, which directly threatens the ability to add a second provider (F3) without replicating existing leakage patterns.",
+    "title": "Provider Boundary Redesign and Impact Verification",
+    "rationale": "These forces are united by a single architectural investigation: restructuring the provider boundary to consolidate fragmented discovery logic (F2) and mitigate high-impact interface changes (F1) to enable future expansion (F3), while accounting for unresolved call paths (F4) that may mask additional structural impacts.",
     "force_refs": [
       "F1",
       "F2",
-      "F3"
+      "F3",
+      "F4"
     ]
   }
 ]

@@ -1,17 +1,17 @@
 [
   {
-    "title": "Preserve Current Distributed State",
-    "summary": "Maintain the existing pattern of duplicating 'BUILT_IN_VOICES' across the provider, preflight, and frontend modules.",
-    "id": "alt_status_quo_fragmented_constants"
+    "title": "Encapsulate discovery within the VoiceProvider interface",
+    "summary": "Move all voice discovery logic and the `BUILT_IN_VOICES` list into the `provider` module, replacing direct constant access in `frontend` and `preflight` with a method call such as `VoiceProvider.get_available_voices()`.",
+    "id": "alt_interface_deepening_encapsulation"
   },
   {
-    "title": "Delegate Discovery to Provider Interface",
-    "summary": "Refactor the 'VoiceProvider' interface to include a method for retrieving available voices (e.g., `get_available_voices()`), moving responsibility from consumers back to the provider implementation.",
-    "id": "alt_interface_delegation_discovery"
+    "title": "Centralize constants through import refactoring",
+    "summary": "Eliminate the redundant definitions of `BUILT_IN_VOICES` in `preflight.py` and `frontend.py` by forcing all modules to import a single source-of-truth constant from `provider.py`.",
+    "id": "alt_centralized_source_of_truth"
   },
   {
-    "title": "Introduce Centralized Provider Registry",
-    "summary": "Create a dedicated registry or metadata module that aggregates voice information from all active providers, allowing consumers to query a single source of truth.",
-    "id": "alt_centralized_registry_metadata"
+    "title": "Preserve current distributed configuration",
+    "summary": "Maintain the existing pattern where each module defines its own version of `BUILT_IN_VOICES`. This avoids immediate changes to high-level modules but leaves the duplication and coordination risk unaddressed.",
+    "id": "alt_preserve_current_design"
   }
 ]

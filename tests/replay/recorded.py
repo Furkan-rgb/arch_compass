@@ -25,12 +25,13 @@ from archcompass.domain.consultation import (
     ConcernCluster,
     DesignForce,
     FocusedAnalysisPacket,
+    GlobalContext,
     ScenarioEvaluation,
 )
 from archcompass.ports.reasoning import ReasoningTask
 
 RECORDING_ROOT = Path(__file__).parent / "recordings"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 
 class RecordedCall(BaseModel):
@@ -108,6 +109,15 @@ class Recording:
     def case(self) -> ArchitectureCase:
         return ArchitectureCase.model_validate(self._inputs["case"])
 
+    def global_context(self) -> GlobalContext:
+        """The context every stage of the recorded run received.
+
+        A live probe needs this as much as it needs the packet: a stage input is both,
+        and reconstructing the context would test a context the model never saw.
+        """
+
+        return GlobalContext.model_validate(self._inputs["global_context"])
+
     def clusters(self) -> list[ConcernCluster]:
         return [ConcernCluster.model_validate(item) for item in self._inputs["clusters"]]
 
@@ -143,13 +153,43 @@ class Recording:
         ]
 
 
-def available_recordings() -> list[Recording]:
-    """Every committed recording bundle, or an empty list when none are captured."""
-
+def _bundle_directories() -> list[Path]:
     if not RECORDING_ROOT.is_dir():
         return []
     return [
-        Recording(entry)
+        entry
         for entry in sorted(RECORDING_ROOT.iterdir())
         if entry.is_dir() and (entry / "manifest.json").is_file()
     ]
+
+
+def available_recordings() -> list[Recording]:
+    """Every committed bundle this checkout can load.
+
+    Tolerant on purpose, though `Recording` itself is strict. Test modules call this at
+    import time to parameterize, so raising here turns one unreadable bundle into a
+    collection error across every module that mentions recordings — which is how a
+    format bump presents as "the suite is broken" rather than "re-capture this bundle".
+    Unreadable bundles are reported by `unloadable_recordings`, which fails one test
+    with one instruction.
+    """
+
+    loaded: list[Recording] = []
+    for entry in _bundle_directories():
+        try:
+            loaded.append(Recording(entry))
+        except ValueError:
+            continue
+    return loaded
+
+
+def unloadable_recordings() -> list[str]:
+    """Bundles that exist but this checkout cannot read, each with its reason."""
+
+    reasons: list[str] = []
+    for entry in _bundle_directories():
+        try:
+            Recording(entry)
+        except ValueError as error:
+            reasons.append(f"{entry.name}: {error}")
+    return reasons

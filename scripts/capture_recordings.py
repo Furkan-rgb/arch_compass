@@ -32,11 +32,12 @@ from archcompass.adapters.models.ollama import OllamaReasoningProvider
 from archcompass.bootstrap import build_runtime
 from archcompass.domain.base import canonical_json
 from archcompass.domain.case import ArchitectureCase
+from archcompass.domain.consultation import DesignForce, GlobalContext
 from archcompass.ports.reasoning import ReasoningTask
 from archcompass.workflows.consultation import ConsultationWorkflow
 
 RECORDING_ROOT = Path("tests/replay/recordings")
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 
 class _RecordingProvider(OllamaReasoningProvider):
@@ -45,6 +46,15 @@ class _RecordingProvider(OllamaReasoningProvider):
     def __init__(self, config: Any) -> None:
         super().__init__(config)
         self.calls: list[dict[str, object]] = []
+        self.context: GlobalContext | None = None
+
+    def discover_design_forces(self, context: GlobalContext) -> list[DesignForce]:
+        # The workflow builds one GlobalContext per run and hands the same object to
+        # every stage, so capturing it at the first stage captures it for all of them.
+        # A stage input is the context *and* the packet; recording only the packet would
+        # leave a live probe reconstructing half of what the model actually saw.
+        self.context = context
+        return super().discover_design_forces(context)
 
     def _chat(
         self,
@@ -134,6 +144,8 @@ def capture(case_dir: Path, name: str, *, workspace: Path) -> Path:
     synthesis = _stage_input(recorder.calls, ReasoningTask.SYNTHESIZE_RECOMMENDATION)
     if synthesis is None:
         raise SystemExit("The consultation made no synthesis call; nothing to replay.")
+    if recorder.context is None:
+        raise SystemExit("The consultation built no global context; the bundle would be partial.")
 
     (target / "manifest.json").write_text(
         json.dumps(
@@ -159,6 +171,10 @@ def capture(case_dir: Path, name: str, *, workspace: Path) -> Path:
         json.dumps(
             {
                 "case": case.model_dump(mode="json"),
+                # Recorded rather than rebuilt: `atlas_overview()` carries its own caps
+                # and limitation prose, so a context reconstructed later would silently
+                # follow edits to that code instead of reporting them.
+                "global_context": recorder.context.model_dump(mode="json"),
                 "clusters": [item.model_dump(mode="json") for item in run.clusters],
                 "concern_analyses": [
                     item.model_dump(mode="json") for item in run.concern_analyses

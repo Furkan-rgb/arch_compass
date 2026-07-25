@@ -1,24 +1,29 @@
 [
   {
-    "cluster_id": "cluster_d405d39296484af5ac9370ad30bd0668",
+    "cluster_id": "cluster_30ae9a8dec034f64bee1457e42f74d04",
     "plan": {
       "iteration": 1,
-      "rationale": "The plan aims to quantify the extent of metadata fragmentation (Force 1) and map the structural impact boundaries of the provider module (Force 2). Searching for 'BUILT_IN_VOICES' will pinpoint all instances of leaked configuration. A repository summary is required to identify high-impact nodes (fan-in/reverse reach) that constitute the 'fragile dependency network'. Filtering signals by 'similarly-named-constant' will determine if this pattern is a localized symptom or a systemic architectural issue.",
+      "rationale": "The investigation aims to quantify the extent of fragmented discovery logic (F2) and identify hidden dependency paths via unresolved calls (F4) that may exacerbate change amplification (F1). Since no node IDs are authorized for this cluster in this iteration, ID-free signal queries target known problematic patterns identified in the atlas overview.",
       "queries": [
-        {
-          "kind": "search_nodes",
-          "terms": [
-            "BUILT_IN_VOICES"
-          ],
-          "limit": 10
-        },
-        {
-          "kind": "repository_summary"
-        },
         {
           "kind": "signals",
           "codes": [
             "similarly-named-constant"
+          ],
+          "limit": 20
+        },
+        {
+          "kind": "signals",
+          "codes": [
+            "unresolved-call"
+          ],
+          "limit": 20
+        },
+        {
+          "kind": "search_nodes",
+          "terms": [
+            "provider",
+            "voice"
           ]
         }
       ]

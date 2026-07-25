@@ -20,14 +20,14 @@ against one known input.
 
 ## Three tiers
 
-| Tier | Model? | Cost | Catches |
-|---|---|---|---|
-| 1 — recorded replay | no | milliseconds | pipeline regressions against real model output |
-| 2 — live stage probe | one call | seconds | contract achievability, prompt regressions |
-| 3 — full consultation | many calls | minutes | cross-stage coherence |
+| Tier | Model? | Cost | Catches | Run with |
+|---|---|---|---|---|
+| 1 — recorded replay | no | milliseconds | pipeline regressions against real model output | `make test` |
+| 2 — live stage probe | one call | seconds | contract achievability, evidence discipline | `make probe` |
+| 3 — full consultation | many calls | minutes | cross-stage coherence | `make test-ollama` |
 
-Tier 3 exists (`tests/integration/test_ollama.py`). Phase 1 delivers tier 1 and the
-capture step that feeds every tier.
+Tier 3 already existed (`tests/integration/test_ollama.py`). Phase 1 delivers tier 1 and
+the capture step that feeds every tier; Phase 2 delivers tier 2.
 
 ## What makes this possible
 
@@ -104,15 +104,42 @@ This is also why the two questions are asserted separately. *Did the report end 
 is the contract; *did it get there unaided* is the achievability signal. Collapsing them
 would have hidden the second defect behind a green run, since the pipeline did recover.
 
-## Phase 2 — live stage probes
+## Phase 2 — live stage probes *(implemented)*
 
-Load a captured stage input, call one stage against real Ollama, assert properties of the
-typed output. Two assertion classes, neither needing a judge:
+`tests/quality/test_stage_probes.py` loads a captured stage input, calls one stage
+against real Ollama, and asserts properties of the typed output. Deselected by default;
+run with `make probe`. Two assertion classes, neither needing a judge:
 
-- **Contract achievability** — does output validate first time, or need the repair pass?
-  This is the operational signal nothing currently measures.
+- **Contract achievability** — does output satisfy the pipeline unaided, or need the
+  repair pass? The operational signal nothing else measures, and the one that predicted
+  two dead captures before spans were projected.
 - **Evidence discipline** — a packet with no repository evidence must yield no
-  `repository_observation`; a finding must cite nodes from its own packet.
+  `repository_observation`; an analysis must cite only nodes and policies its own packet
+  surfaced.
+
+The two are kept in separate tests because they mean different things. Discipline is
+binary: one fabricated claim is a defect, not a bad day. Achievability is a property of
+the contract as much as of the model, and the pipeline recovers from a good deal — so a
+failure there is a finding to act on rather than a broken build.
+
+The discipline probes target a known asymmetry. Synthesis constrains claim handles and
+cluster references as **schema enums**, so an invalid reference is unrepresentable.
+Concern analysis states its node and policy allowlists in a **runtime instruction** —
+prose the model may ignore, and the first live capture shows it does: two invented policy
+IDs were dropped by repair. Probing both is what turns that asymmetry from an observation
+into a measurement.
+
+### Recording the whole stage input
+
+Phase 1 recorded packets but not the `GlobalContext`, which is half of what every stage
+receives. A probe reconstructing it would be testing a context the model never saw, so
+the bundle now records it and the format version is 2.
+
+`available_recordings()` is deliberately tolerant while `Recording` stays strict: test
+modules call it at import to parameterize, so a strict loader turns one unreadable bundle
+into a collection error across every module that mentions recordings — a format bump then
+presents as "the suite is broken" rather than "re-capture this bundle".
+`unloadable_recordings()` fails one test with one instruction instead.
 
 ## Phase 3 — adversarial inputs
 

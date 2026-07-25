@@ -15,7 +15,7 @@ import pytest
 
 from archcompass.adapters.models.prompt_contracts import OLLAMA_STAGE_PROMPTS
 from archcompass.ports.reasoning import ReasoningTask
-from tests.replay.recorded import FORMAT_VERSION, Recording
+from tests.replay.recorded import FORMAT_VERSION, Recording, unloadable_recordings
 
 _SYNTHESIS = ReasoningTask.SYNTHESIZE_RECOMMENDATION
 
@@ -122,6 +122,24 @@ def test_a_manifest_with_unknown_fields_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         Recording(directory)
+
+
+def test_a_committed_bundle_this_checkout_cannot_read_is_reported_once() -> None:
+    """A bundle in an old format must fail here, not during collection.
+
+    `available_recordings` is called at module import to parameterize tests, so a strict
+    loader there turns one unreadable bundle into a collection error across every module
+    that mentions recordings. This is the single place that says so, and it says what to
+    do about it.
+    """
+
+    unloadable = unloadable_recordings()
+
+    assert unloadable == [], (
+        "Committed recordings predate this checkout's bundle format:\n  "
+        + "\n  ".join(unloadable)
+        + "\nRe-capture them with `make capture-recordings`."
+    )
 
 
 def test_asking_for_an_unrecorded_stage_raises(tmp_path: Path) -> None:

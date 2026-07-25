@@ -1,11 +1,11 @@
 {
-  "format_version": 1,
+  "format_version": 2,
   "case_name": "provider-leakage",
-  "run_id": "run_c7170097a3f14a61bc5704c595cacbda",
-  "case_id": "case_5ffeb884210843c99364d7263711ce3f",
+  "run_id": "run_88c2ce37a4be4a30938ed6f6a24f4f84",
+  "case_id": "case_5ad2fb3b17e549bda321def854e4ae64",
   "case_revision": 1,
-  "atlas_version_id": "atlas_58cd1b6662c241fba33dafb1e998ef54",
-  "policy_index_version_id": "pidx_a96e83925e3143959e8c36e176d885d0",
+  "atlas_version_id": "atlas_8a3f67f12d834ecca91ea4197091bd2d",
+  "policy_index_version_id": "pidx_7b1686cea5ea4308a3344241275ff75f",
   "reasoning_model": "ollama:gemma4:26b",
   "config_hash": "cfg_cc119cbdf7759c6743d88578",
   "calls": [

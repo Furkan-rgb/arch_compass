@@ -1,69 +1,37 @@
 {
-  "cluster_id": "cluster_d405d39296484af5ac9370ad30bd0668",
-  "concern": "Provider Refactoring and Extensibility",
+  "cluster_id": "cluster_30ae9a8dec034f64bee1457e42f74d04",
+  "concern": "Provider Boundary Redesign and Impact Verification",
   "findings": [
     {
-      "text": "The constant 'BUILT_IN_VOICES' is explicitly defined in at least three separate modules: provider (node_a318f9ng90ef44a374deb), preflight (node_92a4630788576ec9b367ceeb), and frontend (node_536006b74f276f558fddf482).",
+      "text": "The constant `BUILT_IN_VOICES` is duplicated across the `provider`, `preflight`, and `frontend` modules, creating multiple sources of truth for voice availability.",
       "classification": "repository_observation",
-      "atlas_references": [
-        {
-          "node_id": "node_a318f9f739ea4d81cd5c8088"
-        },
-        {
-          "node_id": "node_92a4630788576ec9b367ceeb"
-        },
-        {
-          "node_id": "node_536006b74f276f558fddf482"
-        }
+      "policy_ids": [
+        "avoid-duplicated-knowledge"
       ]
     },
     {
-      "text": "The 'avoid-duplicated-knowledge' policy advises consolidating duplicated rules, mappings, and capability knowledge under their natural owner to prevent synchronized edits.",
-      "classification": "policy_guidance",
-      "atlas_references": [
-        {
-          "node_id": "avoid-duplicated-knowledge"
-        }
-      ]
-    },
-    {
-      "text": "The fragmentation of voice discovery knowledge across the module boundary increases the risk that adding a second provider will require coordinated, error-prone updates to the preflight and frontend logic.",
-      "classification": "advisor_inference"
-    },
-    {
-      "text": "The provider module (node_a318f9f739ea4d81cd5c8088) exhibits high structural impact, with a reverse dependency reach of 5 and a fan-in of 4.",
+      "text": "The `provider` module (node_a318f9f739ea4d81cd5c8088) exhibits high change amplification, with a reverse dependency reach of 5 and 5 likely affected modules, indicating that updates to the provider boundary will require coordinated edits across several components.",
       "classification": "repository_observation",
-      "atlas_references": [
-        {
-          "node_id": "node_a318f9f739ea4d81cd5c8088"
-        }
+      "policy_ids": [
+        "optimize-locality-of-change"
       ]
     },
     {
-      "text": "The 'optimize-locality-of-change' policy warns against structures where a single conceptual change (like adding a provider) necessitates coordinated edits across multiple responsibilities.",
-      "classification": "policy_guidance",
-      "atlas_references": [
-        {
-          "node_id": "optimize-locality-of-change"
-        }
-      ]
-    },
-    {
-      "text": "The current dependency density of the provider module acts as a bottleneck for extensibility; any attempt to implement the second required provider will likely amplify changes across the entire system unless the interface and discovery mechanism are decoupled from the component values.",
-      "classification": "advisor_inference"
-    },
-    {
-      "text": "A static call target in 'workflow.narrate' (node_198cbab990e7a6018996a618) for 'provider.synthesize' could not be resolved.",
+      "text": "Unresolved static call targets in `workflow.narrate` (node_198cbab990e7a6018996a618) and `frontend.voice_options` (node_2f924654624f2197adddaecf) prevent a complete assessment of the structural impact when the provider implementation changes.",
       "classification": "repository_observation",
-      "atlas_references": [
-        {
-          "node_id": "node_198cbab990e7a6018996a618"
-        }
+      "policy_ids": []
+    },
+    {
+      "text": "The presence of provider-specific constants in high-level modules like `frontend` and `preflight` suggests that implementation details regarding voice discovery are leaking through the `VoiceProvider` interface.",
+      "classification": "advisor_inference",
+      "policy_ids": [
+        "hide-implementation-details"
       ]
     }
   ],
   "implications": [
-    "High risk of architectural fragility: The current pattern of leaking provider-specific constants (BUILT_IN_VOICES) into consumer modules makes the system vulnerable to desynchronization during provider expansion.",
-    "Reduced development velocity: Adding a new provider will require high-effort, multi-module changes due to existing structural dependencies and duplicated metadata."
+    "Consolidating the voice list into a single authority within the `provider` module is required to satisfy the 'avoid-duplicated-knowledge' policy and reduce the cost of adding new providers.",
+    "The high change amplification metric for the provider suggests that failure to encapsulate discovery logic will continue to spread complexity across the system during maintenance.",
+    "Until unresolved call paths (e.g., `provider.synthesize`) are resolved, the true extent of dependency leakage and implementation exposure remains uncertain."
   ]
 }

@@ -1,15 +1,28 @@
 [
   {
-    "scenario": "Expansion of Provider Ecosystem",
+    "scenario": "Baseline Stability",
     "assumptions": [
-      "A second provider implementation will be introduced with its own unique set of capabilities and voice metadata.",
-      "The existing requirement for 'BUILT_IN_VOICES' to be available in preflight and frontend logic remains a functional necessity."
+      "Requirements for voice discovery remain stable.",
+      "No new provider types are introduced."
     ],
     "alternative_results": {
-      "A1": "High risk of architectural fragility. Adding a second provider will necessitate coordinated, manual updates to the 'provider', 'preflight', and 'frontend' modules to synchronize 'BUILT_IN_VOICES'. This increases the probability of desynchronization errors across the module boundaries (as evidenced by claim_671553e2267c4a77b7decc2a5fe79ca5).",
-      "A2": "Moderate improvement in decoupling. Moving discovery to `get_available_voices()` within the `VoiceProvider` interface eliminates the need for consumers to maintain duplicated constants (addressing the signal 'similarly-named-constant'). However, it still relies on consumers having access to a specific provider instance, which does not fully address the high reverse dependency reach (5) of the provider module.",
-      "A3": "Optimal for long-term extensibility. By introducing a centralized registry, the system achieves the highest degree of decoupling. Consumers query a single source of truth, which minimizes change amplification across the 'preflight' and 'frontend' modules when new providers are added, directly addressing the structural bottleneck identified in node_a318f9f739ea4d81cd5c8088."
+      "A1": "Effectively addresses the 'similarly-named-constant' signals and satisfies the desired outcome of reducing coordinated changes by hiding the specific list content behind a method call. It limits implementation leakage, though it introduces an interface dependency on the `provider` module.",
+      "A2": "Reduces duplication and provides a single source of truth for the constant, addressing the immediate duplication concern. However, it does not address the architectural leak where high-level modules remain dependent on provider-specific data structures.",
+      "A3": "Fails to resolve the identified problem of distributed voice knowledge and leaves the system vulnerable to desynchronization between `frontend`, `preflight`, and `provider`."
     },
-    "conclusion": "Advisor inference: Alternative A3 is recommended to minimize coordinated change and reduce the risk of desynchronization during provider expansion, though it introduces a new architectural component (the registry)."
+    "conclusion": "A1 is the superior choice for long-term maintenance as it provides the highest degree of encapsulation and minimizes the surface area for potential errors during maintenance."
+  },
+  {
+    "scenario": "Addition of a Second Provider",
+    "assumptions": [
+      "The new provider may have different discovery requirements or a different set of built-in voices.",
+      "The `VoiceProvider` interface will be used to abstract these differences."
+    ],
+    "alternative_results": {
+      "A1": "Provides the highest scalability. Because high-level modules interact with an abstraction (`get_available_functions()`), adding a new provider requires zero changes to `frontend` or `preflight`. This directly achieves the goal of reducing coordinated provider changes.",
+      "A2": "Increases coordination complexity. While it centralizes the list, any change to the structure or content of the global constant to accommodate a second provider will still require updates to all modules importing that constant.",
+      "A3": "Results in high change amplification. Adding a new provider would necessitate manual, error-prone updates to every module currently maintaining its own version of the `BUILT_IN_VOICES` list."
+    },
+    "conclusion": "A1 is the only alternative that effectively decouples higher-level modules from provider-specific implementation details, making it the most resilient to the stated future change."
   }
 ]

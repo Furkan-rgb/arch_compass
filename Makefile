@@ -1,4 +1,4 @@
-.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build bundle-check capture-recordings test-ollama eval check build full
+.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build bundle-check capture-recordings test-ollama probe eval check build full
 
 sync:
 	uv sync --locked
@@ -36,7 +36,13 @@ bundle-check: frontend-build
 		(echo "Committed frontend bundle is stale. Run 'make frontend-build' and commit the result." && exit 1)
 
 test-ollama:
-	uv run pytest -m ollama
+	uv run pytest -m "ollama and not architectural_quality"
+
+# Tier 2: one live call per reasoning stage, asserting typed properties of the output.
+# Separate from `test-ollama` because a failure here is a measurement about the model and
+# the contracts rather than a broken build, and belongs in a run you chose to make.
+probe:
+	uv run pytest -m "ollama and architectural_quality" -v
 
 # Capture one live consultation as a replayable recording. Needs a running Ollama and a
 # workspace configured to use it. Deliberately outside `check`: it calls a real model and

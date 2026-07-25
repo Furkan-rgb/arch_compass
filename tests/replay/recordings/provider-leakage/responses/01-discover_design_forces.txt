@@ -1,20 +1,26 @@
 [
   {
-    "title": "Distributed Voice Metadata Ownership",
-    "description": "The responsibility for defining and accessing built-in voice information (e.g., `BUILT_IN_VOICES`) is currently fragmented across the `provider`, `preflight`, and `frontend` modules.",
+    "title": "High Change Amplification in Provider Interface",
+    "description": "Modifications to the `provider` module and its interface (`VoiceProvider`) have a high potential for ripple effects, with structural evidence showing a reverse dependency reach of up to 5 modules.",
     "importance": "high",
-    "importance_rationale": "This fragmentation is the primary driver of the current 'leakage' problem; without centralized ownership, adding new capabilities requires coordinated changes across multiple disconnected boundaries."
+    "importance_rationale": "This is a primary driver for the user's stated goal to reduce coordinated changes. The metric `change_amplification.likely_affected_modules=5` confirms that the provider is a significant structural bottleneck."
   },
   {
-    "title": "High Change Propagation in Provider Module",
-    "description": "The `provider` module exhibits high structural impact, with a high likelihood of affecting up to 5 downstream modules during changes.",
+    "title": "Fragmented Voice Discovery Logic",
+    "description": "The constant `BUILT_IN_VOICES` is statically identified in three separate modules (`provider.py`, `preflight.py`, and `frontend.py`), indicating that provider-specific knowledge has leaked into consumer layers.",
     "importance": "high",
-    "importance_rationale": "Because the provider is a significant dependency bottleneck (high fan-in and reverse reach), any refinement to its interface or logic forces widespread coordination and increases regression risk."
+    "importance_rationale": "This represents the direct manifestation of the identified 'Brownfield provider leakage' problem and is the central tension preventing the desired outcome of unified ownership."
   },
   {
-    "title": "Second Provider Extensibility Pressure",
-    "description": "The system must accommodate the introduction of an additional provider without replicating existing discovery logic in upstream modules.",
+    "title": "Provider Extensibility Pressure",
+    "description": "The architecture must accommodate the addition of a second provider without further distributing discovery logic or increasing the coordination cost across the system.",
     "importance": "medium",
-    "importance_rationale": "While not yet a realized change, this future requirement makes the current leakage of discovery logic into `preflight` and `frontend` a significant architectural debt that will prevent localized implementation."
+    "importance_rationale": "While no second provider currently exists, this is a confirmed future change that necessitates an architectural decision focused on encapsulation rather than local implementation."
+  },
+  {
+    "title": "Structural Uncertainty via Unresolved Calls",
+    "description": "Static analysis cannot resolve calls to `provider.synthesize` (in `workflow.py`) and `voice.title` (in `frontend.py`), creating hidden dependency paths that may bypass known impact boundaries.",
+    "importance": "low",
+    "importance_rationale": "These unresolved call signals act as an investigation force; they suggest that the actual change amplification might be higher than what is currently measurable via static reachability."
   }
 ]
