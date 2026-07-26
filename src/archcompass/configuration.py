@@ -120,6 +120,20 @@ class ReasoningModelConfig(DomainModel):
     #: Deliberately generous: over-estimating refuses a borderline request explicitly,
     #: while under-estimating lets the model silently truncate it.
     chars_per_token: float = Field(default=4.0, gt=0)
+    #: Whether the model reasons before answering: `true` to require it, `false` to
+    #: forbid it, absent to leave the model to its own default. Every stage here asks for
+    #: one judgement about supplied evidence, so this is a property of the configured model
+    #: rather than of any stage.
+    #:
+    #: The third state is not decoration. Measured on `gemma4:26b` against the scored
+    #: example, the three settings differ in every direction: `true` took 510s and scored
+    #: 4/6, `false` took 40s and scored 3/6, and leaving it to the model took ~250s and
+    #: scored 5-6/6. A boolean alone could not express the best of those.
+    #:
+    #: Thinking tokens are spent from `max_output_tokens` on both providers, so requiring
+    #: it on a tight output budget can leave the structured answer truncated — which
+    #: surfaces as a validation failure rather than as a silently wrong answer.
+    thinking: bool | None = None
 
     @model_validator(mode="after")
     def output_fits_context_window(self) -> ReasoningModelConfig:

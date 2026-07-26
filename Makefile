@@ -51,19 +51,19 @@ eval:
 #
 # Runs against Google by default: it finishes in about two and a half minutes where the
 # local model takes four or five, which is the difference between a check you run on every
-# change and one you run when you remember to. `make demo-local` uses config/models.yaml.
+# change and one you run when you remember to. `make demo-local` uses the Ollama config.
 # Needs a live model either way, so both sit outside `check`.
 demo:
 	uv run python scripts/run_boundary_review.py --models-config config/models.google.yaml
 
 demo-local:
-	uv run python scripts/run_boundary_review.py --models-config config/models.yaml
+	uv run python scripts/run_boundary_review.py --models-config config/models.ollama.yaml
 
 # Every brownfield example, scored where one ships answers. Tens of model calls, so it
 # runs on the local model: a metered free tier cannot serve it, and the workspace has no
 # queue for work this long by design.
 eval-local:
-	uv run python scripts/run_boundary_review.py --all --models-config config/models.yaml
+	uv run python scripts/run_boundary_review.py --all --models-config config/models.ollama.yaml
 
 # Drives the committed bundle in a real browser against a real server, with the model
 # substituted. Outside `check` because it needs Playwright's chromium downloaded.

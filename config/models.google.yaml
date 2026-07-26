@@ -22,6 +22,10 @@ models:
     # Gemini spends thinking tokens from this same allowance, so a stage needs noticeably
     # more headroom here than the response JSON alone would suggest.
     max_output_tokens: 32768
+    # true requires reasoning, false forbids it, null leaves it to the model. Gemini
+    # chooses its own level when required to think, and spends those tokens from the
+    # allowance above — which is why it is larger here than in the Ollama configuration.
+    thinking: true
   embedding:
     # Declared so the provider is constructed and a bad key fails at startup rather than
     # part-way through a run. The review path never calls it: policies are read from

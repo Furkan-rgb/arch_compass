@@ -3,6 +3,11 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from archcompass.adapters.models.structured import (
+    ChatMessage,
+    StructuredReasoningProvider,
+)
+from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.atlas import (
     AtlasQueryPlan,
     ChangeAmplificationMetrics,
@@ -12,7 +17,9 @@ from archcompass.domain.atlas import (
     FindingPattern,
 )
 from archcompass.domain.case import ArchitectureCase, CaseStatement, StatementKind
+from archcompass.domain.errors import ModelOutputValidationError
 from archcompass.domain.review import BoundaryReview, ReviewedBoundary, ReviewStatus
+from archcompass.ports.reasoning import ReasoningTask
 
 
 def _candidate() -> FindingCandidate:
@@ -162,3 +169,59 @@ def test_a_succeeded_review_must_carry_its_report() -> None:
             reasoning_model="fake:test",
             prompt_identity="judge-finding-candidate:v3:abc",
         )
+
+
+def test_the_configured_thinking_switch_reaches_the_transport() -> None:
+    """A stage with no opinion gets the configured default, not the provider's.
+
+    The switch is a property of the model rather than of a stage, so it has to arrive at
+    the transport without every call site repeating it — including the repair round, which
+    is the same request under the same conditions.
+    """
+
+    class _Transport:
+        provider_label = "Fake"
+
+        def __init__(self) -> None:
+            self.thinks: list[object] = []
+
+        def complete(
+            self,
+            messages: list[ChatMessage],
+            *,
+            schema: object,
+            task: ReasoningTask,
+            is_fast: bool,
+            think: object,
+            temperature: float | None,
+        ) -> str:
+            del messages, schema, task, is_fast, temperature
+            self.thinks.append(think)
+            # Invalid on purpose: it forces the repair round, which must think alike.
+            return "{}"
+
+    transport = _Transport()
+    provider = StructuredReasoningProvider(
+        ReasoningModelConfig(
+            provider="fake",
+            model="fake-thinker",
+            timeout_seconds=30,
+            context_window_tokens=131072,
+            max_output_tokens=8192,
+            thinking=True,
+        ),
+        transport,
+    )
+
+    with pytest.raises(ModelOutputValidationError):
+        provider.judge_finding_candidate(
+            ArchitectureCase(
+                title="Case",
+                problem_statement="A problem",
+                desired_outcome="An outcome",
+            ),
+            _candidate(),
+            [],
+        )
+
+    assert transport.thinks == [True, True]

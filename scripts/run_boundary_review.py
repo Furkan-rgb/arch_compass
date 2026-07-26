@@ -216,7 +216,7 @@ def main() -> int:
     parser.add_argument(
         "--models-config",
         type=Path,
-        default=Path("config/models.yaml"),
+        default=Path("config/models.ollama.yaml"),
         help="Reasoning provider configuration to run against.",
     )
     parser.add_argument(

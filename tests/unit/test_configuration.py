@@ -28,6 +28,28 @@ def test_reasoning_model_config_accepts_explicit_context_window() -> None:
     assert config.context_window_tokens == 65536
 
 
+def test_thinking_has_three_states_and_defaults_to_the_models_own() -> None:
+    """Required, forbidden, and left to the model are three different behaviours.
+
+    Measured on gemma4:26b: requiring it cost twice the time and a point of score, and
+    forbidding it cost three, while leaving it alone was best. A configuration written
+    before the switch existed keeps that third behaviour, which is why absent is None
+    rather than False.
+    """
+
+    absent = ReasoningModelConfig(provider="ollama", model="m", timeout_seconds=30)
+    required = ReasoningModelConfig(
+        provider="ollama", model="m", timeout_seconds=30, thinking=True
+    )
+    forbidden = ReasoningModelConfig(
+        provider="ollama", model="m", timeout_seconds=30, thinking=False
+    )
+
+    assert absent.thinking is None
+    assert required.thinking is True
+    assert forbidden.thinking is False
+
+
 def test_reasoning_model_config_rejects_output_larger_than_context_window() -> None:
     with pytest.raises(
         ValidationError,

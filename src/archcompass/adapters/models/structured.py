@@ -232,6 +232,17 @@ class StructuredReasoningProvider:
     def prompt_identity(self, task: ReasoningTask) -> str:
         return self._PROMPTS[task]
 
+    def _think_for(self, requested: ThinkLevel) -> ThinkLevel:
+        """The configured setting, unless a stage asked for a specific level.
+
+        `None` means "no opinion" at both levels, and passing it on is what leaves the
+        model to its own default — which is a third behaviour, not a synonym for off. A
+        stage that names a level keeps it, because a stage asking for less reasoning than
+        the model is capable of has a reason to.
+        """
+
+        return self._config.thinking if requested is None else requested
+
     def _timeout_for(self, task: ReasoningTask) -> float:
         """The timeout a stage runs under, which is its class's client timeout."""
 
@@ -546,7 +557,7 @@ class StructuredReasoningProvider:
                 messages,
                 task=task,
                 schema_override=schema_override,
-                think=think,
+                think=self._think_for(think),
                 temperature=temperature,
             )
             try:
@@ -581,7 +592,7 @@ class StructuredReasoningProvider:
                 repair_messages,
                 task=task,
                 schema_override=schema_override,
-                think=think,
+                think=self._think_for(think),
                 temperature=temperature,
             )
             try:

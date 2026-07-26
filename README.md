@@ -396,20 +396,36 @@ Experimental. Two limits are worth stating plainly rather than discovering:
 - A SQLite build supporting loadable extensions
 - Optional: a local Ollama service for real-model consultations
 
-ArchCompass defaults to local Ollama models configured in:
+Two model configurations ship with the repository, and neither is implicit — a run always
+says which models produced it:
 
 ```text
-config/models.yaml
+config/models.ollama.yaml    local models through Ollama
+config/models.google.yaml    hosted Gemini models with a free tier
 ```
 
-For hosted Gemini models instead, see [Google AI Studio](#google-ai-studio) below.
+Select one per command with `--models-config`, or for a whole shell with
+`ARCHCOMPASS_MODELS_CONFIG`. A workspace with neither set falls back to the packaged
+`models.yaml` copied into it on first use. See [Google AI Studio](#google-ai-studio) below
+for the hosted path.
+
+Each names a `thinking` setting for its reasoning model: `true` requires the model to
+reason before answering, `false` forbids it, and `null` leaves it to the model. Those tokens
+are spent from `max_output_tokens`, so requiring thinking on a tight output budget can
+truncate the structured answer — which fails validation rather than returning something
+wrong.
+
+The three are not two. Measured on `gemma4:26b` against the scored example: `true` took 510s
+and scored 4/6, `false` took 40s and scored 3/6, and `null` took about 250s and scored 5-6/6.
+The Ollama configuration therefore ships `null`, and the Google one `true`, where Gemini
+picks its own level.
 
 The reasoning model's `context_window_tokens` controls Ollama's total context
 window (`num_ctx`), including input and generated output.
 `max_output_tokens` separately caps generated output.
 
-The checked-in `config/models.yaml` expects `gemma4:26b`; the packaged fallback copied into a
-new workspace expects `gemma4:12b`. Pull the model named by the configuration you use, plus the
+The checked-in `config/models.ollama.yaml` expects `gemma4:26b`; the packaged fallback
+copied into a new workspace expects `gemma4:12b`. Pull the model named by the configuration you use, plus the
 embedding model:
 
 ```bash
@@ -434,7 +450,7 @@ export ARCHCOMPASS_MODELS_CONFIG=config/models.google.yaml
 ```
 
 Get a key from [Google AI Studio](https://aistudio.google.com/apikey). `.env` sits at
-the workspace root and is git-ignored; `models.yaml` names the environment variable
+the workspace root and is git-ignored; a model configuration names the environment variable
 through `api_key_env` and never holds the key itself. A variable already set in the
 environment takes precedence over the file.
 
