@@ -1453,6 +1453,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 .case-editor__problem { margin: 0; padding: 11px 14px; color: var(--danger); border: 1px solid var(--color-danger-border); border-radius: 8px; background: var(--danger-soft); font-size: 14px; line-height: 1.5; }
 .case-editor__problem strong { display: block; }
 .case-editor__actions { display: flex; gap: 14px; align-items: center; }
+.case-editor__actions > .button { flex: 0 0 auto; white-space: nowrap; }
 .case-editor__actions > p, .case-editor__note { margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.5; }
 .icon-button { display: grid; width: 32px; height: 32px; place-items: center; color: var(--ink-muted); border: 1px solid var(--line); border-radius: 7px; background: var(--white); cursor: pointer; }
 .icon-button:hover { color: var(--ink); border-color: var(--color-border-strong); }
