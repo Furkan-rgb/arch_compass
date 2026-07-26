@@ -208,6 +208,11 @@ def initialize_workspace(
     models_config: Path | None = None,
 ) -> WorkspaceInitialization:
     canonical_workspace = workspace.expanduser().resolve()
+    # Before resolving anything: the workspace's `.env` is one of the places that says which
+    # configuration to use, and reading it afterwards would mean `archcompass init` and
+    # `archcompass web` never saw it. `build_runtime` loads it in this order too; loading it
+    # twice is free, because a variable already set is never overwritten.
+    load_provider_environment(canonical_workspace)
     config_path = resolve_config_path(canonical_workspace, models_config)
     external_config = models_config is not None or bool(
         os.environ.get("ARCHCOMPASS_MODELS_CONFIG")

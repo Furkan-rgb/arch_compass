@@ -190,17 +190,24 @@ NAMED_CONFIG_PATTERN = "models.*.yaml"
 
 
 def resolve_config_path(workspace: Path, explicit: Path | None = None) -> Path:
-    """Find the configuration this workspace means, without inventing a second one.
+    """The configuration this run was pointed at, or the one its workspace holds.
 
-    A workspace whose configurations are named for the provider they point at used to get
-    an unnamed `models.yaml` written beside them from the packaged template — a third
-    configuration nobody asked for, pointing at a model that may not be installed, and
-    silently preferred over both. So the named ones are discovered, and only a workspace
-    with no configuration at all gets one created.
+    Being pointed at one comes first and settles it, whatever the file is called:
+    `--models-config`, or `ARCHCOMPASS_MODELS_CONFIG` — exported, or in the workspace's own
+    `.env`, where a relative path is read against the workspace rather than against wherever
+    the command was typed.
 
-    Several named configurations and no way to choose is not something to guess at: the
-    provider a review runs against decides what the review costs and how long it takes.
-    That case says so and names the files.
+    Only when nothing points anywhere does the name matter, and then only to find what is
+    already there: `models.yaml` if the workspace has one, otherwise the single
+    `models.<provider>.yaml` it keeps. `models.yaml` is what gets written into a workspace
+    that has no configuration at all — a default to create, not a file to require.
+
+    Several configurations and nothing choosing between them is not something to guess at:
+    which provider a review runs against decides what it costs and how long it takes. That
+    case says so and names the files.
+
+    Callers must load the workspace's `.env` first. Resolving before that is how this
+    silently ignored a workspace that had said exactly which configuration it wanted.
     """
 
     if explicit is not None:
@@ -208,8 +215,6 @@ def resolve_config_path(workspace: Path, explicit: Path | None = None) -> Path:
     directory = (workspace / CONFIG_DIRECTORY).resolve()
     from_env = os.environ.get("ARCHCOMPASS_MODELS_CONFIG")
     if from_env:
-        # Relative to the workspace, not to wherever the process happens to be started:
-        # the variable usually arrives from the workspace's own `.env`.
         chosen = Path(from_env).expanduser()
         return chosen.resolve() if chosen.is_absolute() else (workspace / chosen).resolve()
     default = directory / DEFAULT_CONFIG_NAME
@@ -221,10 +226,10 @@ def resolve_config_path(workspace: Path, explicit: Path | None = None) -> Path:
     if named:
         offered = ", ".join(path.name for path in named)
         raise ConfigurationError(
-            f"{directory} holds several model configurations ({offered}) and none is "
-            f"named {DEFAULT_CONFIG_NAME}, so which one to run against is not decided. "
-            "Pass --models-config, or set ARCHCOMPASS_MODELS_CONFIG in the workspace's "
-            ".env file."
+            f"{directory} holds more than one model configuration ({offered}) and nothing "
+            "says which to run against. Name one with --models-config, or with "
+            f"ARCHCOMPASS_MODELS_CONFIG in {workspace / ENVIRONMENT_FILE_NAME} — any path "
+            "will do; the file does not have to be called anything in particular."
         )
     return default
 

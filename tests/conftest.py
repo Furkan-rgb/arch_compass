@@ -1,10 +1,28 @@
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 from archcompass.bootstrap import Runtime, build_runtime
+
+
+@pytest.fixture(autouse=True)
+def isolate_environment() -> Iterator[None]:
+    """Take back what loading a `.env` puts into the process environment.
+
+    `load_environment_file` writes into `os.environ` and nothing removes it, so one test
+    that loads a workspace's `.env` would go on deciding the configuration for every test
+    after it. That is the same leak that had this suite reading the developer's own `.env`,
+    one scope smaller and just as invisible.
+    """
+
+    before = os.environ.copy()
+    yield
+    os.environ.clear()
+    os.environ.update(before)
 
 
 @pytest.fixture

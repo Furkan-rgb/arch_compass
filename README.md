@@ -411,12 +411,14 @@ the directory you happen to be standing in supplies credentials only: a key trav
 the person running the command, but which models a workspace uses is that workspace's own
 business. See [Google AI Studio](#google-ai-studio) below for the hosted path.
 
-With neither set, a workspace uses `config/models.yaml` if it has one, or the single
-`config/models.*.yaml` it keeps if there is exactly one, and otherwise gets the packaged
-default copied in on first use. A workspace holding several named configurations and no
-`models.yaml` is asked to choose rather than guessed at: which provider a review runs
-against decides what it costs and how long it takes. This repository is such a workspace,
-so it makes the choice in the Makefile —
+Being pointed at a file settles it, whatever the file is called — the name only matters
+when nothing points anywhere. Then a workspace uses `config/models.yaml` if it has one, or
+the single `config/models.*.yaml` it keeps if there is exactly one, and otherwise gets the
+packaged default written in as `config/models.yaml` on first use: a default to create, not
+a file to require. A workspace holding several and nothing choosing between them is asked
+rather than guessed at, because which provider a review runs against decides what it costs
+and how long it takes. This repository is such a workspace, so it makes the choice in the
+Makefile —
 
 ```bash
 make web           # the workspace on config/models.ollama.yaml
