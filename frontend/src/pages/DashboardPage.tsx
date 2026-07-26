@@ -13,7 +13,6 @@ import { Link } from "react-router-dom";
 
 import { api } from "../api";
 import {
-  Badge,
   EmptyState,
   ErrorPanel,
   Loading,
@@ -42,7 +41,7 @@ export function DashboardPage() {
       <PageHeader
         eyebrow="Local architecture workspace"
         title="Find the next sound decision."
-        description="Frame the case, inspect bounded evidence, and keep the recommendation traceable."
+        description="Frame the case, judge every boundary against it, and keep the verdict traceable."
         action={
           <Link to="/reviews" className="button button--primary">
             <Sparkles size={17} />
@@ -60,8 +59,8 @@ export function DashboardPage() {
             Use a repository when structure matters, or stay greenfield when the
             evidence is still requirements, constraints, and credible future change.
           </p>
-          <Link to="/new" className="text-link text-link--light">
-            Frame a new case <ArrowRight size={16} />
+          <Link to="/reviews" className="text-link text-link--light">
+            Start a review <ArrowRight size={16} />
           </Link>
         </article>
 
@@ -118,14 +117,9 @@ export function DashboardPage() {
                   <span className="case-row__icon"><FileSearch size={18} /></span>
                   <div>
                     <h3>{item.title}</h3>
-                    <p>{item.current_recommendation?.summary || item.problem_statement}</p>
+                    <p>{item.problem_statement}</p>
                     <small>Revision {item.revision} · {formatDate(item.updated_at)}</small>
                   </div>
-                  {item.current_recommendation?.disposition && (
-                    <Badge tone="teal">
-                      {item.current_recommendation.disposition.replaceAll("_", " ")}
-                    </Badge>
-                  )}
                 </article>
               ))}
             </div>
@@ -133,8 +127,8 @@ export function DashboardPage() {
             <EmptyState
               icon={<BookOpenCheck size={28} />}
               title="Your decision notebook is empty"
-              description="Start with a guided case or import an existing case YAML file."
-              action={<Link to="/new" className="button button--secondary">Create first case</Link>}
+              description="Start from a bundled example, or import an existing case YAML file."
+              action={<Link to="/reviews" className="button button--secondary">Start a review</Link>}
             />
           )}
         </div>

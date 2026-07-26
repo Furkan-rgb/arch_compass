@@ -82,7 +82,7 @@ export function PoliciesPage() {
       <PageHeader
         eyebrow="Normative guidance, not automatic lint"
         title="Policy library"
-        description="Browse authored policy documents and manage the sources included in consultation retrieval."
+        description="Browse authored policy documents and manage the sources in the corpus. The corpus is presented whole with every boundary judged — nothing is retrieved, so nothing can be missed."
         action={
           <button
             className="button button--primary"

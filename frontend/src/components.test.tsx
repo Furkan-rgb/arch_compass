@@ -24,13 +24,13 @@ describe("workspace primitives", () => {
     render(
       <EmptyState
         icon={<Compass aria-hidden="true" />}
-        title="No consultations"
+        title="No reviews"
         description="Start with a focused architecture case."
-        action={<button type="button">Start consultation</button>}
+        action={<button type="button">Start a review</button>}
       />,
     );
-    expect(screen.getByRole("heading", { name: "No consultations" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Start consultation" })).toBeEnabled();
+    expect(screen.getByRole("heading", { name: "No reviews" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Start a review" })).toBeEnabled();
   });
 
   it("focuses dialogs and lets keyboard users close them", () => {

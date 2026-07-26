@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, CircleCheck, FlaskConical, Play } from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import {
@@ -25,6 +25,7 @@ import type { BundledCase } from "../types";
  */
 export function ReviewsPage() {
   const client = useQueryClient();
+  const navigate = useNavigate();
   const [notice, setNotice] = useState<string | null>(null);
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: () => api.reviews() });
   const examples = useQuery({ queryKey: ["bundled-cases"], queryFn: api.bundledCases });
@@ -41,8 +42,7 @@ export function ReviewsPage() {
     onSuccess: async (review) => {
       setNotice(null);
       await client.invalidateQueries({ queryKey: ["reviews"] });
-      window.location.hash = "";
-      window.location.assign(`/reviews/${review.review_id}`);
+      navigate(`/reviews/${review.review_id}`);
     },
     onError: () => setNotice(null),
   });

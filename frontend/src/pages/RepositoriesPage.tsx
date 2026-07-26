@@ -357,7 +357,7 @@ export function RepositoriesPage() {
             })()}
             <div className="inspector-note">
               <Network size={18} />
-              <p>Freshness is checked again before any query or consultation uses this atlas.</p>
+              <p>Freshness is checked again before any query or review uses this atlas.</p>
             </div>
           </aside>
         )}

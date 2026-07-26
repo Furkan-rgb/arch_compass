@@ -38,11 +38,7 @@ them is labelled rather than presented as something the review supports.
 The atlas graph is served separately under **Repositories** and reads the indexed atlas
 directly, so it needs no review to have been run.
 
-## Architecture workspace
-
-A completed review opens as an analysis surface rather than a chat transcript: the case,
-the policies presented, and every boundary examined with its reasoning and source
-locations, with the questions asked about it alongside.
+## The atlas explorer
 
 The interactive `RepositoryAtlas` renders from the latest freshness-checked summary,
 hotspot and node-inspection APIs. Selecting a node updates its metrics and relationship
@@ -82,26 +78,6 @@ separate in the inspector, and any two surfaced nodes can be used to trace and h
 shortest known dependency path. Every expansion is freshness-checked through application-level
 atlas operations.
 
-Greenfield consultations never invent repository structure. Their architecture canvas is derived
-from recommended responsibilities and conceptual boundaries and labels every node as advisor
-inference. Alternatives and future-change scenarios are selectable, and the ADR can be copied or
-exported.
-
-Completed runs keep explanation and re-analysis deliberately separate. V1.2 removes the former
-report follow-up composer and history from the React workspace and does not add a replacement
-conversation UI. Durable report conversations are available through the CLI and local FastAPI
-boundary. This keeps the browser milestone focused on report/Atlas inspection while the new
-conversation contracts, validation, persistence, and exports stabilize independently.
-
-The removed `/api/runs/{run_id}/follow-ups` route returns 404. Conversation clients use
-`/api/conversations`, `/{conversation_id}/messages`, `/{conversation_id}/history`, and
-`/{conversation_id}/export`. Every conversation is pinned to one successful run and remains
-read-only with respect to the ArchitectureCase and historical recommendation.
-
-“Revise case & run again” is a separate completed-run action for changed requirements, constraints,
-premises, or scenarios. It explains that the action creates a new immutable case revision and
-performs the full consultation workflow before the user confirms it.
-
 The interface supports persistent system, light, and dark appearance preferences. Graph colors,
 semantic statuses, focus rings, surfaces, and evidence states all use the shared semantic token
 layer.
@@ -129,13 +105,12 @@ the Python presentation package so an installed wheel does not require Node.
 FastAPI owns the browser API contract. Run `make api-types` after changing a web route or response
 model; it regenerates `frontend/src/openapi.generated.ts` directly from the application OpenAPI
 document without starting a server. Every operation documents runtime request-validation failures
-with `ProblemDetail` rather than FastAPI's unused default error shape. Conversation routes reuse
-that schema for 404 not-found, 409 state-conflict, 422 request/evidence-validation, and 503
-provider-unavailable responses. Missing consultation runs are 404s rather than generic persistence
-failures. Report and conversation export operations declare both their structured
-`application/json` schema and `text/markdown` representation, so generated responses are typed
-rather than `unknown`.
+with `ProblemDetail` rather than FastAPI's unused default error shape. Review-conversation routes
+reuse that schema for 404 not-found, 409 state-conflict, 422 request/evidence-validation, and 503
+provider-unavailable responses. A missing review is a 404 rather than a generic persistence
+failure.
 
-The active frontend error path aliases the generated `ProblemDetail` contract. No conversation
-client state, route, or control is added to React in V1.2. `make check` verifies that the committed
-OpenAPI declarations are current.
+The active frontend error path aliases the generated `ProblemDetail` contract, and the case,
+review and conversation response types are aliases of it rather than hand-maintained copies.
+`make check` verifies that the committed OpenAPI declarations are current, and that the committed
+bundle under `presentation/web/static` still matches `frontend/`.

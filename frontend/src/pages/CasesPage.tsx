@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowRight, BookOpenText, Compass, Play } from "lucide-react";
+import { BookOpenText, Compass, Play } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
@@ -27,7 +27,7 @@ export function CasesPage() {
       <PageHeader
         eyebrow="Decision notebook"
         title="Architecture cases"
-        description="Every consultation starts from a specific, immutable case revision."
+        description="Every review starts from a specific, immutable case revision."
         action={<Link to="/reviews" className="button button--primary"><Compass size={17} /> Reviews</Link>}
       />
       {cases.isLoading && <Loading />}
@@ -38,7 +38,7 @@ export function CasesPage() {
           icon={<BookOpenText size={30} />}
           title="No architecture cases"
           description="Frame a greenfield decision, point at a repository, or import case YAML."
-          action={<Link to="/new" className="button button--secondary">Start consultation</Link>}
+          action={<Link to="/reviews" className="button button--secondary">Start a review</Link>}
         />
       )}
       <div className="card-grid">
@@ -52,23 +52,11 @@ export function CasesPage() {
             </div>
             <h2>{item.title}</h2>
             <p>{item.problem_statement}</p>
-            {item.current_recommendation && (
-              <div className="decision-preview">
-                <span>Current recommendation</span>
-                <strong>{item.current_recommendation.summary}</strong>
-              </div>
-            )}
             <dl className="meta-pairs">
               <div><dt>Case</dt><dd title={item.case_id}>{shortId(item.case_id)}</dd></div>
               <div><dt>Updated</dt><dd>{formatDate(item.updated_at)}</dd></div>
-              {item.confidence && <div><dt>Confidence</dt><dd>{item.confidence.level}</dd></div>}
             </dl>
             <div className="card-actions">
-              {item.current_recommendation?.run_id && (
-                <Link className="button button--quiet" to={`/runs/${item.current_recommendation.run_id}`}>
-                  Open report <ArrowRight size={15} />
-                </Link>
-              )}
               <button
                 className="button button--secondary"
                 type="button"
