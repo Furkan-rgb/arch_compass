@@ -333,6 +333,10 @@ def test_a_person_can_write_a_case_in_the_browser_and_review_with_it(
             assert "Formatter boundary, authored in the browser" in page.inner_text(
                 ".review-head"
             )
+            # The page is reached while the run is still going, so the report is waited for
+            # rather than assumed. Closing the browser before it lands would leave the run
+            # to finish on its own — true, and useless to assert against.
+            page.wait_for_selector(".overview", timeout=120_000)
             assert page.locator(".finding").count() == 6
         finally:
             browser.close()
@@ -354,8 +358,16 @@ def test_a_person_can_revise_the_case_and_review_again(workspace_url: str) -> No
         try:
             page.goto(f"{workspace_url}/reviews", wait_until="networkidle")
             page.wait_for_selector(".review-row", timeout=20_000)
+            # The newest row is the one to open, once it is a review rather than a run: the
+            # listing follows a run while there is one, so this is a wait rather than a
+            # retry. A running review has its own page, which is what the test above proves.
+            page.wait_for_function(
+                "() => Array.from(document.querySelectorAll('.review-row__verdict'))"
+                ".every(node => !/judging|sweeping/i.test(node.textContent || ''))",
+                timeout=120_000,
+            )
             page.locator(".review-row").first.click()
-            page.wait_for_selector(".review-head", timeout=20_000)
+            page.wait_for_selector(".overview", timeout=20_000)
             first = page.url
 
             # 1. What the review is pinned to is printed, not implied. The labels are
@@ -382,6 +394,8 @@ def test_a_person_can_revise_the_case_and_review_again(workspace_url: str) -> No
             page.get_by_role("button", name="Create revision & review again").click()
 
             # 4. A second review, at the next case revision, and this is a different one.
+            #    Revising takes the reader to the new review the same way the start step
+            #    does — as soon as it has an identity, before the first model call.
             page.wait_for_url("**/reviews/rev_*", timeout=120_000)
             page.wait_for_function(
                 "url => window.location.href !== url", arg=first, timeout=120_000
@@ -389,6 +403,7 @@ def test_a_person_can_revise_the_case_and_review_again(workspace_url: str) -> No
             page.wait_for_selector(".review-head", timeout=60_000)
             second = page.url
             assert second != first
+            page.wait_for_selector(".overview", timeout=120_000)
 
             # 5. The two are linked, derived from the reviews of this case rather than
             #    stored on either of them.

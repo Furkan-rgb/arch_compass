@@ -181,115 +181,124 @@ export function CaseForm({
         </button>
       </div>
       {note}
-      {loading ? <Loading label="Reading the case…" /> : null}
       {error ? <ErrorPanel error={error} /> : null}
 
-      <form className="case-form" onSubmit={form.handleSubmit(onSubmit)}>
-        <div className="case-form__group">
-          <h4>The decision</h4>
-          {/* These three are the only fields the domain requires, so the form asks for them
-              before submitting. Everything else the server judges — including these, which
-              it still validates. */}
-          <Field label="Name for this case" hint="Short, so you can find it again.">
-            <input {...form.register("title", { required: true })} />
-          </Field>
-          <Field label="What decision are you facing?">
-            <textarea rows={3} {...form.register("problem_statement", { required: true })} />
-          </Field>
-          <Field label="What would a good answer give you?">
-            <textarea rows={2} {...form.register("desired_outcome", { required: true })} />
-          </Field>
-        </div>
+      {/* Nothing to fill in until there is something to fill it with. `useForm` takes
+          its defaults once, at mount, so a form rendered before the case arrives holds
+          empty fields for good — and submitting it would write a revision with every
+          field cleared, because the payload always carries every key. A caller that keys
+          this on the loaded revision re-mounts it correctly; one that does not would
+          erase a case in silence, so the form is not offered until it can be right. */}
+      {loading ? (
+        <Loading label="Reading the case…" />
+      ) : (
+        <form className="case-form" onSubmit={form.handleSubmit(onSubmit)}>
+          <div className="case-form__group">
+            <h4>The decision</h4>
+            {/* These three are the only fields the domain requires, so the form asks for them
+                before submitting. Everything else the server judges — including these, which
+                it still validates. */}
+            <Field label="Name for this case" hint="Short, so you can find it again.">
+              <input {...form.register("title", { required: true })} />
+            </Field>
+            <Field label="What decision are you facing?">
+              <textarea rows={3} {...form.register("problem_statement", { required: true })} />
+            </Field>
+            <Field label="What would a good answer give you?">
+              <textarea rows={2} {...form.register("desired_outcome", { required: true })} />
+            </Field>
+          </div>
 
-        <div className="case-form__group case-form__group--decisive">
-          <h4>What decides the verdict</h4>
-          <p className="case-form__why">
-            A boundary earns its place by absorbing a change that is actually coming. These
-            three fields are where that is settled, and a review with them empty can only
-            judge structure.
-          </p>
-          <Field
-            label="What changes are actually coming?"
-            hint="One per line. A boundary earns its place by absorbing one of these."
-            good="Billing moves to a second provider in Q4 — the contract is signed and the migration is scheduled."
-            bad="We might need to support other providers one day."
-          >
-            <textarea rows={3} {...form.register("expected_future_changes")} />
-          </Field>
-          <Field
-            label="What have you decided against?"
-            hint="One per line. A boundary that absorbs a non-goal hides nothing."
-            good="We will not run on anything but Postgres; the ops team supports one database and that is settled."
-            bad="Keep it simple and avoid over-engineering."
-          >
-            <textarea rows={3} {...form.register("non_goals")} />
-          </Field>
-          <Field
-            label="What is settled, and why?"
-            hint="One per line. Anything fixed by an external contract cannot vary, so no boundary can absorb it."
-            good="The payroll export format is fixed by the tax authority and changes only by legislation."
-            bad="The current code is a bit messy in places."
-          >
-            <textarea rows={4} {...form.register("confirmed_facts")} />
-          </Field>
-        </div>
+          <div className="case-form__group case-form__group--decisive">
+            <h4>What decides the verdict</h4>
+            <p className="case-form__why">
+              A boundary earns its place by absorbing a change that is actually coming. These
+              three fields are where that is settled, and a review with them empty can only
+              judge structure.
+            </p>
+            <Field
+              label="What changes are actually coming?"
+              hint="One per line. A boundary earns its place by absorbing one of these."
+              good="Billing moves to a second provider in Q4 — the contract is signed and the migration is scheduled."
+              bad="We might need to support other providers one day."
+            >
+              <textarea rows={3} {...form.register("expected_future_changes")} />
+            </Field>
+            <Field
+              label="What have you decided against?"
+              hint="One per line. A boundary that absorbs a non-goal hides nothing."
+              good="We will not run on anything but Postgres; the ops team supports one database and that is settled."
+              bad="Keep it simple and avoid over-engineering."
+            >
+              <textarea rows={3} {...form.register("non_goals")} />
+            </Field>
+            <Field
+              label="What is settled, and why?"
+              hint="One per line. Anything fixed by an external contract cannot vary, so no boundary can absorb it."
+              good="The payroll export format is fixed by the tax authority and changes only by legislation."
+              bad="The current code is a bit messy in places."
+            >
+              <textarea rows={4} {...form.register("confirmed_facts")} />
+            </Field>
+          </div>
 
-        {/* Collapsed by default: real context, but a form that opens as eleven empty boxes
-            reads as work rather than as questions. */}
-        <details className="case-form__more">
-          <summary>More context</summary>
-          <Field
-            label="Technical constraints"
-            hint="One per line. Something a design could actually violate."
-            good="Python 3.12 with no async runtime, deployed as one container with no outbound network."
-            bad="Must be scalable and maintainable."
-          >
-            <textarea rows={3} {...form.register("technical_constraints")} />
-          </Field>
-          <Field
-            label="Organisational constraints"
-            hint="One per line. Who maintains this, and with how much time."
-            good="One maintainer, roughly four hours a week, and nobody else has read this code."
-            bad="The team is quite small."
-          >
-            <textarea rows={2} {...form.register("organisational_constraints")} />
-          </Field>
-          <Field
-            label="Qualities that matter"
-            hint="One per line. Ranked against each other, because everything cannot come first."
-            good="A failed import must never lose a row; correctness matters more than throughput here."
-            bad="High performance, security and reliability."
-          >
-            <textarea rows={2} {...form.register("quality_attributes")} />
-          </Field>
-          <Field
-            label="What it has to do"
-            hint="One per line."
-            good="Reconcile last night's bank export against yesterday's ledger and report every mismatch."
-            bad="Handle the data properly."
-          >
-            <textarea rows={2} {...form.register("functional_requirements")} />
-          </Field>
-          <Field
-            label="Who uses it, and how"
-            hint="One per line."
-            good="Two finance analysts run the reconciliation each morning and work through the failures by hand."
-            bad="Users use the system."
-          >
-            <textarea rows={2} {...form.register("actors_and_workflows")} />
-          </Field>
-        </details>
+          {/* Collapsed by default: real context, but a form that opens as eleven empty boxes
+              reads as work rather than as questions. */}
+          <details className="case-form__more">
+            <summary>More context</summary>
+            <Field
+              label="Technical constraints"
+              hint="One per line. Something a design could actually violate."
+              good="Python 3.12 with no async runtime, deployed as one container with no outbound network."
+              bad="Must be scalable and maintainable."
+            >
+              <textarea rows={3} {...form.register("technical_constraints")} />
+            </Field>
+            <Field
+              label="Organisational constraints"
+              hint="One per line. Who maintains this, and with how much time."
+              good="One maintainer, roughly four hours a week, and nobody else has read this code."
+              bad="The team is quite small."
+            >
+              <textarea rows={2} {...form.register("organisational_constraints")} />
+            </Field>
+            <Field
+              label="Qualities that matter"
+              hint="One per line. Ranked against each other, because everything cannot come first."
+              good="A failed import must never lose a row; correctness matters more than throughput here."
+              bad="High performance, security and reliability."
+            >
+              <textarea rows={2} {...form.register("quality_attributes")} />
+            </Field>
+            <Field
+              label="What it has to do"
+              hint="One per line."
+              good="Reconcile last night's bank export against yesterday's ledger and report every mismatch."
+              bad="Handle the data properly."
+            >
+              <textarea rows={2} {...form.register("functional_requirements")} />
+            </Field>
+            <Field
+              label="Who uses it, and how"
+              hint="One per line."
+              good="Two finance analysts run the reconciliation each morning and work through the failures by hand."
+              bad="Users use the system."
+            >
+              <textarea rows={2} {...form.register("actors_and_workflows")} />
+            </Field>
+          </details>
 
-        <div className="case-editor__actions">
-          <button type="submit" className="button button--primary" disabled={pending}>
-            {pending ? pendingLabel : submitLabel}
-          </button>
-          <p>
-            Case revisions are immutable: this writes a new one rather than changing what an
-            earlier review was judged against.
-          </p>
-        </div>
-      </form>
+          <div className="case-editor__actions">
+            <button type="submit" className="button button--primary" disabled={pending}>
+              {pending ? pendingLabel : submitLabel}
+            </button>
+            <p>
+              Case revisions are immutable: this writes a new one rather than changing what an
+              earlier review was judged against.
+            </p>
+          </div>
+        </form>
+      )}
     </section>
   );
 }

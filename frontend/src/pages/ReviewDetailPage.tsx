@@ -523,9 +523,10 @@ export function ReviewDetailPage() {
 
       {revising ? (
         <CaseForm
-          // Keyed by the pinned revision so the form mounts with that revision's answers,
-          // not with the empty defaults it was first built from.
-          key={`${caseId}:${caseRevision}`}
+          // Keyed by what has actually loaded, not by what was asked for: the review knows
+          // its case and revision immediately, so keying on those alone would hold the key
+          // steady while the answers were still arriving and mount the form empty.
+          key={`${caseId}:${pinnedCase.data?.revision ?? "loading"}`}
           heading="Revise the case, then review again"
           initial={pinnedCase.data?.snapshot}
           submitLabel="Create revision &amp; review again"
