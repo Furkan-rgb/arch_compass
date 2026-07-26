@@ -7,10 +7,7 @@ from archcompass.ports.atlas import (
 )
 from archcompass.ports.models import EmbeddingProvider
 from archcompass.ports.policies import PolicyIndex, PolicyRetriever
-from archcompass.ports.reasoning import (
-    FocusedReasoningProvider,
-    ReportConversationReasoner,
-)
+from archcompass.ports.reasoning import FocusedReasoningProvider
 from archcompass.ports.repositories import (
     AtlasRepository,
     CaseRepository,
@@ -27,7 +24,6 @@ __all__ = [
     "PolicyIndex",
     "PolicyRetriever",
     "ReasoningProvider",
-    "ReportConversationReasoner",
     "RepositoryAnalyzer",
     "SourceReader",
 ]

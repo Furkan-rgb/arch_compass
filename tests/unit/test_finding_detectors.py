@@ -105,10 +105,11 @@ def test_a_lone_subclass_of_a_plain_class_is_not_a_candidate() -> None:
 def test_an_abstraction_extending_another_abstraction_is_not_an_implementation() -> None:
     """Composition, not implementation — and a live false positive before this existed.
 
-    `ports.reasoning.FocusedReasoningProvider` extends `ReportConversationReasoner`, and a
-    real run reported the parent as an abstraction with exactly one implementation behind
-    it. Nothing concrete had been found; the advisor was about to reason about a protocol
-    as though it were an adapter.
+    `ports.reasoning` once split its reasoning port in two, and a real run reported the
+    parent as an abstraction with exactly one implementation behind it — the protocol that
+    extended it. Nothing concrete had been found; the advisor was about to reason about a
+    protocol as though it were an adapter. (It was right that the split earned nothing, and
+    the two are one protocol now, but for the other reason.)
     """
 
     nodes = {

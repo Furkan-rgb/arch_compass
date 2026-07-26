@@ -53,12 +53,12 @@ class UnreadableStoredRecordError(PersistenceError):
     """A stored row predates the current schema and cannot be reinterpreted.
 
     ArchCompass does not guess at the meaning of a record written by an earlier,
-    unreleased schema. The owning consultation must be re-run instead.
+    unreleased schema. The owning review must be re-run instead.
     """
 
 
-class RunNotFoundError(ArchCompassError):
-    pass
+class ReviewNotFoundError(ArchCompassError):
+    """No stored review under that identifier."""
 
 
 class ProviderError(ArchCompassError):

@@ -94,9 +94,10 @@ def sole_implementation_candidates(
         if interface is None or interface.node_type is not NodeType.INTERFACE:
             continue
         # An abstraction extending another abstraction is composition, not implementation.
-        # Counting it produced a live false positive: `ReportConversationReasoner` was
-        # reported as having exactly one implementation, which was the protocol that
-        # extends it. Excluding abstractions can leave a parent with none resolvable, and
+        # Counting it produced a live false positive: a reasoning port then extended by a
+        # second protocol was reported as having exactly one implementation, which was that
+        # extender. (The advisor was right that the split earned nothing — the two are one
+        # protocol now.) Excluding abstractions can leave a parent with none resolvable, and
         # it then drops out rather than being described wrongly — the safer of the two
         # failures for a stage whose output is advice.
         unique = sorted(

@@ -42,7 +42,7 @@ from archcompass.domain.errors import (
     PolicyFormatError,
     PolicyNotFoundError,
     ProviderError,
-    RunNotFoundError,
+    ReviewNotFoundError,
     StaleAtlasError,
 )
 from archcompass.domain.policy import (
@@ -92,23 +92,6 @@ def _problem_responses(
     }
 
 
-def _export_responses(
-    json_schema: dict[str, Any],
-    *,
-    description: str,
-) -> dict[int | str, dict[str, Any]]:
-    return {
-        200: {
-            "description": description,
-            "content": {
-                "application/json": {"schema": json_schema},
-                "text/markdown": {"schema": {"type": "string"}},
-            },
-        },
-        **_problem_responses(404, 422),
-    }
-
-
 class RepositoryPathRequest(APIModel):
     root_path: str = Field(min_length=1)
 
@@ -145,20 +128,6 @@ class AtlasExploreRequest(APIModel):
         if self.operation == "shortest_path" and self.target_id is None:
             raise ValueError("shortest_path requires target_id")
         return self
-
-
-class ConsultationStartRequest(APIModel):
-    case_id: str = Field(min_length=1)
-    repository_root: str | None = None
-
-
-class ConversationCreateRequest(APIModel):
-    run_id: str = Field(min_length=1)
-    title: str | None = Field(default=None, min_length=1)
-
-
-class ReportQuestionRequest(APIModel):
-    question: str = Field(min_length=1, max_length=4000)
 
 
 class ReviewRequest(APIModel):
@@ -797,7 +766,7 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
         (
             CaseNotFoundError,
             AtlasNotFoundError,
-            RunNotFoundError,
+            ReviewNotFoundError,
             PolicyNotFoundError,
             ConversationNotFoundError,
         ),

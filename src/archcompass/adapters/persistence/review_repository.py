@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.adapters.persistence.stored_records import decode_stored_json
-from archcompass.domain.errors import RunNotFoundError
+from archcompass.domain.errors import ReviewNotFoundError
 from archcompass.domain.review import BoundaryReview
 from archcompass.domain.workspace import BoundaryReviewSummary
 
@@ -46,7 +46,7 @@ class SQLiteBoundaryReviewRepository:
                 (review_id,),
             ).fetchone()
         if row is None:
-            raise RunNotFoundError(f"Boundary review {review_id} was not found")
+            raise ReviewNotFoundError(f"Boundary review {review_id} was not found")
         return decode_stored_json(
             BoundaryReview,
             row["review_json"],

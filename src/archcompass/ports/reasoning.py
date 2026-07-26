@@ -1,4 +1,4 @@
-"""Focused reasoning boundary used by the consultation application workflow."""
+"""The reasoning boundary: the two stages a review needs a model for."""
 
 from __future__ import annotations
 
@@ -24,13 +24,19 @@ class ReasoningTask(StrEnum):
     ANSWER_REVIEW_QUESTION = "answer_review_question"
 
 
-class ReportConversationReasoner(Protocol):
+class FocusedReasoningProvider(Protocol):
+    """Judgement and answering, plus the identities a review records for both.
+
+    One protocol rather than two: the identity half was split out for a consultation-era
+    caller that no longer exists, leaving an abstraction with a single extender and no
+    separate consumer — the shape this advisor exists to report.
+    """
+
     @property
     def model_identity(self) -> str: ...
 
     def prompt_identity(self, task: ReasoningTask) -> str: ...
 
-class FocusedReasoningProvider(ReportConversationReasoner, Protocol):
     def judge_finding_candidate(
         self,
         case: ArchitectureCase,
