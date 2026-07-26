@@ -40,36 +40,29 @@ def test_public_models_forbid_unknown_fields() -> None:
         )
 
 
-def test_architecture_case_keeps_user_and_advisor_forces_in_separate_fields() -> None:
-    """Force ownership is explicit in the schema, never inferred from a source string."""
+def test_a_case_holds_no_advisor_output() -> None:
+    """The case is user intent, and only that (ADR 0007).
 
-    architecture_case = ArchitectureCase.model_validate(
-        {
-            "schema_version": 2,
-            "title": "Case",
-            "problem_statement": "A problem",
-            "desired_outcome": "An outcome",
-            "design_forces": [
-                {
-                    "id": "force-user",
-                    "text": "User intent",
-                    "kind": "force",
-                    "source": "user",
-                },
-            ],
-            "advisor_design_forces": [
-                {
-                    "id": "force-advisor",
-                    "text": "Prior observation",
-                    "kind": "force",
-                    "source": "run_previous",
-                },
-            ],
-        }
-    )
+    An advisor that writes its conclusions back into the case makes it both the question and
+    the answer, and a reader then cannot tell which half they are looking at. Advisor output
+    lives in the review, pinned to the revision that produced it — so these fields are
+    refused rather than ignored.
+    """
 
-    assert [item.id for item in architecture_case.design_forces] == ["force-user"]
-    assert [item.id for item in architecture_case.advisor_design_forces] == ["force-advisor"]
+    for field, value in (
+        ("current_recommendation", {"summary": "Remove it", "rationale": "Because"}),
+        ("confidence", {"level": "high", "rationale": "Because"}),
+        ("advisor_design_forces", [{"text": "Prior observation", "kind": "force"}]),
+    ):
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            ArchitectureCase.model_validate(
+                {
+                    "title": "Case",
+                    "problem_statement": "A problem",
+                    "desired_outcome": "An outcome",
+                    field: value,
+                }
+            )
 
 
 def test_architecture_case_rejects_duplicate_user_force_ids() -> None:

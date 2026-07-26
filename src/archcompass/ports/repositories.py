@@ -28,7 +28,6 @@ class CaseRepository(Protocol):
         expected_revision: int,
         event_type: str,
         actor: str,
-        origin_run_id: str | None = None,
     ) -> CaseRevision: ...
 
     def history(self, case_id: str) -> list[CaseRevision]: ...

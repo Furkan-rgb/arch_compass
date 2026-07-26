@@ -34,10 +34,8 @@ describe("caseToYaml", () => {
     confirmed_facts: [
       { id: "stmt_1", text: "SQLite is fixed.", kind: "fact", source: null },
     ],
-    advisor_design_forces: [{ id: "stmt_2", text: "Inferred.", kind: "force" }],
     repository: { root_path: "/repos/scheduler", atlas_version_id: null },
     policy_applicability: { user: null, organisation: null, repository: null },
-    current_recommendation: null,
   } as unknown as ArchitectureCase;
 
   it("leaves out what ArchCompass generated and what is empty", () => {
@@ -49,9 +47,6 @@ describe("caseToYaml", () => {
     expect(yaml).not.toContain("stmt_1");
     expect(yaml).not.toContain("actors_and_workflows");
     expect(yaml).not.toContain("policy_applicability");
-    expect(yaml).not.toContain("current_recommendation");
-    // Advisor-authored forces are not the author's to re-submit.
-    expect(yaml).not.toContain("Inferred.");
   });
 
   it("round-trips as the format the editor accepts", () => {

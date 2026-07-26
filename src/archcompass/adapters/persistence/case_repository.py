@@ -40,7 +40,7 @@ class SQLiteCaseRepository:
             if revision is None:
                 row = connection.execute(
                     """
-                    SELECT revision, event_type, actor, origin_run_id, created_at, snapshot_json
+                    SELECT revision, event_type, actor, created_at, snapshot_json
                     FROM case_revisions
                     WHERE case_id = ?
                     ORDER BY revision DESC LIMIT 1
@@ -50,7 +50,7 @@ class SQLiteCaseRepository:
             else:
                 row = connection.execute(
                     """
-                    SELECT revision, event_type, actor, origin_run_id, created_at, snapshot_json
+                    SELECT revision, event_type, actor, created_at, snapshot_json
                     FROM case_revisions WHERE case_id = ? AND revision = ?
                     """,
                     (case_id, revision),
@@ -67,7 +67,6 @@ class SQLiteCaseRepository:
         expected_revision: int,
         event_type: str,
         actor: str,
-        origin_run_id: str | None = None,
     ) -> CaseRevision:
         next_revision = expected_revision + 1
         snapshot = case.model_copy(update={"revision": next_revision})
@@ -77,7 +76,6 @@ class SQLiteCaseRepository:
             snapshot=snapshot,
             event_type=event_type,  # type: ignore[arg-type]
             actor=actor,
-            origin_run_id=origin_run_id,
         )
         with self._database.connect() as connection:
             cursor = connection.execute(
@@ -100,7 +98,7 @@ class SQLiteCaseRepository:
         with self._database.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT revision, event_type, actor, origin_run_id, created_at, snapshot_json
+                SELECT revision, event_type, actor, created_at, snapshot_json
                 FROM case_revisions WHERE case_id = ? ORDER BY revision
                 """,
                 (case_id,),
@@ -139,8 +137,6 @@ class SQLiteCaseRepository:
                     repository_root=(
                         snapshot.repository.root_path if snapshot.repository is not None else None
                     ),
-                    current_recommendation=snapshot.current_recommendation,
-                    confidence=snapshot.confidence,
                     updated_at=snapshot.updated_at,
                 )
             )
@@ -151,15 +147,14 @@ class SQLiteCaseRepository:
         connection.execute(  # type: ignore[attr-defined]
             """
             INSERT INTO case_revisions(
-                case_id, revision, event_type, actor, origin_run_id, created_at, snapshot_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                case_id, revision, event_type, actor, created_at, snapshot_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 revision.case_id,
                 revision.revision,
                 revision.event_type,
                 revision.actor,
-                revision.origin_run_id,
                 revision.created_at.isoformat(),
                 revision.snapshot.model_dump_json(),
             ),
@@ -173,6 +168,5 @@ class SQLiteCaseRepository:
             snapshot=ArchitectureCase.model_validate_json(row["snapshot_json"]),  # type: ignore[index]
             event_type=row["event_type"],  # type: ignore[index]
             actor=row["actor"],  # type: ignore[index]
-            origin_run_id=row["origin_run_id"],  # type: ignore[index]
             created_at=datetime.fromisoformat(row["created_at"]),  # type: ignore[index]
         )

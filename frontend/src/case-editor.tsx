@@ -67,7 +67,6 @@ const GENERATED_KEYS = new Set([
   "revision",
   "created_at",
   "updated_at",
-  "advisor_design_forces",
 ]);
 
 function authoredFields(value: object): Record<string, unknown> {

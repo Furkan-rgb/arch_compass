@@ -24,13 +24,10 @@ export interface components {
     "assumptions"?: Array<components["schemas"]["CaseStatement"]>;
     "unresolved_questions"?: Array<components["schemas"]["CaseStatement"]>;
     "design_forces"?: Array<components["schemas"]["CaseStatement"]>;
-    "advisor_design_forces"?: Array<components["schemas"]["CaseStatement"]>;
     "repository"?: components["schemas"]["RepositoryReference"] | null;
     "policy_applicability"?: components["schemas"]["PolicyApplicabilityContext"];
     "referenced_policy_ids"?: Array<string>;
     "candidate_alternatives"?: Array<components["schemas"]["CaseAlternative"]>;
-    "current_recommendation"?: components["schemas"]["RecommendationState"] | null;
-    "confidence"?: components["schemas"]["Confidence"] | null;
     "reversal_conditions"?: Array<string>;
     "revisit_triggers"?: Array<string>;
     "created_at"?: string;
@@ -146,10 +143,9 @@ export interface components {
     "case_id": string;
     "revision": number;
     "snapshot": components["schemas"]["ArchitectureCase"];
-    "event_type": "created" | "user_update" | "consultation";
+    "event_type": "created" | "user_update";
     "actor": string;
     "created_at"?: string;
-    "origin_run_id"?: string | null;
   };
     "CaseStatement": {
     "id"?: string;
@@ -163,8 +159,6 @@ export interface components {
     "title": string;
     "problem_statement": string;
     "repository_root"?: string | null;
-    "current_recommendation"?: components["schemas"]["RecommendationState"] | null;
-    "confidence"?: components["schemas"]["Confidence"] | null;
     "updated_at": string;
   };
     "CaseUpdate": {
@@ -183,21 +177,13 @@ export interface components {
     "assumptions"?: Array<components["schemas"]["CaseStatement"]> | null;
     "unresolved_questions"?: Array<components["schemas"]["CaseStatement"]> | null;
     "design_forces"?: Array<components["schemas"]["CaseStatement"]> | null;
-    "advisor_design_forces"?: Array<components["schemas"]["CaseStatement"]> | null;
     "repository"?: components["schemas"]["RepositoryReference"] | null;
     "policy_applicability"?: components["schemas"]["PolicyApplicabilityContext"] | null;
     "referenced_policy_ids"?: Array<string> | null;
     "candidate_alternatives"?: Array<components["schemas"]["CaseAlternative"]> | null;
-    "current_recommendation"?: components["schemas"]["RecommendationState"] | null;
-    "confidence"?: components["schemas"]["Confidence"] | null;
     "reversal_conditions"?: Array<string> | null;
     "revisit_triggers"?: Array<string> | null;
   };
-    "Confidence": {
-    "level": components["schemas"]["ConfidenceLevel"];
-    "rationale": string;
-  };
-    "ConfidenceLevel": "low" | "medium" | "high";
     "CyclesQuery": {
     "kind": "cyclic_components";
     "limit"?: number;
@@ -329,12 +315,6 @@ export interface components {
     "message": string;
     "retryable"?: boolean;
     "field_errors"?: Array<string>;
-  };
-    "RecommendationState": {
-    "summary": string;
-    "rationale": string;
-    "run_id"?: string | null;
-    "disposition"?: string | null;
   };
     "RelationQuery": {
     "kind": "direct_dependencies" | "direct_dependants" | "known_callers" | "implementations" | "related_tests";

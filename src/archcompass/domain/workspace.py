@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from archcompass.domain.base import DomainModel
-from archcompass.domain.case import Confidence, RecommendationState
 
 
 class CaseSummary(DomainModel):
@@ -14,8 +13,6 @@ class CaseSummary(DomainModel):
     title: str
     problem_statement: str
     repository_root: str | None = None
-    current_recommendation: RecommendationState | None = None
-    confidence: Confidence | None = None
     updated_at: datetime
 
 

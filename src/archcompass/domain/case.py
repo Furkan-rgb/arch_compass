@@ -38,24 +38,6 @@ class CaseAlternative(DomainModel):
     summary: str = Field(min_length=1)
 
 
-class RecommendationState(DomainModel):
-    summary: str = Field(min_length=1)
-    rationale: str = Field(min_length=1)
-    run_id: str | None = None
-    disposition: str | None = None
-
-
-class ConfidenceLevel(StrEnum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-
-
-class Confidence(DomainModel):
-    level: ConfidenceLevel
-    rationale: str = Field(min_length=1)
-
-
 class ArchitectureCase(DomainModel):
     schema_version: Literal[2] = 2
     case_id: str = Field(default_factory=lambda: new_id("case"))
@@ -74,15 +56,12 @@ class ArchitectureCase(DomainModel):
     assumptions: list[CaseStatement] = Field(default_factory=list[CaseStatement])
     unresolved_questions: list[CaseStatement] = Field(default_factory=list[CaseStatement])
     design_forces: list[CaseStatement] = Field(default_factory=list[CaseStatement])
-    advisor_design_forces: list[CaseStatement] = Field(default_factory=list[CaseStatement])
     repository: RepositoryReference | None = None
     policy_applicability: PolicyApplicabilityContext = Field(
         default_factory=PolicyApplicabilityContext
     )
     referenced_policy_ids: list[str] = Field(default_factory=list[str])
     candidate_alternatives: list[CaseAlternative] = Field(default_factory=list[CaseAlternative])
-    current_recommendation: RecommendationState | None = None
-    confidence: Confidence | None = None
     reversal_conditions: list[str] = Field(default_factory=list[str])
     revisit_triggers: list[str] = Field(default_factory=list[str])
     created_at: datetime = Field(default_factory=utc_now)
@@ -105,11 +84,6 @@ class ArchitectureCase(DomainModel):
                 StatementKind.QUESTION,
             ),
             ("design_forces", self.design_forces, StatementKind.FORCE),
-            (
-                "advisor_design_forces",
-                self.advisor_design_forces,
-                StatementKind.FORCE,
-            ),
         )
         for field, statements, kind in expected:
             wrong = [statement.id for statement in statements if statement.kind != kind]
@@ -142,13 +116,10 @@ class CaseUpdate(DomainModel):
     assumptions: list[CaseStatement] | None = None
     unresolved_questions: list[CaseStatement] | None = None
     design_forces: list[CaseStatement] | None = None
-    advisor_design_forces: list[CaseStatement] | None = None
     repository: RepositoryReference | None = None
     policy_applicability: PolicyApplicabilityContext | None = None
     referenced_policy_ids: list[str] | None = None
     candidate_alternatives: list[CaseAlternative] | None = None
-    current_recommendation: RecommendationState | None = None
-    confidence: Confidence | None = None
     reversal_conditions: list[str] | None = None
     revisit_triggers: list[str] | None = None
 
@@ -168,11 +139,6 @@ class CaseUpdate(DomainModel):
                 StatementKind.QUESTION,
             ),
             ("design_forces", self.design_forces, StatementKind.FORCE),
-            (
-                "advisor_design_forces",
-                self.advisor_design_forces,
-                StatementKind.FORCE,
-            ),
         )
         for field, statements, kind in expected:
             if statements is None:
@@ -187,10 +153,9 @@ class CaseRevision(DomainModel):
     case_id: str
     revision: int = Field(ge=1)
     snapshot: ArchitectureCase
-    event_type: Literal["created", "user_update", "consultation"]
+    event_type: Literal["created", "user_update"]
     actor: str
     created_at: datetime = Field(default_factory=utc_now)
-    origin_run_id: str | None = None
 
     @model_validator(mode="after")
     def validate_snapshot_identity(self) -> CaseRevision:
@@ -198,6 +163,4 @@ class CaseRevision(DomainModel):
             raise ValueError("Case revision snapshot must have the same case ID")
         if self.snapshot.revision != self.revision:
             raise ValueError("Case revision snapshot must have the same revision number")
-        if self.event_type == "consultation" and self.origin_run_id is None:
-            raise ValueError("Consultation revisions require an originating run ID")
         return self

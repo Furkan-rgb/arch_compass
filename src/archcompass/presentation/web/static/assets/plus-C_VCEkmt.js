@@ -1,1 +1,0 @@
-import{c}from"./index-Bwcs090X.js";const e=[["circle",{cx:"12",cy:"12",r:"10",key:"1mglay"}],["path",{d:"m9 12 2 2 4-4",key:"dzmm74"}]],t=c("circle-check",e);const o=[["path",{d:"M5 12h14",key:"1ays0h"}],["path",{d:"M12 5v14",key:"s699le"}]],a=c("plus",o);export{t as C,a as P};
