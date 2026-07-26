@@ -3,6 +3,8 @@ import {
   ArrowRight,
   Boxes,
   CircleCheck,
+  Eye,
+  FilePlus2,
   FileSearch,
   FlaskConical,
   Network,
@@ -13,6 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
+import { CaseEditor, CaseView } from "../case-editor";
 import {
   Badge,
   EmptyState,
@@ -24,6 +27,9 @@ import {
 } from "../components";
 import { latestPerRepository } from "../repositories";
 import type { BundledCase, CaseSummary } from "../types";
+
+/** Which case surface is open, if any: writing a new one, or reading a stored one. */
+type Editor = { mode: "write" } | { mode: "view"; caseId: string } | null;
 
 /**
  * The front door: start a review, or reopen one.
@@ -40,11 +46,17 @@ export function HomePage() {
   const [repositoryRoot, setRepositoryRoot] = useState<string | null>(null);
   const [caseId, setCaseId] = useState<string | null>(null);
   const [path, setPath] = useState("");
+  const [editor, setEditor] = useState<Editor>(null);
 
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const cases = useQuery({ queryKey: ["cases"], queryFn: api.cases });
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: () => api.reviews() });
   const examples = useQuery({ queryKey: ["bundled-cases"], queryFn: api.bundledCases });
+  const viewed = useQuery({
+    queryKey: ["case", editor?.mode === "view" ? editor.caseId : null],
+    queryFn: () => api.case((editor as { caseId: string }).caseId),
+    enabled: editor?.mode === "view",
+  });
 
   const indexed = useMemo(
     () => latestPerRepository(repositories.data || []),
@@ -97,21 +109,34 @@ export function HomePage() {
     },
   });
 
+  const create = useMutation({
+    mutationFn: (source: string) => api.importCase(source),
+    onSuccess: async (revision) => {
+      setEditor(null);
+      setCaseId(revision.case_id);
+      applyRepositoryHint(revision.snapshot?.repository?.root_path);
+      await client.invalidateQueries({ queryKey: ["cases"] });
+    },
+  });
+
   /**
    * A case that names an indexed repository fills the other rail too. The case already
    * answers the question the repository rail asks, and making the user answer it again
    * would be asking them to repeat themselves. An unindexed path is offered rather than
    * selected: indexing is a real action with its own failure modes.
    */
-  const chooseCase = (item: CaseSummary) => {
-    setCaseId(item.case_id);
-    const root = item.repository_root;
+  function applyRepositoryHint(root: string | null | undefined) {
     if (!root) return;
     if (indexed.some((repository) => repository.root_path === root)) {
       setRepositoryRoot(root);
     } else if (!path.trim()) {
       setPath(root);
     }
+  }
+
+  const chooseCase = (item: CaseSummary) => {
+    setCaseId(item.case_id);
+    applyRepositoryHint(item.repository_root);
   };
 
   const ready = Boolean(repositoryRoot && caseId);
@@ -286,12 +311,50 @@ export function HomePage() {
               </div>
             ) : (
               <p className="rail__empty">
-                No cases yet. Import one with <code>archcompass case import</code> for now,
-                or load a bundled example above to see what one looks like.
+                No cases yet. Write one below, or load a bundled example above to see what
+                a filled-in case looks like.
               </p>
             )}
+
+            <div className="rail__actions">
+              <button
+                type="button"
+                className="button button--secondary"
+                onClick={() => setEditor({ mode: "write" })}
+              >
+                <FilePlus2 size={15} aria-hidden /> Write a new case
+              </button>
+              {caseId ? (
+                <button
+                  type="button"
+                  className="button button--quiet"
+                  onClick={() => setEditor({ mode: "view", caseId })}
+                >
+                  <Eye size={15} aria-hidden /> View this case
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
+
+        {/* Full width rather than inside the rail: a case is prose, and half a rail is not
+            enough of a line to write it on. */}
+        {editor?.mode === "write" ? (
+          <CaseEditor
+            pending={create.isPending}
+            error={create.error}
+            onCreate={(source) => create.mutate(source)}
+            onClose={() => setEditor(null)}
+          />
+        ) : null}
+        {editor?.mode === "view" ? (
+          <CaseView
+            snapshot={viewed.data?.snapshot}
+            loading={viewed.isLoading}
+            error={viewed.error}
+            onClose={() => setEditor(null)}
+          />
+        ) : null}
 
         <div className="start__run">
           <button

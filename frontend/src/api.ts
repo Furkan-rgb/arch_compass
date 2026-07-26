@@ -101,10 +101,12 @@ export const api = {
       `/api/cases/${caseId}${revision ? `?revision=${revision}` : ""}`,
     ),
   createCase: (value: ArchitectureCaseInput) =>
-    request<{ case_id: string; revision: number }>("/api/cases", {
+    request<CaseRevision>("/api/cases", {
       method: "POST",
       body: JSON.stringify(value),
     }),
+  // Not `request`: the body is YAML rather than JSON, and the route's media type is part
+  // of how it tells a case document from a case object.
   importCase: async (source: string) => {
     const response = await fetch("/api/cases/import-yaml", {
       method: "POST",
@@ -115,7 +117,7 @@ export const api = {
       const detail = (await response.json()) as Partial<ProblemDetail>;
       throw new ApiError(detail.message || "Invalid case YAML.", response.status, detail.code);
     }
-    return (await response.json()) as { case_id: string; revision: number };
+    return (await response.json()) as CaseRevision;
   },
   updateCase: (caseId: string, value: ArchitectureCaseUpdate) =>
     request<CaseRevision>(`/api/cases/${caseId}`, {

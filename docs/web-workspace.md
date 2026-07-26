@@ -32,6 +32,20 @@ repository to run it against, so a new workspace can produce a real review witho
 being written first. Loading one indexes the repository and creates the case in a single
 step, then leaves the run to the user.
 
+**Cases are authored in the browser as YAML.** The case rail opens a full-width editor
+pre-filled with a commented skeleton, and creates the case through
+`POST /api/cases/import-yaml` — the same route and the same document the CLI takes, so the
+two surfaces author the same thing. YAML rather than a form because the fields that decide
+verdicts (`expected_future_changes`, `non_goals`, `confirmed_facts`) are prose with
+structure, which is exactly what a form flattens; a structured form can follow beside it.
+
+The browser checks syntax and nothing else. What a case must contain is the domain's rule,
+and the server's validation message is shown verbatim: it names the field and what it
+needed, which is more than a paraphrase could say. A created case is selected in the rail
+immediately, and a selected case can be read back — rendered as the same YAML it was
+written in, with generated identity and empty fields left out, so what is displayed is what
+could be pasted back into the editor.
+
 Repository paths are validated and indexed through the same application service the CLI
 uses, and every workspace/repository separation, symlink, traversal and atlas-freshness
 rule remains in force.

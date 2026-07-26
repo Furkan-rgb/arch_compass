@@ -1433,6 +1433,18 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 .rail__field input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
 .rail .repository-list { max-height: 264px; overflow-y: auto; }
 .rail .repository-card { grid-template-columns: auto 1fr auto; padding: 12px 13px; }
+.rail__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.case-editor { display: grid; gap: 12px; margin-top: 16px; padding: 17px; border: 1px solid var(--color-accent-border); border-radius: 9px; background: var(--white); }
+.case-editor__head { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+.case-editor__head h3 { margin: 0; font-size: 17px; }
+.case-editor__source { min-height: 420px; margin: 0; overflow: auto; padding: 13px 15px; border: 1px solid var(--line); border-radius: 8px; background: var(--color-bg-input); color: var(--color-text-primary); font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; line-height: 1.6; tab-size: 2; white-space: pre; }
+.case-editor__source--read { max-height: 520px; background: var(--paper-warm); }
+.case-editor__problem { margin: 0; padding: 11px 14px; color: var(--danger); border: 1px solid var(--color-danger-border); border-radius: 8px; background: var(--danger-soft); font-size: 14px; line-height: 1.5; }
+.case-editor__problem strong { display: block; }
+.case-editor__actions { display: flex; gap: 14px; align-items: center; }
+.case-editor__actions > p, .case-editor__note { margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.5; }
+.icon-button { display: grid; width: 32px; height: 32px; place-items: center; color: var(--ink-muted); border: 1px solid var(--line); border-radius: 7px; background: var(--white); cursor: pointer; }
+.icon-button:hover { color: var(--ink); border-color: var(--color-border-strong); }
 .start__run { display: flex; gap: 16px; align-items: center; margin-top: 18px; padding-top: 17px; border-top: 1px solid var(--line); }
 .start__run > p { margin: 0; color: var(--ink-muted); font-size: 14px; line-height: 1.5; }
 

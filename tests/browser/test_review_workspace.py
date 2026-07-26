@@ -160,3 +160,78 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
                 page.wait_for_selector("text=Start a review", timeout=20_000)
         finally:
             browser.close()
+
+
+AUTHORED_CASE = """title: Formatter boundary, authored in the browser
+problem_statement: >-
+  One formatter port with a single implementation, and a label format fixed by a
+  downstream reporting system that parses it.
+desired_outcome: >-
+  A verdict on whether the formatter boundary is earning its place.
+expected_future_changes:
+  - Reminder delivery over SMS is scheduled for the next release.
+non_goals:
+  - Any alternative label format or output rendering.
+confirmed_facts:
+  - text: >-
+      The label format is fixed by a downstream parser and no change to it is planned.
+    kind: fact
+"""
+
+
+def test_a_person_can_write_a_case_in_the_browser_and_review_with_it(
+    workspace_url: str,
+) -> None:
+    """The second rail, without a CLI detour.
+
+    Runs after the example test in file order and depends on the repository that test
+    indexed — deliberately, because the point being proved is that only the case is
+    authored here: the same repository, a different case, a different review.
+    """
+
+    playwright = pytest.importorskip("playwright.sync_api")
+
+    with playwright.sync_playwright() as driver:
+        browser = driver.chromium.launch()
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        try:
+            page.goto(workspace_url, wait_until="networkidle")
+            page.wait_for_selector(".rail", timeout=20_000)
+
+            # 1. An invalid case is refused by the server, and its complaint is shown
+            #    rather than paraphrased. The browser does not carry a second copy of the
+            #    domain's rules, so this is the only validation there is.
+            page.get_by_role("button", name="Write a new case").click()
+            editor = page.get_by_label("Case YAML")
+            editor.fill("title: Missing everything else\n")
+            page.get_by_role("button", name="Create the case").click()
+            page.wait_for_selector(".notice--error", timeout=20_000)
+            assert "problem_statement" in page.locator(".notice--error").inner_text()
+
+            # 2. A complete case is created, selected in the rail, and ready to run.
+            editor.fill(AUTHORED_CASE)
+            page.get_by_role("button", name="Create the case").click()
+            page.wait_for_selector(
+                "text=Formatter boundary, authored in the browser", timeout=20_000
+            )
+            assert page.locator(".rail--filled").count() == 2
+
+            # 3. The stored case reads back as the same format it was written in.
+            page.get_by_role("button", name="View this case").click()
+            page.wait_for_selector(".case-editor__source--read", timeout=20_000)
+            written = page.locator(".case-editor__source--read").inner_text()
+            assert "expected_future_changes" in written
+            assert "case_id" not in written, written
+            page.get_by_role("button", name="Close the case").click()
+
+            # 4. The whole flow, completed in the browser: authored case, indexed
+            #    repository, one review.
+            page.get_by_role("button", name="Run the review").click()
+            page.wait_for_url("**/reviews/rev_*", timeout=120_000)
+            page.wait_for_selector(".review-head", timeout=60_000)
+            assert "Formatter boundary, authored in the browser" in page.inner_text(
+                ".review-head"
+            )
+            assert page.locator(".finding").count() == 6
+        finally:
+            browser.close()
