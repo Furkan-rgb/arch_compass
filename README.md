@@ -405,9 +405,11 @@ config/models.google.yaml    hosted Gemini models with a free tier
 ```
 
 Select one per command with `--models-config`, or for a whole workspace with
-`ARCHCOMPASS_MODELS_CONFIG` — in the shell, or in the workspace's own `.env`, where a
-relative path is read against the workspace rather than the current directory. See
-[Google AI Studio](#google-ai-studio) below for the hosted path.
+`ARCHCOMPASS_MODELS_CONFIG` — in the shell, or in **that workspace's own** `.env`, where a
+relative path is read against the workspace rather than the current directory. A `.env` in
+the directory you happen to be standing in supplies credentials only: a key travels with
+the person running the command, but which models a workspace uses is that workspace's own
+business. See [Google AI Studio](#google-ai-studio) below for the hosted path.
 
 With neither set, a workspace uses `config/models.yaml` if it has one, or the single
 `config/models.*.yaml` it keeps if there is exactly one, and otherwise gets the packaged

@@ -67,8 +67,11 @@ function Overview({ overview }: { overview: ReviewOverview }) {
   const themes = overview.themes || [];
   const sequence = overview.recommended_sequence || [];
   return (
-    <section className="overview" aria-label="What this review amounts to">
-      <h2 className="overview__title">What this amounts to</h2>
+    // "Conclusion", not "Findings": the findings are the boundaries below, each with its
+    // own verdict. This is the one thing none of those separate calls could produce — what
+    // they amount to read as a set.
+    <section className="overview" aria-label="Conclusion">
+      <h2 className="overview__title">Conclusion</h2>
       <p className="overview__lead">{overview.situation}</p>
 
       {themes.length > 0 ? (
@@ -240,20 +243,27 @@ function Score({ score }: { score: ReviewScore }) {
 }
 
 /**
- * A review that has not produced a judgement: either still running, or ended without one.
+ * A review that has not produced a judgement: still running, cancelled, or ended without one.
  *
  * Not an error page. The row exists from the moment the run starts, so this is what an
  * ordinary review page looks like before its subject exists — and what it looks like when
- * the run ended and no subject ever will. Both say which case and revision were being
+ * the run ended and no subject ever will. All three say which case and revision were being
  * judged, because that is what the reader came for and is known from the start.
  */
 function Unfinished({ review }: { review: BoundaryReview }) {
   const running = review.status === "running";
+  const cancelled = review.status === "cancelled";
   return (
     <div className="page page--review">
       <header className="review-head">
         <span className="eyebrow">Boundary review</span>
-        <h1>{running ? "This review is still running" : "This review did not finish"}</h1>
+        <h1>
+          {running
+            ? "This review is still running"
+            : cancelled
+              ? "This review was cancelled"
+              : "This review did not finish"}
+        </h1>
         <p className="review-head__meta">
           Case <code>{shortId(review.case_id)}</code> · revision {review.case_revision} ·
           started {formatDate(review.created_at)}
@@ -277,20 +287,29 @@ function Unfinished({ review }: { review: BoundaryReview }) {
         </div>
       ) : (
         <div className="unfinished">
-          {/* Only what ArchCompass wrote for a person to read reaches this list; an
-              unexpected failure is recorded without its text. */}
-          <ul className="unfinished__errors">
-            {(review.sanitized_errors || []).map((message) => (
-              <li key={message}>{message}</li>
-            ))}
-            {(review.sanitized_errors || []).length === 0 ? (
-              <li>No reason was recorded.</li>
-            ) : null}
-          </ul>
+          {/* Cancelling records no reason, because there is none to record beyond the
+              choice itself. Only what ArchCompass wrote for a person to read reaches this
+              list; an unexpected failure is recorded without its text. */}
+          {cancelled ? (
+            <p className="unfinished__note">
+              It stopped after the boundary it was judging at the time. The verdicts it had
+              already reached were not kept: a review is every boundary or none, and half of
+              one would read as a complete answer.
+            </p>
+          ) : (
+            <ul className="unfinished__errors">
+              {(review.sanitized_errors || []).map((message) => (
+                <li key={message}>{message}</li>
+              ))}
+              {(review.sanitized_errors || []).length === 0 ? (
+                <li>No reason was recorded.</li>
+              ) : null}
+            </ul>
+          )}
           <p className="unfinished__note">
-            Nothing was judged and nothing was written to the case or the atlas. A review is
-            derived from both, so running it again is the whole of the fix.{" "}
-            <Link to="/">Start a review</Link>
+            Nothing was written to the case or the atlas. A review is derived from both, so
+            running it again is the whole of the fix.{" "}
+            <Link to="/">Start a review</Link> · <Link to="/reviews">All reviews</Link>
           </p>
         </div>
       )}

@@ -76,6 +76,34 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ case_id: caseId, repository_root: repositoryRoot }),
     }),
+  /**
+   * Ask a running review to stop. Returns when the record says cancelled, which is before
+   * the work has actually stopped: the run reads that record between model calls, so a
+   * local model can take a few more minutes to notice.
+   */
+  cancelReview: (reviewId: string) =>
+    request<BoundaryReview>(`/api/reviews/${encodeURIComponent(reviewId)}/cancel`, {
+      method: "POST",
+    }),
+  // Not `request`: a 204 has no body to parse, and reading one as JSON would throw on the
+  // one response that means it worked.
+  deleteReview: async (reviewId: string): Promise<void> => {
+    const response = await fetch(`/api/reviews/${encodeURIComponent(reviewId)}`, {
+      method: "DELETE",
+    });
+    if (response.ok) return;
+    let detail: Partial<ProblemDetail> = {};
+    try {
+      detail = (await response.json()) as typeof detail;
+    } catch {
+      detail = { message: response.statusText };
+    }
+    throw new ApiError(
+      detail.message || "Arch Compass could not delete that review.",
+      response.status,
+      detail.code,
+    );
+  },
 
   /**
    * The same review, reported as it happens.

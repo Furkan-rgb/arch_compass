@@ -58,7 +58,9 @@ def workspace_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     config = workspace / "config" / "models.yaml"
     config.parent.mkdir(parents=True)
     config.write_text(FAKE_CONFIG, encoding="utf-8")
-    app = create_app(build_runtime(workspace))
+    # Named rather than discovered: a run reads `.env` from the working directory too, and
+    # this workspace means to run against the substitute written just above.
+    app = create_app(build_runtime(workspace, models_config=config))
     port = _free_port()
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
@@ -380,5 +382,53 @@ def test_a_person_can_revise_the_case_and_review_again(workspace_url: str) -> No
             page.wait_for_selector(".review-siblings", timeout=20_000)
             page.get_by_role("link", name="Newer review").click()
             page.wait_for_url(second, timeout=20_000)
+        finally:
+            browser.close()
+
+
+def test_a_person_can_delete_a_review_they_no_longer_want(workspace_url: str) -> None:
+    """Deleting is not editing: the record goes, rather than being made to say something else.
+
+    Runs last, because it removes what the tests above produced. Cancelling cannot be driven
+    here — the substitute answers faster than a browser can reach the button — so what the
+    browser proves is the destructive path, and the repository tests prove the stopping.
+    """
+
+    playwright = pytest.importorskip("playwright.sync_api")
+
+    with playwright.sync_playwright() as driver:
+        browser = driver.chromium.launch()
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        try:
+            page.goto(f"{workspace_url}/reviews", wait_until="networkidle")
+            page.wait_for_selector(".review-row", timeout=20_000)
+            before = page.locator(".review-row").count()
+            assert before > 1, "the tests above must have left several reviews"
+
+            # 1. Behind a menu, and asked twice: a listing where every row carries a live
+            #    delete button is a listing you cannot scan without risk.
+            page.locator(".row-actions .icon-button").first.click()
+            page.wait_for_selector(".row-menu", timeout=10_000)
+            page.get_by_role("menuitem", name="Delete", exact=True).click()
+            assert "question threads go with it" in page.locator(".row-menu__ask").inner_text()
+
+            # 2. And it is possible to change your mind, which is the point of asking.
+            page.get_by_role("menuitem", name="Keep it").click()
+            assert page.locator(".row-menu").count() == 0
+            assert page.locator(".review-row").count() == before
+
+            page.locator(".row-actions .icon-button").first.click()
+            page.get_by_role("menuitem", name="Delete", exact=True).click()
+            page.get_by_role("menuitem", name="Delete permanently").click()
+
+            # 3. Gone from the listing, and gone from the workspace.
+            page.wait_for_function(
+                "expected => document.querySelectorAll('.review-row').length === expected",
+                arg=before - 1,
+                timeout=20_000,
+            )
+            page.reload(wait_until="networkidle")
+            page.wait_for_selector(".review-row", timeout=20_000)
+            assert page.locator(".review-row").count() == before - 1
         finally:
             browser.close()

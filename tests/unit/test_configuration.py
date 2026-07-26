@@ -230,3 +230,48 @@ def test_the_environment_variable_is_read_against_the_workspace(
     assert resolve_config_path(workspace) == (
         workspace / "config" / "models.ollama.yaml"
     ).resolve()
+
+
+def test_a_working_directory_env_file_supplies_credentials_but_not_the_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A key travels with whoever runs the command; a workspace's models do not.
+
+    Found by a repository that is itself a workspace: its `.env` was deciding the models
+    for every other workspace driven from inside it, including the temporary ones this
+    suite builds.
+    """
+
+    working_directory = tmp_path / "somewhere"
+    working_directory.mkdir()
+    (working_directory / ".env").write_text(
+        "GOOGLE_API_KEY=from-the-working-directory\n"
+        "ARCHCOMPASS_MODELS_CONFIG=config/models.google.yaml\n",
+        encoding="utf-8",
+    )
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.chdir(working_directory)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("ARCHCOMPASS_MODELS_CONFIG", raising=False)
+
+    load_provider_environment(workspace)
+
+    assert os.environ["GOOGLE_API_KEY"] == "from-the-working-directory"
+    assert "ARCHCOMPASS_MODELS_CONFIG" not in os.environ
+
+
+def test_a_workspace_env_file_may_name_its_own_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace_with(tmp_path, "models.ollama.yaml")
+    (workspace / ".env").write_text(
+        "ARCHCOMPASS_MODELS_CONFIG=config/models.ollama.yaml\n", encoding="utf-8"
+    )
+    monkeypatch.delenv("ARCHCOMPASS_MODELS_CONFIG", raising=False)
+
+    load_provider_environment(workspace)
+
+    assert os.environ["ARCHCOMPASS_MODELS_CONFIG"] == "config/models.ollama.yaml"

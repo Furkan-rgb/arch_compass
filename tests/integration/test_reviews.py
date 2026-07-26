@@ -175,7 +175,7 @@ def test_a_review_says_what_its_verdicts_amount_to(runtime: Runtime) -> None:
         assert set(statement.supporting_references) <= known
 
     markdown = render_review(review)
-    assert "What this amounts to" in markdown
+    assert "## Conclusion" in markdown
     assert overview.situation in markdown
     # The citations are printed, so a reader who doubts a theme can reach the verdicts.
     assert statements[0].supporting_references[0] in markdown

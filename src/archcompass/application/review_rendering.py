@@ -54,7 +54,7 @@ def _overview(overview: ReviewOverview) -> list[str]:
     would not have been recorded at all.
     """
 
-    lines = ["", "## What this amounts to", "", overview.situation]
+    lines = ["", "## Conclusion", "", overview.situation]
     if overview.themes:
         lines += ["", "### Across the boundaries", ""]
         lines += [

@@ -63,6 +63,22 @@ class ReviewNotFoundError(ArchCompassError):
     """No stored review under that identifier."""
 
 
+class ReviewCancelledError(ArchCompassError):
+    """The run was asked to stop, and did, between one model call and the next.
+
+    Not a failure: the record already says the review was cancelled, and the run raises
+    only to unwind the work it was in the middle of.
+    """
+
+
+class ReviewNotCancellableError(ArchCompassError):
+    """The review is not running, so there is nothing to stop."""
+
+
+class ReviewStillRunningError(ArchCompassError):
+    """The review is being produced right now, and the request needs it not to be."""
+
+
 class ProviderError(ArchCompassError):
     pass
 

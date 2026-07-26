@@ -1551,8 +1551,22 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 .review-history__head h2 { margin: 0; font-size: 17px; }
 .review-history__head span { color: var(--ink-muted); font-size: 13px; white-space: nowrap; }
 .review-history__rows { display: grid; margin: 0; padding: 0; list-style: none; }
-.review-row { display: grid; grid-template-columns: minmax(0, 14em) 1fr auto auto; gap: 16px; align-items: center; padding: 13px 10px; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; }
+/* The row's controls sit beside its link, never inside it: a button nested in an anchor is
+   neither reliably clickable nor announced as its own control, and "delete" is the last
+   action that should depend on a click landing where the reader meant it. */
+.review-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; border-bottom: 1px solid var(--line); }
 .review-row:hover { background: var(--color-bg-surface-raised); }
+.review-row__open { display: grid; grid-template-columns: minmax(0, 14em) 1fr auto auto; gap: 16px; align-items: center; min-width: 0; padding: 13px 4px 13px 10px; color: inherit; text-decoration: none; }
+.row-actions { display: flex; gap: 6px; align-items: center; padding-right: 8px; }
+.row-actions__menu { position: relative; display: inline-flex; }
+.button--stop { color: var(--danger); border: 1px solid var(--color-danger-border); background: var(--danger-soft); }
+.button--stop:hover:not(:disabled) { color: var(--color-on-accent, #fff); border-color: var(--danger); background: var(--danger); }
+.row-menu { position: absolute; top: calc(100% + 5px); right: 0; z-index: 20; display: grid; gap: 2px; min-width: 15em; padding: 6px; border: 1px solid var(--line); border-radius: 9px; background: var(--color-bg-surface-raised); box-shadow: var(--shadow-panel); }
+.row-menu__ask { padding: 7px 9px 9px; color: var(--ink-muted); font-size: 12.5px; line-height: 1.5; }
+.row-menu__item { display: flex; gap: 8px; align-items: center; width: 100%; padding: 8px 9px; border: 0; border-radius: 6px; background: none; color: var(--color-text-primary); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.row-menu__item:hover:not(:disabled) { background: var(--color-bg-subtle); }
+.row-menu__item--danger { color: var(--danger); }
+.row-menu__item--danger:hover:not(:disabled) { background: var(--danger-soft); }
 .review-row__when { display: grid; gap: 2px; font-size: 14px; }
 .review-row__when small { color: var(--ink-muted); font-size: 12.5px; }
 .review-row__latest { color: var(--color-accent-strong); font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }

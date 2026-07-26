@@ -85,6 +85,12 @@ already are. A review that failed before composing a report has no title to carr
 row is rendered by its identifier rather than by a placeholder that would be
 indistinguishable from a case actually called that.
 
+Each row can be acted on: a running one carries a **Cancel** control, and every row has an
+overflow menu with **Delete**. Both sit outside the row's link rather than inside it — a
+button nested in an anchor is neither reliably clickable nor announced as its own control,
+and deleting is the last action that should depend on a click landing where the reader
+meant it. Delete asks once, in place, with the row still visible behind the question.
+
 `/cases` redirects to Home rather than 404, so bookmarks from the earlier noun-organised
 workspace still land somewhere sensible.
 
@@ -141,6 +147,26 @@ leaving them saying "in progress" for ever. The one case that gets this wrong �
 running in another process at that moment — corrects itself, because the process doing the
 work writes the real outcome when it finishes.
 
+**A run can be stopped.** `POST /api/reviews/{id}/cancel` marks the record cancelled, and
+the record is what stops the run: the service reads it between model calls, so cancelling
+takes effect within one call rather than at once — up to a few minutes on a local model.
+There is no channel to the thread doing the work, and inventing one would mean shared
+mutable state outliving the request that owns it.
+
+`cancelled` is a status of its own, not a flavour of `failed`: a review nobody wanted any
+more is not a review that broke, and a listing that coloured them alike would have the
+reader looking for a problem that never existed. The verdicts already reached are discarded
+— a review is every boundary or none, and half of one would read as a complete answer.
+Cancelling writes nothing back afterwards, which is also what leaves the row free to delete
+straight away.
+
+**A review can be deleted**, with `DELETE /api/reviews/{id}`, from the overflow menu on its
+row. Deleting is not editing: it removes the record rather than leaving one that says
+something else, which is what immutability is about. Its question threads go with it — a
+thread whose review is gone has nothing to be about, and every answer in it cited boundaries
+that no longer exist. A running review is refused with a 409 rather than deleted out from
+under its own run; cancel it first, which is the honest order.
+
 Consequences worth stating plainly:
 
 - The run happens on a worker thread so the response can be written while it proceeds. That
@@ -163,9 +189,10 @@ box on the same page asks follow-up questions: the whole review goes to the mode
 each one, and the answer names the boundaries it rests on. An answer grounded on none of
 them is labelled rather than presented as something the review supports.
 
-The page **leads with the overview** — what the verdicts amount to when read as a set:
+The page **leads with the conclusion** — what the verdicts amount to when read as a set:
 the situation, the themes that run across boundaries, a recommended sequence, and what the
-review could not see. Every theme and step carries the boundaries it rests on as links: click
+review could not see. It is headed *Conclusion* rather than *Findings*, which the boundaries
+below already are: this is the one thing none of those separate calls could produce. Every theme and step carries the boundaries it rests on as links: click
 `BR-003` and the page lands on that finding, highlighted. That link is why the overview is
 allowed to generalise at all, and it is the shortest path from a claim to its evidence.
 

@@ -21,7 +21,11 @@ from archcompass.application.policies import PolicyService
 from archcompass.application.review_rendering import render_report
 from archcompass.domain.atlas import Atlas, FindingCandidate
 from archcompass.domain.case import CaseRevision
-from archcompass.domain.errors import ArchCompassError, AtlasNotFoundError
+from archcompass.domain.errors import (
+    ArchCompassError,
+    AtlasNotFoundError,
+    ReviewCancelledError,
+)
 from archcompass.domain.finding_detectors import detect_finding_candidates
 from archcompass.domain.review import (
     BoundaryReview,
@@ -116,6 +120,11 @@ class ReviewService:
                 on_verdict=on_verdict,
                 on_summarising=on_summarising,
             )
+        except ReviewCancelledError:
+            # Nothing is written back. The record already says cancelled — that write is
+            # what stopped the run — and a failure recorded over it would replace a choice
+            # with a breakage. It also leaves the row safe to delete straight away.
+            raise
         except ArchCompassError as error:
             # The run's own message: it was raised by ArchCompass and is written for a
             # person to read, which is the same rule the web layer applies before putting
@@ -157,6 +166,7 @@ class ReviewService:
         judged: list[JudgedCandidate] = []
         material = 0
         for position, candidate in enumerate(candidates, start=1):
+            self._stop_if_cancelled(running.review_id)
             item = JudgedCandidate(
                 candidate=candidate,
                 verdict=self._reasoner.judge_finding_candidate(
@@ -175,6 +185,9 @@ class ReviewService:
             if on_verdict is not None:
                 on_verdict(item, position, len(candidates))
         boundaries = reviewed_boundaries([(item.candidate, item.verdict) for item in judged])
+        # Checked once more before the last call, which is the longest single wait in the
+        # run: cancelling just as the verdicts land should not still cost a summarisation.
+        self._stop_if_cancelled(running.review_id)
         if on_summarising is not None:
             on_summarising()
         # One call over all the verdicts, and only when there are verdicts. A sweep that
@@ -204,6 +217,19 @@ class ReviewService:
         )
         self._reviews.complete(review)
         return review
+
+    def _stop_if_cancelled(self, review_id: str) -> None:
+        """Read the run's own record, between model calls, to see whether to go on.
+
+        The record is the channel. A flag shared with whoever started the run would be
+        state living outside the request that owns the work — and the row has to say
+        cancelled anyway, for the listing to show it. Cancelling therefore takes effect
+        within one model call rather than at once, which is the bound worth stating: on a
+        local model that is up to a few minutes.
+        """
+
+        if not self._reviews.is_running(review_id):
+            raise ReviewCancelledError(f"Boundary review {review_id} was cancelled.")
 
     def _fail(self, running: BoundaryReview, reason: str, started: float) -> None:
         self._reviews.complete(

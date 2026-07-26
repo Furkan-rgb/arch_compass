@@ -412,7 +412,7 @@ export interface components {
     "boundaries": Array<components["schemas"]["ScoredBoundaryResponse"]>;
     "unscored": Array<string>;
   };
-    "ReviewStatus": "running" | "succeeded" | "failed";
+    "ReviewStatus": "running" | "succeeded" | "failed" | "cancelled";
     "ReviewSummarising": {
     "event"?: "summarising";
     "total": number;
@@ -514,6 +514,23 @@ export interface operations {
       "503": components["schemas"]["ProblemDetail"];
     };
   };
+  "cancel_review_api_reviews__review_id__cancel_post": {
+    parameters: {
+      query: never;
+      path: {
+      "review_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": components["schemas"]["BoundaryReview"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
+    };
+  };
   "case_history_api_cases__case_id__history_get": {
     parameters: {
       query: never;
@@ -569,6 +586,23 @@ export interface operations {
       "201": components["schemas"]["ReviewConversation"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "delete_review_api_reviews__review_id__delete": {
+    parameters: {
+      query: never;
+      path: {
+      "review_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "204": unknown;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
     };
   };
   "get_case_api_cases__case_id__get": {
@@ -1001,6 +1035,10 @@ export interface paths {
   };
   "/api/reviews/{review_id}": {
     get: operations["get_review_api_reviews__review_id__get"];
+    delete: operations["delete_review_api_reviews__review_id__delete"];
+  };
+  "/api/reviews/{review_id}/cancel": {
+    post: operations["cancel_review_api_reviews__review_id__cancel_post"];
   };
   "/api/reviews/{review_id}/score": {
     get: operations["score_review_api_reviews__review_id__score_get"];

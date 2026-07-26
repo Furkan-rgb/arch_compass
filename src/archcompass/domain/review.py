@@ -64,6 +64,10 @@ class ReviewStatus(StrEnum):
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    #: Stopped because someone asked it to stop. Kept apart from `failed`: a review nobody
+    #: wanted any more is not a review that broke, and a listing that showed them the same
+    #: way would have the reader looking for a problem that never existed.
+    CANCELLED = "cancelled"
 
 
 class ReviewedBoundary(DomainModel):

@@ -21,7 +21,7 @@ def default_config_text() -> str:
 ENVIRONMENT_FILE_NAME = ".env"
 
 
-def load_environment_file(path: Path) -> None:
+def load_environment_file(path: Path, *, skip: frozenset[str] = frozenset()) -> None:
     """Read `KEY=value` lines into the environment, without overwriting what is set.
 
     Deliberately small: comments, blank lines, an optional `export` prefix, and
@@ -49,12 +49,20 @@ def load_environment_file(path: Path) -> None:
         if not separator:
             continue
         name = name.strip()
-        if not name or name in os.environ:
+        if not name or name in os.environ or name in skip:
             continue
         value = raw_value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             value = value[1:-1]
         os.environ[name] = value
+
+
+#: Settings a `.env` may only supply for its own workspace. A credential travels with the
+#: person running the command, which is why the working directory's file is consulted at
+#: all; which models a workspace uses does not. A repository that is itself a workspace
+#: would otherwise decide the models for every other workspace driven from inside it —
+#: including the temporary ones a test suite builds, which is how this was found.
+WORKSPACE_ONLY_VARIABLES: frozenset[str] = frozenset({"ARCHCOMPASS_MODELS_CONFIG"})
 
 
 def load_provider_environment(workspace: Path) -> None:
@@ -66,16 +74,15 @@ def load_provider_environment(workspace: Path) -> None:
     are consulted and neither is required.
 
     The workspace file is read first and so wins, because it is the more specific of the
-    two; a variable already exported wins over both.
+    two; a variable already exported wins over both. The working directory's file is read
+    for credentials only: see `WORKSPACE_ONLY_VARIABLES`.
     """
 
-    seen: set[Path] = set()
-    for directory in (workspace, Path.cwd()):
-        candidate = (directory / ENVIRONMENT_FILE_NAME).resolve()
-        if candidate in seen:
-            continue
-        seen.add(candidate)
-        load_environment_file(candidate)
+    workspace_file = (workspace / ENVIRONMENT_FILE_NAME).resolve()
+    load_environment_file(workspace_file)
+    working_directory_file = (Path.cwd() / ENVIRONMENT_FILE_NAME).resolve()
+    if working_directory_file != workspace_file:
+        load_environment_file(working_directory_file, skip=WORKSPACE_ONLY_VARIABLES)
 
 
 def resolve_api_key(variable_name: str | None, *, provider: str) -> str:

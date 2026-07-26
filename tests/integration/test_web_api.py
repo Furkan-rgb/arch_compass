@@ -268,3 +268,58 @@ def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> N
     # The old consultation surface is gone, not merely unused by the workspace.
     assert not any(path.startswith("/api/consultations") for path in paths)
     assert not any(path.startswith("/api/runs") for path in paths)
+
+
+def test_cancelling_and_deleting_a_review_over_the_api(runtime: Runtime) -> None:
+    """Both refusals and both successes, in the order a person meets them."""
+
+    with TestClient(create_app(runtime)) as client:
+        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
+        case_id = loaded.json()["case_id"]
+        repository_root = client.get("/api/repositories").json()[0]["root_path"]
+        review = client.post(
+            "/api/reviews",
+            json={"case_id": case_id, "repository_root": repository_root},
+        )
+        assert review.status_code == 201, review.text
+        review_id = review.json()["review_id"]
+
+        # Cancelling something that already finished is a conflict, not a quiet success:
+        # a client told "cancelled" would report a stop that never happened.
+        refused = client.post(f"/api/reviews/{review_id}/cancel")
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["code"] == "state_conflict"
+        assert "succeeded" in refused.json()["message"]
+        # And not worth retrying — a finished review will not start running again.
+        assert refused.json()["retryable"] is False
+
+        conversation = client.post(
+            "/api/review-conversations", json={"review_id": review_id}
+        )
+        assert conversation.status_code == 201, conversation.text
+
+        removed = client.delete(f"/api/reviews/{review_id}")
+        assert removed.status_code == 204, removed.text
+        assert client.get(f"/api/reviews/{review_id}").status_code == 404
+        assert client.get("/api/reviews").json() == []
+        # The threads went with it: one whose review is gone has nothing to be about.
+        assert (
+            client.get(
+                f"/api/review-conversations?review_id={review_id}"
+            ).json()
+            == []
+        )
+        assert client.delete(f"/api/reviews/{review_id}").status_code == 404
+
+
+def test_the_openapi_contract_declares_cancelling_and_deleting(runtime: Runtime) -> None:
+    with TestClient(create_app(runtime)) as client:
+        document = client.get("/api/openapi.json").json()
+
+    assert "post" in document["paths"]["/api/reviews/{review_id}/cancel"]
+    assert "delete" in document["paths"]["/api/reviews/{review_id}"]
+    # A 204 has no body, and a generated client that tried to parse one would throw on the
+    # single response that means the request worked.
+    delete = document["paths"]["/api/reviews/{review_id}"]["delete"]["responses"]
+    assert "204" in delete
+    assert "content" not in delete["204"]

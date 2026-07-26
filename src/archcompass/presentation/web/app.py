@@ -12,7 +12,7 @@ from threading import Thread
 from typing import Annotated, Any, Literal, cast
 
 import yaml
-from fastapi import Body, FastAPI, Query, Request
+from fastapi import Body, FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import (
@@ -43,7 +43,9 @@ from archcompass.domain.errors import (
     PolicyFormatError,
     PolicyNotFoundError,
     ProviderError,
+    ReviewNotCancellableError,
     ReviewNotFoundError,
+    ReviewStillRunningError,
     StaleAtlasError,
 )
 from archcompass.domain.policy import (
@@ -545,6 +547,43 @@ def create_app(runtime: Runtime) -> FastAPI:
     def get_review(review_id: str) -> BoundaryReview:
         return runtime.review_repository.get(review_id)
 
+    @app.post(
+        "/api/reviews/{review_id}/cancel",
+        responses=_problem_responses(404, 409, 422),
+    )
+    def cancel_review(review_id: str) -> BoundaryReview:
+        """Ask a running review to stop, and answer with the record that says it will.
+
+        The run reads that record between model calls, so this returns before the work has
+        actually stopped: what is settled here is the outcome, not the timing. A review that
+        finished a moment ago is a review that finished, and says so rather than pretending
+        to have been cancelled.
+        """
+
+        if not runtime.review_repository.cancel(review_id):
+            stored = runtime.review_repository.get(review_id)
+            raise ReviewNotCancellableError(
+                f"That review is {stored.status.value}, not running, so there is nothing "
+                "to cancel."
+            )
+        return runtime.review_repository.get(review_id)
+
+    @app.delete(
+        "/api/reviews/{review_id}",
+        status_code=204,
+        responses=_problem_responses(404, 409, 422),
+    )
+    def delete_review(review_id: str) -> Response:
+        """Remove a review and the question threads hung off it.
+
+        Deleting is not editing: it removes the record rather than leaving one that says
+        something else, which is what immutability is about. A running review is refused —
+        cancel it first, so the work stops before its record goes.
+        """
+
+        runtime.review_repository.delete(review_id)
+        return Response(status_code=204)
+
     @app.get(
         "/api/reviews/{review_id}/score",
         responses=_problem_responses(404, 422),
@@ -810,12 +849,16 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
         (
             CaseRevisionConflictError,
             ConversationRevisionConflictError,
+            ReviewNotCancellableError,
+            ReviewStillRunningError,
             StaleAtlasError,
         ),
     ):
+        # Retryable only where repeating the request could succeed. A review that has
+        # already finished will not start running again, so cancelling it never will.
         return 409, "state_conflict", isinstance(
             error,
-            (ConversationRevisionConflictError, StaleAtlasError),
+            (ConversationRevisionConflictError, ReviewStillRunningError, StaleAtlasError),
         )
     if isinstance(
         error,

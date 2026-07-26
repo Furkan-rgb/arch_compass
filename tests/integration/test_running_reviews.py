@@ -20,7 +20,9 @@ from archcompass.domain.case import ArchitectureCase, RepositoryReference
 from archcompass.domain.errors import (
     AtlasNotFoundError,
     ProviderError,
+    ReviewCancelledError,
     ReviewNotFoundError,
+    ReviewStillRunningError,
 )
 from archcompass.domain.review import ReviewStatus
 from archcompass.domain.workspace import BoundaryReviewSummary
@@ -221,3 +223,113 @@ def test_completing_a_review_that_was_never_begun_is_refused(runtime: Runtime) -
 
     with pytest.raises(ReviewNotFoundError):
         runtime.review_repository.complete(review.model_copy(update={"review_id": "rev_absent"}))
+
+
+def test_a_running_review_stops_at_the_next_boundary_when_cancelled(
+    runtime: Runtime,
+) -> None:
+    """Cancelling writes the record; the record is what the run reads to stop.
+
+    There is no channel to the thread doing the work, and inventing one would mean shared
+    mutable state outliving the request that owns it. So the bound is one model call, and
+    the verdicts already reached are discarded — a partial review is not a review.
+    """
+
+    case_id = _indexed_case(runtime)
+    judged: list[int] = []
+
+    def cancel_after_the_first(_item: object, position: int, _total: int) -> None:
+        judged.append(position)
+        if position == 1:
+            assert runtime.review_repository.cancel(_only(runtime).review_id) is True
+
+    with pytest.raises(ReviewCancelledError):
+        runtime.review_service.review(
+            case_id, repository_root=FIXTURE, on_verdict=cancel_after_the_first
+        )
+
+    assert judged == [1], "the run must stop at the next boundary, not finish the sweep"
+    listed = _only(runtime)
+    assert listed.status == ReviewStatus.CANCELLED.value
+    stored = runtime.review_repository.get(listed.review_id)
+    assert stored.report is None
+    # Not a failure. A review nobody wanted any more is not a review that broke, and a
+    # listing that showed them the same way would have the reader looking for a problem.
+    assert stored.sanitized_errors == []
+
+
+def test_cancelling_a_finished_review_is_refused_rather_than_pretended(
+    runtime: Runtime,
+) -> None:
+    case_id = _indexed_case(runtime)
+    review = runtime.review_service.review(case_id, repository_root=FIXTURE)
+
+    assert runtime.review_repository.cancel(review.review_id) is False
+    assert _only(runtime).status == ReviewStatus.SUCCEEDED.value
+
+
+def test_deleting_a_review_takes_its_question_threads_with_it(runtime: Runtime) -> None:
+    """A thread whose review is gone has nothing to be about."""
+
+    case_id = _indexed_case(runtime)
+    review = runtime.review_service.review(case_id, repository_root=FIXTURE)
+    conversation = runtime.review_conversation_service.create(review.review_id)
+    runtime.review_conversation_service.ask(
+        conversation.conversation_id, "Which of these should I do first?"
+    )
+
+    runtime.review_repository.delete(review.review_id)
+
+    assert runtime.review_repository.list() == []
+    with pytest.raises(ReviewNotFoundError):
+        runtime.review_repository.get(review.review_id)
+    assert runtime.review_conversation_service.list(review.review_id) == []
+
+
+def test_a_running_review_is_not_deleted_out_from_under_its_own_run(
+    runtime: Runtime,
+) -> None:
+    """Cancel first: stop the work, then remove what it produced.
+
+    Deleting the row a live run is holding would have that run fail on its own record when
+    it tries to finish, which is a confusing way to report a deliberate action.
+    """
+
+    case_id = _indexed_case(runtime)
+    refusals: list[str] = []
+
+    def try_to_delete(_candidates: object) -> None:
+        try:
+            runtime.review_repository.delete(_only(runtime).review_id)
+        except ReviewStillRunningError as error:
+            refusals.append(str(error))
+
+    runtime.review_service.review(
+        case_id, repository_root=FIXTURE, on_detected=try_to_delete
+    )
+
+    assert refusals and "Cancel it first" in refusals[0]
+    assert _only(runtime).status == ReviewStatus.SUCCEEDED.value
+
+
+def test_a_cancelled_review_can_be_deleted(runtime: Runtime) -> None:
+    """Which is why cancelling writes nothing back afterwards: the row is free to go."""
+
+    case_id = _indexed_case(runtime)
+    with pytest.raises(ReviewCancelledError):
+        runtime.review_service.review(
+            case_id,
+            repository_root=FIXTURE,
+            on_detected=lambda _c: runtime.review_repository.cancel(
+                _only(runtime).review_id
+            ),
+        )
+
+    runtime.review_repository.delete(_only(runtime).review_id)
+
+    assert runtime.review_repository.list() == []
+
+
+def test_deleting_a_review_that_is_not_there_says_so(runtime: Runtime) -> None:
+    with pytest.raises(ReviewNotFoundError):
+        runtime.review_repository.delete("rev_absent")

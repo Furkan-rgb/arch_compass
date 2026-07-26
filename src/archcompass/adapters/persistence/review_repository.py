@@ -5,7 +5,7 @@ from __future__ import annotations
 from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.adapters.persistence.stored_records import decode_stored_json
 from archcompass.domain.base import utc_now
-from archcompass.domain.errors import ReviewNotFoundError
+from archcompass.domain.errors import ReviewNotFoundError, ReviewStillRunningError
 from archcompass.domain.review import BoundaryReview, ReviewStatus
 from archcompass.domain.workspace import BoundaryReviewSummary
 
@@ -120,6 +120,86 @@ class SQLiteBoundaryReviewRepository:
                 raise ReviewNotFoundError(
                     f"Boundary review {review.review_id} was not begun before completing"
                 )
+            connection.commit()
+
+    def cancel(self, review_id: str) -> bool:
+        """Mark a running review cancelled, and say whether there was one to mark.
+
+        The record is what stops the run: there is no channel to the thread doing the work,
+        and inventing one would mean shared mutable state outliving the request that owns
+        it. The run reads this row between model calls, so cancelling takes effect within
+        one call rather than immediately — which is also why it is guarded on `running`. A
+        review that finished a moment ago is a review that finished.
+        """
+
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT review_json FROM boundary_reviews "
+                "WHERE review_id = ? AND status = 'running'",
+                (review_id,),
+            ).fetchone()
+            if row is None:
+                return False
+            document = row["review_json"]
+            try:
+                stored = BoundaryReview.model_validate_json(document)
+            except ValueError:
+                pass
+            else:
+                document = stored.model_copy(
+                    update={"status": ReviewStatus.CANCELLED, "report": None}
+                ).model_dump_json()
+            connection.execute(
+                """
+                UPDATE boundary_reviews
+                SET status = 'cancelled', updated_at = ?, review_json = ?
+                WHERE review_id = ? AND status = 'running'
+                """,
+                (utc_now().isoformat(), document, review_id),
+            )
+            connection.commit()
+        return True
+
+    def is_running(self, review_id: str) -> bool:
+        """Whether the run may continue. One small read between model calls."""
+
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM boundary_reviews WHERE review_id = ? AND status = 'running'",
+                (review_id,),
+            ).fetchone()
+        return row is not None
+
+    def delete(self, review_id: str) -> None:
+        """Remove a review and the question threads hung off it.
+
+        Immutability is about not rewriting what a review said, which deletion does not do:
+        it removes the record entirely rather than leaving one that says something else. The
+        threads go with it — a thread whose review is gone has nothing to be about, and
+        every answer in it cited boundaries that no longer exist.
+        """
+
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT status FROM boundary_reviews WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+            if row is None:
+                raise ReviewNotFoundError(f"Boundary review {review_id} was not found")
+            if str(row["status"]) == ReviewStatus.RUNNING.value:
+                # Deleting the row a live run is holding would have that run fail on its own
+                # record when it tries to finish. Cancelling first is one click, and it is
+                # the honest order: stop the work, then remove what it produced.
+                raise ReviewStillRunningError(
+                    f"Boundary review {review_id} is still running. Cancel it first, then "
+                    "delete it."
+                )
+            connection.execute(
+                "DELETE FROM review_conversations WHERE review_id = ?", (review_id,)
+            )
+            connection.execute(
+                "DELETE FROM boundary_reviews WHERE review_id = ?", (review_id,)
+            )
             connection.commit()
 
     def abandon_running(self, *, reason: str) -> int:
