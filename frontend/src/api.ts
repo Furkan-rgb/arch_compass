@@ -1,11 +1,11 @@
 import type {
-  ArchitectureCaseInput,
-  ArchitectureCaseUpdate,
+  ArchitectureCase,
   AtlasExploreRequest,
   AtlasQueryResult,
   AtlasVersion,
   CaseRevision,
   CaseSummary,
+  CaseUpdate,
   Policy,
   PolicySource,
   ProblemDetail,
@@ -165,7 +165,7 @@ export const api = {
     request<CaseRevision>(
       `/api/cases/${caseId}${revision ? `?revision=${revision}` : ""}`,
     ),
-  createCase: (value: ArchitectureCaseInput) =>
+  createCase: (value: ArchitectureCase) =>
     request<CaseRevision>("/api/cases", {
       method: "POST",
       body: JSON.stringify(value),
@@ -184,7 +184,7 @@ export const api = {
     }
     return (await response.json()) as CaseRevision;
   },
-  updateCase: (caseId: string, value: ArchitectureCaseUpdate) =>
+  updateCase: (caseId: string, value: CaseUpdate) =>
     request<CaseRevision>(`/api/cases/${caseId}`, {
       method: "PATCH",
       body: JSON.stringify(value),

@@ -1,8 +1,9 @@
 import { dump, load } from "js-yaml";
 import { X } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { ErrorPanel, Loading } from "./components";
+import { RunProgress, type RunState } from "./run-progress";
 import type { ArchitectureCase } from "./types";
 
 /**
@@ -114,36 +115,41 @@ export function checkYamlSyntax(source: string): string | null {
   }
 }
 
-export function CaseEditor({
-  onCreate,
-  onClose,
+/**
+ * The editing surface itself, shared by writing a case and revising one.
+ *
+ * `initial` is read once, when the form mounts, so a caller that loads its document
+ * asynchronously mounts this after the document arrives rather than fighting a controlled
+ * value that changes underneath the person typing into it.
+ */
+function YamlForm({
+  initial,
+  submitLabel,
+  pendingLabel,
   pending,
-  error,
+  onSubmit,
+  children,
 }: {
-  onCreate: (source: string) => void;
-  onClose: () => void;
+  initial: string;
+  submitLabel: string;
+  pendingLabel: string;
   pending: boolean;
-  error: unknown;
+  onSubmit: (source: string) => void;
+  children: ReactNode;
 }) {
-  const [source, setSource] = useState(CASE_SKELETON);
+  const [source, setSource] = useState(initial);
   const [syntax, setSyntax] = useState<string | null>(null);
 
   return (
     <form
-      className="case-editor"
+      className="case-editor__form"
       onSubmit={(event) => {
         event.preventDefault();
         const problem = checkYamlSyntax(source);
         setSyntax(problem);
-        if (!problem) onCreate(source);
+        if (!problem) onSubmit(source);
       }}
     >
-      <div className="case-editor__head">
-        <h3>Write a case</h3>
-        <button type="button" className="icon-button" onClick={onClose} aria-label="Close the editor">
-          <X size={16} aria-hidden />
-        </button>
-      </div>
       <textarea
         className="case-editor__source"
         value={source}
@@ -156,19 +162,117 @@ export function CaseEditor({
           <strong>That is not valid YAML.</strong> {syntax}
         </p>
       ) : null}
+      <div className="case-editor__actions">
+        <button type="submit" className="button button--primary" disabled={pending}>
+          {pending ? pendingLabel : submitLabel}
+        </button>
+        {children}
+      </div>
+    </form>
+  );
+}
+
+export function CaseEditor({
+  onCreate,
+  onClose,
+  pending,
+  error,
+}: {
+  onCreate: (source: string) => void;
+  onClose: () => void;
+  pending: boolean;
+  error: unknown;
+}) {
+  return (
+    <section className="case-editor" aria-label="Write a case">
+      <div className="case-editor__head">
+        <h3>Write a case</h3>
+        <button type="button" className="icon-button" onClick={onClose} aria-label="Close the editor">
+          <X size={16} aria-hidden />
+        </button>
+      </div>
       {/* The server's own message, verbatim: it names the field and what it needed, and
           paraphrasing it here would tell the user less than the validator knows. */}
       {error ? <ErrorPanel error={error} /> : null}
-      <div className="case-editor__actions">
-        <button type="submit" className="button button--primary" disabled={pending}>
-          {pending ? "Creating…" : "Create the case"}
-        </button>
+      <YamlForm
+        initial={CASE_SKELETON}
+        submitLabel="Create the case"
+        pendingLabel="Creating…"
+        pending={pending}
+        onSubmit={onCreate}
+      >
         <p>
           Created as revision 1, then selected in the case rail. Revisions are immutable: a
           later change adds one rather than editing this one.
         </p>
+      </YamlForm>
+    </section>
+  );
+}
+
+/**
+ * Revise the case a review was judged against, and review again.
+ *
+ * The consequence is stated before the action, not after it: this produces a new immutable
+ * revision and a new review, and the review being read is never altered. That is the whole
+ * iterate loop — a changed case is a new question, not a correction of an old answer.
+ */
+export function CaseReviser({
+  snapshot,
+  loading,
+  error,
+  pending,
+  progress,
+  onSubmit,
+  onClose,
+}: {
+  snapshot: ArchitectureCase | undefined;
+  loading: boolean;
+  error: unknown;
+  pending: boolean;
+  progress: RunState;
+  onSubmit: (source: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <section className="case-editor" aria-label="Revise the case">
+      <div className="case-editor__head">
+        <h3>Revise the case, then review again</h3>
+        <button
+          type="button"
+          className="icon-button"
+          onClick={onClose}
+          aria-label="Close the reviser"
+        >
+          <X size={16} aria-hidden />
+        </button>
       </div>
-    </form>
+      <p className="case-editor__warning">
+        <strong>This does not change the review you are reading.</strong> Submitting creates
+        revision {(snapshot?.revision ?? 0) + 1} of the case and runs a new review against
+        it. Both reviews stay, and each links to the other.
+      </p>
+      {loading ? <Loading label="Reading the pinned case…" /> : null}
+      {error ? <ErrorPanel error={error} /> : null}
+      {snapshot ? (
+        <YamlForm
+          initial={caseToYaml(snapshot)}
+          submitLabel="Create revision & review again"
+          pendingLabel="Reviewing…"
+          pending={pending}
+          onSubmit={onSubmit}
+        >
+          {pending ? (
+            <RunProgress progress={progress} />
+          ) : (
+            <p>
+              One model call per boundary, against the same atlas this review used, so only
+              the case has changed.
+            </p>
+          )}
+        </YamlForm>
+      ) : null}
+    </section>
   );
 }
 

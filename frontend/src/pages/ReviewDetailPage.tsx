@@ -1,19 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { load } from "js-yaml";
 import {
+  ArrowLeft,
+  ArrowRight,
   ChevronDown,
   CircleCheck,
   CornerDownLeft,
   FlaskConical,
   MessageCircleQuestion,
+  PencilLine,
   TriangleAlert,
   X,
 } from "lucide-react";
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
-import { ErrorPanel, Loading } from "../components";
-import type { ReviewScore, ReviewedBoundary } from "../types";
+import { CaseReviser } from "../case-editor";
+import { ErrorPanel, Loading, formatDate, shortId } from "../components";
+import { applyProgress, type RunState } from "../run-progress";
+import type { CaseUpdate, ReviewScore, ReviewedBoundary } from "../types";
 
 /**
  * One boundary, as a block within a section rather than a card inside a card.
@@ -123,8 +129,11 @@ function Score({ score }: { score: ReviewScore }) {
 export function ReviewDetailPage() {
   const { reviewId = "" } = useParams();
   const client = useQueryClient();
+  const navigate = useNavigate();
   const [question, setQuestion] = useState("");
   const [open, setOpen] = useState(false);
+  const [revising, setRevising] = useState(false);
+  const [progress, setProgress] = useState<RunState>(null);
 
   const review = useQuery({
     queryKey: ["review", reviewId],
@@ -142,8 +151,68 @@ export function ReviewDetailPage() {
     enabled: Boolean(reviewId),
   });
 
+  const caseId = review.data?.case_id;
+  const caseRevision = review.data?.case_revision;
+  const atlasVersionId = review.data?.atlas_version_id;
+
+  /**
+   * Every review of this case, so this one can point at its neighbours. Derived from the
+   * listing rather than stored on the review: a link recorded at creation time would be a
+   * second copy of the same fact, and the earlier review would have to be edited to hold
+   * it — which reviews do not permit.
+   */
+  const siblings = useQuery({
+    queryKey: ["reviews", caseId],
+    queryFn: () => api.reviews(caseId),
+    enabled: Boolean(caseId),
+  });
+
+  /** The pinned revision, not the latest: the case this review actually judged against. */
+  const pinnedCase = useQuery({
+    queryKey: ["case", caseId, caseRevision],
+    queryFn: () => api.case(caseId!, caseRevision),
+    enabled: Boolean(caseId && caseRevision),
+  });
+
+  // The atlas the review pinned answers where the repository is; a review carries the
+  // version, and the listing is what turns a version into a path.
+  const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
+  const repositoryRoot =
+    repositories.data?.find((item) => item.version_id === atlasVersionId)?.root_path ||
+    pinnedCase.data?.snapshot?.repository?.root_path ||
+    null;
+
   const conversation = conversations.data?.[0];
   const messages = conversation?.messages || [];
+
+  // The listing is newest first, so the review before this one in it is the newer one.
+  const ordered = siblings.data || [];
+  const position = ordered.findIndex((item) => item.review_id === reviewId);
+  const newer = position > 0 ? ordered[position - 1] : null;
+  const earlier = position >= 0 ? ordered[position + 1] || null : null;
+
+  const revise = useMutation({
+    mutationFn: async (source: string) => {
+      if (!caseId || !repositoryRoot) {
+        throw new Error("This review's case and repository could not both be resolved.");
+      }
+      setProgress(null);
+      // Two steps, deliberately in this order and never in place: a new immutable case
+      // revision, then a new review of it. This review is not touched by either.
+      await api.updateCase(caseId, load(source) as CaseUpdate);
+      return api.streamReview(caseId, repositoryRoot, (event) =>
+        setProgress((current) => applyProgress(current, event)),
+      );
+    },
+    onSuccess: async (next) => {
+      setRevising(false);
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["reviews"] }),
+        client.invalidateQueries({ queryKey: ["cases"] }),
+      ]);
+      navigate(`/reviews/${next.review_id}`);
+    },
+  });
 
   const ask = useMutation({
     mutationFn: async (text: string) => {
@@ -190,7 +259,83 @@ export function ReviewDetailPage() {
           <code>BR-001</code> and the rest are references ArchCompass assigns in detection
           order. Cite one in a question and the answer cites it back.
         </p>
+
+        {/* What this review is pinned to. Already in the record; printed rather than
+            implied, because "which case revision said so" is the first question a second
+            reading asks. */}
+        <dl className="provenance">
+          <div>
+            <dt>Case revision</dt>
+            <dd>
+              {pinnedCase.data?.snapshot?.title || report.case_title} · rev{" "}
+              {review.data?.case_revision}
+            </dd>
+          </div>
+          <div>
+            <dt>Atlas version</dt>
+            <dd title={atlasVersionId}>{shortId(atlasVersionId || "—")}</dd>
+          </div>
+          <div>
+            <dt>Policies presented</dt>
+            <dd>{policyCount}, whole corpus, to every boundary</dd>
+          </div>
+          <div>
+            <dt>Model</dt>
+            <dd title={review.data?.prompt_identity}>{review.data?.reasoning_model}</dd>
+          </div>
+          <div>
+            <dt>Reviewed</dt>
+            <dd>{formatDate(review.data?.created_at)}</dd>
+          </div>
+        </dl>
+
+        <div className="review-head__actions">
+          <button
+            type="button"
+            className="button button--primary"
+            disabled={revise.isPending || !repositoryRoot}
+            title={
+              repositoryRoot
+                ? undefined
+                : "The repository this review ran against is no longer indexed."
+            }
+            onClick={() => setRevising((value) => !value)}
+          >
+            <PencilLine size={15} aria-hidden /> Revise case &amp; review again
+          </button>
+          {ordered.length > 1 ? (
+            <nav className="review-siblings" aria-label="Other reviews of this case">
+              {earlier ? (
+                <Link to={`/reviews/${earlier.review_id}`}>
+                  <ArrowLeft size={14} aria-hidden /> Earlier review · case rev{" "}
+                  {earlier.case_revision}
+                </Link>
+              ) : null}
+              <span>
+                {position + 1} of {ordered.length} reviews of this case
+              </span>
+              {newer ? (
+                <Link to={`/reviews/${newer.review_id}`}>
+                  Newer review · case rev {newer.case_revision}{" "}
+                  <ArrowRight size={14} aria-hidden />
+                </Link>
+              ) : null}
+            </nav>
+          ) : null}
+        </div>
       </header>
+
+      {revising ? (
+        <CaseReviser
+          snapshot={pinnedCase.data?.snapshot}
+          loading={pinnedCase.isLoading}
+          error={pinnedCase.error || revise.error}
+          pending={revise.isPending}
+          progress={progress}
+          onSubmit={(source) => revise.mutate(source)}
+          onClose={() => setRevising(false)}
+        />
+      ) : null}
 
       {score.data ? <Score score={score.data} /> : null}
 

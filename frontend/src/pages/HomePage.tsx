@@ -26,85 +26,12 @@ import {
   shortId,
 } from "../components";
 import { latestPerRepository } from "../repositories";
+import { RunProgress, applyProgress, type RunState } from "../run-progress";
 import type { BundledCase, CaseSummary } from "../types";
 
 /** Which case surface is open, if any: writing a new one, or reading a stored one. */
 type Editor = { mode: "write" } | { mode: "view"; caseId: string } | null;
 
-/**
- * How far the running review has got. `judged` counts finished verdicts, so the boundary
- * under judgement is the next one — the count is derived from what has landed rather than
- * from a separate "starting" message that could disagree with it.
- */
-type Progress = { total: number; boundaries: string[]; judged: number } | null;
-
-/**
- * The run, while it runs.
- *
- * Detection is deterministic and complete, so the moment it finishes the run has a known
- * length and the wait becomes countable. Before that there is nothing honest to count, and
- * the line says which step is in progress instead of inventing a fraction.
- */
-export function RunProgress({ progress }: { progress: Progress }) {
-  if (!progress) {
-    return (
-      <p className="run-progress" role="status">
-        Sweeping the atlas for boundaries…
-      </p>
-    );
-  }
-  if (!progress.total) {
-    return (
-      <p className="run-progress" role="status">
-        No boundaries to judge in this repository. Composing the review.
-      </p>
-    );
-  }
-  const position = Math.min(progress.judged + 1, progress.total);
-  const current = progress.boundaries[position - 1];
-  const done = progress.judged >= progress.total;
-  return (
-    <div className="run-progress" role="status" aria-live="polite">
-      <p className="run-progress__line">
-        {done ? (
-          <>
-            All <strong>{progress.total}</strong> boundaries judged. Composing the review.
-          </>
-        ) : (
-          <>
-            Judging boundary <strong>{position}</strong> of{" "}
-            <strong>{progress.total}</strong>
-            {current ? (
-              <>
-                {" · "}
-                <code>{current}</code>
-              </>
-            ) : null}
-          </>
-        )}
-      </p>
-      <div
-        className="run-progress__bar"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={progress.total}
-        aria-valuenow={progress.judged}
-      >
-        <span style={{ width: `${(progress.judged / progress.total) * 100}%` }} />
-      </div>
-    </div>
-  );
-}
-
-/**
- * The front door: start a review, or reopen one.
- *
- * The two inputs are presented as rails rather than as a wizard because neither depends on
- * the other. A user who already knows the repository picks it first; one who has just
- * written a case starts there. Both fill the same Run button, and a bundled example fills
- * both at once — still through `loadBundledCase` then `createReview`, so the shortest path
- * to a first review runs the same code as the long one.
- */
 export function HomePage() {
   const client = useQueryClient();
   const navigate = useNavigate();
@@ -112,7 +39,7 @@ export function HomePage() {
   const [caseId, setCaseId] = useState<string | null>(null);
   const [path, setPath] = useState("");
   const [editor, setEditor] = useState<Editor>(null);
-  const [progress, setProgress] = useState<Progress>(null);
+  const [progress, setProgress] = useState<RunState>(null);
 
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const cases = useQuery({ queryKey: ["cases"], queryFn: api.cases });
@@ -169,16 +96,9 @@ export function HomePage() {
   const run = useMutation({
     mutationFn: (chosen: { caseId: string; root: string }) => {
       setProgress(null);
-      return api.streamReview(chosen.caseId, chosen.root, (event) => {
-        if (event.event === "detected") {
-          setProgress({ total: event.total, boundaries: event.boundaries, judged: 0 });
-        }
-        if (event.event === "judged") {
-          setProgress((current) =>
-            current ? { ...current, judged: event.position } : current,
-          );
-        }
-      });
+      return api.streamReview(chosen.caseId, chosen.root, (event) =>
+        setProgress((current) => applyProgress(current, event)),
+      );
     },
     onSuccess: async (review) => {
       await client.invalidateQueries({ queryKey: ["reviews"] });

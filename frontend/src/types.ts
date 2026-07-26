@@ -14,6 +14,7 @@ export type ArchitectureCase = OpenAPIComponents["schemas"]["ArchitectureCase"];
 export type AtlasVersion = OpenAPIComponents["schemas"]["AtlasVersion"];
 export type CaseRevision = OpenAPIComponents["schemas"]["CaseRevision"];
 export type CaseSummary = OpenAPIComponents["schemas"]["CaseSummary"];
+export type CaseUpdate = OpenAPIComponents["schemas"]["CaseUpdate"];
 
 export interface WorkspaceSummary {
   workspace: string;
@@ -142,13 +143,6 @@ export interface FailureDiagnostic {
   count?: number | null;
 }
 
-export interface CaseStatement {
-  id: string;
-  text: string;
-  kind: "fact" | "derived_constraint" | "assumption" | "question" | "force";
-  source?: string | null;
-}
-
 export interface Policy {
   id: string;
   title: string;
@@ -171,26 +165,4 @@ export interface PolicyApplicability {
 export interface PolicySource {
   canonical_path: string;
   registered_at: string;
-}
-
-export interface ArchitectureCaseInput {
-  title: string;
-  problem_statement: string;
-  desired_outcome: string;
-  actors_and_workflows: string[];
-  functional_requirements: string[];
-  quality_attributes: string[];
-  technical_constraints: string[];
-  organisational_constraints: string[];
-  expected_future_changes: string[];
-  non_goals: string[];
-  confirmed_facts: Array<{ text: string; kind: "fact" }>;
-  design_forces?: Array<{ text: string; kind: "force"; source?: string | null }>;
-  policy_applicability?: PolicyApplicability;
-}
-
-export interface ArchitectureCaseUpdate {
-  unresolved_questions?: Array<Omit<CaseStatement, "id"> & { id?: string }>;
-  design_forces?: Array<Omit<CaseStatement, "id"> & { id?: string }>;
-  policy_applicability?: PolicyApplicability;
 }

@@ -1341,6 +1341,17 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 .review-head__meta { margin: 0 0 8px; color: var(--ink-muted); font-size: 14px; }
 .review-head__meta strong { color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
 .review-head__note { max-width: 68ch; margin: 0; color: var(--color-text-tertiary); font-size: 13px; line-height: 1.55; }
+.provenance { display: flex; flex-wrap: wrap; gap: 0 26px; margin: 18px 0 0; padding: 13px 0 0; border-top: 1px solid var(--line); }
+.provenance > div { min-width: 0; padding: 4px 0; }
+.provenance dt { color: var(--color-text-tertiary); font-size: var(--text-caption); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.provenance dd { margin: 3px 0 0; overflow: hidden; color: var(--ink-muted); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.review-head__actions { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; margin-top: 18px; }
+.review-siblings { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; color: var(--color-text-tertiary); font-size: 13px; }
+.review-siblings a { display: inline-flex; gap: 5px; align-items: center; color: var(--color-accent-strong); text-decoration: none; }
+.review-siblings a:hover { text-decoration: underline; }
+.case-editor__form { display: grid; gap: 12px; }
+.case-editor__warning { margin: 0; padding: 12px 14px; color: var(--ink); border-left: 3px solid var(--color-warning); background: var(--amber-soft); font-size: 14px; line-height: 1.55; }
+.case-editor__warning strong { display: block; }
 
 .scorebar { padding: 16px 18px; margin-bottom: 30px; border: 1px solid var(--line); border-radius: 9px; background: var(--color-bg-surface-raised); }
 .scorebar__head { display: flex; gap: 9px; align-items: baseline; margin: 0 0 12px; color: var(--ink-muted); font-size: 14px; }

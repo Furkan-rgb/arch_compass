@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 
-import { RunProgress } from "./HomePage";
+import { RunProgress } from "./run-progress";
 
 const BOUNDARIES = ["ports.TaskFormatter", "ports.Clock", "ports.TaskStore"];
 

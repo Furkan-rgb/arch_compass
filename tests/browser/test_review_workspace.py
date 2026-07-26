@@ -235,3 +235,69 @@ def test_a_person_can_write_a_case_in_the_browser_and_review_with_it(
             assert page.locator(".finding").count() == 6
         finally:
             browser.close()
+
+
+def test_a_person_can_revise_the_case_and_review_again(workspace_url: str) -> None:
+    """The iterate loop: a changed case is a new question, not a corrected answer.
+
+    Depends on the reviews the tests above produced, which is the point: what is proved
+    here is that a second review of the same case exists alongside the first and that the
+    two can be walked between.
+    """
+
+    playwright = pytest.importorskip("playwright.sync_api")
+
+    with playwright.sync_playwright() as driver:
+        browser = driver.chromium.launch()
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        try:
+            page.goto(workspace_url, wait_until="networkidle")
+            page.wait_for_selector(".card-list .card", timeout=20_000)
+            page.get_by_role("link", name="Open").first.click()
+            page.wait_for_selector(".review-head", timeout=20_000)
+            first = page.url
+
+            # 1. What the review is pinned to is printed, not implied. The labels are
+            #    uppercased by the stylesheet, so compare against rendered text.
+            provenance = page.locator(".provenance").inner_text().lower()
+            assert "case revision" in provenance
+            assert "atlas version" in provenance
+            assert "policies presented" in provenance
+            assert "rev 1" in provenance
+
+            # 2. The action says what it will do before it is confirmed: a new revision
+            #    and a new review, with this one left alone.
+            page.get_by_role("button", name="Revise case & review again").click()
+            warning = page.locator(".case-editor__warning").inner_text()
+            assert "does not change the review you are reading" in warning
+
+            # 3. The pinned case opens as the YAML it was written in, and a real edit is
+            #    submitted as a revision.
+            editor = page.get_by_label("Case YAML")
+            source = editor.input_value()
+            assert "problem_statement" in source, source[:400]
+            editor.fill(
+                source + "\nrevisit_triggers:\n  - A second delivery channel is committed.\n"
+            )
+            page.get_by_role("button", name="Create revision & review again").click()
+
+            # 4. A second review, at the next case revision, and this is a different one.
+            page.wait_for_url("**/reviews/rev_*", timeout=120_000)
+            page.wait_for_function(
+                "url => window.location.href !== url", arg=first, timeout=120_000
+            )
+            page.wait_for_selector(".review-head", timeout=60_000)
+            second = page.url
+            assert second != first
+
+            # 5. The two are linked, derived from the reviews of this case rather than
+            #    stored on either of them.
+            page.wait_for_selector(".review-siblings", timeout=20_000)
+            assert "reviews of this case" in page.locator(".review-siblings").inner_text()
+            page.get_by_role("link", name="Earlier review").click()
+            page.wait_for_url(first, timeout=20_000)
+            page.wait_for_selector(".review-siblings", timeout=20_000)
+            page.get_by_role("link", name="Newer review").click()
+            page.wait_for_url(second, timeout=20_000)
+        finally:
+            browser.close()

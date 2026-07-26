@@ -95,11 +95,29 @@ Consequences worth stating plainly:
 - `POST /api/reviews` stays as the plain contract for a client that wants one request and
   one review with no lines to parse.
 
+## The review page
+
 The review page shows every boundary examined, cleared ones included, each with its
 reasoning, the policies that bear on it, and what the detection method could not see. A
 box on the same page asks follow-up questions: the whole review goes to the model with
 each one, and the answer names the boundaries it rests on. An answer grounded on none of
 them is labelled rather than presented as something the review supports.
+
+A **provenance line** states what the review is pinned to — case revision, atlas version,
+the number of policies presented to every boundary, the reasoning model, when it ran. All
+of it was already in the record; printing it answers the first question a second reading
+asks.
+
+**Revise case & review again** is the iterate loop. It opens the *pinned* revision of the
+case — not the latest — as the same YAML the editor writes, and says before it is confirmed
+what it will do: create the next immutable revision through `PATCH /api/cases/{id}`, then
+run a new review against the same atlas, so only the case has changed. The review being read
+is never altered; nothing in the workspace edits a review or a revision in place.
+
+**Reviews of one case link to each other**, derived rather than stored: the page lists
+`GET /api/reviews?case_id=…` and points at the neighbours either side of itself. A link
+recorded at creation time would be a second copy of the same fact, and the earlier review
+would have to be edited to hold it — which immutability forbids.
 
 ## The atlas explorer
 
