@@ -1,63 +1,61 @@
-"""Validated domain contracts."""
+"""Domain models, in the order the advisory flow uses them."""
 
 from archcompass.domain.atlas import (
     Atlas,
     AtlasEdge,
     AtlasNode,
-    AtlasQueryPlan,
     AtlasVersion,
+    EdgeType,
+    FindingCandidate,
+    FindingMeasurement,
+    FindingParticipant,
+    FindingPattern,
+    NodeType,
+    SourceLocation,
 )
-from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
-from archcompass.domain.consultation import (
-    ArchitecturalFinding,
-    ConsultationRun,
-    ImportanceLevel,
-    RecommendationReport,
+from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseStatement
+from archcompass.domain.finding_detectors import detect_finding_candidates
+from archcompass.domain.policy import PolicyDocument, PolicyScope, PolicyStrength
+from archcompass.domain.review import (
+    BoundaryReview,
+    BoundaryReviewReport,
+    CandidateVerdict,
+    PolicyBearing,
+    ReviewedBoundary,
+    ReviewStatus,
 )
-from archcompass.domain.conversation import (
-    AnswerStatement,
-    ConversationAnswer,
-    ConversationEvidenceReference,
-    ConversationMessage,
-    ConversationSummary,
-    FindingDigest,
-    PinnedCaseSummary,
-    ReportConversation,
-    ReportConversationContext,
-    ReportQuestionPlan,
-    ReportQuestionPlanningContext,
-)
-from archcompass.domain.policy import (
-    PolicyApplicabilityContext,
-    PolicyDocument,
-    PolicyIndexVersion,
+from archcompass.domain.review_conversation import (
+    ReviewAnswer,
+    ReviewConversation,
+    ReviewMessage,
 )
 
 __all__ = [
-    "AnswerStatement",
-    "ArchitecturalFinding",
     "ArchitectureCase",
     "Atlas",
     "AtlasEdge",
     "AtlasNode",
-    "AtlasQueryPlan",
     "AtlasVersion",
+    "BoundaryReview",
+    "BoundaryReviewReport",
+    "CandidateVerdict",
     "CaseRevision",
-    "CaseUpdate",
-    "ConsultationRun",
-    "ConversationAnswer",
-    "ConversationEvidenceReference",
-    "ConversationMessage",
-    "ConversationSummary",
-    "FindingDigest",
-    "ImportanceLevel",
-    "PinnedCaseSummary",
-    "PolicyApplicabilityContext",
+    "CaseStatement",
+    "EdgeType",
+    "FindingCandidate",
+    "FindingMeasurement",
+    "FindingParticipant",
+    "FindingPattern",
+    "NodeType",
+    "PolicyBearing",
     "PolicyDocument",
-    "PolicyIndexVersion",
-    "RecommendationReport",
-    "ReportConversation",
-    "ReportConversationContext",
-    "ReportQuestionPlan",
-    "ReportQuestionPlanningContext",
+    "PolicyScope",
+    "PolicyStrength",
+    "ReviewAnswer",
+    "ReviewConversation",
+    "ReviewMessage",
+    "ReviewStatus",
+    "ReviewedBoundary",
+    "SourceLocation",
+    "detect_finding_candidates",
 ]

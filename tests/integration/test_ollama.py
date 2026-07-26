@@ -1,10 +1,16 @@
+"""Live Ollama checks: the two stages that ship, against the real service.
+
+Marked `ollama` and outside `make check`, because a failure here is a measurement about
+the model and the contracts rather than a broken build.
+"""
+
 from __future__ import annotations
 
 import math
 from pathlib import Path
 
 import pytest
-import yaml
+from tests.reasoning_support import candidate, case, policies
 
 from archcompass.adapters.models.ollama import (
     OllamaEmbeddingProvider,
@@ -13,33 +19,21 @@ from archcompass.adapters.models.ollama import (
 from archcompass.bootstrap import build_runtime
 from archcompass.configuration import AppConfig, load_config
 from archcompass.domain.case import ArchitectureCase
-from archcompass.domain.consultation import (
-    ConsultationStatus,
-    DesignForce,
-    GlobalContext,
-    cluster_partition_errors,
-)
 
 pytestmark = pytest.mark.ollama
 
-
-@pytest.fixture(scope="module")
-def live_config_path() -> Path:
-    return Path("config/models.yaml").resolve()
+FIXTURE = Path("eval/cases/boundary-review/repository").resolve()
 
 
 @pytest.fixture(scope="module")
-def live_config(live_config_path: Path) -> AppConfig:
-    config = load_config(live_config_path)
+def live_config() -> AppConfig:
+    config = load_config(Path("config/models.yaml").resolve())
     assert config.models.reasoning.provider == "ollama"
-    assert config.models.embedding.provider == "ollama"
     return config
 
 
 def test_live_embedding_model_contract(live_config: AppConfig) -> None:
-    provider = OllamaEmbeddingProvider(live_config.models.embedding)
-
-    vectors = provider.embed(
+    vectors = OllamaEmbeddingProvider(live_config.models.embedding).embed(
         [
             "Keep provider-specific capabilities behind the provider boundary.",
             "Avoid an abstraction until credible variation exists.",
@@ -47,121 +41,79 @@ def test_live_embedding_model_contract(live_config: AppConfig) -> None:
     )
 
     assert len(vectors) == 2
-    assert all(len(vector) == live_config.models.embedding.dimensions for vector in vectors)
-    assert all(math.isfinite(value) for vector in vectors for value in vector)
-    assert all(any(value != 0 for value in vector) for vector in vectors)
-    assert vectors[0] != vectors[1]
+    for vector in vectors:
+        assert len(vector) == live_config.models.embedding.dimensions
+        assert math.isclose(math.sqrt(sum(value * value for value in vector)), 1.0, abs_tol=1e-3)
 
 
-def test_live_clustering_maps_closed_set_references_to_canonical_ids(
+def test_live_judgement_returns_one_bearing_per_presented_policy(
     live_config: AppConfig,
 ) -> None:
-    provider = OllamaReasoningProvider(live_config.models.reasoning)
-    context = GlobalContext(
-        case_id="case-live-clustering-contract",
-        revision=1,
-        title="Brownfield provider leakage",
-        problem="Provider-specific voice knowledge is spread across several responsibilities.",
-        desired_outcome="Give capability discovery one owner and contain provider changes.",
-        goals=["Clear responsibility ownership", "Localized provider changes"],
-        constraints=["Keep existing behavior"],
-        future_changes=["A second provider may be added"],
-        non_goals=["A universal plugin marketplace"],
-        confirmed_facts=["A provider interface exists without capability discovery"],
-        assumptions=[],
+    """Arity is the whole binding: a short reply would re-attribute every later answer."""
+
+    corpus = policies(6)
+
+    verdict = OllamaReasoningProvider(live_config.models.reasoning).judge_finding_candidate(
+        case(), candidate(), corpus
     )
-    forces = [
-        DesignForce(
-            force_id="force_adea9fa4455d4439a3b215860cb0eec3",
-            title="Provider-neutral ownership",
-            description="Provider capability knowledge needs one clear owner.",
-            importance="high",
-            importance_rationale="Stated by the fixture.",
-        ),
-        DesignForce(
-            force_id="force_382d88fef7894aa39b2df88461652109",
-            title="Resource lifecycle",
-            description="Provider resources need explicit acquisition and cleanup ownership.",
-            importance="high",
-            importance_rationale="Stated by the fixture.",
-        ),
-        DesignForce(
-            force_id="force_9abd553fc67f4851b1619cebd450c8c8",
-            title="Change locality",
-            description="Adding a provider should not require coordinated changes everywhere.",
-            importance="high",
-            importance_rationale="Stated by the fixture.",
-        ),
-        DesignForce(
-            force_id="force_9bfef0aed0a441f7ac8b6ce77727f67a",
-            title="Dependency spread",
-            description="Existing provider knowledge crosses several application layers.",
-            importance="high",
-            importance_rationale="Stated by the fixture.",
-        ),
-        DesignForce(
-            force_id="force_e2a09841996a425c83787838ff8d20a1",
-            title="Bounded extensibility",
-            description="A credible second provider does not justify a universal plugin system.",
-            importance="medium",
-            importance_rationale="Stated by the fixture.",
-        ),
-    ]
 
-    clusters = provider.cluster_design_forces(context, forces)
-
-    assert cluster_partition_errors(forces, clusters) == []
-    assert {
-        force_id
-        for cluster in clusters
-        for force_id in cluster.design_force_ids
-    } == {force.force_id for force in forces}
-    assert all(cluster.cluster_id.startswith("cluster_") for cluster in clusters)
+    assert verdict.rationale
+    assert verdict.candidate_id
+    # Only bearings the model marked survive, so the count is bounded by the corpus rather
+    # than equal to it — an entry beyond that could only come from a mis-zipped reply.
+    assert len(verdict.policy_bearings) <= len(corpus)
+    assert {item.policy_id for item in verdict.policy_bearings} <= {item.id for item in corpus}
+    if not verdict.material:
+        assert verdict.recommended_response == ""
 
 
-def test_live_audiobook_greenfield_consultation(
+def test_live_review_and_question_round_trip(
+    live_config: AppConfig,
     tmp_path: Path,
-    live_config_path: Path,
 ) -> None:
-    runtime = build_runtime(tmp_path, models_config=live_config_path)
-    assert runtime.policy_store.current_version() is None
-    case_data = yaml.safe_load(
-        Path("eval/cases/audiobook-greenfield/case.yaml").read_text(encoding="utf-8")
+    """The whole path against the real model: detect, judge, persist, ask."""
+
+    del live_config
+    workspace = tmp_path / "workspace"
+    (workspace / "config").mkdir(parents=True)
+    (workspace / "config" / "models.yaml").write_text(
+        Path("config/models.yaml").read_text(encoding="utf-8"), encoding="utf-8"
     )
-    revision = runtime.case_service.create(ArchitectureCase.model_validate(case_data))
+    for name in (".env",):
+        source = Path(name)
+        if source.is_file():
+            (workspace / name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
 
-    run = runtime.workflow.advise(revision.case_id)
-    policy_version = runtime.policy_store.current_version()
+    runtime = build_runtime(workspace)
+    runtime.repository_service.index(FIXTURE)
+    revision = runtime.case_repository.create(
+        ArchitectureCase(
+            title="Live boundary review",
+            problem_statement="Decide which boundaries earn their place.",
+            desired_outcome="An honest verdict per boundary.",
+            expected_future_changes=["SMS reminders ship next release"],
+            non_goals=["Any change to how task identity is generated"],
+        ),
+        actor="live-test",
+    )
 
-    assert run.status == ConsultationStatus.SUCCEEDED
-    assert policy_version is not None
-    assert run.reasoning_model == f"ollama:{runtime.config.models.reasoning.model}"
-    assert run.embedding_model == policy_version.embedding_model
-    assert run.policy_index_version_id == policy_version.version_id
-    assert run.atlas_version_id is None
-    assert run.query_plans == []
-    assert run.design_forces
-    assert run.focused_packets
-    assert run.alternatives
-    assert run.scenarios
-    assert run.final_validation_errors == []
-    assert run.report is not None
-    assert run.report.decision_summary
-    assert run.report.recommended_architecture
-    assert run.report.alternatives_considered
-    assert run.report.trade_offs
-    assert run.report.implementation_sequence
-    assert run.report.adr.decision
-    assert run.markdown_report is not None
-    assert run.report.adr.title in run.markdown_report
-    assert {
-        "policy_preflight",
-        "discover_design_forces",
-        "cluster_design_forces",
-        "generate_alternatives",
-        "evaluate_scenarios",
-        "synthesize_recommendation",
-        "rendering",
-    } <= set(run.stage_timings)
-    assert all(duration >= 0 for duration in run.stage_timings.values())
-    assert runtime.case_service.show(revision.case_id).revision == 2
+    review = runtime.review_service.review(
+        revision.case_id, repository_root=FIXTURE
+    )
+
+    report = review.report
+    assert report is not None
+    assert report.reviewed, "the fixture declares boundaries the detector must find"
+    references = [item.reference for item in report.reviewed]
+    assert references == [f"BR-{ordinal:03d}" for ordinal in range(1, len(references) + 1)]
+
+    conversation = runtime.review_conversation_service.create(review.review_id)
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id,
+        "Which of these boundaries would you remove first?",
+    )
+
+    assert message.answer is not None
+    # Grounding is positional, so a citation outside the review could only mean the
+    # application resolved a position that does not exist.
+    assert set(message.answer.supporting_references) <= set(references)

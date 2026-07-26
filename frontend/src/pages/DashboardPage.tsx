@@ -27,22 +27,14 @@ export function DashboardPage() {
   const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
   const cases = useQuery({ queryKey: ["cases"], queryFn: api.cases });
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
-  const jobs = useQuery({
-    queryKey: ["jobs"],
-    queryFn: api.jobs,
-    refetchInterval: (query) =>
-      query.state.data?.some((job) => ["queued", "running"].includes(job.status))
-        ? 1_500
-        : false,
-  });
+  const reviews = useQuery({ queryKey: ["reviews"], queryFn: () => api.reviews() });
 
-  if (workspace.isLoading || cases.isLoading || repositories.isLoading || jobs.isLoading) {
+  if (workspace.isLoading || cases.isLoading || repositories.isLoading || reviews.isLoading) {
     return <Loading />;
   }
-  const error = workspace.error || cases.error || repositories.error || jobs.error;
+  const error = workspace.error || cases.error || repositories.error || reviews.error;
   if (error) return <ErrorPanel error={error} />;
 
-  const active = jobs.data?.find((job) => ["queued", "running"].includes(job.status));
   const recentCases = cases.data?.slice(0, 4) || [];
 
   return (
@@ -52,9 +44,9 @@ export function DashboardPage() {
         title="Find the next sound decision."
         description="Frame the case, inspect bounded evidence, and keep the recommendation traceable."
         action={
-          <Link to="/new" className="button button--primary">
+          <Link to="/reviews" className="button button--primary">
             <Sparkles size={17} />
-            Start consultation
+            Review a repository
           </Link>
         }
       />
@@ -101,28 +93,14 @@ export function DashboardPage() {
       <section className="stats-grid" aria-label="Workspace totals">
         <Stat label="Architecture cases" value={cases.data?.length || 0} detail="immutable revisions" />
         <Stat label="Indexed snapshots" value={repositories.data?.length || 0} detail="freshness checked at use" />
-        <Stat label="Consultations" value={jobs.data?.length || 0} detail="successful and failed" />
+        <Stat label="Reviews" value={reviews.data?.length || 0} detail="boundaries judged against a case" />
         <Stat
-          label="Evidence budget"
-          value={workspace.data?.consultation.max_query_results || "—"}
-          detail="nodes per concern"
+          label="Policies"
+          value={workspace.data?.policy_index ? "indexed" : "—"}
+          detail="presented whole with every boundary"
         />
       </section>
 
-      {active && (
-        <section className="active-run" aria-live="polite">
-          <div className="active-run__pulse"><Compass size={23} /></div>
-          <div>
-            <span className="eyebrow">Consultation in progress</span>
-            <h3>{active.current_stage?.replaceAll("_", " ") || "Waiting in the local queue"}</h3>
-            <p>Case revision {active.input_case_revision} · {shortId(active.run_id)}</p>
-          </div>
-          <Badge tone={active.status === "queued" ? "warning" : "teal"}>{active.status}</Badge>
-          <Link className="button button--quiet" to={`/runs/${active.run_id}`}>
-            Follow trail <ArrowRight size={16} />
-          </Link>
-        </section>
-      )}
 
       <section className="dashboard-columns">
         <div className="panel">

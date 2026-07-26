@@ -6,64 +6,59 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from archcompass.adapters.analysis import (
+    DeterministicAtlasQueryService,
+    PythonAstRepositoryAnalyzer,
+    SafeSourceReader,
+)
 from archcompass.adapters.models import (
     DeterministicEmbeddingProvider,
     DeterministicReasoningProvider,
+    GoogleEmbeddingProvider,
+    GoogleReasoningProvider,
     OllamaEmbeddingProvider,
     OllamaReasoningProvider,
 )
 from archcompass.adapters.persistence import (
     SQLiteAtlasRepository,
+    SQLiteBoundaryReviewRepository,
     SQLiteCaseRepository,
-    SQLiteConsultationCommitRepository,
-    SQLiteConsultationJobRepository,
     SQLiteDatabase,
     SQLitePolicySourceRepository,
-    SQLiteReportConversationRepository,
-    SQLiteRunRepository,
-)
-from archcompass.adapters.reporting import SafeWorkspaceReportWriter
-from archcompass.adapters.repository import (
-    DeterministicAtlasQueryService,
-    PythonAstRepositoryAnalyzer,
-    SafeSourceReader,
+    SQLiteReviewConversationRepository,
 )
 from archcompass.adapters.retrieval import (
     MarkdownPolicySourceInspector,
     SQLitePolicyStore,
 )
-from archcompass.application.advice import AdviceService
-from archcompass.application.atlas import AtlasFreshnessService
+from archcompass.application.atlas_freshness import AtlasFreshnessService
 from archcompass.application.atlas_queries import AtlasService
+from archcompass.application.bundled_cases import BundledCaseService
 from archcompass.application.cases import CaseService
-from archcompass.application.conversation_context import ConversationContextBuilder
-from archcompass.application.conversation_rendering import ConversationRenderer
-from archcompass.application.conversation_retrieval import (
-    ConversationEvidenceRetriever,
-)
-from archcompass.application.conversations import ReportConversationService
-from archcompass.application.jobs import ConsultationJobService
 from archcompass.application.policies import PolicyService
-from archcompass.application.reports import ReportService
-from archcompass.application.repositories import RepositoryIndexService
-from archcompass.application.runs import RunService
+from archcompass.application.repository_index import RepositoryIndexService
+from archcompass.application.review_conversations import ReviewConversationService
+from archcompass.application.reviews import ReviewService
 from archcompass.application.safety import (
     validate_workspace_repository_separation,
 )
 from archcompass.application.workspace import WorkspaceConfigurationService
-from archcompass.configuration import AppConfig, load_config, resolve_config_path
+from archcompass.configuration import (
+    AppConfig,
+    load_config,
+    load_provider_environment,
+    resolve_config_path,
+)
 from archcompass.domain.errors import ConfigurationError
 from archcompass.ports.atlas import AtlasQueryService, RepositoryAnalyzer
 from archcompass.ports.models import EmbeddingProvider
 from archcompass.ports.policies import PolicyIndex
-from archcompass.ports.progress import ConsultationJobRepository
 from archcompass.ports.reasoning import FocusedReasoningProvider
 from archcompass.ports.repositories import (
     AtlasRepository,
+    BoundaryReviewRepository,
     CaseRepository,
-    ConsultationRunRepository,
 )
-from archcompass.workflows import ConsultationWorkflow
 
 BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
 
@@ -82,23 +77,19 @@ class Runtime:
     config: AppConfig
     database: SQLiteDatabase
     case_repository: CaseRepository
-    run_repository: ConsultationRunRepository
-    job_repository: ConsultationJobRepository
     atlas_repository: AtlasRepository
+    review_repository: BoundaryReviewRepository
+    review_conversation_service: ReviewConversationService
+    bundled_case_service: BundledCaseService
     analyzer: RepositoryAnalyzer
     query_service: AtlasQueryService
     policy_store: PolicyIndex
     policy_sources: tuple[Path, ...]
     case_service: CaseService
-    workflow: ConsultationWorkflow
     policy_service: PolicyService
     repository_service: RepositoryIndexService
     atlas_service: AtlasService
-    advice_service: AdviceService
-    report_service: ReportService
-    run_service: RunService
-    conversation_service: ReportConversationService
-    job_service: ConsultationJobService
+    review_service: ReviewService
     freshness_service: AtlasFreshnessService
 
 
@@ -119,6 +110,9 @@ def build_runtime(
     canonical_workspace = workspace.expanduser().resolve()
     if repository is not None:
         validate_workspace_repository_separation(canonical_workspace, repository)
+    # Before any provider is constructed: a hosted provider reads its credential from
+    # the environment, and a `.env` file is where an interactive run keeps it.
+    load_provider_environment(canonical_workspace)
     config = load_config(resolve_config_path(canonical_workspace, models_config))
     canonical_workspace.mkdir(parents=True, exist_ok=True)
     database = SQLiteDatabase(
@@ -130,10 +124,9 @@ def build_runtime(
     embeddings = _embedding_provider(config)
     reasoning = _reasoning_provider(config)
     cases = SQLiteCaseRepository(database)
-    runs = SQLiteRunRepository(database)
-    conversations = SQLiteReportConversationRepository(database)
-    jobs = SQLiteConsultationJobRepository(database)
     atlases = SQLiteAtlasRepository(database)
+    reviews = SQLiteBoundaryReviewRepository(database)
+    review_conversations = SQLiteReviewConversationRepository(database)
     analyzer = PythonAstRepositoryAnalyzer()
     freshness = AtlasFreshnessService(analyzer)
     source_reader = SafeSourceReader()
@@ -157,29 +150,7 @@ def build_runtime(
         source_inspector=MarkdownPolicySourceInspector(),
         bundled_sources=configured_policy_sources,
     )
-    commits = SQLiteConsultationCommitRepository(database)
-    workflow = ConsultationWorkflow(
-        config=config,
-        cases=cases,
-        runs=runs,
-        commits=commits,
-        atlases=atlases,
-        queries=queries,
-        policy_index=policies,
-        policies=policies,
-        reasoning=reasoning,
-        policy_sources=configured_policy_sources,
-        policy_source_resolver=lambda root: policy_service.effective_sources(
-            repository_root=root
-        ),
-        repository_validator=lambda root: validate_workspace_repository_separation(
-            canonical_workspace,
-            root,
-        ),
-        freshness=freshness,
-    )
     case_service = CaseService(cases)
-    report_service = ReportService(SafeWorkspaceReportWriter(canonical_workspace))
     repository_service = RepositoryIndexService(
         workspace=canonical_workspace,
         analyzer=analyzer,
@@ -190,58 +161,43 @@ def build_runtime(
         queries=queries,
         freshness=freshness,
     )
-    advice_service = AdviceService(
-        consultation=workflow,
-        reports=report_service,
-    )
-    job_service = ConsultationJobService(
+    bundled_case_service = BundledCaseService(
         cases=cases,
-        runs=runs,
-        jobs=jobs,
-        advice=advice_service,
-    )
-    conversation_service = ReportConversationService(
-        runs=runs,
-        cases=cases,
-        conversations=conversations,
+        repositories=repository_service,
         atlases=atlases,
-        policies=policies,
-        reasoning=reasoning,
-        retrieval=ConversationEvidenceRetriever(
-            atlases=atlases,
-            queries=queries,
-            config=config.conversation,
-            reasoning=config.models.reasoning,
-        ),
-        context_builder=ConversationContextBuilder(
-            config.conversation,
-            reasoning=config.models.reasoning,
-        ),
-        renderer=ConversationRenderer(),
-        config=config.conversation,
+    )
+    review_conversation_service = ReviewConversationService(
+        reviews=reviews,
+        cases=cases,
+        conversations=review_conversations,
+        reasoner=reasoning,
+    )
+    review_service = ReviewService(
+        cases=cases,
+        atlases=atlases,
+        reviews=reviews,
+        freshness=freshness,
+        policies=policy_service,
+        reasoner=reasoning,
     )
     return Runtime(
         workspace=canonical_workspace,
         config=config,
         database=database,
         case_repository=cases,
-        run_repository=runs,
-        job_repository=jobs,
         atlas_repository=atlases,
+        review_repository=reviews,
+        review_conversation_service=review_conversation_service,
+        bundled_case_service=bundled_case_service,
         analyzer=analyzer,
         query_service=queries,
         policy_store=policies,
         policy_sources=configured_policy_sources,
         case_service=case_service,
-        workflow=workflow,
         policy_service=policy_service,
         repository_service=repository_service,
         atlas_service=atlas_service,
-        advice_service=advice_service,
-        report_service=report_service,
-        run_service=RunService(runs),
-        conversation_service=conversation_service,
-        job_service=job_service,
+        review_service=review_service,
         freshness_service=freshness,
     )
 
@@ -277,6 +233,8 @@ def _embedding_provider(config: AppConfig) -> EmbeddingProvider:
     model = config.models.embedding
     if model.provider == "ollama":
         return OllamaEmbeddingProvider(model)
+    if model.provider == "google":
+        return GoogleEmbeddingProvider(model)
     if model.provider == "fake":
         return DeterministicEmbeddingProvider(model.dimensions)
     raise ConfigurationError(f"Unsupported embedding provider: {model.provider}")
@@ -286,6 +244,8 @@ def _reasoning_provider(config: AppConfig) -> FocusedReasoningProvider:
     model = config.models.reasoning
     if model.provider == "ollama":
         return OllamaReasoningProvider(model)
+    if model.provider == "google":
+        return GoogleReasoningProvider(model)
     if model.provider == "fake":
         return DeterministicReasoningProvider()
     raise ConfigurationError(f"Unsupported reasoning provider: {model.provider}")

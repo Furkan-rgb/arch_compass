@@ -143,6 +143,36 @@ A brownfield case includes the same contextual information and may additionally 
 
 Repository analysis enriches the consultation. It does not create a separate product or workflow.
 
+## 4.1 How the model survives the move to candidates
+
+The advisory path now begins with a **finding candidate** rather than with model-discovered
+design forces (§6A). That looks at first like a brownfield-only design, because the one
+detector that exists reads an atlas. It is not, and the distinction matters for what gets
+built next.
+
+The judgement stage takes `(case, candidate, policies)`. Nothing in it refers to a
+repository. The same call, the same corpus and the same verdict shape work for a boundary
+that exists and for one that is merely proposed — the question *"is this boundary earning
+its place under these circumstances"* does not depend on whether the code has been written.
+
+What differs between the two is only **where candidates come from**:
+
+- **Brownfield** — a detector derives them from the atlas. Deterministic and complete.
+- **Greenfield** — the case states the boundaries the proposed design would introduce, and
+  the application enumerates them. Also deterministic: the user supplies the design, the
+  application turns each proposed boundary into a candidate, and nothing is invented.
+
+§12.0 holds in both. The application still decides what to look at; in greenfield the
+answer comes from the case instead of from a parse, which is a different source of truth
+rather than a different rule.
+
+**Status.** Only the brownfield source is built. Greenfield is architecturally reachable
+and unbuilt, which is a narrower claim than the one this section made before and should
+not be read as more. One concrete obstacle is known: `FindingParticipant.node_id` assumes
+an atlas node exists, so a proposed boundary has no honest value to put there. That is the
+first thing to resolve when the greenfield source is built, and it must not be resolved by
+inventing an identifier.
+
 ---
 
 # 5. Five Durable Domain Concepts
@@ -287,6 +317,11 @@ artifacts rather than treating a node ID or retrieval result as sufficient evide
 
 # 6. Unified Advisory Architecture
 
+> **Superseded by §6A.** The flow below is the original design and remains the shape of the
+> `advise` path while it is being removed. It is kept here because §7, §8, §9.2, §11 and
+> §13 describe its parts and reading it explains what they were for. Nothing new should be
+> built on it. Where this section and §6A disagree, §6A is current.
+
 The target advisory flow is:
 
 ```text
@@ -340,7 +375,75 @@ The system may perform additional atlas queries when an investigation exposes an
 
 ---
 
+# 6A. The Advisory Path
+
+This is the current architecture. It replaces §6.
+
+```text
+ArchitectureCase                     RepositoryAtlas
+      │                                    │
+      └────────────────┬───────────────────┘
+                       ▼
+          Detect finding candidates                    [application]
+          complete over the atlas; not sampled,
+          not ranked, no model involved
+                       │
+                       ▼
+        For each candidate, one model call:            [model]
+          candidate + case + the entire policy corpus
+                       │
+                       ▼
+             CandidateVerdict                          [model]
+          material · rationale · one bearing
+          per policy, bound by position
+                       │
+                       ▼
+        Compose the review                             [application]
+          assign BR-nnn references, resolve
+          policy identity by position, render
+                       │
+                       ▼
+        Persist an immutable BoundaryReview
+```
+
+Four properties distinguish it from §6, and each was adopted for a stated reason rather
+than for brevity.
+
+**The application chooses what to look at.** §6 spent two model calls discovering design
+forces and clustering them, then more calls planning atlas queries, to decide where to
+look. A detector decides that deterministically and completely. Design forces remain a
+useful *concept* — the pressures the case exerts — but they are read from the case by the
+stage that judges, not discovered as a separate artifact.
+
+**There is no retrieval step.** The whole policy corpus is presented with every candidate.
+It is roughly 21,000 characters against an input budget of ~490,000, so ranking policies
+would introduce a way to be wrong in exchange for nothing. When the corpus outgrows one
+request this changes, and the change will be deliberate rather than inherited.
+
+**There are no zoom rounds.** A candidate carries its own participants, measurements and
+connecting edges, so the evidence for judging it is assembled by the detector rather than
+requested iteratively.
+
+**"Not material" is a stored result.** §6 produced a recommendation; this path produces a
+verdict per boundary, and a boundary examined and cleared is recorded with its reasoning.
+A report containing only problems would read identically whether every boundary was
+cleared or none was inspected, and telling those apart is most of §3.1.
+
+## 6A.1 What a review produces
+
+`BoundaryReviewReport`, not `RecommendationReport` (§13). The older aggregate requires
+design forces, alternatives, scenario analysis, an ADR and an implementation sequence,
+because the path that built it reasoned its way to a proposed design. A review does not do
+that; it judges boundaries that already exist. Filling those fields from a review would
+mean inventing alternatives nobody weighed — §3.1's failure reproduced inside the one
+artifact a person reads — so the review's report has no place to put them.
+
+---
+
 # 7. Global Context and Focused Evidence
+
+> **Superseded by §6A.** Focused packets, cluster budgets and progressive retrieval belong
+> to the §6 flow. A candidate carries its own evidence.
 
 ArchCompass must balance system-wide context with focused analysis.
 
@@ -395,6 +498,12 @@ This allows ArchCompass to recognise that:
 ---
 
 # 8. Design Forces and Concern Clusters
+
+> **Superseded by §6A.** Forces are no longer discovered as an artifact and clusters no
+> longer bound evidence; the stage that judges a candidate reads the pressures from the
+> case directly. The vocabulary below is still the right vocabulary for talking about what
+> a case exerts, which is why it is kept.
+
 
 The unified reasoning concept is **design forces**, not only findings.
 
@@ -521,6 +630,26 @@ limitations of the method that found it. Ranking and prioritisation, when they e
 application concerns computed from measurements — never from model output, and never
 smuggled into the detector as a threshold that encodes an opinion.
 
+## 8A.5 From candidate to verdict
+
+One model call per candidate, carrying the case, that candidate, and **the entire policy
+corpus**. The corpus is small enough to present whole, so the MVP has no retrieval step:
+nothing ranks policies, nothing thresholds them, and the advisor is never silently denied
+a policy that would have applied. When the corpus outgrows one request that changes, and
+the change will be visible rather than inherited.
+
+Policies are presented in a fixed order and the reply returns one bearing per policy in
+that order. No policy identifier is sent and none is read back. Arity is therefore the
+entire binding — a reply one entry short does not lose one answer, it shifts every later
+answer onto the wrong policy and still parses — so the count is fixed in the response
+grammar and checked again after parsing.
+
+The verdict is `material` or not, with the reasoning, and a recommended response only when
+material. **An immaterial verdict is a recorded result, not a discarded intermediate.** A
+report that showed only problems would read identically whether the advisor examined every
+candidate and cleared them or never looked, and the difference between those two is most
+of the product.
+
 ---
 
 # 9. RepositoryAtlas Principles
@@ -534,6 +663,11 @@ Language-specific analyzers should produce a canonical structural graph before m
 For Python V1, analysis uses the built-in AST without importing or executing repository code.
 
 ## 9.2 Progressive zoom
+
+> **Superseded by §6A.** Detection is complete over the atlas in one pass, and a candidate
+> carries the evidence needed to judge it. Zoom rounds existed because the model chose
+> where to look next; it no longer does.
+
 
 Atlas exploration follows:
 
@@ -653,6 +787,11 @@ Signals require architectural interpretation. They are not automatic violations.
 
 # 11. Policy Retrieval
 
+> **Superseded by §6A.** The corpus is presented whole with every candidate, so nothing
+> ranks or filters policies. Embedding retrieval remains built and unused on this path;
+> it becomes relevant again only when the corpus no longer fits one request.
+
+
 Policies are stored as validated Markdown documents with structured metadata.
 
 At index-build time:
@@ -726,6 +865,22 @@ presented. Where the application already knows the answer, the stage does not as
 This extends §9.3: opaque IDs are necessary for validation and insufficient as reasoning
 context — and they are also unsafe as model output.
 
+### Field order is part of the contract
+
+A structured-output model fills a response schema in the order the schema declares, so
+**a conclusion declared before its reasoning is a conclusion reached before its
+reasoning.** Put the argument first and the verdict last, and the verdict follows what was
+argued; put the verdict first and the prose becomes justification for a choice already
+made — including when the prose ends up disagreeing with it.
+
+This is not a style preference. The judgement stage shipped with `material` ahead of
+`rationale` and a live run returned `material=false` beside a rationale concluding that
+removing the abstraction would cost nothing. Both halves validated. Nothing downstream
+could have detected the contradiction, because each field was individually well-formed.
+
+So: every stage orders its response fields as reasoning → conclusion, and a schema whose
+first field is a verdict is a defect regardless of what the prompt says.
+
 ## 12.1 Claim classification
 
 Every important report claim must be classified as one of:
@@ -750,6 +905,11 @@ ArchCompass must never present assumptions or model interpretations as repositor
 ---
 
 # 13. Recommendation Contract
+
+> **Superseded by §6A.1** for the review path. `RecommendationReport` is the artifact of
+> the §6 flow; a review produces `BoundaryReviewReport`. This section still describes what
+> a recommendation must contain if and when ArchCompass proposes a design again.
+
 
 The canonical recommendation should include:
 
@@ -858,59 +1018,37 @@ Domain and application code must remain independent from Typer, HTTPX, SQLite, s
 
 ---
 
-# 16. Current Priority: V1.2
+# 16. Current Priority: The Review Path
 
-The active milestone is:
+The active milestone is making §6A the only advisory path, end to end and visible in the
+browser.
 
-## Evidence-Grounded Report Conversations
+Delivered:
 
-The milestone should deliver:
+- Finding candidates detected deterministically from the atlas (§8A).
+- Judgement of one candidate against the case and the whole policy corpus, with policies
+  bound by position and no identifier crossing the wire in either direction (§12.0).
+- `BoundaryReviewReport` and immutable `BoundaryReview` persistence (§6A.1).
+- A standing example with a known answer: `eval/cases/boundary-review`, six boundaries the
+  detector cannot separate and a case that makes three of them justified. `make demo`
+  scores a live run against it.
 
-- Schema-v3 reports and runs with stable canonical architectural findings.
-- Application-projected finding evidence derived exactly from each finding's focused packet.
-- Durable conversations pinned to one successful run.
-- Validated recent-context-aware classification and cumulative bounded retrieval against exact
-  persisted artifact identities.
-- Deterministic resolution of explicit finding references (canonical ID, exact title; a shared
-  title resolves to every finding that carries it). Interpretation of phrasing — ordinals,
-  demonstratives, comparison wording — belongs to the classifier, whose output is validated
-  against the pinned report's closed identity sets.
-- Provider-neutral bounded contexts with all finding digests, the pinned case summary, typed
-  rolling summaries, and eight recent messages.
-- Per-turn retrieval ceilings on actions, findings, Atlas/path nodes, policies, neighbourhood
-  depth and excerpt lines, plus a serialized-evidence budget derived from the configured model
-  context window, with truncation and unavailability retained in the audit.
-- Support-linked structured answers, exact item-level evidence scopes, one constrained repair,
-  and complete failed-attempt records.
-- Compare-and-swap append ordering and immutable summary revisions covering exactly twelve
-  messages initially and fixed batches of eight thereafter. Invalid summaries do not advance
-  coverage, and post-answer summary failures do not invalidate an already committed answer.
-- Deterministic behavior for report/finding summaries, details, qualitative priority across all
-  findings, comparisons, evidence/source traces, policy applicability and exceptions,
-  alternatives, scenarios, assumptions, implementation order, strengthening/weakening
-  counterfactuals, and unsupported questions.
-- Canonical JSON for Ollama prompt inputs and context hashes, with every executed prompt identity
-  versioned and recorded.
-- CLI, FastAPI, and local web-workspace create/list/show/ask/history/export access.
-- Removal of the legacy follow-up API, React controls, and storage, replaced by a
-  report-conversation panel on the run detail page.
-- Deterministic conversation evaluations and complete documentation.
+Remaining:
 
-The V1.1 clustered advisory workflow remains authoritative. V1.2 adds this read-only path:
+- Follow-up questions against a review. The conversation layer reads twenty
+  `RecommendationReport` fields and pins to `ConsultationRun`; it must accept a
+  `BoundaryReview` instead.
+- A web endpoint and workspace view for a review, and an end-to-end browser check.
+- Choosing a bundled eval case from the workspace, so the tool can be exercised without
+  hand-writing a case first.
+- Deleting the §6 path once nothing depends on it: the consultation workflow, evidence
+  accumulation, query planning, synthesis, and the design-force, clustering, alternative
+  and scenario stages.
 
-```text
-successful run
-    → create pinned conversation
-    → classify question
-    → validate and execute bounded retrieval
-    → build bounded context
-    → answer and validate
-    → optionally repair once
-    → append or record failure
-    → revise rolling summary after a committed answer when due
-```
-
-No unrelated product features should be added during this milestone.
+Two things are deliberately not in this milestone. The second detector — *repetition
+without ownership*, §8A.3 — waits until the path is whole, and greenfield candidates
+(§4.1) wait until there is something to attach them to. Neither is blocked; both are
+sequenced.
 
 ---
 

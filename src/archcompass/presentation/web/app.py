@@ -5,23 +5,18 @@
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
 import yaml
 from fastapi import Body, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from archcompass.bootstrap import Runtime
 from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion
 from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
-from archcompass.domain.consultation import ConsultationRun
-from archcompass.domain.conversation import ConversationMessage, ReportConversation
 from archcompass.domain.errors import (
     ArchCompassError,
     AtlasNotFoundError,
@@ -40,17 +35,18 @@ from archcompass.domain.errors import (
     RunNotFoundError,
     StaleAtlasError,
 )
-from archcompass.domain.execution import (
-    ConsultationJob,
-    ConsultationJobStatus,
-    ConsultationProgressEvent,
-)
 from archcompass.domain.policy import (
     PolicyDocument,
     PolicyIndexVersion,
     PolicySourceRegistration,
 )
-from archcompass.domain.workspace import CaseSummary, RepositorySummary, RunSummary
+from archcompass.domain.review import BoundaryReview
+from archcompass.domain.review_conversation import ReviewConversation, ReviewMessage
+from archcompass.domain.workspace import (
+    BoundaryReviewSummary,
+    CaseSummary,
+    RepositorySummary,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -155,6 +151,59 @@ class ReportQuestionRequest(APIModel):
     question: str = Field(min_length=1, max_length=4000)
 
 
+class ReviewRequest(APIModel):
+    case_id: str = Field(min_length=1)
+    repository_root: str = Field(min_length=1)
+
+
+class ReviewConversationCreateRequest(APIModel):
+    review_id: str = Field(min_length=1)
+    title: str | None = Field(default=None, min_length=1)
+
+
+class ReviewQuestionRequest(APIModel):
+    question: str = Field(min_length=1, max_length=4000)
+
+
+class BundledCase(APIModel):
+    """One example case shipped with ArchCompass, ready to load into the workspace.
+
+    Exists so the tool can be exercised without hand-writing a case first. The repository
+    path is absolute and resolved on the server, because the browser cannot know where the
+    package was installed.
+    """
+
+    name: str
+    title: str
+    problem_statement: str
+    repository_root: str
+    has_expected_answers: bool
+
+
+class ScoredBoundaryResponse(APIModel):
+    reference: str
+    abstraction: str
+    expected: bool
+    actual: bool
+    correct: bool
+    because: str
+
+
+class ReviewScoreResponse(APIModel):
+    """A review graded against the answers its example ships.
+
+    `unscored` names boundaries the key does not cover. They are reported rather than
+    folded into the total, because a score over the remainder would look complete while
+    measuring less than it claims.
+    """
+
+    example: str
+    correct: int
+    total: int
+    boundaries: list[ScoredBoundaryResponse]
+    unscored: list[str]
+
+
 class PolicySourceRequest(APIModel):
     source: str = Field(min_length=1)
 
@@ -177,17 +226,9 @@ class WorkspaceModels(APIModel):
     embedding: EmbeddingModelIdentity
 
 
-class ConsultationBudgets(APIModel):
-    max_zoom_iterations: int
-    max_queries_per_iteration: int
-    max_query_results: int
-    max_excerpt_lines: int
-
-
 class WorkspaceSummaryResponse(APIModel):
     workspace: str
     models: WorkspaceModels
-    consultation: ConsultationBudgets
     policy_index: PolicyIndexVersion | None = None
 
 
@@ -196,20 +237,15 @@ class PolicySourceRemovalResponse(APIModel):
 
 
 def create_app(runtime: Runtime) -> FastAPI:
-    @asynccontextmanager
-    async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-        runtime.job_service.recover_interrupted()
-        try:
-            yield
-        finally:
-            runtime.job_service.close()
-
+    # A review runs synchronously inside its request. The background job queue existed
+    # because a consultation took eight model calls through several stages and needed
+    # recovery after an interrupted process; a review is one call per boundary against an
+    # already-indexed atlas, and re-running it costs nothing that has to be reconciled.
     app = FastAPI(
         title="Arch Compass Local API",
         version="0.1.0",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
-        lifespan=lifespan,
         responses=_problem_responses(422),
     )
 
@@ -261,9 +297,6 @@ def create_app(runtime: Runtime) -> FastAPI:
                     model=runtime.config.models.embedding.model,
                     dimensions=runtime.config.models.embedding.dimensions,
                 ),
-            ),
-            consultation=ConsultationBudgets.model_validate(
-                runtime.config.consultation.model_dump()
             ),
             policy_index=policy_version,
         )
@@ -384,216 +417,118 @@ def create_app(runtime: Runtime) -> FastAPI:
             limit=request.limit,
         )
 
-    @app.post("/api/consultations", status_code=202)
-    def start_consultation(request: ConsultationStartRequest) -> ConsultationJob:
-        return runtime.job_service.start(
-            request.case_id,
-            repository_root=(
-                Path(request.repository_root)
-                if request.repository_root is not None
-                else None
-            ),
-        )
-
-    @app.get("/api/consultations")
-    def list_consultations(
-        limit: Annotated[int, Query(ge=1, le=500)] = 50,
-    ) -> list[ConsultationJob]:
-        return runtime.job_service.list(limit=limit)
-
-    @app.get("/api/consultations/{run_id}")
-    def get_consultation(run_id: str) -> ConsultationJob:
-        return runtime.job_service.get(run_id)
-
-    @app.get("/api/consultations/{run_id}/events")
-    def consultation_events(
-        run_id: str,
-        after: Annotated[int, Query(ge=0)] = 0,
-    ) -> list[ConsultationProgressEvent]:
-        return runtime.job_service.events(run_id, after_sequence=after)
-
-    @app.get("/api/consultations/{run_id}/stream")
-    async def consultation_stream(
-        run_id: str,
-        request: Request,
-    ) -> StreamingResponse:
-        after_header = request.headers.get("last-event-id", "0")
-        try:
-            after = max(0, int(after_header))
-        except ValueError:
-            after = 0
-
-        async def stream() -> AsyncIterator[str]:
-            sequence = after
-            while True:
-                if await request.is_disconnected():
-                    return
-                events = runtime.job_service.events(
-                    run_id,
-                    after_sequence=sequence,
-                )
-                for event in events:
-                    sequence = event.sequence
-                    yield (
-                        f"id: {event.sequence}\n"
-                        f"event: {event.event_type}\n"
-                        f"data: {event.model_dump_json()}\n\n"
-                    )
-                job = runtime.job_service.get(run_id)
-                if job.status in {
-                    ConsultationJobStatus.SUCCEEDED,
-                    ConsultationJobStatus.SUCCEEDED_WITH_WARNINGS,
-                    ConsultationJobStatus.FAILED,
-                    ConsultationJobStatus.INTERRUPTED,
-                }:
-                    return
-                if not events:
-                    yield ": keep-alive\n\n"
-                await asyncio.sleep(0.5)
-
-        return StreamingResponse(
-            stream(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
-        )
-
-    @app.get("/api/runs")
-    def list_runs(
-        case_id: str | None = None,
-        limit: Annotated[int, Query(ge=1, le=500)] = 100,
-    ) -> list[RunSummary]:
-        return runtime.run_service.list(case_id=case_id, limit=limit)
-
-    @app.get(
-        "/api/runs/{run_id}",
-        responses=_problem_responses(404, 422),
-    )
-    def get_run(run_id: str) -> ConsultationRun:
-        return runtime.run_service.show(run_id)
+    @app.get("/api/bundled-cases")
+    def list_bundled_cases() -> list[BundledCase]:
+        return [
+            BundledCase(
+                name=item.name,
+                title=item.title,
+                problem_statement=item.problem_statement,
+                repository_root=item.repository_root,
+                has_expected_answers=item.has_expected_answers,
+            )
+            for item in runtime.bundled_case_service.list()
+        ]
 
     @app.post(
-        "/api/conversations",
+        "/api/bundled-cases/{name}/load",
         status_code=201,
         responses=_problem_responses(404, 422),
     )
-    def create_report_conversation(
-        request: ConversationCreateRequest,
-    ) -> ReportConversation:
-        return runtime.conversation_service.create(
-            request.run_id,
+    def load_bundled_case(name: str) -> CaseRevision:
+        return runtime.bundled_case_service.load(name)
+
+    @app.post(
+        "/api/reviews",
+        status_code=201,
+        responses=_problem_responses(404, 422, 503),
+    )
+    def create_review(request: ReviewRequest) -> BoundaryReview:
+        return runtime.review_service.review(
+            request.case_id,
+            repository_root=Path(request.repository_root),
+        )
+
+    @app.get("/api/reviews")
+    def list_reviews(
+        case_id: str | None = None,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    ) -> list[BoundaryReviewSummary]:
+        return runtime.review_repository.list(case_id=case_id, limit=limit)
+
+    @app.get(
+        "/api/reviews/{review_id}",
+        responses=_problem_responses(404, 422),
+    )
+    def get_review(review_id: str) -> BoundaryReview:
+        return runtime.review_repository.get(review_id)
+
+    @app.get(
+        "/api/reviews/{review_id}/score",
+        responses=_problem_responses(404, 422),
+    )
+    def score_review(review_id: str) -> ReviewScoreResponse | None:
+        """Null when the reviewed repository ships no answers, which is the usual case."""
+
+        review = runtime.review_repository.get(review_id)
+        score = runtime.bundled_case_service.score(review)
+        if score is None:
+            return None
+        return ReviewScoreResponse(
+            example=score.example,
+            correct=score.correct,
+            total=score.total,
+            boundaries=[
+                ScoredBoundaryResponse(
+                    reference=item.reference,
+                    abstraction=item.abstraction,
+                    expected=item.expected,
+                    actual=item.actual,
+                    correct=item.correct,
+                    because=item.because,
+                )
+                for item in score.boundaries
+            ],
+            unscored=list(score.unscored),
+        )
+
+    @app.post(
+        "/api/review-conversations",
+        status_code=201,
+        responses=_problem_responses(404, 422),
+    )
+    def create_review_conversation(
+        request: ReviewConversationCreateRequest,
+    ) -> ReviewConversation:
+        return runtime.review_conversation_service.create(
+            request.review_id,
             title=request.title,
         )
 
     @app.get(
-        "/api/conversations",
+        "/api/review-conversations",
         responses=_problem_responses(404, 422),
     )
-    def list_report_conversations(run_id: str) -> list[ReportConversation]:
-        return runtime.conversation_service.list(run_id)
+    def list_review_conversations(review_id: str) -> list[ReviewConversation]:
+        return runtime.review_conversation_service.list(review_id)
 
     @app.get(
-        "/api/conversations/{conversation_id}",
+        "/api/review-conversations/{conversation_id}",
         responses=_problem_responses(404, 422),
     )
-    def get_report_conversation(conversation_id: str) -> ReportConversation:
-        return runtime.conversation_service.show(conversation_id)
-
-    @app.get(
-        "/api/conversations/{conversation_id}/history",
-        responses=_problem_responses(404, 422),
-    )
-    def get_report_conversation_history(
-        conversation_id: str,
-    ) -> list[ConversationMessage]:
-        return runtime.conversation_service.history(conversation_id)
+    def get_review_conversation(conversation_id: str) -> ReviewConversation:
+        return runtime.review_conversation_service.show(conversation_id)
 
     @app.post(
-        "/api/conversations/{conversation_id}/messages",
+        "/api/review-conversations/{conversation_id}/messages",
         status_code=201,
         responses=_problem_responses(404, 409, 422, 503),
     )
-    def ask_report_question(
+    def ask_review_question(
         conversation_id: str,
-        request: ReportQuestionRequest,
-    ) -> ConversationMessage:
-        return runtime.conversation_service.ask(conversation_id, request.question)
-
-    @app.get(
-        "/api/conversations/{conversation_id}/export",
-        responses=_export_responses(
-            {
-                "type": "object",
-                "required": ["conversation", "messages"],
-                "properties": {
-                    "conversation": {
-                        "$ref": "#/components/schemas/ReportConversation"
-                    },
-                    "messages": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/ConversationMessage"
-                        },
-                    },
-                },
-                "additionalProperties": False,
-            },
-            description=(
-                "The pinned conversation as canonical JSON or a deterministic "
-                "Markdown transcript."
-            ),
-        ),
-    )
-    def export_report_conversation(
-        conversation_id: str,
-        format: Literal["markdown", "json"] = "markdown",
-    ) -> PlainTextResponse:
-        return PlainTextResponse(
-            runtime.conversation_service.export(
-                conversation_id,
-                format=format,
-            ),
-            media_type=(
-                "application/json"
-                if format == "json"
-                else "text/markdown; charset=utf-8"
-            ),
-        )
-
-    @app.get(
-        "/api/runs/{run_id}/report",
-        responses=_export_responses(
-            {"$ref": "#/components/schemas/RecommendationReport"},
-            description=(
-                "The immutable recommendation report as canonical JSON or "
-                "deterministic Markdown."
-            ),
-        ),
-    )
-    def download_report(
-        run_id: str,
-        format: Literal["markdown", "json"] = "markdown",
-    ) -> PlainTextResponse:
-        run = runtime.run_service.show(run_id)
-        if format == "markdown":
-            if run.markdown_report is None:
-                raise PersistenceError(f"Consultation run {run_id} has no Markdown report")
-            return PlainTextResponse(
-                run.markdown_report,
-                media_type="text/markdown",
-                headers={
-                    "Content-Disposition": f'attachment; filename="{run_id}.md"'
-                },
-            )
-        if run.report is None:
-            raise PersistenceError(f"Consultation run {run_id} has no structured report")
-        return PlainTextResponse(
-            run.report.model_dump_json(indent=2),
-            media_type="application/json",
-            headers={"Content-Disposition": f'attachment; filename="{run_id}.json"'},
-        )
+        request: ReviewQuestionRequest,
+    ) -> ReviewMessage:
+        return runtime.review_conversation_service.ask(conversation_id, request.question)
 
     @app.get("/api/policies")
     def list_policies(repository_root: str | None = None) -> list[PolicyDocument]:

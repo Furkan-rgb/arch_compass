@@ -56,10 +56,8 @@ def test_cli_commands_use_application_services_only() -> None:
         "database",
         "policy_store",
         "query_service",
-        "report_service",
         "report_writer",
         "run_repository",
-        "workflow",
     }
     used_attributes = {
         node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
@@ -81,8 +79,11 @@ def test_cli_commands_use_application_services_only() -> None:
         "case_show": "case_service",
         "case_update": "case_service",
         "case_history": "case_service",
-        "advise": "advice_service",
-        "run_show": "run_service",
+        "review": "review_service",
+        "review_show": "review_repository",
+        "review_list": "review_repository",
+        "review_ask": "review_conversation_service",
+        "review_history": "review_conversation_service",
     }
     functions = {
         node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)
@@ -117,7 +118,6 @@ def test_web_routes_use_application_services_only() -> None:
         "query_service",
         "report_writer",
         "run_repository",
-        "workflow",
     }
     used_attributes = {
         node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
@@ -126,48 +126,49 @@ def test_web_routes_use_application_services_only() -> None:
     assert {
         "atlas_service",
         "case_service",
-        "job_service",
         "policy_service",
             "repository_service",
-            "run_service",
-            "conversation_service",
-        } <= used_attributes
+                } <= used_attributes
 
 
-def test_report_conversation_context_is_assembled_before_model_adapters() -> None:
-    paths = [
+def test_review_answers_are_assembled_before_model_adapters() -> None:
+    """The stage receives typed domain objects; it does not fetch or choose evidence.
+
+    Its parameters are the whole pinned review, the history, and the question. Nothing it
+    is given is a handle it would have to resolve, and there is nothing for it to retrieve,
+    so a model adapter cannot become the thing that decides what evidence an answer rests on.
+    """
+
+    for path in (
         SOURCE_ROOT / "ports" / "reasoning.py",
         SOURCE_ROOT / "adapters" / "models" / "deterministic.py",
-        SOURCE_ROOT / "adapters" / "models" / "ollama.py",
-    ]
-    for path in paths:
+        SOURCE_ROOT / "adapters" / "models" / "structured.py",
+    ):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         methods = [
             node
             for node in ast.walk(tree)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == "answer_report_question"
+            and node.name == "answer_review_question"
         ]
-        assert len(methods) == 1
+        assert len(methods) == 1, path
         assert [argument.arg for argument in methods[0].args.args] == [
             "self",
-            "context",
-        ]
+            "review",
+            "history",
+            "question",
+        ], path
 
-    builder = SOURCE_ROOT / "application" / "conversation_context.py"
-    imported_names = {
-        alias.name
-        for node in ast.walk(ast.parse(builder.read_text(encoding="utf-8")))
+    adapters = ast.parse(
+        (SOURCE_ROOT / "adapters" / "models" / "structured.py").read_text(encoding="utf-8")
+    )
+    imported = {
+        node.module or ""
+        for node in ast.walk(adapters)
         if isinstance(node, ast.ImportFrom)
-        for alias in node.names
     }
-    assert {
-        "ConsultationRun",
-        "ConversationMessage",
-        "ReportConversation",
-        "ReportConversationContext",
-    } <= imported_names
-
+    # A model adapter that could reach the application could choose its own evidence.
+    assert not any(name.startswith("archcompass.application") for name in imported)
 
 def test_model_adapters_do_not_import_application_or_workflow_layers() -> None:
     """Adapters own transport and schema constraint, never application policy.
@@ -185,34 +186,6 @@ def test_model_adapters_do_not_import_application_or_workflow_layers() -> None:
             for imported in imports
             for prefix in forbidden
         ), f"{path.relative_to(SOURCE_ROOT)} imports the application or workflow layer"
-
-
-def test_evidence_containment_rule_has_a_single_implementation() -> None:
-    """The "is this cited span inside its surfaced node" rule lives in the domain.
-
-    It previously existed in six places: twice in the workflow, twice in application
-    evidence validation, twice in conversation validation, and once in the Ollama
-    adapter. That last copy is gone entirely — composed synthesis means the adapter no
-    longer decides whether a claim can survive evidence repair.
-    """
-
-    users = {
-        SOURCE_ROOT / "application" / "evidence.py",
-        SOURCE_ROOT / "application" / "conversation_validation.py",
-        SOURCE_ROOT / "workflows" / "consultation.py",
-    }
-    for path in users:
-        assert "archcompass.domain.evidence_rules" in _imports(path), (
-            f"{path.relative_to(SOURCE_ROOT)} should use the shared containment rule"
-        )
-
-    hand_rolled = [
-        path
-        for path in SOURCE_ROOT.rglob("*.py")
-        if path.name != "evidence_rules.py"
-        and "end_line > " in path.read_text(encoding="utf-8")
-    ]
-    assert hand_rolled == [], f"Hand-rolled span containment remains in {hand_rolled}"
 
 
 def test_the_deterministic_provider_contains_no_evaluation_vocabulary() -> None:

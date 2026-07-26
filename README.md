@@ -35,48 +35,34 @@ ArchCompass gives the developer and coding agent a persistent, evidence-backed a
 
 ## What ArchCompass Does
 
-ArchCompass supports two kinds of consultation through the same workflow.
+ArchCompass reviews the **boundaries** in an existing repository — the abstractions,
+ports and indirections that already exist — and decides, one at a time, whether each is
+earning its place given what you are actually building.
 
-### Greenfield architecture
-
-When no repository exists yet, ArchCompass reasons from:
-
-- The problem being solved.
-- Users and workflows.
-- Functional requirements.
-- Quality attributes.
-- Technical and organisational constraints.
-- Expected future changes.
-- Non-goals.
-- Explicit assumptions.
+A structural detector finds every abstraction with exactly one implementation behind it.
+That shape is not a violation: it is what a deliberate port looks like, and it is also
+what premature abstraction looks like. Counting cannot separate them. So each one is put
+to a model together with your case and the whole policy corpus, and the answer is a
+verdict with its reasoning.
 
 For example:
 
-> I want to build a local audiobook application using Qwen TTS. It needs voice design, voice cloning, narration, resumable jobs and may support hosted TTS providers later. How should I structure it?
+> A task scheduler declares six boundaries and each has one implementation. The label
+> format is fixed by a downstream system, SMS delivery ships next release, and a Postgres
+> deployment is under discussion. Which of these boundaries should go?
 
-ArchCompass can recommend initial responsibility boundaries, pipeline stages, provider boundaries, state ownership and implementation order.
+ArchCompass reports on all six, names the three that absorb a change the case expects,
+and recommends removing the three that absorb nothing. **Boundaries it clears appear in
+the report alongside the ones it condemns** — a report listing only problems reads the
+same whether every boundary was examined and cleared or none was ever looked at.
 
-### Brownfield architecture
+### Greenfield
 
-When an existing repository is available, ArchCompass adds deterministic repository evidence:
-
-- Packages, modules and symbols.
-- Imports and dependency direction.
-- Known call relationships.
-- Interfaces and implementations.
-- Tests and configuration.
-- Dependency reach and likely blast radius.
-- Structural metrics.
-- Obscurity signals.
-- Relevant source excerpts.
-
-For example:
-
-> Qwen-specific voice logic currently appears in the frontend, preflight checks and workflow. I may add another TTS provider later. Where should this logic live?
-
-ArchCompass can map the affected area, retrieve the relevant architectural policies and recommend how responsibilities should be moved or preserved.
-
-Repository analysis is optional. Greenfield and brownfield advice are not separate products.
+Not yet built. The judgement stage takes a case, a candidate and the policies, and nothing
+in it refers to a repository — so the same call works for a boundary that is merely
+proposed. What is missing is the other source of candidates: today they come from parsing
+code, and greenfield would need them stated in the case instead. See §4.1 of the master
+plan for the shape and the one known obstacle.
 
 ---
 
@@ -107,181 +93,110 @@ A valid ArchCompass recommendation may be:
 
 ## Core Concepts
 
-ArchCompass is organised around five durable concepts.
-
 ### ArchitectureCase
 
-An `ArchitectureCase` is the persistent, revisioned context for one architectural decision.
+The persistent, revisioned context for one architectural decision: the problem and desired
+outcome, requirements and quality attributes, constraints, non-goals, expected future
+changes, confirmed facts and assumptions.
 
-It contains:
+This is what makes an answer possible at all. The same abstraction is right in one case
+and wrong in another, and the case is where that difference lives. A run against a case
+saying *"SMS ships next release"* and one saying *"feature freeze, no variation planned"*
+reach opposite verdicts on identical code — which is the whole point.
 
-- The problem and desired outcome.
-- Requirements and quality attributes.
-- Constraints and non-goals.
-- Future plans.
-- Confirmed facts.
-- Derived constraints.
-- Assumptions.
-- Unresolved questions.
-- Design forces.
-- Candidate alternatives.
-- The current recommendation.
-- Confidence.
-- Reversal conditions.
-- Revisit triggers.
-
-An ArchitectureCase is not a temporary prompt. It evolves as new information is discovered and as the system is implemented.
-
-Every revision is preserved.
+Every revision is preserved, and a review pins the exact one it ran against.
 
 ### RepositoryAtlas
 
-A `RepositoryAtlas` is a deterministic, versioned map of an existing Python repository.
+A deterministic, versioned map of a Python repository: modules, classes, functions,
+protocols and tests, with the imports, calls, inheritance, interface implementations and
+references between them.
 
-The atlas contains nodes such as:
+Built by parsing. The analysed repository is never imported, executed or modified, and the
+same commit always produces the same atlas.
 
-- Repositories.
-- Packages.
-- Modules.
-- Classes.
-- Functions and methods.
-- Protocols and abstract interfaces.
-- Test modules and test functions.
-- Configuration files and modules.
+### FindingCandidate
 
-It records relationships such as:
+A structural shape found in the atlas, with the evidence that establishes it — the
+participants, what was measured, the relationships between them, and **what the detection
+method could not see**.
 
-- Containment.
-- Imports.
-- Calls.
-- Inheritance.
-- Interface implementations.
-- References.
-- Test relationships.
-- Configuration relationships.
-
-The analysed repository is never imported, executed or modified.
+A candidate is explicitly not a violation. One detector ships today: an abstraction with
+exactly one implementation. The catalogue is deliberately half-finished, and the master
+plan says so: nothing yet detects *repetition without ownership*, so silence about
+repetition is not evidence there is none.
 
 ### PolicyCorpus
 
-The `PolicyCorpus` contains reusable architectural guidance.
+Reusable architectural guidance — intent, signals, diagnostic questions, consequences,
+exceptions, examples and counterexamples.
 
-Policies may be:
+The whole corpus is presented with every candidate. It is roughly 21,000 characters
+against an input budget near 490,000, so there is no retrieval step, no ranking, and no
+threshold that could quietly deny the advisor a policy that would have applied.
 
-- General software-design guidance.
-- User-authored preferences.
-- Team or organisation standards.
-- Repository-specific conventions.
-- Guidance derived from accepted architecture decisions.
+Policies are presented in a fixed order and answered by position. No policy identifier is
+ever sent to the model or read back from it.
 
-A policy contains more than a slogan. It includes:
+### BoundaryReview
 
-- Intent.
-- Guidance.
-- Signals.
-- Diagnostic questions.
-- Likely consequences.
-- Exceptions.
-- Positive examples.
-- Counterexamples.
-- Related policies.
+An immutable record of one review: the case revision, the atlas version, the policies
+presented, and every boundary examined with its verdict, reasoning and recommended
+response.
 
-Policies guide reasoning. They do not automatically determine the answer.
+Both outcomes are stored. A boundary the advisor cleared is the record that it looked.
 
-### ConsultationRun
+### ReviewConversation
 
-A `ConsultationRun` is an immutable record of one advisory execution.
+An append-only set of follow-up questions pinned to one review. Each turn puts the whole
+review in front of the model — about 25,000 characters, so it fits comfortably — and the
+answer comes back marking which boundaries it rests on, by position.
 
-It records:
-
-- The exact ArchitectureCase revision.
-- The RepositoryAtlas version, when present.
-- The policy-index version.
-- Model and prompt identities.
-- Design forces.
-- Atlas queries and focused evidence.
-- Retrieved policies.
-- Alternatives.
-- Scenario analysis.
-- The final report.
-- Evidence-validation results.
-- Execution metadata.
-
-This makes recommendations reproducible and auditable.
-
-### ReportConversation
-
-A `ReportConversation` is an append-only discussion pinned to one successful
-`ConsultationRun`. It preserves the exact case revision, atlas version, and policy-index version.
-Each turn sends all compact finding digests plus the exact pinned problem, desired outcome,
-workflows, requirements, constraints, facts, future changes, non-goals, and assumptions; detailed
-finding evidence remains question-specific. Messages retain the validated retrieval plan, exact
-artifact evidence scopes, model/prompt identities, and context hash used for the answer. Factual
-answer statements carry validated support links. A conversation never revises the case or rewrites
-the historical recommendation.
-
-Questions resolve findings by canonical ID, exact title, numeric or word ordinal, or an
-unambiguous recent reference. Deterministic handling covers report and finding summaries,
-all-finding qualitative priority, comparisons, evidence and source traces, policy applicability
-and exceptions, alternatives, scenarios, assumptions, implementation order, strengthening or
-weakening counterfactuals, and unsupported questions. Typed rolling summaries retain narrative,
-discussed finding/evidence IDs, and source-ordinal-linked user corrections, hypotheticals, and
-unresolved questions in a first batch of 12 messages and fixed batches of 8 thereafter.
+Every citation is resolved by ArchCompass from those positions. An answer grounded on
+nothing is labelled as such rather than presented as though the review supported it.
 
 ---
 
 ## How It Works
 
-The current advisory flow is:
-
 ```text
-Question, requirement or proposed change
-                    │
-                    ▼
-             ArchitectureCase
-                    │
-                    ▼
-          Discover design forces
-                    │
-                    ├── no repository: use case context
-                    │
-                    └── repository: query RepositoryAtlas
-                    │
-                    ▼
-          Retrieve relevant policies
-                    │
-                    ▼
-         Analyse focused evidence
-                    │
-                    ▼
-       Generate credible alternatives
-                    │
-                    ▼
-   Evaluate future scenarios and trade-offs
-                    │
-                    ▼
-      Synthesize one recommendation and ADR
-                    │
-                    ▼
-        Validate every evidence reference
-                    │
-                    ▼
- Persist ConsultationRun and update the case
+ArchitectureCase                     RepositoryAtlas
+      │                                    │
+      └────────────────┬───────────────────┘
+                       ▼
+        Detect finding candidates                  [deterministic]
+        complete over the atlas — not sampled,
+        not ranked, no model involved
+                       │
+                       ▼
+      For each candidate, one model call:          [judgement]
+        candidate + case + the whole policy corpus
+                       │
+                       ▼
+             Verdict per boundary                  [judgement]
+        material · reasoning · one bearing per
+        policy, bound by position
+                       │
+                       ▼
+        Compose and persist the review             [deterministic]
+        assign BR-nnn references, resolve policy
+        identity by position, render Markdown
 ```
 
-Repository exploration is bounded and progressive. The model does not receive the complete source tree or raw atlas.
+One rule shapes every stage of it:
 
-Instead, it begins with concise context and requests focused information such as:
+> **The application decides what to look at. The model decides what it means. Nothing the
+> model writes is ever used as a key.**
 
-```text
-repository
-  → package
-    → module
-      → symbol
-        → dependencies, callers, tests and excerpts
-```
+Which nodes, which policies, which candidate — all derivable, reproducible and testable,
+and the application already holds the answer on both sides of the call. Whether a shape
+matters given this case is judgement, and the only thing worth spending a model call on.
 
-This reduces model overload and prevents the model from having to reconstruct the repository structure from raw code.
+The third clause is the operational one. A model that must reproduce an identifier will
+eventually reproduce it wrongly — not by inventing it, but by copying it imperfectly — and
+the failure is silent because the value looks plausible. So identifiers never cross the
+wire. Where a stage needs the model to point at something, it presents a bounded set and
+takes back a position in it.
 
 ---
 
@@ -363,131 +278,114 @@ A module may be locally complicated while still improving the system by hiding t
 
 ---
 
-## Policy Retrieval
+## Policies
 
-ArchCompass uses embeddings and `sqlite-vec` to retrieve relevant architectural policies.
+Policies are Markdown, validated for metadata and sections, and **presented whole with
+every candidate**.
 
-At index-build time:
+There is no retrieval step. The corpus is about 21,000 characters against an input budget
+near 490,000 — roughly four per cent — so ranking policies would introduce a way to be
+wrong in exchange for nothing. A policy that does not appear in a verdict did not apply,
+rather than never having been shown.
 
 ```text
 Policy Markdown
     → validate metadata and sections
-    → create section-aware chunks
-    → generate embeddings
-    → store versioned vectors in sqlite-vec
+    → present all of it, in a fixed order, with every candidate
+    → one bearing back per policy, in that same order
 ```
 
-At consultation time:
+The model never sees a policy identifier and never writes one. Identity is attached
+afterwards from the position, so a mistyped or recalled-from-memory ID has no route into a
+report.
 
-```text
-Design forces and architectural concern
-    → retrieval query
-    → query embedding
-    → nearest policy sections
-    → original policy text and metadata
-    → architectural reasoning
-```
-
-Embeddings are used only for retrieval.
-
-The reasoning model receives the original policy text, policy ID, scope and strength. It does not receive the numerical vectors.
-
-A recommendation may cite only policies that were actually retrieved.
+Embeddings and `sqlite-vec` remain built and are unused on this path. They become relevant
+again only if the corpus outgrows one request — and that will be a deliberate change
+rather than an inherited one.
 
 ---
 
 ## Evidence Discipline
 
-Every important claim in an ArchCompass report is classified as one of:
+Every verdict carries the reasoning that produced it, the policies that bear on it and how,
+and **what the detection method could not see**. Detection limits are printed against each
+boundary rather than once in a footer, because someone deciding whether to act on one
+verdict needs them at the point of deciding.
 
-- Confirmed user requirement.
-- Derived constraint.
-- Repository observation.
-- Policy guidance.
-- Scenario assumption.
-- Advisor inference.
+Three things are structurally impossible rather than merely discouraged:
 
-Repository observations must reference atlas nodes that were surfaced during the consultation.
-
-Policy-guidance claims must reference policies retrieved for the run.
-
-Unsupported or invented references are rejected. ArchCompass permits one constrained repair attempt. If validation still fails, the consultation fails and the ArchitectureCase is not updated.
-
-This separation is central to the project:
+- **A citation to something that was not presented.** Policies and boundaries are answered
+  by position, and identity is attached by ArchCompass afterwards.
+- **A response of the wrong length.** The reply carries one entry per presented policy and
+  the JSON Schema fixes the count. A short list would not lose one answer — it would shift
+  every later answer onto the wrong policy and still parse — so the count is re-checked
+  after parsing, with one repair round behind it.
+- **A verdict reached before its reasoning.** A structured-output model fills a schema in
+  the order it is declared, so the argument fields come first and the verdict last. Declared
+  the other way round, a live run returned `material: false` beside a rationale concluding
+  that removing the abstraction would cost nothing — and both halves validated.
 
 ```text
-Deterministic code maps, measures and validates.
+Deterministic code maps, measures, binds and validates.
 Language models interpret, compare and advise.
 ```
 
 ---
 
-## Recommendation Output
+## Review Output
 
-ArchCompass produces validated JSON and deterministic Markdown from the same report model.
+A review produces JSON and Markdown from one report model, and both are stored with the
+review itself.
 
 A report contains:
 
-1. Decision summary.
-2. Problem and desired outcome.
-3. Confirmed context.
-4. Assumptions and unresolved questions.
-5. Important design forces.
-6. Canonical architectural findings.
-7. Repository observations and quantified signals.
-8. Relevant policies.
-9. Recommended architecture.
-10. Responsibility allocation.
-11. Conceptual interfaces.
-12. Alternatives considered.
-13. Scenario analysis.
-14. Change-amplification and blast-radius analysis.
-15. Trade-offs.
-16. Implementation sequence.
-17. Confidence and rationale.
-18. Reversal conditions.
-19. Revisit triggers.
-20. ADR-style decision record.
-21. Evidence appendix.
+1. The case title, problem and desired outcome.
+2. Which policies were presented.
+3. Every boundary examined, each with:
+   - a `BR-nnn` reference, assigned by ArchCompass in detection order;
+   - the abstraction and its sole implementation, located in the source;
+   - the verdict — material or not — and the reasoning behind it;
+   - a recommended response, **only** when material;
+   - the policies that bear on it and how;
+   - what the detection method could not see.
 
-Reports are saved under:
+It contains no alternatives, no scenario analysis, no ADR and no implementation sequence.
+A review judges boundaries that already exist; it does not weigh competing designs, so
+there is nowhere in the report to put those and nothing to invent to fill them.
 
-```text
-reports/<run-id>.json
-reports/<run-id>.md
+Read one with:
+
+```bash
+archcompass reviews show <review-id>
 ```
 
 ---
 
-## Current V1.2 Capabilities
-
-The current implementation includes:
+## Current Capabilities
 
 - Persistent, append-only ArchitectureCase revisions.
-- Immutable ConsultationRun records.
-- Python repository analysis using the built-in AST.
-- Versioned RepositoryAtlas storage.
-- Structural nodes, edges, metrics and obscurity signals.
-- Bounded atlas queries and source excerpts.
+- Python repository analysis using the built-in AST, stored as a versioned RepositoryAtlas.
+- Structural nodes, edges, metrics and obscurity signals; bounded atlas queries and excerpts.
+- One structural detector: abstractions with a single implementation.
+- Judgement of each candidate against the case and the whole policy corpus, with policies
+  bound by position and no identifier crossing the wire in either direction.
+- Immutable BoundaryReview records, in JSON and Markdown.
+- Follow-up questions pinned to one review, grounded in the boundaries they cite.
 - Markdown policy parsing and validation.
-- Section-aware embedding retrieval through `sqlite-vec`.
-- Configurable Ollama reasoning and embedding providers.
-- Deterministic fake providers for tests and evaluations.
-- Evidence-reference validation.
-- One constrained report-repair attempt.
-- Stable canonical findings with contextual importance, confidence, response, uncertainty, and
-  exact application-projected focused-packet evidence.
-- Durable report conversations pinned to one validated successful run.
-- Recent-context-aware conversation classification and cumulative bounded retrieval with
-  exact-artifact original-run versus additional-conversation evidence labels.
-- Support-linked structured answer validation, one constrained repair, complete failed-attempt
-  records, and typed fixed-batch rolling summaries.
-- JSON and Markdown reports.
-- Conversation CLI and local FastAPI routes; no conversation UI in this milestone.
-- Greenfield and brownfield evaluation fixtures.
+- Configurable providers: local Ollama or hosted Google AI Studio, plus deterministic
+  substitutes so the whole suite runs without a model.
+- A browser workspace: pick a bundled example, read the review, ask about it, and explore
+  the atlas graph.
+- A scored example with known answers — `eval/cases/boundary-review`, six boundaries the
+  detector cannot separate and a case that makes three of them justified. `make demo`
+  grades a live run against it.
 
-ArchCompass is currently an experimental V1.2. Report conversations are read-only explanations
-of persisted recommendations, not a generic repository agent or a path for changing a case.
+Experimental. Two limits are worth stating plainly rather than discovering:
+
+- **Half the catalogue.** Only *indirection without hiding* is detected. Nothing looks for
+  *repetition without ownership*, so silence about repetition is not evidence there is none.
+- **Brownfield only.** Greenfield is architecturally reachable and unbuilt; see §4.1 of the
+  master plan.
 
 ---
 
@@ -504,6 +402,8 @@ ArchCompass defaults to local Ollama models configured in:
 config/models.yaml
 ```
 
+For hosted Gemini models instead, see [Google AI Studio](#google-ai-studio) below.
+
 The reasoning model's `context_window_tokens` controls Ollama's total context
 window (`num_ctx`), including input and generated output.
 `max_output_tokens` separately caps generated output.
@@ -519,6 +419,37 @@ ollama pull embeddinggemma
 ```
 
 Models are not downloaded automatically.
+
+### Google AI Studio
+
+A hosted alternative that needs no local model. `config/models.google.yaml` is ready to
+use and selects Gemini models with a free tier:
+
+```bash
+echo 'GOOGLE_API_KEY=your-key-here' >> .env
+archcompass review <case-id> --repo /path/to/repository \
+  --models-config config/models.google.yaml
+# Or, for every command in a shell:
+export ARCHCOMPASS_MODELS_CONFIG=config/models.google.yaml
+```
+
+Get a key from [Google AI Studio](https://aistudio.google.com/apikey). `.env` sits at
+the workspace root and is git-ignored; `models.yaml` names the environment variable
+through `api_key_env` and never holds the key itself. A variable already set in the
+environment takes precedence over the file.
+
+Two things differ from Ollama and are worth knowing:
+
+- Gemini spends thinking tokens from the same allowance as `max_output_tokens`, so a
+  stage can be truncated with a budget that would comfortably fit its JSON. The adapter
+  reports that case by name rather than surfacing unparseable output.
+- The free tier returns HTTP 429 once a quota is spent. Per-minute quotas clear on
+  retry with backoff; a per-day quota exhausts the retry cap and fails the run.
+
+Changing the embedding model needs no policy rebuild. A review presents the whole policy
+corpus with every boundary rather than retrieving from it, so nothing on that path
+embeds anything; the provider is still constructed at startup so a bad key fails
+immediately rather than part-way through a run.
 
 ---
 
@@ -550,102 +481,92 @@ State is stored locally under:
 
 ## Quick Start
 
-### Create a greenfield case
+### The fastest path: a bundled example
 
-Use the included audiobook example:
+Every bundled example ships a written case and a repository to run it against, so a fresh
+workspace can produce a real review without writing a case first.
 
-```bash
-uv run archcompass case create \
-  --from eval/cases/audiobook-greenfield/case.yaml
-```
-
-The command returns a case ID.
-
-Inspect the case:
+In the browser workspace:
 
 ```bash
-uv run archcompass case show <case-id>
+uv run archcompass web
 ```
 
-Run a consultation:
+Open **Reviews**, pick an example, and it indexes the repository, creates the case, judges
+every boundary, and shows the report with a box to ask questions about it.
+
+Or grade a run against known answers:
 
 ```bash
-uv run archcompass advise <case-id>
+make demo          # Google, about two minutes
+make demo-local    # Ollama
 ```
 
-Print JSON instead of Markdown:
+`eval/cases/boundary-review` has six boundaries the detector cannot tell apart and a case
+that makes three of them justified. A run that clears all six is an abstraction generator;
+one that condemns all six is an abstraction destroyer. The score separates those from an
+advisor.
 
-```bash
-uv run archcompass advise <case-id> --json
-```
+### Review your own repository
 
-### Analyse an existing repository
-
-Index a Python repository:
+Index it, write a case, review it:
 
 ```bash
 uv run archcompass repo index /path/to/repository
+uv run archcompass case create --from your-case.yaml
+uv run archcompass review <case-id> --repo /path/to/repository
 ```
 
-Inspect its high-level atlas summary:
+The case is the part that matters. It is what tells a justified boundary from an
+unjustified one, so `expected_future_changes`, `non_goals` and `confirmed_facts` do more
+work here than anything else you write.
+
+Print the stored review instead of its Markdown:
+
+```bash
+uv run archcompass review <case-id> --repo /path/to/repository --json
+```
+
+### Ask about a review
+
+```bash
+uv run archcompass reviews list
+uv run archcompass reviews show <review-id>
+uv run archcompass reviews ask <review-id> "Why was the storage boundary left alone?"
+uv run archcompass reviews history <review-id>
+```
+
+Each answer names the boundaries it rests on. An answer grounded on none of them says so
+rather than presenting itself as something the review supports.
+
+### Explore the atlas
 
 ```bash
 uv run archcompass atlas summary /path/to/repository
-```
-
-Show structural hotspots:
-
-```bash
 uv run archcompass atlas hotspots /path/to/repository \
   --metric reverse-dependency-reach
 ```
 
-Run a brownfield consultation:
-
-```bash
-uv run archcompass advise <case-id> \
-  --repo /path/to/repository
-```
+The browser workspace draws the same data as a graph under **Repositories**.
 
 ### Update a case
 
-Create a partial YAML update and apply it:
-
 ```bash
-uv run archcompass case update <case-id> \
-  --from update.yaml
-```
-
-Inspect the complete revision history:
-
-```bash
+uv run archcompass case update <case-id> --from update.yaml
 uv run archcompass case history <case-id>
 ```
 
-### Inspect policies and runs
+Revisions are append-only, and a review records the exact one it ran against.
+
+### Inspect policies
 
 ```bash
 uv run archcompass policies list
 uv run archcompass policies show <policy-id>
-uv run archcompass run show <run-id>
 ```
-
-### Discuss a completed report
-
-```bash
-uv run archcompass conversation create --run <run-id>
-uv run archcompass conversation ask <conversation-id> "Which finding is highest priority?"
-uv run archcompass conversation history <conversation-id>
-uv run archcompass conversation export <conversation-id> --format markdown
-```
-
-Use `conversation ask --json` for the canonical structured answer. Conversations can be created
-only for successful validated runs. The equivalent local routes are under `/api/conversations`;
-their OpenAPI document declares stable problem responses and typed JSON/Markdown exports. V1.2
-does not add a React conversation UI. The deprecated follow-up table is retained during migration,
-but its old API/UI are unavailable and its rows are not converted.
 
 ---
+
 
 ## Architecture
 
@@ -660,15 +581,19 @@ Presentation
 
 The main responsibilities are:
 
-- `domain/` — validated application concepts and explicit errors.
+- `domain/` — validated application concepts, explicit errors, and the finding
+  detectors, which are pure derivations over an atlas rather than ports.
 - `ports/` — interfaces for persistence, repository analysis, retrieval and reasoning.
-- `application/` — case operations, evidence validation and report rendering.
-- `workflows/` — the unified consultation process.
+- `application/` — one module per job: `reviews`, `review_conversations`,
+  `review_rendering`, `cases`, `bundled_cases`, `repository_index`, `atlas_queries`,
+  `atlas_freshness`, `policies`.
 - `adapters/persistence/` — SQLite storage and migrations.
-- `adapters/repository/` — AST analysis, graph metrics and deterministic queries.
+- `adapters/analysis/` — AST analysis, graph metrics and deterministic queries.
 - `adapters/retrieval/` — policy parsing, embeddings and `sqlite-vec`.
-- `adapters/models/` — Ollama and deterministic model providers.
+- `adapters/models/` — the provider-neutral reasoning stages (`structured.py`), the
+  Ollama and Google transports that carry them, and deterministic test providers.
 - `presentation/cli/` — command-line input and output.
+- `presentation/web/` — the local FastAPI adapter and the React workspace bundle.
 - `bootstrap.py` — the composition root and only location that selects concrete adapters.
 
 The domain and application layers do not depend on Typer, HTTPX, SQLite, `sqlite-vec` or AST implementation details.
@@ -683,21 +608,31 @@ Run all standard checks:
 make check
 ```
 
-Run the architectural evaluation cases:
+Grade a live run against known answers:
 
 ```bash
-make eval
+make demo          # Google, about two minutes
+make demo-local    # Ollama
 ```
 
-Build the package:
+Drive the built workspace in a real browser:
 
 ```bash
+make test-browser
+```
+
+Other targets:
+
+```bash
+make eval          # fixture checks, no model
+make test-ollama   # live local-model tests
+make test-google   # live hosted tests; spends free-tier quota
 make build
 ```
 
-The mandatory test suite uses deterministic embedding and reasoning providers. It does not require a live Ollama service.
-
-Optional model-integration tests are marked separately.
+`make check` uses deterministic substitutes throughout and needs no model. Anything that
+calls a live service sits outside it, because a failure there is a measurement about the
+model rather than a broken build.
 
 ---
 
@@ -705,9 +640,16 @@ Optional model-integration tests are marked separately.
 
 The long-term goal is for ArchCompass to become a persistent architectural reasoning layer around software development.
 
-Potential future stages include:
+The nearest two are named in the master plan rather than left as ambitions:
 
-- Concern-clustered repository investigation.
+- **The second half of the catalogue** — a detector for *repetition without ownership*,
+  the case for an agnostic base with specific implementations behind it. Until it exists
+  the advisor sees one direction of unnecessary complexity.
+- **Greenfield candidates** — stated in the case instead of parsed from code, so a
+  boundary can be judged before it is built.
+
+Further out:
+
 - Explicit acceptance and supersession of architecture decisions.
 - Coding-agent integration.
 - Implementation-plan review.
@@ -718,7 +660,7 @@ Potential future stages include:
 - Git co-change evidence.
 - Additional programming languages.
 
-These are roadmap directions, not current V1 capabilities.
+These are directions, not current capabilities.
 
 ArchCompass will continue to avoid a universal complexity score and will not treat design policies as automatic enforcement rules.
 
@@ -733,11 +675,13 @@ ArchCompass will continue to avoid a universal complexity score and will not tre
 - [Repository atlas](docs/repository-atlas.md)
 - [Atlas metrics](docs/atlas-metrics.md)
 - [Policy format](docs/policy-format.md)
-- [Advisory workflow](docs/advisory-workflow.md)
 - [Persistence model](docs/persistence-model.md)
-- [Report contract](docs/report-contract.md)
-- [Report conversations](docs/report-conversations.md)
+- [Web workspace](docs/web-workspace.md)
 - [Evaluation methodology](docs/evaluation.md)
+
+The master plan is the authority on direction. Sections describing the superseded
+consultation path are marked as such in place, so what is current and what is history stay
+distinguishable.
 
 ---
 

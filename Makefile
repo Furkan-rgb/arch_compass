@@ -1,4 +1,4 @@
-.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build bundle-check capture-recordings test-ollama probe eval check build full
+.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build bundle-check test-ollama test-google eval check build full demo demo-local test-browser
 
 sync:
 	uv sync --locked
@@ -36,22 +36,33 @@ bundle-check: frontend-build
 		(echo "Committed frontend bundle is stale. Run 'make frontend-build' and commit the result." && exit 1)
 
 test-ollama:
-	uv run pytest -m "ollama and not architectural_quality"
+	uv run pytest -m "ollama"
 
-# Tier 2: one live call per reasoning stage, asserting typed properties of the output.
-# Separate from `test-ollama` because a failure here is a measurement about the model and
-# the contracts rather than a broken build, and belongs in a run you chose to make.
-probe:
-	uv run pytest -m "ollama and architectural_quality" -v
-
-# Capture one live consultation as a replayable recording. Needs a running Ollama and a
-# workspace configured to use it. Deliberately outside `check`: it calls a real model and
-# rewrites a committed fixture, neither of which belongs in a routine verification run.
-capture-recordings:
-	uv run python scripts/capture_recordings.py --case $(CASE) --name $(NAME)
+# Calls Google AI Studio, so it needs GOOGLE_API_KEY in .env and spends free-tier quota.
+# Outside `check` for the same reason `test-ollama` is: it depends on a live service.
+test-google:
+	uv run pytest -m "google"
 
 eval:
-	uv run pytest -m "evaluation and not architectural_quality and not ollama"
+	uv run pytest -m "evaluation and not ollama"
+
+# The standing example. Six boundaries the detector cannot tell apart and a case that
+# makes three of them justified; prints one verdict per boundary against the known answer.
+#
+# Runs against Google by default: it finishes in about two and a half minutes where the
+# local model takes four or five, which is the difference between a check you run on every
+# change and one you run when you remember to. `make demo-local` uses config/models.yaml.
+# Needs a live model either way, so both sit outside `check`.
+demo:
+	uv run python scripts/run_boundary_review.py --models-config config/models.google.yaml
+
+demo-local:
+	uv run python scripts/run_boundary_review.py --models-config config/models.yaml
+
+# Drives the committed bundle in a real browser against a real server, with the model
+# substituted. Outside `check` because it needs Playwright's chromium downloaded.
+test-browser: frontend-build
+	uv run pytest -m browser -v
 
 check: lint typecheck test frontend-check bundle-check
 

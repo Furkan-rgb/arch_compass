@@ -1,0 +1,52 @@
+title: Task scheduler boundary review
+problem_statement: >-
+  A small task scheduler declares six boundaries and has exactly one implementation behind
+  each. Decide which of them are earning their place under this project's actual
+  circumstances and which are indirection that hides nothing.
+desired_outcome: >-
+  A verdict per boundary, including the verdict that nothing needs to change. Removing a
+  boundary that is doing real work is as wrong as keeping one that is not.
+actors_and_workflows:
+  - One operator runs the scheduler on a small server and receives reminder emails.
+functional_requirements:
+  - Schedule a named task a number of days ahead.
+  - Send a reminder for every task that is already due.
+quality_attributes:
+  - Scheduling behaviour must be testable without waiting for real time to pass.
+  - A reader should be able to follow any call path without extra indirection lookups.
+technical_constraints:
+  - Python with SQLite for storage and SMTP for delivery.
+  - Application code must not import a database driver or a mail library directly; this is
+    enforced at review and is the reason the storage and delivery boundaries exist.
+organisational_constraints:
+  - One part-time maintainer, who pays the cost of every boundary that must be understood
+    before a change can be made.
+expected_future_changes:
+  - SMS reminders are scheduled for the next release and will be delivered alongside email.
+  - A hosted Postgres deployment is under active discussion for multi-machine use.
+non_goals:
+  - Alternative label formats or output renderings of any kind.
+  - Any change to how task identity is generated.
+  - Supporting a configuration format other than the current flat YAML file.
+confirmed_facts:
+  - text: >-
+      The task label format is fixed by a downstream reporting system that parses it. It
+      cannot change without that system changing first, and no such change is planned.
+    kind: fact
+  - text: >-
+      Task identifiers are UUID4 strings by an external contract with the reporting system.
+      The format cannot change.
+    kind: fact
+  - text: >-
+      The configuration file format was decided once and is not revisited. There is no
+      second format, no plan for one, and no consumer that would want one.
+    kind: fact
+  - text: >-
+      The test suite substitutes its own clock so that a due date is exact rather than
+      dependent on when the test runs.
+    kind: fact
+derived_constraints:
+  - text: >-
+      A boundary whose only implementation is fixed by an external contract cannot absorb
+      variation, because the variation it would absorb is contractually excluded.
+    kind: derived_constraint

@@ -7,15 +7,13 @@ from typing import Protocol
 
 from archcompass.domain.atlas import Atlas
 from archcompass.domain.case import ArchitectureCase, CaseRevision
-from archcompass.domain.consultation import ConsultationRun
-from archcompass.domain.conversation import (
-    ConversationErrorRecord,
-    ConversationEvidenceReference,
-    ConversationMessage,
-    ConversationSummaryRevision,
-    ReportConversation,
+from archcompass.domain.review import BoundaryReview
+from archcompass.domain.review_conversation import ReviewConversation
+from archcompass.domain.workspace import (
+    BoundaryReviewSummary,
+    CaseSummary,
+    RepositorySummary,
 )
-from archcompass.domain.workspace import CaseSummary, RepositorySummary, RunSummary
 
 
 class CaseRepository(Protocol):
@@ -38,87 +36,31 @@ class CaseRepository(Protocol):
     def list(self, *, limit: int = 100) -> list[CaseSummary]: ...
 
 
-class ConsultationRunRepository(Protocol):
-    def save(self, run: ConsultationRun) -> None: ...
+class BoundaryReviewRepository(Protocol):
+    """Immutable storage for one advisory review."""
 
-    def get(self, run_id: str) -> ConsultationRun: ...
+    def save(self, review: BoundaryReview) -> None: ...
+
+    def get(self, review_id: str) -> BoundaryReview: ...
 
     def list(
         self,
         *,
         case_id: str | None = None,
         limit: int = 100,
-    ) -> list[RunSummary]: ...
+    ) -> list[BoundaryReviewSummary]: ...
 
 
-class ReportConversationRepository(Protocol):
-    def create(self, conversation: ReportConversation) -> ReportConversation: ...
+class ReviewConversationRepository(Protocol):
+    """Ordered, append-only question history about one review."""
 
-    def get(self, conversation_id: str) -> ReportConversation: ...
+    def create(self, conversation: ReviewConversation) -> ReviewConversation: ...
 
-    def list_for_run(self, run_id: str) -> list[ReportConversation]: ...
+    def get(self, conversation_id: str) -> ReviewConversation: ...
 
-    def append_message(
-        self,
-        message: ConversationMessage,
-        *,
-        expected_revision: int,
-    ) -> ReportConversation: ...
+    def append(self, conversation: ReviewConversation) -> ReviewConversation: ...
 
-    def history(self, conversation_id: str) -> list[ConversationMessage]: ...
-
-    def recent_messages(
-        self,
-        conversation_id: str,
-        *,
-        limit: int = 8,
-    ) -> list[ConversationMessage]: ...
-
-    def message_batch(
-        self,
-        conversation_id: str,
-        *,
-        after_ordinal: int,
-        limit: int,
-    ) -> list[ConversationMessage]: ...
-
-    def recent_evidence_references(
-        self,
-        conversation_id: str,
-        *,
-        limit: int = 96,
-    ) -> list[ConversationEvidenceReference]: ...
-
-    def summary_history(
-        self,
-        conversation_id: str,
-    ) -> list[ConversationSummaryRevision]: ...
-
-    def latest_summary(
-        self,
-        conversation_id: str,
-    ) -> ConversationSummaryRevision | None: ...
-
-    def update_summary(
-        self,
-        summary: ConversationSummaryRevision,
-        *,
-        expected_revision: int,
-    ) -> ReportConversation: ...
-
-    def record_error(self, error: ConversationErrorRecord) -> None: ...
-
-    def errors(self, conversation_id: str) -> list[ConversationErrorRecord]: ...
-
-
-class ConsultationCommitRepository(Protocol):
-    def commit_success(
-        self,
-        run: ConsultationRun,
-        case: ArchitectureCase,
-        *,
-        expected_revision: int,
-    ) -> CaseRevision: ...
+    def list(self, *, review_id: str) -> list[ReviewConversation]: ...
 
 
 class AtlasRepository(Protocol):

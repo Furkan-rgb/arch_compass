@@ -7,9 +7,25 @@ from archcompass.domain.atlas import (
     AtlasQueryPlan,
     ChangeAmplificationMetrics,
     CognitiveScopeMetrics,
+    FindingCandidate,
+    FindingParticipant,
+    FindingPattern,
 )
 from archcompass.domain.case import ArchitectureCase, CaseStatement, StatementKind
-from archcompass.domain.consultation import RecommendationReport
+from archcompass.domain.review import BoundaryReview, ReviewedBoundary, ReviewStatus
+
+
+def _candidate() -> FindingCandidate:
+    return FindingCandidate(
+        pattern=FindingPattern.SOLE_IMPLEMENTATION,
+        summary="package.Port is implemented only by package.Adapter.",
+        participants=[
+            FindingParticipant(
+                node_id="port", qualified_name="package.Port", role="Declares it."
+            )
+        ],
+        limitations="Counted from one static snapshot.",
+    )
 
 
 def test_public_models_forbid_unknown_fields() -> None:
@@ -128,17 +144,28 @@ def test_query_plan_uses_discriminated_query_contracts() -> None:
         )
 
 
-def test_recommendation_report_requires_actionable_sections() -> None:
-    schema = RecommendationReport.model_json_schema()
-    required_lists = (
-        "important_design_forces",
-        "responsibility_allocation",
-        "alternatives_considered",
-        "scenario_analysis",
-        "trade_offs",
-        "implementation_sequence",
-        "reversal_conditions",
-        "revisit_triggers",
-    )
+def test_a_cleared_boundary_cannot_carry_a_recommended_response() -> None:
+    """An advisor that always has a next action has not answered the question."""
 
-    assert all(schema["properties"][name]["minItems"] == 1 for name in required_lists)
+    with pytest.raises(ValidationError, match="must not carry a response"):
+        ReviewedBoundary(
+            reference="BR-001",
+            candidate=_candidate(),
+            material=False,
+            rationale="The boundary is the process edge this case names.",
+            recommended_response="Remove it.",
+        )
+
+
+def test_a_succeeded_review_must_carry_its_report() -> None:
+    """A success with nothing to show is a failure that reported the wrong status."""
+
+    with pytest.raises(ValidationError, match="must carry its report"):
+        BoundaryReview(
+            status=ReviewStatus.SUCCEEDED,
+            case_id="case-1",
+            case_revision=1,
+            atlas_version_id="atlas-1",
+            reasoning_model="fake:test",
+            prompt_identity="judge-finding-candidate:v3:abc",
+        )

@@ -8,7 +8,7 @@ import {
   Menu,
   Monitor,
   Moon,
-  Play,
+  ShieldCheck,
   Sun,
   X,
 } from "lucide-react";
@@ -107,7 +107,7 @@ export function Shell({ children }: { children: ReactNode }) {
     { to: "/", label: "Overview", icon: Gauge, end: true },
     { to: "/cases", label: "Cases", icon: Archive },
     { to: "/repositories", label: "Repositories", icon: Boxes },
-    { to: "/runs", label: "Runs", icon: Play },
+    { to: "/reviews", label: "Reviews", icon: ShieldCheck },
     { to: "/policies", label: "Policies", icon: BookOpenText },
   ];
 

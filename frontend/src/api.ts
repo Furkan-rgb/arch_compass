@@ -5,16 +5,16 @@ import type {
   AtlasQueryResult,
   CaseRevision,
   CaseSummary,
-  ConsultationJob,
-  ConsultationRun,
-  ConversationMessage,
   Policy,
   PolicySource,
   ProblemDetail,
-  ProgressEvent,
-  ReportConversation,
+  BoundaryReview,
+  BoundaryReviewSummary,
+  BundledCase,
+  ReviewConversation,
+  ReviewMessage,
+  ReviewScore,
   RepositorySummary,
-  RunSummary,
   WorkspaceSummary,
 } from "./types";
 
@@ -54,6 +54,46 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   workspace: () => request<WorkspaceSummary>("/api/workspace"),
+
+  bundledCases: () => request<BundledCase[]>("/api/bundled-cases"),
+  loadBundledCase: (name: string) =>
+    request<CaseRevision>(`/api/bundled-cases/${encodeURIComponent(name)}/load`, {
+      method: "POST",
+    }),
+
+  reviews: (caseId?: string) =>
+    request<BoundaryReviewSummary[]>(
+      `/api/reviews${caseId ? `?case_id=${encodeURIComponent(caseId)}` : ""}`,
+    ),
+  review: (reviewId: string) =>
+    request<BoundaryReview>(`/api/reviews/${encodeURIComponent(reviewId)}`),
+  reviewScore: (reviewId: string) =>
+    request<ReviewScore | null>(`/api/reviews/${encodeURIComponent(reviewId)}/score`),
+  createReview: (caseId: string, repositoryRoot: string) =>
+    request<BoundaryReview>("/api/reviews", {
+      method: "POST",
+      body: JSON.stringify({ case_id: caseId, repository_root: repositoryRoot }),
+    }),
+
+  reviewConversations: (reviewId: string) =>
+    request<ReviewConversation[]>(
+      `/api/review-conversations?review_id=${encodeURIComponent(reviewId)}`,
+    ),
+  reviewConversation: (conversationId: string) =>
+    request<ReviewConversation>(
+      `/api/review-conversations/${encodeURIComponent(conversationId)}`,
+    ),
+  createReviewConversation: (reviewId: string, title?: string): Promise<ReviewConversation> =>
+    request<ReviewConversation>("/api/review-conversations", {
+      method: "POST",
+      body: JSON.stringify({ review_id: reviewId, ...(title ? { title } : {}) }),
+    }),
+  askReviewQuestion: (conversationId: string, question: string) =>
+    request<ReviewMessage>(
+      `/api/review-conversations/${encodeURIComponent(conversationId)}/messages`,
+      { method: "POST", body: JSON.stringify({ question }) },
+    ),
+
   cases: () => request<CaseSummary[]>("/api/cases"),
   case: (caseId: string, revision?: number) =>
     request<CaseRevision>(
@@ -104,38 +144,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify(value),
     }),
-  startConsultation: (caseId: string, repositoryRoot?: string) =>
-    request<ConsultationJob>("/api/consultations", {
-      method: "POST",
-      body: JSON.stringify({
-        case_id: caseId,
-        repository_root: repositoryRoot || null,
-      }),
-    }),
-  jobs: () => request<ConsultationJob[]>("/api/consultations"),
-  job: (runId: string) => request<ConsultationJob>(`/api/consultations/${runId}`),
-  events: (runId: string) =>
-    request<ProgressEvent[]>(`/api/consultations/${runId}/events`),
-  runs: () => request<RunSummary[]>("/api/runs"),
-  run: (runId: string) => request<ConsultationRun>(`/api/runs/${runId}`),
-  conversations: (runId: string) =>
-    request<ReportConversation[]>(
-      `/api/conversations?run_id=${encodeURIComponent(runId)}`,
-    ),
-  createConversation: (runId: string, title?: string) =>
-    request<ReportConversation>("/api/conversations", {
-      method: "POST",
-      body: JSON.stringify({ run_id: runId, title: title ?? null }),
-    }),
-  conversationHistory: (conversationId: string) =>
-    request<ConversationMessage[]>(
-      `/api/conversations/${conversationId}/history`,
-    ),
-  askConversation: (conversationId: string, question: string) =>
-    request<ConversationMessage>(
-      `/api/conversations/${conversationId}/messages`,
-      { method: "POST", body: JSON.stringify({ question }) },
-    ),
   policies: () => request<Policy[]>("/api/policies"),
   policySources: () => request<PolicySource[]>("/api/policies/sources"),
   addPolicySource: (source: string) =>

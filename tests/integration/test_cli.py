@@ -89,165 +89,60 @@ def test_console_entrypoint_reports_domain_errors_without_a_traceback(
 
 
 def test_cli_commands_cover_local_workflow(tmp_path: Path, fake_config_text: str) -> None:
+    """Init, policies, case, index, review, ask — the whole local loop through the CLI."""
+
     workspace = tmp_path.resolve()
     initialized = runner.invoke(app, ["--workspace", str(workspace), "init"])
     assert initialized.exit_code == 0, initialized.output
 
-    config_path = workspace / "config" / "models.yaml"
-    config_path.write_text(fake_config_text, encoding="utf-8")
+    (workspace / "config" / "models.yaml").write_text(fake_config_text, encoding="utf-8")
     common = ["--workspace", str(workspace)]
 
-    rebuilt = runner.invoke(
-        app,
-        [
-            *common,
-            "policies",
-            "rebuild",
-        ],
-    )
-    assert rebuilt.exit_code == 0, rebuilt.output
+    assert runner.invoke(app, [*common, "policies", "rebuild"]).exit_code == 0
     listed = runner.invoke(app, [*common, "policies", "list"])
     assert listed.exit_code == 0
     assert "hide-implementation-details" in listed.output
-    shown = runner.invoke(
-        app, [*common, "policies", "show", "hide-implementation-details"]
+    assert (
+        runner.invoke(
+            app, [*common, "policies", "show", "hide-implementation-details"]
+        ).exit_code
+        == 0
     )
-    assert shown.exit_code == 0
 
-    case_path = Path("eval/cases/audiobook-greenfield/case.yaml").resolve()
-    created = runner.invoke(
-        app, [*common, "case", "create", "--from", str(case_path)]
-    )
+    repository = Path("eval/cases/boundary-review/repository").resolve()
+    case_path = Path("eval/cases/boundary-review/case.yaml").resolve()
+    created = runner.invoke(app, [*common, "case", "create", "--from", str(case_path)])
     assert created.exit_code == 0, created.output
     case_id = json.loads(created.output)["case_id"]
     assert runner.invoke(app, [*common, "case", "show", case_id]).exit_code == 0
     assert runner.invoke(app, [*common, "case", "history", case_id]).exit_code == 0
-    update_path = workspace / "case-update.yaml"
-    update_path.write_text("title: Updated audiobook case\n", encoding="utf-8")
-    updated = runner.invoke(
-        app,
-        [*common, "case", "update", case_id, "--from", str(update_path)],
-    )
-    assert updated.exit_code == 0
 
-    fixture = Path("eval/cases/provider-leakage/repository").resolve()
-    indexed = runner.invoke(app, [*common, "repo", "index", str(fixture)])
+    indexed = runner.invoke(app, [*common, "repo", "index", str(repository)])
     assert indexed.exit_code == 0, indexed.output
-    assert runner.invoke(
-        app, [*common, "atlas", "summary", str(fixture)]
-    ).exit_code == 0
-    hotspots = runner.invoke(
-        app,
-        [
-            *common,
-            "atlas",
-            "hotspots",
-            str(fixture),
-            "--metric",
-            "reverse_dependency_reach",
-        ],
-    )
-    assert hotspots.exit_code == 0
-    node_id = json.loads(hotspots.output)["node_ids"][0]
-    inspected = runner.invoke(
-        app,
-        [*common, "atlas", "inspect", str(fixture), "--node", node_id],
-    )
-    assert inspected.exit_code == 0
+    assert runner.invoke(app, [*common, "atlas", "summary", str(repository)]).exit_code == 0
 
-    advised = runner.invoke(app, [*common, "advise", case_id, "--json"])
-    assert advised.exit_code == 0, advised.output
-    assert "recommended_architecture" in advised.output
-    reports = list((workspace / "reports").glob("*.json"))
-    assert len(reports) == 1
-    run_id = reports[0].stem
-    shown_run = runner.invoke(app, [*common, "run", "show", run_id])
-    assert shown_run.exit_code == 0
-    created_conversation = runner.invoke(
-        app,
-        [*common, "conversation", "create", "--run", run_id],
+    reviewed = runner.invoke(
+        app, [*common, "review", case_id, "--repo", str(repository)]
     )
-    assert created_conversation.exit_code == 0, created_conversation.output
-    conversation_id = json.loads(created_conversation.output)["conversation_id"]
-    assert runner.invoke(
-        app,
-        [*common, "conversation", "list", "--run", run_id],
-    ).exit_code == 0
-    assert runner.invoke(
-        app,
-        [*common, "conversation", "show", conversation_id],
-    ).exit_code == 0
+    assert reviewed.exit_code == 0, reviewed.output
+    assert "# Boundary review" in reviewed.output
+    # Cleared boundaries appear too. A report of only problems reads the same whether the
+    # advisor examined everything and cleared it or never ran.
+    assert "policies were presented in full" in reviewed.output
+
+    reviews = runner.invoke(app, [*common, "reviews", "list"])
+    assert reviews.exit_code == 0, reviews.output
+    review_id = json.loads(reviews.output)[0]["review_id"]
+    assert runner.invoke(app, [*common, "reviews", "show", review_id]).exit_code == 0
+
     asked = runner.invoke(
-        app,
-        [
-            *common,
-            "conversation",
-            "ask",
-            conversation_id,
-            "What are the main findings?",
-            "--json",
-        ],
+        app, [*common, "reviews", "ask", review_id, "What did you make of the formatter?"]
     )
     assert asked.exit_code == 0, asked.output
-    assert json.loads(asked.output)["relevant_finding_ids"]
-    assert runner.invoke(
-        app,
-        [*common, "conversation", "history", conversation_id],
-    ).exit_code == 0
-    markdown_export = runner.invoke(
-        app,
-        [
-            *common,
-            "conversation",
-            "export",
-            conversation_id,
-            "--format",
-            "markdown",
-        ],
-    )
-    assert markdown_export.exit_code == 0
-    assert f"Consultation run: `{run_id}`" in markdown_export.output
-    json_export = runner.invoke(
-        app,
-        [
-            *common,
-            "conversation",
-            "export",
-            conversation_id,
-            "--format",
-            "json",
-        ],
-    )
-    assert json_export.exit_code == 0
-    assert json.loads(json_export.output)["conversation"]["conversation_id"] == conversation_id
-    brownfield = runner.invoke(
-        app,
-        [*common, "advise", case_id, "--repo", str(fixture), "--json"],
-    )
-    assert brownfield.exit_code == 0, brownfield.output
-
-
-def test_advise_prepares_missing_policy_index(
-    tmp_path: Path,
-    fake_config_text: str,
-) -> None:
-    workspace = tmp_path.resolve()
-    config_path = workspace / "config" / "models.yaml"
-    config_path.parent.mkdir(parents=True)
-    config_path.write_text(fake_config_text, encoding="utf-8")
-    common = ["--workspace", str(workspace)]
-    case_path = Path("eval/cases/premature-abstraction/case.yaml").resolve()
-    created = runner.invoke(app, [*common, "case", "create", "--from", str(case_path)])
-    assert created.exit_code == 0, created.output
-    case_id = json.loads(created.output)["case_id"]
-
-    advised = runner.invoke(app, [*common, "advise", case_id, "--json"])
-
-    assert advised.exit_code == 0, advised.output
-    assert "recommended_architecture" in advised.output
-    listed = runner.invoke(app, [*common, "policies", "list"])
-    assert listed.exit_code == 0, listed.output
-    assert "delay-premature-abstraction" in listed.output
+    assert "Grounded on BR-" in asked.output or "Not grounded" in asked.output
+    history = runner.invoke(app, [*common, "reviews", "history", review_id])
+    assert history.exit_code == 0
+    assert json.loads(history.output)[0]["messages"]
 
 
 def test_cli_policy_source_registry_is_persistent(

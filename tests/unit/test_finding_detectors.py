@@ -9,13 +9,18 @@ carries — participants, measurements, limitations — and never that it means 
 
 from __future__ import annotations
 
-from archcompass.adapters.repository.finding_detectors import sole_implementation_candidates
 from archcompass.domain.atlas import (
+    Atlas,
     AtlasEdge,
     AtlasNode,
+    AtlasVersion,
     EdgeType,
     FindingPattern,
     NodeType,
+)
+from archcompass.domain.finding_detectors import (
+    detect_finding_candidates,
+    sole_implementation_candidates,
 )
 
 
@@ -97,6 +102,23 @@ def test_a_lone_subclass_of_a_plain_class_is_not_a_candidate() -> None:
     assert sole_implementation_candidates(nodes, [_edge("child", "base", EdgeType.INHERITS)]) == []
 
 
+def test_an_abstraction_extending_another_abstraction_is_not_an_implementation() -> None:
+    """Composition, not implementation — and a live false positive before this existed.
+
+    `ports.reasoning.FocusedReasoningProvider` extends `ReportConversationReasoner`, and a
+    real run reported the parent as an abstraction with exactly one implementation behind
+    it. Nothing concrete had been found; the advisor was about to reason about a protocol
+    as though it were an adapter.
+    """
+
+    nodes = {
+        "port": _node("port", "Port", NodeType.INTERFACE),
+        "wider": _node("wider", "WiderPort", NodeType.INTERFACE, line=200),
+    }
+
+    assert sole_implementation_candidates(nodes, [_edge("wider", "port")]) == []
+
+
 def test_a_candidate_states_what_it_measured_and_what_it_cannot_see() -> None:
     """Evidence, not opinion — and honest about the method that produced it.
 
@@ -137,3 +159,25 @@ def test_an_implementation_missing_from_the_graph_is_not_counted() -> None:
     nodes = {"port": _node("port", "Port", NodeType.INTERFACE)}
 
     assert sole_implementation_candidates(nodes, [_edge("absent", "port")]) == []
+
+
+def test_the_catalogue_runs_every_detector_over_one_atlas() -> None:
+    """Consumers call the catalogue, so a second pattern reaches them without a change."""
+
+    nodes, edges = _graph(1)
+    atlas = Atlas(
+        version=AtlasVersion(
+            repository_identity="test-repo",
+            root_path="/repo",
+            content_fingerprint="fingerprint",
+            parser_version="test-parser",
+            analysis_config_hash="config",
+        ),
+        nodes=list(nodes.values()),
+        edges=edges,
+        metrics=[],
+    )
+
+    assert [item.pattern for item in detect_finding_candidates(atlas)] == [
+        FindingPattern.SOLE_IMPLEMENTATION
+    ]

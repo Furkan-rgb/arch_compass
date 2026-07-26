@@ -29,9 +29,10 @@ are valid outcomes.
 - A deterministic, immutable `RepositoryAtlas` owns objective repository structure and is rejected
   when its repository identity becomes stale.
 - A reusable `PolicyCorpus` and persistent workspace source registry own normative guidance.
-- An immutable successful or failed `ConsultationRun` records how one recommendation was produced.
-- Important claims identify their classification and evidence; substantive conclusions cite
-  supporting claim IDs.
+- An immutable `BoundaryReview` records how every verdict was reached, including the
+  boundaries that were examined and cleared.
+- Nothing the model writes is used as an identifier; policies and boundaries are answered by
+  position in a set the application presented.
 - Local complication may contain system-wide complexity; metrics remain separate.
 
 ## V1 non-goals

@@ -1,20 +1,20 @@
 import type { components as OpenAPIComponents } from "./openapi.generated";
 
 export type ProblemDetail = OpenAPIComponents["schemas"]["ProblemDetail"];
-export type ReportConversation = OpenAPIComponents["schemas"]["ReportConversation"];
-export type ConversationMessage = OpenAPIComponents["schemas"]["ConversationMessage"];
+export type BoundaryReview = OpenAPIComponents["schemas"]["BoundaryReview"];
+export type BoundaryReviewReport = OpenAPIComponents["schemas"]["BoundaryReviewReport"];
+export type BoundaryReviewSummary = OpenAPIComponents["schemas"]["BoundaryReviewSummary"];
+export type ReviewedBoundary = OpenAPIComponents["schemas"]["ReviewedBoundary"];
+export type ReviewConversation = OpenAPIComponents["schemas"]["ReviewConversation"];
+export type ReviewMessage = OpenAPIComponents["schemas"]["ReviewMessage"];
+export type BundledCase = OpenAPIComponents["schemas"]["BundledCase"];
+export type ReviewScore = OpenAPIComponents["schemas"]["ReviewScoreResponse"];
 
 export interface WorkspaceSummary {
   workspace: string;
   models: {
     reasoning: { provider: string; model: string };
     embedding: { provider: string; model: string; dimensions: number };
-  };
-  consultation: {
-    max_zoom_iterations: number;
-    max_queries_per_iteration: number;
-    max_query_results: number;
-    max_excerpt_lines: number;
   };
   policy_index: Record<string, unknown> | null;
 }

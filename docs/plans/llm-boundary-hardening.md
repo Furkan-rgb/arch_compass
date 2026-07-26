@@ -1,5 +1,10 @@
 # Implementation Plan: LLM Boundary Hardening and Codebase Cleanup
 
+> **Historical.** This plan was written against the clustered consultation path (master
+> plan §6) and completed. Paths and module names in it predate the review path (§6A) and
+> the deletion of that flow; it is kept for the reasoning it records, not as a map of the
+> current code.
+
 **Status:** Accepted plan, implementation pending
 **Scope:** Master plan Phase 1 ("Strengthen prompt contracts", "Complete per-cluster retrieval
 and analysis") plus removal of speculative and dead structures. No new product capabilities,

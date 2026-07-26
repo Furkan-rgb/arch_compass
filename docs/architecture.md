@@ -2,57 +2,69 @@
 
 ## Dependency direction
 
-The domain contains validated application data and explicit errors. Ports describe persistence,
-repository analysis, source/freshness checks, retrieval, reasoning, and report output.
-Application services and workflows depend on domain contracts and cohesive ports. Adapters
-implement ports. The CLI is a thin presentation adapter. `bootstrap.py` is the composition root
-and the only module that chooses providers.
+The domain contains validated application data, explicit errors, and pure derivations over
+that data. Ports describe persistence, repository analysis, source/freshness checks,
+retrieval, and reasoning. Application services depend on domain contracts and cohesive
+ports. Adapters implement ports. The CLI and the local web adapter are thin presentation
+adapters. `bootstrap.py` is the composition root and the only module that chooses providers.
 
 ```mermaid
 flowchart LR
     PRESENTATION[Typer CLI / local FastAPI + React] --> BOOT[Composition root]
-    PRESENTATION --> APP[Application services and workflows]
+    PRESENTATION --> APP[Application services]
     APP --> DOMAIN[Domain models]
     APP --> PORTS[Ports]
-    ADAPTERS[SQLite / AST / sqlite-vec / Ollama adapters] --> PORTS
+    ADAPTERS[SQLite / AST / sqlite-vec / Ollama / Google adapters] --> PORTS
     ADAPTERS --> DOMAIN
     BOOT --> APP
     BOOT --> ADAPTERS
 ```
 
-The domain, application, workflow, and port packages do not import Typer, HTTPX, SQLite,
+The domain, application, and port packages do not import Typer, HTTPX, SQLite,
 `sqlite-vec`, or adapter implementations. Structural tests enforce this boundary and ensure CLI
 commands use application services instead of concrete repositories, analyzers, or stores.
 
 ## Responsibilities
 
-- Domain: immutable schemas, IDs, classifications, source locations, and errors.
-- Application: case, policy-source/index, repository-index, fresh-atlas-query, advice, report,
-  report-conversation planning/retrieval/context/validation, run, workspace-initialization,
-  safety, and evidence-validation use cases.
-- Workflows: the unified consultation sequence and its audit/failure envelope.
-- Ports: narrow model/reasoning, atlas/source/freshness, policy, persistence, and reporting
-  interfaces.
-- Persistence adapters: connection lifecycle, migrations, immutable revisions and versions.
-- Repository adapters: one-snapshot Python parsing, graph metrics, safe source reads, and
-  deterministic typed queries.
-- Retrieval adapters: policy parsing, chunking, embeddings, and vector search.
-- Model adapters: structured reasoning tasks, closed-set reference mapping, and embeddings.
+- Domain: immutable schemas, IDs, classifications, source locations, errors — and the
+  finding detectors, which are pure functions over an `Atlas`. They sit beside
+  `atlas_metrics` rather than behind a port, because a port here would be an interface with
+  a single implementation hiding nothing: the shape they exist to report.
+- Application: case operations, the boundary-review service, review conversations, bundled
+  examples, repository indexing, atlas queries, policy sources, workspace initialization,
+  safety, and Markdown rendering.
+- Ports: narrow reasoning, atlas/source/freshness, policy and persistence interfaces.
+- Persistence adapters: connection lifecycle, migrations, immutable reviews and revisions.
+- Analysis adapters: one-snapshot Python parsing, graph metrics, safe source reads, and
+  deterministic typed queries. Named `adapters/analysis` rather than `adapters/repository`,
+  which collided with the persistence sense of "repository" used by the ports.
+- Retrieval adapters: policy parsing and chunking. Embeddings and vector search remain built
+  and unused: the review path presents the whole corpus and retrieves nothing.
+- Model adapters: the two structured reasoning stages and the transports that carry them.
 - Presentation: input validation, application-service calls, output, and exit behavior only.
 
-The local web adapter adds no alternate domain path. FastAPI routes call the same application
-services as the CLI, while the React bundle consumes JSON and server-sent progress events from
-that adapter. A single-worker application queue fixes a run ID and input case revision before
-calling the consultation workflow.
+The local web adapter adds no alternate domain path — FastAPI routes call the same
+application services as the CLI, and the React bundle consumes their JSON. A review runs
+synchronously inside its request: it is one model call per boundary against an
+already-indexed atlas, so there is no job queue and nothing to recover after an interrupted
+process.
 
-Report-conversation access remains in the CLI and local FastAPI routes. The retained React
-workspace has no report-conversation or generic chat controls in V1.2.
+Reasoning stages are separated from model transport. `adapters/models/structured.py` owns
+every stage: what the model is told, which handles it may reference, how the response schema
+is narrowed, and the single repair round. A `ChatTransport` owns only what genuinely differs
+between vendors — request options, timeouts, retries, and translating a failure into
+`ProviderError`. `ollama.py` and `google.py` are transports; neither carries stage logic, so
+a prompt or schema change is made once. This is what the
+`separate-model-context-from-provider-transport` policy asks for.
 
-Model transport is bounded and explicit. Before any request is sent, the Ollama adapter
+Model transport is bounded and explicit. Before any request is sent, the shared stage layer
 estimates the serialized prompt plus the response schema against the context window and
 refuses with `PromptBudgetExceededError` when the request cannot fit, naming the stage and
 both sizes; Ollama would otherwise truncate from the front and discard the system prompt,
-producing degraded output that fails validation with no attributable cause. Transport
+producing degraded output that fails validation with no attributable cause. Gemini fails the
+same shape differently — it spends thinking tokens from the output allowance and can stop at
+`MAX_TOKENS` having emitted no JSON — so the Google transport reports that case by name
+instead of returning a truncated response. Transport
 failures that a later identical request might survive — timeouts, network and remote
 protocol errors, proxy errors, 408/429/5xx — are retried up to three times with
 exponential backoff. Configuration faults and structured-output failures are never
@@ -64,64 +76,60 @@ Heavyweight or provider-specific behavior is constructed explicitly. Imports hav
 The packaged model configuration is a resource; workspace initialization copies it only when the
 selected configuration path does not exist.
 
-Persisted-report conversations use the same dependency direction. The application builds a
-bounded planning dossier from compact finding digests, the exact pinned case summary, the current
-typed summary, and recent message views. It resolves finding references, validates at most eight
-discriminated retrieval actions, applies all evidence ceilings cumulatively across the turn, and
-executes only against the run's exact case/Atlas/policy pins.
+Review conversations use the same dependency direction and need far less machinery than
+the consultation conversations they replaced. A whole review serialises to roughly 25,000
+characters, so the service hands the pinned review, the history and the question to the
+stage; there is no retrieval to plan, no cumulative ceiling to apply and no rolling summary
+to revise. A structural test enforces that `adapters/models` may not import the application
+package, so a model adapter cannot become the thing that decides what evidence an answer
+rests on.
 
-Retrieval returns a transient evidence payload for reasoning and a separate lightweight audit
-record for persistence. The transient `ReportConversationContext` preserves exact relationship
-edges, dependency-path order, tests, concern implications, query summaries, excerpts, and
-unavailable reasons without containing an `Atlas` aggregate, repository root, source tree, full
-policy corpus, or unlimited history. Durable message rows retain ordered scoped artifact
-references, actual supplied IDs, truncation metadata, recent-message ordinals, summary revision,
-and a canonical context hash; they do not duplicate findings, claims, Atlas query results, or
-policy documents.
-
-The narrow `ReportConversationReasoner` receives only provider-neutral typed dossiers. The
-application owns reference resolution, exact artifact scope, cumulative budgets, validation,
-repair allowlists, rendering, and summary coverage. Model adapters serialize the same canonical
-JSON used for hashes and do not choose evidence, history, citation, or truncation rules. A
-structural test enforces that direction: `adapters/models` may not import the application or
-workflow packages.
-
-Domain rules have one implementation. Whether a cited source span is supported by a surfaced
-node is decided by `domain/evidence_rules.py`, used by concern-analysis validation in the
-workflow, report and conversation evidence validation in the application, and claim-survival
-checks in the Ollama adapter. A structural test fails if a hand-rolled containment check
-reappears. Reasoning stages are named once by the `ReasoningTask` enum rather than by repeated
-string literals, and the enum is asserted to match the prompt registry.
-
-A finding's evidence is scoped by ownership rather than by absence. A claim owned by another
-concern cluster is foreign and rejected; a claim owned by no cluster — a case statement, an
-advisor claim — belongs to the consultation, so any finding may rest on it. Every finding must
-still cite at least one claim from its own cluster, and an ID absent from the report's claim
-registry is rejected as unknown before scope is considered. See
-[adr/0005-scope-of-finding-evidence-and-typed-importance.md](adr/0005-scope-of-finding-evidence-and-typed-importance.md).
+Reasoning stages are named once by the `ReasoningTask` enum rather than by repeated string
+literals, and a test asserts the enum and the prompt registry are the same set, so a stage
+without a contract cannot reach a runtime `KeyError`.
 
 `bootstrap.Runtime` names its dependencies by port, so nothing outside the composition root
-depends on a concrete SQLite, AST, or vector-store type. Conversation adapters and services are
-composed only in `bootstrap.py`.
+depends on a concrete SQLite, AST, or vector-store type.
 
 ## Information flow
 
-Global context remains concise. Detailed code is requested only through a validated
-`AtlasQueryPlan`; the query executor bounds types, IDs, result sizes, depth, and source excerpts.
-Design forces are partitioned into validated concern clusters, and detailed results are assembled
-into one focused packet per cluster under cumulative node and excerpt budgets. Final synthesis
-receives the case, global context, forces, concern analyses, alternatives, scenarios, and a pool
-of citable claims under request-local handles. Focused packets remain internal evidence
-allowlists and are not sent to synthesis. The model never receives an `Atlas` aggregate,
-repository root, or complete source tree.
+Two stages exist, and the application decides the inputs to both.
 
-Synthesis returns a `ProposedRecommendation`, not a report. The proposal carries the disposition,
-prose, findings, and the claim handles that support them; it has no field for design forces,
-alternatives, scenarios, policy evidence, claim identity, section placement, or finding evidence,
-because ArchCompass owns all of those. `application/synthesis.py` composes the persisted report by
-resolving handles, placing claims into sections by classification, assigning content-derived claim
-IDs, and injecting the workflow's canonical artifacts. See
-[adr/0001-composed-synthesis.md](adr/0001-composed-synthesis.md).
+**Judging a candidate.** `domain/finding_detectors.py` derives candidates from an `Atlas`
+deterministically and completely — not sampled, not ranked. Each goes to the model with the
+case and the whole policy corpus. Policies are presented in a fixed order without their
+identifiers, and the reply returns one bearing per policy in that same order; identity is
+attached afterwards from the position. The response grammar fixes the array length to the
+policy count and the stage re-checks it after parsing, because a short reply would not lose
+one answer — it would shift every later answer onto the wrong policy and still validate.
+
+**Answering a question about a review.** The whole review goes into every turn, about
+25,000 characters against an input budget near 490,000. There is no retrieval plan, no
+cumulative budget and no rolling summary, because the evidence fits. Boundaries are
+presented without their `BR-nnn` codes and the answer marks supporting ones by position.
+
+Neither stage receives an `Atlas` aggregate, a repository root, or a complete source tree.
+
+Response field order is part of each contract. A structured-output model fills a schema in
+the order it is declared, so a conclusion declared before its reasoning is a conclusion
+reached before its reasoning: `rationale` precedes `material`, and `answer` precedes
+`supported_by`. This is not stylistic — declared the other way round, a live run returned
+`material: false` beside a rationale concluding that removing the abstraction would cost
+nothing, and both halves validated.
+
+The review path is deliberately short. `domain/finding_detectors.py` derives finding candidates from an `Atlas` — a pure
+function over domain data, beside `atlas_metrics` rather than behind a port, because a port
+here would be an interface with one implementation hiding nothing. `ReviewService`
+loads the case and the latest atlas, checks freshness, orders the whole policy corpus once,
+and calls the judgement stage once per candidate.
+
+That stage sends no policy identifier and reads none back. Policies are presented in the
+fixed order the application chose and the response returns one bearing per policy in the
+same order, so identity is attached by position; the response grammar fixes the array
+length to the policy count and the stage re-checks it after parsing, because a short reply
+would otherwise shift every later answer onto the wrong policy and still validate. Verdicts
+that find nothing material are kept and printed alongside the rest: a report showing only
+problems reads the same whether the advisor cleared every candidate or never looked.
 
 Embedding retrieval and exact reference selection are intentionally separate. Policies are an
 open corpus, so their sections are embedded and retrieved before the original text is supplied to

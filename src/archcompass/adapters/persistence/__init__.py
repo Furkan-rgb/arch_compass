@@ -2,28 +2,20 @@
 
 from archcompass.adapters.persistence.atlas_repository import SQLiteAtlasRepository
 from archcompass.adapters.persistence.case_repository import SQLiteCaseRepository
-from archcompass.adapters.persistence.consultation_commit import (
-    SQLiteConsultationCommitRepository,
-)
-from archcompass.adapters.persistence.conversation_repository import (
-    SQLiteReportConversationRepository,
-)
 from archcompass.adapters.persistence.database import SQLiteDatabase
-from archcompass.adapters.persistence.job_repository import (
-    SQLiteConsultationJobRepository,
-)
 from archcompass.adapters.persistence.policy_source_repository import (
     SQLitePolicySourceRepository,
 )
-from archcompass.adapters.persistence.run_repository import SQLiteRunRepository
+from archcompass.adapters.persistence.review_conversation_repository import (
+    SQLiteReviewConversationRepository,
+)
+from archcompass.adapters.persistence.review_repository import SQLiteBoundaryReviewRepository
 
 __all__ = [
     "SQLiteAtlasRepository",
+    "SQLiteBoundaryReviewRepository",
     "SQLiteCaseRepository",
-    "SQLiteConsultationCommitRepository",
-    "SQLiteConsultationJobRepository",
     "SQLiteDatabase",
     "SQLitePolicySourceRepository",
-    "SQLiteReportConversationRepository",
-    "SQLiteRunRepository",
+    "SQLiteReviewConversationRepository",
 ]

@@ -1,0 +1,49 @@
+# The scoring key for this fixture.
+#
+# Six boundaries, identical to the detector: one abstraction, one implementation, every
+# time. Counting cannot separate them. Only the case can, and the case was written so that
+# three are clearly earning their place and three clearly are not.
+#
+# This is the discrimination test for the advisory path. A run that calls all six material
+# is an abstraction destroyer; a run that clears all six is an abstraction generator.
+# Neither is an advisor.
+
+boundaries:
+  - abstraction: ports.Clock
+    material: false
+    because: >-
+      The case states the test suite substitutes its own clock. The detector cannot see
+      that — it excludes tests/ from implementations and says so in its limitations — so
+      this boundary is flagged on evidence the case corrects.
+
+  - abstraction: ports.TaskStore
+    material: false
+    because: >-
+      A stated technical constraint says application code must not import a database
+      driver, and a hosted Postgres deployment is under active discussion. The boundary
+      absorbs a change that is actually expected.
+
+  - abstraction: ports.NotificationSender
+    material: false
+    because: >-
+      SMS reminders are scheduled for the next release and will run alongside email. The
+      second implementation is not hypothetical, it is planned.
+
+  - abstraction: ports.TaskFormatter
+    material: true
+    because: >-
+      The label format is fixed by a downstream system that parses it, alternative
+      renderings are a stated non-goal, and one caller reaches one implementation. The
+      boundary cannot absorb variation that is contractually excluded.
+
+  - abstraction: ports.IdGenerator
+    material: true
+    because: >-
+      Identifiers are UUID4 by external contract and changing them is a stated non-goal.
+      Same shape as the formatter: an abstraction over a value that cannot vary.
+
+  - abstraction: ports.ConfigLoader
+    material: true
+    because: >-
+      The configuration format was decided once, is not revisited, and supporting another
+      is a stated non-goal. There is no consumer that would want a second loader.

@@ -1,4 +1,4 @@
-from archcompass.adapters.repository.graph import (
+from archcompass.adapters.analysis.graph import (
     reachable,
     shortest_path,
     strongly_connected_components,

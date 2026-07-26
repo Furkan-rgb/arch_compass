@@ -1,0 +1,37 @@
+# Google AI Studio, using models with a free tier.
+#
+# Select it for a run with either:
+#   ARCHCOMPASS_MODELS_CONFIG=config/models.google.yaml
+#   archcompass <command> --models-config config/models.google.yaml
+#
+# The API key is read from the environment variable named below, which
+# `.env` at the workspace root supplies. The key itself never lives in this file.
+models:
+  reasoning:
+    provider: google
+    model: gemini-3.6-flash
+    api_key_env: GOOGLE_API_KEY
+    timeout_seconds: 360
+    fast_timeout_seconds: 90
+    deep_timeout_seconds: 360
+    # Deliberately well below the model's advertised window. This number only feeds the
+    # pre-flight budget check, where under-stating refuses an oversize request with an
+    # explicit message and over-stating lets one through to be truncated. A judgement
+    # carries the whole policy corpus at roughly 21k characters, so this is ample.
+    context_window_tokens: 131072
+    # Gemini spends thinking tokens from this same allowance, so a stage needs noticeably
+    # more headroom here than the response JSON alone would suggest.
+    max_output_tokens: 32768
+  embedding:
+    # Declared so the provider is constructed and a bad key fails at startup rather than
+    # part-way through a run. The review path never calls it: policies are read from
+    # Markdown and presented whole, so there is no retrieval and nothing to embed, and
+    # changing the embedding model no longer requires rebuilding the policy index.
+    provider: google
+    model: gemini-embedding-001
+    api_key_env: GOOGLE_API_KEY
+    dimensions: 768
+    timeout_seconds: 60
+retrieval:
+  top_k: 6
+  max_sections_per_policy: 3

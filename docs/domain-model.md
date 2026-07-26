@@ -52,54 +52,63 @@ relationship evidence, tests, source excerpts, applicable policies, assumptions,
 Successful runs contain exactly one packet and one `ConcernAnalysis` for each cluster.
 
 The Ollama boundary does not ask a model to create or reproduce these internal IDs. Force
-discovery returns content and receives application-generated IDs. Clustering sees only
-request-local constrained handles (`F1` through `Fn`); ArchCompass validates exact coverage and
-maps them back to the canonical force IDs before constructing domain clusters.
+discovery returns content and receives application-generated IDs.
 
-## ConsultationRun
+## FindingCandidate
 
-A schema-v3 run records status, the input and optional result case revisions, exact atlas and
-policy-index versions, model/config identities, only the prompt identities that executed, forces,
-clusters, cluster query plans, focused packets, concern analyses, alternatives, alternative-keyed
-scenarios, validation/repair history, stage timings, report, timestamps, and execution metadata.
-Successful advice creates exactly the next case revision. A failed run requires a failure stage
-and sanitized error, has no result revision, and does not change the case. Safe structured
-failure diagnostics may additionally identify missing or repeated request-local force handles;
-unknown model references are represented only by a count.
+A structural shape derived from an `Atlas`, carrying the participants involved, what was
+measured with each measurement's nature and limitations, the relationships between the
+participants, and what the detection method could not see.
 
-## Canonical findings and report conversations
+A candidate is N-ary by construction. Duplicated knowledge is a fact about a set of
+modules, and a type holding one node would discard the finding while appearing to record
+it. It is explicitly not a violation: materiality depends on circumstances the static view
+cannot see, so "this does not matter here" stays a first-class answer downstream.
 
-`ArchitecturalFinding` is the stable, user-addressable unit of report interpretation. New reports
-contain one to twelve ordered findings. The workflow assigns `FIND-001` style IDs after synthesis;
-each finding records its cluster, contextual importance and rationale, confidence, consequence,
-claims, Atlas nodes, policies, affected locations, metric/signal evidence, recommended response,
-and uncertainty. The reasoning provider authors meaning, importance, confidence, response, and
-claim links. After synthesis or repair, the application projects nodes, locations, metric values,
-signals, and policies from that finding's own focused packet, validates cluster coverage, and only
-then assigns ordered IDs. Providers cannot introduce altered measurements or evidence from
-another cluster.
+## CandidateVerdict
 
-`ReportConversation` is an append-only aggregate pinned to one successful validated run and its
-exact case revision, Atlas version, and policy-index version. `FindingDigest` keeps all ordered
-finding identities and qualitative priority available without copying their detailed evidence.
-`PinnedCaseSummary` carries the exact revision's title, problem, desired outcome, actors and
-workflows, requirements, quality attributes, technical and organisational constraints,
-first-class derived constraints, confirmed facts, expected future changes, non-goals, and
-assumptions.
+What the model made of one candidate: `material`, the reasoning, the policies that bear on
+it, and a recommended response present only when material.
 
-An immutable assistant `ConversationMessage` requires a structured `ConversationAnswer`, compact
-`ConversationRetrievalRecord`, model identity, and executed prompt identities. Direct answers,
-supporting points, and uncertainty are typed answer statements; each factual statement identifies
-the answer claims, findings, or report claims that support it. `AnswerClaim` cites exact artifact
-identities for nodes, relationships, metrics, signals, and excerpts. Evidence scope is therefore a
-property of the cited artifact, not of a whole query result or merely a node ID.
+The verdict carries no identifier the model authored. `candidate_id` is copied from the
+request, and each `PolicyBearing` gets its policy identity from the position it occupied in
+the presented corpus. A bearing asserted without saying how is dropped rather than recorded
+as an unexplained flag.
 
-`ReportConversationContext` is a transient reasoning dossier and is not stored in message rows.
-It contains no Atlas aggregate, repository root, source tree, full policy corpus, or unlimited
-history. A typed `ConversationSummary` retains descriptive narrative plus source-ordinal-linked
-user corrections, hypotheticals, unresolved questions, and already-known evidence IDs. Immutable
-summary revisions and failed assistant attempts are explicit durable records. See
-[report-conversations.md](report-conversations.md).
+## BoundaryReview
+
+An immutable review pinned to one case revision, one atlas version, and the exact prompt
+identity that produced it. A succeeded review carries its report; a failed one carries
+diagnostics and no report, and both invariants are enforced by validators rather than
+convention.
+
+`BoundaryReviewReport` holds the case title, the problem and desired outcome, the policies
+presented, and every `ReviewedBoundary` examined. `reviewed` may be empty: the detector ran
+and found no candidate, which is a result rather than a failure.
+
+`ReviewedBoundary` carries a `BR-nnn` reference assigned by the application in detection
+order, the candidate, the verdict, the reasoning, the policy bearings, and a recommended
+response. A boundary that is not material carrying a response is rejected — an advisor that
+always has a next action has not answered the question.
+
+Deliberately absent: design forces, alternatives, scenario analysis, an ADR, an
+implementation sequence. A review judges boundaries that already exist rather than weighing
+competing designs, so there is nowhere to put those and nothing to invent to fill them.
+
+## ReviewConversation
+
+An append-only aggregate pinned to one review and, through it, to the exact case revision
+the verdicts were reached against.
+
+Each turn presents the whole review — roughly 25,000 characters — so there is no retrieval
+plan to validate, no cumulative budget to spend and no rolling summary to revise. The
+answer marks supporting boundaries by position, and `ReviewAnswer.supporting_references`
+holds the `BR-nnn` values the application resolved from those positions. `grounded` is
+derived from that list rather than asked for.
+
+A `ReviewMessage` carries exactly one of an answer or a failure. A turn that produced
+nothing is still appended: silently discarding it makes the conversation read as though the
+question was never asked.
 
 ## Claims
 

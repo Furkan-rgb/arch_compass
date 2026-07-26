@@ -5,26 +5,11 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Protocol
 
-from archcompass.domain.case import ArchitectureCase, CaseAlternative
-from archcompass.domain.consultation import (
-    ClusterQueryPlan,
-    ConcernAnalysis,
-    ConcernCluster,
-    DesignForce,
-    FocusedAnalysisPacket,
-    FocusedNodeSummary,
-    GlobalContext,
-    ScenarioEvaluation,
-)
-from archcompass.domain.conversation import (
-    ConversationAnswer,
-    ConversationMessageView,
-    ConversationSummary,
-    ReportConversationContext,
-    ReportQuestionPlan,
-    ReportQuestionPlanningContext,
-)
-from archcompass.domain.proposals import AvailableClaim, ProposedRecommendation
+from archcompass.domain.atlas import FindingCandidate
+from archcompass.domain.case import ArchitectureCase
+from archcompass.domain.policy import PolicyDocument
+from archcompass.domain.review import BoundaryReview, CandidateVerdict
+from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
 
 
 class ReasoningTask(StrEnum):
@@ -35,18 +20,8 @@ class ReasoningTask(StrEnum):
     runtime KeyError. Naming them once makes the set checkable.
     """
 
-    DISCOVER_DESIGN_FORCES = "discover_design_forces"
-    CLUSTER_DESIGN_FORCES = "cluster_design_forces"
-    PLAN_ATLAS_QUERIES = "plan_atlas_queries"
-    ANALYZE_CONCERN_CLUSTER = "analyze_concern_cluster"
-    GENERATE_ALTERNATIVES = "generate_alternatives"
-    EVALUATE_SCENARIOS = "evaluate_scenarios"
-    SYNTHESIZE_RECOMMENDATION = "synthesize_recommendation"
-    REPAIR_RECOMMENDATION_PROPOSAL = "repair_recommendation_proposal"
-    CLASSIFY_REPORT_QUESTION = "classify_report_question"
-    ANSWER_REPORT_QUESTION = "answer_report_question"
-    SUMMARIZE_REPORT_CONVERSATION = "summarize_report_conversation"
-    REPAIR_CONVERSATION_ANSWER = "repair_conversation_answer"
+    JUDGE_FINDING_CANDIDATE = "judge_finding_candidate"
+    ANSWER_REVIEW_QUESTION = "answer_review_question"
 
 
 class ReportConversationReasoner(Protocol):
@@ -55,87 +30,29 @@ class ReportConversationReasoner(Protocol):
 
     def prompt_identity(self, task: ReasoningTask) -> str: ...
 
-    def classify_report_question(
-        self,
-        context: ReportQuestionPlanningContext,
-    ) -> ReportQuestionPlan: ...
-
-    def answer_report_question(
-        self,
-        context: ReportConversationContext,
-    ) -> ConversationAnswer: ...
-
-    def summarize_report_conversation(
-        self,
-        current_summary: ConversationSummary | None,
-        messages: list[ConversationMessageView],
-    ) -> ConversationSummary: ...
-
-    def repair_conversation_answer(
-        self,
-        answer: ConversationAnswer,
-        errors: list[str],
-        allowed_finding_ids: set[str],
-        allowed_claim_ids: set[str],
-        allowed_evidence_ids: set[str],
-        allowed_policy_ids: set[str],
-    ) -> ConversationAnswer: ...
-
-
 class FocusedReasoningProvider(ReportConversationReasoner, Protocol):
-    def discover_design_forces(self, context: GlobalContext) -> list[DesignForce]: ...
-
-    def cluster_design_forces(
-        self, context: GlobalContext, forces: list[DesignForce]
-    ) -> list[ConcernCluster]: ...
-
-    def plan_atlas_queries(
-        self,
-        context: GlobalContext,
-        forces: list[DesignForce],
-        clusters: list[ConcernCluster],
-        *,
-        iteration: int,
-        prior_results: dict[str, list[FocusedNodeSummary]],
-    ) -> list[ClusterQueryPlan]: ...
-
-    def analyze_concern_cluster(
-        self,
-        context: GlobalContext,
-        packet: FocusedAnalysisPacket,
-    ) -> ConcernAnalysis: ...
-
-    def generate_alternatives(
-        self, context: GlobalContext, analyses: list[ConcernAnalysis]
-    ) -> list[CaseAlternative]: ...
-
-    def evaluate_scenarios(
-        self,
-        context: GlobalContext,
-        alternatives: list[CaseAlternative],
-        analyses: list[ConcernAnalysis],
-    ) -> list[ScenarioEvaluation]: ...
-
-    def propose_recommendation(
+    def judge_finding_candidate(
         self,
         case: ArchitectureCase,
-        context: GlobalContext,
-        forces: list[DesignForce],
-        clusters: list[ConcernCluster],
-        analyses: list[ConcernAnalysis],
-        alternatives: list[CaseAlternative],
-        scenarios: list[ScenarioEvaluation],
-        packets: list[FocusedAnalysisPacket],
-        *,
-        available_claims: list[AvailableClaim],
-        cluster_refs: dict[str, str],
-    ) -> ProposedRecommendation: ...
+        candidate: FindingCandidate,
+        policies: list[PolicyDocument],
+    ) -> CandidateVerdict:
+        """Decide whether one detected pattern matters in this case.
 
-    def repair_recommendation_proposal(
+        The policies are presented in the order given and the response binds to them by
+        position, so the list must not be reordered between the call and the result.
+        """
+        ...
+
+    def answer_review_question(
         self,
-        proposal: ProposedRecommendation,
-        errors: list[str],
-        *,
-        available_claims: list[AvailableClaim],
-        cluster_refs: dict[str, str],
-    ) -> ProposedRecommendation: ...
+        review: BoundaryReview,
+        history: list[ReviewMessage],
+        question: str,
+    ) -> ReviewAnswer:
+        """Answer one question about a review the model is shown in full.
+
+        The reply marks supporting boundaries by position in `review.report.reviewed`, so
+        the order must not change between the call and the result.
+        """
+        ...

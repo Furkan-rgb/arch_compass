@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-from typing import cast
+import os
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from archcompass.application.conversation_retrieval import (
-    ConversationEvidenceRetriever,
+from archcompass.configuration import (
+    ReasoningModelConfig,
+    load_environment_file,
+    load_provider_environment,
+    resolve_api_key,
 )
-from archcompass.configuration import ConversationConfig, ReasoningModelConfig
-from archcompass.domain import budgets
-from archcompass.ports.atlas import AtlasQueryService
-from archcompass.ports.repositories import AtlasRepository
+from archcompass.domain.errors import ConfigurationError
 
 
 def test_reasoning_model_config_accepts_explicit_context_window() -> None:
@@ -42,88 +43,96 @@ def test_reasoning_model_config_rejects_output_larger_than_context_window() -> N
         )
 
 
-def test_conversation_summary_batches_are_constants_not_configuration() -> None:
-    """Summary coverage admits exactly one setting, so it is not a config field."""
+def test_environment_file_fills_only_unset_variables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A real environment variable wins, so CI and a shell export override the file."""
 
-    assert budgets.SUMMARIZE_AFTER_MESSAGES == 12
-    assert budgets.SUMMARIZE_EVERY_MESSAGES == 8
+    monkeypatch.setenv("ARCHCOMPASS_TEST_PRESET", "from-shell")
+    monkeypatch.delenv("ARCHCOMPASS_TEST_PLAIN", raising=False)
+    monkeypatch.delenv("ARCHCOMPASS_TEST_QUOTED", raising=False)
+    monkeypatch.delenv("ARCHCOMPASS_TEST_EXPORTED", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "# a comment",
+                "",
+                "ARCHCOMPASS_TEST_PLAIN=plain-value",
+                'ARCHCOMPASS_TEST_QUOTED="quoted value"',
+                "export ARCHCOMPASS_TEST_EXPORTED=exported-value",
+                "ARCHCOMPASS_TEST_PRESET=from-file",
+                "not-an-assignment",
+            ]
+        ),
+        encoding="utf-8",
+    )
 
-    with pytest.raises(ValidationError):
-        ConversationConfig(summarize_after_messages=10)
-    with pytest.raises(ValidationError):
-        ConversationConfig(summarize_every_messages=6)
+    load_environment_file(env_file)
+
+    assert os.environ["ARCHCOMPASS_TEST_PLAIN"] == "plain-value"
+    assert os.environ["ARCHCOMPASS_TEST_QUOTED"] == "quoted value"
+    assert os.environ["ARCHCOMPASS_TEST_EXPORTED"] == "exported-value"
+    assert os.environ["ARCHCOMPASS_TEST_PRESET"] == "from-shell"
 
 
-def test_conversation_budgets_may_be_lowered_but_never_raised() -> None:
-    assert ConversationConfig(max_findings=2).max_findings == 2
-    assert ConversationConfig().max_findings == budgets.MAX_FINDINGS
+def test_a_missing_environment_file_is_not_an_error(tmp_path: Path) -> None:
+    """Not every workspace uses a hosted provider."""
 
-    with pytest.raises(ValidationError):
-        ConversationConfig(max_findings=budgets.MAX_FINDINGS + 1)
-    with pytest.raises(ValidationError):
-        ConversationConfig(max_atlas_nodes=budgets.MAX_ATLAS_NODES + 1)
+    load_environment_file(tmp_path / ".env")
 
 
-def test_retrieved_character_budget_tracks_the_model_window() -> None:
-    """The evidence budget is derived from the configured window, not frozen.
+def test_api_key_resolution_names_the_variable_and_the_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARCHCOMPASS_TEST_KEY", "  secret  ")
+    assert resolve_api_key("ARCHCOMPASS_TEST_KEY", provider="google") == "secret"
 
-    The former fixed 24,000-character ceiling could not fit one projected finding of
-    the project's own evaluation fixture; a bigger window must mean a bigger budget,
-    and an explicit configuration value may only narrow it.
+    monkeypatch.setenv("ARCHCOMPASS_TEST_KEY", "   ")
+    with pytest.raises(ConfigurationError, match=r"ARCHCOMPASS_TEST_KEY.*\.env"):
+        resolve_api_key("ARCHCOMPASS_TEST_KEY", provider="google")
+
+    with pytest.raises(ConfigurationError, match="api_key_env"):
+        resolve_api_key(None, provider="google")
+
+
+def test_provider_environment_is_found_from_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A workspace is often not the directory the command was run from.
+
+    `--workspace` points elsewhere, and under test it is a temporary directory, so
+    reading only the workspace left a correctly configured project unable to find its
+    own key.
     """
 
-    small = budgets.retrieved_character_budget(
-        context_window_tokens=8_192, max_output_tokens=4_096, chars_per_token=4.0
-    )
-    default = budgets.retrieved_character_budget(
-        context_window_tokens=32_768, max_output_tokens=16_384, chars_per_token=4.0
-    )
-    large = budgets.retrieved_character_budget(
-        context_window_tokens=131_072, max_output_tokens=16_384, chars_per_token=4.0
-    )
+    monkeypatch.delenv("ARCHCOMPASS_TEST_CWD_KEY", raising=False)
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".env").write_text("ARCHCOMPASS_TEST_CWD_KEY=from-cwd\n", encoding="utf-8")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.chdir(project)
 
-    assert small < default < large
-    assert default > 24_000, "the derived default must exceed the old frozen ceiling"
-    assert (
-        budgets.retrieved_character_budget(
-            context_window_tokens=512, max_output_tokens=512, chars_per_token=4.0
-        )
-        == budgets.MIN_RETRIEVED_TEXT_CHARACTERS
-    )
+    load_provider_environment(workspace)
 
-    assert ConversationConfig().max_retrieved_text_characters is None
-    assert ConversationConfig(max_retrieved_text_characters=1_000)
-    with pytest.raises(ValidationError):
-        ConversationConfig(max_retrieved_text_characters=100)
+    assert os.environ["ARCHCOMPASS_TEST_CWD_KEY"] == "from-cwd"
 
 
-def test_an_explicit_evidence_budget_can_only_narrow_the_derived_one() -> None:
-    """Configuration may lower a derived budget, never raise it past the window."""
+def test_the_workspace_environment_file_wins_over_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("ARCHCOMPASS_TEST_SCOPED_KEY", raising=False)
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".env").write_text("ARCHCOMPASS_TEST_SCOPED_KEY=from-cwd\n", encoding="utf-8")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / ".env").write_text(
+        "ARCHCOMPASS_TEST_SCOPED_KEY=from-workspace\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(project)
 
-    reasoning = ReasoningModelConfig(
-        provider="fake",
-        model="deterministic",
-        base_url="http://ollama.test",
-        timeout_seconds=1,
-    )
-    derived = budgets.retrieved_character_budget(
-        context_window_tokens=reasoning.context_window_tokens,
-        max_output_tokens=reasoning.max_output_tokens,
-        chars_per_token=reasoning.chars_per_token,
-    )
-    retriever = ConversationEvidenceRetriever(
-        reasoning=reasoning,
-        atlases=cast("AtlasRepository", object()),
-        queries=cast("AtlasQueryService", object()),
-        config=ConversationConfig(max_retrieved_text_characters=derived * 10),
-    )
+    load_provider_environment(workspace)
 
-    assert retriever._character_budget == derived  # pyright: ignore[reportPrivateUsage]
-
-    narrowed = ConversationEvidenceRetriever(
-        reasoning=reasoning,
-        atlases=cast("AtlasRepository", object()),
-        queries=cast("AtlasQueryService", object()),
-        config=ConversationConfig(max_retrieved_text_characters=1_000),
-    )
-    assert narrowed._character_budget == 1_000  # pyright: ignore[reportPrivateUsage]
+    assert os.environ["ARCHCOMPASS_TEST_SCOPED_KEY"] == "from-workspace"

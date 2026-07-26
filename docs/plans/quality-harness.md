@@ -1,5 +1,10 @@
 # Plan: advice-quality harness
 
+> **Partly historical.** Written before the review path (master plan §6A) replaced the
+> clustered consultation. The tiering argument still holds and the scored
+> `eval/cases/boundary-review` fixture came out of it; the stage names and file paths do
+> not describe the current code.
+
 **Status:** Phase 1 implemented; Phases 2–4 planned
 **Scope:** Evaluation tooling. No product surface.
 

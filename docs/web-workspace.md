@@ -14,35 +14,41 @@ origin. It has no authentication or remote-binding mode.
 
 ## Workflow
 
-The interface supports greenfield cases and existing Python repositories through one guided
-flow. Users can create a case, import case YAML, or begin from an evaluation-case template.
-Repository paths are validated and indexed through the same application service used by the
-CLI. All existing workspace/repository separation, symlink, traversal, and atlas-freshness rules
-remain in force.
+The interface supports one flow: pick a repository to review and read the result.
 
-Consultations execute in a single-worker queue so local reasoning providers do not compete for
-the same GPU. A run ID and input case revision are fixed when the job is queued. Ordered progress
-events are written to SQLite and streamed with server-sent events; reconnecting clients replay
-events after their last sequence ID. Jobs left unfinished by a stopped web process are marked
-interrupted and are never silently resumed.
+A **bundled example** is the shortest path — each ships a written case and a repository to
+run it against, so a new workspace can produce a real review without a case being written
+first. Loading one indexes the repository and creates the case in a single step.
 
-The live trace includes stage transitions and validated structured artifacts: design forces,
-concern clusters, atlas query plans and result summaries, focused packets, retrieved policies,
-concern analyses, alternatives, scenarios, and evidence-repair history. It does not persist or
-display hidden chain-of-thought or full prompt payloads.
+Repository paths are validated and indexed through the same application service the CLI
+uses, and every workspace/repository separation, symlink, traversal and atlas-freshness
+rule remains in force.
+
+A review runs synchronously inside its request. It is one model call per boundary, so it
+takes minutes; there is no job queue and no progress stream, because re-running a review
+costs nothing that has to be reconciled — the atlas is already indexed and the result is
+immutable either way.
+
+The review page shows every boundary examined, cleared ones included, each with its
+reasoning, the policies that bear on it, and what the detection method could not see. A
+box on the same page asks follow-up questions: the whole review goes to the model with
+each one, and the answer names the boundaries it rests on. An answer grounded on none of
+them is labelled rather than presented as something the review supports.
+
+The atlas graph is served separately under **Repositories** and reads the indexed atlas
+directly, so it needs no review to have been run.
 
 ## Architecture workspace
 
-Completed consultations open as an architecture-analysis workspace rather than a chat transcript.
-It keeps the `ArchitectureCase`, design forces, recommendation, policies, classified claim ledger,
-alternatives, future-change scenarios, and ADR preview visible around the central analysis surface.
-Claim IDs and atlas references remain interactive and open their persisted evidence.
+A completed review opens as an analysis surface rather than a chat transcript: the case,
+the policies presented, and every boundary examined with its reasoning and source
+locations, with the questions asked about it alongside.
 
-Brownfield consultations render a bounded interactive `RepositoryAtlas` from the nodes, metrics,
-relationships, excerpts, and signals persisted in the run's focused evidence packets. Selecting a
-node updates its metrics and relationship inspector; hotspot and contained-complexity states use
-both labels and symbols in addition to color. The repository library provides the same interaction
-against the latest freshness-checked summary, hotspot, and node-inspection APIs.
+The interactive `RepositoryAtlas` renders from the latest freshness-checked summary,
+hotspot and node-inspection APIs. Selecting a node updates its metrics and relationship
+inspector; hotspot and contained-complexity states use labels and symbols in addition to
+colour. It reads the indexed atlas directly and is independent of whether any review has
+been run.
 
 Atlas placement is deterministic and connection-aware: containment and allocation relationships
 establish layers, homogeneous subgraphs use graph distance, and barycentric ordering keeps connected

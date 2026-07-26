@@ -210,10 +210,7 @@ def render(schema_value: object) -> str:
 def generate() -> str:
     with tempfile.TemporaryDirectory(prefix="archcompass-openapi-") as temporary:
         initialized = initialize_workspace(Path(temporary))
-        try:
-            return render(create_app(initialized.runtime).openapi())
-        finally:
-            initialized.runtime.job_service.close()
+        return render(create_app(initialized.runtime).openapi())
 
 
 def main() -> int:

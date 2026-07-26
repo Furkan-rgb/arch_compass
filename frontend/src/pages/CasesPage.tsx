@@ -17,9 +17,9 @@ export function CasesPage() {
   const navigate = useNavigate();
   const cases = useQuery({ queryKey: ["cases"], queryFn: api.cases });
   const start = useMutation({
-    mutationFn: ({ caseId, repositoryRoot }: { caseId: string; repositoryRoot?: string }) =>
-      api.startConsultation(caseId, repositoryRoot),
-    onSuccess: (job) => navigate(`/runs/${job.run_id}`),
+    mutationFn: ({ caseId, repositoryRoot }: { caseId: string; repositoryRoot: string }) =>
+      api.createReview(caseId, repositoryRoot),
+    onSuccess: (review) => navigate(`/reviews/${review.review_id}`),
   });
 
   return (
@@ -28,7 +28,7 @@ export function CasesPage() {
         eyebrow="Decision notebook"
         title="Architecture cases"
         description="Every consultation starts from a specific, immutable case revision."
-        action={<Link to="/new" className="button button--primary"><Compass size={17} /> New case</Link>}
+        action={<Link to="/reviews" className="button button--primary"><Compass size={17} /> Reviews</Link>}
       />
       {cases.isLoading && <Loading />}
       {cases.error && <ErrorPanel error={cases.error} />}
@@ -72,15 +72,21 @@ export function CasesPage() {
               <button
                 className="button button--secondary"
                 type="button"
-                disabled={start.isPending}
+                disabled={start.isPending || !item.repository_root}
+                title={
+                  item.repository_root
+                    ? undefined
+                    : "This case has no indexed repository to review."
+                }
                 onClick={() =>
+                  item.repository_root &&
                   start.mutate({
                     caseId: item.case_id,
-                    repositoryRoot: item.repository_root || undefined,
+                    repositoryRoot: item.repository_root,
                   })
                 }
               >
-                <Play size={15} /> Run again
+                <Play size={15} /> Review
               </button>
             </div>
           </article>

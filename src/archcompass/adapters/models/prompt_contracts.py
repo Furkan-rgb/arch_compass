@@ -1,4 +1,4 @@
-"""Versioned prompt contracts for the Ollama reasoning stages."""
+"""Versioned prompt contracts for the reasoning stages, shared by every provider."""
 
 from __future__ import annotations
 
@@ -65,319 +65,109 @@ class PromptContract:
         return f"{self.name}:v{self.version}:{self.content_fingerprint}"
 
 
-DISCOVER_DESIGN_FORCES: Final = PromptContract(
-    name="discover-design-forces",
-    version=6,
-    stage_contract=_text(
-        """
-        Identify the pressures, constraints, uncertainties, and credible changes that materially
-        shape this decision. A design force is a tension to reason about, not a preferred solution.
-        Ground each force in supplied case context or a bounded atlas signal. Do not infer
-        repository behavior from aggregate atlas counts. A labelled structural proxy may justify
-        an investigation force, but it does not establish a violation or its semantic cause; retain
-        its stated limitations. Keep independently changing concerns distinct: responsibility
-        ownership, resource lifecycle, data ownership, dependency spread, operational constraints,
-        and future variation should not be collapsed merely because they interact. Avoid duplicate
-        forces and speculative variation.
-        """
-    ),
-    request=_text(
-        """
-        Return the most important software-architecture design forces. Use concise, discriminating
-        titles and descriptions, and reflect uncertainty explicitly rather than presenting
-        assumptions as confirmed facts. Rate each force with an importance level, and put the
-        reasoning for that level in importance_rationale — say why the force matters now, not
-        merely that it does. Return force content only; ArchCompass owns force identity and
-        assigns internal IDs after validating the response.
-        """
-    ),
-)
-
-
-CLUSTER_DESIGN_FORCES: Final = PromptContract(
-    name="cluster-design-forces",
+JUDGE_FINDING_CANDIDATE: Final = PromptContract(
+    name="judge-finding-candidate",
     version=3,
     stage_contract=_text(
         """
-        Partition forces by the architectural question that needs investigation and the evidence
-        needed to answer it. Create separate clusters when forces may require different repository
-        areas, policies, owners, or trade-offs. Do not use one generic architecture cluster simply
-        because all forces affect the same system. Use one cluster only when the forces genuinely
-        share an investigation and decision boundary.
+        A structural detector found one pattern in this repository and reported what it
+        measured. It decided nothing: detectors report shapes, never verdicts, and this
+        shape was not surfaced because anything looked wrong.
+
+        Decide only whether the pattern is a problem in this case. Two errors are equally
+        wrong here, and neither verdict is the safe one:
+
+        - Condemning a boundary that is absorbing a change this case actually expects.
+        - Clearing a boundary that is absorbing nothing, because clearing it reads as
+          approval and the indirection then stays forever.
+
+        The instruction above to prefer the minimum architecture governs what should be
+        *added*. Here you are judging what already exists, so weigh what the indirection
+        costs against what it demonstrably buys in this case, and say which way it comes
+        out. Judge the placement, not the count.
+
+        A single implementation is correct wherever the boundary buys something this case
+        needs: an owned seam at a process, vendor or storage edge, a dependency the domain
+        must not see, a substitution the tests depend on, a contract more than one caller
+        reads, or a variation the case says is coming.
+
+        A single implementation is a problem wherever the boundary buys nothing here:
+        the case names no variation it would absorb, or names the variation as excluded —
+        a fixed external contract, a settled decision, an explicit non-goal. A boundary
+        cannot absorb a change the case has ruled out, and calling such a boundary
+        acceptable is as much a misreading as condemning a working one.
+
+        Respect the detector's stated limitations. A static count cannot see implementations
+        registered at runtime, supplied by another repository, or planned but unwritten, so
+        it can never establish on its own that no variation exists. Equally, it cannot
+        establish that variation does exist — only the case can say that, and where the case
+        says the opposite, the absence is not an open question.
         """
     ),
     request=_text(
         """
-        Group all supplied design forces into one to four focused concern clusters. Every supplied
-        force_ref must appear exactly once in force_refs, no unknown force_ref may appear, and each
-        rationale must explain why its forces should be investigated together. The F-number values
-        are request-local constrained reference handles, not identities. Return cluster content
-        only; ArchCompass assigns internal cluster IDs after validation.
+        Answer the fields in the order they appear, because that order is the reasoning.
+
+        First, in rationale, argue this specific placement against this case rather than
+        restating a general principle.
+
+        Then return exactly one policy_bearings entry for each supplied policy, in the order
+        the policies were supplied. Do not reorder, omit, or add entries. Set bears_on true
+        only for a policy that genuinely applies to this candidate and put the specific
+        connection in how; leave how empty when bears_on is false. Most policies will not
+        bear on this candidate at all. Never write a policy's name, number or identifier in
+        any text field — position is what identifies a policy here.
+
+        Only then set material, and set it to whatever the argument you just made supports —
+        including when that is not the answer you expected when you started. Supply
+        recommended_response only when material is true, and leave it empty otherwise: a
+        verdict that something is fine has no next action.
         """
     ),
 )
 
 
-PLAN_ATLAS_QUERIES: Final = PromptContract(
-    name="plan-cluster-atlas-queries",
-    version=5,
-    stage_contract=_text(
-        """
-        Plan an independent, bounded repository investigation for every concern cluster. Seek the
-        smallest evidence set that can confirm or disconfirm the concern. Do not make one cluster's
-        evidence stand in for another cluster. Query results in one batch are unavailable until the
-        next iteration, so node-targeted queries may use only node IDs already surfaced for that
-        cluster. Never invent a node ID from a path or symbol name. Metrics are investigation clues,
-        not conclusions or violations.
-        """
-    ),
-    request=_text(
-        """
-        Return exactly one query plan keyed by every supplied cluster ID. When no node IDs have been
-        surfaced for a cluster, use only ID-free discovery queries: repository_summary,
-        signals, search_nodes, hotspots, or cyclic_components. A signals query may filter by a
-        signal code present in the atlas overview. Prefer documented metrics such as
-        reverse_dependency_reach, fan_in, or cycle_size and keep every query focused and bounded.
-        """
-    ),
-)
-
-
-ANALYZE_CONCERN_CLUSTER: Final = PromptContract(
-    name="analyze-concern",
-    version=5,
-    stage_contract=_text(
-        """
-        Analyze exactly one concern cluster from its focused packet. Keep repository observation,
-        policy guidance, confirmed context, assumptions, and advisor inference distinct. Repository
-        observations require supplied node IDs; policy guidance requires supplied policy IDs. Name
-        a source location only when the observation concerns a span narrower than the node, and
-        then only a span the packet surfaced: an observation about a whole node needs none, and an
-        invented span is rejected where an omitted one is not. Interpret metrics according to their
-        documented semantics and call a proxy a proxy. Consider policy exceptions and conflicts.
-        Explain whether local complexity contains system-wide complexity or instead spreads change
-        across responsibilities. Do not generalize from an incomplete packet; record material
-        unknowns.
-        """
-    ),
-    request=_text(
-        """
-        Produce a focused concern analysis with evidence-classified findings and architectural
-        implications. Use only evidence IDs explicitly allowed by the request. If exact repository
-        support is unavailable, omit the observation or classify the statement as advisor inference
-        without an atlas reference.
-        """
-    ),
-)
-
-
-GENERATE_ALTERNATIVES: Final = PromptContract(
-    name="generate-alternatives",
-    version=3,
-    stage_contract=_text(
-        """
-        Generate genuinely credible choices rather than a preferred option and straw alternatives.
-        Include preserving the current design when it remains reasonable. Distinguish moving a
-        responsibility, deepening an existing module, introducing a focused boundary, and adding a
-        general extension mechanism. Do not make hypothetical variation equivalent to a committed
-        requirement. Each option should expose its ownership and change-amplification consequences.
-        """
-    ),
-    request=_text(
-        """
-        Return between two and five concise alternatives that respond to the supplied concern
-        analyses. Do not assume that a new abstraction or code change is required.
-        """
-    ),
-)
-
-
-EVALUATE_SCENARIOS: Final = PromptContract(
-    name="evaluate-scenarios",
-    version=4,
-    stage_contract=_text(
-        """
-        Evaluate every alternative under the same credible scenarios. Separate stated future change
-        from speculative possibility, list every assumption, and identify what evidence would alter
-        the comparison. Judge coordinated change, ownership clarity, contained complexity, and
-        reversibility rather than counting abstractions.
-        """
-    ),
-    request=_text(
-        """
-        Evaluate every supplied alternative against at least one future scenario and its
-        assumptions. Use stated future changes when present. Otherwise use a baseline in which
-        confirmed requirements remain stable and no credible independent variation appears.
-        In every scenario, copy every supplied alternative_ref exactly once into
-        alternative_results; do not omit, rename, replace, or invent alternative references.
-        """
-    ),
-)
-
-
-SYNTHESIZE_RECOMMENDATION: Final = PromptContract(
-    name="synthesize-recommendation",
-    version=4,
-    stage_contract=_text(
-        """
-        Synthesize across all concern analyses without flattening their distinct evidence or policy
-        context. Explain cross-cluster reinforcement, tension, and dependency where material.
-        Produce one or more canonical architectural findings for every concern cluster. A finding
-        must explain its concern, contextual importance and rationale, consequence, confidence,
-        recommended response, and uncertainty. Importance is qualitative and contextual; never
-        derive or expose a universal numeric score.
-        Recommend the smallest responsibility allocation and conceptual interface set justified by
-        the evidence. Preserve useful local complexity when it reduces system-wide complexity.
-        Include uncertainty, reversal conditions, and revisit triggers. A no-change or keep-local
-        decision is a complete architectural recommendation when the evidence supports it.
-
-        You do not restate evidence. Every claim you may cite is supplied with a handle in
-        available_claims. Cite handles; never copy claim text, invent a handle, or repeat the
-        design forces, alternatives, scenarios, or policy evidence supplied to you. ArchCompass
-        owns claim identity, finding identity, report section placement, Atlas node and policy
-        references, source locations, and metric and signal evidence, and derives all of them from
-        the handles you cite.
-        """
-    ),
-    request=_text(
-        """
-        Produce one coherent recommendation and ADR. Every statement must cite at least one claim
-        handle that directly supports its actual meaning; shared vocabulary is not support. Each
-        finding must name its concern cluster handle and cite at least one evidence claim handle
-        belonging to that same cluster.
-        Use advisor_claims only for reasoning that goes beyond the supplied evidence, classified as
-        advisor_inference or derived_constraint, and cite those handles like any other.
-        """
-    ),
-)
-
-
-REPAIR_RECOMMENDATION_PROPOSAL: Final = PromptContract(
-    name="repair-recommendation-proposal",
+ANSWER_REVIEW_QUESTION: Final = PromptContract(
+    name="answer-review-question",
     version=1,
     stage_contract=_text(
         """
-        Repair one recommendation proposal only by correcting the handles it cites against the
-        supplied allowlists. Do not add new findings, statements, or reasoning, and do not change
-        the meaning of existing prose. Replace an unusable handle with a supplied handle that
-        genuinely supports the same statement, or remove the statement when none does. This is one
-        repair attempt.
+        You are answering a question about a boundary review you have been shown in full.
+        Every boundary examined is in the input, with the reasoning that cleared or
+        condemned it, so there is nothing further to retrieve and nothing you have to
+        remember from a previous turn beyond the history supplied.
+
+        Answer from the review and the case. Where the review settles the question, say so
+        and say which boundaries settle it. Where it does not, say plainly that the review
+        does not answer it rather than reasoning past the evidence — a review that examined
+        six boundaries cannot speak about a seventh, and the honest answer is that it was
+        never looked at.
+
+        A boundary that was examined and cleared is evidence, not an absence. "That one was
+        checked and found to be earning its place, because ..." is a complete answer and
+        often the useful one.
+
+        Do not re-litigate a verdict. If the reader disagrees with one, explain what the
+        verdict rested on and what would have to be different in the case for it to change.
         """
     ),
     request=_text(
         """
-        Return one complete corrected proposal that uses only supplied claim and cluster handles,
-        covers every concern cluster with at least one finding, and cites at least one same-cluster
-        evidence claim in each finding.
+        Answer the question in the answer field, in prose, addressed to the person who
+        asked. Be specific about which boundary you mean by naming the abstraction, not by
+        writing a reference code.
+
+        Then, in supported_by, return exactly one true-or-false value for each boundary in
+        the order the boundaries were supplied. Mark true only for a boundary your answer
+        actually rests on. If your answer rests on none of them — because the review does
+        not cover the question — mark them all false; that is a valid and expected answer.
+        Do not reorder, omit, or add entries, and never write a BR- code in any text field.
         """
     ),
 )
 
 
-CLASSIFY_REPORT_QUESTION: Final = PromptContract(
-    name="classify-report-question",
-    version=2,
-    stage_contract=_text(
-        """
-        Classify one question about one immutable recommendation report. Resolve only finding,
-        claim, exact evidence artifact, policy, alternative, and scenario references visible in
-        the supplied planning context, including bounded recent messages. Plan at most eight
-        narrow retrieval actions. Resolve pronouns and ordinals only when the bounded context is
-        unambiguous. Do not
-        treat the repository root, latest Atlas, latest policy index, or another run as available.
-        """
-    ),
-    request=_text(
-        """
-        Return one structured question plan. Use exact supplied IDs, bounded search terms only
-        when no visible ID answers the question, and explain why each requested retrieval is
-        necessary. Do not answer the question.
-        """
-    ),
-)
-
-
-ANSWER_REPORT_QUESTION: Final = PromptContract(
-    name="answer-report-question",
-    version=6,
-    stage_contract=_text(
-        """
-        Explain the pinned report using only supplied evidence. Distinguish original-run evidence
-        from additional conversation evidence, and never imply that the latter influenced the
-        historical recommendation. Do not mutate the decision. Treat changed conditions as
-        explicit counterfactuals and state when a new consultation is required.
-        Policies are guidance, importance is contextual, and missing evidence must remain missing.
-        Never invent findings, source locations, policy IDs, metrics, relationships, excerpts, or
-        hidden reasoning. Preserve dependency-path ordering, test references, concern implications,
-        query summaries, and evidence-unavailable reasons supplied in the context.
-        """
-    ),
-    request=_text(
-        """
-        Return a concise structured answer. Every factual direct-answer, supporting-point, and
-        uncertainty statement must link to supplied answer-claim, finding, or report-claim IDs.
-        Every repository observation must cite exact supplied artifact IDs and its derived evidence
-        scope; every policy-guidance claim needs an exact supplied policy ID. Put unsupported
-        conclusions in uncertainty rather than filling gaps.
-        """
-    ),
-)
-
-
-SUMMARIZE_REPORT_CONVERSATION: Final = PromptContract(
-    name="summarize-report-conversation",
-    version=2,
-    stage_contract=_text(
-        """
-        Produce a typed descriptive bounded summary of a conversation about an immutable report.
-        Retain user corrections, explicit hypothetical conditions, discussed finding and evidence
-        IDs, and unresolved questions together with their source message ordinals. Do not introduce
-        new evidence, repository facts, policy guidance, or conclusions absent from the supplied
-        messages. Cap serialized summary narrative at 6,000 characters. The summary is context,
-        not an authoritative revision of the report.
-        """
-    ),
-    request=_text(
-        """
-        Update the current typed summary from the supplied fixed message window. Return one
-        structured ConversationSummary object.
-        """
-    ),
-)
-
-
-REPAIR_CONVERSATION_ANSWER: Final = PromptContract(
-    name="repair-conversation-answer",
-    version=2,
-    stage_contract=_text(
-        """
-        Repair one structured report-conversation answer only by removing or correcting references
-        against the supplied closed artifact and statement-support allowlists. Do not add new
-        factual claims, evidence, policies, findings, or reasoning. Remove or correct any direct
-        answer, supporting point, uncertainty, or claim whose structured support is invalid. This
-        is one repair attempt.
-        """
-    ),
-    request=_text(
-        """
-        Return one complete corrected answer using only allowed finding, report-claim, Atlas-node,
-        and policy IDs. This is the sole repair attempt.
-        """
-    ),
-)
-
-
-OLLAMA_STAGE_PROMPTS: Final[dict[ReasoningTask, PromptContract]] = {
-    ReasoningTask.DISCOVER_DESIGN_FORCES: DISCOVER_DESIGN_FORCES,
-    ReasoningTask.CLUSTER_DESIGN_FORCES: CLUSTER_DESIGN_FORCES,
-    ReasoningTask.PLAN_ATLAS_QUERIES: PLAN_ATLAS_QUERIES,
-    ReasoningTask.ANALYZE_CONCERN_CLUSTER: ANALYZE_CONCERN_CLUSTER,
-    ReasoningTask.GENERATE_ALTERNATIVES: GENERATE_ALTERNATIVES,
-    ReasoningTask.EVALUATE_SCENARIOS: EVALUATE_SCENARIOS,
-    ReasoningTask.SYNTHESIZE_RECOMMENDATION: SYNTHESIZE_RECOMMENDATION,
-    ReasoningTask.CLASSIFY_REPORT_QUESTION: CLASSIFY_REPORT_QUESTION,
-    ReasoningTask.ANSWER_REPORT_QUESTION: ANSWER_REPORT_QUESTION,
-    ReasoningTask.SUMMARIZE_REPORT_CONVERSATION: SUMMARIZE_REPORT_CONVERSATION,
-    ReasoningTask.REPAIR_CONVERSATION_ANSWER: REPAIR_CONVERSATION_ANSWER,
-    ReasoningTask.REPAIR_RECOMMENDATION_PROPOSAL: REPAIR_RECOMMENDATION_PROPOSAL,
+STAGE_PROMPTS: Final[dict[ReasoningTask, PromptContract]] = {
+    ReasoningTask.JUDGE_FINDING_CANDIDATE: JUDGE_FINDING_CANDIDATE,
+    ReasoningTask.ANSWER_REVIEW_QUESTION: ANSWER_REVIEW_QUESTION,
 }

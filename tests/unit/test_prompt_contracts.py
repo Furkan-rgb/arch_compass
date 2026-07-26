@@ -1,228 +1,108 @@
+"""The two stages that remain, and the contracts that make them checkable."""
+
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 
-import httpx
-import pytest
-from tests.unit.test_ollama_adapters import _patch_transport
-
 from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
-from archcompass.adapters.models.ollama import OllamaReasoningProvider
 from archcompass.adapters.models.prompt_contracts import (
-    ANALYZE_CONCERN_CLUSTER,
-    ANSWER_REPORT_QUESTION,
-    CLASSIFY_REPORT_QUESTION,
-    CLUSTER_DESIGN_FORCES,
-    DISCOVER_DESIGN_FORCES,
-    OLLAMA_STAGE_PROMPTS,
-    REPAIR_CONVERSATION_ANSWER,
-    REPAIR_RECOMMENDATION_PROPOSAL,
-    SUMMARIZE_REPORT_CONVERSATION,
-    SYNTHESIZE_RECOMMENDATION,
+    ANSWER_REVIEW_QUESTION,
+    JUDGE_FINDING_CANDIDATE,
+    STAGE_PROMPTS,
 )
-from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.base import canonical_json
-from archcompass.domain.consultation import GlobalContext
 from archcompass.ports.reasoning import ReasoningTask
-
-
-def _config() -> ReasoningModelConfig:
-    return ReasoningModelConfig(
-        provider="ollama",
-        model="reasoning-test",
-        base_url="http://ollama.test/",
-        timeout_seconds=10,
-    )
-
-
-def _context() -> GlobalContext:
-    return GlobalContext(
-        case_id="case-test",
-        revision=1,
-        title="Provider ownership",
-        problem="Provider-specific capabilities leak into orchestration.",
-        desired_outcome="Keep orchestration provider-neutral.",
-        goals=["Clear ownership"],
-        constraints=["Local-first"],
-        future_changes=["A second provider"],
-        non_goals=["A universal plugin platform"],
-        confirmed_facts=["One provider exists"],
-        assumptions=[],
-    )
-
-
-def _response(payload: object) -> httpx.Response:
-    request = httpx.Request("POST", "http://ollama.test/api/chat")
-    return httpx.Response(200, json=payload, request=request)
 
 
 def _normalized(value: str) -> str:
     return " ".join(value.casefold().split())
 
 
-def test_canonical_json_uses_one_serializer_for_models_and_prompt_mappings() -> None:
-    context = _context()
+def test_canonical_json_uses_one_serializer_for_models_and_mappings() -> None:
+    payload = {"case_id": "case-test", "revision": 1}
 
-    assert canonical_json(context) == canonical_json(
-        context.model_dump(mode="json")
-    )
-    nested = canonical_json({"context": context})
-    assert nested == canonical_json(
-        {"context": context.model_dump(mode="json")}
-    )
-    assert "'case_id': 'case-test'" not in nested
+    assert canonical_json(payload) == canonical_json(dict(payload))
+    assert "'case_id': 'case-test'" not in canonical_json({"outer": payload})
 
 
-def test_stage_prompt_identities_are_versioned_unique_and_content_bound() -> None:
+def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None:
+    """The enum and the registry must not drift; a gap surfaces as a runtime KeyError."""
+
     expected_versions = {
-        ReasoningTask.DISCOVER_DESIGN_FORCES: 6,
-        ReasoningTask.CLUSTER_DESIGN_FORCES: 3,
-        ReasoningTask.PLAN_ATLAS_QUERIES: 5,
-        ReasoningTask.ANALYZE_CONCERN_CLUSTER: 5,
-        ReasoningTask.GENERATE_ALTERNATIVES: 3,
-        ReasoningTask.EVALUATE_SCENARIOS: 4,
-        ReasoningTask.SYNTHESIZE_RECOMMENDATION: 4,
-        ReasoningTask.REPAIR_RECOMMENDATION_PROPOSAL: 1,
-        ReasoningTask.CLASSIFY_REPORT_QUESTION: 2,
-        ReasoningTask.ANSWER_REPORT_QUESTION: 6,
-        ReasoningTask.SUMMARIZE_REPORT_CONVERSATION: 2,
-        ReasoningTask.REPAIR_CONVERSATION_ANSWER: 2,
+        ReasoningTask.JUDGE_FINDING_CANDIDATE: 3,
+        ReasoningTask.ANSWER_REVIEW_QUESTION: 1,
     }
 
-    assert set(OLLAMA_STAGE_PROMPTS) == set(expected_versions)
+    assert set(STAGE_PROMPTS) == set(ReasoningTask)
+    assert set(STAGE_PROMPTS) == set(expected_versions)
     identities = []
     for task, version in expected_versions.items():
-        contract = OLLAMA_STAGE_PROMPTS[task]
+        contract = STAGE_PROMPTS[task]
         assert contract.identity.startswith(f"{contract.name}:v{version}:")
         assert len(contract.content_fingerprint) == 12
         identities.append(contract.identity)
     assert len(identities) == len(set(identities))
 
+
+def test_a_changed_prompt_changes_its_identity_without_a_version_bump() -> None:
+    """Otherwise an audit trail names a prompt that was not the one actually run."""
+
     changed = replace(
-        DISCOVER_DESIGN_FORCES,
-        request=DISCOVER_DESIGN_FORCES.request + " Materially changed.",
+        JUDGE_FINDING_CANDIDATE,
+        request=JUDGE_FINDING_CANDIDATE.request + " Materially changed.",
     )
-    assert changed.version == DISCOVER_DESIGN_FORCES.version
-    assert changed.identity != DISCOVER_DESIGN_FORCES.identity
+
+    assert changed.version == JUDGE_FINDING_CANDIDATE.version
+    assert changed.identity != JUDGE_FINDING_CANDIDATE.identity
 
 
-def test_prompt_contracts_cover_architectural_judgement_rules() -> None:
-    shared = _normalized(DISCOVER_DESIGN_FORCES.system_prompt)
+def test_the_shared_contract_still_carries_the_evidence_rules() -> None:
+    shared = _normalized(JUDGE_FINDING_CANDIDATE.system_prompt)
+
     assert "evidence hierarchy" in shared
     assert "absence of evidence is not evidence of absence" in shared
-    assert "policies as reasoning lenses" in shared
-    assert "local implementation complexity" in shared
-    assert "system-wide complexity" in shared
     assert "minimum architecture" in shared
 
-    force_contract = _normalized(DISCOVER_DESIGN_FORCES.stage_contract)
-    for concern in (
-        "responsibility ownership",
-        "resource lifecycle",
-        "data ownership",
-        "dependency spread",
-    ):
-        assert concern in force_contract
-    assert "owns force identity" in _normalized(DISCOVER_DESIGN_FORCES.request)
 
-    cluster_contract = _normalized(CLUSTER_DESIGN_FORCES.stage_contract)
-    assert "different repository" in cluster_contract
-    assert "policies" in cluster_contract
-    assert "one generic architecture cluster" in cluster_contract
-    cluster_request = _normalized(CLUSTER_DESIGN_FORCES.request)
-    assert "request-local constrained reference handles" in cluster_request
-    assert "assigns internal cluster ids" in cluster_request
+def test_the_judgement_contract_treats_both_errors_as_errors() -> None:
+    """A stage that names one verdict as the default gets that verdict.
 
-    analysis_contract = _normalized(ANALYZE_CONCERN_CLUSTER.stage_contract)
-    assert "call a proxy a proxy" in analysis_contract
-    assert "policy exceptions and conflicts" in analysis_contract
-    assert "local complexity contains system-wide complexity" in analysis_contract
+    Measured rather than assumed: while the contract said "not material is the ordinary
+    answer", every error across four fixture runs was a false clear and none was a false
+    condemn.
+    """
 
-    synthesis_contract = _normalized(SYNTHESIZE_RECOMMENDATION.stage_contract)
-    assert "cross-cluster" in synthesis_contract
-    assert "smallest responsibility allocation" in synthesis_contract
-    assert "keep-local decision" in synthesis_contract
-    assert "canonical architectural findings" in synthesis_contract
-    assert "contextual importance" in synthesis_contract
+    contract = _normalized(JUDGE_FINDING_CANDIDATE.stage_contract)
 
-    classification_contract = _normalized(CLASSIFY_REPORT_QUESTION.stage_contract)
-    assert "at most eight" in classification_contract
-    assert "retrieval action" in classification_contract
-    answer_contract = _normalized(ANSWER_REPORT_QUESTION.stage_contract)
-    assert "original-run" in answer_contract
-    assert "additional conversation" in answer_contract
-    assert "historical recommendation" in answer_contract
-    summary_contract = _normalized(SUMMARIZE_REPORT_CONVERSATION.stage_contract)
-    assert "new evidence" in summary_contract
-    assert "6,000" in summary_contract
-    repair_contract = _normalized(REPAIR_CONVERSATION_ANSWER.stage_contract)
-    assert "allowlist" in repair_contract
-    assert "one repair" in repair_contract
-
-    synthesis_contract = _normalized(SYNTHESIZE_RECOMMENDATION.stage_contract)
-    assert "cite handles" in synthesis_contract
-    assert "owns claim identity" in synthesis_contract
-    proposal_repair = _normalized(REPAIR_RECOMMENDATION_PROPOSAL.stage_contract)
-    assert "one repair attempt" in proposal_repair
+    assert "two errors are equally wrong" in contract
+    assert "neither verdict is the safe one" in contract
+    assert "condemning a boundary that is absorbing a change" in contract
+    assert "clearing a boundary that is absorbing nothing" in contract
 
 
-def test_ollama_request_uses_the_stage_contract_and_default_sampling(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-    content = json.dumps(
-        [
-            {
-                "title": "Provider ownership",
-                "description": "Changing capability knowledge needs one owner.",
-                "importance": "high",
-                "importance_rationale": "Ownership is contested across three modules today.",
-            }
-        ]
-    )
+def test_the_judgement_request_puts_the_argument_before_the_verdict() -> None:
+    """Field order is the reasoning order; the request must not contradict the schema."""
 
-    def post(url: str, **kwargs: object) -> httpx.Response:
-        captured.update(url=url, **kwargs)
-        return _response({"message": {"role": "assistant", "content": content}})
+    request = _normalized(JUDGE_FINDING_CANDIDATE.request)
 
-    _patch_transport(monkeypatch, post)
-    provider = OllamaReasoningProvider(_config())
-
-    provider.discover_design_forces(_context())
-
-    assert provider.prompt_identity(ReasoningTask.DISCOVER_DESIGN_FORCES) == (
-        DISCOVER_DESIGN_FORCES.identity
-    )
-    request = captured["json"]
-    assert isinstance(request, dict)
-    messages = request["messages"]
-    assert isinstance(messages, list)
-    assert messages[0] == {
-        "role": "system",
-        "content": DISCOVER_DESIGN_FORCES.system_prompt,
-    }
-    assert DISCOVER_DESIGN_FORCES.request in messages[1]["content"]
-    assert "Input:" in messages[1]["content"]
-    assert '"case_id":"case-test"' in messages[1]["content"]
-    assert "'case_id': 'case-test'" not in messages[1]["content"]
-    assert request["options"] == {
-        "num_ctx": 32768,
-        "num_predict": 16384,
-    }
-    assert "temperature" not in request
-    assert "temperature" not in request["options"]
+    assert "answer the fields in the order they appear" in request
+    assert request.index("first, in rationale") < request.index("only then set material")
+    assert "never write a policy's name, number or identifier" in request
 
 
-def test_every_reasoning_task_has_a_versioned_prompt_contract() -> None:
-    """The task enum and the Ollama prompt registry describe the same stage set."""
+def test_the_answer_contract_forbids_writing_a_reference_code() -> None:
+    """Grounding is positional; a code in model text would be a key the model authored."""
 
-    assert set(OLLAMA_STAGE_PROMPTS) == set(ReasoningTask)
+    request = _normalized(ANSWER_REVIEW_QUESTION.request)
+
+    assert "never write a br- code" in request
+    assert "in the order the boundaries were supplied" in request
 
 
-def test_deterministic_provider_resolves_identities_for_the_stages_it_runs() -> None:
-    """The fake answers for every stage except the one it has no call for."""
+def test_the_substitute_names_the_same_prompts_as_the_real_registry() -> None:
+    """A stage the substitute cannot identify is one the test suite never really ran."""
 
-    provider = DeterministicReasoningProvider()
+    substitute = DeterministicReasoningProvider()
+
     for task in ReasoningTask:
-        assert provider.prompt_identity(task)
+        assert substitute.prompt_identity(task)

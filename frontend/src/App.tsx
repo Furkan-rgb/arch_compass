@@ -9,11 +9,6 @@ const CasesPage = lazy(() =>
 const DashboardPage = lazy(() =>
   import("./pages/DashboardPage").then(({ DashboardPage }) => ({ default: DashboardPage })),
 );
-const NewConsultationPage = lazy(() =>
-  import("./pages/NewConsultationPage").then(({ NewConsultationPage }) => ({
-    default: NewConsultationPage,
-  })),
-);
 const PoliciesPage = lazy(() =>
   import("./pages/PoliciesPage").then(({ PoliciesPage }) => ({ default: PoliciesPage })),
 );
@@ -22,11 +17,13 @@ const RepositoriesPage = lazy(() =>
     default: RepositoriesPage,
   })),
 );
-const RunDetailPage = lazy(() =>
-  import("./pages/RunDetailPage").then(({ RunDetailPage }) => ({ default: RunDetailPage })),
+const ReviewsPage = lazy(() =>
+  import("./pages/ReviewsPage").then(({ ReviewsPage }) => ({ default: ReviewsPage })),
 );
-const RunsPage = lazy(() =>
-  import("./pages/RunsPage").then(({ RunsPage }) => ({ default: RunsPage })),
+const ReviewDetailPage = lazy(() =>
+  import("./pages/ReviewDetailPage").then(({ ReviewDetailPage }) => ({
+    default: ReviewDetailPage,
+  })),
 );
 
 export function App() {
@@ -35,11 +32,10 @@ export function App() {
       <Suspense fallback={<Loading label="Opening field notes…" />}>
         <Routes>
           <Route path="/" element={<DashboardPage />} />
-          <Route path="/new" element={<NewConsultationPage />} />
           <Route path="/cases" element={<CasesPage />} />
           <Route path="/repositories" element={<RepositoriesPage />} />
-          <Route path="/runs" element={<RunsPage />} />
-          <Route path="/runs/:runId" element={<RunDetailPage />} />
+          <Route path="/reviews" element={<ReviewsPage />} />
+          <Route path="/reviews/:reviewId" element={<ReviewDetailPage />} />
           <Route path="/policies" element={<PoliciesPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

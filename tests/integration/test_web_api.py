@@ -1,12 +1,10 @@
+"""The local HTTP surface: the whole review loop, and the contracts a client relies on."""
+
 from __future__ import annotations
 
 from pathlib import Path
-from time import monotonic, sleep
 
 import pytest
-import yaml
-
-from archcompass.domain.consultation import RecommendationDisposition
 
 pytest.importorskip("fastapi")
 
@@ -15,254 +13,175 @@ from fastapi.testclient import TestClient
 from archcompass.bootstrap import Runtime
 from archcompass.presentation.web import create_app
 
+FIXTURE = "boundary-review"
 
-def test_web_api_covers_local_case_consultation_and_report(runtime: Runtime) -> None:
-    source = yaml.safe_load(
-        Path("eval/cases/audiobook-greenfield/case.yaml").read_text(encoding="utf-8")
-    )
+
+def test_the_api_covers_the_whole_review_loop(runtime: Runtime) -> None:
+    """Pick an example, review it, read it back, ask about it — in one client session."""
 
     with TestClient(create_app(runtime)) as client:
         workspace = client.get("/api/workspace")
-        policies = client.get("/api/policies")
-        created = client.post("/api/cases", json=source)
-
         assert workspace.status_code == 200
         assert workspace.json()["models"]["reasoning"]["provider"] == "fake"
-        assert policies.status_code == 200
-        assert any(item["id"] == "contain-dependencies" for item in policies.json())
+
+        examples = client.get("/api/bundled-cases")
+        assert examples.status_code == 200
+        listed = {item["name"]: item for item in examples.json()}
+        assert FIXTURE in listed
+        # Only an example that ships answers can be scored; the flag is what the workspace
+        # uses to say so, and a client that trusted it wrongly would grade against nothing.
+        assert listed[FIXTURE]["has_expected_answers"] is True
+
+        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
+        assert loaded.status_code == 201, loaded.text
+        case_id = loaded.json()["case_id"]
+
+        created = client.post(
+            "/api/reviews",
+            json={"case_id": case_id, "repository_root": listed[FIXTURE]["repository_root"]},
+        )
         assert created.status_code == 201, created.text
+        review = created.json()
+        review_id = review["review_id"]
+        assert review["status"] == "succeeded"
+        assert review["report"]["reviewed"]
+        assert review["markdown_report"]
 
-        case_id = created.json()["case_id"]
-        started = client.post(
-            "/api/consultations",
-            json={"case_id": case_id, "repository_root": None},
-        )
-        assert started.status_code == 202, started.text
-        run_id = started.json()["run_id"]
+        fetched = client.get(f"/api/reviews/{review_id}")
+        assert fetched.status_code == 200
+        assert fetched.json()["review_id"] == review_id
 
-        deadline = monotonic() + 10
-        status = "queued"
-        while status in {"queued", "running"} and monotonic() < deadline:
-            response = client.get(f"/api/consultations/{run_id}")
-            assert response.status_code == 200
-            status = response.json()["status"]
-            if status in {"queued", "running"}:
-                sleep(0.01)
+        summaries = client.get("/api/reviews")
+        assert summaries.status_code == 200
+        assert [item["review_id"] for item in summaries.json()] == [review_id]
 
-        assert status == "succeeded"
-        events = client.get(f"/api/consultations/{run_id}/events")
-        run = client.get(f"/api/runs/{run_id}")
-        markdown = client.get(f"/api/runs/{run_id}/report?format=markdown")
-        structured = client.get(f"/api/runs/{run_id}/report?format=json")
-        removed_follow_up = client.post(
-            f"/api/runs/{run_id}/follow-ups",
-            json={"question": "What findings support the result?"},
-        )
         conversation = client.post(
-            "/api/conversations",
-            json={"run_id": run_id},
+            "/api/review-conversations", json={"review_id": review_id}
         )
-
-        assert events.status_code == 200
-        assert any(
-            item["event_type"] == "artifact_available"
-            and item["stage"] == "design_forces"
-            for item in events.json()
-        )
-        assert events.json()[-1]["event_type"] == "completed"
-        assert run.status_code == 200
-        assert run.json()["report"]["disposition"] in {
-            item.value for item in RecommendationDisposition
-        }
-        assert markdown.status_code == 200
-        assert "Decision summary" in markdown.text
-        assert structured.status_code == 200
-        assert structured.json()["schema_version"] == 3
-        assert structured.json()["findings"][0]["finding_id"] == "FIND-001"
-        assert removed_follow_up.status_code == 404
         assert conversation.status_code == 201, conversation.text
         conversation_id = conversation.json()["conversation_id"]
-        answer = client.post(
-            f"/api/conversations/{conversation_id}/messages",
-            json={"question": "What findings support the result?"},
+
+        answered = client.post(
+            f"/api/review-conversations/{conversation_id}/messages",
+            json={"question": "What did you make of the TaskFormatter boundary?"},
         )
-        history = client.get(f"/api/conversations/{conversation_id}/history")
-        conversation_markdown = client.get(
-            f"/api/conversations/{conversation_id}/export",
-            params={"format": "markdown"},
-        )
-        conversation_json = client.get(
-            f"/api/conversations/{conversation_id}/export",
-            params={"format": "json"},
-        )
-        assert answer.status_code == 201, answer.text
-        assert answer.json()["role"] == "assistant"
-        assert answer.json()["answer"]["relevant_finding_ids"]
+        assert answered.status_code == 201, answered.text
+        message = answered.json()
+        assert message["answer"]["answer"]
+        known = {item["reference"] for item in review["report"]["reviewed"]}
+        # Every citation resolves; references are assigned by the application from
+        # position, so an unknown one could only mean the application invented it.
+        assert set(message["answer"]["supporting_references"]) <= known
+
+        history = client.get(f"/api/review-conversations/{conversation_id}")
         assert history.status_code == 200
-        assert [item["role"] for item in history.json()] == ["user", "assistant"]
-        assert conversation_markdown.status_code == 200
-        assert conversation_markdown.headers["content-type"].startswith("text/markdown")
-        assert f"Consultation run: `{run_id}`" in conversation_markdown.text
-        assert conversation_json.status_code == 200
-        assert conversation_json.headers["content-type"].startswith("application/json")
-        assert (
-            conversation_json.json()["conversation"]["conversation_id"]
-            == conversation_id
-        )
+        assert len(history.json()["messages"]) == 1
+
+        scored = client.get(f"/api/reviews/{review_id}/score")
+        assert scored.status_code == 200, scored.text
+        result = scored.json()
+        assert result is not None, "a bundled example that ships answers must be gradable"
+        assert result["example"] == FIXTURE
+        assert result["total"] == len(review["report"]["reviewed"])
+        # Nothing may be silently excluded: an uncovered boundary means the example drifted
+        # from its own key, and a score over the remainder would look complete.
+        assert result["unscored"] == []
+        assert {item["reference"] for item in result["boundaries"]} == known
 
 
-def test_web_api_returns_stable_problem_details(runtime: Runtime) -> None:
+def test_unknown_identifiers_return_stable_problem_details(runtime: Runtime) -> None:
+    """A client distinguishes "not there" from "malformed" by code, not by prose."""
+
     with TestClient(create_app(runtime)) as client:
-        response = client.get("/api/cases/not-a-case")
-        invalid = client.post(
-            "/api/conversations/not-a-conversation/messages",
-            json={"question": ""},
+        missing = client.get("/api/reviews/rev_missing")
+        assert missing.status_code == 404
+        body = missing.json()
+        assert body["code"]
+        assert body["message"]
+
+        malformed = client.post("/api/reviews", json={"case_id": ""})
+        assert malformed.status_code == 422
+
+        unknown_route = client.get("/api/not-a-route")
+        assert unknown_route.status_code == 404
+        assert unknown_route.json()["code"]
+
+
+def test_a_review_of_an_unindexed_repository_fails_rather_than_reporting_nothing(
+    runtime: Runtime,
+    tmp_path: Path,
+) -> None:
+    """Zero boundaries and no atlas would serialise identically. They must not."""
+
+    with TestClient(create_app(runtime)) as client:
+        created = client.post("/api/cases", json={
+            "title": "Unindexed",
+            "problem_statement": "Nothing has been indexed yet.",
+            "desired_outcome": "An honest error.",
+        })
+        assert created.status_code == 201, created.text
+
+        attempted = client.post(
+            "/api/reviews",
+            json={
+                "case_id": created.json()["case_id"],
+                "repository_root": str(tmp_path),
+            },
         )
 
-    assert response.status_code == 404
-    assert response.json() == {
-        "code": "not_found",
-        "message": "Architecture case not-a-case was not found",
-        "retryable": False,
-        "field_errors": [],
-    }
-    assert invalid.status_code == 422
-    assert invalid.json()["code"] == "validation_error"
-    assert invalid.json()["field_errors"]
+        assert attempted.status_code == 404
+        assert "repo index" in attempted.json()["message"]
 
 
-def test_web_api_maps_missing_consultation_runs_to_not_found(
+def test_a_review_of_unscored_code_reports_no_score_rather_than_a_made_up_one(
     runtime: Runtime,
 ) -> None:
+    """Someone's own repository has no right answer; inventing one would be worse than none."""
+
+    atlas = runtime.analyzer.analyze(Path("eval/cases/provider-leakage/repository").resolve())
+    runtime.atlas_repository.save(atlas)
+
     with TestClient(create_app(runtime)) as client:
-        shown = client.get("/api/runs/not-a-run")
-        created = client.post(
-            "/api/conversations",
-            json={"run_id": "not-a-run"},
-        )
-        listed = client.get(
-            "/api/conversations",
-            params={"run_id": "not-a-run"},
-        )
+        created = client.post("/api/cases", json={
+            "title": "Unscored",
+            "problem_statement": "A repository that ships no answer key.",
+            "desired_outcome": "An honest absence of a score.",
+        })
+        review = client.post("/api/reviews", json={
+            "case_id": created.json()["case_id"],
+            "repository_root": atlas.version.root_path,
+        })
+        assert review.status_code == 201, review.text
 
-    for response in (shown, created, listed):
-        assert response.status_code == 404
-        assert response.json()["code"] == "not_found"
-        assert response.json()["retryable"] is False
+        scored = client.get(f"/api/reviews/{review.json()['review_id']}/score")
+
+        assert scored.status_code == 200
+        assert scored.json() is None
 
 
-def test_web_openapi_declares_problem_and_export_contracts(
-    runtime: Runtime,
-) -> None:
-    schema = create_app(runtime).openapi()
-    paths = schema["paths"]
+def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> None:
+    """The generated TypeScript client is derived from this; a gap here is a silent any."""
 
-    assert "ProblemDetail" in schema["components"]["schemas"]
-    assert "HTTPValidationError" not in schema["components"]["schemas"]
-    expected_problem_reference = {"$ref": "#/components/schemas/ProblemDetail"}
-    for path_item in paths.values():
-        for operation in path_item.values():
-            response = operation["responses"].get("422")
-            if response is not None:
-                assert (
-                    response["content"]["application/json"]["schema"]
-                    == expected_problem_reference
-                )
-    conversation_operations = (
-        paths["/api/conversations"]["post"],
-        paths["/api/conversations"]["get"],
-        paths["/api/conversations/{conversation_id}"]["get"],
-        paths["/api/conversations/{conversation_id}/history"]["get"],
-        paths["/api/conversations/{conversation_id}/messages"]["post"],
-        paths["/api/conversations/{conversation_id}/export"]["get"],
-    )
-    for operation in conversation_operations:
-        assert set(operation["responses"]) >= {"404", "422"}
-        for status in ("404", "422"):
-            assert (
-                operation["responses"][status]["content"]["application/json"]["schema"]
-                == expected_problem_reference
-            )
+    with TestClient(create_app(runtime)) as client:
+        document = client.get("/api/openapi.json")
 
-    ask_responses = paths["/api/conversations/{conversation_id}/messages"]["post"][
-        "responses"
-    ]
-    assert set(ask_responses) >= {"201", "404", "409", "422", "503"}
-    for status in ("404", "409", "422", "503"):
-        assert (
-            ask_responses[status]["content"]["application/json"]["schema"]
-            == expected_problem_reference
-        )
-
-    for path in (
-        "/api/runs/{run_id}/report",
-        "/api/conversations/{conversation_id}/export",
+    assert document.status_code == 200
+    paths = document.json()["paths"]
+    for route in (
+        "/api/bundled-cases",
+        "/api/reviews",
+        "/api/reviews/{review_id}",
+        "/api/review-conversations",
+        "/api/review-conversations/{conversation_id}/messages",
+        "/api/reviews/{review_id}/score",
+        "/api/repositories/explore",
     ):
-        content = paths[path]["get"]["responses"]["200"]["content"]
-        assert set(content) >= {"application/json", "text/markdown"}
-        assert content["application/json"]["schema"]
-        assert content["text/markdown"]["schema"] == {"type": "string"}
+        assert route in paths, route
 
-
-def test_web_api_explores_repository_atlas_progressively(runtime: Runtime) -> None:
-    repository = Path("eval/cases/provider-leakage/repository").resolve()
-
-    with TestClient(create_app(runtime)) as client:
-        indexed = client.post(
-            "/api/repositories/index", json={"root_path": str(repository)}
-        )
-        assert indexed.status_code == 201, indexed.text
-
-        summary = client.get(
-            "/api/repositories/summary", params={"root_path": str(repository)}
-        )
-        assert summary.status_code == 200, summary.text
-        root = next(
-            node
-            for node in summary.json()["node_summaries"]
-            if node["node_type"] == "repository"
-        )
-
-        children = client.post(
-            "/api/repositories/explore",
-            json={
-                "root_path": str(repository),
-                "operation": "children",
-                "node_id": root["node_id"],
-            },
-        )
-        searched = client.post(
-            "/api/repositories/explore",
-            json={
-                "root_path": str(repository),
-                "operation": "search",
-                "terms": ["provider"],
-            },
-        )
-        signals = client.post(
-            "/api/repositories/explore",
-            json={
-                "root_path": str(repository),
-                "operation": "signals",
-            },
-        )
-        invalid = client.post(
-            "/api/repositories/explore",
-            json={"root_path": str(repository), "operation": "shortest_path"},
-        )
-
-    assert children.status_code == 200, children.text
-    assert children.json()["node_summaries"]
-    assert any(
-        edge["edge_type"] == "contains"
-        for edge in children.json()["relationships"]
-    )
-    assert searched.status_code == 200, searched.text
-    assert any(
-        "provider" in node["qualified_name"].lower()
-        for node in searched.json()["node_summaries"]
-    )
-    assert signals.status_code == 200, signals.text
-    assert signals.json()["signals"]
-    assert signals.json()["node_summaries"]
-    assert invalid.status_code == 422
+    schemas = document.json()["components"]["schemas"]
+    assert "BoundaryReview" in schemas
+    assert "ReviewedBoundary" in schemas
+    assert "ReviewConversation" in schemas
+    # The old consultation surface is gone, not merely unused by the workspace.
+    assert not any(path.startswith("/api/consultations") for path in paths)
+    assert not any(path.startswith("/api/runs") for path in paths)

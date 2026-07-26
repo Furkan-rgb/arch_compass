@@ -14,9 +14,6 @@ from archcompass.ports.reasoning import (
 from archcompass.ports.repositories import (
     AtlasRepository,
     CaseRepository,
-    ConsultationCommitRepository,
-    ConsultationRunRepository,
-    ReportConversationRepository,
 )
 
 ReasoningProvider = FocusedReasoningProvider
@@ -25,15 +22,12 @@ __all__ = [
     "AtlasQueryService",
     "AtlasRepository",
     "CaseRepository",
-    "ConsultationCommitRepository",
-    "ConsultationRunRepository",
     "EmbeddingProvider",
     "FocusedReasoningProvider",
     "PolicyIndex",
     "PolicyRetriever",
     "ReasoningProvider",
     "ReportConversationReasoner",
-    "ReportConversationRepository",
     "RepositoryAnalyzer",
     "SourceReader",
 ]

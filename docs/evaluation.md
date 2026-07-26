@@ -114,7 +114,7 @@ assessed against their evidence discipline and decision rubric. Running the dete
 provider over the same fixtures is still an integrity test. Automated structural assertions
 such as valid citations are necessary, but exact keyword matches are not sufficient evidence of
 architectural quality. Tests that perform an optional quality run should use the
-`architectural_quality` marker and record the model, prompt identities, configuration, and case
+`ollama` or `google` marker and record the model, prompt identities, configuration, and case
 revision used.
 
 ## Recorded replay tier

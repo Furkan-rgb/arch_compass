@@ -6,11 +6,6 @@ from datetime import datetime
 
 from archcompass.domain.base import DomainModel
 from archcompass.domain.case import Confidence, RecommendationState
-from archcompass.domain.consultation import (
-    ConsultationFailureStage,
-    ConsultationStatus,
-    RecommendationDisposition,
-)
 
 
 class CaseSummary(DomainModel):
@@ -24,16 +19,17 @@ class CaseSummary(DomainModel):
     updated_at: datetime
 
 
-class RunSummary(DomainModel):
-    run_id: str
+class BoundaryReviewSummary(DomainModel):
+    """One row of a review listing, read from columns rather than a stored document."""
+
+    review_id: str
     case_id: str
-    status: ConsultationStatus
-    input_case_revision: int
-    result_case_revision: int | None = None
-    disposition: RecommendationDisposition | None = None
-    failure_stage: ConsultationFailureStage | None = None
-    started_at: datetime
-    completed_at: datetime
+    case_revision: int
+    atlas_version_id: str
+    status: str
+    boundaries_reviewed: int
+    boundaries_material: int
+    created_at: str
 
 
 class RepositorySummary(DomainModel):

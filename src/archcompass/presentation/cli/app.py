@@ -10,6 +10,7 @@ import typer
 import yaml
 from pydantic import ValidationError
 
+from archcompass.application.review_rendering import render_review
 from archcompass.application.safety import (
     validate_workspace_repository_separation,
 )
@@ -33,15 +34,13 @@ policy_sources_app = typer.Typer(help="Register persistent workspace policy sour
 repo_app = typer.Typer(help="Index a Python repository.")
 atlas_app = typer.Typer(help="Query repository atlases.")
 case_app = typer.Typer(help="Create and revise architecture cases.")
-run_app = typer.Typer(help="Inspect immutable consultation runs.")
-conversation_app = typer.Typer(help="Discuss one immutable consultation report.")
+reviews_app = typer.Typer(help="Inspect immutable boundary reviews.")
 app.add_typer(policies_app, name="policies")
 policies_app.add_typer(policy_sources_app, name="sources")
 app.add_typer(repo_app, name="repo")
 app.add_typer(atlas_app, name="atlas")
 app.add_typer(case_app, name="case")
-app.add_typer(run_app, name="run")
-app.add_typer(conversation_app, name="conversation")
+app.add_typer(reviews_app, name="reviews")
 
 
 class CLIState:
@@ -303,120 +302,74 @@ def case_history(context: typer.Context, case_id: str) -> None:
     )
 
 
-@app.command("advise")
-def advise(
+@app.command("review")
+def review(
     context: typer.Context,
     case_id: str,
     repo: Annotated[
-        Path | None,
-        typer.Option("--repo", help="Use the latest indexed atlas for this repository."),
-    ] = None,
+        Path,
+        typer.Option("--repo", help="Repository whose indexed atlas should be reviewed."),
+    ],
     as_json: Annotated[
-        bool, typer.Option("--json", help="Print the structured report.")
+        bool, typer.Option("--json", help="Print the stored review instead of its Markdown.")
     ] = False,
 ) -> None:
+    """Judge every boundary the detector finds in a repository against one case."""
+
     state = _state(context)
-    runtime = (
-        state.runtime_for_repository(repo)
-        if repo is not None
-        else state.runtime
-    )
-    run = runtime.advice_service.advise(
+    stored = state.runtime_for_repository(repo).review_service.review(
         case_id,
         repository_root=repo,
     )
-    if run.report is None or run.markdown_report is None:
-        raise RuntimeError("Successful consultation did not produce a report")
-    typer.echo(run.report.model_dump_json(indent=2) if as_json else run.markdown_report)
+    typer.echo(stored.model_dump_json(indent=2) if as_json else render_review(stored))
 
 
-@run_app.command("show")
-def run_show(context: typer.Context, run_id: str) -> None:
-    run = _state(context).runtime.run_service.show(run_id)
-    typer.echo(run.model_dump_json(indent=2))
+@reviews_app.command("show")
+def review_show(context: typer.Context, review_id: str) -> None:
+    stored = _state(context).runtime.review_repository.get(review_id)
+    typer.echo(render_review(stored))
 
 
-@conversation_app.command("create")
-def conversation_create(
+@reviews_app.command("ask")
+def review_ask(
     context: typer.Context,
-    run: Annotated[str, typer.Option("--run", help="Successful consultation run ID.")],
-    title: Annotated[str | None, typer.Option("--title")] = None,
-) -> None:
-    conversation = _state(context).runtime.conversation_service.create(
-        run,
-        title=title,
-    )
-    typer.echo(conversation.model_dump_json(indent=2))
-
-
-@conversation_app.command("list")
-def conversation_list(
-    context: typer.Context,
-    run: Annotated[str, typer.Option("--run", help="Consultation run ID.")],
-) -> None:
-    conversations = _state(context).runtime.conversation_service.list(run)
-    typer.echo(
-        json.dumps(
-            [item.model_dump(mode="json") for item in conversations],
-            indent=2,
-        )
-    )
-
-
-@conversation_app.command("show")
-def conversation_show(context: typer.Context, conversation_id: str) -> None:
-    conversation = _state(context).runtime.conversation_service.show(conversation_id)
-    typer.echo(conversation.model_dump_json(indent=2))
-
-
-@conversation_app.command("ask")
-def conversation_ask(
-    context: typer.Context,
-    conversation_id: str,
+    review_id: str,
     question: str,
-    as_json: Annotated[
-        bool,
-        typer.Option("--json", help="Print the canonical structured answer."),
-    ] = False,
 ) -> None:
-    message = _state(context).runtime.conversation_service.ask(
-        conversation_id,
-        question,
-    )
+    """Ask a question about one review, continuing its conversation."""
+
+    service = _state(context).runtime.review_conversation_service
+    existing = service.list(review_id)
+    conversation = existing[0] if existing else service.create(review_id)
+    message = service.ask(conversation.conversation_id, question)
     if message.answer is None:
-        raise RuntimeError("A successful conversation answer is missing structured output")
+        raise RuntimeError(message.failure)
+    typer.echo(message.answer.answer)
+    grounding = message.answer.supporting_references
+    typer.echo("")
     typer.echo(
-        message.answer.model_dump_json(indent=2)
-        if as_json
-        else message.text
+        f"Grounded on {', '.join(grounding)}"
+        if grounding
+        else "Not grounded on any reviewed boundary."
     )
 
 
-@conversation_app.command("history")
-def conversation_history(context: typer.Context, conversation_id: str) -> None:
-    messages = _state(context).runtime.conversation_service.history(conversation_id)
+@reviews_app.command("history")
+def review_history(context: typer.Context, review_id: str) -> None:
+    conversations = _state(context).runtime.review_conversation_service.list(review_id)
     typer.echo(
-        json.dumps(
-            [item.model_dump(mode="json") for item in messages],
-            indent=2,
-        )
+        json.dumps([item.model_dump(mode="json") for item in conversations], indent=2)
     )
 
 
-@conversation_app.command("export")
-def conversation_export(
+@reviews_app.command("list")
+def review_list(
     context: typer.Context,
-    conversation_id: str,
-    output_format: Annotated[
-        str,
-        typer.Option("--format", help="Export format: markdown or json."),
-    ] = "markdown",
+    case: Annotated[str | None, typer.Option("--case", help="Filter by case ID.")] = None,
 ) -> None:
+    summaries = _state(context).runtime.review_repository.list(case_id=case)
     typer.echo(
-        _state(context).runtime.conversation_service.export(
-            conversation_id,
-            format=output_format,
-        )
+        json.dumps([item.model_dump(mode="json") for item in summaries], indent=2)
     )
 
 

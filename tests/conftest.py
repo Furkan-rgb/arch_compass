@@ -26,11 +26,6 @@ def fake_config_text() -> str:
 retrieval:
   top_k: 6
   max_sections_per_policy: 3
-consultation:
-  max_zoom_iterations: 3
-  max_queries_per_iteration: 8
-  max_query_results: 30
-  max_excerpt_lines: 80
 """
 
 
