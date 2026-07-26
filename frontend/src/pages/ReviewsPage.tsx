@@ -1,5 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, CircleCheck, Compass, TriangleAlert } from "lucide-react";
+import {
+  ArrowRight,
+  CircleCheck,
+  Compass,
+  Loader,
+  TriangleAlert,
+  XCircle,
+} from "lucide-react";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 
@@ -14,6 +21,57 @@ import {
   shortId,
 } from "../components";
 import type { BoundaryReviewSummary } from "../types";
+
+/** True while any listed review is still being produced. */
+export function anyRunning(reviews: BoundaryReviewSummary[]) {
+  return reviews.some((review) => review.status === "running");
+}
+
+/**
+ * What a row amounts to: the verdict split, or how far a run has got.
+ *
+ * A running review has no verdict to report, so it reports its position instead. Before
+ * detection finishes it cannot even do that — the length is genuinely unknown, and a "0 of
+ * 0" would read as a sweep that found nothing rather than one that has not finished.
+ */
+export function Outcome({ review }: { review: BoundaryReviewSummary }) {
+  if (review.status === "running") {
+    return (
+      <Badge tone="teal">
+        <Loader size={13} aria-hidden className="spin" />
+        {review.boundaries_detected === null || review.boundaries_detected === undefined
+          ? "sweeping the atlas"
+          : `judging ${Math.min(
+              review.boundaries_reviewed + 1,
+              review.boundaries_detected,
+            )} of ${review.boundaries_detected}`}
+      </Badge>
+    );
+  }
+  if (review.status === "failed") {
+    return (
+      <Badge tone="danger">
+        <XCircle size={13} aria-hidden /> failed, nothing judged
+      </Badge>
+    );
+  }
+  if (review.boundaries_material > 0) {
+    return (
+      <Badge tone="warning">
+        <TriangleAlert size={13} aria-hidden />
+        {review.boundaries_material} of {review.boundaries_reviewed} should change
+      </Badge>
+    );
+  }
+  return (
+    <Badge tone="success">
+      <CircleCheck size={13} aria-hidden />
+      {review.boundaries_reviewed === 0
+        ? "no boundaries to examine"
+        : `all ${review.boundaries_reviewed} earning their place`}
+    </Badge>
+  );
+}
 
 /**
  * Every review this workspace has run, kept off the start step.
@@ -52,18 +110,7 @@ export function CaseHistory({
                 <small>case rev {review.case_revision}</small>
               </span>
               <span className="review-row__verdict">
-                {review.boundaries_material > 0 ? (
-                  <Badge tone="warning">
-                    <TriangleAlert size={13} aria-hidden />
-                    {review.boundaries_material} of {review.boundaries_reviewed} should
-                    change
-                  </Badge>
-                ) : (
-                  <Badge tone="success">
-                    <CircleCheck size={13} aria-hidden />
-                    all {review.boundaries_reviewed} earning their place
-                  </Badge>
-                )}
+                <Outcome review={review} />
               </span>
               {index === 0 && reviews.length > 1 ? (
                 <span className="review-row__latest">latest</span>
@@ -97,7 +144,15 @@ export function groupByCase(reviews: BoundaryReviewSummary[]) {
 }
 
 export function ReviewsPage() {
-  const reviews = useQuery({ queryKey: ["reviews"], queryFn: () => api.reviews() });
+  const reviews = useQuery({
+    queryKey: ["reviews"],
+    queryFn: () => api.reviews(),
+    // Polled only while something is actually running, and stopped the moment nothing is.
+    // A run reports through its own request's stream; this page is a second reader with no
+    // stream of its own, and one that polled for ever would keep a local model's machine
+    // busy answering a question whose answer cannot change.
+    refetchInterval: (query) => (anyRunning(query.state.data || []) ? 2000 : false),
+  });
   const grouped = useMemo(() => groupByCase(reviews.data || []), [reviews.data]);
 
   return (

@@ -1,4 +1,4 @@
-.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build bundle-check test-ollama test-google eval eval-local check build full demo demo-local test-browser
+.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build bundle-check test-ollama test-google eval eval-local check build full demo demo-local test-browser web web-google
 
 sync:
 	uv sync --locked
@@ -64,6 +64,15 @@ demo-local:
 # queue for work this long by design.
 eval-local:
 	uv run python scripts/run_boundary_review.py --all --models-config config/models.ollama.yaml
+
+# This repository is also a workspace, and it keeps a configuration per provider rather
+# than one unnamed `models.yaml`. Two of them is not a default, so `archcompass web` says
+# so instead of guessing; these targets are where the repository makes the choice.
+web:
+	uv run archcompass web --models-config config/models.ollama.yaml
+
+web-google:
+	uv run archcompass web --models-config config/models.google.yaml
 
 # Drives the committed bundle in a real browser against a real server, with the model
 # substituted. Outside `check` because it needs Playwright's chromium downloaded.

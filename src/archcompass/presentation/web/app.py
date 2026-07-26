@@ -285,6 +285,14 @@ def create_app(runtime: Runtime) -> FastAPI:
     # because a consultation took eight model calls through several stages and needed
     # recovery after an interrupted process; a review is one call per boundary against an
     # already-indexed atlas, and re-running it costs nothing that has to be reconciled.
+    #
+    # What does need saying is what happened to a run the last workspace was in the middle
+    # of. A run cannot outlive the process holding its request, so a row still marked
+    # running when this one starts belongs to a process that is gone, and leaving it saying
+    # "in progress" for ever would be the one thing worse than reporting it failed.
+    runtime.review_repository.abandon_running(
+        reason="The workspace stopped while this review was running, so nothing was judged."
+    )
     app = FastAPI(
         title="Arch Compass Local API",
         version="0.1.0",

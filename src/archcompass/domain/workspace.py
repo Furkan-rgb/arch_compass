@@ -24,9 +24,17 @@ class BoundaryReviewSummary(DomainModel):
     case_revision: int
     atlas_version_id: str
     status: str
+    #: How many the sweep found. `None` until detection finishes, which is the one moment
+    #: a run has no answer to give: before it, nothing is known; after it, the length is
+    #: fixed. Against `boundaries_reviewed` it is what makes a running review countable.
+    boundaries_detected: int | None
     boundaries_reviewed: int
     boundaries_material: int
     created_at: str
+    #: When the row last moved. On a finished review this is when it finished; on a running
+    #: one it is when its last verdict landed, which is how long a reader can tell it has
+    #: been quiet.
+    updated_at: str
     #: What the review judged, so a listing can be read without opening every row. Absent
     #: on a review that failed before composing a report, which has no title to carry.
     case_title: str | None = None

@@ -11,6 +11,7 @@ from archcompass.configuration import (
     load_environment_file,
     load_provider_environment,
     resolve_api_key,
+    resolve_config_path,
 )
 from archcompass.domain.errors import ConfigurationError
 
@@ -158,3 +159,74 @@ def test_the_workspace_environment_file_wins_over_the_working_directory(
     load_provider_environment(workspace)
 
     assert os.environ["ARCHCOMPASS_TEST_SCOPED_KEY"] == "from-workspace"
+
+
+def _workspace_with(tmp_path: Path, *names: str) -> Path:
+    (tmp_path / "config").mkdir()
+    for name in names:
+        (tmp_path / "config" / name).write_text("models: {}\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_a_workspace_with_one_named_configuration_uses_it(tmp_path: Path) -> None:
+    """No second, unnamed configuration is invented beside the one that is already there.
+
+    A workspace naming its configuration for the provider it points at used to get
+    `models.yaml` written from the packaged template — pointing at a model that may not be
+    installed, and silently preferred over the one the user wrote.
+    """
+
+    workspace = _workspace_with(tmp_path, "models.ollama.yaml")
+
+    assert resolve_config_path(workspace).name == "models.ollama.yaml"
+
+
+def test_an_unnamed_configuration_still_wins_when_a_workspace_has_one(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace_with(tmp_path, "models.ollama.yaml", "models.yaml")
+
+    assert resolve_config_path(workspace).name == "models.yaml"
+
+
+def test_several_named_configurations_are_a_choice_rather_than_a_guess(
+    tmp_path: Path,
+) -> None:
+    """Which provider a review runs against decides its cost and its duration."""
+
+    workspace = _workspace_with(tmp_path, "models.google.yaml", "models.ollama.yaml")
+
+    with pytest.raises(ConfigurationError) as failure:
+        resolve_config_path(workspace)
+
+    message = str(failure.value)
+    assert "models.google.yaml" in message and "models.ollama.yaml" in message
+    assert "--models-config" in message
+
+
+def test_an_empty_workspace_is_pointed_at_the_default_name(tmp_path: Path) -> None:
+    """Which is what initialization then creates, so a new workspace still just works."""
+
+    assert resolve_config_path(tmp_path).name == "models.yaml"
+
+
+def test_an_explicit_path_beats_everything_a_workspace_holds(tmp_path: Path) -> None:
+    workspace = _workspace_with(tmp_path, "models.google.yaml", "models.ollama.yaml")
+    chosen = workspace / "config" / "models.google.yaml"
+
+    assert resolve_config_path(workspace, chosen) == chosen.resolve()
+
+
+def test_the_environment_variable_is_read_against_the_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """It usually arrives from the workspace's own `.env`, not from a shell in that tree."""
+
+    workspace = _workspace_with(tmp_path, "models.ollama.yaml")
+    monkeypatch.setenv("ARCHCOMPASS_MODELS_CONFIG", "config/models.ollama.yaml")
+    monkeypatch.chdir(tmp_path.parent)
+
+    assert resolve_config_path(workspace) == (
+        workspace / "config" / "models.ollama.yaml"
+    ).resolve()

@@ -172,13 +172,54 @@ class AppConfig(DomainModel):
         return stable_id("cfg", canonical_json(self))
 
 
+#: Where a workspace keeps model configurations, and the name of the one written for a
+#: workspace that has none.
+CONFIG_DIRECTORY = "config"
+DEFAULT_CONFIG_NAME = "models.yaml"
+#: `models.ollama.yaml`, `models.google.yaml` — a configuration named for what it points
+#: at. A workspace that keeps several is choosing between providers, not accumulating
+#: leftovers, so one of them is what it means by "the configuration".
+NAMED_CONFIG_PATTERN = "models.*.yaml"
+
+
 def resolve_config_path(workspace: Path, explicit: Path | None = None) -> Path:
+    """Find the configuration this workspace means, without inventing a second one.
+
+    A workspace whose configurations are named for the provider they point at used to get
+    an unnamed `models.yaml` written beside them from the packaged template — a third
+    configuration nobody asked for, pointing at a model that may not be installed, and
+    silently preferred over both. So the named ones are discovered, and only a workspace
+    with no configuration at all gets one created.
+
+    Several named configurations and no way to choose is not something to guess at: the
+    provider a review runs against decides what the review costs and how long it takes.
+    That case says so and names the files.
+    """
+
     if explicit is not None:
         return explicit.expanduser().resolve()
+    directory = (workspace / CONFIG_DIRECTORY).resolve()
     from_env = os.environ.get("ARCHCOMPASS_MODELS_CONFIG")
     if from_env:
-        return Path(from_env).expanduser().resolve()
-    return (workspace / "config" / "models.yaml").resolve()
+        # Relative to the workspace, not to wherever the process happens to be started:
+        # the variable usually arrives from the workspace's own `.env`.
+        chosen = Path(from_env).expanduser()
+        return chosen.resolve() if chosen.is_absolute() else (workspace / chosen).resolve()
+    default = directory / DEFAULT_CONFIG_NAME
+    if default.is_file():
+        return default
+    named = sorted(path for path in directory.glob(NAMED_CONFIG_PATTERN) if path.is_file())
+    if len(named) == 1:
+        return named[0].resolve()
+    if named:
+        offered = ", ".join(path.name for path in named)
+        raise ConfigurationError(
+            f"{directory} holds several model configurations ({offered}) and none is "
+            f"named {DEFAULT_CONFIG_NAME}, so which one to run against is not decided. "
+            "Pass --models-config, or set ARCHCOMPASS_MODELS_CONFIG in the workspace's "
+            ".env file."
+        )
+    return default
 
 
 def load_config(path: Path) -> AppConfig:

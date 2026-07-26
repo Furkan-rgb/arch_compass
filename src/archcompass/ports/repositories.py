@@ -36,9 +36,28 @@ class CaseRepository(Protocol):
 
 
 class BoundaryReviewRepository(Protocol):
-    """Immutable storage for one advisory review."""
+    """Storage for one advisory review, written once and visible throughout.
 
-    def save(self, review: BoundaryReview) -> None: ...
+    A review's content is still immutable: `complete` writes the judgement exactly once and
+    nothing edits it afterwards. What `begin` adds is the row's existence during the minutes
+    the run takes, so a review can be found while it is being produced rather than only
+    after. The only transition a stored review makes is out of `running`.
+    """
+
+    def begin(self, review: BoundaryReview) -> None: ...
+
+    def record_progress(
+        self,
+        review_id: str,
+        *,
+        detected: int | None = None,
+        reviewed: int | None = None,
+        material: int | None = None,
+    ) -> None: ...
+
+    def complete(self, review: BoundaryReview) -> None: ...
+
+    def abandon_running(self, *, reason: str) -> int: ...
 
     def get(self, review_id: str) -> BoundaryReview: ...
 

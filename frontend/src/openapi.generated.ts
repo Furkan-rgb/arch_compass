@@ -123,9 +123,11 @@ export interface components {
     "case_revision": number;
     "atlas_version_id": string;
     "status": string;
+    "boundaries_detected": number | null;
     "boundaries_reviewed": number;
     "boundaries_material": number;
     "created_at": string;
+    "updated_at": string;
     "case_title"?: string | null;
   };
     "BundledCase": {
@@ -410,7 +412,7 @@ export interface components {
     "boundaries": Array<components["schemas"]["ScoredBoundaryResponse"]>;
     "unscored": Array<string>;
   };
-    "ReviewStatus": "succeeded" | "failed";
+    "ReviewStatus": "running" | "succeeded" | "failed";
     "ReviewSummarising": {
     "event"?: "summarising";
     "total": number;

@@ -212,14 +212,12 @@ def initialize_workspace(
     external_config = models_config is not None or bool(
         os.environ.get("ARCHCOMPASS_MODELS_CONFIG")
     )
-    initialization_target = (
-        config_path
-        if external_config
-        else canonical_workspace / "config" / "models.yaml"
-    )
+    # The resolved path is the initialization target, so a workspace that already keeps
+    # provider-named configurations does not get an unnamed one written beside them.
+    # Creating is still conditional on the file being absent.
     created = WorkspaceConfigurationService().initialize(
         canonical_workspace,
-        initialization_target,
+        config_path,
         allow_external_config=external_config,
     )
     runtime = build_runtime(

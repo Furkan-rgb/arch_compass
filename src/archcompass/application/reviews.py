@@ -20,7 +20,8 @@ from time import monotonic
 from archcompass.application.policies import PolicyService
 from archcompass.application.review_rendering import render_report
 from archcompass.domain.atlas import Atlas, FindingCandidate
-from archcompass.domain.errors import AtlasNotFoundError
+from archcompass.domain.case import CaseRevision
+from archcompass.domain.errors import ArchCompassError, AtlasNotFoundError
 from archcompass.domain.finding_detectors import detect_finding_candidates
 from archcompass.domain.review import (
     BoundaryReview,
@@ -89,6 +90,57 @@ class ReviewService:
         revision = self._cases.get(case_id)
         atlas = self._load_atlas(repository_root)
         self._freshness.ensure_fresh(atlas)
+        # The run becomes a record here, before the first model call and after everything
+        # that could refuse it. Earlier would store runs that never began; later is the
+        # minutes-long gap this exists to close — a review nobody can find while it is being
+        # produced looks the same as one that was never started.
+        running = BoundaryReview(
+            status=ReviewStatus.RUNNING,
+            case_id=revision.case_id,
+            case_revision=revision.revision,
+            atlas_version_id=atlas.version.version_id,
+            reasoning_model=self._reasoner.model_identity,
+            prompt_identity=self._reasoner.prompt_identity(
+                ReasoningTask.JUDGE_FINDING_CANDIDATE
+            ),
+        )
+        self._reviews.begin(running)
+        try:
+            return self._judge(
+                running,
+                revision=revision,
+                atlas=atlas,
+                repository_root=repository_root,
+                started=started,
+                on_detected=on_detected,
+                on_verdict=on_verdict,
+                on_summarising=on_summarising,
+            )
+        except ArchCompassError as error:
+            # The run's own message: it was raised by ArchCompass and is written for a
+            # person to read, which is the same rule the web layer applies before putting
+            # one in a response.
+            self._fail(running, str(error), started)
+            raise
+        except Exception:
+            # Whatever this was, it is not something to quote back. The row still has to
+            # stop saying "running", because a caller that crashed cannot come back to
+            # correct it.
+            self._fail(running, "The review failed unexpectedly, and nothing was judged.", started)
+            raise
+
+    def _judge(
+        self,
+        running: BoundaryReview,
+        *,
+        revision: CaseRevision,
+        atlas: Atlas,
+        repository_root: Path,
+        started: float,
+        on_detected: Callable[[Sequence[FindingCandidate]], None] | None,
+        on_verdict: Callable[[JudgedCandidate, int, int], None] | None,
+        on_summarising: Callable[[], None] | None,
+    ) -> BoundaryReview:
         # Ordered once, here, and passed to every judgement unchanged. The response binds
         # to policies by position, so the order is part of the contract rather than a
         # presentation detail: re-sorting between the request and the result would
@@ -98,9 +150,12 @@ class ReviewService:
             key=lambda policy: policy.id,
         )
         candidates = detect_finding_candidates(atlas)
+        # Now the run has a length, which is the one number a reader watching it needs.
+        self._reviews.record_progress(running.review_id, detected=len(candidates))
         if on_detected is not None:
             on_detected(candidates)
         judged: list[JudgedCandidate] = []
+        material = 0
         for position, candidate in enumerate(candidates, start=1):
             item = JudgedCandidate(
                 candidate=candidate,
@@ -111,6 +166,12 @@ class ReviewService:
                 ),
             )
             judged.append(item)
+            material += 1 if item.verdict.material else 0
+            self._reviews.record_progress(
+                running.review_id,
+                reviewed=position,
+                material=material,
+            )
             if on_verdict is not None:
                 on_verdict(item, position, len(candidates))
         boundaries = reviewed_boundaries([(item.candidate, item.verdict) for item in judged])
@@ -133,21 +194,27 @@ class ReviewService:
             overview=overview,
             policies_presented=[policy.id for policy in policies],
         )
-        review = BoundaryReview(
-            status=ReviewStatus.SUCCEEDED,
-            case_id=revision.case_id,
-            case_revision=revision.revision,
-            atlas_version_id=atlas.version.version_id,
-            reasoning_model=self._reasoner.model_identity,
-            prompt_identity=self._reasoner.prompt_identity(
-                ReasoningTask.JUDGE_FINDING_CANDIDATE
-            ),
-            report=report,
-            markdown_report=render_report(report),
-            duration_seconds=round(monotonic() - started, 3),
+        review = running.model_copy(
+            update={
+                "status": ReviewStatus.SUCCEEDED,
+                "report": report,
+                "markdown_report": render_report(report),
+                "duration_seconds": round(monotonic() - started, 3),
+            }
         )
-        self._reviews.save(review)
+        self._reviews.complete(review)
         return review
+
+    def _fail(self, running: BoundaryReview, reason: str, started: float) -> None:
+        self._reviews.complete(
+            running.model_copy(
+                update={
+                    "status": ReviewStatus.FAILED,
+                    "sanitized_errors": [reason],
+                    "duration_seconds": round(monotonic() - started, 3),
+                }
+            )
+        )
 
     def _load_atlas(self, repository_root: Path) -> Atlas:
         atlas = self._atlases.latest_for_path(repository_root.expanduser().resolve())

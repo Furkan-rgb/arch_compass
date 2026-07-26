@@ -1,4 +1,4 @@
-import { groupByCase } from "./ReviewsPage";
+import { anyRunning, groupByCase } from "./ReviewsPage";
 import type { BoundaryReviewSummary } from "../types";
 
 function review(fields: Partial<BoundaryReviewSummary>): BoundaryReviewSummary {
@@ -11,6 +11,8 @@ function review(fields: Partial<BoundaryReviewSummary>): BoundaryReviewSummary {
     boundaries_reviewed: 6,
     boundaries_material: 2,
     created_at: "2026-07-26T10:00:00Z",
+    updated_at: "2026-07-26T10:00:00Z",
+    boundaries_detected: 6,
     case_title: "Task scheduler",
     ...fields,
   };
@@ -46,5 +48,18 @@ describe("groupByCase", () => {
     const grouped = groupByCase([review({ case_title: null })]);
 
     expect(grouped[0].title).toBeNull();
+  });
+});
+
+describe("anyRunning", () => {
+  it("is true only while something is still being produced", () => {
+    // What decides whether the page polls at all. A listing of finished reviews cannot
+    // change, so asking again would keep a local model's machine busy for nothing.
+    expect(anyRunning([review({ status: "succeeded" })])).toBe(false);
+    expect(anyRunning([review({ status: "failed" })])).toBe(false);
+    expect(
+      anyRunning([review({ status: "succeeded" }), review({ status: "running" })]),
+    ).toBe(true);
+    expect(anyRunning([])).toBe(false);
   });
 });

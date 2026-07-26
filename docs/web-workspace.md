@@ -123,6 +123,24 @@ The review still runs in the application service, which owns detection, judgemen
 composition; the route only reports what the service reports through its `on_detected` and
 `on_verdict` callbacks. The CLI path is unchanged.
 
+**The review exists while it runs.** Its row is written when the run begins — after the
+case, the atlas and its freshness are settled, so a row that exists is a run that could
+start — with status `running` and no report. Detection fills in how many boundaries there
+are; each verdict moves the count. The Reviews page shows it immediately, *judging 3 of 6*,
+and polls only while something is running. Opening it lands on the review's own page, which
+waits for its subject and then becomes it: the identifier never changes.
+
+That is not the job queue §18 rules out. Nothing picks work up from this row — the run is
+still the work of the request that started it, and the row is only how that request is seen
+from elsewhere. What it does buy is that a review is findable during the minutes it takes,
+which is the difference between navigating away and losing it.
+
+A run cannot outlive its process, so a row still marked `running` when the workspace starts
+belongs to a process that is gone; the web server marks those failed at startup rather than
+leaving them saying "in progress" for ever. The one case that gets this wrong — a review
+running in another process at that moment — corrects itself, because the process doing the
+work writes the real outcome when it finishes.
+
 Consequences worth stating plainly:
 
 - The run happens on a worker thread so the response can be written while it proceeds. That
@@ -131,9 +149,9 @@ Consequences worth stating plainly:
 - Once a response has started, its status code can no longer say anything, so a failure
   arrives as a `failed` line carrying the same `ProblemDetail` the non-streaming route would
   have returned. The stream always ends in a verdict about itself.
-- Navigating away is safe. A review is persisted once, composed, at the end: leaving mid-run
-  means the run finishes or fails on its own and either a whole review exists afterwards or
-  none does — the same two outcomes as before.
+- Navigating away is safe, and no longer loses sight of the run: it continues, its row
+  reports where it has got to, and the review is on the Reviews page when it ends. A run
+  that fails records why; nothing is written to the case or the atlas either way.
 - `POST /api/reviews` stays as the plain contract for a client that wants one request and
   one review with no lines to parse.
 

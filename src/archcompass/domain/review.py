@@ -58,6 +58,10 @@ class CandidateVerdict(DomainModel):
 
 
 class ReviewStatus(StrEnum):
+    #: A review that is being produced right now. It exists so a run is visible while it
+    #: happens rather than appearing only once it is over; it carries no report, and it is
+    #: the one status a stored review ever moves out of.
+    RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
 
@@ -229,8 +233,8 @@ class BoundaryReview(DomainModel):
     def succeeded_reviews_carry_a_report(self) -> BoundaryReview:
         if self.status is ReviewStatus.SUCCEEDED and self.report is None:
             raise ValueError("A succeeded review must carry its report")
-        if self.status is ReviewStatus.FAILED and self.report is not None:
-            raise ValueError("A failed review must not carry a report")
+        if self.status is not ReviewStatus.SUCCEEDED and self.report is not None:
+            raise ValueError(f"A {self.status.value} review must not carry a report")
         return self
 
 

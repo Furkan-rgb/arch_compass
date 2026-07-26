@@ -404,10 +404,22 @@ config/models.ollama.yaml    local models through Ollama
 config/models.google.yaml    hosted Gemini models with a free tier
 ```
 
-Select one per command with `--models-config`, or for a whole shell with
-`ARCHCOMPASS_MODELS_CONFIG`. A workspace with neither set falls back to the packaged
-`models.yaml` copied into it on first use. See [Google AI Studio](#google-ai-studio) below
-for the hosted path.
+Select one per command with `--models-config`, or for a whole workspace with
+`ARCHCOMPASS_MODELS_CONFIG` — in the shell, or in the workspace's own `.env`, where a
+relative path is read against the workspace rather than the current directory. See
+[Google AI Studio](#google-ai-studio) below for the hosted path.
+
+With neither set, a workspace uses `config/models.yaml` if it has one, or the single
+`config/models.*.yaml` it keeps if there is exactly one, and otherwise gets the packaged
+default copied in on first use. A workspace holding several named configurations and no
+`models.yaml` is asked to choose rather than guessed at: which provider a review runs
+against decides what it costs and how long it takes. This repository is such a workspace,
+so it makes the choice in the Makefile —
+
+```bash
+make web           # the workspace on config/models.ollama.yaml
+make web-google    # the workspace on config/models.google.yaml
+```
 
 Each names a `thinking` setting for its reasoning model: `true` requires the model to
 reason before answering, `false` forbids it, and `null` leaves it to the model. Those tokens

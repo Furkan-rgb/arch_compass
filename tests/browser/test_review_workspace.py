@@ -207,6 +207,13 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             assert "Task scheduler boundary review" in page.locator(
                 ".review-history__head"
             ).first.inner_text()
+            # The row says what the review came to: every run this workspace has started is
+            # listed, so the outcome is what tells them apart. A run still in progress says
+            # so instead — proved against the repository, since the substitute answers
+            # faster than a browser can look.
+            # Badges are uppercased by the stylesheet, so compare against rendered text.
+            outcome = page.locator(".review-row__verdict").first.inner_text().lower()
+            assert "should change" in outcome, outcome
             page.locator(".review-row").first.click()
             page.wait_for_selector(".review-head", timeout=20_000)
 

@@ -20,8 +20,13 @@ import { api } from "../api";
 import { CaseForm, casePayload, type CaseFormValues } from "../case-form";
 import { ErrorPanel, Loading, formatDate, shortId } from "../components";
 import { ReviewAtlas } from "../review-atlas";
-import { applyProgress, type RunState } from "../run-progress";
-import type { ReviewOverview, ReviewScore, ReviewedBoundary } from "../types";
+import { RunProgress, applyProgress, type RunState } from "../run-progress";
+import type {
+  BoundaryReview,
+  ReviewOverview,
+  ReviewScore,
+  ReviewedBoundary,
+} from "../types";
 
 /**
  * One boundary, as a block within a section rather than a card inside a card.
@@ -234,6 +239,65 @@ function Score({ score }: { score: ReviewScore }) {
   );
 }
 
+/**
+ * A review that has not produced a judgement: either still running, or ended without one.
+ *
+ * Not an error page. The row exists from the moment the run starts, so this is what an
+ * ordinary review page looks like before its subject exists — and what it looks like when
+ * the run ended and no subject ever will. Both say which case and revision were being
+ * judged, because that is what the reader came for and is known from the start.
+ */
+function Unfinished({ review }: { review: BoundaryReview }) {
+  const running = review.status === "running";
+  return (
+    <div className="page page--review">
+      <header className="review-head">
+        <span className="eyebrow">Boundary review</span>
+        <h1>{running ? "This review is still running" : "This review did not finish"}</h1>
+        <p className="review-head__meta">
+          Case <code>{shortId(review.case_id)}</code> · revision {review.case_revision} ·
+          started {formatDate(review.created_at)}
+        </p>
+      </header>
+      {running ? (
+        <div className="unfinished">
+          <RunProgress
+            progress={null}
+            heading={
+              <>
+                One model call per boundary, so this takes minutes. The page updates itself;
+                closing it does not stop the run, and the review appears here when it ends.
+              </>
+            }
+          />
+          <p className="unfinished__note">
+            Watching from here shows the stage, not the boundary names — those stream to
+            whoever started the run. <Link to="/reviews">All reviews</Link>
+          </p>
+        </div>
+      ) : (
+        <div className="unfinished">
+          {/* Only what ArchCompass wrote for a person to read reaches this list; an
+              unexpected failure is recorded without its text. */}
+          <ul className="unfinished__errors">
+            {(review.sanitized_errors || []).map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+            {(review.sanitized_errors || []).length === 0 ? (
+              <li>No reason was recorded.</li>
+            ) : null}
+          </ul>
+          <p className="unfinished__note">
+            Nothing was judged and nothing was written to the case or the atlas. A review is
+            derived from both, so running it again is the whole of the fix.{" "}
+            <Link to="/">Start a review</Link>
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ReviewDetailPage() {
   const { reviewId = "" } = useParams();
   const client = useQueryClient();
@@ -247,6 +311,10 @@ export function ReviewDetailPage() {
     queryKey: ["review", reviewId],
     queryFn: () => api.review(reviewId),
     enabled: Boolean(reviewId),
+    // A review opened while it is still being produced is a page waiting for its own
+    // subject. It polls until the run ends and then stops: the review is immutable
+    // afterwards, so there is nothing further to ask about.
+    refetchInterval: (query) => (query.state.data?.status === "running" ? 2000 : false),
   });
   const score = useQuery({
     queryKey: ["review-score", reviewId],
@@ -355,6 +423,12 @@ export function ReviewDetailPage() {
   if (review.isLoading) return <Loading label="Reading the review…" />;
   if (review.isError) return <ErrorPanel error={review.error} />;
 
+  // A review that is not finished has no report, and neither state is an error: one is a
+  // run still going, the other a run that ended without a judgement. Both are things this
+  // page has to be able to show, because the row exists from the moment the run starts.
+  if (review.data && review.data.status !== "succeeded") {
+    return <Unfinished review={review.data} />;
+  }
   const report = review.data?.report;
   if (!report) {
     return <ErrorPanel error={new Error("This review did not produce a report.")} />;
