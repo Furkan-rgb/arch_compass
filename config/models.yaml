@@ -6,9 +6,6 @@ models:
     timeout_seconds: 360
     fast_timeout_seconds: 90
     deep_timeout_seconds: 360
-    # Every token reserved for output is taken from the input budget, and a focused
-    # concern packet runs to ~29k tokens. The previous 32768/16384 pair left 16384 for
-    # input and could not complete a consultation.
     context_window_tokens: 131072
     max_output_tokens: 8192
   embedding:
