@@ -121,6 +121,13 @@ it lands. That is a contract about what the user sees, not about infrastructure 
 queue and no background workers (master plan §18); whether the count arrives by streaming
 response or polling is an implementation choice.
 
+*Revised after the first pass.* That surface began on the start step, where the run was
+started, and the review's page grew a second, thinner one for anyone arriving another way.
+Two renderings of one fact drift, and the reader has to work out which to believe. There is
+one now — `ReviewInProgress` — and the review's own page is where it lives: starting a run
+goes there before the first model call, and the page becomes the review when the run ends.
+One place, however the run was started.
+
 What the first implementation did — a minutes-long synchronous request behind a
 single notice line, ending in a full-page reload — read as *broken* rather than
 *working*, and is the difference between a tool and a script with a UI. A single

@@ -28,6 +28,19 @@ describe("applyProgress", () => {
     expect(state?.judged).toBe(2);
   });
 
+  it("leaves the flow alone when the stream announces the review's identity", () => {
+    // `started` is for navigation, not for the flow: it arrives before the sweep, when
+    // there is genuinely nothing to draw yet.
+    expect(
+      applyProgress(null, {
+        event: "started",
+        review_id: "rev_1",
+        case_id: "case_a",
+        case_revision: 1,
+      }),
+    ).toBeNull();
+  });
+
   it("ignores a verdict that arrives before detection said how many there are", () => {
     expect(
       applyProgress(null, {

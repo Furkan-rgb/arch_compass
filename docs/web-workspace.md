@@ -112,11 +112,31 @@ and each one's verdict appears as it lands — a reader watching their own repos
 judged can see which boundary is under the model right now, and read a verdict before the
 page it belongs to exists.
 
+**One place to watch it: the review's own page.** Starting a run goes there immediately —
+before the first model call — and the page becomes the review when the run ends. There used
+to be two renderings of a run in progress, one on the start step and a thinner one on the
+review page, and two renderings of one fact drift until the reader has to work out which to
+believe. Now `ReviewInProgress` is the component and that page is the place, whichever way
+the run was started: from the start step, from *revise case & review again*, or from another
+tab entirely.
+
+It reads from whichever source knows more. The browser holding the stream has the boundary
+names and each verdict as it lands; any other browser — a second tab, a reload, a run
+started from the CLI — has the counts the run writes to its own record, and the panel says
+which of the two it is looking at rather than presenting the thinner one as complete. The
+run itself is held above the router, because a run is not a property of any page: it
+outlives the one that started it.
+
 **The mechanism: a streamed response.** `POST /api/reviews/stream` runs the same review as
 `POST /api/reviews` and answers with newline-delimited JSON — one `ReviewProgress` object
-per line: `detected` once, carrying the count and the boundary names in judgement order,
-then `judged` per boundary, then `completed` with the composed review or `failed` with a
-`ProblemDetail`.
+per line: `started` first, carrying the review's identity, then `detected` once with the
+count and the boundary names in judgement order, then `judged` per boundary, then
+`completed` with the composed review or `failed` with a `ProblemDetail`.
+
+`started` is what makes one place possible. It is sent the moment the run has a record,
+which is the first moment it has an identity and everything that could refuse it has passed
+— so the client can leave the page it started from and go to the review, which by then
+exists and can be opened, reloaded or cancelled from anywhere.
 
 It was chosen over a progress side-channel because progress is a property of the request
 doing the work, and streaming is the only option that needs no second place to keep it. A
@@ -176,8 +196,10 @@ Consequences worth stating plainly:
   arrives as a `failed` line carrying the same `ProblemDetail` the non-streaming route would
   have returned. The stream always ends in a verdict about itself.
 - Navigating away is safe, and no longer loses sight of the run: it continues, its row
-  reports where it has got to, and the review is on the Reviews page when it ends. A run
-  that fails records why; nothing is written to the case or the atlas either way.
+  reports where it has got to, and the review is on the Reviews page when it ends. Leaving
+  the review's own page costs only the boundary names, which live in the stream rather than
+  in the record. A run that fails records why; nothing is written to the case or the atlas
+  either way.
 - `POST /api/reviews` stays as the plain contract for a client that wants one request and
   one review with no lines to parse.
 

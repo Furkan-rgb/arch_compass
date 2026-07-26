@@ -186,6 +186,20 @@ class ReviewScoreResponse(APIModel):
     unscored: list[str]
 
 
+class ReviewStarted(APIModel):
+    """The run has a record, so it has an identity — the stream's first line.
+
+    Sent before detection, because this is the moment the review can be opened: everything
+    that could refuse the run has passed, and a client that has this can leave the page it
+    started from and watch the run where it lives.
+    """
+
+    event: Literal["started"] = "started"
+    review_id: str
+    case_id: str
+    case_revision: int
+
+
 class ReviewDetected(APIModel):
     """The deterministic sweep finished, so the run now has a known length.
 
@@ -230,7 +244,12 @@ class ReviewFailed(APIModel):
 
 
 ReviewProgressLine = Annotated[
-    ReviewDetected | ReviewJudged | ReviewSummarising | ReviewCompleted | ReviewFailed,
+    ReviewStarted
+    | ReviewDetected
+    | ReviewJudged
+    | ReviewSummarising
+    | ReviewCompleted
+    | ReviewFailed,
     Field(discriminator="event"),
 ]
 
@@ -741,11 +760,10 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
     """Run one review in a worker thread and yield each line as the run produces it.
 
     A thread, not a job queue (master plan §18). The work is still exactly this request's
-    work: nothing is persisted until the review is composed, so a client that navigates away
-    leaves the run to finish or fail on its own, and either a whole review exists afterwards
-    or none does — the same two outcomes the non-streaming route has. What streaming buys is
-    that the caller learns the length of the sequence after detection instead of after the
-    last model call.
+    work: a client that navigates away leaves the run to finish or fail on its own, and the
+    review it produces is the same either way. What streaming buys is that the caller learns
+    the review's identity before the first model call and the length of the sequence after
+    detection, instead of learning both after the last one.
 
     The queue is the only shared state, it lives as long as the request, and the application
     service still owns detection, judgement order and composition: this function chooses
@@ -755,13 +773,23 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
     lines: Queue[str | None] = Queue()
 
     def emit(
-        event: ReviewDetected
+        event: ReviewStarted
+        | ReviewDetected
         | ReviewJudged
         | ReviewSummarising
         | ReviewCompleted
         | ReviewFailed,
     ) -> None:
         lines.put(event.model_dump_json())
+
+    def report_start(review: BoundaryReview) -> None:
+        emit(
+            ReviewStarted(
+                review_id=review.review_id,
+                case_id=review.case_id,
+                case_revision=review.case_revision,
+            )
+        )
 
     detected = 0
 
@@ -790,6 +818,7 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
             review = runtime.review_service.review(
                 request.case_id,
                 repository_root=Path(request.repository_root),
+                on_started=report_start,
                 on_detected=report_detection,
                 on_verdict=report_verdict,
                 on_summarising=lambda: emit(ReviewSummarising(total=detected)),

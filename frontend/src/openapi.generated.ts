@@ -397,7 +397,7 @@ export interface components {
     "recommended_sequence"?: Array<components["schemas"]["OverviewStatement"]>;
     "limits": string;
   };
-    "ReviewProgress": components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewSummarising"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewFailed"];
+    "ReviewProgress": components["schemas"]["ReviewStarted"] | components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewSummarising"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewFailed"];
     "ReviewQuestionRequest": {
     "question": string;
   };
@@ -411,6 +411,12 @@ export interface components {
     "total": number;
     "boundaries": Array<components["schemas"]["ScoredBoundaryResponse"]>;
     "unscored": Array<string>;
+  };
+    "ReviewStarted": {
+    "event"?: "started";
+    "review_id": string;
+    "case_id": string;
+    "case_revision": number;
   };
     "ReviewStatus": "running" | "succeeded" | "failed" | "cancelled";
     "ReviewSummarising": {

@@ -151,7 +151,15 @@ export function RunProgress({
           </div>
           {/* Named, not counted. A reader watching their own repository be judged wants to
               know which boundary is under the model right now, and a verdict that has
-              already landed is worth seeing before the page it belongs to exists. */}
+              already landed is worth seeing before the page it belongs to exists.
+              The names come from the stream, so a watcher reading the run's stored record
+              instead has the counts and says so rather than inventing labels for them. */}
+          {progress!.boundaries.length === 0 ? (
+            <p className="run-flow__nameless">
+              Which boundary is under the model right now is in the stream this run is
+              writing, not in its record, so it is not shown here.
+            </p>
+          ) : null}
           <ul className="run-flow__boundaries">
             {progress!.boundaries.map((name, index) => {
               const verdict = progress!.verdicts[index];

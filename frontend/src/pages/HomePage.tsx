@@ -15,14 +15,14 @@ import {
   Plus,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 import { api } from "../api";
 import { CaseEditor, CaseView } from "../case-editor";
 import { CaseForm, casePayload, type CaseFormValues } from "../case-form";
 import { Badge, ErrorPanel, Loading, PageHeader } from "../components";
 import { latestPerRepository } from "../repositories";
-import { RunProgress, applyProgress, type RunState } from "../run-progress";
+import { useRun } from "../run";
 import type { BundledCase, CaseRevision, CaseSummary } from "../types";
 
 /** Which case surface is open, if any: writing a new one, or reading a stored one. */
@@ -35,12 +35,10 @@ type Editor =
 
 export function HomePage() {
   const client = useQueryClient();
-  const navigate = useNavigate();
   const [repositoryRoot, setRepositoryRoot] = useState<string | null>(null);
   const [caseId, setCaseId] = useState<string | null>(null);
   const [path, setPath] = useState("");
   const [editor, setEditor] = useState<Editor>(null);
-  const [progress, setProgress] = useState<RunState>(null);
 
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const cases = useQuery({ queryKey: ["cases"], queryFn: api.cases });
@@ -97,18 +95,10 @@ export function HomePage() {
     },
   });
 
-  const run = useMutation({
-    mutationFn: (chosen: { caseId: string; root: string }) => {
-      setProgress(null);
-      return api.streamReview(chosen.caseId, chosen.root, (event) =>
-        setProgress((current) => applyProgress(current, event)),
-      );
-    },
-    onSuccess: async (review) => {
-      await client.invalidateQueries({ queryKey: ["reviews"] });
-      navigate(`/reviews/${review.review_id}`);
-    },
-  });
+  // The start step starts the run and stops being involved. The review's page is where a
+  // run is watched, and it can be reached — and reloaded, and left — before the first
+  // verdict, because the stream announces the review's identity before the first model call.
+  const run = useRun();
 
   const created = async (revision: CaseRevision) => {
     setEditor(null);
@@ -157,7 +147,7 @@ export function HomePage() {
   };
 
   const ready = Boolean(repositoryRoot && caseId);
-  const busy = run.isPending || loadExample.isPending || index.isPending;
+  const busy = run.running || loadExample.isPending || index.isPending;
 
   return (
     <div className="page">
@@ -426,53 +416,37 @@ export function HomePage() {
           />
         ) : null}
 
-        {/* While a review runs the button is gone rather than disabled: the flow below is
-            what there is to look at, and a dead control beside it is one more thing to
-            read before working out that nothing is expected of you. */}
-        {run.isPending ? (
-          <div className="start__running">
-            <RunProgress
-              progress={progress}
-              heading={
-                <>
-                  Judging every boundary in{" "}
-                  <strong>{repositoryRoot?.split("/").at(-1)}</strong> against{" "}
-                  <strong>{chosenCase?.title}</strong>. This takes a couple of minutes on a
-                  local model; leaving the page abandons the run.
-                </>
-              }
-            />
-          </div>
-        ) : (
-          <div className="start__run">
-            <button
-              type="button"
-              className="button button--primary"
-              disabled={!ready || busy}
-              onClick={() =>
-                repositoryRoot && caseId && run.mutate({ caseId, root: repositoryRoot })
-              }
-            >
-              <Play size={16} aria-hidden />
-              Run review
-            </button>
-            <p>
-              {ready ? (
-                <>
-                  Judging every boundary in{" "}
-                  <strong>{repositoryRoot?.split("/").at(-1)}</strong> against{" "}
-                  <strong>{chosenCase?.title}</strong>.
-                </>
-              ) : (
-                <>
-                  Fill both rails to run: {repositoryRoot ? "a case" : "a repository"} is
-                  still missing.
-                </>
-              )}
-            </p>
-          </div>
-        )}
-        {run.isError ? <ErrorPanel error={run.error} /> : null}
+        <div className="start__run">
+          <button
+            type="button"
+            className="button button--primary"
+            disabled={!ready || busy}
+            onClick={() =>
+              repositoryRoot && caseId && run.start(caseId, repositoryRoot)
+            }
+          >
+            <Play size={16} aria-hidden />
+            {run.running ? "Starting…" : "Run review"}
+          </button>
+          <p>
+            {ready ? (
+              <>
+                Judging every boundary in{" "}
+                <strong>{repositoryRoot?.split("/").at(-1)}</strong> against{" "}
+                <strong>{chosenCase?.title}</strong>. This opens the review and follows it
+                there.
+              </>
+            ) : (
+              <>
+                Fill both rails to run: {repositoryRoot ? "a case" : "a repository"} is
+                still missing.
+              </>
+            )}
+          </p>
+        </div>
+        {/* A failure before the stream opens never reaches the review's page, because there
+            is no review to reach. It is reported where the run was asked for. */}
+        {run.error ? <ErrorPanel error={run.error} /> : null}
       </section>
 
       {/* A pointer, not a listing. Past reviews are a standing record with its own place in

@@ -14,13 +14,14 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import { CaseForm, casePayload, type CaseFormValues } from "../case-form";
 import { ErrorPanel, Loading, formatDate, shortId } from "../components";
 import { ReviewAtlas } from "../review-atlas";
-import { RunProgress, applyProgress, type RunState } from "../run-progress";
+import { ReviewInProgress } from "../review-in-progress";
+import { useRun } from "../run";
 import type {
   BoundaryReview,
   ReviewOverview,
@@ -243,76 +244,50 @@ function Score({ score }: { score: ReviewScore }) {
 }
 
 /**
- * A review that has not produced a judgement: still running, cancelled, or ended without one.
+ * A review that ended without a judgement: cancelled, or failed.
  *
- * Not an error page. The row exists from the moment the run starts, so this is what an
- * ordinary review page looks like before its subject exists — and what it looks like when
- * the run ended and no subject ever will. All three say which case and revision were being
- * judged, because that is what the reader came for and is known from the start.
+ * Not an error page. The row exists from the moment the run starts, so this is what a review
+ * page looks like when the run ended and no subject ever will exist. A run still going is a
+ * different thing entirely and has its own component; this one is the aftermath.
  */
 function Unfinished({ review }: { review: BoundaryReview }) {
-  const running = review.status === "running";
   const cancelled = review.status === "cancelled";
   return (
     <div className="page page--review">
       <header className="review-head">
         <span className="eyebrow">Boundary review</span>
-        <h1>
-          {running
-            ? "This review is still running"
-            : cancelled
-              ? "This review was cancelled"
-              : "This review did not finish"}
-        </h1>
+        <h1>{cancelled ? "This review was cancelled" : "This review did not finish"}</h1>
         <p className="review-head__meta">
           Case <code>{shortId(review.case_id)}</code> · revision {review.case_revision} ·
           started {formatDate(review.created_at)}
         </p>
       </header>
-      {running ? (
-        <div className="unfinished">
-          <RunProgress
-            progress={null}
-            heading={
-              <>
-                One model call per boundary, so this takes minutes. The page updates itself;
-                closing it does not stop the run, and the review appears here when it ends.
-              </>
-            }
-          />
+      <div className="unfinished">
+        {/* Cancelling records no reason, because there is none to record beyond the choice
+            itself. Only what ArchCompass wrote for a person to read reaches this list; an
+            unexpected failure is recorded without its text. */}
+        {cancelled ? (
           <p className="unfinished__note">
-            Watching from here shows the stage, not the boundary names — those stream to
-            whoever started the run. <Link to="/reviews">All reviews</Link>
+            It stopped after the boundary it was judging at the time. The verdicts it had
+            already reached were not kept: a review is every boundary or none, and half of
+            one would read as a complete answer.
           </p>
-        </div>
-      ) : (
-        <div className="unfinished">
-          {/* Cancelling records no reason, because there is none to record beyond the
-              choice itself. Only what ArchCompass wrote for a person to read reaches this
-              list; an unexpected failure is recorded without its text. */}
-          {cancelled ? (
-            <p className="unfinished__note">
-              It stopped after the boundary it was judging at the time. The verdicts it had
-              already reached were not kept: a review is every boundary or none, and half of
-              one would read as a complete answer.
-            </p>
-          ) : (
-            <ul className="unfinished__errors">
-              {(review.sanitized_errors || []).map((message) => (
-                <li key={message}>{message}</li>
-              ))}
-              {(review.sanitized_errors || []).length === 0 ? (
-                <li>No reason was recorded.</li>
-              ) : null}
-            </ul>
-          )}
-          <p className="unfinished__note">
-            Nothing was written to the case or the atlas. A review is derived from both, so
-            running it again is the whole of the fix.{" "}
-            <Link to="/">Start a review</Link> · <Link to="/reviews">All reviews</Link>
-          </p>
-        </div>
-      )}
+        ) : (
+          <ul className="unfinished__errors">
+            {(review.sanitized_errors || []).map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+            {(review.sanitized_errors || []).length === 0 ? (
+              <li>No reason was recorded.</li>
+            ) : null}
+          </ul>
+        )}
+        <p className="unfinished__note">
+          Nothing was written to the case or the atlas. A review is derived from both, so
+          running it again is the whole of the fix. <Link to="/">Start a review</Link> ·{" "}
+          <Link to="/reviews">All reviews</Link>
+        </p>
+      </div>
     </div>
   );
 }
@@ -320,11 +295,10 @@ function Unfinished({ review }: { review: BoundaryReview }) {
 export function ReviewDetailPage() {
   const { reviewId = "" } = useParams();
   const client = useQueryClient();
-  const navigate = useNavigate();
   const [question, setQuestion] = useState("");
   const [open, setOpen] = useState(false);
   const [revising, setRevising] = useState(false);
-  const [progress, setProgress] = useState<RunState>(null);
+  const run = useRun();
 
   const review = useQuery({
     queryKey: ["review", reviewId],
@@ -338,7 +312,10 @@ export function ReviewDetailPage() {
   const score = useQuery({
     queryKey: ["review-score", reviewId],
     queryFn: () => api.reviewScore(reviewId),
-    enabled: Boolean(reviewId),
+    // Only once there is a judgement to grade. The page is now open while the review is
+    // still being produced, and a score asked for then answers "no score" truthfully — an
+    // answer that would then be cached over the real one.
+    enabled: Boolean(reviewId) && review.data?.status === "succeeded",
   });
   const conversations = useQuery({
     queryKey: ["review-conversations", reviewId],
@@ -360,6 +337,9 @@ export function ReviewDetailPage() {
     queryKey: ["reviews", caseId],
     queryFn: () => api.reviews(caseId),
     enabled: Boolean(caseId),
+    // The listing is also where a running review's counts live — the review document has
+    // no room for how far it has got — so it follows the run while there is one.
+    refetchInterval: () => (review.data?.status === "running" ? 2000 : false),
   });
 
   /** The pinned revision, not the latest: the case this review actually judged against. */
@@ -402,21 +382,17 @@ export function ReviewDetailPage() {
       if (!caseId || !repositoryRoot) {
         throw new Error("This review's case and repository could not both be resolved.");
       }
-      setProgress(null);
       // Two steps, deliberately in this order and never in place: a new immutable case
       // revision, then a new review of it. This review is not touched by either.
       await api.updateCase(caseId, casePayload(values));
-      return api.streamReview(caseId, repositoryRoot, (event) =>
-        setProgress((current) => applyProgress(current, event)),
-      );
+      // Handed to the run, which takes the reader to the new review as soon as it has an
+      // identity — the same path the start step takes, so there is one place a run is
+      // watched however it was started.
+      run.start(caseId, repositoryRoot);
     },
-    onSuccess: async (next) => {
+    onSuccess: async () => {
       setRevising(false);
-      await Promise.all([
-        client.invalidateQueries({ queryKey: ["reviews"] }),
-        client.invalidateQueries({ queryKey: ["cases"] }),
-      ]);
-      navigate(`/reviews/${next.review_id}`);
+      await client.invalidateQueries({ queryKey: ["cases"] });
     },
   });
 
@@ -442,9 +418,20 @@ export function ReviewDetailPage() {
   if (review.isLoading) return <Loading label="Reading the review…" />;
   if (review.isError) return <ErrorPanel error={review.error} />;
 
-  // A review that is not finished has no report, and neither state is an error: one is a
-  // run still going, the other a run that ended without a judgement. Both are things this
-  // page has to be able to show, because the row exists from the moment the run starts.
+  // The row exists from the moment the run starts, so this page has to be able to show a
+  // review that is not finished — and a run in progress is one component, used here and
+  // nowhere else, whether this tab is the one producing it or not.
+  if (review.data?.status === "running") {
+    return (
+      <ReviewInProgress
+        review={review.data}
+        summary={siblings.data?.find((item) => item.review_id === reviewId)}
+        live={run.watching(reviewId) ? run.progress : undefined}
+        watching={run.watching(reviewId)}
+        title={pinnedCase.data?.snapshot?.title || null}
+      />
+    );
+  }
   if (review.data && review.data.status !== "succeeded") {
     return <Unfinished review={review.data} />;
   }
@@ -546,7 +533,6 @@ export function ReviewDetailPage() {
           pending={revise.isPending}
           loading={pinnedCase.isLoading}
           error={pinnedCase.error || revise.error}
-          progress={progress}
           onSubmit={(values) => revise.mutate(values)}
           onClose={() => setRevising(false)}
           note={

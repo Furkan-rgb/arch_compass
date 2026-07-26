@@ -2,7 +2,6 @@ import { X } from "lucide-react";
 import { useForm } from "react-hook-form";
 
 import { ErrorPanel, Loading } from "./components";
-import { RunProgress, type RunState } from "./run-progress";
 import type { ArchitectureCase, CaseUpdate } from "./types";
 
 /**
@@ -151,7 +150,6 @@ export function CaseForm({
   pending,
   loading,
   error,
-  progress,
   note,
   onSubmit,
   onClose,
@@ -163,7 +161,6 @@ export function CaseForm({
   pending: boolean;
   loading?: boolean;
   error: unknown;
-  progress?: RunState;
   note?: React.ReactNode;
   onSubmit: (values: CaseFormValues) => void;
   onClose: () => void;
@@ -283,25 +280,15 @@ export function CaseForm({
           </Field>
         </details>
 
-        {pending && progress !== undefined ? (
-          // The revision is already written by the time the first stage reports, so the
-          // submit button has nothing left to do and the run is the whole of what is
-          // happening.
-          <RunProgress
-            progress={progress}
-            heading="The revision is saved. Reviewing the same repository against it now."
-          />
-        ) : (
-          <div className="case-editor__actions">
-            <button type="submit" className="button button--primary" disabled={pending}>
-              {pending ? pendingLabel : submitLabel}
-            </button>
-            <p>
-              Case revisions are immutable: this writes a new one rather than changing what
-              an earlier review was judged against.
-            </p>
-          </div>
-        )}
+        <div className="case-editor__actions">
+          <button type="submit" className="button button--primary" disabled={pending}>
+            {pending ? pendingLabel : submitLabel}
+          </button>
+          <p>
+            Case revisions are immutable: this writes a new one rather than changing what an
+            earlier review was judged against.
+          </p>
+        </div>
       </form>
     </section>
   );

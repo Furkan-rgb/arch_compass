@@ -116,22 +116,33 @@ def test_a_streamed_review_counts_its_boundaries_before_judging_them(
             assert response.headers["content-type"].startswith("application/x-ndjson")
             events = [json.loads(line) for line in response.iter_lines() if line.strip()]
 
-    assert events[0]["event"] == "detected"
-    total = events[0]["total"]
+    # The identity comes first, before any model call. It is what lets a client stop
+    # watching from the page it started on and go to the review itself, which by then
+    # exists and can be opened, reloaded or cancelled from anywhere. That the row is
+    # readable and running at that point is settled in `test_running_reviews.py`, where the
+    # assertion can be made from inside the run.
+    assert events[0]["event"] == "started"
+    review_id = events[0]["review_id"]
+    assert events[0]["case_id"] == case_id
+
+    assert events[1]["event"] == "detected"
+    total = events[1]["total"]
     assert total > 0
-    assert len(events[0]["boundaries"]) == total
+    assert len(events[1]["boundaries"]) == total
 
     judged = [event for event in events if event["event"] == "judged"]
     # One line per boundary, in order, each naming the boundary it settled.
     assert [event["position"] for event in judged] == list(range(1, total + 1))
-    assert [event["abstraction"] for event in judged] == events[0]["boundaries"]
+    assert [event["abstraction"] for event in judged] == events[1]["boundaries"]
 
     assert events[-1]["event"] == "completed"
     review = events[-1]["review"]
     assert review["status"] == "succeeded"
     assert len(review["report"]["reviewed"]) == total
-    # The streamed review is a persisted review, not a transient copy of one.
-    assert client.get(f"/api/reviews/{review['review_id']}").status_code == 200
+    # The same review throughout: the one announced at the start is the one composed at
+    # the end, so a page opened on that identifier mid-run becomes the page holding it.
+    assert review["review_id"] == review_id
+    assert client.get(f"/api/reviews/{review_id}").status_code == 200
 
 
 def test_a_streamed_review_that_fails_says_so_in_the_stream(

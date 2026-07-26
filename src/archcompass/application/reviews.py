@@ -75,19 +75,23 @@ class ReviewService:
         case_id: str,
         *,
         repository_root: Path,
+        on_started: Callable[[BoundaryReview], None] | None = None,
         on_detected: Callable[[Sequence[FindingCandidate]], None] | None = None,
         on_verdict: Callable[[JudgedCandidate, int, int], None] | None = None,
         on_summarising: Callable[[], None] | None = None,
     ) -> BoundaryReview:
         """Judge every candidate in the repository against this case.
 
-        `on_detected` is called once, before the first model call, with every candidate the
-        sweep found. `on_verdict` is called as each verdict lands, with the position and the
-        total. A review is one model call per candidate and takes minutes, so a caller that
-        reports nothing until the last one has finished is the difference between a tool
-        that looks stuck and one that does not — and detection is where the length of the
-        sequence becomes known, which is what makes the wait countable rather than
-        unexplained.
+        `on_started` is called once the run has a record, which is the first moment it has
+        an identity: everything that could refuse the run has passed, and the review can be
+        opened and watched from anywhere from here on. `on_detected` is called once, before
+        the first model call, with every candidate the sweep found. `on_verdict` is called
+        as each verdict lands, with the position and the total.
+
+        A review is one model call per candidate and takes minutes, so a caller that reports
+        nothing until the last one has finished is the difference between a tool that looks
+        stuck and one that does not — and detection is where the length of the sequence
+        becomes known, which is what makes the wait countable rather than unexplained.
         """
 
         started = monotonic()
@@ -109,6 +113,8 @@ class ReviewService:
             ),
         )
         self._reviews.begin(running)
+        if on_started is not None:
+            on_started(running)
         try:
             return self._judge(
                 running,

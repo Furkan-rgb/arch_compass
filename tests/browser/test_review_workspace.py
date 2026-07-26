@@ -21,7 +21,8 @@ from pathlib import Path
 import pytest
 import uvicorn
 
-from archcompass.bootstrap import build_runtime
+from archcompass.bootstrap import Runtime, build_runtime
+from archcompass.domain.review import ReviewStatus
 from archcompass.presentation.web import create_app
 
 pytestmark = pytest.mark.browser
@@ -53,14 +54,25 @@ def _free_port() -> int:
 
 
 @pytest.fixture(scope="module")
-def workspace_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    workspace = tmp_path_factory.mktemp("browser-workspace")
-    config = workspace / "config" / "models.yaml"
+def workspace(tmp_path_factory: pytest.TempPathFactory) -> Runtime:
+    """The server's own runtime, so a test can put the workspace into a state on purpose.
+
+    A run in progress is the clearest example: the substitute answers faster than a browser
+    can look, so the only way to see that surface is to write the state the surface is for.
+    """
+
+    directory = tmp_path_factory.mktemp("browser-workspace")
+    config = directory / "config" / "models.yaml"
     config.parent.mkdir(parents=True)
     config.write_text(FAKE_CONFIG, encoding="utf-8")
     # Named rather than discovered: a run reads `.env` from the working directory too, and
     # this workspace means to run against the substitute written just above.
-    app = create_app(build_runtime(workspace, models_config=config))
+    return build_runtime(directory, models_config=config)
+
+
+@pytest.fixture(scope="module")
+def workspace_url(workspace: Runtime) -> Iterator[str]:
+    app = create_app(workspace)
     port = _free_port()
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
@@ -112,14 +124,19 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.wait_for_selector(".rail--filled", timeout=60_000)
             assert page.locator(".rail--filled").count() == 2
             run.click()
-            # The wait is drawn as the stages a review actually has, so the run is legible
-            # while it happens rather than a spinner that could equally mean a hung request.
-            page.wait_for_selector(".run-flow__stages", timeout=30_000)
+            # Starting a run goes to the review, not to a copy of it drawn on the start
+            # step. The stream announces the review's identity before the first model call,
+            # so this URL exists while the run is still going — one place to watch it,
+            # whether this tab is producing it or another one is.
             page.wait_for_url("**/reviews/rev_*", timeout=120_000)
             # Wait on something only the review page renders: the router changes the URL
             # before React commits the new page, so any text shared with the start step
             # would match the old DOM and pass for the wrong reason.
             page.wait_for_selector(".review-head", timeout=60_000)
+            # And it becomes the review without being asked to. Whether the in-progress
+            # panel is ever visible here is the substitute's business — it answers faster
+            # than a browser can look — so that surface is proved on its own below.
+            page.wait_for_selector(".overview", timeout=120_000)
 
             # 4. The page leads with what the verdicts amount to, and every claim in it
             #    names the boundaries it rests on.
@@ -382,6 +399,64 @@ def test_a_person_can_revise_the_case_and_review_again(workspace_url: str) -> No
             page.wait_for_selector(".review-siblings", timeout=20_000)
             page.get_by_role("link", name="Newer review").click()
             page.wait_for_url(second, timeout=20_000)
+        finally:
+            browser.close()
+
+
+def test_a_review_being_produced_has_one_page_that_says_so(
+    workspace_url: str,
+    workspace: Runtime,
+) -> None:
+    """The in-progress surface, on the review's own page and nowhere else.
+
+    Written into the store rather than raced against a real run: the substitute answers
+    faster than a browser can look, so the only way to see the surface is to put the
+    workspace into the state the surface exists for — which is also exactly what a second
+    tab, a reload, or a run started from the CLI would find.
+    """
+
+    playwright = pytest.importorskip("playwright.sync_api")
+    reviews = workspace.review_repository.list()
+    assert reviews, "the tests above must have left a review to copy identity from"
+    finished = workspace.review_repository.get(reviews[0].review_id)
+    running = finished.model_copy(
+        update={
+            "review_id": "rev_browserinprogress",
+            "status": ReviewStatus.RUNNING,
+            "report": None,
+            "markdown_report": None,
+        }
+    )
+    workspace.review_repository.begin(running)
+    workspace.review_repository.record_progress(running.review_id, detected=6, reviewed=2)
+
+    with playwright.sync_playwright() as driver:
+        browser = driver.chromium.launch()
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        try:
+            # 1. The listing says it is running, and how far it has got.
+            page.goto(f"{workspace_url}/reviews", wait_until="networkidle")
+            page.wait_for_selector(".review-row", timeout=20_000)
+            assert "judging 3 of 6" in page.inner_text(".review-history").lower()
+
+            # 2. Its own page is the place: the stages, the provenance, and a way to stop
+            #    it — not a spinner, and not a second rendering of any of that elsewhere.
+            page.goto(f"{workspace_url}/reviews/{running.review_id}", wait_until="networkidle")
+            page.wait_for_selector(".in-progress", timeout=20_000)
+            assert page.locator(".run-flow__stage").count() == 3
+            assert page.locator(".provenance").count() == 1
+            # This tab is not the one running it, and the page says so rather than
+            # implying it has detail it cannot have.
+            assert "the run's own record" in page.inner_text(".provenance")
+            assert page.locator(".run-flow__nameless").count() == 1
+            assert page.locator(".overview").count() == 0
+
+            # 3. Cancelling from that page ends the run and the page follows.
+            page.get_by_role("button", name="Cancel this review").click()
+            page.wait_for_selector("text=This review was cancelled", timeout=20_000)
+            assert workspace.review_repository.get(running.review_id).status is (
+                ReviewStatus.CANCELLED
+            )
         finally:
             browser.close()
 

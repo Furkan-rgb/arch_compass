@@ -1516,7 +1516,13 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 .icon-button:hover { color: var(--ink); border-color: var(--color-border-strong); }
 .start__run { display: flex; gap: 16px; align-items: center; margin-top: 18px; padding-top: 17px; border-top: 1px solid var(--line); }
 .start__run > p { margin: 0; color: var(--ink-muted); font-size: 14px; line-height: 1.5; }
-.start__running { margin-top: 18px; padding-top: 17px; border-top: 1px solid var(--line); }
+/* The one place a run is watched: the review's own page, whether this tab is producing it
+   or reading the counts the run writes to its record. */
+.in-progress { display: grid; gap: 16px; max-width: 80ch; }
+.in-progress__actions { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.in-progress__actions > .button { flex: 0 0 auto; }
+.in-progress__actions > p { flex: 1; min-width: 20ch; margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.55; }
+.run-flow__nameless { margin: 0; color: var(--ink-muted); font-size: 12.5px; line-height: 1.5; }
 .run-progress__bar { height: 6px; overflow: hidden; border-radius: 999px; background: var(--color-bg-subtle); }
 .run-progress__bar > span { display: block; height: 100%; border-radius: 999px; background: var(--color-accent-button); transition: width .25s ease; }
 
