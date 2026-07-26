@@ -3,7 +3,6 @@ import { X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { ErrorPanel, Loading } from "./components";
-import { RunProgress, type RunState } from "./run-progress";
 import type { ArchitectureCase } from "./types";
 
 /**
@@ -206,72 +205,6 @@ export function CaseEditor({
           later change adds one rather than editing this one.
         </p>
       </YamlForm>
-    </section>
-  );
-}
-
-/**
- * Revise the case a review was judged against, and review again.
- *
- * The consequence is stated before the action, not after it: this produces a new immutable
- * revision and a new review, and the review being read is never altered. That is the whole
- * iterate loop — a changed case is a new question, not a correction of an old answer.
- */
-export function CaseReviser({
-  snapshot,
-  loading,
-  error,
-  pending,
-  progress,
-  onSubmit,
-  onClose,
-}: {
-  snapshot: ArchitectureCase | undefined;
-  loading: boolean;
-  error: unknown;
-  pending: boolean;
-  progress: RunState;
-  onSubmit: (source: string) => void;
-  onClose: () => void;
-}) {
-  return (
-    <section className="case-editor" aria-label="Revise the case">
-      <div className="case-editor__head">
-        <h3>Revise the case, then review again</h3>
-        <button
-          type="button"
-          className="icon-button"
-          onClick={onClose}
-          aria-label="Close the reviser"
-        >
-          <X size={16} aria-hidden />
-        </button>
-      </div>
-      <p className="case-editor__warning">
-        <strong>This does not change the review you are reading.</strong> Submitting creates
-        revision {(snapshot?.revision ?? 0) + 1} of the case and runs a new review against
-        it. Both reviews stay, and each links to the other.
-      </p>
-      {loading ? <Loading label="Reading the pinned case…" /> : null}
-      {error ? <ErrorPanel error={error} /> : null}
-      {snapshot ? (
-        <YamlForm
-          initial={caseToYaml(snapshot)}
-          submitLabel="Create revision & review again"
-          pendingLabel="Reviewing…"
-          pending={pending}
-          onSubmit={onSubmit}
-        >
-          {pending ? (
-            <RunProgress progress={progress} />
-          ) : (
-            <p>
-              One model call per boundary, against the same atlas this review used, so only
-              the case has changed.
-            </p>
-          )}
-        </YamlForm>
-      ) : null}
     </section>
   );
 }

@@ -32,19 +32,30 @@ repository to run it against, so a new workspace can produce a real review witho
 being written first. Loading one indexes the repository and creates the case in a single
 step, then leaves the run to the user.
 
-**Cases are authored in the browser as YAML.** The case rail opens a full-width editor
-pre-filled with a commented skeleton, and creates the case through
-`POST /api/cases/import-yaml` — the same route and the same document the CLI takes, so the
-two surfaces author the same thing. YAML rather than a form because the fields that decide
-verdicts (`expected_future_changes`, `non_goals`, `confirmed_facts`) are prose with
-structure, which is exactly what a form flattens; a structured form can follow beside it.
+**Cases are authored in the browser as a form.** The case rail opens a full-width form
+whose labels are the questions the fields answer and whose hints say why the answers matter.
+The three fields that decide verdicts — `expected_future_changes`, `non_goals`,
+`confirmed_facts` — are grouped together and marked as decisive; the rest of the context sits
+behind "more", because a form that opens as eleven empty boxes reads as work rather than as
+questions. List fields are one entry per line rather than rows of inputs: the entries are
+sentences a person writes, edits and pastes in batches, and per-item chrome makes all three
+harder.
 
-The browser checks syntax and nothing else. What a case must contain is the domain's rule,
-and the server's validation message is shown verbatim: it names the field and what it
-needed, which is more than a paraphrase could say. A created case is selected in the rail
-immediately, and a selected case can be read back — rendered as the same YAML it was
-written in, with generated identity and empty fields left out, so what is displayed is what
-could be pasted back into the editor.
+Revising a case opens the same form, prefilled from the stored revision — on the start step
+from the selected case, and on the review page from the revision that review was judged
+against, which is not necessarily the latest. Submitting writes a new revision; earlier
+reviews stay pinned to what they judged.
+
+**YAML remains the escape hatch.** "Paste YAML" creates a case through
+`POST /api/cases/import-yaml` — the same route and document the CLI takes — for a case
+someone already has in that form, or a field the form does not ask for. A stored case reads
+back as that same YAML, with generated identity and empty fields left out, so what is
+displayed is what could be pasted back.
+
+The browser validates almost nothing: the form asks for the three fields the domain requires
+before submitting, and everything else is the server's judgement. Its message is shown
+verbatim — it names the field and what it needed, which is more than a paraphrase could
+say.
 
 Repository paths are validated and indexed through the same application service the CLI
 uses, and every workspace/repository separation, symlink, traversal and atlas-freshness
@@ -102,6 +113,21 @@ reasoning, the policies that bear on it, and what the detection method could not
 box on the same page asks follow-up questions: the whole review goes to the model with
 each one, and the answer names the boundaries it rests on. An answer grounded on none of
 them is labelled rather than presented as something the review supports.
+
+The page **leads with the overview** — what the verdicts amount to when read as a set:
+the situation, the themes that run across boundaries, a recommended sequence, and what the
+review could not see. Every theme and step carries the boundaries it rests on as links: click
+`BR-003` and the page lands on that finding, highlighted. That link is why the overview is
+allowed to generalise at all, and it is the shortest path from a claim to its evidence.
+
+Each finding states its verdict in words — *should change* or *earning its place* — as well
+as by the colour of its rail, and the policies that bear on it are shown open rather than
+folded away. The substantiation is the reason to believe the verdict.
+
+**Question threads are plural and durable.** Many threads may hang off one review; the dock
+lists them oldest first, labelled by their first question, with the newest open by default.
+A new thread is created when there is finally a question to put in it, so an empty
+conversation never appears in a listing.
 
 A **provenance line** states what the review is pinned to — case revision, atlas version,
 the number of policies presented to every boundary, the reasoning model, when it ran. All

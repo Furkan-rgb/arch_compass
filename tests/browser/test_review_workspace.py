@@ -193,23 +193,6 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             browser.close()
 
 
-AUTHORED_CASE = """title: Formatter boundary, authored in the browser
-problem_statement: >-
-  One formatter port with a single implementation, and a label format fixed by a
-  downstream reporting system that parses it.
-desired_outcome: >-
-  A verdict on whether the formatter boundary is earning its place.
-expected_future_changes:
-  - Reminder delivery over SMS is scheduled for the next release.
-non_goals:
-  - Any alternative label format or output rendering.
-confirmed_facts:
-  - text: >-
-      The label format is fixed by a downstream parser and no change to it is planned.
-    kind: fact
-"""
-
-
 def test_a_person_can_write_a_case_in_the_browser_and_review_with_it(
     workspace_url: str,
 ) -> None:
@@ -229,33 +212,56 @@ def test_a_person_can_write_a_case_in_the_browser_and_review_with_it(
             page.goto(workspace_url, wait_until="networkidle")
             page.wait_for_selector(".rail", timeout=20_000)
 
-            # 1. An invalid case is refused by the server, and its complaint is shown
-            #    rather than paraphrased. The browser does not carry a second copy of the
-            #    domain's rules, so this is the only validation there is.
-            page.get_by_role("button", name="Write a new case").click()
-            editor = page.get_by_label("Case YAML")
-            editor.fill("title: Missing everything else\n")
-            page.get_by_role("button", name="Create the case").click()
-            page.wait_for_selector(".notice--error", timeout=20_000)
-            assert "problem_statement" in page.locator(".notice--error").inner_text()
+            # 1. The form asks questions rather than presenting a schema, and marks the
+            #    three fields that decide verdicts as the ones that do.
+            page.get_by_role("button", name="New case").click()
+            page.wait_for_selector(".case-form", timeout=20_000)
+            assert page.locator(".case-form__group--decisive").count() == 1
+            page.get_by_label("Name for this case").fill(
+                "Formatter boundary, authored in the browser"
+            )
+            page.get_by_label("What decision are you facing?").fill(
+                "One formatter port with a single implementation, and a label format fixed "
+                "by a downstream reporting system that parses it."
+            )
+            page.get_by_label("What would a good answer give you?").fill(
+                "A verdict on whether the formatter boundary is earning its place."
+            )
+            page.get_by_label("What changes are actually coming?").fill(
+                "Reminder delivery over SMS is scheduled for the next release."
+            )
+            page.get_by_label("What have you decided against?").fill(
+                "Any alternative label format or output rendering."
+            )
+            page.get_by_label("What is settled, and why?").fill(
+                "The label format is fixed by a downstream parser and no change is planned."
+            )
 
-            # 2. A complete case is created, selected in the rail, and ready to run.
-            editor.fill(AUTHORED_CASE)
+            # 2. The case is created, selected in the rail, and ready to run.
             page.get_by_role("button", name="Create the case").click()
             page.wait_for_selector(
                 "text=Formatter boundary, authored in the browser", timeout=20_000
             )
             assert page.locator(".rail--filled").count() == 2
 
-            # 3. The stored case reads back as the same format it was written in.
-            page.get_by_role("button", name="View this case").click()
+            # 3. The YAML escape hatch is still there, and the server is still the only
+            #    validator: its complaint is shown rather than paraphrased.
+            page.get_by_role("button", name="Paste YAML").click()
+            page.get_by_label("Case YAML").fill("title: Missing everything else\n")
+            page.get_by_role("button", name="Create the case").click()
+            page.wait_for_selector(".notice--error", timeout=20_000)
+            assert "problem_statement" in page.locator(".notice--error").inner_text()
+            page.get_by_role("button", name="Close the editor").click()
+
+            # 4. The stored case reads back as the same format the escape hatch takes.
+            page.get_by_role("button", name="View", exact=True).click()
             page.wait_for_selector(".case-editor__source--read", timeout=20_000)
             written = page.locator(".case-editor__source--read").inner_text()
             assert "expected_future_changes" in written
             assert "case_id" not in written, written
             page.get_by_role("button", name="Close the case").click()
 
-            # 4. The whole flow, completed in the browser: authored case, indexed
+            # 5. The whole flow, completed in the browser: authored case, indexed
             #    repository, one review.
             page.get_by_role("button", name="Run the review").click()
             page.wait_for_url("**/reviews/rev_*", timeout=120_000)
@@ -302,14 +308,13 @@ def test_a_person_can_revise_the_case_and_review_again(workspace_url: str) -> No
             warning = page.locator(".case-editor__warning").inner_text()
             assert "does not change the review you are reading" in warning
 
-            # 3. The pinned case opens as the YAML it was written in, and a real edit is
-            #    submitted as a revision.
-            editor = page.get_by_label("Case YAML")
-            source = editor.input_value()
-            assert "problem_statement" in source, source[:400]
-            editor.fill(
-                source + "\nrevisit_triggers:\n  - A second delivery channel is committed.\n"
-            )
+            # 3. The pinned case opens prefilled — not empty, and not the latest revision
+            #    but the one this review judged — and a real edit is submitted.
+            page.wait_for_selector(".case-form", timeout=20_000)
+            expected = page.get_by_label("What changes are actually coming?")
+            existing = expected.input_value()
+            assert existing.strip(), "the form must open with the pinned case's answers"
+            expected.fill(existing + "\nA second delivery channel is committed.")
             page.get_by_role("button", name="Create revision & review again").click()
 
             # 4. A second review, at the next case revision, and this is a different one.

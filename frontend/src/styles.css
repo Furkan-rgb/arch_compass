@@ -1489,6 +1489,24 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 .case-editor__source--read { max-height: 520px; background: var(--paper-warm); }
 .case-editor__problem { margin: 0; padding: 11px 14px; color: var(--danger); border: 1px solid var(--color-danger-border); border-radius: 8px; background: var(--danger-soft); font-size: 14px; line-height: 1.5; }
 .case-editor__problem strong { display: block; }
+.case-form { display: grid; gap: 20px; }
+.case-form__group { display: grid; gap: 15px; padding: 17px 18px; border: 1px solid var(--line); border-radius: 9px; background: var(--paper-warm); }
+.case-form__group h4 { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--color-text-secondary); }
+/* The three fields that decide verdicts are marked as such: a form of equal boxes says
+   every answer matters equally, and here they do not. */
+.case-form__group--decisive { border-color: var(--color-accent-border); background: var(--color-accent-soft); }
+.case-form__why { max-width: 86ch; margin: -6px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
+.case-form__more { padding: 14px 18px; border: 1px solid var(--line); border-radius: 9px; background: var(--white); }
+.case-form__more summary { color: var(--ink-muted); cursor: pointer; font-size: 14px; font-weight: 650; }
+.case-form__more[open] summary { margin-bottom: 15px; }
+.case-form__more .case-field + .case-field { margin-top: 14px; }
+.case-field { display: grid; gap: 5px; }
+.case-field__label { font-size: 14.5px; font-weight: 650; }
+.case-field__hint { max-width: 86ch; color: var(--ink-muted); font-size: 12.5px; line-height: 1.5; }
+.case-field input, .case-field textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--color-bg-input); color: var(--color-text-primary); font: inherit; font-size: 14px; line-height: 1.6; }
+.case-field textarea { min-height: 0; resize: vertical; }
+.case-field input:focus-visible, .case-field textarea:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+
 .case-editor__actions { display: flex; gap: 14px; align-items: center; }
 .case-editor__actions > .button { flex: 0 0 auto; white-space: nowrap; }
 .case-editor__actions > p, .case-editor__note { margin: 0; color: var(--ink-muted); font-size: 13px; line-height: 1.5; }

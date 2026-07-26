@@ -4,10 +4,12 @@ import {
   Boxes,
   CircleCheck,
   Eye,
+  FileCode2,
   FilePlus2,
   FileSearch,
   FlaskConical,
   Network,
+  PencilLine,
   Play,
   Plus,
 } from "lucide-react";
@@ -16,6 +18,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import { CaseEditor, CaseView } from "../case-editor";
+import { CaseForm, casePayload, type CaseFormValues } from "../case-form";
 import {
   Badge,
   EmptyState,
@@ -27,10 +30,15 @@ import {
 } from "../components";
 import { latestPerRepository } from "../repositories";
 import { RunProgress, applyProgress, type RunState } from "../run-progress";
-import type { BundledCase, CaseSummary } from "../types";
+import type { BundledCase, CaseRevision, CaseSummary } from "../types";
 
 /** Which case surface is open, if any: writing a new one, or reading a stored one. */
-type Editor = { mode: "write" } | { mode: "view"; caseId: string } | null;
+type Editor =
+  | { mode: "form" }
+  | { mode: "revise"; caseId: string }
+  | { mode: "yaml" }
+  | { mode: "view"; caseId: string }
+  | null;
 
 export function HomePage() {
   const client = useQueryClient();
@@ -45,10 +53,13 @@ export function HomePage() {
   const cases = useQuery({ queryKey: ["cases"], queryFn: api.cases });
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: () => api.reviews() });
   const examples = useQuery({ queryKey: ["bundled-cases"], queryFn: api.bundledCases });
+  // The case behind an open panel: read for viewing, and read for revising so the form
+  // starts from the stored revision rather than from the summary the picker shows.
+  const opened = editor?.mode === "view" || editor?.mode === "revise" ? editor.caseId : null;
   const viewed = useQuery({
-    queryKey: ["case", editor?.mode === "view" ? editor.caseId : null],
-    queryFn: () => api.case((editor as { caseId: string }).caseId),
-    enabled: editor?.mode === "view",
+    queryKey: ["case", opened],
+    queryFn: () => api.case(opened!),
+    enabled: Boolean(opened),
   });
 
   const indexed = useMemo(
@@ -106,14 +117,30 @@ export function HomePage() {
     },
   });
 
+  const created = async (revision: CaseRevision) => {
+    setEditor(null);
+    setCaseId(revision.case_id);
+    applyRepositoryHint(revision.snapshot?.repository?.root_path);
+    await client.invalidateQueries({ queryKey: ["cases"] });
+  };
+
   const create = useMutation({
     mutationFn: (source: string) => api.importCase(source),
-    onSuccess: async (revision) => {
-      setEditor(null);
-      setCaseId(revision.case_id);
-      applyRepositoryHint(revision.snapshot?.repository?.root_path);
-      await client.invalidateQueries({ queryKey: ["cases"] });
+    onSuccess: created,
+  });
+
+  const write = useMutation({
+    mutationFn: (values: CaseFormValues) => api.createCase(casePayload(values)),
+    onSuccess: created,
+  });
+
+  const revise = useMutation({
+    mutationFn: (values: CaseFormValues) => {
+      const target = editor?.mode === "revise" ? editor.caseId : null;
+      if (!target) throw new Error("No case is open for revision.");
+      return api.updateCase(target, casePayload(values));
     },
+    onSuccess: created,
   });
 
   /**
@@ -317,26 +344,79 @@ export function HomePage() {
               <button
                 type="button"
                 className="button button--secondary"
-                onClick={() => setEditor({ mode: "write" })}
+                onClick={() => setEditor({ mode: "form" })}
               >
-                <FilePlus2 size={15} aria-hidden /> Write a new case
+                <FilePlus2 size={15} aria-hidden /> New case
               </button>
               {caseId ? (
-                <button
-                  type="button"
-                  className="button button--quiet"
-                  onClick={() => setEditor({ mode: "view", caseId })}
-                >
-                  <Eye size={15} aria-hidden /> View this case
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="button button--secondary"
+                    onClick={() => setEditor({ mode: "revise", caseId })}
+                  >
+                    <PencilLine size={15} aria-hidden /> Revise this case
+                  </button>
+                  <button
+                    type="button"
+                    className="button button--quiet"
+                    onClick={() => setEditor({ mode: "view", caseId })}
+                  >
+                    <Eye size={15} aria-hidden /> View
+                  </button>
+                </>
               ) : null}
+              {/* The escape hatch stays: a case someone already has as YAML, or a field the
+                  form does not ask for, goes in this way. */}
+              <button
+                type="button"
+                className="button button--quiet"
+                onClick={() => setEditor({ mode: "yaml" })}
+              >
+                <FileCode2 size={15} aria-hidden /> Paste YAML
+              </button>
             </div>
           </div>
         </div>
 
         {/* Full width rather than inside the rail: a case is prose, and half a rail is not
             enough of a line to write it on. */}
-        {editor?.mode === "write" ? (
+        {editor?.mode === "form" ? (
+          <CaseForm
+            heading="Write a case"
+            initial={undefined}
+            submitLabel="Create the case"
+            pendingLabel="Creating…"
+            pending={write.isPending}
+            error={write.error}
+            onSubmit={(values) => write.mutate(values)}
+            onClose={() => setEditor(null)}
+          />
+        ) : null}
+        {editor?.mode === "revise" ? (
+          <CaseForm
+            // Keyed by revision so the form re-mounts with the loaded case as its defaults
+            // rather than holding the empty values it was first built with.
+            key={`${editor.caseId}:${viewed.data?.revision ?? "loading"}`}
+            heading="Revise this case"
+            initial={viewed.data?.snapshot}
+            submitLabel="Save as a new revision"
+            pendingLabel="Saving…"
+            pending={revise.isPending}
+            loading={viewed.isLoading}
+            error={viewed.error || revise.error}
+            onSubmit={(values) => revise.mutate(values)}
+            onClose={() => setEditor(null)}
+            note={
+              <p className="case-editor__warning">
+                <strong>Earlier reviews are not affected.</strong> This writes revision{" "}
+                {(viewed.data?.revision ?? 0) + 1}; every review that has already run stays
+                pinned to the revision it judged.
+              </p>
+            }
+          />
+        ) : null}
+        {editor?.mode === "yaml" ? (
           <CaseEditor
             pending={create.isPending}
             error={create.error}

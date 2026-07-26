@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { load } from "js-yaml";
 import {
   ArrowLeft,
   ArrowRight,
@@ -17,15 +16,10 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
-import { CaseReviser } from "../case-editor";
+import { CaseForm, casePayload, type CaseFormValues } from "../case-form";
 import { ErrorPanel, Loading, formatDate, shortId } from "../components";
 import { applyProgress, type RunState } from "../run-progress";
-import type {
-  CaseUpdate,
-  ReviewOverview,
-  ReviewScore,
-  ReviewedBoundary,
-} from "../types";
+import type { ReviewOverview, ReviewScore, ReviewedBoundary } from "../types";
 
 /**
  * One boundary, as a block within a section rather than a card inside a card.
@@ -291,14 +285,14 @@ export function ReviewDetailPage() {
   const earlier = position >= 0 ? ordered[position + 1] || null : null;
 
   const revise = useMutation({
-    mutationFn: async (source: string) => {
+    mutationFn: async (values: CaseFormValues) => {
       if (!caseId || !repositoryRoot) {
         throw new Error("This review's case and repository could not both be resolved.");
       }
       setProgress(null);
       // Two steps, deliberately in this order and never in place: a new immutable case
       // revision, then a new review of it. This review is not touched by either.
-      await api.updateCase(caseId, load(source) as CaseUpdate);
+      await api.updateCase(caseId, casePayload(values));
       return api.streamReview(caseId, repositoryRoot, (event) =>
         setProgress((current) => applyProgress(current, event)),
       );
@@ -422,14 +416,28 @@ export function ReviewDetailPage() {
       </header>
 
       {revising ? (
-        <CaseReviser
-          snapshot={pinnedCase.data?.snapshot}
+        <CaseForm
+          // Keyed by the pinned revision so the form mounts with that revision's answers,
+          // not with the empty defaults it was first built from.
+          key={`${caseId}:${caseRevision}`}
+          heading="Revise the case, then review again"
+          initial={pinnedCase.data?.snapshot}
+          submitLabel="Create revision &amp; review again"
+          pendingLabel="Reviewing…"
+          pending={revise.isPending}
           loading={pinnedCase.isLoading}
           error={pinnedCase.error || revise.error}
-          pending={revise.isPending}
           progress={progress}
-          onSubmit={(source) => revise.mutate(source)}
+          onSubmit={(values) => revise.mutate(values)}
           onClose={() => setRevising(false)}
+          note={
+            <p className="case-editor__warning">
+              <strong>This does not change the review you are reading.</strong> Submitting
+              creates revision {(caseRevision ?? 0) + 1} of the case and runs a new review
+              against the same atlas, so only the case has changed. Both reviews stay, and
+              each links to the other.
+            </p>
+          }
         />
       ) : null}
 
