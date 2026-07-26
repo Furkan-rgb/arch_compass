@@ -875,7 +875,7 @@ This document governs product direction.
 - `docs/web-workspace.md` — the workspace as currently implemented.
 - `docs/evaluation.md` — evaluation cases and acceptance criteria.
 - `docs/adr/` — accepted architectural decisions.
-- `docs/plans/` — historical implementation plans; marked in place where superseded.
+- `docs/plans/` — implementation plans; marked in place where superseded.
 
 Subsystem documentation should not repeat the entire master plan. It should link back to
 it and explain the concrete implementation.
