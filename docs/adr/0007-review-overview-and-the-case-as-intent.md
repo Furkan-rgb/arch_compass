@@ -1,6 +1,6 @@
 # ADR 0007 — The review overview, and the case as intent only
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-26
 **Amends:** ADR 0006 (the review-centred plan); master plan §5.1, §5.5, §6A, §16, §17
 **Related:** ADR 0001 (composed synthesis), ADR 0002 (legacy purge), ADR 0004 (conversation
@@ -37,9 +37,13 @@ afterwards. Two structural guarantees keep it from becoming the old report:
 - **It has no verdict field.** There is no place in its schema to record that a boundary is
   material, so it cannot disagree with a verdict as data — and nothing downstream reads its
   prose as a key.
-- **Its analytical statements must cite.** A theme or a step that rests on no boundary fails
-  validation. One constrained repair is permitted, as everywhere else; a second failure
-  fails the review rather than persisting an ungrounded overview.
+- **Its analytical statements must cite.** A theme or a step that rests on no boundary is
+  discarded rather than recorded as unsupported prose — the same treatment a policy bearing
+  asserted without saying how already receives. Dropping rather than failing was chosen
+  during implementation: the verdicts underneath are already correct and already cost a
+  model call each, so what is lost is a sentence, where failing would lose the run. A reply
+  whose grounding flags do not match the number of boundaries is still refused outright,
+  because that is a mis-binding rather than a weak claim.
 
 **The `ArchitectureCase` is user intent, and only that.** The advisor never writes back into
 it. Advisor output lives in the review, where it is pinned to the exact revision, atlas and

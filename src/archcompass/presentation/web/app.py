@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from queue import Queue
 from threading import Thread
@@ -24,6 +24,7 @@ from pydantic import (
     model_validator,
 )
 
+from archcompass.application.reviews import JudgedCandidate
 from archcompass.bootstrap import Runtime
 from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion, FindingCandidate
 from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
@@ -205,6 +206,13 @@ class ReviewJudged(APIModel):
     material: bool
 
 
+class ReviewSummarising(APIModel):
+    """Every boundary is judged; one call remains, over all of them at once."""
+
+    event: Literal["summarising"] = "summarising"
+    total: int
+
+
 class ReviewCompleted(APIModel):
     """The composed, persisted review — the same object the non-streaming route returns."""
 
@@ -220,7 +228,7 @@ class ReviewFailed(APIModel):
 
 
 ReviewProgressLine = Annotated[
-    ReviewDetected | ReviewJudged | ReviewCompleted | ReviewFailed,
+    ReviewDetected | ReviewJudged | ReviewSummarising | ReviewCompleted | ReviewFailed,
     Field(discriminator="event"),
 ]
 
@@ -699,28 +707,45 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
 
     lines: Queue[str | None] = Queue()
 
-    def emit(event: ReviewDetected | ReviewJudged | ReviewCompleted | ReviewFailed) -> None:
+    def emit(
+        event: ReviewDetected
+        | ReviewJudged
+        | ReviewSummarising
+        | ReviewCompleted
+        | ReviewFailed,
+    ) -> None:
         lines.put(event.model_dump_json())
+
+    detected = 0
+
+    def report_detection(candidates: Sequence[FindingCandidate]) -> None:
+        nonlocal detected
+        detected = len(candidates)
+        emit(
+            ReviewDetected(
+                total=detected,
+                boundaries=[_abstraction_name(item) for item in candidates],
+            )
+        )
+
+    def report_verdict(judged: JudgedCandidate, position: int, total: int) -> None:
+        emit(
+            ReviewJudged(
+                position=position,
+                total=total,
+                abstraction=_abstraction_name(judged.candidate),
+                material=judged.verdict.material,
+            )
+        )
 
     def run() -> None:
         try:
             review = runtime.review_service.review(
                 request.case_id,
                 repository_root=Path(request.repository_root),
-                on_detected=lambda candidates: emit(
-                    ReviewDetected(
-                        total=len(candidates),
-                        boundaries=[_abstraction_name(item) for item in candidates],
-                    )
-                ),
-                on_verdict=lambda judged, position, total: emit(
-                    ReviewJudged(
-                        position=position,
-                        total=total,
-                        abstraction=_abstraction_name(judged.candidate),
-                        material=judged.verdict.material,
-                    )
-                ),
+                on_detected=report_detection,
+                on_verdict=report_verdict,
+                on_summarising=lambda: emit(ReviewSummarising(total=detected)),
             )
         except ArchCompassError as error:
             # The status is deliberately dropped: the response is already a 200 by the time

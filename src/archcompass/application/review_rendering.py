@@ -10,7 +10,12 @@ ran at all, and telling those two apart is most of what this tool is for.
 
 from __future__ import annotations
 
-from archcompass.domain.review import BoundaryReview, BoundaryReviewReport, ReviewedBoundary
+from archcompass.domain.review import (
+    BoundaryReview,
+    BoundaryReviewReport,
+    ReviewedBoundary,
+    ReviewOverview,
+)
 
 
 def _boundary(item: ReviewedBoundary) -> list[str]:
@@ -41,11 +46,40 @@ def _boundary(item: ReviewedBoundary) -> list[str]:
     return lines
 
 
+def _overview(overview: ReviewOverview) -> list[str]:
+    """The synthesis, with every claim followed by the boundaries it rests on.
+
+    The references are printed rather than implied. A reader who disagrees with a theme has
+    to be able to go straight to the verdicts it was built from, and one that cited nothing
+    would not have been recorded at all.
+    """
+
+    lines = ["", "## What this amounts to", "", overview.situation]
+    if overview.themes:
+        lines += ["", "### Across the boundaries", ""]
+        lines += [
+            f"- {statement.text} *({', '.join(statement.supporting_references)})*"
+            for statement in overview.themes
+        ]
+    if overview.recommended_sequence:
+        lines += ["", "### Do this, in order", ""]
+        lines += [
+            f"{position}. {statement.text} "
+            f"*({', '.join(statement.supporting_references)})*"
+            for position, statement in enumerate(overview.recommended_sequence, start=1)
+        ]
+    lines += ["", f"*What this review could not see.* {overview.limits}"]
+    return lines
+
+
 def render_report(report: BoundaryReviewReport) -> str:
     lines = [
         f"# Boundary review — {report.case_title}",
         "",
-        report.overview,
+        report.headline,
+    ]
+    lines += _overview(report.overview)
+    lines += [
         "",
         "## Case",
         "",

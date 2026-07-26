@@ -14,7 +14,14 @@ from archcompass.domain.case import (
     ArchitectureCase,
 )
 from archcompass.domain.policy import PolicyDocument
-from archcompass.domain.review import BoundaryReview, CandidateVerdict, PolicyBearing
+from archcompass.domain.review import (
+    BoundaryReview,
+    CandidateVerdict,
+    OverviewStatement,
+    PolicyBearing,
+    ReviewedBoundary,
+    ReviewOverview,
+)
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
 from archcompass.ports.reasoning import ReasoningTask
 
@@ -44,6 +51,7 @@ class DeterministicEmbeddingProvider:
 class DeterministicReasoningProvider:
     _PROMPTS: ClassVar[dict[ReasoningTask, str]] = {
         ReasoningTask.JUDGE_FINDING_CANDIDATE: "judge-finding-candidate:v3",
+        ReasoningTask.SUMMARISE_REVIEW: "summarise-review:v1",
         ReasoningTask.ANSWER_REVIEW_QUESTION: "answer-review-question:v1",
     }
 
@@ -114,6 +122,56 @@ class DeterministicReasoningProvider:
             ),
         )
 
+    def summarise_review(
+        self,
+        case: ArchitectureCase,
+        boundaries: list[ReviewedBoundary],
+    ) -> ReviewOverview:
+        # Composed from the verdicts themselves, so the substitute cites boundaries that
+        # genuinely carry what each statement says. A fixture that always cited everything
+        # would make the grounding assertions in tests vacuous.
+        material = [item for item in boundaries if item.material]
+        cleared = [item for item in boundaries if not item.material]
+        themes: list[OverviewStatement] = []
+        if material:
+            themes.append(
+                OverviewStatement(
+                    text=f"{len(material)} of {len(boundaries)} were judged material.",
+                    supporting_references=[item.reference for item in material],
+                )
+            )
+        if cleared:
+            themes.append(
+                OverviewStatement(
+                    text=f"{len(cleared)} of {len(boundaries)} were judged not material.",
+                    supporting_references=[item.reference for item in cleared],
+                )
+            )
+        # Relayed from the candidates rather than described here: the detector states what
+        # it could not see, and a double that restated it in its own words would be
+        # asserting the detector's vocabulary instead of passing it through.
+        stated: list[str] = []
+        for item in boundaries:
+            if item.candidate.limitations and item.candidate.limitations not in stated:
+                stated.append(item.candidate.limitations)
+        return ReviewOverview(
+            situation=(
+                f"{case.title}. {case.problem_statement}"
+                if case.problem_statement
+                else case.title
+            ),
+            themes=themes,
+            recommended_sequence=[
+                OverviewStatement(
+                    text=material[0].recommended_response,
+                    supporting_references=[item.reference for item in material],
+                )
+            ]
+            if material and material[0].recommended_response
+            else [],
+            limits=" ".join(stated) or "The detector stated no limitation.",
+        )
+
     def answer_review_question(
         self,
         review: BoundaryReview,
@@ -134,7 +192,7 @@ class DeterministicReasoningProvider:
         ]
         return ReviewAnswer(
             answer=(
-                f"{report.overview} "
+                f"{report.headline} "
                 + (
                     "The boundaries this question touches are: "
                     + "; ".join(item.candidate.summary for item in supporting)

@@ -92,16 +92,53 @@ class ReviewedBoundary(DomainModel):
         return self.candidate.summary
 
 
-class BoundaryReviewReport(DomainModel):
-    """Every boundary in one repository, judged against one case."""
+class OverviewStatement(DomainModel):
+    """One claim about the review as a whole, and the boundaries it rests on.
 
-    schema_version: Literal[1] = 1
+    A claim resting on no boundary is never recorded. The overview exists to say what the
+    verdicts amount to, so a sentence none of them support is the model describing a
+    repository it was not shown (12.0).
+    """
+
+    text: str = Field(min_length=1)
+    #: `BR-nnn`, attached by the application from positional flags rather than read back
+    #: out of the reply. Nothing here was ever written by a model.
+    supporting_references: list[str] = Field(min_length=1)
+
+
+class ReviewOverview(DomainModel):
+    """What the boundaries add up to, composed once from all of them.
+
+    Deliberately has no verdict field. There is nowhere in this shape to record that a
+    boundary is material, so an overview cannot contradict a verdict as data, and nothing
+    downstream reads its prose as a key. It says what the review means; it cannot revise it.
+
+    `themes` and `recommended_sequence` may both be empty. Two cleared boundaries have no
+    pattern running across them and nothing to do about them, and saying so is a result.
+    """
+
+    #: What this repository is being asked to do — the ground the rest stands on.
+    situation: str = Field(min_length=1)
+    themes: list[OverviewStatement] = Field(default_factory=list[OverviewStatement])
+    recommended_sequence: list[OverviewStatement] = Field(
+        default_factory=list[OverviewStatement]
+    )
+    #: What this review could not see. Stated once here because it is a property of the
+    #: method rather than of any one boundary, which prints its own limits too.
+    limits: str = Field(min_length=1)
+
+
+class BoundaryReviewReport(DomainModel):
+    """Every boundary in one repository, judged against one case, and what that amounts to."""
+
+    schema_version: Literal[2] = 2
     report_id: str = Field(default_factory=lambda: new_id("review"))
     case_title: str = Field(min_length=1)
     problem_and_desired_outcome: str = Field(min_length=1)
     #: Every boundary examined, material or not. Empty is valid and meaningful: the
     #: detector ran and found no candidate, which is a result rather than a failure.
     reviewed: list[ReviewedBoundary] = Field(default_factory=list[ReviewedBoundary])
+    overview: ReviewOverview
     #: Which policies the advisor was shown, so a reader can tell a policy that did not
     #: apply from one that was never presented.
     policies_presented: list[str] = Field(default_factory=list[str])
@@ -113,6 +150,26 @@ class BoundaryReviewReport(DomainModel):
             raise ValueError("Reviewed boundary references must be unique")
         return self
 
+    @model_validator(mode="after")
+    def overview_cites_only_boundaries_of_this_review(self) -> BoundaryReviewReport:
+        """The last line of defence for grounding, independent of any adapter.
+
+        Positions are mapped to references before this model is built, so a citation that
+        does not resolve means the mapping was wrong — and a report that cites a boundary
+        it does not contain is worse than one that says less.
+        """
+
+        known = {item.reference for item in self.reviewed}
+        cited = {
+            reference
+            for statement in (*self.overview.themes, *self.overview.recommended_sequence)
+            for reference in statement.supporting_references
+        }
+        unknown = sorted(cited - known)
+        if unknown:
+            raise ValueError(f"The overview cites boundaries this review lacks: {unknown}")
+        return self
+
     @property
     def material(self) -> list[ReviewedBoundary]:
         return [item for item in self.reviewed if item.material]
@@ -122,11 +179,12 @@ class BoundaryReviewReport(DomainModel):
         return [item for item in self.reviewed if not item.material]
 
     @property
-    def overview(self) -> str:
-        """A factual sentence, composed rather than written.
+    def headline(self) -> str:
+        """A factual sentence of counts, composed rather than written.
 
         No model call: every number here is already known, and asking for prose about
-        counts would be spending judgement on bookkeeping (master plan 12.0).
+        counts would be spending judgement on bookkeeping (master plan 12.0). The model's
+        contribution is `overview`, which says what the counts mean.
         """
 
         if not self.reviewed:
@@ -174,6 +232,26 @@ class BoundaryReview(DomainModel):
         if self.status is ReviewStatus.FAILED and self.report is not None:
             raise ValueError("A failed review must not carry a report")
         return self
+
+
+def empty_review_overview() -> ReviewOverview:
+    """The overview of a review with nothing in it, composed rather than asked for.
+
+    A sweep that found no candidate has no verdicts to synthesise, so there is nothing for
+    judgement to do and a model call would be inventing content from an empty input.
+    """
+
+    return ReviewOverview(
+        situation=(
+            "The detector swept this repository and found no boundary of a shape it can "
+            "recognise, so there was nothing to judge against this case."
+        ),
+        limits=(
+            "One detector ran: an abstraction with exactly one implementation. Finding "
+            "nothing means that shape is absent, not that the repository is without "
+            "structural problems."
+        ),
+    )
 
 
 def reviewed_boundaries(

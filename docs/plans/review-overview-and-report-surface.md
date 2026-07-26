@@ -1,6 +1,6 @@
 # Implementation Plan: The review overview and the report surface
 
-**Status:** Proposed plan, implementation pending
+**Status:** Accepted plan; step 1 delivered, steps 2-6 pending
 **Decides:** ADR 0007 (the review overview; the case as intent only)
 **Scope:** One new reasoning stage, the review page it feeds, a structured case form, the
 atlas entered from a finding, and a CLI batch evaluation. Brownfield only. No job queue, no

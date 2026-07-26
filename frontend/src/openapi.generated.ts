@@ -112,11 +112,12 @@ export interface components {
     "created_at"?: string;
   };
     "BoundaryReviewReport": {
-    "schema_version"?: 1;
+    "schema_version"?: 2;
     "report_id"?: string;
     "case_title": string;
     "problem_and_desired_outcome": string;
     "reviewed"?: Array<components["schemas"]["ReviewedBoundary"]>;
+    "overview": components["schemas"]["ReviewOverview"];
     "policies_presented"?: Array<string>;
   };
     "BoundaryReviewSummary": {
@@ -268,6 +269,10 @@ export interface components {
     "definition"?: string;
     "limitations"?: string;
   };
+    "OverviewStatement": {
+    "text": string;
+    "supporting_references": Array<string>;
+  };
     "PolicyApplicabilityContext": {
     "user"?: string | null;
     "organisation"?: string | null;
@@ -403,7 +408,13 @@ export interface components {
     "failure"?: string;
     "asked_at"?: string;
   };
-    "ReviewProgress": components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewFailed"];
+    "ReviewOverview": {
+    "situation": string;
+    "themes"?: Array<components["schemas"]["OverviewStatement"]>;
+    "recommended_sequence"?: Array<components["schemas"]["OverviewStatement"]>;
+    "limits": string;
+  };
+    "ReviewProgress": components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewSummarising"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewFailed"];
     "ReviewQuestionRequest": {
     "question": string;
   };
@@ -419,6 +430,10 @@ export interface components {
     "unscored": Array<string>;
   };
     "ReviewStatus": "succeeded" | "failed";
+    "ReviewSummarising": {
+    "event"?: "summarising";
+    "total": number;
+  };
     "ReviewedBoundary": {
     "reference": string;
     "candidate": components["schemas"]["FindingCandidate"];

@@ -8,7 +8,12 @@ from typing import Protocol
 from archcompass.domain.atlas import FindingCandidate
 from archcompass.domain.case import ArchitectureCase
 from archcompass.domain.policy import PolicyDocument
-from archcompass.domain.review import BoundaryReview, CandidateVerdict
+from archcompass.domain.review import (
+    BoundaryReview,
+    CandidateVerdict,
+    ReviewedBoundary,
+    ReviewOverview,
+)
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
 
 
@@ -21,6 +26,7 @@ class ReasoningTask(StrEnum):
     """
 
     JUDGE_FINDING_CANDIDATE = "judge_finding_candidate"
+    SUMMARISE_REVIEW = "summarise_review"
     ANSWER_REVIEW_QUESTION = "answer_review_question"
 
 
@@ -47,6 +53,20 @@ class FocusedReasoningProvider(Protocol):
 
         The policies are presented in the order given and the response binds to them by
         position, so the list must not be reordered between the call and the result.
+        """
+        ...
+
+    def summarise_review(
+        self,
+        case: ArchitectureCase,
+        boundaries: list[ReviewedBoundary],
+    ) -> ReviewOverview:
+        """Say what the verdicts amount to, once, across all of them.
+
+        The boundaries arrive already composed and numbered, and are presented by position:
+        the reply marks which of them each statement rests on, and their references are
+        attached from those positions. The order must not change between the call and the
+        result. Nothing here may revise a verdict — the shape returned has no field for one.
         """
         ...
 

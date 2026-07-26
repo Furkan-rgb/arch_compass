@@ -202,6 +202,13 @@ An ArchitectureCase is not a temporary prompt. Revisions are append-only; every 
 remains available, updates must not silently erase user-authored context, and a review
 pins the exact revision it ran against.
 
+The case holds **intent, and only intent**. The advisor never writes into it: no current
+recommendation, no confidence, no advisor-authored forces, no revision authored by a run.
+Advisor output belongs to the review, where it is pinned to the exact revision, atlas and
+policy set that produced it. A case that is both the question and the answer cannot be
+re-asked, and the era that tried it could not say which half a reader was looking at
+(ADR 0007).
+
 ## 5.2 RepositoryAtlas
 
 `RepositoryAtlas` is a deterministic, versioned and queryable map of an existing
@@ -248,8 +255,16 @@ full.
 ## 5.5 BoundaryReview
 
 `BoundaryReview` is the immutable record of one review: the exact case revision, the
-atlas version, the policies presented, and every boundary examined with its verdict,
-rationale, policy bearings and recommended response.
+atlas version, the policies presented, every boundary examined with its verdict,
+rationale, policy bearings and recommended response, and an **overview** of what those
+verdicts amount to together.
+
+The overview is composed in one further model call over the verdicts the review has just
+produced, and is written at the same moment as the rest of the record. It states the
+situation, the themes that run across boundaries, a recommended sequence and what the
+review could not see. It has no verdict field of its own, and every theme and step names
+the boundaries it rests on by position, so it can say what a set of verdicts means without
+being able to overrule any of them (ADR 0007).
 
 Both outcomes are stored. A boundary the advisor cleared is the record that it looked —
 a report listing only problems reads the same whether every boundary was examined and
@@ -303,9 +318,19 @@ not ranked, no model involved                     │
         per policy, bound by position
                            │
                            ▼
-        Compose and persist the BoundaryReview            [application]
+        Number the boundaries                             [application]
         BR-nnn assigned in detection order, policy
-        identity resolved by position, JSON + Markdown
+        identity resolved by position
+                           │
+                           ▼
+        Overview — one model call over all of them:       [model]
+        what the verdicts amount to as a set · themes ·
+        sequence · limits, each claim bound to the
+        boundaries it rests on, by position
+                           │
+                           ▼
+        Compose and persist the BoundaryReview            [application]
+        JSON + Markdown, overview included
                            │
                            ▼
         The review page                                   [the destination]
@@ -343,6 +368,13 @@ than requested iteratively.
 its reasoning. This is §3.1 made operational: an advisor that only reports problems
 cannot be distinguished from one that never looked.
 
+**One stage reads the set.** Judgement is per candidate, so nothing in it can see that
+four boundaries fail for the same reason. That observation is worth a model call of its
+own, and it is the only stage shown conclusions rather than evidence. It is bounded twice:
+its shape has no verdict field, so it cannot contradict a judgement as data, and every
+claim it makes names the boundaries it rests on — a claim resting on none is discarded
+rather than recorded as unsupported prose.
+
 **The destination is a page, not a file.** The product's value lands when a person reads
 the report and interrogates it — *what should I do first, why is BR-003 in here, what is
 the biggest risk*. The review page and its conversation are part of the advisory path,
@@ -351,10 +383,10 @@ not a viewer bolted on afterwards. §6B governs that surface.
 ## 6A.1 What a review produces
 
 A `BoundaryReviewReport`: the case title, problem and desired outcome; the policies
-presented; and every boundary examined, each with its BR-nnn reference, the abstraction
-and its sole implementation located in source, the verdict and its reasoning, a
-recommended response only when material, the policies that bear on it and how, and what
-the detection method could not see.
+presented; every boundary examined, each with its BR-nnn reference, the abstraction and
+its sole implementation located in source, the verdict and its reasoning, a recommended
+response only when material, the policies that bear on it and how, and what the detection
+method could not see; and the overview of what all of it amounts to.
 
 It contains no alternatives, no scenario analysis, no ADR and no implementation
 sequence. A review judges boundaries that already exist; it does not weigh competing
@@ -834,6 +866,9 @@ Contributors and coding agents must preserve these invariants.
 21. Old reviews retain the exact case, atlas and policy versions they used.
 22. The application decides what to look at; the model decides what it means; nothing
     the model writes is used as a key (§12.0).
+23. `ArchitectureCase` holds user intent only; the advisor never writes into it.
+24. A review's overview may summarise its verdicts and may not revise them: no verdict
+    field, and every claim names the boundaries it rests on.
 
 ---
 

@@ -109,10 +109,20 @@ def main() -> int:
             revision.case_id,
             repository_root=repository,
             on_verdict=report,
+            on_summarising=lambda: print("  … reading the verdicts as a set"),
         )
 
         report = review.report
         assert report is not None
+        overview = report.overview
+        print(f"\n{overview.situation}")
+        for statement in overview.themes:
+            print(f"  · {statement.text}  [{', '.join(statement.supporting_references)}]")
+        for position, statement in enumerate(overview.recommended_sequence, start=1):
+            print(
+                f"  {position}. {statement.text}  "
+                f"[{', '.join(statement.supporting_references)}]"
+            )
         scored = len(report.reviewed) - len(unknown)
         print(
             f"\n{correct}/{scored} correct  "

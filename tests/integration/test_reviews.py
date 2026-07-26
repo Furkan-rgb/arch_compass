@@ -150,6 +150,54 @@ def test_the_rendered_report_shows_cleared_boundaries_too(runtime: Runtime) -> N
     assert "policies were presented in full" in markdown
 
 
+def test_a_review_says_what_its_verdicts_amount_to(runtime: Runtime) -> None:
+    """The one thing no per-boundary call can do: read the set as a set.
+
+    What is defended here is the binding, not the prose. Every claim the overview makes
+    names boundaries of this review, and the references it names were assigned by the
+    application — so a summary cannot point at a boundary that was never judged.
+    """
+
+    case_id = _indexed_case(runtime)
+
+    review = runtime.review_service.review(case_id, repository_root=FIXTURE)
+
+    report = review.report
+    assert report is not None
+    overview = report.overview
+    assert overview.situation
+    assert overview.limits
+    known = {item.reference for item in report.reviewed}
+    statements = [*overview.themes, *overview.recommended_sequence]
+    assert statements, "a review with material and cleared boundaries has something to say"
+    for statement in statements:
+        assert statement.supporting_references
+        assert set(statement.supporting_references) <= known
+
+    markdown = render_review(review)
+    assert "What this amounts to" in markdown
+    assert overview.situation in markdown
+    # The citations are printed, so a reader who doubts a theme can reach the verdicts.
+    assert statements[0].supporting_references[0] in markdown
+
+
+def test_a_summarising_step_is_reported_before_it_runs(runtime: Runtime) -> None:
+    """A caller has to be able to say what the run is doing after the last verdict."""
+
+    case_id = _indexed_case(runtime)
+    order: list[str] = []
+
+    runtime.review_service.review(
+        case_id,
+        repository_root=FIXTURE,
+        on_verdict=lambda judged, position, total: order.append(f"judged-{position}"),
+        on_summarising=lambda: order.append("summarising"),
+    )
+
+    assert order[-1] == "summarising"
+    assert order[:-1] == [f"judged-{position}" for position in range(1, len(order))]
+
+
 def test_an_unindexed_repository_says_so_instead_of_reviewing_nothing(
     runtime: Runtime,
     tmp_path: Path,

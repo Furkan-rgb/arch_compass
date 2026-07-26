@@ -27,6 +27,7 @@ from archcompass.domain.review import (
     BoundaryReviewReport,
     CandidateVerdict,
     ReviewStatus,
+    empty_review_overview,
     reviewed_boundaries,
 )
 from archcompass.ports.atlas import AtlasFreshnessChecker
@@ -71,6 +72,7 @@ class ReviewService:
         repository_root: Path,
         on_detected: Callable[[Sequence[FindingCandidate]], None] | None = None,
         on_verdict: Callable[[JudgedCandidate, int, int], None] | None = None,
+        on_summarising: Callable[[], None] | None = None,
     ) -> BoundaryReview:
         """Judge every candidate in the repository against this case.
 
@@ -111,12 +113,24 @@ class ReviewService:
             judged.append(item)
             if on_verdict is not None:
                 on_verdict(item, position, len(candidates))
+        boundaries = reviewed_boundaries([(item.candidate, item.verdict) for item in judged])
+        if on_summarising is not None:
+            on_summarising()
+        # One call over all the verdicts, and only when there are verdicts. A sweep that
+        # found nothing has nothing to synthesise, and asking a model to summarise an empty
+        # set would be asking it to invent the content of the answer.
+        overview = (
+            self._reasoner.summarise_review(revision.snapshot, boundaries)
+            if boundaries
+            else empty_review_overview()
+        )
         report = BoundaryReviewReport(
             case_title=revision.snapshot.title,
             problem_and_desired_outcome=(
                 f"{revision.snapshot.problem_statement}\n\n{revision.snapshot.desired_outcome}"
             ),
-            reviewed=reviewed_boundaries([(item.candidate, item.verdict) for item in judged]),
+            reviewed=boundaries,
+            overview=overview,
             policies_presented=[policy.id for policy in policies],
         )
         review = BoundaryReview(

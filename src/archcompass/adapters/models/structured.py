@@ -30,7 +30,14 @@ from archcompass.domain.errors import (
     ProviderError,
 )
 from archcompass.domain.policy import PolicyDocument
-from archcompass.domain.review import BoundaryReview, CandidateVerdict, PolicyBearing
+from archcompass.domain.review import (
+    BoundaryReview,
+    CandidateVerdict,
+    OverviewStatement,
+    PolicyBearing,
+    ReviewedBoundary,
+    ReviewOverview,
+)
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
 from archcompass.ports.reasoning import ReasoningTask
 
@@ -51,6 +58,34 @@ def timeout_seconds(config: ReasoningModelConfig, *, is_fast: bool) -> float:
 
     configured = config.fast_timeout_seconds if is_fast else config.deep_timeout_seconds
     return configured if configured is not None else config.timeout_seconds
+
+
+def _grounded_statements(
+    proposed: list[ProposedOverviewStatement],
+    boundaries: list[ReviewedBoundary],
+) -> list[OverviewStatement]:
+    """Attach references from positions, and drop what rests on nothing.
+
+    A statement flagging no boundary is discarded rather than kept as unsupported prose —
+    the same treatment a policy bearing asserted without saying how receives. It is dropped
+    instead of failing the review because the verdicts underneath it are already correct and
+    already cost a model call each; what is lost is a sentence, and what would be lost by
+    failing is the whole run.
+    """
+
+    statements: list[OverviewStatement] = []
+    for item in proposed:
+        references = [
+            boundary.reference
+            for boundary, supports in zip(boundaries, item.supported_by, strict=True)
+            if supports
+        ]
+        if not references or not item.text.strip():
+            continue
+        statements.append(
+            OverviewStatement(text=item.text.strip(), supporting_references=references)
+        )
+    return statements
 
 
 def _object_mapping(value: object) -> dict[str, object] | None:
@@ -93,6 +128,43 @@ class ProposedCandidateVerdict(BaseModel):
     policy_bearings: list[ProposedPolicyBearing]
     material: bool
     recommended_response: str = ""
+
+
+class ProposedOverviewStatement(BaseModel):
+    """One claim about the whole review, grounded by position.
+
+    `text` before `supported_by` so the claim is written first and the grounding describes
+    what was actually said, rather than the model picking boundaries and then writing to fit
+    them (master plan 12.0, field order).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1)
+    supported_by: list[bool]
+
+
+class ProposedReviewOverview(BaseModel):
+    """Model-facing synthesis of every verdict in one review.
+
+    No verdict field of any kind. This stage is shown conclusions and asked what they mean
+    together; a `material` flag here would let a summary silently contradict the judgement
+    that produced it, and there would be no way to tell which one a reader should believe.
+
+    Field order is the reasoning: the situation the case describes, then what the verdicts
+    show against it, then what to do about that, then what none of it could see.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    situation: str = Field(min_length=1)
+    themes: list[ProposedOverviewStatement] = Field(
+        default_factory=list[ProposedOverviewStatement], max_length=4
+    )
+    recommended_sequence: list[ProposedOverviewStatement] = Field(
+        default_factory=list[ProposedOverviewStatement], max_length=4
+    )
+    limits: str = Field(min_length=1)
 
 
 class ProposedReviewAnswer(BaseModel):
@@ -228,6 +300,65 @@ class StructuredReasoningProvider:
             ),
         )
 
+    def summarise_review(
+        self,
+        case: ArchitectureCase,
+        boundaries: list[ReviewedBoundary],
+    ) -> ReviewOverview:
+        expected = len(boundaries)
+        proposed = self._complete(
+            ReasoningTask.SUMMARISE_REVIEW,
+            {
+                "case": case.model_dump(mode="json"),
+                # No reference codes, for the same reason policies are presented without
+                # IDs: an identifier in the input is one the model can quote back, and
+                # position is already a complete and unforgeable binding.
+                "boundaries": [
+                    {
+                        "position": index,
+                        "boundary": item.candidate.summary,
+                        # Spelled out rather than passed as `material`. A live run grouped a
+                        # boundary judged material among the ones "maintained for
+                        # testability", which is what that word invites: read as ordinary
+                        # English it says the boundary matters, and the verdict means the
+                        # opposite. The settled verdict must not be re-readable.
+                        "verdict": (
+                            "NOT earning its place — this boundary should change"
+                            if item.material
+                            else "earning its place — this boundary should stay as it is"
+                        ),
+                        "reasoning": item.rationale,
+                        "recommended_response": item.recommended_response,
+                        "policies_that_bear": [
+                            f"{bearing.policy_title}: {bearing.how}"
+                            for bearing in item.policy_bearings
+                        ],
+                    }
+                    for index, item in enumerate(boundaries, start=1)
+                ],
+            },
+            ProposedReviewOverview,
+            runtime_instruction=(
+                f"Every statement must carry exactly {expected} supported_by flags, one for "
+                "each boundary, in the order the boundaries appear above."
+            ),
+            schema_override=self._overview_schema(boundary_count=expected),
+            candidate_validator=lambda item: [
+                f"every supported_by must contain exactly {expected} flags, one per "
+                f"boundary in order, but one statement contains {len(statement.supported_by)}"
+                for statement in (*item.themes, *item.recommended_sequence)
+                if len(statement.supported_by) != expected
+            ],
+        )
+        return ReviewOverview(
+            situation=proposed.situation.strip(),
+            themes=_grounded_statements(proposed.themes, boundaries),
+            recommended_sequence=_grounded_statements(
+                proposed.recommended_sequence, boundaries
+            ),
+            limits=proposed.limits.strip(),
+        )
+
     def answer_review_question(
         self,
         review: BoundaryReview,
@@ -244,7 +375,7 @@ class StructuredReasoningProvider:
             {
                 "case_title": report.case_title,
                 "case": report.problem_and_desired_outcome,
-                "overview": report.overview,
+                "overview": report.headline,
                 # No reference codes. The model is shown the substance and answers by
                 # position; codes exist for the reader, not for the model to quote back.
                 "boundaries": [
@@ -296,6 +427,37 @@ class StructuredReasoningProvider:
         )
 
 
+
+    @staticmethod
+    def _overview_schema(*, boundary_count: int) -> dict[str, object]:
+        """Fix one grounding flag per boundary inside every statement.
+
+        The statement shape is a single definition shared by both lists, so bounding it once
+        bounds every statement in the reply. Same binding as everywhere else: nothing in a
+        flag says which boundary it belongs to, so a short list shifts every later flag onto
+        the wrong boundary and still validates.
+        """
+
+        schema = ProposedReviewOverview.model_json_schema()
+        definitions = _object_mapping(schema.get("$defs"))
+        if definitions is None:
+            return schema
+        statement = _object_mapping(definitions.get("ProposedOverviewStatement"))
+        if statement is None:
+            return schema
+        properties = _object_mapping(statement.get("properties"))
+        if properties is None:
+            return schema
+        supported = _object_mapping(properties.get("supported_by"))
+        if supported is None:
+            return schema
+        supported["minItems"] = boundary_count
+        supported["maxItems"] = boundary_count
+        properties["supported_by"] = supported
+        statement["properties"] = properties
+        definitions["ProposedOverviewStatement"] = statement
+        schema["$defs"] = definitions
+        return schema
 
     @staticmethod
     def _review_answer_schema(*, boundary_count: int) -> dict[str, object]:

@@ -167,7 +167,70 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
 )
 
 
+SUMMARISE_REVIEW: Final = PromptContract(
+    name="summarise-review",
+    version=1,
+    stage_contract=_text(
+        """
+        Every boundary in one repository has now been judged separately, and you are shown
+        all of those verdicts together with the case they were judged against. Your job is
+        the one thing none of those separate calls could do: say what they amount to when
+        read as a set.
+
+        You are not re-judging anything. Each verdict was reached with that boundary's own
+        evidence in front of it, and you are seeing a summary of that reasoning rather than
+        the evidence. Where you would have decided differently, that is not a finding —
+        report what the set shows, not what you would have concluded.
+
+        Each boundary's verdict is stated in full. Never describe a boundary as earning its
+        place when its verdict says it is not, or the reverse: a summary that regroups a
+        settled verdict contradicts the review it is summarising, and a reader has no way to
+        tell which of the two to believe.
+
+        What a set can show that one verdict cannot:
+
+        - A pattern across boundaries. Several boundaries absorbing variation the case
+          rules out is one observation about how this repository was designed, not four
+          unrelated mistakes.
+        - An order. Some changes make others unnecessary or easier, and a reader deciding
+          where to start needs the sequence rather than a list.
+        - Proportion. Five boundaries earning their place and one that is not is a
+          different situation from the reverse, and the summary should read like whichever
+          it is.
+
+        Say plainly when there is nothing to say. A review where every boundary was cleared
+        has no theme and no sequence, and inventing either to fill the shape would be worse
+        than an empty list — that review's finding is that the structure is holding up.
+
+        Never write a boundary's reference code, name or number in any text field. Position
+        is what identifies a boundary here.
+        """
+    ),
+    request=_text(
+        """
+        Answer the fields in the order they appear, because that order is the reasoning.
+
+        First, in situation, state in two or three sentences what this repository is being
+        asked to do, drawn from the case rather than from the verdicts.
+
+        Then, in themes, give what the verdicts show when read together — at most four, each
+        one observation rather than a summary of everything. Then, in recommended_sequence,
+        give what to do and in what order, at most four steps, and only where the verdicts
+        support it. Both lists may be empty.
+
+        Every statement carries one supported_by flag per boundary, in the order the
+        boundaries appear above, marking the boundaries that statement rests on. A statement
+        that rests on no boundary will be discarded, so make the claim you can ground.
+
+        Finally, in limits, state what this review could not see: which detector ran, and
+        what a reader should not conclude from its silence.
+        """
+    ),
+)
+
+
 STAGE_PROMPTS: Final[dict[ReasoningTask, PromptContract]] = {
     ReasoningTask.JUDGE_FINDING_CANDIDATE: JUDGE_FINDING_CANDIDATE,
+    ReasoningTask.SUMMARISE_REVIEW: SUMMARISE_REVIEW,
     ReasoningTask.ANSWER_REVIEW_QUESTION: ANSWER_REVIEW_QUESTION,
 }
