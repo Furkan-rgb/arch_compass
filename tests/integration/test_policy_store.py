@@ -62,10 +62,14 @@ def _write_index_policy(
 
 
 def test_policy_index_is_versioned_and_retrievable(runtime) -> None:
+    # The count is derived from the corpus on disk rather than frozen: what this asserts
+    # is that indexing loses nothing, and authoring a policy is not a test failure.
+    bundled = len(list(BUNDLED_POLICY_SOURCE.rglob("*.md")))
+    assert bundled > 0
     first = runtime.policy_store.rebuild([BUNDLED_POLICY_SOURCE])
     second = runtime.policy_store.rebuild([BUNDLED_POLICY_SOURCE])
     assert first.version_id != second.version_id
-    assert len(runtime.policy_store.list_policies(first.version_id)) == 18
+    assert len(runtime.policy_store.list_policies(first.version_id)) == bundled
     results = runtime.policy_store.retrieve(
         "provider-specific dependency containment",
         top_k=5,
