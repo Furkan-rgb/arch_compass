@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Boxes, GitBranch, Network, Plus, SearchCode } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { api } from "../api";
@@ -34,7 +34,10 @@ export function RepositoriesPage() {
   const [params] = useSearchParams();
   const [rootPath, setRootPath] = useState("");
   const [selected, setSelected] = useState<string | null>(params.get("root"));
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // A boundary asked for by a finding: the explorer opens on it rather than on whatever
+  // the bounded summary happens to list first (workspace-design §4).
+  const requestedNodeId = params.get("node");
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(params.get("node"));
   const [exploredResults, setExploredResults] = useState<AtlasQueryResult[]>([]);
   const [pathStartNodeId, setPathStartNodeId] = useState<string | null>(null);
   const [pathNodeIds, setPathNodeIds] = useState<string[]>([]);
@@ -93,8 +96,32 @@ export function RepositoriesPage() {
   }, [repositoryChoices, selected]);
 
   useEffect(() => {
-    setSelectedNodeId(summary.data?.node_summaries[0]?.node_id || null);
-  }, [selected, summary.data]);
+    setSelectedNodeId(requestedNodeId || summary.data?.node_summaries[0]?.node_id || null);
+  }, [requestedNodeId, selected, summary.data]);
+
+  /**
+   * Bring a requested node into view if the bounded summary does not already contain it.
+   *
+   * The summary is a bounded slice of the repository, so a boundary reached from a finding
+   * may not be in it. Its reverse neighbourhood is what the reader came to see anyway —
+   * what depends on the abstraction this verdict is about. Fired once per repository and
+   * node, because the effect's inputs change every time an exploration lands.
+   */
+  const revealed = useRef<string | null>(null);
+  useEffect(() => {
+    if (!requestedNodeId || !selected || !summary.data) return;
+    const key = `${selected}|${requestedNodeId}`;
+    if (revealed.current === key) return;
+    revealed.current = key;
+    if (summary.data.node_summaries.some((node) => node.node_id === requestedNodeId)) return;
+    explore.mutate({
+      root_path: selected,
+      operation: "reverse_neighbourhood",
+      node_id: requestedNodeId,
+      depth: 2,
+      limit: 60,
+    });
+  }, [explore, requestedNodeId, selected, summary.data]);
 
   useEffect(() => {
     setExploredResults([]);

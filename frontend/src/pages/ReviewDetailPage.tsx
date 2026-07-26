@@ -7,6 +7,7 @@ import {
   CornerDownLeft,
   FlaskConical,
   MessageCircleQuestion,
+  Network,
   PencilLine,
   Plus,
   TriangleAlert,
@@ -101,7 +102,15 @@ function Overview({ overview }: { overview: ReviewOverview }) {
   );
 }
 
-function Finding({ item, policyCount }: { item: ReviewedBoundary; policyCount: number }) {
+function Finding({
+  item,
+  policyCount,
+  repositoryRoot,
+}: {
+  item: ReviewedBoundary;
+  policyCount: number;
+  repositoryRoot: string | null;
+}) {
   const bearings = item.policy_bearings || [];
   const abstraction = item.candidate.participants[0];
   const implementation = item.candidate.participants[1];
@@ -164,6 +173,22 @@ function Finding({ item, policyCount }: { item: ReviewedBoundary; policyCount: n
       )}
 
       <p className="finding__limits">{item.candidate.limitations}</p>
+
+      {/* The explorer, entered from the finding that raises the question — what depends on
+          this abstraction, and what its one implementation touches. Entered from a sidebar
+          it is a map with no question; entered from here it answers one
+          (workspace-design §4). Absent when the atlas it would open is no longer indexed. */}
+      {repositoryRoot && abstraction?.node_id ? (
+        <a
+          className="finding__atlas"
+          href={
+            `/repositories?root=${encodeURIComponent(repositoryRoot)}` +
+            `&node=${encodeURIComponent(abstraction.node_id)}`
+          }
+        >
+          <Network size={14} aria-hidden /> Show {item.reference} in the atlas
+        </a>
+      ) : null}
     </article>
   );
 }
@@ -461,7 +486,12 @@ export function ReviewDetailPage() {
             Each of these was found not to be earning its place under this case.
           </p>
           {material.map((item) => (
-            <Finding key={item.reference} item={item} policyCount={policyCount} />
+            <Finding
+              key={item.reference}
+              item={item}
+              policyCount={policyCount}
+              repositoryRoot={repositoryRoot}
+            />
           ))}
         </section>
       ) : null}
@@ -476,7 +506,12 @@ export function ReviewDetailPage() {
             The advisor examined each of these and concluded it should stay as it is.
           </p>
           {cleared.map((item) => (
-            <Finding key={item.reference} item={item} policyCount={policyCount} />
+            <Finding
+              key={item.reference}
+              item={item}
+              policyCount={policyCount}
+              repositoryRoot={repositoryRoot}
+            />
           ))}
         </section>
       ) : null}

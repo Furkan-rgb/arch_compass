@@ -148,12 +148,16 @@ would have to be edited to hold it — which immutability forbids.
 ## The atlas explorer
 
 The graph explorer keeps its route at `/repositories` and has left the navigation. It is
-entered from the repository rail — "explore this atlas", carrying the chosen root as
-`?root=` — so it opens on the repository the flow is pointed at rather than on whichever
-was indexed last. It will re-enter the flow properly as an evidence drill-down from a
-finding (workspace-design §4); until then it stays routed, tested and reachable rather than
-rotting unrouted. It reads the indexed atlas directly, so it needs no review to have been
-run.
+entered with a question attached, never as a destination:
+
+- From the repository rail — "explore this atlas", carrying the chosen root as `?root=` — so
+  it opens on the repository the flow is pointed at rather than whichever was indexed last.
+- From a finding — "show BR-001 in the atlas", carrying `?root=…&node=…` — so it opens on the
+  abstraction that verdict is about, with its reverse neighbourhood expanded when the bounded
+  summary does not already contain it. What depends on this abstraction is the question the
+  reader arrived with (workspace-design §4).
+
+It reads the indexed atlas directly, so it needs no review to have been run.
 
 The interactive `RepositoryAtlas` renders from the latest freshness-checked summary,
 hotspot and node-inspection APIs. Selecting a node updates its metrics and relationship

@@ -1416,6 +1416,8 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 .finding__policies strong { color: var(--color-text-primary); }
 .finding__policies--none { padding: 0; background: none; color: var(--color-text-tertiary); }
 .finding__limits { max-width: 78ch; margin: 0; color: var(--color-text-tertiary); font-size: 12px; line-height: 1.5; }
+.finding__atlas { display: inline-flex; gap: 6px; align-items: center; margin-top: 12px; color: var(--color-accent-strong); font-size: 13px; text-decoration: none; }
+.finding__atlas:hover { text-decoration: underline; }
 
 /* The dock rides the viewport bottom while the page has further to scroll, then lands in
    its own place at the end. `position: sticky` does both from one rule, so the resting

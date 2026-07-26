@@ -166,3 +166,21 @@ make full
 
 Continuous integration intentionally runs no Ollama tests. It verifies locked installs,
 deterministic checks, frontend tests, and the production/package build.
+
+## Scoring every example at once
+
+```bash
+make eval-local        # every brownfield example, on the local model
+make demo-local        # the scored fixture only
+make demo              # the scored fixture, on Google
+```
+
+`make eval-local` runs each bundled case that ships a repository, prints one line per
+boundary as its verdict lands, then a table of per-example scores. An example without an
+`expected.yaml` is reported as unscored rather than counted as a pass, and an abstraction the
+key does not cover fails the run: a fixture that has drifted from its own answers would
+otherwise produce a score that looks complete while measuring less than it claims.
+
+It is a script, not a workspace button. Four examples are roughly thirty model calls, the
+browser has no queue for work that long by design (master plan §18), and a metered free tier
+cannot serve it.

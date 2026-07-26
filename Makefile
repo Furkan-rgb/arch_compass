@@ -1,4 +1,4 @@
-.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build bundle-check test-ollama test-google eval check build full demo demo-local test-browser
+.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build bundle-check test-ollama test-google eval eval-local check build full demo demo-local test-browser
 
 sync:
 	uv sync --locked
@@ -58,6 +58,12 @@ demo:
 
 demo-local:
 	uv run python scripts/run_boundary_review.py --models-config config/models.yaml
+
+# Every brownfield example, scored where one ships answers. Tens of model calls, so it
+# runs on the local model: a metered free tier cannot serve it, and the workspace has no
+# queue for work this long by design.
+eval-local:
+	uv run python scripts/run_boundary_review.py --all --models-config config/models.yaml
 
 # Drives the committed bundle in a real browser against a real server, with the model
 # substituted. Outside `check` because it needs Playwright's chromium downloaded.

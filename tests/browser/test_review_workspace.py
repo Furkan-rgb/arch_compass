@@ -173,19 +173,29 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.wait_for_selector(".dock__history li", timeout=10_000)
             assert "TaskFormatter" in page.locator(".dock__history").inner_text()
 
-            # 11. The review is listed on the front door and reopens from there.
+            # 11. A finding opens the atlas on the boundary it is about, which is the
+            #     explorer's way back in: entered from the question rather than as a map.
+            atlas = page.get_by_role("link", name="Show BR-001 in the atlas")
+            assert atlas.count() == 1
+            atlas.click()
+            page.wait_for_url("**/repositories?root=*node=*", timeout=20_000)
+            page.wait_for_selector(".atlas-node--selected, .atlas-canvas", timeout=30_000)
+            page.go_back()
+            page.wait_for_selector(".review-head", timeout=20_000)
+
+            # 12. The review is listed on the front door and reopens from there.
             page.goto(workspace_url, wait_until="networkidle")
             page.wait_for_selector("text=boundaries examined", timeout=20_000)
 
-            # 12. The atlas explorer is no longer a navigation peer: it is entered from the
-            #    repository rail, on the repository the flow is pointed at.
+            # 13. The atlas explorer is no longer a navigation peer: it is entered from
+            #     the repository rail, on the repository the flow is pointed at.
             assert page.get_by_role("link", name="Policies").count() == 1
             assert page.get_by_role("link", name="Repositories").count() == 0
             page.get_by_role("link", name="Explore this atlas").click()
             page.wait_for_url("**/repositories?root=*", timeout=20_000)
             page.wait_for_selector("text=boundary-review", timeout=20_000)
 
-            # 13. Old paths do not 404; they land on the flow.
+            # 14. Old paths do not 404; they land on the flow.
             for stale in ("/reviews", "/cases"):
                 page.goto(f"{workspace_url}{stale}", wait_until="networkidle")
                 page.wait_for_selector("text=Start a review", timeout=20_000)
