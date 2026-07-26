@@ -100,19 +100,44 @@ export function casePayload(values: CaseFormValues): ArchitectureCase & CaseUpda
   };
 }
 
+/**
+ * One field, with the question it answers and — where an answer can miss — a pair of
+ * examples.
+ *
+ * Both examples, never only the good one. Every field here has a plausible-looking answer
+ * that decides nothing: "we might need X one day", "must be scalable", "the team is small".
+ * A reader shown only a good example reads it as a formatting convention and writes the
+ * empty answer anyway; shown the pair, they can see which of the two theirs resembles.
+ */
 function Field({
   label,
   hint,
+  good,
+  bad,
   children,
 }: {
   label: string;
   hint?: string;
+  good?: string;
+  bad?: string;
   children: React.ReactNode;
 }) {
   return (
     <label className="case-field">
       <span className="case-field__label">{label}</span>
       {hint ? <span className="case-field__hint">{hint}</span> : null}
+      {good && bad ? (
+        <span className="case-field__examples">
+          <span className="case-field__example case-field__example--good">
+            <span className="case-field__tag">Decides something</span>
+            {good}
+          </span>
+          <span className="case-field__example case-field__example--bad">
+            <span className="case-field__tag">Decides nothing</span>
+            {bad}
+          </span>
+        </span>
+      ) : null}
       {children}
     </label>
   );
@@ -188,19 +213,25 @@ export function CaseForm({
           </p>
           <Field
             label="What changes are actually coming?"
-            hint="One per line. “We might need X one day” is not one of them."
+            hint="One per line. A boundary earns its place by absorbing one of these."
+            good="Billing moves to a second provider in Q4 — the contract is signed and the migration is scheduled."
+            bad="We might need to support other providers one day."
           >
             <textarea rows={3} {...form.register("expected_future_changes")} />
           </Field>
           <Field
             label="What have you decided against?"
             hint="One per line. A boundary that absorbs a non-goal hides nothing."
+            good="We will not run on anything but Postgres; the ops team supports one database and that is settled."
+            bad="Keep it simple and avoid over-engineering."
           >
             <textarea rows={3} {...form.register("non_goals")} />
           </Field>
           <Field
             label="What is settled, and why?"
             hint="One per line. Anything fixed by an external contract cannot vary, so no boundary can absorb it."
+            good="The payroll export format is fixed by the tax authority and changes only by legislation."
+            bad="The current code is a bit messy in places."
           >
             <textarea rows={4} {...form.register("confirmed_facts")} />
           </Field>
@@ -210,39 +241,67 @@ export function CaseForm({
             reads as work rather than as questions. */}
         <details className="case-form__more">
           <summary>More context</summary>
-          <Field label="Technical constraints" hint="One per line.">
+          <Field
+            label="Technical constraints"
+            hint="One per line. Something a design could actually violate."
+            good="Python 3.12 with no async runtime, deployed as one container with no outbound network."
+            bad="Must be scalable and maintainable."
+          >
             <textarea rows={3} {...form.register("technical_constraints")} />
           </Field>
           <Field
             label="Organisational constraints"
             hint="One per line. Who maintains this, and with how much time."
+            good="One maintainer, roughly four hours a week, and nobody else has read this code."
+            bad="The team is quite small."
           >
             <textarea rows={2} {...form.register("organisational_constraints")} />
           </Field>
-          <Field label="Qualities that matter" hint="One per line.">
+          <Field
+            label="Qualities that matter"
+            hint="One per line. Ranked against each other, because everything cannot come first."
+            good="A failed import must never lose a row; correctness matters more than throughput here."
+            bad="High performance, security and reliability."
+          >
             <textarea rows={2} {...form.register("quality_attributes")} />
           </Field>
-          <Field label="What it has to do" hint="One per line.">
+          <Field
+            label="What it has to do"
+            hint="One per line."
+            good="Reconcile last night's bank export against yesterday's ledger and report every mismatch."
+            bad="Handle the data properly."
+          >
             <textarea rows={2} {...form.register("functional_requirements")} />
           </Field>
-          <Field label="Who uses it, and how" hint="One per line.">
+          <Field
+            label="Who uses it, and how"
+            hint="One per line."
+            good="Two finance analysts run the reconciliation each morning and work through the failures by hand."
+            bad="Users use the system."
+          >
             <textarea rows={2} {...form.register("actors_and_workflows")} />
           </Field>
         </details>
 
-        <div className="case-editor__actions">
-          <button type="submit" className="button button--primary" disabled={pending}>
-            {pending ? pendingLabel : submitLabel}
-          </button>
-          {pending && progress !== undefined ? (
-            <RunProgress progress={progress} />
-          ) : (
+        {pending && progress !== undefined ? (
+          // The revision is already written by the time the first stage reports, so the
+          // submit button has nothing left to do and the run is the whole of what is
+          // happening.
+          <RunProgress
+            progress={progress}
+            heading="The revision is saved. Reviewing the same repository against it now."
+          />
+        ) : (
+          <div className="case-editor__actions">
+            <button type="submit" className="button button--primary" disabled={pending}>
+              {pending ? pendingLabel : submitLabel}
+            </button>
             <p>
               Case revisions are immutable: this writes a new one rather than changing what
               an earlier review was judged against.
             </p>
-          )}
-        </div>
+          </div>
+        )}
       </form>
     </section>
   );

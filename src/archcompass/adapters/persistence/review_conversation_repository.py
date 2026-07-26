@@ -51,6 +51,7 @@ class SQLiteReviewConversationRepository:
             ReviewConversation,
             row["conversation_json"],
             description=f"Review conversation {conversation_id}",
+            remedy="Start a new thread on the review and ask again.",
         )
 
     def append(self, conversation: ReviewConversation) -> ReviewConversation:
@@ -109,6 +110,7 @@ class SQLiteReviewConversationRepository:
                 ReviewConversation,
                 row["conversation_json"],
                 description="A stored review conversation",
+                remedy="Start a new thread on the review and ask again.",
             )
             for row in rows
         ]

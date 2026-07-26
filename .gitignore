@@ -10,6 +10,11 @@ dist/
 build/
 *.egg-info/
 .archcompass/
+# This repository is also a workspace, so running `archcompass web` here writes the
+# workspace's own configuration from the packaged template. The configurations that ship
+# are named for the provider they point at (`models.ollama.yaml`, `models.google.yaml`);
+# this one is local state.
+config/models.yaml
 reports/
 frontend/node_modules/
 frontend/coverage/

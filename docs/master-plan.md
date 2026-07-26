@@ -742,20 +742,22 @@ The engine was ahead of its surface. Bringing the workspace in line with §6B an
    `/runs/:id` links, the unrouted `architecture-workspace.tsx`, era copy, and the era's
    types and fields rendered on case cards.
 2. **The spine** — Home is the flow: repository and case as two order-free rails
-   converging on run, with past reviews beside them. Primary navigation is Home and
-   Policies; the noun pages are dissolved and the graph explorer is demoted to an entry
-   from the repository rail.
+   converging on run. Primary navigation is Home, Policies and Reviews — the flow, the
+   library it reads and the record it writes; the noun pages are dissolved and the graph
+   explorer is demoted to an entry from the repository rail and from each finding.
 3. **The case rail in the browser** — a case is authored, imported and read back as YAML
-   through the existing endpoints, so the flow needs no CLI detour.
-4. **A run the user can see** — `judging boundary k of n`, named, from a streamed
-   response. No job queue (§18); the mechanism and its reasoning are recorded in
-   `docs/web-workspace.md`.
+   through the existing endpoints, so the flow needs no CLI detour. The form since gained
+   a structured mode whose fields carry a good and a bad example each.
+4. **A run the user can see** — the stages a review has, with every boundary named and its
+   verdict shown as it lands, from a streamed response. No job queue (§18); the mechanism
+   and its reasoning are recorded in `docs/web-workspace.md`.
 5. **The iterate loop** — revise the pinned case into a new revision and review again,
    with the reviews of one case linked both ways and the review's pinning printed.
 
-`docs/workspace-design.md` §7.6 leaves three follow-ons: the finding-level atlas
-drill-down, a structured case form beside the YAML editor, and the greenfield rail once
-§4.1 exists.
+`docs/workspace-design.md` §7.6 left three follow-ons. Two are now delivered: the
+structured case form, and the atlas drill-down — reached from a finding, and carried on the
+review page as a map of the boundaries it examined with each verdict on its node. The
+greenfield rail waits on §4.1.
 
 Two things were deliberately excluded and remain next in line. The second detector —
 *repetition without ownership*, §8A.3 — and greenfield candidates (§4.1). Neither is

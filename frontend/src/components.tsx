@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   BookOpenText,
+  ClipboardList,
   Compass,
   Menu,
   Monitor,
@@ -99,12 +100,14 @@ export function useDialogFocus(onClose: () => void, active = true) {
 export function Shell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
-  // The navigation is the flow (master plan §6B): one entry for the flow itself, one for
-  // the standing library it reads. Repositories and cases are the start step's two rails,
+  // The navigation is the flow (master plan §6B): one entry for the flow itself, then the
+  // two standing records it reads and writes — the policy corpus it judges against, and
+  // every review it has produced. Repositories and cases are the start step's two rails,
   // not destinations beside it.
   const navigation = [
     { to: "/", label: "Home", icon: Compass, end: true },
     { to: "/policies", label: "Policies", icon: BookOpenText },
+    { to: "/reviews", label: "Reviews", icon: ClipboardList },
   ];
 
   return (

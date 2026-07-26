@@ -19,6 +19,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { CaseForm, casePayload, type CaseFormValues } from "../case-form";
 import { ErrorPanel, Loading, formatDate, shortId } from "../components";
+import { ReviewAtlas } from "../review-atlas";
 import { applyProgress, type RunState } from "../run-progress";
 import type { ReviewOverview, ReviewScore, ReviewedBoundary } from "../types";
 
@@ -514,6 +515,14 @@ export function ReviewDetailPage() {
             />
           ))}
         </section>
+      ) : null}
+
+      {/* After the verdicts, not before them. The map answers "where does this sit", which
+          is a question a reader has only once they know what was decided; above the
+          findings it would push every verdict below the fold to make room for context
+          nobody had asked for yet. */}
+      {repositoryRoot && reviewed.length > 0 ? (
+        <ReviewAtlas repositoryRoot={repositoryRoot} boundaries={reviewed} />
       ) : null}
 
       {/*

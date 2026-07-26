@@ -1516,11 +1516,74 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 .icon-button:hover { color: var(--ink); border-color: var(--color-border-strong); }
 .start__run { display: flex; gap: 16px; align-items: center; margin-top: 18px; padding-top: 17px; border-top: 1px solid var(--line); }
 .start__run > p { margin: 0; color: var(--ink-muted); font-size: 14px; line-height: 1.5; }
-.run-progress { display: grid; flex: 1; gap: 8px; margin: 0; min-width: 0; color: var(--ink-muted); font-size: 14px; line-height: 1.5; }
-.run-progress__line { margin: 0; }
-.run-progress__line code { color: var(--color-accent-strong); font-size: 13px; }
+.start__running { margin-top: 18px; padding-top: 17px; border-top: 1px solid var(--line); }
 .run-progress__bar { height: 6px; overflow: hidden; border-radius: 999px; background: var(--color-bg-subtle); }
 .run-progress__bar > span { display: block; height: 100%; border-radius: 999px; background: var(--color-accent-button); transition: width .25s ease; }
+
+/* ── The run, while it runs ───────────────────────────────────────────────────
+   A review is three stages of very different lengths, so the wait is drawn as those
+   stages rather than as one spinner. What holds a reader's attention is the boundary
+   list: their own code, being decided on, one line at a time. */
+.run-flow { display: grid; gap: 14px; padding: 18px 20px; border: 1px solid var(--color-accent-border); border-radius: 10px; background: var(--color-accent-soft); }
+.run-flow__heading { max-width: 84ch; margin: 0; color: var(--color-text-secondary); font-size: 14px; line-height: 1.6; }
+.run-flow__stages { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.run-flow__stage { display: grid; grid-template-columns: auto 1fr; gap: 11px; align-items: start; }
+.run-flow__marker { display: grid; width: 22px; height: 22px; place-items: center; border: 1px solid var(--color-border-strong); border-radius: 50%; background: var(--white); color: var(--ink-muted); }
+.run-flow__stage-body { display: grid; gap: 2px; min-width: 0; }
+.run-flow__stage-body strong { font-size: 14px; font-weight: 650; color: var(--color-text-tertiary); }
+.run-flow__stage-body small { color: var(--ink-muted); font-size: 12.5px; line-height: 1.5; }
+.run-flow__stage--active .run-flow__marker { color: var(--color-on-accent); border-color: var(--color-accent-button); background: var(--color-accent-button); }
+.run-flow__stage--active .run-flow__stage-body strong { color: var(--color-text-primary); }
+.run-flow__stage--done .run-flow__marker { color: var(--success); border-color: var(--color-success-border, var(--line)); background: var(--color-success-soft, var(--teal-soft)); }
+.run-flow__stage--done .run-flow__stage-body strong { color: var(--color-text-secondary); }
+
+.run-flow__boundaries { display: grid; gap: 2px; max-height: 260px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.run-flow__boundary { display: grid; grid-template-columns: auto 1fr auto; gap: 9px; align-items: center; padding: 5px 8px; border-radius: 6px; color: var(--ink-muted); font-size: 13px; }
+.run-flow__boundary code { min-width: 0; overflow: hidden; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.run-flow__boundary--current { background: var(--white); color: var(--color-text-primary); }
+.run-flow__boundary-verdict { font-size: 12px; white-space: nowrap; }
+
+/* ── Reviews as a standing record ─────────────────────────────────────────────
+   Grouped by case, because revising a case and reviewing again is the loop this tool is
+   built around: two runs of one case are a history, not two unrelated results. */
+.review-history { margin-bottom: 30px; }
+.review-history__head { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; padding-bottom: 9px; border-bottom: 1px solid var(--line); }
+.review-history__head h2 { margin: 0; font-size: 17px; }
+.review-history__head span { color: var(--ink-muted); font-size: 13px; white-space: nowrap; }
+.review-history__rows { display: grid; margin: 0; padding: 0; list-style: none; }
+.review-row { display: grid; grid-template-columns: minmax(0, 14em) 1fr auto auto; gap: 16px; align-items: center; padding: 13px 10px; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; }
+.review-row:hover { background: var(--color-bg-surface-raised); }
+.review-row__when { display: grid; gap: 2px; font-size: 14px; }
+.review-row__when small { color: var(--ink-muted); font-size: 12.5px; }
+.review-row__latest { color: var(--color-accent-strong); font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.review-row__go { color: var(--ink-muted); }
+.home__record { margin-top: 20px; }
+
+/* ── The review's atlas ───────────────────────────────────────────────────────
+   Drawn around the boundaries the review examined, with each verdict on its node. */
+.review-atlas { margin-bottom: 40px; }
+.review-atlas__legend { display: flex; flex-wrap: wrap; gap: 7px 16px; align-items: center; margin: 0 0 14px; color: var(--ink-muted); font-size: 12.5px; }
+.review-atlas__key { width: 11px; height: 11px; border-radius: 3px; border: 1px solid var(--color-border-strong); }
+.review-atlas__key--material { border-color: var(--atlas-node-hotspot); background: var(--atlas-node-hotspot-bg); }
+.review-atlas__key--cleared { border-color: var(--success); background: var(--color-success-soft, var(--teal-soft)); }
+.review-atlas__key--normal { background: var(--color-bg-subtle); }
+
+/* A cleared boundary is not an ordinary node: it was examined and found to be earning its
+   place, and drawing the two alike would say the advisor never looked. */
+.atlas-node--cleared .atlas-node__body { fill: var(--color-success-soft, var(--teal-soft)); stroke: var(--success); }
+.atlas-node--cleared .atlas-node__kind { fill: var(--color-success-soft, var(--teal-soft)); stroke: var(--success); }
+.atlas-node--cleared .atlas-node__symbol { fill: var(--success); }
+.atlas-state--cleared { color: var(--success); background: var(--color-success-soft, var(--teal-soft)); }
+
+/* Both examples, never only the good one: every field here has a plausible-looking answer
+   that decides nothing, and the pair is what lets a reader tell theirs apart. */
+.case-field__examples { display: grid; gap: 5px; max-width: 92ch; margin: 2px 0 3px; }
+.case-field__example { display: grid; grid-template-columns: auto 1fr; gap: 9px; align-items: baseline; font-size: 12.5px; line-height: 1.5; }
+.case-field__tag { padding: 1px 7px; border-radius: 20px; font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
+.case-field__example--good { color: var(--color-text-secondary); }
+.case-field__example--good .case-field__tag { color: var(--success); border: 1px solid var(--color-success-border, var(--line)); background: var(--color-success-soft, var(--teal-soft)); }
+.case-field__example--bad { color: var(--ink-muted); }
+.case-field__example--bad .case-field__tag { color: var(--color-warning); border: 1px solid var(--color-warning-border); background: var(--amber-soft); }
 
 @media (max-width: 1050px) {
   .rails { grid-template-columns: 1fr; }
@@ -1531,4 +1594,8 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
   .dock__form { flex-direction: column; }
   .scorebar__rows li { grid-template-columns: auto 1fr; }
   .scorebar__said, .scorebar__why { grid-column: 1 / -1; }
+  .review-row { grid-template-columns: 1fr auto; }
+  .review-row__verdict { grid-column: 1 / -1; }
+  .case-field__example { grid-template-columns: 1fr; gap: 2px; }
+  .case-field__tag { justify-self: start; }
 }

@@ -27,6 +27,9 @@ class BoundaryReviewSummary(DomainModel):
     boundaries_reviewed: int
     boundaries_material: int
     created_at: str
+    #: What the review judged, so a listing can be read without opening every row. Absent
+    #: on a review that failed before composing a report, which has no title to carry.
+    case_title: str | None = None
 
 
 class RepositorySummary(DomainModel):

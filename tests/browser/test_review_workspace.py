@@ -101,7 +101,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
 
             # 2. Nothing can run yet: the flow states what is missing rather than
             #    offering a button that fails.
-            run = page.get_by_role("button", name="Run the review")
+            run = page.get_by_role("button", name="Run review")
             assert run.is_disabled()
 
             # 3. One example click fills both rails — its repository is indexed and its
@@ -110,10 +110,13 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.wait_for_selector(".rail--filled", timeout=60_000)
             assert page.locator(".rail--filled").count() == 2
             run.click()
+            # The wait is drawn as the stages a review actually has, so the run is legible
+            # while it happens rather than a spinner that could equally mean a hung request.
+            page.wait_for_selector(".run-flow__stages", timeout=30_000)
             page.wait_for_url("**/reviews/rev_*", timeout=120_000)
-            # Wait on something only the review page renders. The router changes the URL
-            # before React commits the new page, and "boundaries examined" also appears on
-            # the past-reviews card behind it — waiting for that would pass on the old DOM.
+            # Wait on something only the review page renders: the router changes the URL
+            # before React commits the new page, so any text shared with the start step
+            # would match the old DOM and pass for the wrong reason.
             page.wait_for_selector(".review-head", timeout=60_000)
 
             # 4. The page leads with what the verdicts amount to, and every claim in it
@@ -173,8 +176,17 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.wait_for_selector(".dock__history li", timeout=10_000)
             assert "TaskFormatter" in page.locator(".dock__history").inner_text()
 
-            # 11. A finding opens the atlas on the boundary it is about, which is the
-            #     explorer's way back in: entered from the question rather than as a map.
+            # 11. The review carries its own atlas, drawn around the boundaries it examined
+            #     and marked with their verdicts. Which verdict appears here is the
+            #     substitute's business — it condemns every boundary nothing depends on, so
+            #     this fixture has no cleared node to find. That both verdicts reach the
+            #     right node state is settled in `review-atlas.test.ts`; what the browser
+            #     proves is that the map is on the page, built from live atlas queries.
+            page.wait_for_selector(".review-atlas .atlas-canvas", timeout=30_000)
+            page.wait_for_selector(".review-atlas .atlas-node--hotspot", timeout=30_000)
+
+            # 12. A finding opens the full explorer on the boundary it is about, which is
+            #     the explorer's way back in: entered from the question rather than as a map.
             atlas = page.get_by_role("link", name="Show BR-001 in the atlas")
             assert atlas.count() == 1
             atlas.click()
@@ -183,22 +195,33 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.go_back()
             page.wait_for_selector(".review-head", timeout=20_000)
 
-            # 12. The review is listed on the front door and reopens from there.
+            # 13. Past reviews are a standing record with their own place, grouped by the
+            #     case each judged, and reopen from there. The front door keeps a pointer,
+            #     not a listing that grows without limit under the start step.
             page.goto(workspace_url, wait_until="networkidle")
-            page.wait_for_selector("text=boundaries examined", timeout=20_000)
+            assert page.locator(".card-list").count() == 0
+            # Substring, because the count and its plural are both part of the label.
+            page.get_by_role("link", name="in this workspace").click()
+            page.wait_for_url("**/reviews", timeout=20_000)
+            page.wait_for_selector(".review-history", timeout=20_000)
+            assert "Task scheduler boundary review" in page.locator(
+                ".review-history__head"
+            ).first.inner_text()
+            page.locator(".review-row").first.click()
+            page.wait_for_selector(".review-head", timeout=20_000)
 
-            # 13. The atlas explorer is no longer a navigation peer: it is entered from
+            # 14. The atlas explorer is no longer a navigation peer: it is entered from
             #     the repository rail, on the repository the flow is pointed at.
+            page.goto(workspace_url, wait_until="networkidle")
             assert page.get_by_role("link", name="Policies").count() == 1
             assert page.get_by_role("link", name="Repositories").count() == 0
             page.get_by_role("link", name="Explore this atlas").click()
             page.wait_for_url("**/repositories?root=*", timeout=20_000)
             page.wait_for_selector("text=boundary-review", timeout=20_000)
 
-            # 14. Old paths do not 404; they land on the flow.
-            for stale in ("/reviews", "/cases"):
-                page.goto(f"{workspace_url}{stale}", wait_until="networkidle")
-                page.wait_for_selector("text=Start a review", timeout=20_000)
+            # 15. The old cases path does not 404; it lands on the flow.
+            page.goto(f"{workspace_url}/cases", wait_until="networkidle")
+            page.wait_for_selector("text=Start a review", timeout=20_000)
         finally:
             browser.close()
 
@@ -227,6 +250,11 @@ def test_a_person_can_write_a_case_in_the_browser_and_review_with_it(
             page.get_by_role("button", name="New case").click()
             page.wait_for_selector(".case-form", timeout=20_000)
             assert page.locator(".case-form__group--decisive").count() == 1
+            # Both examples on the fields that can be answered emptily. Shown only the good
+            # one, a reader takes it for a formatting convention and writes "we might need
+            # X one day" anyway; the pair is what lets them see which theirs resembles.
+            assert page.locator(".case-field__example--good").count() >= 3
+            assert page.locator(".case-field__example--bad").count() >= 3
             page.get_by_label("Name for this case").fill(
                 "Formatter boundary, authored in the browser"
             )
@@ -273,7 +301,7 @@ def test_a_person_can_write_a_case_in_the_browser_and_review_with_it(
 
             # 5. The whole flow, completed in the browser: authored case, indexed
             #    repository, one review.
-            page.get_by_role("button", name="Run the review").click()
+            page.get_by_role("button", name="Run review").click()
             page.wait_for_url("**/reviews/rev_*", timeout=120_000)
             page.wait_for_selector(".review-head", timeout=60_000)
             assert "Formatter boundary, authored in the browser" in page.inner_text(
@@ -298,9 +326,9 @@ def test_a_person_can_revise_the_case_and_review_again(workspace_url: str) -> No
         browser = driver.chromium.launch()
         page = browser.new_page(viewport={"width": 1280, "height": 900})
         try:
-            page.goto(workspace_url, wait_until="networkidle")
-            page.wait_for_selector(".card-list .card", timeout=20_000)
-            page.get_by_role("link", name="Open").first.click()
+            page.goto(f"{workspace_url}/reviews", wait_until="networkidle")
+            page.wait_for_selector(".review-row", timeout=20_000)
+            page.locator(".review-row").first.click()
             page.wait_for_selector(".review-head", timeout=20_000)
             first = page.url
 

@@ -53,7 +53,9 @@ class UnreadableStoredRecordError(PersistenceError):
     """A stored row predates the current schema and cannot be reinterpreted.
 
     ArchCompass does not guess at the meaning of a record written by an earlier,
-    unreleased schema. The owning review must be re-run instead.
+    unreleased schema. What to do instead depends on the record — derived output is
+    produced again, user-authored input has to be written again — so the message
+    carries the remedy its reader can actually act on.
     """
 
 

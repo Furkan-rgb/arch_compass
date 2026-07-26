@@ -14,11 +14,12 @@ origin. It has no authentication or remote-binding mode.
 
 ## Workflow
 
-The navigation is the flow (master plan §6B). Primary navigation is two entries: **Home**,
-which is the flow, and **Policies**, the standing library it reads. Cases and repositories
-are not destinations; they are the two rails of Home's start step.
+The navigation is the flow (master plan §6B). Primary navigation is three entries: **Home**,
+which is the flow, **Policies**, the standing library the judgement reads, and **Reviews**,
+the standing record it writes. Cases and repositories are not destinations; they are the
+two rails of Home's start step.
 
-**Home** starts a review and lists past ones. The start step presents two order-free rails
+**Home** starts a review. The start step presents two order-free rails
 — the repository to examine and the case to judge it against — converging on one Run
 button that enables when both are filled. A case that names an indexed repository fills the
 repository rail too; a case naming an unindexed path offers that path to the index field
@@ -41,6 +42,13 @@ questions. List fields are one entry per line rather than rows of inputs: the en
 sentences a person writes, edits and pastes in batches, and per-item chrome makes all three
 harder.
 
+Every field in those two groups carries **two examples, one that decides something and one
+that does not** — "billing moves to a second provider in Q4, the contract is signed" beside
+"we might need to support other providers one day". Both, never only the good one: each of
+these fields has a plausible-looking answer that settles nothing, and a reader shown only a
+good example takes it for a formatting convention and writes the empty answer anyway. The
+pair is what lets them see which of the two theirs resembles.
+
 Revising a case opens the same form, prefilled from the stored revision — on the start step
 from the selected case, and on the review page from the revision that review was judged
 against, which is not necessarily the latest. Submitting writes a new revision; earlier
@@ -61,8 +69,24 @@ Repository paths are validated and indexed through the same application service 
 uses, and every workspace/repository separation, symlink, traversal and atlas-freshness
 rule remains in force.
 
-`/reviews` and `/cases` redirect to Home rather than 404, so bookmarks from the earlier
-noun-organised workspace still land somewhere sensible.
+**Reviews** is the workspace's own record, at `/reviews`. It is grouped by case rather than
+listed flat: revising a case and reviewing again is the loop this tool is built around, so
+two runs of one case are one history, and read as a flat list they look like unrelated
+results with no way to tell a re-run from a review of a changed case. Each row states the
+revision it judged and whether anything came out material — "all six earning their place"
+and "nothing found to examine" are different results, and only the examined count separates
+them. Home keeps a one-line pointer to it, because the way back after a run belongs where
+the run ended; the listing itself does not, since it grows without limit and the start step
+does not.
+
+So a listing can be read without opening every row, `boundary_reviews` carries the case
+title in a column of its own, denormalised from the report exactly as the boundary counts
+already are. A review that failed before composing a report has no title to carry, and the
+row is rendered by its identifier rather than by a placeholder that would be
+indistinguishable from a case actually called that.
+
+`/cases` redirects to Home rather than 404, so bookmarks from the earlier noun-organised
+workspace still land somewhere sensible.
 
 ## The run
 
@@ -72,8 +96,15 @@ costs nothing that has to be reconciled — the atlas is already indexed and the
 immutable either way (master plan §18).
 
 The workspace still has to make that wait countable. Detection is deterministic and
-complete, so the moment it finishes the run has a known length, and the browser shows
-*judging boundary k of n* with the boundary under judgement named.
+complete, so the moment it finishes the run has a known length.
+
+**The wait is drawn as the stages it has**, not as a spinner: sweep the atlas, judge each
+boundary, read the verdicts as a set. The three take very different times and fail in
+different ways, and a single indeterminate spinner would make a two-minute run
+indistinguishable from a hung request. Under the stages, every detected boundary is named,
+and each one's verdict appears as it lands — a reader watching their own repository be
+judged can see which boundary is under the model right now, and read a verdict before the
+page it belongs to exists.
 
 **The mechanism: a streamed response.** `POST /api/reviews/stream` runs the same review as
 `POST /api/reviews` and answers with newline-delimited JSON — one `ReviewProgress` object
@@ -144,6 +175,20 @@ is never altered; nothing in the workspace edits a review or a revision in place
 `GET /api/reviews?case_id=…` and points at the neighbours either side of itself. A link
 recorded at creation time would be a second copy of the same fact, and the earlier review
 would have to be edited to hold it — which immutability forbids.
+
+**The review carries its own atlas**, below the verdicts. It is built from the review
+outward rather than from the repository inward: each reviewed abstraction is inspected and
+its neighbourhood is the map, so what is drawn is where *these* boundaries sit and what
+reaches them. A map of the whole repository beside a review would be a second, unrelated
+thing on the page.
+
+Each verdict is on its node — amber for a boundary that should change, green for one
+examined and found to be earning its place, plain for everything else. A cleared boundary is
+deliberately not drawn as an ordinary node: "examined and cleared" and "never looked at" are
+different facts, and erasing the difference would undo what an exhaustive sweep is for.
+Selecting a node lands on that boundary's finding, highlighted, by the same `#BR-003` anchor
+a citation uses. It sits after the findings rather than before them, because "where does
+this sit" is a question a reader has only once they know what was decided.
 
 ## The atlas explorer
 

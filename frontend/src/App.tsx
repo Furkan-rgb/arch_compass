@@ -19,6 +19,9 @@ const ReviewDetailPage = lazy(() =>
     default: ReviewDetailPage,
   })),
 );
+const ReviewsPage = lazy(() =>
+  import("./pages/ReviewsPage").then(({ ReviewsPage }) => ({ default: ReviewsPage })),
+);
 
 export function App() {
   return (
@@ -26,15 +29,17 @@ export function App() {
       <Suspense fallback={<Loading label="Opening field notes…" />}>
         <Routes>
           <Route path="/" element={<HomePage />} />
+          {/* Past reviews are a standing record, like the policy corpus, so they keep their
+              own place rather than growing without limit under the start step. */}
+          <Route path="/reviews" element={<ReviewsPage />} />
           <Route path="/reviews/:reviewId" element={<ReviewDetailPage />} />
           {/* The atlas explorer keeps its route and leaves the navigation: it is entered
               from the repository picker, with a question attached, rather than standing
               beside the flow as a map of its own (workspace-design §4). */}
           <Route path="/repositories" element={<RepositoriesPage />} />
           <Route path="/policies" element={<PoliciesPage />} />
-          {/* Cases and the reviews list dissolved into Home. A bookmark must not 404. */}
+          {/* Cases dissolved into Home. A bookmark must not 404. */}
           <Route path="/cases" element={<Navigate to="/" replace />} />
-          <Route path="/reviews" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

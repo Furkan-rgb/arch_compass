@@ -20,8 +20,8 @@ one object that matters most (the case) cannot be authored in the browser at all
 The rule for every workspace decision:
 
 > **The navigation is the flow.** A surface earns a place in primary navigation only by
-> being a step of the review flow or a library the flow reads from. Everything else is
-> reached from within the flow, with a question attached, or not at all.
+> being a step of the review flow, a library the flow reads from, or the record it writes.
+> Everything else is reached from within the flow, with a question attached, or not at all.
 
 ## 2. The flow, as surfaces
 
@@ -54,30 +54,45 @@ HOME — the flow's front door
 │                          new case revision → new review,
 │                          linked both ways
 │
-├── Past reviews — the flow's history, opening onto review pages
+├── Policies — the standing library the judgement reads
 │
-└── Policies — the standing library the judgement reads
+└── Reviews — the standing record the flow writes, grouped by case,
+    opening onto review pages
 ```
 
-Primary navigation is exactly that: **Home** (start a review + past reviews) and
-**Policies**. Cases and repositories stop being destinations and become the two rails of
+Primary navigation is exactly that: **Home** (start a review), **Policies**, and
+**Reviews**. Cases and repositories stop being destinations and become the two rails of
 the start step.
+
+*Revised after the first pass.* Past reviews began on Home, which is what a front door with
+"two jobs" implied. In use it made the start step longer every time the tool was used, and
+put an unbounded list under the one surface that has to stay short. The record is the third
+thing the rule already allows — the flow writes it as it reads the policy corpus — so it
+earned its own entry. Home keeps a one-line pointer: the way back after a run belongs where
+the run ended, the listing does not.
 
 ## 3. The surfaces in detail
 
 ### Home
 
-Merges today's Dashboard and Reviews pages into one front door with two jobs: start a
-review, and reopen a past one.
+One front door with one job: start a review.
 
 - The start step presents the two rails side by side, order-free, with bundled examples
   as one-click fills of both rails (kept prominent — they remain the shortest path to a
   first review, and the scored one is how the tool proves itself).
-- Past reviews list what today's Reviews page lists: examined count, material count, and
-  "all cleared" as a first-class result — a review that cleared six boundaries and one
-  that found nothing to examine are different results.
 - The hero cards, the `/new` links, and the aggregate stat tiles go. Workspace readiness
   (model, provider) collapses into the sidebar footer where it already lives.
+
+### Reviews
+
+The record of what this workspace has judged, grouped by case rather than listed flat.
+Revising a case and reviewing again is the loop the tool is built around, so successive runs
+of one case are one history; flat, they read as unrelated results, and the revision each
+judged is the only thing separating a re-run from a review of a changed case.
+
+Rows carry the examined count, the material count, and "all cleared" as a first-class
+result — a review that cleared six boundaries and one that found nothing to examine are
+different results.
 
 ### Starting a review — the two rails
 
@@ -100,14 +115,17 @@ selection) — the nouns live inside the verb.
 ### The run
 
 A review is one model call per boundary: a countable sequence, known-length as soon as
-detection finishes. The run surface shows *judging boundary k of n* and which boundary
-is under judgement. That is a contract about what the user sees, not about
-infrastructure — no job queue and no background workers (master plan §18); whether the
-count arrives by streaming response or polling is an implementation choice.
+detection finishes. The run surface shows the stages the run actually has — sweep, judge,
+read as a set — with every detected boundary named under them and each verdict appearing as
+it lands. That is a contract about what the user sees, not about infrastructure — no job
+queue and no background workers (master plan §18); whether the count arrives by streaming
+response or polling is an implementation choice.
 
-What the current implementation does — a minutes-long synchronous request behind a
-single notice line, ending in a full-page reload — reads as *broken* rather than
-*working*, and is the difference between a tool and a script with a UI.
+What the first implementation did — a minutes-long synchronous request behind a
+single notice line, ending in a full-page reload — read as *broken* rather than
+*working*, and is the difference between a tool and a script with a UI. A single
+indeterminate spinner is the same failure in a smaller form: three stages of very different
+lengths, drawn as one, are indistinguishable from a hung request.
 
 ### The review page
 
@@ -124,8 +142,8 @@ It gains, in order of value:
    link to each other. Nothing edits a review in place, ever.
 2. **A provenance line.** Which case revision, which atlas version, which policy set —
    the pinning that already exists in the record, surfaced instead of implied.
-3. **Later, the atlas drill-down** (§4): from a finding to its neighbourhood in the
-   graph.
+3. **The atlas drill-down** (§4): from a finding to its neighbourhood in the graph, and
+   the review's own map of the boundaries it examined, each node carrying its verdict.
 
 The question dock stays a pure client of the review-conversation routes (ADR 0004) and
 keeps grounding visible: answers name the boundaries they rest on, and an answer
@@ -153,8 +171,16 @@ Master plan §9.2 names the atlas's three roles. In the workspace they land as:
   no question, competing with the flow.
 
 The explorer code is a working investment and is kept routed but demoted — reachable
-from the repository picker while the finding-level entry does not yet exist — so it
-stays alive, tested and ready for repossession rather than rotting unrouted.
+from the repository picker as well as from each finding — so it stays alive, tested and
+ready for repossession rather than rotting unrouted.
+
+**Repossessed, on the review page.** The review carries a map of its own, built from the
+review outward: each examined abstraction is inspected and its neighbourhood is the map, so
+what is drawn is where *these* boundaries sit rather than the repository at large. Each node
+carries its verdict, including a cleared one — "examined and found to be earning its place"
+is not the absence of a finding, and a map that drew the two alike would say the advisor
+never looked. It sits after the verdicts: "where does this sit" is a question a reader has
+only once they know what was decided.
 
 ## 5. What this dissolves or removes
 

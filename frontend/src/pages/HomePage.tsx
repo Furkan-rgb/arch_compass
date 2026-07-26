@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Boxes,
   CircleCheck,
+  ClipboardList,
   Eye,
   FileCode2,
   FilePlus2,
@@ -19,15 +20,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { CaseEditor, CaseView } from "../case-editor";
 import { CaseForm, casePayload, type CaseFormValues } from "../case-form";
-import {
-  Badge,
-  EmptyState,
-  ErrorPanel,
-  Loading,
-  PageHeader,
-  formatDate,
-  shortId,
-} from "../components";
+import { Badge, ErrorPanel, Loading, PageHeader } from "../components";
 import { latestPerRepository } from "../repositories";
 import { RunProgress, applyProgress, type RunState } from "../run-progress";
 import type { BundledCase, CaseRevision, CaseSummary } from "../types";
@@ -433,23 +426,36 @@ export function HomePage() {
           />
         ) : null}
 
-        <div className="start__run">
-          <button
-            type="button"
-            className="button button--primary"
-            disabled={!ready || busy}
-            onClick={() =>
-              repositoryRoot &&
-              caseId &&
-              run.mutate({ caseId, root: repositoryRoot })
-            }
-          >
-            <Play size={16} aria-hidden />
-            {run.isPending ? "Reviewing…" : "Run the review"}
-          </button>
-          {run.isPending ? (
-            <RunProgress progress={progress} />
-          ) : (
+        {/* While a review runs the button is gone rather than disabled: the flow below is
+            what there is to look at, and a dead control beside it is one more thing to
+            read before working out that nothing is expected of you. */}
+        {run.isPending ? (
+          <div className="start__running">
+            <RunProgress
+              progress={progress}
+              heading={
+                <>
+                  Judging every boundary in{" "}
+                  <strong>{repositoryRoot?.split("/").at(-1)}</strong> against{" "}
+                  <strong>{chosenCase?.title}</strong>. This takes a couple of minutes on a
+                  local model; leaving the page abandons the run.
+                </>
+              }
+            />
+          </div>
+        ) : (
+          <div className="start__run">
+            <button
+              type="button"
+              className="button button--primary"
+              disabled={!ready || busy}
+              onClick={() =>
+                repositoryRoot && caseId && run.mutate({ caseId, root: repositoryRoot })
+              }
+            >
+              <Play size={16} aria-hidden />
+              Run review
+            </button>
             <p>
               {ready ? (
                 <>
@@ -464,52 +470,21 @@ export function HomePage() {
                 </>
               )}
             </p>
-          )}
-        </div>
+          </div>
+        )}
         {run.isError ? <ErrorPanel error={run.error} /> : null}
       </section>
 
-      <section className="panel">
-        <h2 className="panel__title">Past reviews</h2>
-        {reviews.isLoading ? <Loading label="Reading reviews…" /> : null}
-        {reviews.isError ? <ErrorPanel error={reviews.error} /> : null}
-        {reviews.data && reviews.data.length === 0 ? (
-          <EmptyState
-            title="No reviews yet"
-            description="Run one of the examples above to produce the first."
-          />
-        ) : null}
-        <ul className="card-list">
-          {(reviews.data || []).map((review) => (
-            <li key={review.review_id} className="card">
-              <div className="card__body">
-                <div className="card__heading">
-                  <strong>{shortId(review.review_id)}</strong>
-                  <Badge tone={review.boundaries_material > 0 ? "warning" : "success"}>
-                    {review.boundaries_material > 0 ? (
-                      <>{review.boundaries_material} material</>
-                    ) : (
-                      <>
-                        <CircleCheck size={13} aria-hidden /> all cleared
-                      </>
-                    )}
-                  </Badge>
-                </div>
-                {/* The examined count is shown even when nothing was material: a review
-                    that cleared six boundaries and one that found none are different
-                    results, and only this number tells them apart. */}
-                <p className="card__detail">
-                  {review.boundaries_reviewed} boundaries examined ·{" "}
-                  {formatDate(review.created_at)}
-                </p>
-              </div>
-              <Link className="button" to={`/reviews/${review.review_id}`}>
-                Open <ArrowRight size={15} aria-hidden />
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {/* A pointer, not a listing. Past reviews are a standing record with its own place in
+          the navigation; what belongs here is the way back to them after a run, in one
+          line that cannot grow. */}
+      {reviews.data?.length ? (
+        <Link className="text-link home__record" to="/reviews">
+          <ClipboardList size={15} aria-hidden />
+          {reviews.data.length} {reviews.data.length === 1 ? "review" : "reviews"} in this
+          workspace <ArrowRight size={14} aria-hidden />
+        </Link>
+      ) : null}
     </div>
   );
 }

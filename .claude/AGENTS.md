@@ -39,14 +39,18 @@ boundaries are answered by position; identity is attached afterward by ArchCompa
 ## History warning
 
 The "consultation" workflow (clustered findings, recommendation reports, `/runs`,
-`ConsultationRun`) was **replaced** by the boundary review (commit `b629814`). Anything
+`ConsultationRun`) was **replaced** by the boundary review (commit `b629814`), and its
+tables, columns and case fields are now gone (ADR-0007; migrations 010 and 011). Anything
 named "consultation" or "run" is the superseded era. The master plan, `.agents/AGENTS.md`
-and the frontend describe only the current era (ADR-0006, workspace milestone 1).
-Remaining era names are backend-only and deliberate: `ArchitectureCase` still carries
-`current_recommendation`/`confidence`, `CaseRevision.event_type` still admits
-`"consultation"`, `ports.reasoning.ReportConversationReasoner` keeps its old name, and
-`domain/diagnostics.py` still codes cluster-era failures. Removing them is a separate
-decision, not leftovers to tidy in passing.
+and the frontend describe only the current era (ADR-0006, workspace milestone 1). Two era
+names still stand and are deliberate: `ports.reasoning.ReportConversationReasoner` keeps
+its old name, and `domain/diagnostics.py` still codes cluster-era failures. Removing them
+is a separate decision, not leftovers to tidy in passing.
+
+A workspace older than migration 011 holds case snapshots the current schema refuses. A
+case is the one stored record nothing can regenerate, so those documents are moved forward
+in SQL rather than reported as unreadable — which is what ADR-0002 rules out *in the
+domain*, not what it says about data migrations.
 
 ## Layout
 

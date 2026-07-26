@@ -10,6 +10,14 @@ from archcompass.domain.case import ArchitectureCase, CaseRevision
 from archcompass.domain.errors import CaseNotFoundError, CaseRevisionConflictError
 from archcompass.domain.workspace import CaseSummary
 
+#: A case is what someone typed. Every other stored record is derived from one and can be
+#: produced again; this one cannot, so the instruction is to write it rather than re-run
+#: anything.
+CASE_REMEDY = (
+    "A case is user-authored, so nothing can regenerate it: write this revision again, "
+    "or work from an earlier revision of the same case."
+)
+
 
 class SQLiteCaseRepository:
     def __init__(self, database: SQLiteDatabase) -> None:
@@ -127,6 +135,7 @@ class SQLiteCaseRepository:
                 ArchitectureCase,
                 row["snapshot_json"],
                 description="A stored case revision",
+                remedy=CASE_REMEDY,
             )
             summaries.append(
                 CaseSummary(
@@ -162,10 +171,19 @@ class SQLiteCaseRepository:
 
     @staticmethod
     def _row_to_revision(case_id: str, row: object) -> CaseRevision:
+        # Decoded through the same helper the listing uses: reading one case and listing
+        # them all fail on the same rows, and a reader who hit one message should not get a
+        # raw validation traceback from the other route.
+        snapshot = decode_stored_json(
+            ArchitectureCase,
+            row["snapshot_json"],  # type: ignore[index]
+            description=f"Revision {row['revision']} of this case",  # type: ignore[index]
+            remedy=CASE_REMEDY,
+        )
         return CaseRevision(
             case_id=case_id,
             revision=int(row["revision"]),  # type: ignore[index]
-            snapshot=ArchitectureCase.model_validate_json(row["snapshot_json"]),  # type: ignore[index]
+            snapshot=snapshot,
             event_type=row["event_type"],  # type: ignore[index]
             actor=row["actor"],  # type: ignore[index]
             created_at=datetime.fromisoformat(row["created_at"]),  # type: ignore[index]

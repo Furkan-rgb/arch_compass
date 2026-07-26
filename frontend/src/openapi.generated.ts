@@ -126,6 +126,7 @@ export interface components {
     "boundaries_reviewed": number;
     "boundaries_material": number;
     "created_at": string;
+    "case_title"?: string | null;
   };
     "BundledCase": {
     "name": string;

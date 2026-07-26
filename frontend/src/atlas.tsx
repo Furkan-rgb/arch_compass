@@ -33,7 +33,17 @@ import type {
   AtlasSignal,
 } from "./types";
 
-export type AtlasNodeState = "normal" | "hotspot" | "contained" | "inference";
+/**
+ * `cleared` exists for the review atlas: a boundary that was examined and found to be
+ * earning its place. It is not the absence of a finding, which is what `normal` means, and
+ * a map that drew the two the same way would say the advisor never looked.
+ */
+export type AtlasNodeState =
+  | "normal"
+  | "hotspot"
+  | "contained"
+  | "inference"
+  | "cleared";
 
 export interface AtlasMetricView {
   label: string;
@@ -1645,7 +1655,11 @@ export function RepositoryAtlas({
                     <rect className="atlas-node__body" width={NODE_WIDTH} height={NODE_HEIGHT} rx="10" />
                     <circle className="atlas-node__kind" cx="24" cy="25" r="10" />
                     <text className="atlas-node__symbol" x="24" y="29" textAnchor="middle">
-                      {node.state === "hotspot" ? "!" : node.state === "contained" ? "✓" : "·"}
+                      {node.state === "hotspot"
+                        ? "!"
+                        : node.state === "contained" || node.state === "cleared"
+                          ? "✓"
+                          : "·"}
                     </text>
                     <text className="atlas-node__label" x="43" y="29">
                       {truncate(node.label, 20)}
@@ -1813,7 +1827,7 @@ function AtlasDetailPanel({
   const StateIcon =
     node.state === "hotspot"
       ? AlertTriangle
-      : node.state === "contained"
+      : node.state === "contained" || node.state === "cleared"
         ? CheckCircle2
         : node.state === "inference"
           ? Layers3
@@ -1831,7 +1845,13 @@ function AtlasDetailPanel({
       <code className="mono-path">{node.path}</code>
       <div className="atlas-detail__tags">
         <Badge tone={node.state === "hotspot" ? "warning" : "neutral"}>{node.kind}</Badge>
-        <Badge tone={node.state === "contained" ? "success" : "neutral"}>{node.state}</Badge>
+        <Badge
+          tone={
+            node.state === "contained" || node.state === "cleared" ? "success" : "neutral"
+          }
+        >
+          {node.state}
+        </Badge>
       </div>
       {node.description && <p>{node.description}</p>}
       {node.signals && node.signals.length > 0 && (

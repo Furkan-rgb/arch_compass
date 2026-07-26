@@ -21,8 +21,8 @@ class SQLiteBoundaryReviewRepository:
                 INSERT INTO boundary_reviews(
                     review_id, case_id, case_revision, atlas_version_id, status,
                     reasoning_model, boundaries_reviewed, boundaries_material,
-                    created_at, review_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, case_title, review_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     review.review_id,
@@ -34,6 +34,7 @@ class SQLiteBoundaryReviewRepository:
                     0 if report is None else len(report.reviewed),
                     0 if report is None else len(report.material),
                     review.created_at.isoformat(),
+                    None if report is None else report.case_title,
                     review.model_dump_json(),
                 ),
             )
@@ -51,6 +52,10 @@ class SQLiteBoundaryReviewRepository:
             BoundaryReview,
             row["review_json"],
             description=f"Boundary review {review_id}",
+            remedy=(
+                "A review is derived from a case and an atlas, so run the review again "
+                "from the case it names."
+            ),
         )
 
     def list(
@@ -64,7 +69,7 @@ class SQLiteBoundaryReviewRepository:
         # columns exist precisely so it does not have to parse every stored report.
         query = """
             SELECT review_id, case_id, case_revision, atlas_version_id, status,
-                   boundaries_reviewed, boundaries_material, created_at
+                   boundaries_reviewed, boundaries_material, created_at, case_title
             FROM boundary_reviews
         """
         parameters: tuple[object, ...]
@@ -86,6 +91,9 @@ class SQLiteBoundaryReviewRepository:
                 boundaries_reviewed=int(row["boundaries_reviewed"]),
                 boundaries_material=int(row["boundaries_material"]),
                 created_at=str(row["created_at"]),
+                case_title=(
+                    None if row["case_title"] is None else str(row["case_title"])
+                ),
             )
             for row in rows
         ]
