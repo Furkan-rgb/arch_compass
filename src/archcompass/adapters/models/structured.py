@@ -333,6 +333,11 @@ class StructuredReasoningProvider:
                             f"{bearing.policy_title}: {bearing.how}"
                             for bearing in item.policy_bearings
                         ],
+                        # The detector's own statement of what it could not see. Without it
+                        # a live run filled the overview's `limits` field with "<No limits
+                        # provided in input>": the stage was asked to state the limits of a
+                        # method it had never been told anything about.
+                        "detection_limits": item.candidate.limitations,
                     }
                     for index, item in enumerate(boundaries, start=1)
                 ],

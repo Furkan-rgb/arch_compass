@@ -51,7 +51,7 @@ class DeterministicEmbeddingProvider:
 class DeterministicReasoningProvider:
     _PROMPTS: ClassVar[dict[ReasoningTask, str]] = {
         ReasoningTask.JUDGE_FINDING_CANDIDATE: "judge-finding-candidate:v3",
-        ReasoningTask.SUMMARISE_REVIEW: "summarise-review:v1",
+        ReasoningTask.SUMMARISE_REVIEW: "summarise-review:v2",
         ReasoningTask.ANSWER_REVIEW_QUESTION: "answer-review-question:v1",
     }
 

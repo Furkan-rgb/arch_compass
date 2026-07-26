@@ -169,7 +169,7 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
 
 SUMMARISE_REVIEW: Final = PromptContract(
     name="summarise-review",
-    version=1,
+    version=2,
     stage_contract=_text(
         """
         Every boundary in one repository has now been judged separately, and you are shown
@@ -202,8 +202,14 @@ SUMMARISE_REVIEW: Final = PromptContract(
         has no theme and no sequence, and inventing either to fill the shape would be worse
         than an empty list — that review's finding is that the structure is holding up.
 
-        Never write a boundary's reference code, name or number in any text field. Position
-        is what identifies a boundary here.
+        Refer to a boundary by the abstraction it is about — the name in its `boundary`
+        field — and never by its position or by a reference code. Position exists only for
+        the grounding flags; "the boundary at position 1" tells a reader nothing, because the
+        numbering is not in front of them.
+
+        State the limits from what the boundaries themselves report under
+        `detection_limits`, and from what the case leaves open. Do not say that no limits
+        were supplied: they are in the input.
         """
     ),
     request=_text(
@@ -219,11 +225,13 @@ SUMMARISE_REVIEW: Final = PromptContract(
         support it. Both lists may be empty.
 
         Every statement carries one supported_by flag per boundary, in the order the
-        boundaries appear above, marking the boundaries that statement rests on. A statement
-        that rests on no boundary will be discarded, so make the claim you can ground.
+        boundaries appear above. Mark true only for the boundaries that statement is actually
+        about: a statement that marks all of them tells the reader nothing about where to
+        look, and one that marks none will be discarded, so make the claim you can ground.
 
-        Finally, in limits, state what this review could not see: which detector ran, and
-        what a reader should not conclude from its silence.
+        Finally, in limits, write one or two sentences of prose — not a list, not a JSON
+        array — saying what this review could not see, drawn from the boundaries' own
+        detection_limits and from what the case leaves open.
         """
     ),
 )
