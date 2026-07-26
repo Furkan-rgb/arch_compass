@@ -20,7 +20,7 @@ from archcompass.domain.errors import AtlasNotFoundError
 from archcompass.domain.review import ReviewStatus
 from archcompass.presentation.cli.app import app
 
-FIXTURE = Path("eval/cases/provider-leakage/repository").resolve()
+FIXTURE = Path("eval/cases/speech-vendor/repository").resolve()
 
 
 def _case(repository: Path) -> ArchitectureCase:

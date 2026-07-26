@@ -223,10 +223,27 @@ def test_a_review_of_an_unindexed_repository_fails_rather_than_reporting_nothing
 
 def test_a_review_of_unscored_code_reports_no_score_rather_than_a_made_up_one(
     runtime: Runtime,
+    tmp_path: Path,
 ) -> None:
-    """Someone's own repository has no right answer; inventing one would be worse than none."""
+    """Someone's own repository has no right answer; inventing one would be worse than none.
 
-    atlas = runtime.analyzer.analyze(Path("eval/cases/provider-leakage/repository").resolve())
+    Written here rather than borrowed from `eval/cases`. Both bundled examples ship an
+    answer key on purpose, and a test that relied on one of them not having one would go
+    green or red depending on a decision about the examples rather than about scoring.
+    """
+
+    own_code = tmp_path / "someones-own-repository"
+    own_code.mkdir()
+    (own_code / "gateway.py").write_text(
+        "from typing import Protocol\n\n\n"
+        "class Gateway(Protocol):\n"
+        "    def send(self, message: str) -> None: ...\n\n\n"
+        "class HttpGateway(Gateway):\n"
+        "    def send(self, message: str) -> None:\n"
+        "        print(message)\n",
+        encoding="utf-8",
+    )
+    atlas = runtime.analyzer.analyze(own_code)
     runtime.atlas_repository.save(atlas)
 
     with TestClient(create_app(runtime)) as client:

@@ -73,8 +73,9 @@ domain*, not what it says about data migrations.
 - `frontend/` — React + TS + Vite. Routes in `src/App.tsx`, pages in `src/pages/`,
   API client `src/api.ts`, generated contract `src/openapi.generated.ts`. Direction:
   `docs/workspace-design.md`; current state: `docs/web-workspace.md`.
-- `eval/cases/` — bundled examples; `boundary-review` ships expected answers and is
-  scored by `make demo`.
+- `eval/cases/` — exactly two bundled examples, both scored: `boundary-review` (does this
+  boundary absorb any variation?) and `speech-vendor` (is it in the right place?).
+  `make demo` grades the first, `make eval-local` both.
 - `tests/` — default run excludes `ollama`, `google`, `browser` markers, so
   `make check` needs no live model.
 

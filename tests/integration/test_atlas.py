@@ -12,7 +12,7 @@ from archcompass.domain.atlas import (
 )
 from archcompass.domain.errors import AtlasQueryValidationError, PathValidationError
 
-FIXTURE = Path("eval/cases/provider-leakage/repository").resolve()
+FIXTURE = Path("eval/cases/speech-vendor/repository").resolve()
 
 
 def test_ast_atlas_contains_structure_edges_metrics_and_signals(runtime) -> None:

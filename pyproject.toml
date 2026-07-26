@@ -53,6 +53,12 @@ markers = [
 target-version = "py312"
 line-length = 100
 src = ["src", "tests"]
+# The example repositories are the subject of a review, not source of this project. They
+# are shaped to imitate the code they stand for, and resolved as if they were this package
+# — so `narration.delivery` inside `narration/` reads as a first-party import and gets
+# split from its siblings. Pyright already excludes them for the same reason. A fixture's
+# own test asserts it still parses, which is the only property that matters here.
+extend-exclude = ["eval/cases"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]

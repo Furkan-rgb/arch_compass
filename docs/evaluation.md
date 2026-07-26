@@ -12,10 +12,6 @@ paths without contacting a live model.
 V1.2 deterministic acceptance requires the suite to establish that:
 
 - stage orchestration and bounded query budgets work;
-- the provider-leakage integrity case routes ownership and change-locality forces through
-  different investigations, packets, policy retrievals, and analyses;
-- the provider-context-assembly case surfaces a structural proxy and relevant policy without the
-  problem statement naming the duplicated evidence-selection responsibility;
 - concern, atlas, policy, and claim references remain valid;
 - discovery and clustering keep internal IDs application-owned, constrain model-facing force
   handles to a closed set, and map valid partitions back deterministically;
@@ -45,16 +41,12 @@ V1.2 deterministic acceptance requires the suite to establish that:
 - counterfactual answers remain labelled/read-only and unsupported runtime questions do not
   invent telemetry.
 
-The deterministic reasoning provider deliberately contains fixture-oriented behavior for terms
-such as providers, Qwen, voices, and premature abstraction. Its evaluation results therefore prove
-workflow and evidence integrity, not general architectural judgment.
-
-Its routing behavior is generic rather than fixture-specific: discovered forces are partitioned
-into responsibility ownership, lifecycle/operations, change/evolution, and evidence-uncertainty
-concerns when those categories are present. The provider-leakage integrity case requires separate
-ownership and change/evolution packets with disjoint surfaced nodes and different retrieved-policy
-sets. This asserts that the real per-cluster routing path executes; it does not make the fake
-provider an architectural-quality benchmark.
+The deterministic reasoning provider recognises none of the evaluation fixtures. It once
+branched on their vocabulary — Qwen, voices, preflight, and the rest — which made part of the
+deterministic tier an assertion about what the double remembered rather than about what the
+pipeline did, so `tests/unit/test_boundaries.py` now fails if any of that vocabulary reappears
+in it. What the double proves is workflow and evidence integrity; it proves nothing about
+architectural judgment, because it exercises no judgment.
 
 Tests marked `evaluation` belong to this deterministic category. Run them with:
 
@@ -74,48 +66,51 @@ contract.
 
 ## Architectural-quality benchmark cases
 
-Canonical benchmark inputs and their repository fixtures live under `eval/cases/<case>/`. They
-define architectural questions and expected decision characteristics independently of any one
-model:
+Two cases live under `eval/cases/<case>/`, each a written case beside the repository it is
+about and the answers it should reach. They are the whole set on purpose: a bundled example
+is something a person will open and be shown the tool through, and an example nobody has
+graded teaches whatever the model happened to say that day.
 
-### Greenfield audiobook
+Both present the detector with the same shape six times — an abstraction with exactly one
+implementation — so nothing in the structure separates the boundaries and only the case can.
+They differ in what the case has to be read *for*, and a run can pass one while failing the
+other.
 
-The case includes ingestion, text preparation, chunking, voice design and cloning, narration, one
-local GPU, Qwen first, possible hosted providers, and resumable jobs. A strong answer preserves
-stable workflow boundaries, puts provider variation under a clear owner, and avoids a universal
-plugin platform. It must not invent repository evidence.
+### Task scheduler boundary review — `boundary-review`
 
-### Brownfield provider leakage
+Does this boundary absorb any variation at all? Three of the six sit in front of a change the
+case says is coming (a second delivery channel, a hosted database, a substituted clock) and
+three sit in front of one the case rules out — a format fixed by a downstream system, an
+identifier fixed by contract, a settled configuration decision. A run that clears all six is
+an abstraction generator; one that condemns all six is an abstraction destroyer. Neither is an
+advisor, and the score tells them apart.
 
-The synthetic Python fixture spreads Qwen voice knowledge across frontend, preflight, workflow,
-provider, and root composition. A provider interface lacks capability discovery. A strong answer
-uses located repository evidence, explains duplicated knowledge and change amplification, moves
-discovery under a clear owner, and avoids broad speculative infrastructure.
+### Adding a second speech vendor — `speech-vendor`
 
-### Premature abstraction
+Is this boundary in the right *place*? Here every boundary sits in front of variation that is
+genuinely coming — a second speech vendor is under contract — so the reading that scored well
+above clears all six. Three of them are drawn at the edge the change arrives at. The other
+three are vendor-shaped seams cut into the web layer, the pre-flight checks and the narration
+planner, each answering a question the case says belongs to whichever vendor is configured, so
+each is a further place the second vendor has to be applied.
 
-The fixture contains one directly called local formatter and two behavior tests. There is no
-interface, factory, registry, configuration, or credible variation. A strong answer can recommend
-keeping the implementation local and state what future evidence would justify revisiting it.
+The case is written to give none of that away: it states the decision, the contracted change,
+the constraints and the qualities that matter, and never names a defect, a fix, or the classes
+the verdicts are about. `tests/evaluation/test_speech_vendor_fixture.py` fails if that
+vocabulary reappears, because a case that states the finding grades the model on reading
+rather than on judgement.
 
-### Provider context assembly
+The repository also carries the leak the fixture is named for: one voice list written into
+four modules, with a copy that has already drifted out of step. Nothing scores that today —
+it is *repetition without ownership* (master plan §8A.3), the half of the detector catalogue
+that is not built — and it is there so the fixture is ready the day it is.
 
-The case asks only for factual, auditable questions about a completed report. It contains no
-provider, adapter, replacement, transport, duplication, or context-assembly cue. Its repository
-has one model-boundary implementation that reads several nested report fields, combines findings
-and policies, and constructs a request mapping. A strong answer follows the located
-`broad-input-boundary-preparation` proxy into a source excerpt, applies the semantic-context
-ownership policy, and recommends an application-owned dossier because report and evidence rules
-currently spill into transport code. It must distinguish the observed projection from the
-advisor inference that responsibility should move.
-
-These cases are architectural-quality benchmarks only when a real reasoning model's output is
-assessed against their evidence discipline and decision rubric. Running the deterministic
-provider over the same fixtures is still an integrity test. Automated structural assertions
-such as valid citations are necessary, but exact keyword matches are not sufficient evidence of
-architectural quality. Tests that perform an optional quality run should use the
-`ollama` or `google` marker and record the model, prompt identities, configuration, and case
-revision used.
+These are architectural-quality benchmarks only when a real reasoning model's output is
+assessed against them. Running the deterministic double over the same fixtures is an integrity
+test and nothing more. Automated structural assertions such as valid citations are necessary,
+but exact keyword matches are not sufficient evidence of architectural quality. Tests that
+perform an optional quality run should use the `ollama` or `google` marker and record the
+model, prompt identities, configuration, and case revision used.
 
 ## Recorded replay tier
 
@@ -170,17 +165,20 @@ deterministic checks, frontend tests, and the production/package build.
 ## Scoring every example at once
 
 ```bash
-make eval-local        # every brownfield example, on the local model
-make demo-local        # the scored fixture only
-make demo              # the scored fixture, on Google
+make eval-local        # both examples, on the local model
+make demo-local        # boundary-review only
+make demo              # boundary-review, on Google
 ```
 
-`make eval-local` runs each bundled case that ships a repository, prints one line per
-boundary as its verdict lands, then a table of per-example scores. An example without an
-`expected.yaml` is reported as unscored rather than counted as a pass, and an abstraction the
-key does not cover fails the run: a fixture that has drifted from its own answers would
-otherwise produce a score that looks complete while measuring less than it claims.
+`make eval-local` runs each bundled case, prints one line per boundary as its verdict lands,
+then a table of per-example scores. An example without an `expected.yaml` is reported as
+unscored rather than counted as a pass, and an abstraction the key does not cover fails the
+run: a fixture that has drifted from its own answers would otherwise produce a score that
+looks complete while measuring less than it claims.
 
-It is a script, not a workspace button. Four examples are roughly thirty model calls, the
-browser has no queue for work that long by design (master plan §18), and a metered free tier
-cannot serve it.
+Read both scores, never their sum. The two examples ask different questions, and 9/12 across
+the pair hides which of the two failure modes is live.
+
+It is a script, not a workspace button. Twelve boundaries plus two summaries is fourteen model
+calls, the browser has no queue for work that long by design (master plan §18), and a metered
+free tier cannot serve it.

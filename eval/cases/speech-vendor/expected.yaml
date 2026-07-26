@@ -1,0 +1,68 @@
+# The scoring key for this fixture.
+#
+# Six boundaries, identical to the detector: one abstraction, one implementation, every
+# time — the same shape as `boundary-review`. What is being measured here is different.
+#
+# In `boundary-review` the question is whether a boundary absorbs any variation at all.
+# Here every boundary sits in front of variation the case says is genuinely coming, so the
+# lazy reading clears all six. The discrimination is *placement*: three of these seams are
+# at the edge the change will arrive at, and three are vendor-shaped holes cut into modules
+# that have no other reason to know a vendor exists. A run that clears all six has read
+# "a second vendor is coming" and stopped there.
+#
+# What the detector cannot see, and this key does not credit: the same voice list is
+# written out in four modules and one copy has already drifted. That is *repetition
+# without ownership* (master plan §8A.3), the half of the catalogue that is not built. The
+# repository carries it deliberately, so this fixture is ready the day that detector lands.
+
+boundaries:
+  - abstraction: provider.speech.SpeechProvider
+    material: false
+    because: >-
+      The vendor seam, at the edge the second vendor actually arrives at. The case says
+      both vendors stay in service, so a second implementation is contracted rather than
+      imagined, and this is the one boundary here that is drawn where the variation is.
+
+      Scored not-material deliberately, though a human reading the whole repository would
+      add that this seam covers synthesis and nothing else. The judgement stage is shown
+      one candidate: this abstraction, its one implementation, the counts, and the case.
+      Nothing in that packet says what the seam does or does not cover, so a verdict that
+      it is too narrow would be inference promoted to fact — which the contract forbids and
+      this key must not reward. The narrowness is visible only across the whole set, and
+      the overview is where it belongs.
+
+  - abstraction: library.storage.BookStore
+    material: false
+    because: >-
+      A stated technical constraint says application code must not import a database driver,
+      and a hosted Postgres deployment is under discussion. The boundary absorbs a change
+      the case expects and enforces a rule the case states.
+
+  - abstraction: narration.delivery.AudioSink
+    material: false
+    because: >-
+      Streaming to the web player is scheduled for the next release and disk output stays.
+      The second implementation is planned, not hypothetical.
+
+  - abstraction: frontend.catalogue.VoiceListSource
+    material: true
+    because: >-
+      A seam over which voices exist, cut into the web layer, whose only implementation
+      answers for one vendor. The case says that answer belongs to whichever vendor is
+      configured and is only knowable by asking it, so this boundary does not absorb the
+      second vendor — it guarantees the web layer is edited when it lands.
+
+  - abstraction: preflight.voices.VoiceValidator
+    material: true
+    because: >-
+      The same question again, one module along. Deciding whether a voice exists is the
+      vendor's answer, and a pre-flight check holding its own version of it is a second
+      place the second vendor has to be applied.
+
+  - abstraction: narration.planning.VoiceResolver
+    material: true
+    because: >-
+      The third copy of the same seam. It also holds the case's quality attribute in its
+      hands — a listener must get the voice they picked or be told they cannot — and a
+      resolver that answers from its own idea of the vendor's voices can honour neither
+      vendor reliably.

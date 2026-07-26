@@ -714,8 +714,10 @@ The review path exists end to end:
   substitutes so the whole suite runs without a model.
 - CLI commands for the full path and a browser workspace: bundled examples, the review
   report with its question dock, and an atlas graph view.
-- A scored example with known answers (`eval/cases/boundary-review`); `make demo` grades
-  a live run against it.
+- Two scored examples with known answers, six identically-shaped boundaries each.
+  `boundary-review` asks whether a boundary absorbs any variation at all; `speech-vendor`
+  asks whether it is in the right place, and its case is written to state no finding. `make
+  demo` grades the first, `make eval-local` both.
 
 The broad dependency architecture is correct:
 

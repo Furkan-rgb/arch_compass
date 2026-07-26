@@ -71,8 +71,8 @@ class BundledCaseSummary:
     title: str
     problem_statement: str
     repository_root: str
-    #: Whether the case ships a scoring key. Only `boundary-review` does today, and it is
-    #: the one to reach for when the question is "is the advisor any good".
+    #: Whether the case ships a scoring key. Both bundled examples do, and either is the
+    #: one to reach for when the question is "is the advisor any good".
     has_expected_answers: bool
 
 

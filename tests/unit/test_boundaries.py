@@ -191,10 +191,10 @@ def test_model_adapters_do_not_import_application_or_workflow_layers() -> None:
 def test_the_deterministic_provider_contains_no_evaluation_vocabulary() -> None:
     """The test double must relay its inputs, not recognise the evaluation fixtures.
 
-    It previously branched on tokens taken from the evaluation cases - including the
-    literal filenames of `eval/cases/provider-leakage/repository/` - so the
-    deterministic tier partly asserted what the double remembered rather than what the
-    pipeline did. Any output that depends on case wording is unfalsifiable evidence.
+    It previously branched on tokens taken from the evaluation cases - down to the literal
+    filenames of the brownfield fixture's modules - so the deterministic tier partly
+    asserted what the double remembered rather than what the pipeline did. Any output that
+    depends on case wording is unfalsifiable evidence.
     """
 
     source = (SOURCE_ROOT / "adapters" / "models" / "deterministic.py").read_text(
@@ -203,15 +203,20 @@ def test_the_deterministic_provider_contains_no_evaluation_vocabulary() -> None:
     borrowed = [
         token
         for token in (
+            # `speech-vendor`.
             "qwen",
             "voice",
+            "vendor",
             "preflight",
             "frontend",
-            "premature",
-            "one implementation",
-            "audiobook",
-            "boundary-preparation",
             "narration",
+            "speech",
+            # `boundary-review`.
+            "scheduler",
+            "reminder",
+            "sms",
+            # Either.
+            "one implementation",
         )
         if token in source.casefold()
     ]

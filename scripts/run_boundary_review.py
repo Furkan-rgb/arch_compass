@@ -6,10 +6,16 @@ three of them justified and three not. A run that clears all six is an abstracti
 generator, a run that condemns all six is an abstraction destroyer, and the score separates
 those from an advisor.
 
-`--all` runs every brownfield example in one go, which is the closest thing to a regression
-suite for judgement quality. It stays a script rather than a workspace button: it is tens of
-model calls, and the browser deliberately has no queue for work that long (master plan §18).
-Run it against the local model — a metered free tier cannot serve it.
+`--all` adds `speech-vendor`, which is the same shape asking a harder question. There
+every boundary stands in front of a change the case says is coming, so clearing all six is
+the plausible mistake rather than the lazy one; what separates them is whether each seam is
+at the edge the change arrives at. Read the two scores separately — a total across both
+hides which failure mode is live.
+
+Running both is the closest thing to a regression suite for judgement quality. It stays a
+script rather than a workspace button: it is tens of model calls, and the browser
+deliberately has no queue for work that long (master plan §18). Run it against the local
+model — a metered free tier cannot serve it.
 
 Needs a live model. Builds a throwaway workspace so nothing is left behind, and prints one
 line per boundary as each verdict lands rather than after all of them.
@@ -80,9 +86,9 @@ class Outcome:
 def brownfield_examples() -> list[Example]:
     """Every example the review path can run: a case with a repository beside it.
 
-    Greenfield examples are skipped rather than failed. Candidates stated in a case instead
-    of parsed from code are master plan §4.1, and until that exists there is nothing here
-    for the detector to sweep.
+    A case without a repository is skipped rather than failed. Candidates stated in a case
+    instead of parsed from code are master plan §4.1, and until that exists there is nothing
+    there for the detector to sweep.
     """
 
     found: list[Example] = []
@@ -225,6 +231,14 @@ def main() -> int:
         help="Run every brownfield example rather than only the scored fixture.",
     )
     parser.add_argument(
+        "--case",
+        default=DEFAULT_EXAMPLE,
+        help=(
+            "Which example to run. Working on one example's wording means running it and "
+            "reading it repeatedly, and the other one has nothing to say about that edit."
+        ),
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=None,
@@ -237,9 +251,10 @@ def main() -> int:
 
     examples = brownfield_examples()
     if not arguments.all:
-        examples = [item for item in examples if item.name == DEFAULT_EXAMPLE]
+        examples = [item for item in examples if item.name == arguments.case]
     if not examples:
-        print(f"No brownfield example found under {CASES}")
+        known = ", ".join(item.name for item in brownfield_examples()) or "none"
+        print(f"No example named {arguments.case!r} under {CASES}. Found: {known}")
         return 1
 
     sink = arguments.out.open("w", encoding="utf-8") if arguments.out else None

@@ -376,9 +376,10 @@ archcompass reviews show <review-id>
   substitutes so the whole suite runs without a model.
 - A browser workspace: pick a bundled example, read the review, ask about it, and explore
   the atlas graph.
-- A scored example with known answers — `eval/cases/boundary-review`, six boundaries the
-  detector cannot separate and a case that makes three of them justified. `make demo`
-  grades a live run against it.
+- Two scored examples with known answers, each six boundaries the detector cannot separate
+  and a case that decides them. `boundary-review` asks whether a boundary absorbs any
+  variation at all; `speech-vendor` asks whether it is in the right place. `make demo`
+  grades a live run against the first, `make eval-local` against both.
 
 Experimental. Two limits are worth stating plainly rather than discovering:
 
@@ -532,12 +533,20 @@ Or grade a run against known answers:
 ```bash
 make demo          # Google, about two minutes
 make demo-local    # Ollama
+make eval-local    # both examples, on Ollama
 ```
 
 `eval/cases/boundary-review` has six boundaries the detector cannot tell apart and a case
 that makes three of them justified. A run that clears all six is an abstraction generator;
 one that condemns all six is an abstraction destroyer. The score separates those from an
 advisor.
+
+`eval/cases/speech-vendor` is the harder half. Every one of its six boundaries stands in
+front of a change that is genuinely coming — a second speech vendor is under contract — so
+clearing all six is the *plausible* mistake there. Three are drawn at the vendor edge; three
+are vendor-shaped seams cut into modules that have no other reason to know a vendor exists.
+Its case names no defect, no fix and none of the classes at issue, so the score measures
+judgement rather than reading.
 
 ### Review your own repository
 
