@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -89,6 +90,82 @@ def test_the_api_covers_the_whole_review_loop(runtime: Runtime) -> None:
         assert {item["reference"] for item in result["boundaries"]} == known
 
 
+def test_a_streamed_review_counts_its_boundaries_before_judging_them(
+    runtime: Runtime,
+) -> None:
+    """The run has to be countable, which means detection must be reported on its own.
+
+    A stream that only spoke after the first verdict would leave the longest wait in the
+    review — the first model call — with nothing to show, which is the wait the streaming
+    route exists to replace.
+    """
+
+    with TestClient(create_app(runtime)) as client:
+        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
+        case_id = loaded.json()["case_id"]
+        repository_root = {
+            item["name"]: item for item in client.get("/api/bundled-cases").json()
+        }[FIXTURE]["repository_root"]
+
+        with client.stream(
+            "POST",
+            "/api/reviews/stream",
+            json={"case_id": case_id, "repository_root": repository_root},
+        ) as response:
+            assert response.status_code == 200, response.read()
+            assert response.headers["content-type"].startswith("application/x-ndjson")
+            events = [json.loads(line) for line in response.iter_lines() if line.strip()]
+
+    assert events[0]["event"] == "detected"
+    total = events[0]["total"]
+    assert total > 0
+    assert len(events[0]["boundaries"]) == total
+
+    judged = [event for event in events if event["event"] == "judged"]
+    # One line per boundary, in order, each naming the boundary it settled.
+    assert [event["position"] for event in judged] == list(range(1, total + 1))
+    assert [event["abstraction"] for event in judged] == events[0]["boundaries"]
+
+    assert events[-1]["event"] == "completed"
+    review = events[-1]["review"]
+    assert review["status"] == "succeeded"
+    assert len(review["report"]["reviewed"]) == total
+    # The streamed review is a persisted review, not a transient copy of one.
+    assert client.get(f"/api/reviews/{review['review_id']}").status_code == 200
+
+
+def test_a_streamed_review_that_fails_says_so_in_the_stream(
+    runtime: Runtime,
+    tmp_path: Path,
+) -> None:
+    """The status code is already 200 when the run fails, so the body has to carry it."""
+
+    with TestClient(create_app(runtime)) as client:
+        created = client.post("/api/cases", json={
+            "title": "Unindexed",
+            "problem_statement": "Nothing has been indexed yet.",
+            "desired_outcome": "An honest error, mid-stream.",
+        })
+
+        with client.stream(
+            "POST",
+            "/api/reviews/stream",
+            json={
+                "case_id": created.json()["case_id"],
+                "repository_root": str(tmp_path),
+            },
+        ) as response:
+            assert response.status_code == 200
+            events = [json.loads(line) for line in response.iter_lines() if line.strip()]
+
+        assert [event["event"] for event in events] == ["failed"]
+        problem = events[0]["problem"]
+        assert problem["code"] == "not_found"
+        assert "repo index" in problem["message"]
+        # Nothing was persisted: a failed run leaves no half-review behind.
+        assert client.get("/api/reviews").json() == []
+
+
 def test_unknown_identifiers_return_stable_problem_details(runtime: Runtime) -> None:
     """A client distinguishes "not there" from "malformed" by code, not by prose."""
 
@@ -170,6 +247,7 @@ def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> N
     for route in (
         "/api/bundled-cases",
         "/api/reviews",
+        "/api/reviews/stream",
         "/api/reviews/{review_id}",
         "/api/review-conversations",
         "/api/review-conversations/{conversation_id}/messages",
@@ -182,6 +260,11 @@ def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> N
     assert "BoundaryReview" in schemas
     assert "ReviewedBoundary" in schemas
     assert "ReviewConversation" in schemas
+    # The progress line is a declared contract, not an undocumented convention: a client
+    # that had to guess the shape would be parsing prose.
+    assert schemas["ReviewProgress"]["discriminator"]["propertyName"] == "event"
+    stream = document.json()["paths"]["/api/reviews/stream"]["post"]["responses"]["200"]
+    assert "application/x-ndjson" in stream["content"]
     # The old consultation surface is gone, not merely unused by the workspace.
     assert not any(path.startswith("/api/consultations") for path in paths)
     assert not any(path.startswith("/api/runs") for path in paths)

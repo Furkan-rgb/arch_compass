@@ -5,17 +5,27 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
+from queue import Queue
+from threading import Thread
 from typing import Annotated, Any, Literal, cast
 
 import yaml
 from fastapi import Body, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    ValidationError,
+    model_validator,
+)
 
 from archcompass.bootstrap import Runtime
-from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion
+from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion, FindingCandidate
 from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
 from archcompass.domain.errors import (
     ArchCompassError,
@@ -202,6 +212,63 @@ class ReviewScoreResponse(APIModel):
     total: int
     boundaries: list[ScoredBoundaryResponse]
     unscored: list[str]
+
+
+class ReviewDetected(APIModel):
+    """The deterministic sweep finished, so the run now has a known length.
+
+    The boundaries are named in judgement order, which is the order the review will store
+    them in and the order every later position refers to.
+    """
+
+    event: Literal["detected"] = "detected"
+    total: int
+    boundaries: list[str]
+
+
+class ReviewJudged(APIModel):
+    """One boundary judged. `position` counts from one, in the detected order."""
+
+    event: Literal["judged"] = "judged"
+    position: int
+    total: int
+    abstraction: str
+    material: bool
+
+
+class ReviewCompleted(APIModel):
+    """The composed, persisted review — the same object the non-streaming route returns."""
+
+    event: Literal["completed"] = "completed"
+    review: BoundaryReview
+
+
+class ReviewFailed(APIModel):
+    """The run failed. Nothing was persisted; the case and atlas are untouched."""
+
+    event: Literal["failed"] = "failed"
+    problem: ProblemDetail
+
+
+ReviewProgressLine = Annotated[
+    ReviewDetected | ReviewJudged | ReviewCompleted | ReviewFailed,
+    Field(discriminator="event"),
+]
+
+
+class ReviewProgress(RootModel[ReviewProgressLine]):
+    """One line of `POST /api/reviews/stream`, discriminated by `event`."""
+
+
+class NDJSONStreamingResponse(StreamingResponse):
+    """A stream of one JSON object per line.
+
+    Declared as a class so the OpenAPI document says `application/x-ndjson` where the
+    schema is: a body that is a sequence of lines is not one JSON document, and describing
+    it as `application/json` would tell a generated client the wrong thing to parse.
+    """
+
+    media_type = "application/x-ndjson"
 
 
 class PolicySourceRequest(APIModel):
@@ -449,6 +516,36 @@ def create_app(runtime: Runtime) -> FastAPI:
             repository_root=Path(request.repository_root),
         )
 
+    @app.post(
+        "/api/reviews/stream",
+        response_class=NDJSONStreamingResponse,
+        responses={
+            200: {
+                "model": ReviewProgress,
+                "description": (
+                    "The same review as POST /api/reviews, as newline-delimited JSON: one "
+                    "ReviewProgress object per line, ending in a completed or failed line."
+                ),
+            },
+            **_problem_responses(422),
+        },
+    )
+    def stream_review(request: ReviewRequest) -> NDJSONStreamingResponse:
+        """The review a person watches: countable, because detection knows the length.
+
+        Everything that can go wrong after the first line arrives as a `failed` line
+        carrying the same `ProblemDetail` the non-streaming route would have returned. Once
+        a response has started, its status code can no longer say anything, so the stream
+        has to end in a verdict about itself.
+        """
+
+        return NDJSONStreamingResponse(
+            _review_progress_lines(runtime, request),
+            # Buffering would defeat the point: progress that arrives all at once at the
+            # end is the unexplained wait this route exists to replace.
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
+
     @app.get("/api/reviews")
     def list_reviews(
         case_id: str | None = None,
@@ -607,6 +704,91 @@ def create_app(runtime: Runtime) -> FastAPI:
         )
 
     return app
+
+
+def _abstraction_name(candidate: FindingCandidate) -> str:
+    """The boundary a person recognises: the abstraction, not the candidate's identity."""
+
+    first = candidate.participants[0] if candidate.participants else None
+    return first.qualified_name if first is not None else "unnamed boundary"
+
+
+def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator[str]:
+    """Run one review in a worker thread and yield each line as the run produces it.
+
+    A thread, not a job queue (master plan §18). The work is still exactly this request's
+    work: nothing is persisted until the review is composed, so a client that navigates away
+    leaves the run to finish or fail on its own, and either a whole review exists afterwards
+    or none does — the same two outcomes the non-streaming route has. What streaming buys is
+    that the caller learns the length of the sequence after detection instead of after the
+    last model call.
+
+    The queue is the only shared state, it lives as long as the request, and the application
+    service still owns detection, judgement order and composition: this function chooses
+    nothing about the review, it only reports it.
+    """
+
+    lines: Queue[str | None] = Queue()
+
+    def emit(event: ReviewDetected | ReviewJudged | ReviewCompleted | ReviewFailed) -> None:
+        lines.put(event.model_dump_json())
+
+    def run() -> None:
+        try:
+            review = runtime.review_service.review(
+                request.case_id,
+                repository_root=Path(request.repository_root),
+                on_detected=lambda candidates: emit(
+                    ReviewDetected(
+                        total=len(candidates),
+                        boundaries=[_abstraction_name(item) for item in candidates],
+                    )
+                ),
+                on_verdict=lambda judged, position, total: emit(
+                    ReviewJudged(
+                        position=position,
+                        total=total,
+                        abstraction=_abstraction_name(judged.candidate),
+                        material=judged.verdict.material,
+                    )
+                ),
+            )
+        except ArchCompassError as error:
+            # The status is deliberately dropped: the response is already a 200 by the time
+            # the run fails, and a code in the body that disagreed with it would be worse
+            # than one that says nothing.
+            _status, code, retryable = _classify_error(error)
+            emit(
+                ReviewFailed(
+                    problem=ProblemDetail(
+                        code=code,
+                        message=str(error),
+                        retryable=retryable,
+                    )
+                )
+            )
+        except Exception:
+            # Broad on purpose: a stream that simply closes tells the reader nothing, and
+            # this is the last place that can still say the run failed. Only ArchCompass's
+            # own errors are written out for a person to read, so an unexpected one is
+            # reported without forwarding its text.
+            emit(
+                ReviewFailed(
+                    problem=ProblemDetail(
+                        code="archcompass_error",
+                        message="The review failed unexpectedly, and nothing was saved.",
+                    )
+                )
+            )
+        else:
+            emit(ReviewCompleted(review=review))
+        finally:
+            lines.put(None)
+
+    worker = Thread(target=run, daemon=True, name="archcompass-review")
+    worker.start()
+    while (line := lines.get()) is not None:
+        yield f"{line}\n"
 
 
 def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:

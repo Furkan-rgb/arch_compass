@@ -361,6 +361,10 @@ export interface components {
     "answer": string;
     "supporting_references"?: Array<string>;
   };
+    "ReviewCompleted": {
+    "event"?: "completed";
+    "review": components["schemas"]["BoundaryReview"];
+  };
     "ReviewConversation": {
     "schema_version"?: 1;
     "conversation_id"?: string;
@@ -375,6 +379,22 @@ export interface components {
     "review_id": string;
     "title"?: string | null;
   };
+    "ReviewDetected": {
+    "event"?: "detected";
+    "total": number;
+    "boundaries": Array<string>;
+  };
+    "ReviewFailed": {
+    "event"?: "failed";
+    "problem": components["schemas"]["ProblemDetail"];
+  };
+    "ReviewJudged": {
+    "event"?: "judged";
+    "position": number;
+    "total": number;
+    "abstraction": string;
+    "material": boolean;
+  };
     "ReviewMessage": {
     "message_id"?: string;
     "ordinal": number;
@@ -383,6 +403,7 @@ export interface components {
     "failure"?: string;
     "asked_at"?: string;
   };
+    "ReviewProgress": components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewFailed"];
     "ReviewQuestionRequest": {
     "question": string;
   };
@@ -867,6 +888,19 @@ export interface operations {
       "404": components["schemas"]["ProblemDetail"];
     };
   };
+  "stream_review_api_reviews_stream_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["ReviewRequest"];
+    responses: {
+      "200": components["schemas"]["ReviewProgress"];
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
   "update_case_api_cases__case_id__patch": {
     parameters: {
       query: never;
@@ -963,6 +997,9 @@ export interface paths {
   "/api/reviews": {
     get: operations["list_reviews_api_reviews_get"];
     post: operations["create_review_api_reviews_post"];
+  };
+  "/api/reviews/stream": {
+    post: operations["stream_review_api_reviews_stream_post"];
   };
   "/api/reviews/{review_id}": {
     get: operations["get_review_api_reviews__review_id__get"];

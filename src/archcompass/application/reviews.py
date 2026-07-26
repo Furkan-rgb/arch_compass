@@ -12,7 +12,7 @@ threshold quietly deciding which policy the advisor was allowed to consider.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
@@ -69,14 +69,18 @@ class ReviewService:
         case_id: str,
         *,
         repository_root: Path,
+        on_detected: Callable[[Sequence[FindingCandidate]], None] | None = None,
         on_verdict: Callable[[JudgedCandidate, int, int], None] | None = None,
     ) -> BoundaryReview:
         """Judge every candidate in the repository against this case.
 
-        `on_verdict` is called as each verdict lands, with the position and the total. A
-        review is one model call per candidate and takes minutes, so a caller that reports
-        nothing until the last one has finished is the difference between a tool that
-        looks stuck and one that does not.
+        `on_detected` is called once, before the first model call, with every candidate the
+        sweep found. `on_verdict` is called as each verdict lands, with the position and the
+        total. A review is one model call per candidate and takes minutes, so a caller that
+        reports nothing until the last one has finished is the difference between a tool
+        that looks stuck and one that does not — and detection is where the length of the
+        sequence becomes known, which is what makes the wait countable rather than
+        unexplained.
         """
 
         started = monotonic()
@@ -92,6 +96,8 @@ class ReviewService:
             key=lambda policy: policy.id,
         )
         candidates = detect_finding_candidates(atlas)
+        if on_detected is not None:
+            on_detected(candidates)
         judged: list[JudgedCandidate] = []
         for position, candidate in enumerate(candidates, start=1):
             item = JudgedCandidate(

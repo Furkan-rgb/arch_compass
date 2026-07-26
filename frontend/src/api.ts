@@ -14,6 +14,7 @@ import type {
   BundledCase,
   ReviewConversation,
   ReviewMessage,
+  ReviewProgress,
   ReviewScore,
   RepositorySummary,
   WorkspaceSummary,
@@ -75,6 +76,70 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ case_id: caseId, repository_root: repositoryRoot }),
     }),
+
+  /**
+   * The same review, reported as it happens.
+   *
+   * One request, one review, no polling and no shared server state: the run's progress is
+   * a property of the request doing the work. `onProgress` sees every line; the resolved
+   * value is the composed review, and a `failed` line becomes a thrown `ApiError` so a
+   * caller cannot mistake a failure for a result.
+   */
+  streamReview: async (
+    caseId: string,
+    repositoryRoot: string,
+    onProgress: (event: ReviewProgress) => void,
+  ): Promise<BoundaryReview> => {
+    const response = await fetch("/api/reviews/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ case_id: caseId, repository_root: repositoryRoot }),
+    });
+    if (!response.ok || !response.body) {
+      // A failure before the stream opens is still a ProblemDetail, as on every route.
+      let detail: Partial<ProblemDetail> = {};
+      try {
+        detail = (await response.json()) as typeof detail;
+      } catch {
+        detail = { message: response.statusText };
+      }
+      throw new ApiError(
+        detail.message || "Arch Compass could not start the review.",
+        response.status,
+        detail.code,
+      );
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = "";
+    let review: BoundaryReview | null = null;
+    for (;;) {
+      const { value, done } = await reader.read();
+      pending += decoder.decode(value, { stream: !done });
+      const lines = pending.split("\n");
+      // The last piece may be half a line; it waits for the rest of its chunk.
+      pending = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line) as ReviewProgress;
+        onProgress(event);
+        if (event.event === "failed") {
+          throw new ApiError(event.problem.message, 200, event.problem.code);
+        }
+        if (event.event === "completed") review = event.review;
+      }
+      if (done) break;
+    }
+    if (!review) {
+      throw new ApiError(
+        "The review ended without producing a result.",
+        200,
+        "incomplete_stream",
+      );
+    }
+    return review;
+  },
 
   reviewConversations: (reviewId: string) =>
     request<ReviewConversation[]>(

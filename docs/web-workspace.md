@@ -53,10 +53,47 @@ rule remains in force.
 `/reviews` and `/cases` redirect to Home rather than 404, so bookmarks from the earlier
 noun-organised workspace still land somewhere sensible.
 
+## The run
+
 A review runs synchronously inside its request. It is one model call per boundary, so it
-takes minutes; there is no job queue and no progress stream, because re-running a review
+takes minutes; there is no job queue and no background worker, because re-running a review
 costs nothing that has to be reconciled — the atlas is already indexed and the result is
-immutable either way.
+immutable either way (master plan §18).
+
+The workspace still has to make that wait countable. Detection is deterministic and
+complete, so the moment it finishes the run has a known length, and the browser shows
+*judging boundary k of n* with the boundary under judgement named.
+
+**The mechanism: a streamed response.** `POST /api/reviews/stream` runs the same review as
+`POST /api/reviews` and answers with newline-delimited JSON — one `ReviewProgress` object
+per line: `detected` once, carrying the count and the boundary names in judgement order,
+then `judged` per boundary, then `completed` with the composed review or `failed` with a
+`ProblemDetail`.
+
+It was chosen over a progress side-channel because progress is a property of the request
+doing the work, and streaming is the only option that needs no second place to keep it. A
+poll-able progress endpoint would require server-side transient state for a run — a
+lifetime, an eviction rule, a key invented by the client — which is the beginning of the
+job queue §18 rules out, for a value that stops existing the moment the run ends. Nothing
+is shared here beyond a queue that lives as long as the request.
+
+The review still runs in the application service, which owns detection, judgement order and
+composition; the route only reports what the service reports through its `on_detected` and
+`on_verdict` callbacks. The CLI path is unchanged.
+
+Consequences worth stating plainly:
+
+- The run happens on a worker thread so the response can be written while it proceeds. That
+  is not background execution: the work is still this request's work, and nothing outlives
+  it.
+- Once a response has started, its status code can no longer say anything, so a failure
+  arrives as a `failed` line carrying the same `ProblemDetail` the non-streaming route would
+  have returned. The stream always ends in a verdict about itself.
+- Navigating away is safe. A review is persisted once, composed, at the end: leaving mid-run
+  means the run finishes or fails on its own and either a whole review exists afterwards or
+  none does — the same two outcomes as before.
+- `POST /api/reviews` stays as the plain contract for a client that wants one request and
+  one review with no lines to parse.
 
 The review page shows every boundary examined, cleared ones included, each with its
 reasoning, the policies that bear on it, and what the detection method could not see. A
