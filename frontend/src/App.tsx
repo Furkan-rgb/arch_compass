@@ -3,11 +3,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { Loading, Shell } from "./components";
 
-const CasesPage = lazy(() =>
-  import("./pages/CasesPage").then(({ CasesPage }) => ({ default: CasesPage })),
-);
-const DashboardPage = lazy(() =>
-  import("./pages/DashboardPage").then(({ DashboardPage }) => ({ default: DashboardPage })),
+const HomePage = lazy(() =>
+  import("./pages/HomePage").then(({ HomePage }) => ({ default: HomePage })),
 );
 const PoliciesPage = lazy(() =>
   import("./pages/PoliciesPage").then(({ PoliciesPage }) => ({ default: PoliciesPage })),
@@ -16,9 +13,6 @@ const RepositoriesPage = lazy(() =>
   import("./pages/RepositoriesPage").then(({ RepositoriesPage }) => ({
     default: RepositoriesPage,
   })),
-);
-const ReviewsPage = lazy(() =>
-  import("./pages/ReviewsPage").then(({ ReviewsPage }) => ({ default: ReviewsPage })),
 );
 const ReviewDetailPage = lazy(() =>
   import("./pages/ReviewDetailPage").then(({ ReviewDetailPage }) => ({
@@ -31,12 +25,16 @@ export function App() {
     <Shell>
       <Suspense fallback={<Loading label="Opening field notes…" />}>
         <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/cases" element={<CasesPage />} />
-          <Route path="/repositories" element={<RepositoriesPage />} />
-          <Route path="/reviews" element={<ReviewsPage />} />
+          <Route path="/" element={<HomePage />} />
           <Route path="/reviews/:reviewId" element={<ReviewDetailPage />} />
+          {/* The atlas explorer keeps its route and leaves the navigation: it is entered
+              from the repository picker, with a question attached, rather than standing
+              beside the flow as a map of its own (workspace-design §4). */}
+          <Route path="/repositories" element={<RepositoriesPage />} />
           <Route path="/policies" element={<PoliciesPage />} />
+          {/* Cases and the reviews list dissolved into Home. A bookmark must not 404. */}
+          <Route path="/cases" element={<Navigate to="/" replace />} />
+          <Route path="/reviews" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

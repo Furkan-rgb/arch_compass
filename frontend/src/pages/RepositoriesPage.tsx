@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Boxes, GitBranch, Network, Plus, SearchCode } from "lucide-react";
+import { ArrowLeft, Boxes, GitBranch, Network, Plus, SearchCode } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { api } from "../api";
 import {
@@ -8,6 +9,7 @@ import {
   type AtlasMetricView,
   type AtlasNodeView,
 } from "../atlas";
+import { latestPerRepository } from "../repositories";
 import type {
   AtlasExploreOperation,
   AtlasExploreRequest,
@@ -27,8 +29,11 @@ import {
 
 export function RepositoriesPage() {
   const queryClient = useQueryClient();
+  // Entered from the repository rail with a repository already in mind, so the atlas it
+  // names opens rather than whichever was indexed last.
+  const [params] = useSearchParams();
   const [rootPath, setRootPath] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(params.get("root"));
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [exploredResults, setExploredResults] = useState<AtlasQueryResult[]>([]);
   const [pathStartNodeId, setPathStartNodeId] = useState<string | null>(null);
@@ -36,11 +41,7 @@ export function RepositoriesPage() {
   const [pathEdgeIds, setPathEdgeIds] = useState<string[]>([]);
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const repositoryChoices = useMemo(
-    () =>
-      repositories.data?.filter(
-        (repository, index, all) =>
-          all.findIndex((item) => item.root_path === repository.root_path) === index,
-      ) || [],
+    () => latestPerRepository(repositories.data || []),
     [repositories.data],
   );
   const summary = useQuery({
@@ -262,6 +263,11 @@ export function RepositoriesPage() {
         eyebrow="Deterministic repository evidence"
         title="Repository atlases"
         description="Arch Compass parses Python without importing or modifying the analyzed project."
+        action={
+          <Link to="/" className="button button--secondary">
+            <ArrowLeft size={16} /> Back to the review flow
+          </Link>
+        }
       />
 
       <section className="path-bar">

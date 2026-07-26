@@ -3,6 +3,7 @@ import type {
   ArchitectureCaseUpdate,
   AtlasExploreRequest,
   AtlasQueryResult,
+  AtlasVersion,
   CaseRevision,
   CaseSummary,
   Policy,
@@ -122,8 +123,11 @@ export const api = {
       body: JSON.stringify(value),
     }),
   repositories: () => request<RepositorySummary[]>("/api/repositories"),
+  // Indexing answers with the atlas version it created, not a repository summary: the
+  // node and edge counts belong to the listing, and claiming them here would be a type
+  // that promises fields the response does not carry.
   indexRepository: (rootPath: string) =>
-    request<RepositorySummary>("/api/repositories/index", {
+    request<AtlasVersion>("/api/repositories/index", {
       method: "POST",
       body: JSON.stringify({ root_path: rootPath }),
     }),

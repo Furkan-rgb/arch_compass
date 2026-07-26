@@ -1,14 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  Archive,
   BookOpenText,
-  Boxes,
   Compass,
-  Gauge,
   Menu,
   Monitor,
   Moon,
-  ShieldCheck,
   Sun,
   X,
 } from "lucide-react";
@@ -103,11 +99,11 @@ export function useDialogFocus(onClose: () => void, active = true) {
 export function Shell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
+  // The navigation is the flow (master plan §6B): one entry for the flow itself, one for
+  // the standing library it reads. Repositories and cases are the start step's two rails,
+  // not destinations beside it.
   const navigation = [
-    { to: "/", label: "Overview", icon: Gauge, end: true },
-    { to: "/cases", label: "Cases", icon: Archive },
-    { to: "/repositories", label: "Repositories", icon: Boxes },
-    { to: "/reviews", label: "Reviews", icon: ShieldCheck },
+    { to: "/", label: "Home", icon: Compass, end: true },
     { to: "/policies", label: "Policies", icon: BookOpenText },
   ];
 

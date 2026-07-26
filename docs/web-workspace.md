@@ -14,15 +14,30 @@ origin. It has no authentication or remote-binding mode.
 
 ## Workflow
 
-The interface supports one flow: pick a repository to review and read the result.
+The navigation is the flow (master plan §6B). Primary navigation is two entries: **Home**,
+which is the flow, and **Policies**, the standing library it reads. Cases and repositories
+are not destinations; they are the two rails of Home's start step.
 
-A **bundled example** is the shortest path — each ships a written case and a repository to
-run it against, so a new workspace can produce a real review without a case being written
-first. Loading one indexes the repository and creates the case in a single step.
+**Home** starts a review and lists past ones. The start step presents two order-free rails
+— the repository to examine and the case to judge it against — converging on one Run
+button that enables when both are filled. A case that names an indexed repository fills the
+repository rail too; a case naming an unindexed path offers that path to the index field
+rather than selecting it, because indexing is an action with its own failure modes. A
+single indexed repository is pre-selected: the atlas is substrate (§9.2) and one candidate
+is not a choice. The case is never pre-selected however few exist, because it is the input
+that decides the answer.
+
+A **bundled example** fills both rails in one click — each ships a written case and a
+repository to run it against, so a new workspace can produce a real review without a case
+being written first. Loading one indexes the repository and creates the case in a single
+step, then leaves the run to the user.
 
 Repository paths are validated and indexed through the same application service the CLI
 uses, and every workspace/repository separation, symlink, traversal and atlas-freshness
 rule remains in force.
+
+`/reviews` and `/cases` redirect to Home rather than 404, so bookmarks from the earlier
+noun-organised workspace still land somewhere sensible.
 
 A review runs synchronously inside its request. It is one model call per boundary, so it
 takes minutes; there is no job queue and no progress stream, because re-running a review
@@ -35,10 +50,15 @@ box on the same page asks follow-up questions: the whole review goes to the mode
 each one, and the answer names the boundaries it rests on. An answer grounded on none of
 them is labelled rather than presented as something the review supports.
 
-The atlas graph is served separately under **Repositories** and reads the indexed atlas
-directly, so it needs no review to have been run.
-
 ## The atlas explorer
+
+The graph explorer keeps its route at `/repositories` and has left the navigation. It is
+entered from the repository rail — "explore this atlas", carrying the chosen root as
+`?root=` — so it opens on the repository the flow is pointed at rather than on whichever
+was indexed last. It will re-enter the flow properly as an evidence drill-down from a
+finding (workspace-design §4); until then it stays routed, tested and reachable rather than
+rotting unrouted. It reads the indexed atlas directly, so it needs no review to have been
+run.
 
 The interactive `RepositoryAtlas` renders from the latest freshness-checked summary,
 hotspot and node-inspection APIs. Selecting a node updates its metrics and relationship
