@@ -9,6 +9,7 @@ import {
   FlaskConical,
   MessageCircleQuestion,
   PencilLine,
+  Plus,
   TriangleAlert,
   X,
 } from "lucide-react";
@@ -19,7 +20,12 @@ import { api } from "../api";
 import { CaseReviser } from "../case-editor";
 import { ErrorPanel, Loading, formatDate, shortId } from "../components";
 import { applyProgress, type RunState } from "../run-progress";
-import type { CaseUpdate, ReviewScore, ReviewedBoundary } from "../types";
+import type {
+  CaseUpdate,
+  ReviewOverview,
+  ReviewScore,
+  ReviewedBoundary,
+} from "../types";
 
 /**
  * One boundary, as a block within a section rather than a card inside a card.
@@ -29,15 +35,95 @@ import type { CaseUpdate, ReviewScore, ReviewedBoundary } from "../types";
  * advisor looked, and demoting it would make the page identical whether every boundary was
  * examined and cleared or none ever was.
  */
+/**
+ * The boundaries a claim rests on, as links into the findings themselves.
+ *
+ * The single most useful move on this page: a reader who doubts a theme is one click from
+ * the verdicts it was built from. `:target` highlights the finding on arrival, so the jump
+ * is visible without any script deciding what "selected" means.
+ */
+function Citations({ references }: { references: string[] }) {
+  return (
+    <span className="cites">
+      {references.map((reference) => (
+        <a key={reference} className="cite" href={`#${reference}`}>
+          {reference}
+        </a>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * What the verdicts amount to, read as a set — the first thing on the page.
+ *
+ * Leads with the situation because a reader needs to know what this repository is being
+ * asked to do before any verdict means anything, and closes with the limits because a
+ * reader who has just been told what to do is exactly who needs to know what was not
+ * examined.
+ */
+function Overview({ overview }: { overview: ReviewOverview }) {
+  const themes = overview.themes || [];
+  const sequence = overview.recommended_sequence || [];
+  return (
+    <section className="overview" aria-label="What this review amounts to">
+      <h2 className="overview__title">What this amounts to</h2>
+      <p className="overview__lead">{overview.situation}</p>
+
+      {themes.length > 0 ? (
+        <div className="overview__group">
+          <h3>Across the boundaries</h3>
+          <ul className="overview__list">
+            {themes.map((statement) => (
+              <li key={statement.text}>
+                <span>{statement.text}</span>
+                <Citations references={statement.supporting_references || []} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {sequence.length > 0 ? (
+        <div className="overview__group">
+          <h3>Do this, in order</h3>
+          <ol className="overview__list overview__list--ordered">
+            {sequence.map((statement) => (
+              <li key={statement.text}>
+                <span>{statement.text}</span>
+                <Citations references={statement.supporting_references || []} />
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
+
+      {/* Kept even when there is nothing else: "no theme ran across these boundaries" is a
+          result, and a reader still has to know what the method could not see. */}
+      <p className="overview__limits">
+        <strong>What this review could not see.</strong> {overview.limits}
+      </p>
+    </section>
+  );
+}
+
 function Finding({ item, policyCount }: { item: ReviewedBoundary; policyCount: number }) {
   const bearings = item.policy_bearings || [];
   const abstraction = item.candidate.participants[0];
   const implementation = item.candidate.participants[1];
   return (
-    <article className={`finding finding--${item.material ? "material" : "cleared"}`}>
+    <article
+      id={item.reference}
+      className={`finding finding--${item.material ? "material" : "cleared"}`}
+    >
       <header className="finding__head">
         <code className="finding__ref">{item.reference}</code>
         <h3 className="finding__title">{abstraction?.qualified_name}</h3>
+        {/* The verdict in words, not only as a coloured rail: a reader scanning for "what
+            was the answer" should not have to learn a colour convention first. */}
+        <span className={`verdict verdict--${item.material ? "material" : "cleared"}`}>
+          {item.material ? "Should change" : "Earning its place"}
+        </span>
       </header>
 
       {implementation ? (
@@ -60,13 +146,15 @@ function Finding({ item, policyCount }: { item: ReviewedBoundary; policyCount: n
       ) : null}
 
       {bearings.length > 0 ? (
-        <details className="finding__policies">
-          {/* The denominator is named on purpose. Every policy was presented to every
-              boundary, so one that does not appear here was considered and found not to
-              apply — a different statement from never having been shown. */}
-          <summary>
-            {bearings.length} of {policyCount} policies apply
-          </summary>
+        // Open, not collapsed. The substantiation is the reason to believe the verdict, and
+        // a reader should not have to go looking for it. The denominator is named on
+        // purpose: every policy was presented to every boundary, so one that does not
+        // appear here was considered and found not to apply — a different statement from
+        // never having been shown.
+        <div className="finding__policies">
+          <p className="finding__policies-head">
+            {bearings.length} of {policyCount} policies bear on this boundary
+          </p>
           <ul>
             {bearings.map((bearing) => (
               <li key={bearing.policy_id}>
@@ -74,7 +162,7 @@ function Finding({ item, policyCount }: { item: ReviewedBoundary; policyCount: n
               </li>
             ))}
           </ul>
-        </details>
+        </div>
       ) : (
         <p className="finding__policies finding__policies--none">
           None of the {policyCount} policies presented bore on this boundary.
@@ -182,7 +270,18 @@ export function ReviewDetailPage() {
     pinnedCase.data?.snapshot?.repository?.root_path ||
     null;
 
-  const conversation = conversations.data?.[0];
+  /**
+   * Which thread is being read. Threads are durable and there may be many, so the newest is
+   * shown by default and the rest stay reachable. `"new"` means the next question starts a
+   * thread: an empty conversation is a record that then has to be explained in a listing, so
+   * one is created when there is finally something to put in it.
+   */
+  const threads = conversations.data || [];
+  const [threadId, setThreadId] = useState<string | "new" | null>(null);
+  const conversation =
+    threadId === "new"
+      ? undefined
+      : threads.find((item) => item.conversation_id === threadId) || threads[0];
   const messages = conversation?.messages || [];
 
   // The listing is newest first, so the review before this one in it is the newer one.
@@ -222,11 +321,13 @@ export function ReviewDetailPage() {
       if (!target.conversation_id) {
         throw new Error("The workspace returned a conversation without an identifier.");
       }
-      return api.askReviewQuestion(target.conversation_id, text);
+      return { message: await api.askReviewQuestion(target.conversation_id, text), target };
     },
-    onSuccess: async () => {
+    onSuccess: async ({ target }) => {
       setQuestion("");
       setOpen(true);
+      // A question asked into a new thread lands in that thread, not back in the newest.
+      setThreadId(target.conversation_id || null);
       await client.invalidateQueries({ queryKey: ["review-conversations", reviewId] });
     },
   });
@@ -255,11 +356,6 @@ export function ReviewDetailPage() {
           <strong>{material.length}</strong> material, <strong>{cleared.length}</strong>{" "}
           earning their place
         </p>
-        <p className="review-head__note">
-          <code>BR-001</code> and the rest are references ArchCompass assigns in detection
-          order. Cite one in a question and the answer cites it back.
-        </p>
-
         {/* What this review is pinned to. Already in the record; printed rather than
             implied, because "which case revision said so" is the first question a second
             reading asks. */}
@@ -337,12 +433,20 @@ export function ReviewDetailPage() {
         />
       ) : null}
 
+      <Overview overview={report.overview} />
+
       {score.data ? <Score score={score.data} /> : null}
+
+      <p className="boundaries-note">
+        Every boundary examined is below, cleared ones included. <code>BR-001</code> and the
+        rest are references ArchCompass assigns in detection order — the citations above lead
+        to them, and citing one in a question makes the answer cite it back.
+      </p>
 
       {material.length > 0 ? (
         <section className="group">
           <h2 className="group__title">
-            <TriangleAlert size={16} aria-hidden /> Judged material
+            <TriangleAlert size={16} aria-hidden /> Should change
             <span className="group__count">{material.length}</span>
           </h2>
           <p className="group__hint">
@@ -387,6 +491,45 @@ export function ReviewDetailPage() {
             {messages.length} {messages.length === 1 ? "question" : "questions"} asked
             <ChevronDown size={15} aria-hidden className="dock__chevron" />
           </button>
+        ) : null}
+
+        {/* Threads are durable, so they are worth returning to. Each is labelled by its
+            first question rather than by its title: every thread on one review would
+            otherwise carry the same generated name. */}
+        {threads.length > 0 || threadId === "new" ? (
+          <div className="dock__threads" role="group" aria-label="Question threads">
+            {/* Oldest first, though the listing arrives newest first: a thread should not
+                move along the row every time another one is started. The newest is still
+                what opens by default — that is the one you came back to. */}
+            {[...threads].reverse().map((thread) => (
+              <button
+                key={thread.conversation_id}
+                type="button"
+                aria-pressed={conversation?.conversation_id === thread.conversation_id}
+                className={
+                  conversation?.conversation_id === thread.conversation_id ? "is-active" : ""
+                }
+                onClick={() => {
+                  setThreadId(thread.conversation_id || null);
+                  setOpen(true);
+                }}
+                title={thread.messages?.[0]?.question || thread.title}
+              >
+                <span>{thread.messages?.[0]?.question || thread.title}</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              aria-pressed={threadId === "new"}
+              className={threadId === "new" ? "is-active" : ""}
+              onClick={() => {
+                setThreadId("new");
+                setOpen(false);
+              }}
+            >
+              <Plus size={13} aria-hidden /> New thread
+            </button>
+          </div>
         ) : null}
 
         {open && messages.length > 0 ? (

@@ -14,7 +14,7 @@ describe("RunProgress", () => {
 
   it("names the boundary under judgement and its position in the sequence", () => {
     render(
-      <RunProgress progress={{ total: 3, boundaries: BOUNDARIES, judged: 1 }} />,
+      <RunProgress progress={{ total: 3, boundaries: BOUNDARIES, judged: 1, summarising: false }} />,
     );
 
     // One verdict has landed, so the second boundary is the one being judged.
@@ -25,15 +25,15 @@ describe("RunProgress", () => {
 
   it("says the judging is over rather than counting past the end", () => {
     render(
-      <RunProgress progress={{ total: 3, boundaries: BOUNDARIES, judged: 3 }} />,
+      <RunProgress progress={{ total: 3, boundaries: BOUNDARIES, judged: 3, summarising: false }} />,
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent("All 3 boundaries judged");
+    expect(screen.getByRole("status")).toHaveTextContent("All 3 boundaries judged. Reading the verdicts");
     expect(screen.getByRole("status")).not.toHaveTextContent("4 of 3");
   });
 
   it("reports an empty sweep as a result rather than as a stalled run", () => {
-    render(<RunProgress progress={{ total: 0, boundaries: [], judged: 0 }} />);
+    render(<RunProgress progress={{ total: 0, boundaries: [], judged: 0, summarising: false }} />);
 
     expect(screen.getByRole("status")).toHaveTextContent("No boundaries to judge");
   });

@@ -116,37 +116,68 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             # the past-reviews card behind it — waiting for that would pass on the old DOM.
             page.wait_for_selector(".review-head", timeout=60_000)
 
-            # 4. Every boundary is on the page, cleared ones included. A report that
+            # 4. The page leads with what the verdicts amount to, and every claim in it
+            #    names the boundaries it rests on.
+            overview = page.locator(".overview")
+            assert overview.count() == 1
+            assert overview.locator(".overview__lead").inner_text().strip()
+            assert overview.locator(".overview__limits").inner_text().strip()
+            citations = overview.locator(".cite")
+            assert citations.count() >= 1, overview.inner_text()
+
+            # 5. A citation is a link into the evidence: clicking one lands on that
+            #    boundary, which is the whole reason the overview is allowed to generalise.
+            cited = citations.first.inner_text().strip()
+            citations.first.click()
+            page.wait_for_selector(f"#{cited}:target", timeout=10_000)
+
+            # 6. Every boundary is on the page, cleared ones included. A report that
             #    listed only problems would look identical whether the advisor examined
             #    six boundaries or none.
             references = page.locator(".finding__ref")
             assert references.count() == 6, page.content()[:2000]
             assert page.locator(".finding").count() == 6
+            # The verdict is a word, not only a colour.
+            assert page.locator(".verdict").count() == 6
 
-            # 5. Detection limits are stated on each boundary, not once in a footer.
+            # 7. Detection limits are stated on each boundary, not once in a footer.
             assert page.locator(".finding__limits").count() == 6
 
-            # 6. The example ships answers, so the run is graded rather than only read.
+            # 8. The example ships answers, so the run is graded rather than only read.
             #    Six rows, every one accounted for — a page that silently scored fewer
             #    would read as a complete result while measuring less than it claims.
             page.wait_for_selector(".scorebar", timeout=20_000)
             assert page.locator(".scorebar__rows li").count() == 6
             assert "Not scored" not in page.content()
 
-            # 7. A follow-up question is answered and its grounding shown.
+            # 9. A follow-up question is answered and its grounding shown.
             page.get_by_label("Question about this review").fill(
                 "Why was the TaskFormatter boundary judged the way it was?"
             )
-            page.get_by_role("button", name="Ask").click()
+            page.get_by_role("button", name="Ask", exact=True).click()
             page.wait_for_selector(".dock__a", timeout=60_000)
             grounding = page.locator(".dock__grounding").first.inner_text()
             assert "BR-" in grounding, grounding
 
-            # 8. The review is listed on the front door and reopens from there.
+            # 10. Threads are durable and plural: a second one is kept apart from the
+            #     first, and both stay reachable.
+            page.get_by_role("button", name="New thread").click()
+            page.get_by_label("Question about this review").fill("What should I do first?")
+            page.get_by_role("button", name="Ask", exact=True).click()
+            page.wait_for_selector(".dock__a", timeout=60_000)
+            threads = page.locator(".dock__threads button")
+            # Two threads plus the "new thread" control.
+            assert threads.count() == 3, threads.all_inner_texts()
+            assert page.locator(".dock__history li").count() == 1
+            page.locator(".dock__threads button").first.click()
+            page.wait_for_selector(".dock__history li", timeout=10_000)
+            assert "TaskFormatter" in page.locator(".dock__history").inner_text()
+
+            # 11. The review is listed on the front door and reopens from there.
             page.goto(workspace_url, wait_until="networkidle")
             page.wait_for_selector("text=boundaries examined", timeout=20_000)
 
-            # 9. The atlas explorer is no longer a navigation peer: it is entered from the
+            # 12. The atlas explorer is no longer a navigation peer: it is entered from the
             #    repository rail, on the repository the flow is pointed at.
             assert page.get_by_role("link", name="Policies").count() == 1
             assert page.get_by_role("link", name="Repositories").count() == 0
@@ -154,7 +185,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.wait_for_url("**/repositories?root=*", timeout=20_000)
             page.wait_for_selector("text=boundary-review", timeout=20_000)
 
-            # 10. Old paths do not 404; they land on the flow.
+            # 13. Old paths do not 404; they land on the flow.
             for stale in ("/reviews", "/cases"):
                 page.goto(f"{workspace_url}{stale}", wait_until="networkidle")
                 page.wait_for_selector("text=Start a review", timeout=20_000)
