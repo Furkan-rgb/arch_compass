@@ -105,6 +105,46 @@ four modules, with a copy that has already drifted out of step. Nothing scores t
 it is *repetition without ownership* (master plan §8A.3), the half of the detector catalogue
 that is not built — and it is there so the fixture is ready the day it is.
 
+### Keeping stock in step with the warehouse — `warehouse-sync`
+
+*Did the advisor notice what the case does not say?* This example grades elicitation
+(master plan §6C) rather than verdicts, and it is the only one whose case is deliberately
+incomplete. It is detailed about how the service is bound and silent about exactly one
+thing — whether a second warehouse is coming. Two of its five boundaries turn on that
+silence, and the answer moves them in *opposite* directions: a second warehouse justifies
+the feed port and condemns the vendor name that leaked into the operator's digest. The
+other three are decidable from what the case already states.
+
+A run that hinges all five has learned to hedge and tells a reader nothing about where to
+look. A run that hinges none has spent the silence without noticing it. Both are failures,
+and separating them from an advisor is what this example is for.
+
+It grades through `elicitation.yaml`, not `expected.yaml`, and ships no verdict key at all.
+Two of its verdicts are contingent by construction, so a scored answer for them would settle
+in a key the exact question the case refuses to settle. What can be graded without doing
+that is where the silence was noticed, plus one count: the two hinged boundaries rest on one
+fact, so a run that consolidates asks once.
+
+`tests/integration/test_elicitation_loop.py` holds the offline half — that the questions
+reach the report grounded and numbered, that they render, and that answering one produces a
+second review with nothing left open. It also asserts the fixture's own premise, so an
+example edited to read better cannot quietly stop measuring anything.
+
+Recorded so a later change has something to beat, on `gemma4:26b`, one run per
+configuration:
+
+| judge prompt | hinged | correct | asked (1 is right) |
+| --- | --- | --- | --- |
+| v8 | 5 of 5 | 2/5 | 5 |
+| v9 | 4 of 5 | 3/5 | 3 |
+
+v9 named two ways a stage hedges after it has read the case. One landed: hinging on whether
+a *stated* constraint is permanent stopped. The other did not — both duplicated-constant
+boundaries still hand back "are these one fact or two", which is the question the stage
+exists to answer. Read these as one run each and not as a measurement of the difference:
+the direction matches what v9 targeted, but nothing here separates a real gain from
+run-to-run variance.
+
 These are architectural-quality benchmarks only when a real reasoning model's output is
 assessed against them. Running the deterministic double over the same fixtures is an integrity
 test and nothing more. Automated structural assertions such as valid citations are necessary,
