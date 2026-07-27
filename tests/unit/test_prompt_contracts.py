@@ -30,7 +30,7 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
     """The enum and the registry must not drift; a gap surfaces as a runtime KeyError."""
 
     expected_versions = {
-        ReasoningTask.JUDGE_FINDING_CANDIDATE: 8,
+        ReasoningTask.JUDGE_FINDING_CANDIDATE: 9,
         ReasoningTask.SUMMARISE_REVIEW: 5,
         ReasoningTask.ANSWER_REVIEW_QUESTION: 4,
     }
@@ -238,3 +238,21 @@ def test_the_judgement_contract_makes_the_stage_read_the_case_before_asking() ->
     assert "the case answered you" in contract
     assert "a partial answer in the case is still an answer" in contract
     assert "a hinge on every boundary is the same as a hinge on none" in contract
+
+
+def test_the_judgement_contract_names_the_two_ways_a_stage_hedges() -> None:
+    """Both measured on `warehouse-sync`, which hinged 5 of 5 where 2 was right.
+
+    They are the failures that survive the "go and look" check of v8: the stage reads the
+    case, finds the fact, and hinges on whether it will *stay* true — which can be asked of
+    every fact in every case and separates nothing — or hinges on the very question it was
+    asked to decide, which the reader cannot answer because it was never theirs.
+    """
+
+    contract = _normalized(JUDGE_FINDING_CANDIDATE.stage_contract)
+
+    assert "look like diligence here and are refusals to decide" in contract
+    assert "whether a stated fact will stay true" in contract
+    assert "judge the case as it stands" in contract
+    assert "the question you were asked" in contract
+    assert "it is the verdict left unmade" in contract

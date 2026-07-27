@@ -93,7 +93,14 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
     # a second speech vendor is actually being introduced" and the case says in as many
     # words that one is under contract. Saying what a hinge is for was not enough; the check
     # against the case is now a step with a stated order and a named failure.
-    version=8,
+    #
+    # v9 names the two ways a stage still hedges after it has looked, both measured on
+    # `warehouse-sync`, which hinged 5 of 5 where 2 was right. It hinged on whether a
+    # constraint the case *states* is permanent — every stated fact can be revised, so
+    # durability makes everything contingent and distinguishes nothing — and it hinged on
+    # whether two constants are one fact, which is the question this stage exists to answer.
+    # Both look like diligence and are refusals to decide.
+    version=9,
     stage_contract=_text(
         """
         A structural detector found one pattern in this repository and reported what it
@@ -172,6 +179,20 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
         coming and does not say when, the change is coming; if it rules something out as a
         non-goal, it is ruled out. Do not hinge on the detail the case left off when the
         part it did state is what your verdict turned on.
+
+        Two things look like diligence here and are refusals to decide. Neither is a hinge.
+
+        **Whether a stated fact will stay true.** "Is that constraint permanent", "might
+        that non-goal be revisited", "could that plan change" — every fact in every case
+        could be revised, so this can be asked of all of them and separates nothing. Judge
+        the case as it stands. When a decision would be worth revisiting, that belongs in
+        your rationale, not in a question to the reader.
+
+        **The question you were asked.** Whether two constants are one fact or two, whether
+        an indirection hides anything, whether a module had to know a vendor's name — those
+        are this stage's work, and the evidence for them is in front of you. Handing one
+        back as an unknown is not caution; it is the verdict left unmade, and the reader
+        cannot answer it because it was never theirs to answer.
 
         A hinge on every boundary is the same as a hinge on none. It reads as a stage
         hedging every answer it gives, and a reader who is told six verdicts are provisional
