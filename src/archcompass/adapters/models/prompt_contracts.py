@@ -79,7 +79,14 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
     # and discarded: a verdict reached on an assumption recorded the verdict and not the
     # assumption. Naming it is what lets the overview ask for the case instead of the case
     # having to be complete before the first review.
-    version=6,
+    #
+    # v7 says what to do when the unknown will not come. At v6 a live `gemma4:26b` run set
+    # dependence to turns_on_this_unknown and left the three fields blank — twice, through
+    # the repair round — which the adapter then treated as fatal and lost three correct
+    # verdicts to. The adapter now drops such a hinge rather than raising, and this says
+    # plainly that a hinge you cannot name is the other answer rather than a form to leave
+    # half-filled.
+    version=7,
     stage_contract=_text(
         """
         A structural detector found one pattern in this repository and reported what it
@@ -175,6 +182,12 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
         the verdict does not actually move and dependence is stands_either_way; leave the
         three fields as they are, since what you wrote is still the honest record of what
         you considered. Only where the two genuinely differ is this turns_on_this_unknown.
+
+        If you cannot name the unknown, or cannot say what the verdict would be under each
+        answer, then the answer is stands_either_way. turns_on_this_unknown with those
+        fields left empty is not a weaker version of a hinge — it tells the reader their
+        verdict rests on something and never tells them what, which helps nobody. Say
+        nothing was open rather than that something was, unnamed.
 
         The unknown must be something the reader can settle from what they know about their
         own project — whether a second vendor is coming, whether that format is fixed by a

@@ -138,46 +138,35 @@ def _hinge(proposed: ProposedVerdictHinge) -> VerdictHinge | None:
     One line of translation, like `material` beside it: the model says which of two things
     is true, and the domain carries `None` for the ordinary one. Nothing downstream reads a
     word, and nothing upstream infers a fact from a blank field.
+
+    A hinge that declares itself and then says nothing is dropped rather than recorded or
+    raised. The schema cannot prevent it — the three prose fields must stay optional for a
+    verdict that stands either way, so nothing in the grammar stops a reply setting the word
+    and leaving them blank, and a live run against `gemma4:26b` did exactly that on the
+    fourth of eight boundaries.
+
+    Dropping is the same treatment a policy bearing asserted without saying how already
+    receives, and for the same reason: an unexplained flag is not a claim a reader can
+    check. Failing instead was worse than either honest answer. It discarded three correct
+    verdicts that had each cost a model call, over an optional field, on a boundary whose
+    rationale, bearings and verdict were all sound — and it did so at the one point in the
+    reply where nothing binds by position, so nothing could be silently re-attributed. Arity
+    still fails loudly, because a short list of bearings shifts every later answer onto the
+    wrong policy; a blank hinge shifts nothing.
     """
 
     if proposed.dependence != "turns_on_this_unknown":
         return None
+    unknown = proposed.unknown.strip()
+    if_confirmed = proposed.if_confirmed.strip()
+    if_denied = proposed.if_denied.strip()
+    if not (unknown and if_confirmed and if_denied):
+        return None
     return VerdictHinge(
-        unknown=proposed.unknown.strip(),
-        if_confirmed=proposed.if_confirmed.strip(),
-        if_denied=proposed.if_denied.strip(),
+        unknown=unknown,
+        if_confirmed=if_confirmed,
+        if_denied=if_denied,
     )
-
-
-def _hinge_defects(proposed: ProposedVerdictHinge) -> list[str]:
-    """A hinge that says it exists must say what it is.
-
-    The schema cannot express this: the three prose fields have to be optional for a verdict
-    that stands either way, so nothing in the grammar stops a reply declaring a hinge and
-    leaving it blank. That would reach the report as a boundary marked contingent on
-    nothing, which is worse than either honest answer — a reader is told the verdict rests
-    on an unknown and never told which.
-    """
-
-    if proposed.dependence != "turns_on_this_unknown":
-        return []
-    missing = [
-        name
-        for name, value in (
-            ("unknown", proposed.unknown),
-            ("if_confirmed", proposed.if_confirmed),
-            ("if_denied", proposed.if_denied),
-        )
-        if not value.strip()
-    ]
-    if not missing:
-        return []
-    return [
-        "hinge.dependence is turns_on_this_unknown, so "
-        + ", ".join(missing)
-        + " must be filled in: name what the case does not say and give the verdict under "
-        "each answer. Use stands_either_way if the verdict does not actually move."
-    ]
 
 
 def _prose_defects(field: str, value: str) -> list[str]:
@@ -630,17 +619,14 @@ class StructuredReasoningProvider:
             # The schema fixes the arity and the repair round exists for the model that
             # ignores it. Position is the only thing tying a bearing to a policy, so a
             # short list would silently re-map every entry after the gap.
-            candidate_validator=lambda item: [
-                *(
-                    []
-                    if len(item.policy_bearings) == expected
-                    else [
-                        f"policy_bearings must contain exactly {expected} entries, one per "
-                        f"supplied policy in order, but contains {len(item.policy_bearings)}"
-                    ]
-                ),
-                *_hinge_defects(item.hinge),
-            ],
+            candidate_validator=lambda item: (
+                []
+                if len(item.policy_bearings) == expected
+                else [
+                    f"policy_bearings must contain exactly {expected} entries, one per "
+                    f"supplied policy in order, but contains {len(item.policy_bearings)}"
+                ]
+            ),
         )
         bearings = [
             PolicyBearing(policy_id=policy.id, policy_title=policy.title, how=item.how.strip())

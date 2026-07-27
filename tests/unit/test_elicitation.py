@@ -170,32 +170,83 @@ def test_standing_either_way_is_recorded_as_no_hinge() -> None:
     assert verdict.hinge is None
 
 
-def test_a_hinge_claiming_to_exist_must_say_what_it_is() -> None:
-    """The schema cannot express this, so the check runs after parsing.
+def test_a_hinge_claiming_to_exist_without_saying_what_it_is_is_dropped() -> None:
+    """The schema cannot prevent it, so the reply is read rather than refused.
 
-    The three prose fields have to be optional for a verdict that stands either way, so
-    nothing in the grammar stops a reply declaring a hinge and leaving it blank. That would
-    reach the report as a boundary marked contingent on nothing.
+    The three prose fields must stay optional for a verdict that stands either way, so
+    nothing in the grammar stops a reply setting the word and leaving them blank. A live
+    `gemma4:26b` run did exactly that. Recording it would tell a reader their verdict rests
+    on something and never say what.
     """
 
-    provider, transport = _provider(
-        _verdict_reply({"dependence": "turns_on_this_unknown", "unknown": "   "}),
-        _verdict_reply(TURNS_ON),
+    provider, _ = _provider(
+        _verdict_reply({"dependence": "turns_on_this_unknown", "unknown": "   "})
     )
 
     verdict = provider.judge_finding_candidate(_case(), _candidate(), POLICIES)
 
-    assert verdict.hinge is not None
-    repair = cast(list[ChatMessage], transport.requests[1]["messages"])[-1]["content"]
-    assert "if_confirmed" in repair
-    assert "stands_either_way" in repair
+    assert verdict.hinge is None
+    # The rest of the reply is untouched: the argument and the verdict were never in doubt.
+    assert verdict.rationale == "Argued from the case."
+    assert verdict.material is False
 
 
-def test_a_hinge_that_stays_empty_fails_rather_than_reaching_a_report() -> None:
-    blank = _verdict_reply({"dependence": "turns_on_this_unknown", "unknown": ""})
-    provider, _ = _provider(blank, blank)
+def test_a_partial_hinge_is_dropped_rather_than_half_recorded() -> None:
+    """A hinge without both branches cannot say which way the verdict moves."""
 
-    with pytest.raises(ModelOutputValidationError, match="turns_on_this_unknown"):
+    provider, _ = _provider(
+        _verdict_reply(
+            {
+                "dependence": "turns_on_this_unknown",
+                "unknown": "The case does not say whether a second vendor is contracted.",
+                "if_confirmed": "The boundary should stay.",
+                "if_denied": "",
+            }
+        )
+    )
+
+    assert provider.judge_finding_candidate(_case(), _candidate(), POLICIES).hinge is None
+
+
+def test_a_blank_hinge_costs_no_repair_round_and_no_review() -> None:
+    """Dropping rather than raising, and the reasoning for the difference.
+
+    A blank hinge binds nothing — it is the one part of this reply where no position
+    attributes anything — so a bad one shifts no other answer onto the wrong thing. Failing
+    would discard a whole review's worth of correct verdicts, each already paid for, over
+    an optional field. Arity is the opposite case and still fails loudly, which the test
+    below this one holds.
+    """
+
+    provider, transport = _provider(
+        _verdict_reply({"dependence": "turns_on_this_unknown", "unknown": ""})
+    )
+
+    provider.judge_finding_candidate(_case(), _candidate(), POLICIES)
+
+    assert len(transport.requests) == 1
+
+
+def test_a_short_list_of_bearings_still_fails_loudly() -> None:
+    """The contrast that makes dropping a hinge safe rather than lax.
+
+    Nothing in a bearing says which policy it answers, so a list one entry short does not
+    lose one answer — it shifts every later answer onto the wrong policy and still parses.
+    That is a mis-binding, and it is refused after the one sanctioned repair round.
+    """
+
+    short = json.dumps(
+        {
+            "rationale": "Argued from the case.",
+            "policy_bearings": [],
+            "hinge": {"dependence": "stands_either_way"},
+            "verdict": "leave_as_is",
+            "recommended_response": "",
+        }
+    )
+    provider, _ = _provider(short, short)
+
+    with pytest.raises(ModelOutputValidationError, match="policy_bearings"):
         provider.judge_finding_candidate(_case(), _candidate(), POLICIES)
 
 

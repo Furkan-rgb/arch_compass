@@ -30,7 +30,7 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
     """The enum and the registry must not drift; a gap surfaces as a runtime KeyError."""
 
     expected_versions = {
-        ReasoningTask.JUDGE_FINDING_CANDIDATE: 6,
+        ReasoningTask.JUDGE_FINDING_CANDIDATE: 7,
         ReasoningTask.SUMMARISE_REVIEW: 5,
         ReasoningTask.ANSWER_REVIEW_QUESTION: 4,
     }
@@ -190,3 +190,30 @@ def test_the_substitute_names_the_same_prompts_as_the_real_registry() -> None:
 
     for task in ReasoningTask:
         assert substitute.prompt_identity(task)
+
+
+def test_the_judgement_request_makes_an_unnameable_hinge_the_other_answer() -> None:
+    """A half-filled hinge is not a weaker hinge, and the contract has to say so.
+
+    A live `gemma4:26b` run set `turns_on_this_unknown` and left the three fields blank,
+    twice, through the repair round. The adapter drops such a hinge rather than raising;
+    this is the half of the fix that stops it being produced.
+    """
+
+    request = _normalized(JUDGE_FINDING_CANDIDATE.request)
+
+    assert "if you cannot name the unknown" in request
+    assert "then the answer is stands_either_way" in request
+    assert "say nothing was open rather than that something was, unnamed" in request
+
+
+def test_the_judgement_request_keeps_the_hinge_inside_the_argument() -> None:
+    """Field order is the reasoning order, and a hinge is part of what the verdict rests on."""
+
+    request = _normalized(JUDGE_FINDING_CANDIDATE.request)
+
+    assert request.index("first, in rationale") < request.index("then fill in hinge")
+    assert request.index("then fill in hinge") < request.index("only then set verdict")
+    # The unknown must be the reader's to settle, not the repository's or nobody's.
+    assert "whether requirements might change" in request
+    assert "asking them to do the detector's job" in request
