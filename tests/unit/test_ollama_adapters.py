@@ -121,7 +121,7 @@ def test_a_reasoning_request_carries_the_narrowed_schema(
     assert schema["properties"]["policy_bearings"]["maxItems"] == 3
     # Field order is the reasoning order, and the wire schema has to preserve it.
     assert list(schema["properties"]).index("rationale") < list(schema["properties"]).index(
-        "material"
+        "verdict"
     )
 
 

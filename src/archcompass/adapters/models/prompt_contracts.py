@@ -67,7 +67,13 @@ class PromptContract:
 
 JUDGE_FINDING_CANDIDATE: Final = PromptContract(
     name="judge-finding-candidate",
-    version=4,
+    # v5 replaces the `material` flag with a word. At v4 the reply carried a bare boolean
+    # whose name, read as ordinary English, asks whether the boundary matters — the opposite
+    # of the verdict it recorded. Three live runs answered "yes, it is justified" and were
+    # read as "yes, there is a problem", one of them writing "Retain the abstraction" into
+    # the field that exists only to say what to do about a problem. The wording below states
+    # the polarity where the choice is made, which the schema now also does.
+    version=5,
     stage_contract=_text(
         """
         A structural detector found one pattern in this repository and reported what it
@@ -138,10 +144,20 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
         bear on this candidate at all. Never write a policy's name, number or identifier in
         any text field — position is what identifies a policy here.
 
-        Only then set material, and set it to whatever the argument you just made supports —
-        including when that is not the answer you expected when you started. Supply
-        recommended_response only when material is true, and leave it empty otherwise: a
-        verdict that something is fine has no next action.
+        Only then set verdict, and set it to whatever the argument you just made supports —
+        including when that is not the answer you expected when you started. Write
+        should_change when that argument concluded the pattern is a problem in this case,
+        and leave_as_is when it concluded the shape is earning what it costs here.
+
+        Read your own rationale back before you choose. A verdict that contradicts the
+        argument above it is worse than either answer on its own: the report, the summary
+        and every later question are answered from the verdict, and nobody re-reads the
+        argument to notice they disagree.
+
+        Supply recommended_response only with should_change, and leave it empty otherwise.
+        "Retain this", "the current abstraction is appropriate" and anything else that says
+        to keep the shape as it is are not responses — they are the other verdict, written
+        into the wrong field.
         """
     ),
 )
@@ -153,7 +169,15 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
     # their page, the detector's own measurements, and which of the three patterns each
     # boundary is. Before it, a question about the recommended sequence — the most prominent
     # thing on the page — was answered from a review that had never been shown it.
-    version=3,
+    #
+    # v4 says what to do with it. Showing the conclusion turned out to be enough to make it
+    # the answer: a live conversation asked three times why one boundary was condemned and
+    # got the conclusion's own sentence back, reworded and lengthened each turn, once
+    # attributed out loud to "the review's conclusion" while citing a boundary whose record
+    # was never opened. v3 governed what to cite and said nothing about what to read. The
+    # conclusion is now named as an index and carries the positions it was built from, and
+    # this contract says a restatement of the verdict is not an answer to "why".
+    version=4,
     stage_contract=_text(
         """
         You are answering a question about a boundary review you have been shown in full.
@@ -164,11 +188,26 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
 
         You are shown the review's own `conclusion` as well — the situation, the themes, the
         recommended sequence and the limits. That is what the reader has at the top of their
-        page, so a question about it is a question about something you can see. It was
-        composed from these same verdicts and adds no fact about the repository: where it
-        seems to say more than the boundaries do, the boundaries are what happened. Cite
-        boundaries, never the conclusion, and if it reads as though it overstates a verdict,
-        say so plainly rather than defending it.
+        page, so a question about it is a question about something you can see.
+
+        It is an index, not a source. It was composed from these same verdicts and adds no
+        fact about the repository, so every theme and every numbered recommendation carries
+        the positions of the boundaries it was built from — and a question about one of them
+        is a question about those boundaries: go to them and answer from what is recorded
+        there — the shape that was detected, what it measured, the reasoning, the recommended
+        response, the policies that bore on it. Never write that something is so according to
+        the conclusion. It is a summary of material you hold in full, and quoting it back is
+        how a question about a boundary gets answered without the boundary ever being read.
+
+        Where the conclusion seems to say more than the boundaries do, the boundaries are
+        what happened. Cite boundaries, never the conclusion, and if it reads as though it
+        overstates a verdict, say so plainly rather than defending it.
+
+        A boundary's reasoning and its verdict can disagree — the verdict saying the shape
+        should change while the reasoning argues it is earning its place, or the reverse. If
+        they do, say so and give both. That contradiction is the answer to the question, and
+        settling it silently in favour of either side hides the one thing the reader most
+        needs to know.
 
         You are also given background: ArchCompass's own description of its method, and the
         whole policy corpus. Both are supplied entire rather than selected, so a policy you
@@ -203,6 +242,14 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
         Answer the question in the answer field, in prose, addressed to the person who
         asked. Be specific about which boundary you mean by naming the abstraction, not by
         writing a reference code.
+
+        Where the question is about one boundary or one recommendation, give what the review
+        holds about it: which shape the detector found and what it measured, what the case
+        required, what the reasoning turned on, and what response was recommended. Restating
+        the verdict is not an answer to "why" — "it was judged not to be earning its place"
+        hands the question back as a label. Where the record does not settle what was asked,
+        say what is missing from it rather than closing the gap with a general principle
+        about abstractions.
 
         Then, in supported_by, return exactly one true-or-false value for each boundary in
         the order the boundaries were supplied. Mark true only for a boundary your answer

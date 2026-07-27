@@ -37,6 +37,11 @@ Changes to this document should be explicit and reviewed as architectural decisi
 > even though `6` and `8` no longer exist, because code, tests and other documents cite
 > them by those numbers.
 
+> **Revision note (2026-07-27).** This revision adds §6C — elicitation, the review asking
+> for the case — re-orders §17 around the two moments where architecture advice changes an
+> action, and brings §15–§16 up to the delivered detector catalogue. ADR 0009 records the
+> change.
+
 ---
 
 # 2. Product Vision
@@ -264,7 +269,9 @@ produced, and is written at the same moment as the rest of the record. It states
 situation, the themes that run across boundaries, a recommended sequence and what the
 review could not see. It has no verdict field of its own, and every theme and step names
 the boundaries it rests on by position, so it can say what a set of verdicts means without
-being able to overrule any of them (ADR 0007).
+being able to overrule any of them (ADR 0007). The overview also carries the review's
+**open questions** — the unknowns its verdicts turned on, consolidated across boundaries
+and bound to them by position (§6C).
 
 Both outcomes are stored. A boundary the advisor cleared is the record that it looked —
 a report listing only problems reads the same whether every boundary was examined and
@@ -325,8 +332,9 @@ not ranked, no model involved                     │
                            ▼
         Overview — one model call over all of them:       [model]
         what the verdicts amount to as a set · themes ·
-        sequence · limits, each claim bound to the
-        boundaries it rests on, by position
+        sequence · limits · open questions (§6C), each
+        claim bound to the boundaries it rests on, by
+        position
                            │
                            ▼
         Compose and persist the BoundaryReview            [application]
@@ -386,7 +394,8 @@ A `BoundaryReviewReport`: the case title, problem and desired outcome; the polic
 presented; every boundary examined, each with its BR-nnn reference, the abstraction and
 its sole implementation located in source, the verdict and its reasoning, a recommended
 response only when material, the policies that bear on it and how, and what the detection
-method could not see; and the overview of what all of it amounts to.
+method could not see; and the overview of what all of it amounts to, with the open
+questions whose answers would settle its hinges (§6C).
 
 It contains no alternatives, no scenario analysis, no ADR and no implementation
 sequence. A review judges boundaries that already exist; it does not weigh competing
@@ -419,6 +428,130 @@ Four commitments follow, argued in full in `docs/workspace-design.md`:
 
 `docs/workspace-design.md` is the direction for this surface; `docs/web-workspace.md`
 describes the current implementation and follows it milestone by milestone.
+
+---
+
+# 6C. Elicitation — The Review Asks for the Case
+
+## 6C.1 The problem it solves
+
+The case is the product's differentiator and its adoption tax, and both for the same
+reason: judgement is conditioned on stated intent. A run against *"SMS ships next
+release"* and one against *"feature freeze"* reach opposite verdicts on identical code —
+which is the point — but it also means the quality of every verdict is bounded by a
+document the user must author before seeing any value. Nobody writes
+`expected_future_changes` YAML to evaluate a tool. The effort precedes the value, and
+tools shaped that way do not get adopted.
+
+The discipline that fixes it is already the house style. Every stage reports what it
+could not see; elicitation makes that report actionable. A review may run against a thin
+case. Instead of pretending the thin case settled anything, each verdict states the
+circumstance it turned on, and the review hands back the questions whose answers would
+settle them. Each answer becomes an ordinary case revision, and the case **accretes from
+use** instead of being authored up front. The cold-start problem becomes the onboarding
+mechanic.
+
+A verdict against a thin case is not a worse verdict dressed as a better one. It is a
+verdict that names its hinge — and a review that says *"BR-004 turns on whether a second
+vendor is actually coming"* is more honest than one that guessed silently, whatever the
+case contained.
+
+## 6C.2 Two contract extensions, no new stages
+
+Elicitation adds no model call and no pipeline stage. It extends the response contracts
+of two calls §6A already makes.
+
+**Judgement states its hinge.** The per-candidate judgement response gains a field
+between the rationale and the verdict — reasoning-first ordering (§12.0) is preserved
+because a hinge is part of the argument, and an argument states what it rests on before
+the conclusion that rests on it. A hinge is the circumstance the verdict *assumed
+because the case did not state it*: what is unknown, and which way the verdict moves
+under each answer. A verdict that stands whichever way the unknown falls carries no
+hinge, and "no hinge" is stated explicitly rather than inferred from absence. This lives
+in judgement because judgement is the only stage that knows what it lacked about this
+boundary: the candidate says what detection could not see, the hinge says what the case
+did not say.
+
+**The overview consolidates hinges into questions.** The overview call already reads the
+whole set and already owes the reader "what the review could not see"; elicitation gives
+that debt a payable form. Its response gains a list of open questions. Consolidation is
+why this is set-level work: four boundaries turning on whether a second vendor is coming
+are one question, not four — asked four times it is noise, asked once with four
+boundaries cited it is the most important sentence in the report.
+
+Each question carries, in this order:
+
+1. **The unknown** — the circumstance the case does not state.
+2. **Why it matters** — which boundaries turn on it, cited by position, and which way
+   each verdict moves under each answer.
+3. **The question itself**, phrased so the user can answer it from knowledge they have.
+   A question the user cannot settle — *"will requirements change?"* — is not a
+   question; it is the model returning its own uncertainty to sender.
+4. **Where the answer belongs** — one of the case's own fields, chosen from a closed
+   enum: `expected_future_changes`, `confirmed_facts`, `constraints`, `non_goals`,
+   `assumptions`. The model picks a slot from a bounded set; it never names a field
+   freely.
+
+## 6C.3 Binding discipline
+
+§12.0 applies unchanged, and elicitation introduces no new kind of key.
+
+- Boundaries are cited by position in the presented set, exactly as the overview's
+  themes and the conversation's answers already are. A question citing no boundary is
+  discarded rather than recorded as unsupported prose; a citation to an unknown position
+  fails validation, with the standard single repair round behind it (§12.1).
+- The target case field is an enum in the response schema, never free text.
+- Question identity (`Q-n`) is assigned by the application in presentation order, after
+  validation. No model-written identifier exists to leak.
+
+## 6C.4 The answer path
+
+Questions are advisor output, so they live in the review — immutable, pinned to the case
+revision, atlas version and policy set like every other conclusion (§5.5). They are
+never written into the case.
+
+An answer is a **user-authored case revision** through the loop that already exists:
+revise the case, review again. Rails independence (§6A) already supplies the economics —
+a case revision invalidates only judgement, so answering re-runs the model calls over
+unchanged candidates and nothing is re-parsed.
+
+The workspace renders each question beside the boundaries it cites, with an answer box;
+submitting composes a case revision that is shown to the user before it is saved.
+Pre-filling from the question is allowed; saving without the user seeing what enters
+their case is not. The CLI exposes the same two halves — print a review's questions,
+apply an answer as a case update — and both rails stay completable in the browser (§6B).
+
+The rule that keeps invariant 23 intact under all of this:
+
+> **The advisor supplies the question. The user supplies the answer. Only the answer
+> enters the case, and only as a revision the user has seen.**
+
+A revision may record which review and question it answers. That is provenance, not
+write-back: the removed `origin_run_id` (ADR 0007) marked revisions *authored by a run*,
+where this pointer marks a revision the user authored and says what prompted it. The
+substance of the answer is the user's, including when the user's whole contribution is
+confirming a phrasing the question suggested.
+
+A verdict that flips after an answer is the mechanism working, not churn: the earlier
+review recorded the hinge, the revision settled it, the new review records what it
+settled to, and the two reviews pin different case revisions. Nothing is overwritten and
+nothing needs reconciling.
+
+## 6C.5 What elicitation may not become
+
+- **Not an intake interview.** The first review runs on whatever case exists, including
+  a nearly empty one. Value first, questions after. A wizard that must be completed
+  before the first run rebuilds the adoption tax with better upholstery.
+- **Not a structure oracle.** A question the atlas could answer — how many
+  implementations, who depends on this — is a detector or query gap, not a case gap, and
+  must not be asked of the user.
+- **Not unbounded.** The bound is structural rather than numeric: every question must
+  trace to at least one hinge, hinges exist only where a verdict admitted contingency,
+  and consolidation merges duplicates. A numeric cap would encode an opinion about how
+  much uncertainty a review is allowed to admit — §8A.4's rule, applied to questions.
+- **Not self-answering.** The model never proposes the answer inside the question, and
+  the application never promotes an unanswered question into an assumption. An
+  unanswered question remains open in the review that asked it.
 
 ---
 
@@ -722,7 +855,8 @@ The review path exists end to end:
 - Typed domain models and immutable ArchitectureCase revisions.
 - Versioned Python AST atlases: nodes, edges, metrics, obscurity signals and
   deterministic bounded queries.
-- One structural detector (§8A.3) producing complete, evidence-carrying candidates.
+- Three structural detectors (§8A.3), both catalogue directions, producing complete,
+  evidence-carrying candidates.
 - Judgement of each candidate against the case and the whole policy corpus, policies
   bound by position, no identifier crossing the wire in either direction (§12.0).
 - Immutable `BoundaryReview` persistence with JSON and Markdown reports.
@@ -732,10 +866,11 @@ The review path exists end to end:
   substitutes so the whole suite runs without a model.
 - CLI commands for the full path and a browser workspace: bundled examples, the review
   report with its question dock, and an atlas graph view.
-- Two scored examples with known answers, six identically-shaped boundaries each.
-  `boundary-review` asks whether a boundary absorbs any variation at all; `speech-vendor`
-  asks whether it is in the right place, and its case is written to state no finding. `make
-  demo` grades the first, `make eval-local` both.
+- Three scored examples with known answers. `boundary-review` asks whether a boundary
+  absorbs any variation at all; `speech-vendor` asks whether it is in the right place,
+  and its case is written to state no finding; `audiobook-studio` exercises all three
+  detectors at once, with both verdicts appearing under each repetition detector. `make
+  demo` grades a live run against the first, `make eval-local` against all three.
 
 The broad dependency architecture is correct:
 
@@ -779,13 +914,21 @@ structured case form, and the atlas drill-down — reached from a finding, and c
 review page as a map of the boundaries it examined with each verdict on its node. The
 greenfield rail waits on §4.1.
 
-Two things were deliberately excluded and remain next in line. The second detector —
-*repetition without ownership*, §8A.3 — and greenfield candidates (§4.1). Neither is
-blocked; both are sequenced.
+Two things were deliberately excluded. The second detector — *repetition without
+ownership*, §8A.3 — has since shipped, both halves of it. Greenfield candidates (§4.1)
+remain sequenced (§17).
 
 ---
 
 # 17. Planned Development Sequence
+
+The sequence is ordered by a product observation as much as an engineering one: advice
+earns its keep at the moment a boundary decision is being made, and there are two such
+moments — a pull request is open, or a coding agent is about to write code. A
+whole-repository review read outside any decision is how the mechanism is demonstrated
+and evaluated; the same review, arriving at one of those two moments, is the product.
+The phases therefore move the judgement toward those moments — and first remove the cost
+of getting started at all.
 
 ## Phase 1 — The review path (delivered)
 
@@ -797,41 +940,60 @@ reviews, grounded conversations, scored evaluation.
 §16. The flow is walkable in the browser, both rails included: start, run visibly, read,
 interrogate, revise and run again.
 
-## Phase 3 — The second detector
+## Phase 3 — The second detector (delivered)
 
-*Repetition without ownership* (§8A.3), completing the catalogue's other half so the
-advisor sees both directions of unnecessary complexity.
+*Repetition without ownership* (§8A.3): duplicated knowledge and scattered concept,
+completing the catalogue's other half so the advisor sees both directions of unnecessary
+complexity.
 
-## Phase 4 — Greenfield candidates
+## Phase 4 — Elicitation (current)
+
+The review asks for the case, §6C in full: judgement states its hinge, the overview
+consolidates hinges into questions bound by position, and answers return as
+user-authored case revisions through the existing revise-and-review loop. Sequenced
+first because it removes the adoption tax — the case accretes from use instead of being
+authored up front — and because it costs no new model calls and no new stages.
+
+## Phase 5 — Greenfield candidates
 
 Candidates stated in the case instead of parsed from code (§4.1), so a boundary can be
-judged before it is built.
+judged before it is built. Elicitation makes this practical as well as reachable: a
+greenfield case starts thin by definition, and the questions are how it thickens.
 
-## Phase 5 — Decision lifecycle
+## Phase 6 — Change and implementation review
+
+Branch and diff analysis — the pull-request moment. A diff carries a handful of
+candidates rather than a repository's worth, so cost is bounded by the change, and a
+boundary is judged once, when it is introduced, rather than re-litigated on every run.
+Comparing atlas versions and estimating introduced or reduced blast radius belong here.
+
+## Phase 7 — Coding-agent advisory integration
+
+An MCP surface over contracts the earlier phases made stable: consult a proposed
+boundary before the code exists (Phase 5), review a diff after it is written (Phase 6).
+The consumer of architecture advice at scale is increasingly the agent about to create
+the boundary — §3.1 addressed at its source rather than after the fact.
+
+## Phase 8 — Decision lifecycle
 
 Explicit states for recommendations: proposed, accepted, rejected, superseded,
-deferred. Accepted decisions may become repository-local architectural memory or
-accepted-ADR policies. Do not automatically promote every recommendation to policy.
+deferred. Acceptance is what keeps a repeated review quiet — an accepted boundary
+appears as accepted rather than re-argued — and accepted decisions may become
+repository-local architectural memory or accepted-ADR policies. Do not automatically
+promote every recommendation to policy. Sequenced after the advisor is in the loop,
+because acceptance only pays once something runs repeatedly.
 
-## Phase 6 — Coding-agent advisory integration
-
-Expose structured review and decision context to coding agents. MCP or another
-integration may be considered here, but only after the advisory contracts are stable.
-
-## Phase 7 — Change and implementation review
-
-Branch or diff analysis, comparing atlas versions, estimating introduced or reduced
-blast radius, detecting architectural drift.
-
-## Phase 8 — Longitudinal architectural memory
+## Phase 9 — Longitudinal architectural memory
 
 Git co-change evidence, decision histories, revisit-trigger evaluation, supersession
 chains, trend analysis.
 
-## Phase 9 — Broader analysis
+## Phase 10 — Broader analysis
 
 Only after the Python architecture is proven: additional languages, runtime evidence,
-data-flow models, deployment topology.
+data-flow models, deployment topology. Deliberately last rather than early: the teams
+feeling §3.1 first are reachable in one language, and a detector set that has not earned
+trust in one language is not improved by being wrong in two.
 
 ---
 
@@ -891,6 +1053,8 @@ Contributors and coding agents must preserve these invariants.
 23. `ArchitectureCase` holds user intent only; the advisor never writes into it.
 24. A review's overview may summarise its verdicts and may not revise them: no verdict
     field, and every claim names the boundaries it rests on.
+25. Elicited questions are advisor output and live in the review; an answer enters the
+    case only as a user-authored revision the user has seen before it is saved (§6C).
 
 ---
 

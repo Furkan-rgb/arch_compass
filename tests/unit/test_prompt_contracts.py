@@ -30,9 +30,9 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
     """The enum and the registry must not drift; a gap surfaces as a runtime KeyError."""
 
     expected_versions = {
-        ReasoningTask.JUDGE_FINDING_CANDIDATE: 4,
+        ReasoningTask.JUDGE_FINDING_CANDIDATE: 5,
         ReasoningTask.SUMMARISE_REVIEW: 4,
-        ReasoningTask.ANSWER_REVIEW_QUESTION: 3,
+        ReasoningTask.ANSWER_REVIEW_QUESTION: 4,
     }
 
     assert set(STAGE_PROMPTS) == set(ReasoningTask)
@@ -89,7 +89,7 @@ def test_the_judgement_request_puts_the_argument_before_the_verdict() -> None:
     request = _normalized(JUDGE_FINDING_CANDIDATE.request)
 
     assert "answer the fields in the order they appear" in request
-    assert request.index("first, in rationale") < request.index("only then set material")
+    assert request.index("first, in rationale") < request.index("only then set verdict")
     assert "never write a policy's name, number or identifier" in request
 
 
@@ -114,6 +114,58 @@ def test_the_answer_contract_says_what_the_conclusion_is_and_is_not() -> None:
     assert "adds no fact about the repository" in contract
     assert "cite boundaries, never the conclusion" in contract
     assert "the boundaries are what happened" in contract
+
+
+def test_the_answer_contract_sends_a_question_to_the_boundary_it_is_about() -> None:
+    """v3 said what to cite and nothing about what to read, and got the difference.
+
+    Shown the conclusion, a live conversation answered three escalating "why"s out of it —
+    each turn longer, none carrying a measurement, a policy or the case — and said so in as
+    many words while citing a boundary whose record it had never opened. Naming the
+    conclusion an index is the half of the fix that lives in the contract; the positions it
+    now carries are the half that lives in the payload.
+    """
+
+    contract = _normalized(ANSWER_REVIEW_QUESTION.stage_contract)
+    request = _normalized(ANSWER_REVIEW_QUESTION.request)
+
+    assert "an index, not a source" in contract
+    assert "positions of the boundaries it was built from" in contract
+    assert "never write that something is so according to the conclusion" in contract
+    # Saying less than the record holds is a failure too, which v3 never said anywhere.
+    assert 'restating the verdict is not an answer to "why"' in request
+
+
+def test_the_answer_contract_reports_a_verdict_at_odds_with_its_reasoning() -> None:
+    """Resolving it silently is what produced a fabricated rationale.
+
+    Asked why a boundary was condemned when its stored reasoning argued the opposite, the
+    stage invented a reason that fit the verdict and stated it as the review's finding.
+    Nothing had told it the two could disagree, so there was no sanctioned answer but to
+    make them agree.
+    """
+
+    contract = _normalized(ANSWER_REVIEW_QUESTION.stage_contract)
+
+    assert "reasoning and its verdict can disagree" in contract
+    assert "that contradiction is the answer" in contract
+
+
+def test_the_judgement_request_names_which_word_means_which_verdict() -> None:
+    """The polarity has to be stated where the choice is made, not only downstream.
+
+    It was already spelled out in three consuming places — the answer stage, the summary
+    stage and the report headline — and in none of them could it prevent the flag being
+    recorded backwards in the first place.
+    """
+
+    request = _normalized(JUDGE_FINDING_CANDIDATE.request)
+
+    assert "should_change when that argument concluded the pattern is a problem" in request
+    assert "leave_as_is when it concluded the shape is earning what it costs" in request
+    assert "read your own rationale back before you choose" in request
+    # The exact sentence one live run wrote into `recommended_response` beside "should change".
+    assert "the current abstraction is appropriate" in request
 
 
 def test_the_summary_contract_separates_prose_fields_from_grounded_ones() -> None:
