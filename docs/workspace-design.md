@@ -152,9 +152,11 @@ It gains, in order of value:
 3. **The atlas drill-down** (§4): from a finding to its neighbourhood in the graph, and
    the review's own map of the boundaries it examined, each node carrying its verdict.
 
-The question dock stays a pure client of the review-conversation routes (ADR 0004) and
-keeps grounding visible: answers name the boundaries they rest on, and an answer
-grounded on nothing says so.
+The question dock adds no domain flow of its own (ADR 0004) and keeps grounding visible:
+answers name the boundaries they rest on, and an answer grounded on nothing says so. The
+answer's prose arrives as it is written where the provider can stream it (ADR 0008), marked
+as still being written until the appended message lands — a preview carries no citation,
+because grounding does not exist until the reply is complete.
 
 ### Policies
 
@@ -170,16 +172,17 @@ Master plan §9.2 names the atlas's three roles. In the workspace they land as:
 - **Substrate — invisible.** Indexing is a progress state inside Rail A.
 - **Evidence — inside findings.** Locations and measurements appear as the content of
   each reviewed boundary. No surface labelled "atlas" is involved.
-- **Explorer — parked, then repossessed.** The graph explorer (`atlas.tsx`) leaves
-  primary navigation now and re-enters later as an evidence drill-down *from a
-  finding*: "show BR-003's neighbourhood" — what depends on the abstraction this
-  verdict says to remove, what its sole implementation touches. Entered from the
-  report it answers a question the reader has; entered from a sidebar it is a map with
-  no question, competing with the flow.
+- **Explorer — repossessed.** The graph explorer (`atlas.tsx`) is no longer a place. It
+  is an evidence drill-down *from a finding*: "show BR-003's neighbourhood" — what
+  depends on the abstraction this verdict says to remove, what its sole implementation
+  touches. Entered from the report it answers a question the reader has; entered from a
+  sidebar it is a map with no question, competing with the flow.
 
-The explorer code is a working investment and is kept routed but demoted — reachable
-from the repository picker as well as from each finding — so it stays alive, tested and
-ready for repossession rather than rotting unrouted.
+The standalone `/repositories` page is gone, and the route redirects to the flow so a
+bookmark does not 404. The explorer component is unchanged and more used than before: it
+now renders only inside a review, where a boundary is already the question being asked.
+Showing a finding on the map is a move within one page — the section is selected and
+scrolled to — rather than a navigation that loses the review the reader came for.
 
 **Repossessed, on the review page.** The review carries a map of its own, built from the
 review outward: each examined abstraction is inspected and its neighbourhood is the map, so
@@ -210,7 +213,8 @@ own.
 - **No job queue or background execution** (master plan §18). The run stays synchronous;
   visible progress is a presentation obligation, not an infrastructure project.
 - **No authentication or multi-user.** The workspace binds to localhost for one person.
-- **No atlas-first navigation.** The explorer re-enters through findings or not at all.
+- **No atlas-first navigation.** The explorer enters through findings or not at all; it
+  has no route of its own.
 - **No editing of reviews or answers.** Reviews are immutable; conversations are
   append-only; changed circumstances are a new revision and a new review.
 - **No generic chat.** The dock is pinned to one review and grounded by position; a

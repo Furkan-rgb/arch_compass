@@ -13,7 +13,7 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { api } from "../api";
@@ -59,10 +59,10 @@ function Citations({ references }: { references: string[] }) {
 /**
  * What the verdicts amount to, read as a set — the first thing on the page.
  *
- * Leads with the situation because a reader needs to know what this repository is being
- * asked to do before any verdict means anything, and closes with the limits because a
- * reader who has just been told what to do is exactly who needs to know what was not
- * examined.
+ * Leads with the bottom line — the situation, what came out wrong, and what to do — because
+ * a reader who gets no further than the first sentence should still know where they stand.
+ * Closes with the limits, because a reader who has just been told what to do is exactly who
+ * needs to know what was not examined.
  */
 function Overview({ overview }: { overview: ReviewOverview }) {
   const themes = overview.themes || [];
@@ -91,7 +91,7 @@ function Overview({ overview }: { overview: ReviewOverview }) {
 
       {sequence.length > 0 ? (
         <div className="overview__group">
-          <h3>Do this, in order</h3>
+          <h3>Recommended actions, in order</h3>
           <ol className="overview__list overview__list--ordered">
             {sequence.map((statement) => (
               <li key={statement.text}>
@@ -115,11 +115,11 @@ function Overview({ overview }: { overview: ReviewOverview }) {
 function Finding({
   item,
   policyCount,
-  repositoryRoot,
+  onShowInAtlas,
 }: {
   item: ReviewedBoundary;
   policyCount: number;
-  repositoryRoot: string | null;
+  onShowInAtlas: ((nodeId: string) => void) | null;
 }) {
   const bearings = item.policy_bearings || [];
   const abstraction = item.candidate.participants[0];
@@ -133,9 +133,12 @@ function Finding({
         <code className="finding__ref">{item.reference}</code>
         <h3 className="finding__title">{abstraction?.qualified_name}</h3>
         {/* The verdict in words, not only as a coloured rail: a reader scanning for "what
-            was the answer" should not have to learn a colour convention first. */}
+            was the answer" should not have to learn a colour convention first. The wording
+            comes from the review rather than from here, because it depends on which shape
+            was judged — "not earning its place" is right for indirection that hides nothing
+            and wrong for a constant copied into four modules. */}
         <span className={`verdict verdict--${item.material ? "material" : "cleared"}`}>
-          {item.material ? "Should change" : "Earning its place"}
+          {item.verdict_label}
         </span>
       </header>
 
@@ -154,7 +157,7 @@ function Finding({
 
       {item.recommended_response ? (
         <p className="finding__action">
-          <strong>Do this.</strong> {item.recommended_response}
+          <strong>Recommendation.</strong> {item.recommended_response}
         </p>
       ) : null}
 
@@ -168,10 +171,15 @@ function Finding({
           <p className="finding__policies-head">
             {bearings.length} of {policyCount} policies bear on this boundary
           </p>
-          <ul>
+          {/* A card each, three across, each only as tall as its own sentence. As a
+              bulleted list the policy's name and the sentence explaining how it bears ran
+              together into one paragraph, and a reader could not tell where one policy
+              stopped and the next began. */}
+          <ul className="bearings">
             {bearings.map((bearing) => (
-              <li key={bearing.policy_id}>
-                <strong>{bearing.policy_title}</strong> {bearing.how}
+              <li key={bearing.policy_id} className="bearing">
+                <strong className="bearing__title">{bearing.policy_title}</strong>
+                <span className="bearing__how">{bearing.how}</span>
               </li>
             ))}
           </ul>
@@ -184,20 +192,19 @@ function Finding({
 
       <p className="finding__limits">{item.candidate.limitations}</p>
 
-      {/* The explorer, entered from the finding that raises the question — what depends on
-          this abstraction, and what its one implementation touches. Entered from a sidebar
-          it is a map with no question; entered from here it answers one
-          (workspace-design §4). Absent when the atlas it would open is no longer indexed. */}
-      {repositoryRoot && abstraction?.node_id ? (
-        <a
+      {/* The map this finding raises a question about is further down the same page, so
+          this moves the reader to it rather than opening a second place to be. Leaving the
+          review to answer "where does this sit" lost the review; the question and its
+          answer belong in one reading (workspace-design §4). Absent when the atlas is no
+          longer indexed and there is nothing below to scroll to. */}
+      {onShowInAtlas && abstraction?.node_id ? (
+        <button
+          type="button"
           className="finding__atlas"
-          href={
-            `/repositories?root=${encodeURIComponent(repositoryRoot)}` +
-            `&node=${encodeURIComponent(abstraction.node_id)}`
-          }
+          onClick={() => onShowInAtlas(abstraction.node_id)}
         >
           <Network size={14} aria-hidden /> Show {item.reference} in the atlas
-        </a>
+        </button>
       ) : null}
     </article>
   );
@@ -225,10 +232,10 @@ function Score({ score }: { score: ReviewScore }) {
             )}
             <code>{item.reference}</code>
             <span className="scorebar__said">
-              {item.actual ? "material" : "not material"}
+              {item.actual ? "should change" : "fine as it is"}
               {item.correct
                 ? ""
-                : ` — expected ${item.expected ? "material" : "not material"}`}
+                : ` — expected ${item.expected ? "should change" : "fine as it is"}`}
             </span>
             {item.correct ? null : <span className="scorebar__why">{item.because}</span>}
           </li>
@@ -297,7 +304,32 @@ export function ReviewDetailPage() {
   const client = useQueryClient();
   const [question, setQuestion] = useState("");
   const [open, setOpen] = useState(false);
+  /**
+   * The question being answered right now, and the prose that has arrived for it.
+   *
+   * Held apart from the thread's messages on purpose: those are the record, and this is text
+   * on its way to being validated. Nothing here is grounded — citations come from flags that
+   * do not exist until the whole reply has arrived — so it is labelled as still being written
+   * rather than shown as an answer the review supports.
+   */
+  const [pending, setPending] = useState<{ question: string; prose: string } | null>(null);
+  /**
+   * Whether the page's content has run out below the dock, which is what decides how tall the
+   * dock may be. Read from a marker rendered at the end of that content, immediately above the
+   * dock — deliberately not from "is the window scrolled to the bottom".
+   *
+   * The marker's position depends only on what is above it, so the dock growing cannot move
+   * it. Measuring the window instead would feed back: reaching the bottom would let the dock
+   * grow, growing would make the document taller, and the taller document would mean the
+   * bottom was no longer reached — a loop that ends in the dock flickering between heights.
+   */
+  const [settled, setSettled] = useState(false);
+  const contentEnd = useRef<HTMLDivElement>(null);
   const [revising, setRevising] = useState(false);
+  // The map is one section of this page, so which node it shows is the page's state: a
+  // finding above can ask for its own boundary, and the two must not each hold an answer.
+  const [atlasNodeId, setAtlasNodeId] = useState<string | null>(null);
+  const atlasRef = useRef<HTMLElement>(null);
   const run = useRun();
 
   const review = useQuery({
@@ -322,6 +354,17 @@ export function ReviewDetailPage() {
     queryFn: () => api.reviewConversations(reviewId),
     enabled: Boolean(reviewId),
   });
+
+  // Re-run when the review arrives, because the marker is only rendered once there is a
+  // report to render — until then this page is a spinner and there is no dock to size.
+  const status = review.data?.status;
+  useEffect(() => {
+    const marker = contentEnd.current;
+    if (!marker) return;
+    const observer = new IntersectionObserver(([entry]) => setSettled(entry.isIntersecting));
+    observer.observe(marker);
+    return () => observer.disconnect();
+  }, [status]);
 
   const caseId = review.data?.case_id;
   const caseRevision = review.data?.case_revision;
@@ -371,6 +414,20 @@ export function ReviewDetailPage() {
       : threads.find((item) => item.conversation_id === threadId) || threads[0];
   const messages = conversation?.messages || [];
 
+  /**
+   * Keep the newest exchange in view inside the history's own scroller.
+   *
+   * The list runs oldest to newest and the window onto it is now small, so without this a new
+   * answer lands below the fold of that window and the reader is left looking at a question
+   * they asked three turns ago. It follows the arriving prose too, so a streamed answer stays
+   * visible as it is written rather than growing downwards out of sight.
+   */
+  const historyRef = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    const list = historyRef.current;
+    if (list) list.scrollTop = list.scrollHeight;
+  }, [messages.length, pending?.prose, open, settled]);
+
   // The listing is newest first, so the review before this one in it is the newer one.
   const ordered = siblings.data || [];
   const position = ordered.findIndex((item) => item.review_id === reviewId);
@@ -404,7 +461,16 @@ export function ReviewDetailPage() {
       if (!target.conversation_id) {
         throw new Error("The workspace returned a conversation without an identifier.");
       }
-      return { message: await api.askReviewQuestion(target.conversation_id, text), target };
+      // Streamed, so the answer reads as it is written. `pending` is only ever what the
+      // fragments have built — never the record — and is dropped the moment the appended
+      // message arrives, which is what a re-read of this thread will show.
+      setPending({ question: text, prose: "" });
+      const message = await api.streamReviewQuestion(target.conversation_id, text, (fragment) =>
+        setPending((current) =>
+          current ? { ...current, prose: current.prose + fragment } : current,
+        ),
+      );
+      return { message, target };
     },
     onSuccess: async ({ target }) => {
       setQuestion("");
@@ -412,7 +478,13 @@ export function ReviewDetailPage() {
       // A question asked into a new thread lands in that thread, not back in the newest.
       setThreadId(target.conversation_id || null);
       await client.invalidateQueries({ queryKey: ["review-conversations", reviewId] });
+      // Cleared after the history has been refetched, so the answer never blinks out of
+      // existence between the preview going and the stored message arriving.
+      setPending(null);
     },
+    // A failed turn is appended as a failure, so the history below is where it shows. The
+    // half-written prose goes: it was on its way to being checked and did not pass.
+    onError: () => setPending(null),
   });
 
   if (review.isLoading) return <Loading label="Reading the review…" />;
@@ -445,6 +517,17 @@ export function ReviewDetailPage() {
   const material = reviewed.filter((item) => item.material);
   const cleared = reviewed.filter((item) => !item.material);
 
+  // Only when there is a map below to be shown in. Selecting first and scrolling second so
+  // the node is already the selected one when the section arrives, rather than settling
+  // into place and then changing under the reader.
+  const showInAtlas =
+    repositoryRoot && reviewed.length > 0
+      ? (nodeId: string) => {
+          setAtlasNodeId(nodeId);
+          atlasRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      : null;
+
   return (
     <div className="page page--review">
       <header className="review-head">
@@ -453,8 +536,8 @@ export function ReviewDetailPage() {
         <p className="review-head__meta">
           <strong>{reviewed.length}</strong> boundaries examined ·{" "}
           <strong>{policyCount}</strong> policies presented to each ·{" "}
-          <strong>{material.length}</strong> material, <strong>{cleared.length}</strong>{" "}
-          earning their place
+          <strong>{material.length}</strong> should change,{" "}
+          <strong>{cleared.length}</strong> left as they are
         </p>
         {/* What this review is pinned to. Already in the record; printed rather than
             implied, because "which case revision said so" is the first question a second
@@ -560,18 +643,21 @@ export function ReviewDetailPage() {
       {material.length > 0 ? (
         <section className="group">
           <h2 className="group__title">
-            <TriangleAlert size={16} aria-hidden /> Should change
+            <TriangleAlert size={16} aria-hidden /> What should change
             <span className="group__count">{material.length}</span>
           </h2>
+          {/* Shape-neutral, because these are grouped by verdict and the group can hold
+              both directions of the catalogue at once: indirection that hides nothing, and
+              knowledge with no owner. Each finding names its own shape on its own badge. */}
           <p className="group__hint">
-            Each of these was found not to be earning its place under this case.
+            Each of these was found to cost more than it earns under this case.
           </p>
           {material.map((item) => (
             <Finding
               key={item.reference}
               item={item}
               policyCount={policyCount}
-              repositoryRoot={repositoryRoot}
+              onShowInAtlas={showInAtlas}
             />
           ))}
         </section>
@@ -580,7 +666,7 @@ export function ReviewDetailPage() {
       {cleared.length > 0 ? (
         <section className="group">
           <h2 className="group__title">
-            <CircleCheck size={16} aria-hidden /> Earning their place
+            <CircleCheck size={16} aria-hidden /> Examined and left alone
             <span className="group__count">{cleared.length}</span>
           </h2>
           <p className="group__hint">
@@ -591,7 +677,7 @@ export function ReviewDetailPage() {
               key={item.reference}
               item={item}
               policyCount={policyCount}
-              repositoryRoot={repositoryRoot}
+              onShowInAtlas={showInAtlas}
             />
           ))}
         </section>
@@ -602,16 +688,29 @@ export function ReviewDetailPage() {
           findings it would push every verdict below the fold to make room for context
           nobody had asked for yet. */}
       {repositoryRoot && reviewed.length > 0 ? (
-        <ReviewAtlas repositoryRoot={repositoryRoot} boundaries={reviewed} />
+        <ReviewAtlas
+          repositoryRoot={repositoryRoot}
+          boundaries={reviewed}
+          selectedNodeId={atlasNodeId}
+          onSelectNode={setAtlasNodeId}
+          sectionRef={atlasRef}
+        />
       ) : null}
 
       {/*
-        `position: sticky; bottom: 0` and no JavaScript: the dock rides the bottom of the
-        viewport while there is page left below it, then settles into its own place in the
-        flow when you reach the end. Scroll position stays the single source of truth, so
-        the dock cannot disagree with where the page actually is.
+        `position: sticky; bottom: 0`: the dock rides the bottom of the viewport while there is
+        page left below it, then settles into its own place in the flow when you reach the end.
+        Scroll position stays the single source of truth for where it sits, so the dock cannot
+        disagree with where the page actually is.
+
+        How tall it may be is the one thing CSS cannot answer on its own, so the marker below
+        reports whether the page's content has ended. It sits here rather than after the dock
+        on purpose — see `settled` above.
       */}
-      <div className={`dock ${open ? "dock--open" : ""}`}>
+      <div ref={contentEnd} className="dock__anchor" aria-hidden />
+      <div
+        className={`dock ${open ? "dock--open" : ""} ${settled ? "dock--settled" : ""}`}
+      >
         {messages.length > 0 ? (
           <button
             type="button"
@@ -664,8 +763,8 @@ export function ReviewDetailPage() {
           </div>
         ) : null}
 
-        {open && messages.length > 0 ? (
-          <ol className="dock__history">
+        {open || pending ? (
+          <ol className="dock__history" ref={historyRef}>
             {messages.map((message) => (
               <li key={message.message_id}>
                 <p className="dock__q">{message.question}</p>
@@ -689,6 +788,26 @@ export function ReviewDetailPage() {
                 )}
               </li>
             ))}
+            {/* The turn in flight. `aria-live` so the answer is read as it arrives rather
+                than announced once at the end; `aria-busy` so a screen reader is told this
+                is unfinished, which is the same thing the caption below says in text. */}
+            {pending ? (
+              <li className="dock__pending" aria-live="polite" aria-busy="true">
+                <p className="dock__q">{pending.question}</p>
+                {pending.prose ? (
+                  <>
+                    <p className="dock__a">{pending.prose}</p>
+                    {/* Not "not grounded" — nothing is settled yet, and a grounding line
+                        here would be a claim about an answer that is still being written. */}
+                    <p className="dock__grounding dock__grounding--pending">
+                      Still being written
+                    </p>
+                  </>
+                ) : (
+                  <p className="dock__grounding dock__grounding--pending">Thinking…</p>
+                )}
+              </li>
+            ) : null}
           </ol>
         ) : null}
 

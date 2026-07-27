@@ -147,6 +147,54 @@ class ReviewQuestionRequest(APIModel):
     question: str = Field(min_length=1, max_length=4000)
 
 
+class AnswerProse(APIModel):
+    """A fragment of the answer being written, to append to whatever came before.
+
+    Text only, and never a citation: grounding comes from positional flags that do not exist
+    until the whole reply has arrived, so there is nothing here a reader could mistake for
+    something the review supports. Fragments may stop before the answer does — a reply that
+    needs the one sanctioned repair round is rewritten unstreamed — so this is provisional
+    until the `answered` line.
+    """
+
+    event: Literal["prose"] = "prose"
+    text: str
+
+
+class QuestionAnswered(APIModel):
+    """The appended message — the same object `POST .../messages` returns.
+
+    This line is the record, and it replaces rather than completes whatever prose arrived
+    before it: the message carries the validated answer and its grounding, and a turn that
+    failed carries the failure even if fragments were shown first.
+    """
+
+    event: Literal["answered"] = "answered"
+    message: ReviewMessage
+
+
+class QuestionFailed(APIModel):
+    """The turn could not be attempted, so no message was appended.
+
+    Distinct from a failed message: a question refused before it reached the reasoner — blank,
+    too long, a conversation that is gone — never becomes part of the history, and the status
+    code cannot say so once the response has started.
+    """
+
+    event: Literal["failed"] = "failed"
+    problem: ProblemDetail
+
+
+AnswerProgressLine = Annotated[
+    AnswerProse | QuestionAnswered | QuestionFailed,
+    Field(discriminator="event"),
+]
+
+
+class AnswerProgress(RootModel[AnswerProgressLine]):
+    """One line of `POST /api/review-conversations/{id}/messages/stream`."""
+
+
 class BundledCase(APIModel):
     """One example case shipped with ArchCompass, ready to load into the workspace.
 
@@ -670,6 +718,37 @@ def create_app(runtime: Runtime) -> FastAPI:
     ) -> ReviewMessage:
         return runtime.review_conversation_service.ask(conversation_id, request.question)
 
+    @app.post(
+        "/api/review-conversations/{conversation_id}/messages/stream",
+        response_class=NDJSONStreamingResponse,
+        responses={
+            200: {
+                "model": AnswerProgress,
+                "description": (
+                    "The same turn as POST .../messages, as newline-delimited JSON: any "
+                    "number of prose fragments, then one answered or failed line."
+                ),
+            },
+            **_problem_responses(404, 409, 422, 503),
+        },
+    )
+    def stream_review_question(
+        conversation_id: str,
+        request: ReviewQuestionRequest,
+    ) -> NDJSONStreamingResponse:
+        """The same turn, with the answer's prose arriving as it is written.
+
+        A second transport for one flow, not a second flow: the same application call appends
+        the same message, and this route adds only when its text reaches the reader. A
+        provider that cannot stream sends no fragments and the answered line arrives on its
+        own, which is why there is no capability to query first.
+        """
+
+        return NDJSONStreamingResponse(
+            _answer_progress_lines(runtime, conversation_id, request.question),
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
+
     @app.get("/api/policies")
     def list_policies(repository_root: str | None = None) -> list[PolicyDocument]:
         return runtime.policy_service.catalog(
@@ -856,6 +935,69 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
             lines.put(None)
 
     worker = Thread(target=run, daemon=True, name="archcompass-review")
+    worker.start()
+    while (line := lines.get()) is not None:
+        yield f"{line}\n"
+
+
+def _answer_progress_lines(
+    runtime: Runtime,
+    conversation_id: str,
+    question: str,
+) -> Iterator[str]:
+    """Ask one question in a worker thread and yield each line as the answer is written.
+
+    The same shape as `_review_progress_lines`, for the same reason: a thread and a queue that
+    live exactly as long as this request, no job queue, and an application service that still
+    owns the turn. This function chooses nothing — not whether the reply streams, not what the
+    message contains, not whether the turn succeeded — it only reports.
+
+    A refusal reaching here as `failed` rather than as a status code is not a downgrade: the
+    response is already a 200 by the time the reasoner is called, and the alternative is a
+    stream that closes without saying anything. A question rejected before the response starts
+    still gets its status, because validation of the body happens before this runs.
+    """
+
+    lines: Queue[str | None] = Queue()
+
+    def emit(event: AnswerProse | QuestionAnswered | QuestionFailed) -> None:
+        lines.put(event.model_dump_json())
+
+    def run() -> None:
+        try:
+            message = runtime.review_conversation_service.ask(
+                conversation_id,
+                question,
+                on_prose=lambda text: emit(AnswerProse(text=text)),
+            )
+        except ArchCompassError as error:
+            # The status is deliberately dropped: it can no longer be said, and a code in the
+            # body disagreeing with the 200 already sent would be worse than one that is
+            # silent about it.
+            _status, code, retryable = _classify_error(error)
+            emit(
+                QuestionFailed(
+                    problem=ProblemDetail(code=code, message=str(error), retryable=retryable)
+                )
+            )
+        except Exception:
+            # Broad on purpose, and the text is not forwarded: this is the last place that can
+            # still say the turn failed, and only ArchCompass's own errors are written for a
+            # person to read.
+            emit(
+                QuestionFailed(
+                    problem=ProblemDetail(
+                        code="archcompass_error",
+                        message="That question failed unexpectedly, and nothing was saved.",
+                    )
+                )
+            )
+        else:
+            emit(QuestionAnswered(message=message))
+        finally:
+            lines.put(None)
+
+    worker = Thread(target=run, daemon=True, name="archcompass-review-question")
     worker.start()
     while (line := lines.get()) is not None:
         yield f"{line}\n"

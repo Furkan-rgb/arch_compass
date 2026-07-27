@@ -19,10 +19,12 @@ from archcompass.domain.review import (
 
 
 def _boundary(item: ReviewedBoundary) -> list[str]:
-    verdict = "Material" if item.material else "Not material"
+    # The verdict spelled out rather than named, in the vocabulary of the shape it is about.
+    # "Material" is a term of art that reads, in ordinary English, as "this matters" — the
+    # opposite of what it records — and one phrase cannot serve both halves of the catalogue.
     lines = [
         "",
-        f"### {item.reference} · {verdict}",
+        f"### {item.reference} · {item.verdict_label}",
         "",
         f"`{item.candidate.summary}`",
         "",
@@ -62,7 +64,7 @@ def _overview(overview: ReviewOverview) -> list[str]:
             for statement in overview.themes
         ]
     if overview.recommended_sequence:
-        lines += ["", "### Do this, in order", ""]
+        lines += ["", "### Recommended actions, in order", ""]
         lines += [
             f"{position}. {statement.text} "
             f"*({', '.join(statement.supporting_references)})*"
@@ -86,14 +88,15 @@ def render_report(report: BoundaryReviewReport) -> str:
         report.problem_and_desired_outcome,
     ]
     if report.material:
-        lines += ["", "## Boundaries judged material", ""]
-        lines.append(
-            "Each of these was found not to be earning its place under this case."
-        )
+        # Grouped by verdict rather than by shape, because a reader wants what to act on
+        # first. Each heading below names its own shape, so the two directions of the
+        # catalogue do not have to share one sentence here.
+        lines += ["", "## What should change", ""]
+        lines.append("Each of these was found to be costing more than it earns in this case.")
         for item in report.material:
             lines += _boundary(item)
     if report.cleared:
-        lines += ["", "## Boundaries examined and cleared", ""]
+        lines += ["", "## Examined and left alone", ""]
         lines.append(
             "The advisor looked at each of these and concluded it should stay as it is."
         )

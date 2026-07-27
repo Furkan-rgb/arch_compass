@@ -1,4 +1,5 @@
 import type {
+  AnswerProgress,
   ArchitectureCase,
   AtlasExploreRequest,
   AtlasQueryResult,
@@ -52,6 +53,54 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     );
   }
   return (await response.json()) as T;
+}
+
+/**
+ * One NDJSON request, with each line handed over as it arrives.
+ *
+ * Shared by both streaming routes rather than written twice. The chunk arithmetic is the same
+ * in either case and is the least interesting part of both: a decoder that has to be told
+ * whether the stream is finished, and a trailing fragment that waits for the rest of its
+ * chunk. Throwing from `onLine` stops reading, which is how a `failed` line becomes an error
+ * rather than a value the caller has to remember to check.
+ */
+async function streamLines<Line>(
+  path: string,
+  body: unknown,
+  refusal: string,
+  onLine: (line: Line) => void,
+): Promise<void> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok || !response.body) {
+    // A failure before the stream opens is still a ProblemDetail, as on every route.
+    let detail: Partial<ProblemDetail> = {};
+    try {
+      detail = (await response.json()) as typeof detail;
+    } catch {
+      detail = { message: response.statusText };
+    }
+    throw new ApiError(detail.message || refusal, response.status, detail.code);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    pending += decoder.decode(value, { stream: !done });
+    const lines = pending.split("\n");
+    // The last piece may be half a line; it waits for the rest of its chunk.
+    pending = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      onLine(JSON.parse(line) as Line);
+    }
+    if (done) break;
+  }
 }
 
 export const api = {
@@ -118,47 +167,19 @@ export const api = {
     repositoryRoot: string,
     onProgress: (event: ReviewProgress) => void,
   ): Promise<BoundaryReview> => {
-    const response = await fetch("/api/reviews/stream", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ case_id: caseId, repository_root: repositoryRoot }),
-    });
-    if (!response.ok || !response.body) {
-      // A failure before the stream opens is still a ProblemDetail, as on every route.
-      let detail: Partial<ProblemDetail> = {};
-      try {
-        detail = (await response.json()) as typeof detail;
-      } catch {
-        detail = { message: response.statusText };
-      }
-      throw new ApiError(
-        detail.message || "Arch Compass could not start the review.",
-        response.status,
-        detail.code,
-      );
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let pending = "";
     let review: BoundaryReview | null = null;
-    for (;;) {
-      const { value, done } = await reader.read();
-      pending += decoder.decode(value, { stream: !done });
-      const lines = pending.split("\n");
-      // The last piece may be half a line; it waits for the rest of its chunk.
-      pending = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const event = JSON.parse(line) as ReviewProgress;
+    await streamLines<ReviewProgress>(
+      "/api/reviews/stream",
+      { case_id: caseId, repository_root: repositoryRoot },
+      "Arch Compass could not start the review.",
+      (event) => {
         onProgress(event);
         if (event.event === "failed") {
           throw new ApiError(event.problem.message, 200, event.problem.code);
         }
         if (event.event === "completed") review = event.review;
-      }
-      if (done) break;
-    }
+      },
+    );
     if (!review) {
       throw new ApiError(
         "The review ended without producing a result.",
@@ -187,6 +208,43 @@ export const api = {
       `/api/review-conversations/${encodeURIComponent(conversationId)}/messages`,
       { method: "POST", body: JSON.stringify({ question }) },
     ),
+
+  /**
+   * The same turn, with the answer's prose arriving as it is written.
+   *
+   * `onProse` receives fragments to append, never a whole answer to replace what is showing.
+   * The resolved message is the record: it carries the validated answer and its grounding, and
+   * a provider that cannot stream simply calls `onProse` no times. Whatever the fragments
+   * built is provisional until then — an answer that needed a repair round is rewritten
+   * without being streamed, so the two can differ.
+   */
+  streamReviewQuestion: async (
+    conversationId: string,
+    question: string,
+    onProse: (fragment: string) => void,
+  ): Promise<ReviewMessage> => {
+    let message: ReviewMessage | null = null;
+    await streamLines<AnswerProgress>(
+      `/api/review-conversations/${encodeURIComponent(conversationId)}/messages/stream`,
+      { question },
+      "Arch Compass could not ask that question.",
+      (event) => {
+        if (event.event === "prose") onProse(event.text);
+        if (event.event === "failed") {
+          throw new ApiError(event.problem.message, 200, event.problem.code);
+        }
+        if (event.event === "answered") message = event.message;
+      },
+    );
+    if (!message) {
+      throw new ApiError(
+        "That question ended without an answer.",
+        200,
+        "incomplete_stream",
+      );
+    }
+    return message;
+  },
 
   cases: () => request<CaseSummary[]>("/api/cases"),
   case: (caseId: string, revision?: number) =>

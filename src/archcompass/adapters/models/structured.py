@@ -13,9 +13,11 @@ and an adapter merely encodes an already-decided request.
 
 from __future__ import annotations
 
+import json
 import math
-from collections.abc import Callable, Mapping
-from typing import ClassVar, Literal, Protocol, TypeVar, cast
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from dataclasses import dataclass
+from typing import ClassVar, Literal, Protocol, TypeVar, cast, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -29,6 +31,7 @@ from archcompass.domain.errors import (
     PromptBudgetExceededError,
     ProviderError,
 )
+from archcompass.domain.knowledge import MethodKnowledge
 from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
     BoundaryReview,
@@ -86,6 +89,38 @@ def _grounded_statements(
             OverviewStatement(text=item.text.strip(), supporting_references=references)
         )
     return statements
+
+
+def _prose_defects(field: str, value: str) -> list[str]:
+    """Reject a prose field answered with a serialised object or list.
+
+    A string field constrains the grammar to a string and nothing more, so a model that
+    reads the stage's arity note as applying to every field can satisfy the schema by
+    writing structure *inside* the string. That is not hypothetical: a live summary returned
+    `{"statement": "...", "supported_by": [true, ...]}` as the text of `situation`, and
+    because a JSON document is a perfectly valid string it validated, persisted, and printed
+    verbatim as the conclusion at the top of the review page.
+
+    Both conditions are required before anything is rejected. A sentence never begins with a
+    brace and also parses as JSON, and a check on the leading character alone would refuse
+    prose that happens to open with a quotation or a bracketed aside. What this cannot catch
+    — an object with prose trailing after it — stays uncaught deliberately: the cost of a
+    false positive here is a failed review, and the shape actually observed is the whole
+    reply as one document.
+    """
+
+    text = value.strip()
+    if not text.startswith(("{", "[")):
+        return []
+    try:
+        json.loads(text)
+    except ValueError:
+        return []
+    return [
+        f"{field} must be prose written for a reader, but contains a serialised JSON "
+        "document. Write sentences; grounding flags belong only to the fields that declare "
+        "them."
+    ]
 
 
 def _object_mapping(value: object) -> dict[str, object] | None:
@@ -181,6 +216,80 @@ class ProposedReviewAnswer(BaseModel):
     supported_by: list[bool]
 
 
+@dataclass(frozen=True)
+class ProsePreview:
+    """Which string field to report as it is generated, and where to send it.
+
+    A preview is a preview. Nothing sent to `emit` is stored, validated, or bound to
+    anything: the reply that counts is the one this stage validates whole, after generation
+    finishes, exactly as it would have without a preview. What the reader gains is the
+    prose arriving as it is written rather than after the last token.
+
+    Only a field the schema puts first can be previewed usefully, which is why
+    `ProposedReviewAnswer` declares `answer` before `supported_by` — a reason it already had
+    (master plan 12.0, field order) and now also depends on.
+    """
+
+    #: The name of the string property to decode a prefix of, as it appears in the schema.
+    field: str
+    #: Called with each new fragment of that field, never with text already sent.
+    emit: Callable[[str], None]
+
+
+def prose_prefix(field: str, partial: str) -> str:
+    """Decode as much of one string field as has arrived in an incomplete JSON document.
+
+    A streamed structured reply is not JSON until its last token, so nothing can parse it
+    while it is growing. What can be done is narrower: find the field, then hand the bytes
+    that have arrived to the real JSON decoder by closing the string. That keeps escape
+    handling — `\\n`, `\\"`, `\\uXXXX` — in the decoder rather than reimplementing it here,
+    where a subtly different reading would show the reader text the model did not write.
+
+    Returns "" until the field's opening quote has arrived, and a growing prefix after that.
+    The result never shrinks: an incomplete trailing escape is dropped and returns with the
+    chunk that completes it, so a caller may treat the difference as the new fragment.
+    """
+
+    marker = f'"{field}"'
+    key = partial.find(marker)
+    if key < 0:
+        return ""
+    cursor = key + len(marker)
+    # Only a colon and whitespace may sit between the key and its value. Anything else means
+    # this is not the string property it names — a substring of some other field's text, or a
+    # non-string value — and guessing would print the wrong thing.
+    separator = partial[cursor:]
+    stripped = separator.lstrip()
+    if not stripped.startswith(":"):
+        return ""
+    value = stripped[1:].lstrip()
+    if not value.startswith('"'):
+        return ""
+    body = value[1:]
+    escaped = False
+    for offset, character in enumerate(body):
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\":
+            escaped = True
+            continue
+        if character == '"':
+            body = body[:offset]
+            break
+    # Trim back over an escape the stream has not finished sending. `\uXXXX` is the longest,
+    # so five characters is the whole search space; a still-unparseable tail is text this
+    # cannot read and is reported as nothing rather than as a guess.
+    for trim in range(6):
+        candidate = body[: len(body) - trim] if trim else body
+        try:
+            decoded = json.loads(f'"{candidate}"')
+        except ValueError:
+            continue
+        return decoded if isinstance(decoded, str) else ""
+    return ""
+
+
 class ChatTransport(Protocol):
     """One vendor's chat API, reduced to the single call this package needs.
 
@@ -205,6 +314,57 @@ class ChatTransport(Protocol):
         think: ThinkLevel,
         temperature: float | None,
     ) -> str: ...
+
+
+@runtime_checkable
+class StreamingChatTransport(Protocol):
+    """A transport that can also report one reply's text as it is generated.
+
+    Separate from `ChatTransport` and checked with `isinstance`, because streaming a
+    schema-constrained reply is a property of a vendor's API rather than of this package: a
+    transport that cannot do it omits the method and every stage still works, answering after
+    the last token instead of during. Adding `stream` to `ChatTransport` would instead make
+    every transport claim a capability and raise when asked to use it.
+
+    `stream` yields the same text `complete` would have returned, in order and in fragments
+    of whatever size the vendor sends. Concatenated, the fragments are the whole reply and
+    are validated as one — a stream changes when text arrives, never what is checked.
+
+    A transient failure is retried only while nothing has been yielded. Once a fragment has
+    been reported, a retry would replay text the reader has already seen, so a failure after
+    that point is final and surfaces as `ProviderError` like any other.
+    """
+
+    def stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        schema: Mapping[str, object],
+        task: ReasoningTask,
+        is_fast: bool,
+        think: ThinkLevel,
+        temperature: float | None,
+    ) -> Iterator[str]: ...
+
+
+def _accumulated(chunks: Iterable[str], preview: ProsePreview) -> str:
+    """Join a streamed reply, reporting each new fragment of the previewed field.
+
+    The decoded prefix only ever grows, so the difference in length is the fragment that
+    just arrived. Emitting the difference rather than the whole prefix each time keeps this
+    usable by a caller that appends — a wire protocol, a text node — without asking it to
+    diff two strings.
+    """
+
+    content = ""
+    reported = ""
+    for chunk in chunks:
+        content += chunk
+        prose = prose_prefix(preview.field, content)
+        if len(prose) > len(reported):
+            preview.emit(prose[len(reported) :])
+            reported = prose
+    return content
 
 
 class StructuredReasoningProvider:
@@ -355,15 +515,21 @@ class StructuredReasoningProvider:
             },
             ProposedReviewOverview,
             runtime_instruction=(
-                f"Every statement must carry exactly {expected} supported_by flags, one for "
-                "each boundary, in the order the boundaries appear above."
+                f"Every entry in themes and recommended_sequence must carry exactly "
+                f"{expected} supported_by flags, one for each boundary, in the order the "
+                "boundaries appear above. situation and limits are prose and carry no flags."
             ),
             schema_override=self._overview_schema(boundary_count=expected),
             candidate_validator=lambda item: [
-                f"every supported_by must contain exactly {expected} flags, one per "
-                f"boundary in order, but one statement contains {len(statement.supported_by)}"
-                for statement in (*item.themes, *item.recommended_sequence)
-                if len(statement.supported_by) != expected
+                *_prose_defects("situation", item.situation),
+                *_prose_defects("limits", item.limits),
+                *(
+                    f"every supported_by must contain exactly {expected} flags, one per "
+                    f"boundary in order, but one entry contains "
+                    f"{len(statement.supported_by)}"
+                    for statement in (*item.themes, *item.recommended_sequence)
+                    if len(statement.supported_by) != expected
+                ),
             ],
         )
         return ReviewOverview(
@@ -380,6 +546,42 @@ class StructuredReasoningProvider:
         review: BoundaryReview,
         history: list[ReviewMessage],
         question: str,
+        knowledge: MethodKnowledge,
+    ) -> ReviewAnswer:
+        return self._answer(review, history, question, knowledge, preview=None)
+
+    def stream_review_answer(
+        self,
+        review: BoundaryReview,
+        history: list[ReviewMessage],
+        question: str,
+        knowledge: MethodKnowledge,
+        on_prose: Callable[[str], None],
+    ) -> ReviewAnswer:
+        """The same answer, with its prose reported as it is written.
+
+        One code path, one validation, one returned answer: the preview is handed to the same
+        call `answer_review_question` makes. Where the transport cannot stream, or the reply
+        needs the repair round, nothing is emitted and the answer simply arrives at the end —
+        so a caller never has to ask which of two behaviours it got.
+        """
+
+        return self._answer(
+            review,
+            history,
+            question,
+            knowledge,
+            preview=ProsePreview(field="answer", emit=on_prose),
+        )
+
+    def _answer(
+        self,
+        review: BoundaryReview,
+        history: list[ReviewMessage],
+        question: str,
+        knowledge: MethodKnowledge,
+        *,
+        preview: ProsePreview | None,
     ) -> ReviewAnswer:
         report = review.report
         if report is None:
@@ -391,16 +593,61 @@ class StructuredReasoningProvider:
             {
                 "case_title": report.case_title,
                 "case": report.problem_and_desired_outcome,
-                "overview": report.headline,
+                "counts": report.headline,
+                # The conclusion a reader has in front of them, so a question about it is
+                # answerable. Composed from these same verdicts by an earlier call, which is
+                # why the contract names it as the review's own reading rather than as
+                # evidence — it adds no fact about the repository.
+                #
+                # Text only. Every statement knows which boundaries it rests on, and those
+                # references are exactly what must not appear in an input the model can quote
+                # back (12.0); the boundaries themselves are all below with their reasoning.
+                "conclusion": {
+                    "situation": report.overview.situation,
+                    "themes": [item.text for item in report.overview.themes],
+                    "recommended_sequence": [
+                        item.text for item in report.overview.recommended_sequence
+                    ],
+                    "limits": report.overview.limits,
+                },
+                # Background about the method, carried under a name that says what it is
+                # and is not. It has no positions and nothing binds to it: an answer's
+                # grounding is boundaries alone, so nothing here can be cited back — which
+                # is also why the policies keep their titles here, unlike in the judging
+                # stage where the reply must bind to them by position instead.
+                "background_how_archcompass_works": knowledge.method,
+                "background_policy_corpus": [
+                    {"title": policy.title, "text": policy.body}
+                    for policy in knowledge.policies
+                ],
                 # No reference codes. The model is shown the substance and answers by
                 # position; codes exist for the reader, not for the model to quote back.
                 "boundaries": [
                     {
                         "position": index,
                         "boundary": item.candidate.summary,
-                        "verdict": "material" if item.material else "not material",
+                        # Which of the three detectors found this. The advice for the two
+                        # directions of the catalogue points opposite ways, so a question
+                        # about what a boundary even is depends on knowing which it is.
+                        "pattern": item.candidate.pattern.value,
+                        # Spelled out, for the same reason the summary stage spells it out:
+                        # read as ordinary English "material" says the boundary matters,
+                        # and the verdict means the opposite.
+                        "verdict": (
+                            "NOT earning its place — this boundary should change"
+                            if item.material
+                            else "earning its place — this boundary should stay as it is"
+                        ),
                         "reasoning": item.rationale,
                         "recommended_response": item.recommended_response,
+                        # The numbers the pattern was detected from — four modules stating a
+                        # constant, two distinct values among them. Without them a question
+                        # like "how many copies are there?" is answerable only from whatever
+                        # the prose happens to have restated.
+                        "measurements": [
+                            {"name": measure.name, "value": measure.value, "unit": measure.unit}
+                            for measure in item.candidate.measurements
+                        ],
                         "policies_that_bear": [
                             f"{bearing.policy_title}: {bearing.how}"
                             for bearing in item.policy_bearings
@@ -424,14 +671,18 @@ class StructuredReasoningProvider:
                 "the order the boundaries appear above."
             ),
             schema_override=self._review_answer_schema(boundary_count=expected),
-            candidate_validator=lambda item: (
-                []
-                if len(item.supported_by) == expected
-                else [
-                    f"supported_by must contain exactly {expected} values, one per boundary "
-                    f"in order, but contains {len(item.supported_by)}"
-                ]
-            ),
+            candidate_validator=lambda item: [
+                *_prose_defects("answer", item.answer),
+                *(
+                    [
+                        f"supported_by must contain exactly {expected} values, one per "
+                        f"boundary in order, but contains {len(item.supported_by)}"
+                    ]
+                    if len(item.supported_by) != expected
+                    else []
+                ),
+            ],
+            preview=preview,
         )
         return ReviewAnswer(
             answer=proposed.answer,
@@ -534,6 +785,7 @@ class StructuredReasoningProvider:
         allow_repair: bool = True,
         think: ThinkLevel = None,
         temperature: float | None = None,
+        preview: ProsePreview | None = None,
     ) -> Item:
         contract = STAGE_PROMPTS[task]
         label = self._transport.provider_label
@@ -559,6 +811,7 @@ class StructuredReasoningProvider:
                 schema_override=schema_override,
                 think=self._think_for(think),
                 temperature=temperature,
+                preview=preview,
             )
             try:
                 candidate = output_type.model_validate_json(content)
@@ -587,6 +840,10 @@ class StructuredReasoningProvider:
                     ),
                 },
             ]
+            # Deliberately not previewed. The repair round rewrites a reply that failed
+            # validation, so streaming it would replace text a reader is part-way through
+            # with a second version of the same answer, and there is no honest way to
+            # narrate that in a stream of fragments. The repaired answer lands whole.
             repaired = self._chat(
                 output_type,
                 repair_messages,
@@ -666,6 +923,7 @@ class StructuredReasoningProvider:
         schema_override: Mapping[str, object] | None = None,
         think: ThinkLevel = None,
         temperature: float | None = None,
+        preview: ProsePreview | None = None,
     ) -> str:
         # The schema is the full JSON Schema, not a generic "return JSON" flag: that
         # constrains generation to the exact shape rather than merely to valid JSON,
@@ -674,7 +932,23 @@ class StructuredReasoningProvider:
             schema_override if schema_override is not None else output_type.model_json_schema()
         )
         self._guard_prompt_budget(task, messages, resolved_schema)
-        return self._transport.complete(
+        transport = self._transport
+        # The budget guard runs first either way. A preview asked for by a stage whose
+        # transport cannot stream is not an error and not worth reporting: the answer is the
+        # same one, and the only difference is that no fragment arrives before it.
+        if preview is not None and isinstance(transport, StreamingChatTransport):
+            return _accumulated(
+                transport.stream(
+                    messages,
+                    schema=resolved_schema,
+                    task=task,
+                    is_fast=task in self._FAST_TASKS,
+                    think=think,
+                    temperature=temperature,
+                ),
+                preview,
+            )
+        return transport.complete(
             messages,
             schema=resolved_schema,
             task=task,

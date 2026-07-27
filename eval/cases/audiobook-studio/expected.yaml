@@ -1,0 +1,92 @@
+# The scoring key for this fixture.
+#
+# Modelled on a real project, and on the reason ArchCompass exists. That project's author
+# watched a coding agent spread vendor customisations through modules that had no business
+# knowing a vendor existed, and had to push it, by hand, towards a provider interface with
+# the specifics kept behind it. This fixture is that repository's shape after the argument
+# was won: the interfaces are there, and some of the specifics never moved behind them.
+#
+# It is a written imitation, not a copy of that codebase — the same convention as
+# `speech-vendor` — because a fixture has to stay still while the repository it stands for
+# keeps moving.
+#
+# Two things make it the hardest of the three cases.
+#
+# First, it exercises all three detectors, and both verdicts appear under each of the two
+# repetition detectors. A run cannot score by learning that duplication is bad or that a
+# vendor name outside its package is bad: for each of those shapes one instance is a real
+# finding and one is not, and only the case says which.
+#
+# Second, the shapes here are the ones that used to be invisible. Every adapter conforms
+# structurally rather than inheriting, returns its own concrete type where the port
+# declares the abstract one, and widens a signature the port left narrow. `Voice` is a
+# marker Protocol with no methods at all. A detector that reads a port by the spelling of
+# its base class, or that treats an adapter's covariance as evidence it is unrelated, finds
+# nothing whatsoever in this repository — and reports that as a clean bill of health.
+
+boundaries:
+  - abstraction: synthesis.base.SynthesisProvider
+    material: false
+    because: >-
+      The speech seam, at the edge the change actually arrives at. The case says a second
+      speech vendor is under contract and that both will stay in service, so the second
+      implementation is scheduled rather than imagined, and this boundary is drawn exactly
+      where the variation is coming.
+
+  - abstraction: preparation.base.NarrationPreparer
+    material: true
+    because: >-
+      The same shape, one step along, and the case rules the variation out in as many words:
+      a second text-preparation runtime is an explicit non-goal, and the step is described
+      as an internal detail nobody has asked to vary. A boundary cannot absorb a change the
+      case has excluded, so this one is a registry, a protocol and a factory in front of one
+      concrete thing.
+
+      This is the discrimination the fixture turns on. Both interfaces are written
+      identically and neither can be told from the other by counting — only by reading what
+      the case says is coming and what it says is not.
+
+  - abstraction: assembly.audio.SAMPLE_RATE
+    material: true
+    because: >-
+      One fact with two homes. The case states outright that the writer and the settings
+      must agree or the finished file is silently wrong, and nothing in the repository makes
+      that happen — the copies agree today by luck, and the failure when they stop agreeing
+      is silent by the case's own description.
+
+      The advice runs opposite to the boundaries above: this is not indirection to remove,
+      it is knowledge with no owner. A run that proposes deleting an abstraction here has
+      read the shape and missed the direction.
+
+  - abstraction: preparation._BACKENDS
+    material: false
+    because: >-
+      The same detector, the opposite answer. Two registries hold a dict under the same
+      private name, and the case says plainly that they are independent of one another —
+      each names the backends of its own step, and neither has needed to know what the other
+      holds. Two modules sharing a name are not thereby sharing a fact, and giving these one
+      owner would invent a coupling that does not exist.
+
+  - abstraction: synthesis.qwen
+    material: true
+    because: >-
+      The vendor sits behind a seam the case calls correct — `SynthesisProvider` is scored
+      not-material above — and its name is written into modules anyway. Two of the four that
+      name it are the point: the audio writer stamps it into file metadata, and the
+      pre-flight check carries its own copy of the package list that `check_available`
+      exists to answer. Neither has any other reason to change when a vendor does, which is
+      the quality attribute the case states.
+
+      That a boundary exists is not the same as a boundary being used, and this is the
+      finding that says so.
+
+  - abstraction: preparation.ollama
+    material: false
+    because: >-
+      The same detector, the opposite answer, and the discrimination is *which* modules
+      name it. Only the composition root and a test do. Something must choose a backend, and
+      a test that exercises one has to name the one it exercises; hiding either would help
+      nobody. Nothing here would have to be edited because a preparation backend changed.
+
+      Scored not-material even though the count alone looks like the finding above it. A run
+      that reports every named backend has learned the shape and not the question.

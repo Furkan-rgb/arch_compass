@@ -9,7 +9,6 @@ import {
   FilePlus2,
   FileSearch,
   FlaskConical,
-  Network,
   PencilLine,
   Play,
   Plus,
@@ -264,18 +263,6 @@ export function HomePage() {
               The workspace must not sit inside the project being analysed.
             </p>
             {index.isError ? <ErrorPanel error={index.error} /> : null}
-
-            {repositoryRoot ? (
-              // The graph explorer is not a destination in its own right (workspace-design
-              // §4). It is reachable from here, with a question attached, until findings
-              // themselves can open onto it.
-              <Link
-                className="text-link"
-                to={`/repositories?root=${encodeURIComponent(repositoryRoot)}`}
-              >
-                <Network size={15} aria-hidden /> Explore this atlas <ArrowRight size={14} />
-              </Link>
-            ) : null}
           </div>
 
           <div className={`rail ${caseId ? "rail--filled" : ""}`}>

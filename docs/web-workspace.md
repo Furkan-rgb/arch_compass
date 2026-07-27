@@ -227,6 +227,13 @@ lists them oldest first, labelled by their first question, with the newest open 
 A new thread is created when there is finally a question to put in it, so an empty
 conversation never appears in a listing.
 
+**An answer reads as it is written.** Where the configured provider can stream — Ollama today,
+not yet Google — the prose arrives in fragments and is marked *still being written* until the
+appended message lands; where it cannot, the answer simply arrives whole and nothing is marked. A preview carries no
+grounding line, because grounding is derived from flags that do not exist until the reply is
+complete — and a turn that showed text and then failed is a failed turn in the history, not a
+half-answer (ADR 0008).
+
 A **provenance line** states what the review is pinned to — case revision, atlas version,
 the number of policies presented to every boundary, the reasoning model, when it ran. All
 of it was already in the record; printing it answers the first question a second reading
@@ -253,29 +260,30 @@ Each verdict is on its node — amber for a boundary that should change, green f
 examined and found to be earning its place, plain for everything else. A cleared boundary is
 deliberately not drawn as an ordinary node: "examined and cleared" and "never looked at" are
 different facts, and erasing the difference would undo what an exhaustive sweep is for.
-Selecting a node lands on that boundary's finding, highlighted, by the same `#BR-003` anchor
-a citation uses. It sits after the findings rather than before them, because "where does
-this sit" is a question a reader has only once they know what was decided.
+Selecting a node shows its verdict beside the map, where the click was made. It sits after
+the findings rather than before them, because "where does this sit" is a question a reader
+has only once they know what was decided.
 
 ## The atlas explorer
 
-The graph explorer keeps its route at `/repositories` and has left the navigation. It is
-entered with a question attached, never as a destination:
+The explorer has no route of its own. `/repositories` is gone and redirects to the flow, so
+a bookmark does not 404. The only map is the one inside a review, where a boundary is
+already the question being asked (workspace-design §4).
 
-- From the repository rail — "explore this atlas", carrying the chosen root as `?root=` — so
-  it opens on the repository the flow is pointed at rather than whichever was indexed last.
-- From a finding — "show BR-001 in the atlas", carrying `?root=…&node=…` — so it opens on the
-  abstraction that verdict is about, with its reverse neighbourhood expanded when the bounded
-  summary does not already contain it. What depends on this abstraction is the question the
-  reader arrived with (workspace-design §4).
+"Show BR-001 in the atlas" is therefore a move within the page, not a navigation: it selects
+that boundary's node and scrolls to the map section below. Selection is held by the review
+page rather than by the map, so a finding and the map cannot disagree about which node is
+the current one.
 
-It reads the indexed atlas directly, so it needs no review to have been run.
+The interactive `RepositoryAtlas` renders from the freshness-checked node-inspection and
+explore APIs. Selecting a node updates its metrics and relationship inspector; hotspot and
+contained-complexity states use labels and symbols in addition to colour.
 
-The interactive `RepositoryAtlas` renders from the latest freshness-checked summary,
-hotspot and node-inspection APIs. Selecting a node updates its metrics and relationship
-inspector; hotspot and contained-complexity states use labels and symbols in addition to
-colour. It reads the indexed atlas directly and is independent of whether any review has
-been run.
+Selecting a node answers where the click was made. It does not write a location hash — that
+threw the reader back up to the finding, away from the map they had just started reading —
+and it does not re-centre the canvas, which dragged the graph out from under the pointer.
+Selections that arrive from anywhere else (search, keyboard, the detail panel, a finding
+above) still centre, because those can land on a node that is nowhere in view.
 
 Atlas placement is deterministic and connection-aware: containment and allocation relationships
 establish layers, homogeneous subgraphs use graph distance, and barycentric ordering keeps connected

@@ -30,6 +30,7 @@ from archcompass.adapters.persistence import (
 from archcompass.adapters.retrieval import (
     MarkdownPolicySourceInspector,
     SQLitePolicyStore,
+    load_method_primer,
 )
 from archcompass.application.atlas_freshness import AtlasFreshnessService
 from archcompass.application.atlas_queries import AtlasService
@@ -171,6 +172,8 @@ def build_runtime(
         cases=cases,
         conversations=review_conversations,
         reasoner=reasoning,
+        policies=policy_service,
+        method_primer=load_method_primer(),
     )
     review_service = ReviewService(
         cases=cases,

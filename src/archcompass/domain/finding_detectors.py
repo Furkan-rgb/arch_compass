@@ -17,18 +17,21 @@ single implementation hiding nothing — the shape this very module reports.
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 
 from archcompass.domain.atlas import (
     Atlas,
     AtlasEdge,
     AtlasNode,
+    DefinedConstant,
     EdgeType,
     FindingCandidate,
     FindingMeasurement,
     FindingParticipant,
     FindingPattern,
     MetricNature,
+    ModuleFacts,
     NodeType,
     SourceLocation,
 )
@@ -50,15 +53,19 @@ def _location(node: AtlasNode) -> SourceLocation | None:
 
 
 def detect_finding_candidates(atlas: Atlas) -> list[FindingCandidate]:
-    """Every candidate the MVP catalogue can find in one atlas.
+    """Every candidate the catalogue can find in one atlas, in a stable order.
 
-    One detector today (master plan 8A.3). Consumers call this rather than the detector
-    directly, so adding the second pattern is a line here instead of a change at every
-    call site.
+    Both directions of master plan 8A.3 run here. Order is by detector and then by the
+    detector's own deterministic ordering, because `BR-nnn` references are assigned from
+    position: the same atlas must always number the same boundary the same way.
     """
 
     nodes = {node.atlas_id: node for node in atlas.nodes}
-    return sole_implementation_candidates(nodes, atlas.edges)
+    return [
+        *sole_implementation_candidates(nodes, atlas.edges),
+        *duplicated_knowledge_candidates(atlas.module_facts),
+        *scattered_concept_candidates(nodes, atlas.edges, atlas.module_facts),
+    ]
 
 
 def sole_implementation_candidates(
@@ -168,3 +175,236 @@ def sole_implementation_candidates(
             )
         )
     return candidates
+
+
+#: What comparing module text cannot establish, stated on every duplication candidate.
+_DUPLICATED_KNOWLEDGE_LIMITS = (
+    "Compared by constant name and by a fingerprint of the literal value in this snapshot. "
+    "Two modules stating the same name may be describing unrelated things, a value assembled "
+    "at runtime is not compared at all, and knowledge repeated without a shared name — the "
+    "same rule written out twice in different words — is invisible to this method."
+)
+
+#: The same, for a concept whose name has spread beyond the module that owns it.
+_SCATTERED_CONCEPT_LIMITS = (
+    "Counted by name only: identifiers and string literals in this snapshot that contain the "
+    "owning module's name, outside the package that owns it. Docstrings are excluded. A "
+    "mention is not evidence of a dependency — a name may be a coincidence, and configuration "
+    "or wiring that legitimately names a backend will appear here — and knowledge that leaked "
+    "without carrying the name with it cannot be seen this way at all."
+)
+
+
+def duplicated_knowledge_candidates(
+    module_facts: list[ModuleFacts],
+) -> list[FindingCandidate]:
+    """One constant stated in several modules, with no module owning it.
+
+    The direction the sole-implementation detector cannot see. An advisor that reports only
+    unnecessary abstractions becomes an advocate for copying, so this is the counterweight:
+    here the advice, where the case supports one, is *give this one owner* rather than
+    *remove the boundary*.
+
+    Agreement is not the question. Two modules stating the same constant with the same value
+    are a coordinated edit waiting to happen; two stating it with *different* values may have
+    drifted already. Both are reported, and the measurements say which this is, because only
+    the case can say whether one owner is worth introducing.
+    """
+
+    by_name: dict[str, list[tuple[ModuleFacts, DefinedConstant]]] = defaultdict(list)
+    for module in module_facts:
+        for constant in module.constants:
+            by_name[constant.name].append((module, constant))
+
+    candidates: list[FindingCandidate] = []
+    for name, statements in sorted(by_name.items()):
+        # One module stating a constant is a module owning it, which is the thing that is
+        # supposed to happen.
+        if len({module.node_id for module, _ in statements}) < 2:
+            continue
+        ordered = sorted(statements, key=lambda item: item[0].path)
+        fingerprints = {constant.value_fingerprint for _, constant in ordered}
+        literal = [item for item in fingerprints if item]
+        agreed = len(literal) == 1 and len(fingerprints) == 1
+        candidates.append(
+            FindingCandidate(
+                pattern=FindingPattern.DUPLICATED_KNOWLEDGE,
+                summary=(
+                    f"{name} is stated in {len(ordered)} modules"
+                    + (
+                        " with the same value."
+                        if agreed
+                        else " and the copies do not all hold the same value."
+                        if len(literal) > 1
+                        else "."
+                    )
+                ),
+                participants=[
+                    FindingParticipant(
+                        node_id=module.node_id,
+                        qualified_name=f"{module.qualified_name}.{name}",
+                        location=SourceLocation(
+                            path=module.path,
+                            start_line=constant.line,
+                            end_line=constant.line,
+                        ),
+                        role=f"States {name} at this location.",
+                    )
+                    for module, constant in ordered
+                ],
+                measurements=[
+                    FindingMeasurement(
+                        name="modules_stating_it",
+                        value=float(len(ordered)),
+                        unit="modules",
+                        nature=MetricNature.MEASUREMENT,
+                        definition=(
+                            "Modules defining a module-level constant of this name in this "
+                            "snapshot."
+                        ),
+                        limitations=_DUPLICATED_KNOWLEDGE_LIMITS,
+                    ),
+                    FindingMeasurement(
+                        name="distinct_values",
+                        value=float(len(literal)),
+                        unit="values",
+                        nature=MetricNature.MEASUREMENT,
+                        definition=(
+                            "Distinct literal values among those copies. One means they "
+                            "agree today; more than one means they have already drifted; "
+                            "zero means no copy is a literal this method can compare."
+                        ),
+                        limitations=_DUPLICATED_KNOWLEDGE_LIMITS,
+                    ),
+                ],
+                relationships=[],
+                limitations=_DUPLICATED_KNOWLEDGE_LIMITS,
+            )
+        )
+    return candidates
+
+
+def scattered_concept_candidates(
+    nodes: dict[str, AtlasNode],
+    edges: list[AtlasEdge],
+    module_facts: list[ModuleFacts],
+) -> list[FindingCandidate]:
+    """A concept that has an owner, named in modules that go around it.
+
+    Restricted to concepts that already have somewhere to live: the module must contain an
+    implementation of an abstraction, so there is a port through which the rest of the
+    repository could have reached it. That restriction is what makes the finding meaningful
+    rather than a word count — the question is not "is this name used" but "is this name
+    used by code that was given a boundary to use instead".
+
+    It is still only a name. A module that names a backend may be the wiring that is
+    supposed to, which is why this is a candidate and not a verdict.
+    """
+
+    module_by_path = {module.path: module for module in module_facts}
+    # Each implementing module, with the vocabulary of the abstractions it implements.
+    abstraction_words: dict[str, set[str]] = defaultdict(set)
+    for edge in edges:
+        if edge.edge_type is not EdgeType.IMPLEMENTS:
+            continue
+        implementor = nodes.get(edge.source_id)
+        abstraction = nodes.get(edge.target_id)
+        if implementor is None or abstraction is None:
+            continue
+        abstraction_words[implementor.path] |= _words(
+            abstraction.qualified_name.rsplit(".", maxsplit=1)[-1]
+        )
+
+    candidates: list[FindingCandidate] = []
+    for path in sorted(abstraction_words):
+        owner = module_by_path.get(path)
+        if owner is None:
+            continue
+        concept = path.rsplit("/", maxsplit=1)[-1].removesuffix(".py").casefold()
+        if not concept or concept.startswith("_"):
+            continue
+        # A module named after the concept its abstraction is about is not a variant whose
+        # name has escaped — it *is* the concept, and the rest of the repository naming it
+        # is the domain vocabulary rather than a leak. `voices.py` behind `VoiceValidator`
+        # is that; `qwen.py` behind `SpeechProvider` is not.
+        if any(_shares_a_stem(concept, word) for word in abstraction_words[path]):
+            continue
+        package = path.rsplit("/", maxsplit=1)[0] if "/" in path else ""
+        outside = sorted(
+            (
+                module
+                for module in module_facts
+                if concept in module.mentions
+                # Its own package is where the concept is supposed to be known: the port
+                # beside it, and the wiring that registers it, both name it on purpose.
+                and not (module.path == path or module.path.startswith(f"{package}/"))
+            ),
+            key=lambda module: module.path,
+        )
+        if not outside:
+            continue
+        candidates.append(
+            FindingCandidate(
+                pattern=FindingPattern.SCATTERED_CONCEPT,
+                summary=(
+                    f"{owner.qualified_name} is implemented behind an abstraction, yet "
+                    f"'{concept}' is named in {len(outside)} module(s) outside its package."
+                ),
+                participants=[
+                    FindingParticipant(
+                        node_id=owner.node_id,
+                        qualified_name=owner.qualified_name,
+                        location=SourceLocation(path=owner.path, start_line=1, end_line=1),
+                        role=f"Owns '{concept}' and is reachable through an abstraction.",
+                    ),
+                    *[
+                        FindingParticipant(
+                            node_id=module.node_id,
+                            qualified_name=module.qualified_name,
+                            location=SourceLocation(
+                                path=module.path, start_line=1, end_line=1
+                            ),
+                            role=f"Names '{concept}' from outside the package that owns it.",
+                        )
+                        for module in outside
+                    ],
+                ],
+                measurements=[
+                    FindingMeasurement(
+                        name="modules_naming_it_from_outside",
+                        value=float(len(outside)),
+                        unit="modules",
+                        nature=MetricNature.STRUCTURAL_PROXY,
+                        definition=(
+                            "Modules outside the owning package whose identifiers or string "
+                            "literals contain the owning module's name."
+                        ),
+                        limitations=_SCATTERED_CONCEPT_LIMITS,
+                    ),
+                ],
+                relationships=[],
+                limitations=_SCATTERED_CONCEPT_LIMITS,
+            )
+        )
+    return candidates
+
+
+def _words(name: str) -> set[str]:
+    """The lower-case words in an identifier, split at camel-case humps and punctuation."""
+
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name)
+    return {word.casefold() for word in re.split(r"[^A-Za-z0-9]+", spaced) if word}
+
+
+def _shares_a_stem(concept: str, word: str, *, minimum: int = 4) -> bool:
+    """Whether two words are the same term, allowing for a plural or a suffix.
+
+    Deliberately blunt — a prefix test rather than a stemmer. The question it answers is
+    only "was this module named after the thing its port is about", and `voices`/`voice` is
+    the shape that keeps arising. The minimum length keeps short words like `id` or `run`
+    from matching everything.
+    """
+
+    if len(concept) < minimum or len(word) < minimum:
+        return concept == word
+    return concept.startswith(word) or word.startswith(concept)

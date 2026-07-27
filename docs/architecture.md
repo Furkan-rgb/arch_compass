@@ -79,10 +79,10 @@ selected configuration path does not exist.
 Review conversations use the same dependency direction and need far less machinery than
 the consultation conversations they replaced. A whole review serialises to roughly 25,000
 characters, so the service hands the pinned review, the history and the question to the
-stage; there is no retrieval to plan, no cumulative ceiling to apply and no rolling summary
-to revise. A structural test enforces that `adapters/models` may not import the application
-package, so a model adapter cannot become the thing that decides what evidence an answer
-rests on.
+stage; there is no cumulative ceiling to apply and no rolling summary to revise. A
+structural test enforces that `adapters/models` may not import the application package, so
+a model adapter cannot become the thing that decides what evidence an answer rests on —
+including the background described next, which the service assembles and passes in.
 
 Reasoning stages are named once by the `ReasoningTask` enum rather than by repeated string
 literals, and a test asserts the enum and the prompt registry are the same set, so a stage
@@ -104,9 +104,28 @@ policy count and the stage re-checks it after parsing, because a short reply wou
 one answer — it would shift every later answer onto the wrong policy and still validate.
 
 **Answering a question about a review.** The whole review goes into every turn, about
-25,000 characters against an input budget near 490,000. There is no retrieval plan, no
-cumulative budget and no rolling summary, because the evidence fits. Boundaries are
-presented without their `BR-nnn` codes and the answer marks supporting ones by position.
+25,000 characters against an input budget near 490,000. There is no cumulative budget and
+no rolling summary, because the evidence fits. Boundaries are presented without their
+`BR-nnn` codes and the answer marks supporting ones by position.
+
+Alongside it goes *background*: the bundled method primer
+(`archcompass/knowledge/method.md`) and the whole policy corpus, so a reader can ask what a
+boundary is or what a policy argues rather than only what this review found. Evidence and
+background are different things and the separation is the point. The review is evidence —
+always present in full and the only thing that can ground an answer. Background says what
+the review's words *mean*, and is never citable.
+
+**Background is presented whole, not retrieved.** An sqlite-vec index over this corpus was
+built and measured before this was settled. Over 252 chunks and ten questions with known
+answers it scored 7/10 top-1 with `embeddinggemma` (768d) and 2/10 with the deterministic
+test embedder — and it missed the primer's own "what the detector cannot see" section when
+asked exactly that. The corpus is about 45,000 characters against an input budget near
+490,000, so it fits several times over and ranking only introduced a way to lose the passage
+that mattered. Retrieval earns its complexity when the evidence does not fit; here it does.
+
+A corpus that cannot be read is not a conversation failure: background degrades to the
+bundled primer alone and the question is still answered, rather than taking a working
+conversation off a person.
 
 Neither stage receives an `Atlas` aggregate, a repository root, or a complete source tree.
 

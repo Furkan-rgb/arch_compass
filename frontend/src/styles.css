@@ -968,15 +968,22 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
   grid-template-columns: minmax(0, 1fr) 290px;
   min-height: 360px;
 }
+/* A column, so the canvas grows into whatever height the row ends up with. As a plain
+   grid cell the viewport stretches to match the taller detail column while the canvas
+   kept its own fixed height, leaving dead background below the graph. */
 .atlas-viewport {
   position: relative;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
   border-right: 1px solid var(--color-border);
 }
 .atlas-canvas {
   position: relative;
+  flex: 1 1 auto;
   min-width: 0;
-  height: 520px;
+  min-height: 520px;
   overflow: auto;
   background: var(--atlas-canvas-bg);
   cursor: grab;
@@ -1246,6 +1253,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 
 @media (max-width: 1120px) {
   .policy-grid { grid-template-columns: repeat(2, 1fr); }
+  .bearings, .bearings:not(:has(> :nth-child(3))) { columns: 2; }
   .run-row { grid-template-columns: auto 1fr auto auto; }
   .run-row > span:not(.run-row__status), .run-row time { display: none; }
   .compass-trail { grid-template-columns: repeat(4, 1fr); row-gap: 15px; }
@@ -1307,9 +1315,10 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
   .atlas-panel__header { align-items: flex-start; flex-direction: column; }
   .atlas-toolbar__hint { width: 100%; margin-left: 0; }
   .atlas-controls { margin-left: auto; }
+  .bearings, .bearings:not(:has(> :nth-child(3))) { columns: 1; }
   .atlas-layout { grid-template-columns: 1fr; }
   .atlas-viewport { border-right: 0; border-bottom: 1px solid var(--color-border); }
-  .atlas-canvas { height: 420px; }
+  .atlas-canvas { min-height: 420px; }
   .atlas-metric-strip { grid-template-columns: repeat(2, 1fr); }
   .atlas-metric-strip > div { border-bottom: 1px solid var(--color-border); }
   .revision-run-panel { grid-template-columns: 1fr; }
@@ -1410,13 +1419,29 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 .finding__reasoning { max-width: 78ch; margin: 0 0 13px; line-height: 1.62; }
 .finding__action { max-width: 78ch; margin: 0 0 13px; padding: 11px 14px; border-radius: 7px; background: var(--color-warning-soft); color: var(--color-warning); line-height: 1.55; }
 
-.finding__policies { max-width: 78ch; margin: 0 0 12px; padding: 12px 14px; border-radius: 7px; background: var(--color-bg-subtle); font-size: 13px; }
+/* Wider than the 78ch prose column: three cards abreast need the room, and this block is
+   substantiation to scan rather than a paragraph to read. */
+.finding__policies { margin: 0 0 12px; padding: 12px 14px; border-radius: 7px; background: var(--color-bg-subtle); font-size: 13px; }
 .finding__policies-head { margin: 0; color: var(--ink-muted); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-.finding__policies ul { display: grid; gap: 7px; margin: 9px 0 0; padding-left: 17px; color: var(--color-text-secondary); line-height: 1.55; }
-.finding__policies strong { color: var(--color-text-primary); }
-.finding__policies--none { padding: 0; background: none; color: var(--color-text-tertiary); }
+/* Multi-column, so each card is exactly as tall as its own sentence and the next one starts
+   against its underside. A grid cannot do that: its rows are uniform, so one wordy bearing
+   set the height of every card beside it and left a band of dead background under the rest.
+   The column count then steps down with the count, because multi-column's own failure is the
+   mirror image — three columns holding two cards leaves the right third blank, and out of 27
+   policies most boundaries bear two or three. Between them there is no empty space either
+   way. Without `:has` this degrades to three columns, which is merely the old behaviour.
+   Named `bearing`, not `policy-card`: that class already belongs to the Policies page, and
+   these were inheriting its 255px floor, its hover lift and its pointer cursor. */
+.bearings { columns: 3; column-gap: 10px; margin: 10px 0 0; padding: 0; list-style: none; }
+.bearings:not(:has(> :nth-child(3))) { columns: 2; }
+.bearings:not(:has(> :nth-child(2))) { columns: 1; }
+.bearing { break-inside: avoid; margin: 0 0 10px; padding: 11px 12px; border: 1px solid var(--color-border); border-radius: 7px; background: var(--color-bg-surface); }
+.bearing__title { display: block; margin-bottom: 4px; color: var(--color-text-primary); font-size: 12.5px; font-weight: 650; line-height: 1.35; }
+.bearing__how { display: block; color: var(--color-text-secondary); font-size: 12.5px; line-height: 1.5; }
+.finding__policies--none { max-width: 78ch; padding: 0; background: none; color: var(--color-text-tertiary); }
 .finding__limits { max-width: 78ch; margin: 0; color: var(--color-text-tertiary); font-size: 12px; line-height: 1.5; }
-.finding__atlas { display: inline-flex; gap: 6px; align-items: center; margin-top: 12px; color: var(--color-accent-strong); font-size: 13px; text-decoration: none; }
+/* A button now, not a link: the map it shows is a section of this same page. */
+.finding__atlas { display: inline-flex; gap: 6px; align-items: center; margin-top: 12px; padding: 0; border: 0; background: none; color: var(--color-accent-strong); font: inherit; font-size: 13px; text-decoration: none; cursor: pointer; }
 .finding__atlas:hover { text-decoration: underline; }
 
 /* The dock rides the viewport bottom while the page has further to scroll, then lands in
@@ -1426,6 +1451,15 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
   position: sticky;
   bottom: 0;
   z-index: 12;
+  /* A column so the history is the only part that flexes: the input and the thread row keep
+     their size at every height, and the cap below can never squeeze the form out of reach. */
+  display: flex;
+  flex-direction: column;
+  /* Two heights, because the dock is two things. Riding the bottom of the viewport it sits
+     over content still being read, so it stays out of the way however long the thread gets;
+     once the review's content has ended there is nothing left underneath to cover, and it
+     may use the screen. `--dock-max` is set by `.dock--settled`. */
+  max-height: var(--dock-max, 20vh);
   margin: 0 -6px;
   padding: 12px 14px;
   border: 1px solid var(--line);
@@ -1433,16 +1467,30 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
   background: var(--color-bg-surface);
   box-shadow: 0 -2px 16px rgb(16 22 30 / 9%), var(--shadow-panel);
 }
+.dock--settled { --dock-max: 100vh; }
+/* Zero-width marker sitting at the end of the page's content, just above the dock. What it
+   reports is read in `ReviewDetailPage`; it has no appearance of its own. */
+.dock__anchor { height: 1px; }
+.dock__toggle,
+.dock__threads,
+.dock__form { flex: 0 0 auto; }
 .dock__toggle { display: flex; gap: 8px; align-items: center; width: 100%; padding: 4px 2px 10px; border: 0; background: none; color: var(--ink-muted); font: inherit; font-size: 13px; cursor: pointer; }
 .dock__toggle:hover { color: var(--color-text-primary); }
 .dock__chevron { margin-left: auto; transition: transform .18s ease; }
 .dock--open .dock__chevron { transform: rotate(180deg); }
-.dock__history { display: grid; gap: 15px; max-height: min(46vh, 460px); margin: 0 0 13px; padding: 3px 4px 3px 0; overflow-y: auto; list-style: none; }
+/* The only part that flexes, and the only part that scrolls. `min-height: 0` is what lets it
+   actually shrink inside the cap — a flex item's automatic minimum is its content, so without
+   it a long thread pushes the form off the bottom of the dock instead of scrolling. */
+.dock__history { display: grid; flex: 1 1 auto; gap: 15px; min-height: 0; margin: 0 0 13px; padding: 3px 4px 3px 0; overflow-y: auto; list-style: none; }
 .dock__q { margin: 0 0 7px; font-weight: 600; }
 .dock__a { max-width: 82ch; margin: 0 0 6px; line-height: 1.6; white-space: pre-wrap; }
 .dock__grounding { margin: 0; color: var(--color-text-tertiary); font-size: 12px; }
 .dock__grounding--none { color: var(--color-warning); }
 .dock__failed { margin: 0; color: var(--color-warning); font-size: 13px; }
+/* The turn in flight. Marked with a rule rather than a spinner: the arriving words are
+   already the progress indicator, and the caption says what the state is. */
+.dock__pending { padding-left: 11px; border-left: 2px solid var(--color-accent); }
+.dock__grounding--pending { color: var(--color-text-tertiary); font-style: italic; }
 /* One row of threads: durable, so worth returning to, and never more than a handful. */
 .dock__threads { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .dock__threads button { display: inline-flex; gap: 4px; align-items: center; max-width: 34ch; padding: 4px 11px; color: var(--ink-muted); border: 1px solid var(--line); border-radius: 20px; background: var(--color-bg-surface); cursor: pointer; font-size: 12.5px; white-space: nowrap; }

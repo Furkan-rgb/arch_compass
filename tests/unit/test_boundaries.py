@@ -134,9 +134,11 @@ def test_web_routes_use_application_services_only() -> None:
 def test_review_answers_are_assembled_before_model_adapters() -> None:
     """The stage receives typed domain objects; it does not fetch or choose evidence.
 
-    Its parameters are the whole pinned review, the history, and the question. Nothing it
-    is given is a handle it would have to resolve, and there is nothing for it to retrieve,
-    so a model adapter cannot become the thing that decides what evidence an answer rests on.
+    Its parameters are the whole pinned review, the history, the question, and the
+    background passages the application already retrieved for it. Nothing it is given is a
+    handle it would have to resolve, and there is nothing left for it to retrieve — the
+    application decides what an answer may be built from, including which background it
+    sees, so a model adapter cannot become the thing that chooses its own evidence.
     """
 
     for path in (
@@ -157,6 +159,7 @@ def test_review_answers_are_assembled_before_model_adapters() -> None:
             "review",
             "history",
             "question",
+            "knowledge",
         ], path
 
     adapters = ast.parse(

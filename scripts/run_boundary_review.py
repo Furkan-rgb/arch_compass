@@ -6,13 +6,17 @@ three of them justified and three not. A run that clears all six is an abstracti
 generator, a run that condemns all six is an abstraction destroyer, and the score separates
 those from an advisor.
 
-`--all` adds `speech-vendor`, which is the same shape asking a harder question. There
+`--all` adds two more. `speech-vendor` is the same shape asking a harder question: there
 every boundary stands in front of a change the case says is coming, so clearing all six is
-the plausible mistake rather than the lazy one; what separates them is whether each seam is
-at the edge the change arrives at. Read the two scores separately — a total across both
-hides which failure mode is live.
+the plausible mistake rather than the lazy one, and what separates them is whether each
+seam is at the edge the change arrives at. `audiobook-studio` is harder again, and the only
+one that exercises all three detectors — under each repetition detector one instance is a
+real finding and one is not, so a run that has learned "duplication is bad" scores no better
+than one that has learned nothing.
 
-Running both is the closest thing to a regression suite for judgement quality. It stays a
+Read the scores separately — a total across all three hides which failure mode is live.
+
+Running them all is the closest thing to a regression suite for judgement quality. It stays a
 script rather than a workspace button: it is tens of model calls, and the browser
 deliberately has no queue for work that long (master plan §18). Run it against the local
 model — a metered free tier cannot serve it.

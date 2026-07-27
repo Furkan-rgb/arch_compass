@@ -1028,6 +1028,8 @@ export function RepositoryAtlas({
     worldY: number;
   } | null>(null);
   const suppressNodeClick = useRef(false);
+  /** The node the last canvas click selected, so the centring effect can leave it alone. */
+  const clickedNodeId = useRef<string | null>(null);
   const definitionId = useId().replaceAll(":", "");
   const gridId = `atlas-grid-${definitionId}`;
   const arrowId = `atlas-arrow-${definitionId}`;
@@ -1203,6 +1205,11 @@ export function RepositoryAtlas({
 
   useEffect(() => {
     if (!selected) return;
+    // A node clicked on the canvas is already under the pointer, so centring it would drag
+    // the graph out from under the click that asked for it. Every other route to a
+    // selection — search, keyboard, the detail panel, a link into the page — can land on a
+    // node that is nowhere in view, and those still centre.
+    if (clickedNodeId.current === selected.id) return;
     const canvas = canvasRef.current;
     const position = positions.get(selected.id);
     if (!canvas || !position || typeof canvas.scrollTo !== "function") return;
@@ -1221,6 +1228,10 @@ export function RepositoryAtlas({
 
   const beginPan = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
+    // Nodes stop this event, so reaching here means the canvas itself was grabbed. Once the
+    // reader has moved the graph, the selected node is no longer where they left it, and
+    // asking for it again should bring it back into view.
+    clickedNodeId.current = null;
     const canvas = event.currentTarget;
     activePointers.current.set(event.pointerId, {
       x: event.clientX,
@@ -1306,6 +1317,7 @@ export function RepositoryAtlas({
       suppressNodeClick.current = false;
       return;
     }
+    clickedNodeId.current = nodeId;
     onSelectNode(nodeId);
   };
 

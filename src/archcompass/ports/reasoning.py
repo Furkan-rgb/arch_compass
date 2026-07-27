@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from archcompass.domain.atlas import FindingCandidate
 from archcompass.domain.case import ArchitectureCase
+from archcompass.domain.knowledge import MethodKnowledge
 from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
     BoundaryReview,
@@ -75,10 +77,52 @@ class FocusedReasoningProvider(Protocol):
         review: BoundaryReview,
         history: list[ReviewMessage],
         question: str,
+        knowledge: MethodKnowledge,
     ) -> ReviewAnswer:
         """Answer one question about a review the model is shown in full.
 
         The reply marks supporting boundaries by position in `review.report.reviewed`, so
         the order must not change between the call and the result.
+
+        `knowledge` is background about the method — the primer and the whole policy corpus,
+        presented entire rather than ranked. It explains the review's vocabulary; it is
+        never evidence about the repository, and an answer never cites it as grounding. Only
+        boundaries ground an answer, so nothing here binds by position and nothing here is
+        read back.
+        """
+        ...
+
+
+@runtime_checkable
+class StreamingAnswerReasoner(Protocol):
+    """A reasoner that can also report an answer's prose while it is being written.
+
+    Its own protocol, tested with `isinstance`, because whether a reply can be streamed is a
+    property of the vendor behind the reasoner rather than of the stage. A reasoner that
+    cannot omits the method; the application asks, and answers the question without a preview
+    when the answer is no. Folding this into `FocusedReasoningProvider` would instead make
+    every reasoner declare a capability it might not have.
+
+    What is streamed is a preview and nothing more. `stream_review_answer` returns the same
+    validated `ReviewAnswer` the non-streaming call returns, from the same validation, and
+    the answer that gets stored is that one — never the accumulated fragments. Grounding is
+    still derived from positional flags that only exist once the whole reply has arrived, so
+    a preview can never carry a citation.
+    """
+
+    def stream_review_answer(
+        self,
+        review: BoundaryReview,
+        history: list[ReviewMessage],
+        question: str,
+        knowledge: MethodKnowledge,
+        on_prose: Callable[[str], None],
+    ) -> ReviewAnswer:
+        """Answer as `answer_review_question` does, calling `on_prose` with each fragment.
+
+        Each call receives only text not yet passed, in order, so a caller may append.
+        Fragments may stop arriving before the answer does — a reply needing the one
+        sanctioned repair round is rewritten unstreamed — so a caller must treat the returned
+        answer as the text, and whatever it showed meanwhile as provisional.
         """
         ...

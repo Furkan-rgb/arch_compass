@@ -13,13 +13,7 @@ models:
     fast_timeout_seconds: 90
     deep_timeout_seconds: 360
     context_window_tokens: 131072
-    max_output_tokens: 8192
-    # true requires reasoning, false forbids it, null leaves it to the model. Null here
-    # from measurement, not principle: on the scored example gemma4:26b took 510s and
-    # scored 4/6 with true — leaking a statement-shaped JSON object into the overview's
-    # prose, schema-valid and malformed — took 40s and scored 3/6 with false, and took
-    # ~250s and scored 5-6/6 left to itself. Thinking tokens come out of
-    # max_output_tokens either way.
+    max_output_tokens: 16384
     thinking: null
   embedding:
     provider: ollama

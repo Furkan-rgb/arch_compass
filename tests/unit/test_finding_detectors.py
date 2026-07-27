@@ -1,10 +1,14 @@
 """A detector reports a shape and how it knows. It never reports a verdict.
 
-These pin the distinction the whole design rests on: `sole_implementation` fires on
-sixteen abstractions in ArchCompass's own source, and every one of them is a deliberate
-hexagonal port with a single adapter. If the pattern were treated as a violation the
-advisor would be wrong sixteen times in one run, so the tests assert what a candidate
-carries — participants, measurements, limitations — and never that it means anything.
+These pin the distinction the whole design rests on: `sole_implementation` fires on a dozen
+abstractions in ArchCompass's own source, and every one of them is a deliberate hexagonal
+port with a single adapter. If the pattern were treated as a violation the advisor would be
+wrong a dozen times in one run, so the tests assert what a candidate carries — participants,
+measurements, limitations — and never that it means anything.
+
+The count is left approximate on purpose. It was written as an exact number once, and by
+the time anyone read it again the number was wrong — which is how a stale claim in a
+docstring quietly becomes evidence for the wrong conclusion.
 """
 
 from __future__ import annotations

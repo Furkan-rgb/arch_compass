@@ -12,6 +12,7 @@ from archcompass.domain.atlas import (
     AtlasNode,
     AtlasVersion,
     MetricProfile,
+    ModuleFacts,
     ObscuritySignal,
 )
 from archcompass.domain.errors import AtlasNotFoundError
@@ -71,6 +72,16 @@ class SQLiteAtlasRepository:
                     for ordinal, signal in enumerate(atlas.signals)
                 ],
             )
+            connection.executemany(
+                """
+                INSERT INTO atlas_module_facts(version_id, node_id, facts_json)
+                VALUES (?, ?, ?)
+                """,
+                [
+                    (version.version_id, facts.node_id, facts.model_dump_json())
+                    for facts in atlas.module_facts
+                ],
+            )
             connection.commit()
 
     def get(self, version_id: str) -> Atlas:
@@ -96,6 +107,13 @@ class SQLiteAtlasRepository:
                 "SELECT signal_json FROM atlas_signals WHERE version_id = ? ORDER BY ordinal",
                 (version_id,),
             ).fetchall()
+            facts_rows = connection.execute(
+                """
+                SELECT facts_json FROM atlas_module_facts
+                WHERE version_id = ? ORDER BY node_id
+                """,
+                (version_id,),
+            ).fetchall()
         version = AtlasVersion.model_validate(dict(version_row))
         return Atlas(
             version=version,
@@ -106,6 +124,9 @@ class SQLiteAtlasRepository:
             ],
             signals=[
                 ObscuritySignal.model_validate_json(row["signal_json"]) for row in signal_rows
+            ],
+            module_facts=[
+                ModuleFacts.model_validate_json(row["facts_json"]) for row in facts_rows
             ],
         )
 

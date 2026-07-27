@@ -462,16 +462,19 @@ Detectors therefore read the atlas graph — edges, implementations, callers, re
 reach — and not only node attributes. A detector that cannot express "these N nodes,
 related this way" cannot express the findings that matter.
 
-## 8A.3 The catalogue has two halves; one is built
+## 8A.3 The catalogue has two halves; both are built
 
-**Sole implementation** — an abstraction with exactly one implementation behind it. That
-is the whole catalogue today. It is chosen because it is the direct structural trace of
-the failure in §3.1, because the policy corpus already states the rule it makes
-relevant, and because it is decidable from edges the atlas already records.
+**Sole implementation** — an abstraction with exactly one implementation behind it. It is
+chosen because it is the direct structural trace of the failure in §3.1, because the policy
+corpus already states the rule it makes relevant, and because it is decidable from edges the
+atlas already records.
 
-One detector is a deliberate limit, and its cost has to be written down rather than
-discovered later. Unnecessary complexity has two directions, and an advisor that detects
-only one becomes an advocate for the other.
+For a long time it was the whole catalogue, and the cost of that was written down here
+rather than discovered later: unnecessary complexity has two directions, and an advisor that
+detects only one becomes an advocate for the other. That cost was then paid in public. Run
+against a real repository whose actual problem was the opposite — an agent spreading vendor
+customisations through modules with no reason to know a vendor existed — the advisor
+reported nothing at all, which reads as approval.
 
 **Indirection without hiding** — an abstraction that adds a boundary while hiding
 nothing: an interface with a single implementation and no credible variation, a module
@@ -479,17 +482,32 @@ whose public surface only forwards calls, a configuration point with one value. 
 advice is usually *remove it, or do not add it*. This is the direction that ships.
 
 **Repetition without ownership** — the same knowledge or shape repeated with no common
-owner: a constant duplicated across modules, several bespoke implementations preparing
-the same request in parallel, one concept requiring coordinated edits in unrelated
-locations. The advice is usually *give this one owner* — an agnostic boundary with
-specific implementations behind it. This is not detected yet, and is the first detector
-added after the workspace milestone (§16).
+owner. The advice is usually *give this one owner* — an agnostic boundary with specific
+implementations behind it. Two detectors ship for it:
 
-Both are the same underlying judgement — where should the complexity live — reached from
-opposite sides. A single-implementation interface and three parallel bespoke providers
-are each a candidate; only the case can say which one is wrong here, and often neither
-is. Until the second direction exists ArchCompass sees half the problem, so no review
-may present its silence on repetition as evidence that none is there.
+- **Duplicated knowledge** — one module-level constant stated in several modules. The
+  measurements say how many copies and how many distinct values, so a set that has already
+  drifted is distinguishable from one that merely might.
+- **Scattered concept** — a module that already sits behind an abstraction whose name is
+  nonetheless spelled out in modules outside its package. Restricted to concepts that have
+  somewhere to live, because the question is not "is this name used" but "is this name used
+  by code that was given a boundary to use instead".
+
+Both are name-based, and both say so. A name match cannot tell a dependency from a
+coincidence, two modules can define `TIMEOUT` about unrelated things, and a composition root
+naming a backend is doing its job — which is why these are candidates and never verdicts.
+Knowledge that leaked without carrying its name along is invisible to either.
+
+Both halves are the same underlying judgement — where should the complexity live — reached
+from opposite sides. A single-implementation interface and three parallel bespoke providers
+are each a candidate; only the case can say which one is wrong here, and often neither is.
+The advice they lead to runs in opposite directions, so the judging contract names the
+pattern it was given before it reasons: applying the wrong frame produces confident
+nonsense, and "remove this boundary" is exactly the wrong answer to a fact with no owner.
+
+**Still unbuilt.** Several bespoke implementations preparing the same request in parallel is
+computed by the analyzer but only as a signal, not yet a candidate. No review may present
+its silence on that as evidence that none is there.
 
 ## 8A.4 What a detector may not do
 

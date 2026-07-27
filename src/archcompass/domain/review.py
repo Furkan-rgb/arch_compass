@@ -16,11 +16,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Final, Literal, cast
 
-from pydantic import Field, model_validator
+from pydantic import Field, computed_field, model_validator
 
-from archcompass.domain.atlas import FindingCandidate
+from archcompass.domain.atlas import FindingCandidate, FindingPattern
 from archcompass.domain.base import DomainModel, new_id, utc_now
 from archcompass.domain.diagnostics import FailureDiagnostic
 
@@ -70,6 +70,25 @@ class ReviewStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+#: The verdict in the vocabulary of each shape, keyed by pattern and then by `material`.
+#: Exhaustive over `FindingPattern` by construction — a pattern added without a phrase here
+#: raises on the first verdict rather than quietly borrowing another shape's words.
+_VERDICT_LABELS: Final[dict[FindingPattern, dict[bool, str]]] = {
+    FindingPattern.SOLE_IMPLEMENTATION: {
+        True: "Not earning its place",
+        False: "Earning its place",
+    },
+    FindingPattern.DUPLICATED_KNOWLEDGE: {
+        True: "Needs one owner",
+        False: "Separate concerns",
+    },
+    FindingPattern.SCATTERED_CONCEPT: {
+        True: "Has leaked past its boundary",
+        False: "Named where it should be",
+    },
+}
+
+
 class ReviewedBoundary(DomainModel):
     """One detected pattern and what the advisor concluded about it.
 
@@ -89,6 +108,24 @@ class ReviewedBoundary(DomainModel):
     #: and an advisor that always produces one has not answered the question.
     recommended_response: str = ""
 
+    @model_validator(mode="before")
+    @classmethod
+    def recompute_the_verdict_label(cls, data: object) -> object:
+        """Drop a stored `verdict_label` so it is always derived, never read back.
+
+        The field is computed and therefore serialised, and a stored review read back would
+        otherwise fail `extra="forbid"` on its own output. Discarding it rather than
+        accepting it is the deliberate half: the label is a function of the pattern and the
+        verdict, so a stored copy can only ever agree or be wrong, and there is no version
+        of this where the copy should win. Not an upgrade shim — nothing here tolerates a
+        superseded schema (ADR-0002); it declines to trust a value the model itself owns.
+        """
+
+        if not isinstance(data, dict):
+            return data
+        fields = cast("dict[str, object]", data)
+        return {key: value for key, value in fields.items() if key != "verdict_label"}
+
     @model_validator(mode="after")
     def response_only_when_material(self) -> ReviewedBoundary:
         if self.recommended_response and not self.material:
@@ -98,6 +135,23 @@ class ReviewedBoundary(DomainModel):
     @property
     def title(self) -> str:
         return self.candidate.summary
+
+    @computed_field
+    @property
+    def verdict_label(self) -> str:
+        """What this verdict means, in the vocabulary of the shape it is about.
+
+        One named home for the wording, computed rather than stored and never written by a
+        model. The catalogue has two opposite directions and a single phrase cannot serve
+        both: "not earning its place" is exactly right for indirection that hides nothing
+        and nonsense for a constant copied into four modules, where the finding is that
+        something is missing rather than surplus.
+
+        Serialised, so the page and the Markdown report read the same words without each
+        keeping its own copy of the vocabulary.
+        """
+
+        return _VERDICT_LABELS[self.candidate.pattern][self.material]
 
 
 class OverviewStatement(DomainModel):
@@ -125,7 +179,9 @@ class ReviewOverview(DomainModel):
     pattern running across them and nothing to do about them, and saying so is a result.
     """
 
-    #: What this repository is being asked to do — the ground the rest stands on.
+    #: The bottom line: what this repository is being asked to do, what the verdicts found
+    #: wrong with how it is built for that, and what to do about it. A reader who gets no
+    #: further than this sentence should still know where they stand.
     situation: str = Field(min_length=1)
     themes: list[OverviewStatement] = Field(default_factory=list[OverviewStatement])
     recommended_sequence: list[OverviewStatement] = Field(
@@ -202,10 +258,16 @@ class BoundaryReviewReport(DomainModel):
             )
         material = len(self.material)
         subject = "boundary" if len(self.reviewed) == 1 else "boundaries"
+        # Spelled out, never the word "material". Read as ordinary English that term says a
+        # boundary matters, which is the opposite of the verdict it names.
         verdict = (
-            "none were judged material"
+            "every one was found to be earning its place"
             if material == 0
-            else f"{material} of them {'was' if material == 1 else 'were'} judged material"
+            else (
+                f"{material} of them was found not to be earning its place"
+                if material == 1
+                else f"{material} of them were found not to be earning their place"
+            )
         )
         return (
             f"{len(self.reviewed)} {subject} reviewed against "

@@ -11,6 +11,7 @@ under test is the transport as shipped, not a stub standing in for it.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 
 import httpx
@@ -22,6 +23,7 @@ from archcompass.adapters.models.ollama import (
     OllamaEmbeddingProvider,
     OllamaReasoningProvider,
 )
+from archcompass.adapters.models.structured import StreamingChatTransport
 from archcompass.configuration import EmbeddingModelConfig, ReasoningModelConfig
 from archcompass.domain.errors import (
     ModelOutputValidationError,
@@ -236,6 +238,84 @@ def test_a_retryable_status_is_retried_and_a_terminal_one_is_not(
     with pytest.raises(ProviderError):
         _judge(OllamaReasoningProvider(_reasoning_config()))
     assert len(terminal) == 1, "a configuration fault must not be retried"
+
+
+def _patch_stream(monkeypatch: pytest.MonkeyPatch, *lines: str) -> dict[str, object]:
+    """Stand in for the streaming half of the client, keeping its own NDJSON reading.
+
+    The client streams through `httpx.Client.stream` as a context manager and parses one JSON
+    object per line out of `iter_lines()`, so patching there leaves its line splitting and
+    error handling in the path — the same reason the non-streaming tests patch `request`.
+    """
+
+    captured: dict[str, object] = {}
+
+    class _Stream:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        def __enter__(self) -> httpx.Response:
+            body = "".join(f"{line}\n" for line in lines).encode("utf-8")
+            return _http_response(body)
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    monkeypatch.setattr(
+        httpx.Client, "stream", lambda _self, _method, url, **kwargs: _Stream(url=url, **kwargs)
+    )
+    return captured
+
+
+def _chat_chunk(content: str) -> str:
+    return json.dumps({"message": {"role": "assistant", "content": content}, "done": False})
+
+
+def test_a_streamed_reply_arrives_in_fragments_under_the_same_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Streaming changes when the text arrives, not what may be generated.
+
+    The schema still goes as `format`, so a reply that a non-streamed call could not have
+    produced cannot be produced here either — which is what makes the accumulated text safe to
+    validate as one document afterwards.
+    """
+
+    captured = _patch_stream(
+        monkeypatch,
+        _chat_chunk('{"answer": "The Formatter '),
+        _chat_chunk('boundary holds."'),
+        _chat_chunk(', "supported_by": [true, false]}'),
+    )
+    transport = ollama_adapters.OllamaChatTransport(_reasoning_config())
+
+    fragments = list(
+        transport.stream(
+            [{"role": "user", "content": "Formatter?"}],
+            schema={"type": "object", "properties": {"answer": {"type": "string"}}},
+            task=ReasoningTask.ANSWER_REVIEW_QUESTION,
+            is_fast=False,
+            think=None,
+            temperature=None,
+        )
+    )
+
+    assert len(fragments) == 3
+    assert "".join(fragments) == (
+        '{"answer": "The Formatter boundary holds.", "supported_by": [true, false]}'
+    )
+    body = captured["json"]
+    assert isinstance(body, dict)
+    assert body["stream"] is True
+    assert body["format"] == {"type": "object", "properties": {"answer": {"type": "string"}}}
+
+
+def test_the_transport_declares_the_streaming_capability() -> None:
+    """The application asks with `isinstance`, so the shape has to actually satisfy it."""
+
+    assert isinstance(
+        ollama_adapters.OllamaChatTransport(_reasoning_config()), StreamingChatTransport
+    )
 
 
 def test_every_reasoning_task_has_a_declared_timeout_class() -> None:

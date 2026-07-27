@@ -10,11 +10,6 @@ const HomePage = lazy(() =>
 const PoliciesPage = lazy(() =>
   import("./pages/PoliciesPage").then(({ PoliciesPage }) => ({ default: PoliciesPage })),
 );
-const RepositoriesPage = lazy(() =>
-  import("./pages/RepositoriesPage").then(({ RepositoriesPage }) => ({
-    default: RepositoriesPage,
-  })),
-);
 const ReviewDetailPage = lazy(() =>
   import("./pages/ReviewDetailPage").then(({ ReviewDetailPage }) => ({
     default: ReviewDetailPage,
@@ -37,13 +32,11 @@ export function App() {
                 their own place rather than growing without limit under the start step. */}
             <Route path="/reviews" element={<ReviewsPage />} />
             <Route path="/reviews/:reviewId" element={<ReviewDetailPage />} />
-            {/* The atlas explorer keeps its route and leaves the navigation: it is entered
-                from the repository picker, with a question attached, rather than standing
-                beside the flow as a map of its own (workspace-design §4). */}
-            <Route path="/repositories" element={<RepositoriesPage />} />
             <Route path="/policies" element={<PoliciesPage />} />
-            {/* Cases dissolved into Home. A bookmark must not 404. */}
+            {/* Cases dissolved into Home, and the standalone atlas explorer into the review
+                that raises the question (workspace-design §4). A bookmark must not 404. */}
             <Route path="/cases" element={<Navigate to="/" replace />} />
+            <Route path="/repositories" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>

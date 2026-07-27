@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import re
 import subprocess
 from collections import defaultdict
 from collections.abc import Iterable
@@ -10,6 +11,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from itertools import pairwise
 from pathlib import Path
+from typing import ClassVar
 
 from archcompass.adapters.analysis.ast_support import (
     ParsedModule,
@@ -35,10 +37,12 @@ from archcompass.domain.atlas import (
     AtlasVersion,
     ChangeAmplificationMetrics,
     CognitiveScopeMetrics,
+    DefinedConstant,
     DependencyMetrics,
     EdgeType,
     LocalStructuralMetrics,
     MetricProfile,
+    ModuleFacts,
     NodeType,
     ObscuritySignal,
     RepositoryContentIdentity,
@@ -47,7 +51,9 @@ from archcompass.domain.atlas import (
 from archcompass.domain.base import canonical_json, stable_id
 from archcompass.domain.errors import PathValidationError
 
-PARSER_VERSION = "python-ast-3.12-v3"
+# v4 records per-module facts (constants stated, repository modules named). An atlas built
+# by v3 has none, so it is stale rather than quietly missing them, and is re-analyzed.
+PARSER_VERSION = "python-ast-3.12-v4"
 IGNORED_DIRECTORIES = {
     ".git",
     ".hg",
@@ -182,7 +188,8 @@ class PythonAstRepositoryAnalyzer:
             )
         add_structural_protocol_edges(nodes, edges, modules)
         edges = self._deduplicate_edges(edges)
-        self._add_duplicate_constant_signals(modules, signals)
+        module_facts = self._module_facts(modules)
+        self._add_duplicate_constant_signals(module_facts, signals)
         signals.extend(
             broad_input_boundary_preparation_signals(
                 nodes,
@@ -205,6 +212,7 @@ class PythonAstRepositoryAnalyzer:
             edges=sorted(edges, key=lambda item: item.edge_id),
             metrics=sorted(metrics, key=lambda item: item.node_id),
             signals=sorted(signals, key=lambda item: (item.node_id, item.code, item.message)),
+            module_facts=sorted(module_facts, key=lambda item: item.node_id),
         )
 
     def current_identity(self, root: Path) -> RepositoryContentIdentity:
@@ -341,6 +349,79 @@ class PythonAstRepositoryAnalyzer:
             packages[relative] = package
         return packages
 
+    #: The bases that make a class an abstraction rather than a thing. Resolved through the
+    #: module's imports, so an alias or a dotted spelling reaches the same answer.
+    _ABSTRACTION_BASES: ClassVar[frozenset[str]] = frozenset(
+        {
+            "typing.Protocol",
+            "typing_extensions.Protocol",
+            "abc.ABC",
+        }
+    )
+    _ABSTRACTION_METACLASSES: ClassVar[frozenset[str]] = frozenset({"abc.ABCMeta"})
+
+    def _declares_an_abstraction(self, module: ParsedModule, statement: ast.ClassDef) -> bool:
+        """Whether this class declares a boundary, from what its bases resolve to.
+
+        Resolved, never matched on the written name. The suffix test this replaces read
+        `base.endswith("Protocol")`, which was wrong in both directions and silently: it
+        missed `from typing import Protocol as P`, and — worse — it classified every
+        subclass of a port named `*Protocol` as an abstraction too. Since the detector
+        excludes abstractions from an abstraction's implementation count, a port called
+        `GaugeProtocol` ended up with zero implementations and vanished from the review
+        rather than being reported wrongly.
+        """
+
+        for base in statement.bases:
+            if self._resolved_name(module, self._dotted(base)) in self._ABSTRACTION_BASES:
+                return True
+        # `class Store(metaclass=ABCMeta)` is the third spelling of an abstract base, and
+        # a metaclass is a keyword rather than a base, so it is read separately.
+        for keyword in statement.keywords:
+            if keyword.arg == "metaclass" and self._resolved_name(
+                module, self._dotted(keyword.value)
+            ) in self._ABSTRACTION_METACLASSES:
+                return True
+        return any(
+            isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and any(
+                self._resolved_name(module, self._dotted(decorator)) == "abc.abstractmethod"
+                or self._dotted(decorator) == "abstractmethod"
+                for decorator in item.decorator_list
+            )
+            for item in statement.body
+        )
+
+    @staticmethod
+    def _resolved_name(module: ParsedModule, dotted: str) -> str:
+        """A written name expanded through this module's imports, or itself if unknown."""
+
+        if not dotted:
+            return ""
+        head, _, rest = dotted.partition(".")
+        origin = module.import_aliases.get(head)
+        if origin is None:
+            return dotted
+        return f"{origin}.{rest}" if rest else origin
+
+    def _record_import_aliases(self, module: ParsedModule) -> None:
+        """Map every name this module imported to the dotted path it came from.
+
+        Recorded during parsing rather than while resolving edges, because classification
+        happens first and needs it. Edge resolution reads the same table afterwards.
+        """
+
+        for statement in module.tree.body:
+            if isinstance(statement, ast.Import):
+                for alias in statement.names:
+                    module.import_aliases[alias.asname or alias.name.split(".")[0]] = alias.name
+            elif isinstance(statement, ast.ImportFrom):
+                imported_module = self._resolve_from_name(module, statement)
+                for alias in statement.names:
+                    module.import_aliases[alias.asname or alias.name] = (
+                        f"{imported_module}.{alias.name}".strip(".")
+                    )
+
     def _parse_module(
         self,
         root: Path,
@@ -408,6 +489,10 @@ class PythonAstRepositoryAnalyzer:
             docstring=ast.get_docstring(tree) is not None,
         )
         parsed = ParsedModule(path, relative, qualified, module_node, tree, source)
+        # Before symbols, because classifying a class needs to know what its bases resolve
+        # to: `Protocol` imported under any name is still `typing.Protocol`, and reading it
+        # off the written name instead is what made an aliased import invisible.
+        self._record_import_aliases(parsed)
         self._collect_symbols(parsed, tree.body, module_node, class_name=None, signals=signals)
         self._collect_local_signals(parsed, signals)
         return parsed
@@ -423,17 +508,7 @@ class PythonAstRepositoryAnalyzer:
     ) -> None:
         for statement in statements:
             if isinstance(statement, ast.ClassDef):
-                bases = {self._dotted(base) for base in statement.bases}
-                interface = any(
-                    base and (base.endswith("Protocol") or base.endswith("ABC")) for base in bases
-                ) or any(
-                    isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
-                    and any(
-                        self._dotted(decorator).endswith("abstractmethod")
-                        for decorator in item.decorator_list
-                    )
-                    for item in statement.body
-                )
+                interface = self._declares_an_abstraction(parsed, statement)
                 qualified = f"{parent.qualified_name}.{statement.name}"
                 node = self._node(
                     path=parsed.relative_path,
@@ -544,7 +619,6 @@ class PythonAstRepositoryAnalyzer:
         for statement in module.tree.body:
             if isinstance(statement, ast.Import):
                 for alias in statement.names:
-                    module.import_aliases[alias.asname or alias.name.split(".")[0]] = alias.name
                     target = self._best_module(alias.name, module_by_name)
                     if target:
                         import_edge = build_edge(
@@ -631,10 +705,6 @@ class PythonAstRepositoryAnalyzer:
                                 }
                             )
                         )
-                for alias in statement.names:
-                    module.import_aliases[alias.asname or alias.name] = (
-                        f"{imported_module}.{alias.name}".strip(".")
-                    )
         all_symbols = [module.node, *module.symbols.values()]
         for source_node in all_symbols:
             ast_node = ast_for_node(module, source_node)
@@ -1093,6 +1163,12 @@ class PythonAstRepositoryAnalyzer:
         if isinstance(node, ast.Attribute):
             prefix = PythonAstRepositoryAnalyzer._dotted(node.value)
             return f"{prefix}.{node.attr}".strip(".")
+        # A subscripted name is still that name: `Protocol[T]` is Protocol, and
+        # `Repository[Book]` inherits from Repository. Returning "" here made every generic
+        # base invisible, so `class Port(Protocol[T])` was classified an ordinary class and
+        # dropped out of detection entirely.
+        if isinstance(node, ast.Subscript):
+            return PythonAstRepositoryAnalyzer._dotted(node.value)
         return ""
 
     @staticmethod
@@ -1150,34 +1226,169 @@ class PythonAstRepositoryAnalyzer:
     def _owning_module(node: AtlasNode, modules: dict[str, str]) -> str | None:
         return modules.get(node.path)
 
+    def _module_facts(self, modules: list[ParsedModule]) -> list[ModuleFacts]:
+        """What each module states, and which of this repository's modules it names.
+
+        Both halves are facts about a file's whole text rather than about any symbol in it,
+        which is why they are recorded here and not on a node. Neither is a judgement: two
+        modules sharing a constant may be a coincidence, and naming another module is
+        ordinarily how code works. Deciding which of those matter is the detector's job.
+        """
+
+        # Bounded to names this repository owns. Recording every token a file contains
+        # would make the atlas a copy of the source; recording only the names that could
+        # refer to something here keeps it a set of relationships.
+        owned = {
+            module.path.stem.casefold()
+            for module in modules
+            if not module.path.stem.startswith("_")
+        }
+        return [
+            ModuleFacts(
+                node_id=module.node.atlas_id,
+                path=module.relative_path,
+                qualified_name=module.qualified_name,
+                constants=_declared_constants(module),
+                mentions=sorted(_mentioned_names(module) & owned - {module.path.stem.casefold()}),
+            )
+            for module in modules
+        ]
+
     def _add_duplicate_constant_signals(
-        self, modules: list[ParsedModule], signals: list[ObscuritySignal]
+        self, facts: list[ModuleFacts], signals: list[ObscuritySignal]
     ) -> None:
-        constants: dict[str, list[tuple[ParsedModule, int]]] = defaultdict(list)
-        for module in modules:
-            for statement in module.tree.body:
-                names: list[str] = []
-                if isinstance(statement, ast.Assign):
-                    names = [
-                        target.id for target in statement.targets if isinstance(target, ast.Name)
-                    ]
-                elif isinstance(statement, ast.AnnAssign) and isinstance(
-                    statement.target, ast.Name
-                ):
-                    names = [statement.target.id]
-                for name in names:
-                    if name.isupper():
-                        constants[name].append((module, statement.lineno))
-        for name, definitions in constants.items():
+        """The long-standing signal, now derived from the recorded facts.
+
+        Kept because the atlas surfaces it and it is a cheap thing for a reader to see. The
+        detector that turns the same fact into a reviewable candidate is separate and lives
+        in the domain: a signal is a note, and a candidate is something a model must judge.
+        """
+
+        by_name: dict[str, list[ModuleFacts]] = defaultdict(list)
+        for module in facts:
+            for constant in module.constants:
+                by_name[constant.name].append(module)
+        node_by_id = {module.node_id: module for module in facts}
+        for name, definitions in by_name.items():
             if len(definitions) < 2:
                 continue
-            for module, line in definitions:
+            for module in definitions:
+                line = next(
+                    constant.line
+                    for constant in node_by_id[module.node_id].constants
+                    if constant.name == name
+                )
                 signals.append(
-                    self._signal(
-                        "similarly-named-constant",
-                        f"Constant {name} is defined in {len(definitions)} modules",
-                        module.node,
-                        line,
+                    ObscuritySignal(
+                        code="similarly-named-constant",
+                        message=f"Constant {name} is defined in {len(definitions)} modules",
+                        node_id=module.node_id,
+                        location=SourceLocation(
+                            path=module.path, start_line=line, end_line=line
+                        ),
                     )
                 )
 
+
+
+def _declared_constants(module: ParsedModule) -> list[DefinedConstant]:
+    """Module-level SCREAMING_CASE assignments, with their value fingerprinted.
+
+    Upper-case only, because that is the convention that says "this is knowledge, not
+    working state", and a detector reading every module-level assignment would report the
+    repository's plumbing at itself.
+    """
+
+    constants: list[DefinedConstant] = []
+    for statement in module.tree.body:
+        names: list[str] = []
+        value: ast.expr | None = None
+        if isinstance(statement, ast.Assign):
+            names = [target.id for target in statement.targets if isinstance(target, ast.Name)]
+            value = statement.value
+        elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+            names = [statement.target.id]
+            value = statement.value
+        for name in names:
+            if not name.isupper():
+                continue
+            constants.append(
+                DefinedConstant(
+                    name=name,
+                    value_fingerprint=_value_fingerprint(value),
+                    line=statement.lineno,
+                )
+            )
+    return constants
+
+
+def _value_fingerprint(value: ast.expr | None) -> str:
+    """A short hash of a literal value, or empty when it is not one.
+
+    Hashed rather than stored. Two modules holding the same literal is the whole fact a
+    detector needs, and a constant is exactly the kind of thing that turns out to be a
+    token or a key — an atlas that copied the value would carry it into every prompt and
+    every stored review.
+    """
+
+    if value is None:
+        return ""
+    try:
+        literal = ast.literal_eval(value)
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return ""
+    return sha256(repr(literal).encode("utf-8")).hexdigest()[:16]
+
+
+def _mentioned_names(module: ParsedModule) -> set[str]:
+    """Every name this module's code and strings contain, casefolded.
+
+    Docstrings are skipped. Prose describing a vendor is documentation; the question a
+    detector is asking is whether the *code* outside a module has to know that module
+    exists, and a sentence in a docstring is not that.
+    """
+
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(module.tree)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+        and isinstance(node.body[0].value.value, str)
+    }
+    found: set[str] = set()
+    for node in ast.walk(module.tree):
+        if isinstance(node, ast.Name):
+            found.update(_name_tokens(node.id))
+        elif isinstance(node, ast.Attribute):
+            found.update(_name_tokens(node.attr))
+        elif isinstance(node, ast.alias):
+            found.update(_name_tokens(node.name.replace(".", "_")))
+            if node.asname:
+                found.update(_name_tokens(node.asname))
+        elif isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            found.update(_name_tokens(node.name))
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in docstrings
+        ):
+            found.update(_name_tokens(node.value))
+    return found
+
+
+#: Splits a name wherever a reader would: at punctuation, at a camel-case hump, and between
+#: letters and digits. `QwenSynthesisProvider`, `qwen_tts` and `"Qwen3-TTS"` all have to
+#: reduce to `qwen`, because a concept that has spread through a codebase almost never
+#: spread in one spelling — which is exactly why it is hard to notice by reading.
+_TOKEN_BOUNDARY = re.compile(
+    r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Za-z])(?=[0-9])|(?<=[0-9])(?=[A-Za-z])"
+)
+
+
+def _name_tokens(text: str) -> set[str]:
+    """Split an identifier or literal into comparable lower-case words."""
+
+    spaced = _TOKEN_BOUNDARY.sub(" ", text)
+    return {token.casefold() for token in re.split(r"[^A-Za-z0-9]+", spaced) if token}

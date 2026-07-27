@@ -1,7 +1,8 @@
 # ArchCompass — Agent Orientation
 
 ArchCompass is a local-first architecture advisor. It reviews the **boundaries** in an
-existing Python repository (abstractions with exactly one implementation) and judges,
+existing Python repository — abstractions with exactly one implementation, constants stated
+in several modules, and concepts named outside the package that owns them — and judges,
 one model call at a time, whether each is earning its place given an **ArchitectureCase**
 (the requirements, constraints, and expected future changes for one decision) and the
 **whole policy corpus**. The output is an immutable **BoundaryReview** you can then ask
@@ -17,14 +18,14 @@ Python repo ──parse AST──▶ RepositoryAtlas (versioned, deterministic)
                                  │
 ArchitectureCase (append-only    ▼
 revisions)          ──▶  Detect FindingCandidates      [deterministic, complete sweep;
-                                 │                      one detector: abstraction with
-Policy corpus (markdown,         ▼                      exactly one implementation]
-presented whole,    ──▶  Judge each candidate          [one model call per candidate:
-never retrieved/ranked)          │                      candidate + case + all policies]
-                                 ▼
-                         Verdict per boundary          [material? + rationale + policy
-                                 │                      bearings, answered by position]
-                                 ▼
+                                 │                      3 detectors, both directions of
+Policy corpus (markdown,         ▼                      the catalogue: sole implementation,
+presented whole,    ──▶  Judge each candidate          duplicated knowledge, scattered
+never retrieved/ranked)          │                      concept]
+                                 ▼                     [one model call per candidate:
+                         Verdict per boundary          candidate + case + all policies;
+                                 │                      the contract reads the pattern
+                                 ▼                      before it reasons]
                          Compose BoundaryReview        [deterministic: BR-nnn assigned,
                                  │                      identity bound by position,
                                  ▼                      JSON + Markdown persisted]
@@ -65,7 +66,11 @@ domain*, not what it says about data migrations.
 - `src/archcompass/adapters/` — `analysis/` (AST, graph metrics), `models/` (provider-
   neutral stages in `structured.py`; Ollama/Google transports; deterministic test
   providers — adapters hold no domain rules), `persistence/` (SQLite), `retrieval/`
-  (policy parsing; embeddings exist but are unused on the review path).
+  (policy parsing and the bundled method primer; the sqlite-vec embedding index exists
+  but nothing on the review path uses it — measured and rejected, see `.agents/AGENTS.md`).
+- `src/archcompass/knowledge/` — `method.md`, the bundled primer on what ArchCompass is
+  and what its words mean. Goes whole into every review conversation as background:
+  never evidence about a repository, and never citable as grounding.
 - `src/archcompass/presentation/` — `cli/` (Typer) and `web/app.py` (FastAPI, serves the
   built React bundle).
 - `src/archcompass/bootstrap.py` — the only composition root.
@@ -73,9 +78,10 @@ domain*, not what it says about data migrations.
 - `frontend/` — React + TS + Vite. Routes in `src/App.tsx`, pages in `src/pages/`,
   API client `src/api.ts`, generated contract `src/openapi.generated.ts`. Direction:
   `docs/workspace-design.md`; current state: `docs/web-workspace.md`.
-- `eval/cases/` — exactly two bundled examples, both scored: `boundary-review` (does this
-  boundary absorb any variation?) and `speech-vendor` (is it in the right place?).
-  `make demo` grades the first, `make eval-local` both.
+- `eval/cases/` — three bundled examples, all scored: `boundary-review` (does this boundary
+  absorb any variation?), `speech-vendor` (is it in the right place?) and
+  `audiobook-studio` (all three detectors at once, with both verdicts under each repetition
+  detector). `make demo` grades the first, `make eval-local` all three.
 - `tests/` — default run excludes `ollama`, `google`, `browser` markers, so
   `make check` needs no live model.
 

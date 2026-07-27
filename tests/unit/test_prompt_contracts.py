@@ -9,6 +9,7 @@ from archcompass.adapters.models.prompt_contracts import (
     ANSWER_REVIEW_QUESTION,
     JUDGE_FINDING_CANDIDATE,
     STAGE_PROMPTS,
+    SUMMARISE_REVIEW,
 )
 from archcompass.domain.base import canonical_json
 from archcompass.ports.reasoning import ReasoningTask
@@ -29,9 +30,9 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
     """The enum and the registry must not drift; a gap surfaces as a runtime KeyError."""
 
     expected_versions = {
-        ReasoningTask.JUDGE_FINDING_CANDIDATE: 3,
-        ReasoningTask.SUMMARISE_REVIEW: 2,
-        ReasoningTask.ANSWER_REVIEW_QUESTION: 1,
+        ReasoningTask.JUDGE_FINDING_CANDIDATE: 4,
+        ReasoningTask.SUMMARISE_REVIEW: 4,
+        ReasoningTask.ANSWER_REVIEW_QUESTION: 3,
     }
 
     assert set(STAGE_PROMPTS) == set(ReasoningTask)
@@ -77,8 +78,9 @@ def test_the_judgement_contract_treats_both_errors_as_errors() -> None:
 
     assert "two errors are equally wrong" in contract
     assert "neither verdict is the safe one" in contract
-    assert "condemning a boundary that is absorbing a change" in contract
-    assert "clearing a boundary that is absorbing nothing" in contract
+    assert "condemning a shape that is earning what it costs" in contract
+    assert "clearing one that is not" in contract
+    assert "clearing reads as approval" in contract
 
 
 def test_the_judgement_request_puts_the_argument_before_the_verdict() -> None:
@@ -98,6 +100,35 @@ def test_the_answer_contract_forbids_writing_a_reference_code() -> None:
 
     assert "never write a br- code" in request
     assert "in the order the boundaries were supplied" in request
+
+
+def test_the_answer_contract_says_what_the_conclusion_is_and_is_not() -> None:
+    """It is shown so a reader's question is answerable, not as a second source of fact.
+
+    The conclusion is composed from the same verdicts, so a stage that read it as evidence
+    could ground an answer in a synthesis of the thing it was meant to be citing.
+    """
+
+    contract = _normalized(ANSWER_REVIEW_QUESTION.stage_contract)
+
+    assert "adds no fact about the repository" in contract
+    assert "cite boundaries, never the conclusion" in contract
+    assert "the boundaries are what happened" in contract
+
+
+def test_the_summary_contract_separates_prose_fields_from_grounded_ones() -> None:
+    """v3 said "every statement carries one supported_by flag", of four fields.
+
+    Two of those fields are prose, and one of them — `situation` — reads exactly like a
+    statement, so a live run wrote `{"statement": ..., "supported_by": [...]}` into it as
+    text. The contract now names which fields carry grounding and which are sentences.
+    """
+
+    request = _normalized(SUMMARISE_REVIEW.request)
+
+    assert "situation and limits are prose" in request
+    assert "never write an object or a list into either of them" in request
+    assert "every entry in those two lists — and nothing else in the reply —" in request
 
 
 def test_the_substitute_names_the_same_prompts_as_the_real_registry() -> None:

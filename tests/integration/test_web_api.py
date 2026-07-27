@@ -177,6 +177,68 @@ def test_a_streamed_review_that_fails_says_so_in_the_stream(
         assert client.get("/api/reviews").json() == []
 
 
+def test_a_streamed_answer_ends_in_the_message_that_was_appended(runtime: Runtime) -> None:
+    """The prose is a preview; the `answered` line is the record.
+
+    Both are asserted against the history afterwards, because that is the only copy that
+    matters: a route that streamed one answer and stored another would pass any test that
+    looked only at the stream.
+    """
+
+    with TestClient(create_app(runtime)) as client:
+        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
+        case_id = loaded.json()["case_id"]
+        repository_root = {
+            item["name"]: item for item in client.get("/api/bundled-cases").json()
+        }[FIXTURE]["repository_root"]
+        review = client.post(
+            "/api/reviews",
+            json={"case_id": case_id, "repository_root": repository_root},
+        ).json()
+        conversation = client.post(
+            "/api/review-conversations", json={"review_id": review["review_id"]}
+        )
+        conversation_id = conversation.json()["conversation_id"]
+
+        with client.stream(
+            "POST",
+            f"/api/review-conversations/{conversation_id}/messages/stream",
+            json={"question": "What did you make of the TaskFormatter boundary?"},
+        ) as response:
+            assert response.status_code == 200, response.read()
+            assert response.headers["content-type"].startswith("application/x-ndjson")
+            events = [json.loads(line) for line in response.iter_lines() if line.strip()]
+
+        prose = [event for event in events if event["event"] == "prose"]
+        assert len(prose) > 1
+        assert events[-1]["event"] == "answered"
+        message = events[-1]["message"]
+        assert "".join(event["text"] for event in prose) == message["answer"]["answer"]
+        known = {item["reference"] for item in review["report"]["reviewed"]}
+        assert set(message["answer"]["supporting_references"]) <= known
+
+        history = client.get(f"/api/review-conversations/{conversation_id}").json()
+        assert len(history["messages"]) == 1
+        assert history["messages"][0]["answer"]["answer"] == message["answer"]["answer"]
+
+
+def test_a_streamed_question_that_cannot_be_asked_says_so_in_the_stream(
+    runtime: Runtime,
+) -> None:
+    """A conversation that does not exist is a `failed` line, and appends nothing."""
+
+    with TestClient(create_app(runtime)) as client, client.stream(
+        "POST",
+        "/api/review-conversations/conv-missing/messages/stream",
+        json={"question": "Is anyone there?"},
+    ) as response:
+        assert response.status_code == 200
+        events = [json.loads(line) for line in response.iter_lines() if line.strip()]
+
+    assert [event["event"] for event in events] == ["failed"]
+    assert events[0]["problem"]["code"] == "not_found"
+
+
 def test_unknown_identifiers_return_stable_problem_details(runtime: Runtime) -> None:
     """A client distinguishes "not there" from "malformed" by code, not by prose."""
 
@@ -279,6 +341,7 @@ def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> N
         "/api/reviews/{review_id}",
         "/api/review-conversations",
         "/api/review-conversations/{conversation_id}/messages",
+        "/api/review-conversations/{conversation_id}/messages/stream",
         "/api/reviews/{review_id}/score",
         "/api/repositories/explore",
     ):
@@ -291,8 +354,11 @@ def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> N
     # The progress line is a declared contract, not an undocumented convention: a client
     # that had to guess the shape would be parsing prose.
     assert schemas["ReviewProgress"]["discriminator"]["propertyName"] == "event"
+    assert schemas["AnswerProgress"]["discriminator"]["propertyName"] == "event"
     stream = document.json()["paths"]["/api/reviews/stream"]["post"]["responses"]["200"]
     assert "application/x-ndjson" in stream["content"]
+    answers = paths["/api/review-conversations/{conversation_id}/messages/stream"]["post"]
+    assert "application/x-ndjson" in answers["responses"]["200"]["content"]
     # The old consultation surface is gone, not merely unused by the workspace.
     assert not any(path.startswith("/api/consultations") for path in paths)
     assert not any(path.startswith("/api/runs") for path in paths)

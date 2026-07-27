@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from typing import Final
 
 import httpx
@@ -72,6 +72,36 @@ def _with_retry[Result](operation: Callable[[], Result]) -> Result:
     raise ProviderError(  # pragma: no cover - the loop always returns or raises
         f"Ollama request failed after {_MAX_TRANSPORT_ATTEMPTS} attempts"
     )
+
+
+#: What a failed request may raise once the client has done its own mapping. Listed rather
+#: than caught as `Exception`, so a fault in this package surfaces as itself.
+_REQUEST_FAILURES: Final = (
+    ResponseError,
+    httpx.HTTPError,
+    ConnectionError,
+    KeyError,
+    TypeError,
+    ValueError,
+)
+
+
+def _as_provider_error(error: Exception) -> ProviderError:
+    """One message for a failed reasoning request, streamed or not.
+
+    The client turns an HTTP error into `ResponseError`, keeping the body and the status.
+    Preserve both, bounded, so a failed run records why.
+    """
+
+    if isinstance(error, ResponseError):
+        detail = error.error.strip()
+        if len(detail) > 1000:
+            detail = detail[:999].rstrip() + "…"
+        suffix = f": {detail}" if detail else ""
+        return ProviderError(
+            f"Ollama reasoning request failed with HTTP {error.status_code}{suffix}"
+        )
+    return ProviderError(f"Ollama reasoning request failed: {error}")
 
 
 class EmbeddingResponse(BaseModel):
@@ -149,12 +179,6 @@ class OllamaChatTransport:
         temperature: float | None,
     ) -> str:
         del task  # The budget class is the only stage property this transport needs.
-        options: dict[str, object] = {
-            "num_ctx": self._config.context_window_tokens,
-            "num_predict": self._config.max_output_tokens,
-        }
-        if temperature is not None:
-            options["temperature"] = temperature
         client = self._clients[is_fast]
         try:
             # `format` carries the full JSON Schema, not the generic "json" flag: that
@@ -165,7 +189,7 @@ class OllamaChatTransport:
                     model=self._config.model,
                     messages=messages,
                     format=dict(schema),
-                    options=options,
+                    options=self._options(temperature),
                     think=think,
                 )
             )
@@ -173,24 +197,56 @@ class OllamaChatTransport:
             if not isinstance(content, str):
                 raise TypeError("Ollama response content is not text")
             return content
-        except ResponseError as error:
-            # The client turns an HTTP error into ResponseError, keeping the body and
-            # status. Preserve both, bounded, so a failed run records why.
-            detail = error.error.strip()
-            if len(detail) > 1000:
-                detail = detail[:999].rstrip() + "…"
-            suffix = f": {detail}" if detail else ""
-            raise ProviderError(
-                f"Ollama reasoning request failed with HTTP {error.status_code}{suffix}"
-            ) from error
-        except (
-            httpx.HTTPError,
-            ConnectionError,
-            KeyError,
-            TypeError,
-            ValueError,
-        ) as error:
-            raise ProviderError(f"Ollama reasoning request failed: {error}") from error
+        except _REQUEST_FAILURES as error:
+            raise _as_provider_error(error) from error
+
+    def stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        schema: Mapping[str, object],
+        task: ReasoningTask,
+        is_fast: bool,
+        think: ThinkLevel,
+        temperature: float | None,
+    ) -> Iterator[str]:
+        """The same request with `stream=True`, which the client already yields chunk by chunk.
+
+        Nothing here reassembles or re-times anything: the library returns an iterator of
+        chat responses, and this hands their text on in order. `format` still carries the whole
+        schema, so what may be generated is exactly what a non-streamed call could produce —
+        only when it arrives differs, and the concatenated text is validated as one document
+        above this boundary.
+
+        No retry, unlike `complete`. A stream that failed part-way has already shown text, and
+        a second attempt would repeat it.
+        """
+
+        del task
+        try:
+            for part in self._clients[is_fast].chat(
+                model=self._config.model,
+                messages=messages,
+                format=dict(schema),
+                options=self._options(temperature),
+                think=think,
+                stream=True,
+            ):
+                if part.message.content:
+                    yield part.message.content
+        except _REQUEST_FAILURES as error:
+            raise _as_provider_error(error) from error
+
+    def _options(self, temperature: float | None) -> dict[str, object]:
+        """The generation options both calls send, derived from the configured window."""
+
+        options: dict[str, object] = {
+            "num_ctx": self._config.context_window_tokens,
+            "num_predict": self._config.max_output_tokens,
+        }
+        if temperature is not None:
+            options["temperature"] = temperature
+        return options
 
 
 class OllamaReasoningProvider(StructuredReasoningProvider):

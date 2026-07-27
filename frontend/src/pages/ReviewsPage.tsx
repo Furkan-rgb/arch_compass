@@ -82,7 +82,7 @@ export function Outcome({ review }: { review: BoundaryReviewSummary }) {
       <CircleCheck size={13} aria-hidden />
       {review.boundaries_reviewed === 0
         ? "no boundaries to examine"
-        : `all ${review.boundaries_reviewed} earning their place`}
+        : `all ${review.boundaries_reviewed} left as they are`}
     </Badge>
   );
 }

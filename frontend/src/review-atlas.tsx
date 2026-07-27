@@ -1,5 +1,5 @@
 import { useMutation, useQueries } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type Ref } from "react";
 
 import { api } from "./api";
 import { RepositoryAtlas, type AtlasEdgeView, type AtlasNodeView } from "./atlas";
@@ -62,9 +62,7 @@ export function reviewAtlasNodes(
           ? "contained"
           : "normal",
       description: reviewed
-        ? `${reviewed.reference} · ${
-            reviewed.material ? "Should change" : "Earning its place"
-          }. ${reviewed.rationale}`
+        ? `${reviewed.reference} · ${reviewed.verdict_label}. ${reviewed.rationale}`
         : implements_
           ? `The one implementation behind ${implements_.reference}.`
           : undefined,
@@ -96,14 +94,24 @@ export function reviewAtlasEdges(
   return edges;
 }
 
+/**
+ * Which node is selected is the page's business, not this component's: a finding above can
+ * ask the map to show its boundary, so the two have to agree on one answer rather than each
+ * keeping their own.
+ */
 export function ReviewAtlas({
   repositoryRoot,
   boundaries,
+  selectedNodeId,
+  onSelectNode,
+  sectionRef,
 }: {
   repositoryRoot: string;
   boundaries: ReviewedBoundary[];
+  selectedNodeId: string | null;
+  onSelectNode: (nodeId: string | null) => void;
+  sectionRef?: Ref<HTMLElement>;
 }) {
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [explored, setExplored] = useState<AtlasQueryResult[]>([]);
 
   // One inspection per boundary, which is what makes the map about this review. They are
@@ -145,16 +153,16 @@ export function ReviewAtlas({
   const loading = inspections.some((query) => query.isLoading) || explore.isPending;
 
   return (
-    <section className="review-atlas" aria-label="Where these boundaries sit">
+    <section className="review-atlas" aria-label="Where these boundaries sit" ref={sectionRef}>
       <h2 className="group__title">Where these boundaries sit</h2>
       <p className="group__hint">
         The same atlas the review was judged against, drawn around the boundaries it
-        examined. Selecting one opens its verdict below; the arrows are what the parser
-        found, not what the model said.
+        examined. Selecting one shows its verdict beside the map; the arrows are what the
+        parser found, not what the model said.
       </p>
       <p className="review-atlas__legend">
         <span className="review-atlas__key review-atlas__key--material" /> should change
-        <span className="review-atlas__key review-atlas__key--cleared" /> earning its place
+        <span className="review-atlas__key review-atlas__key--cleared" /> left as it is
         <span className="review-atlas__key review-atlas__key--normal" /> not a boundary the
         detector surfaces
       </p>
@@ -168,16 +176,11 @@ export function ReviewAtlas({
         loading={loading}
         emptyMessage="This review's boundaries are no longer in the indexed atlas."
         selectedNodeId={selectedNodeId}
-        onSelectNode={(nodeId) => {
-          setSelectedNodeId(nodeId);
-          // The finding is the point of selecting a node, and the hash is how a citation
-          // already gets there — so a click on the map and a click on a citation land the
-          // reader in the same place, highlighted the same way.
-          const reviewed = boundaries.find(
-            (item) => item.candidate.participants[0]?.node_id === nodeId,
-          );
-          if (reviewed) window.location.hash = reviewed.reference;
-        }}
+        // Selecting a node used to set the location hash, which threw the reader back up
+        // the page to the finding — away from the map they had just started reading. The
+        // verdict is already on the node and in the detail panel beside it, so a click can
+        // simply answer where it was made.
+        onSelectNode={onSelectNode}
         onExploreNode={(nodeId, operation, depth) =>
           explore.mutate({
             root_path: repositoryRoot,

@@ -10,6 +10,7 @@ export type ReviewMessage = OpenAPIComponents["schemas"]["ReviewMessage"];
 export type BundledCase = OpenAPIComponents["schemas"]["BundledCase"];
 export type ReviewScore = OpenAPIComponents["schemas"]["ReviewScoreResponse"];
 export type ReviewProgress = OpenAPIComponents["schemas"]["ReviewProgress"];
+export type AnswerProgress = OpenAPIComponents["schemas"]["AnswerProgress"];
 export type ReviewOverview = OpenAPIComponents["schemas"]["ReviewOverview"];
 export type OverviewStatement = OpenAPIComponents["schemas"]["OverviewStatement"];
 export type ArchitectureCase = OpenAPIComponents["schemas"]["ArchitectureCase"];

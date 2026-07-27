@@ -55,7 +55,11 @@ def test_every_boundary_in_the_repository_is_judged_and_kept(runtime: Runtime) -
     report = review.report
     assert report is not None
     assert report.reviewed
-    assert all(
+    # Every reviewed item is a shape the catalogue knows, and the abstraction-shaped half
+    # is present. Not "every item is sole_implementation" any more: the second direction of
+    # the catalogue ships, and this fixture carries repetition as well as indirection.
+    assert {item.candidate.pattern for item in report.reviewed} <= set(FindingPattern)
+    assert any(
         item.candidate.pattern is FindingPattern.SOLE_IMPLEMENTATION
         for item in report.reviewed
     )
@@ -144,7 +148,7 @@ def test_the_rendered_report_shows_cleared_boundaries_too(runtime: Runtime) -> N
     report = review.report
     assert report is not None
     if report.cleared:
-        assert "examined and cleared" in markdown
+        assert "Examined and left alone" in markdown
     for item in report.reviewed:
         assert item.reference in markdown
     assert "policies were presented in full" in markdown

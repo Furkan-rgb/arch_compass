@@ -67,7 +67,7 @@ class PromptContract:
 
 JUDGE_FINDING_CANDIDATE: Final = PromptContract(
     name="judge-finding-candidate",
-    version=3,
+    version=4,
     stage_contract=_text(
         """
         A structural detector found one pattern in this repository and reported what it
@@ -75,33 +75,53 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
         shape was not surfaced because anything looked wrong.
 
         Decide only whether the pattern is a problem in this case. Two errors are equally
-        wrong here, and neither verdict is the safe one:
-
-        - Condemning a boundary that is absorbing a change this case actually expects.
-        - Clearing a boundary that is absorbing nothing, because clearing it reads as
-          approval and the indirection then stays forever.
+        wrong here, and neither verdict is the safe one: condemning a shape that is earning
+        what it costs in this case, and clearing one that is not — because clearing reads as
+        approval, and what you clear stays forever.
 
         The instruction above to prefer the minimum architecture governs what should be
-        *added*. Here you are judging what already exists, so weigh what the indirection
-        costs against what it demonstrably buys in this case, and say which way it comes
-        out. Judge the placement, not the count.
+        *added*. Here you are judging what already exists, so weigh what the shape costs
+        against what it demonstrably buys in this case. Judge the placement, not the count.
 
-        A single implementation is correct wherever the boundary buys something this case
-        needs: an owned seam at a process, vendor or storage edge, a dependency the domain
-        must not see, a substitution the tests depend on, a contract more than one caller
-        reads, or a variation the case says is coming.
+        The candidate names its own `pattern`, and the two patterns are opposite failures.
+        Read which one you were given before you reason, because the advice they lead to
+        points in opposite directions and applying the wrong frame produces confident
+        nonsense.
 
-        A single implementation is a problem wherever the boundary buys nothing here:
-        the case names no variation it would absorb, or names the variation as excluded —
-        a fixed external contract, a settled decision, an explicit non-goal. A boundary
-        cannot absorb a change the case has ruled out, and calling such a boundary
-        acceptable is as much a misreading as condemning a working one.
+        **sole_implementation** — an abstraction with one implementation behind it. The
+        question is whether the indirection hides anything here. It is correct wherever the
+        boundary buys something this case needs: an owned seam at a process, vendor or
+        storage edge, a dependency the domain must not see, a substitution the tests depend
+        on, a contract more than one caller reads, or a variation the case says is coming.
+        It is a problem wherever the boundary buys none of that — the case names no variation
+        it would absorb, or names the variation as excluded: a fixed external contract, a
+        settled decision, an explicit non-goal. A boundary cannot absorb a change the case
+        has ruled out. Where it is a problem the response is to remove the indirection.
 
-        Respect the detector's stated limitations. A static count cannot see implementations
-        registered at runtime, supplied by another repository, or planned but unwritten, so
-        it can never establish on its own that no variation exists. Equally, it cannot
-        establish that variation does exist — only the case can say that, and where the case
-        says the opposite, the absence is not an open question.
+        **duplicated_knowledge** — one constant stated in several modules, with no module
+        owning it. The question is whether these copies are one fact or several. Copies of
+        one fact are a problem: they must be edited together, nothing makes that happen, and
+        the measurements will say whether they have drifted already. Copies that merely
+        share a name are not a problem at all — two modules can define `TIMEOUT` about
+        entirely different things, and merging them would invent a coupling that does not
+        exist. Where it is a problem the response is to give the fact one owner, never to
+        add an abstraction over unrelated values.
+
+        **scattered_concept** — a module that sits behind an abstraction, whose name is
+        nonetheless spelled out in modules outside its package. The question is whether
+        those modules had to know. Naming it is correct in the composition root, in
+        configuration, and in tests that exercise that specific backend: something must
+        choose, and pretending otherwise only hides the choice. It is a problem where a
+        module with no other reason to know the concept exists now has to be edited when it
+        changes. Where it is a problem the response is to move that knowledge behind the
+        abstraction that already exists — not to create a second one.
+
+        Respect the detector's stated limitations, which differ per pattern and are given
+        with the candidate. A static count cannot see implementations registered at runtime,
+        supplied by another repository, or planned but unwritten. A name match cannot tell a
+        dependency from a coincidence. Neither can establish that variation exists — only
+        the case can say that, and where the case says the opposite, the absence is not an
+        open question.
         """
     ),
     request=_text(
@@ -129,13 +149,40 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
 
 ANSWER_REVIEW_QUESTION: Final = PromptContract(
     name="answer-review-question",
-    version=1,
+    # v3 adds what the reader can see and this stage could not: the conclusion at the top of
+    # their page, the detector's own measurements, and which of the three patterns each
+    # boundary is. Before it, a question about the recommended sequence — the most prominent
+    # thing on the page — was answered from a review that had never been shown it.
+    version=3,
     stage_contract=_text(
         """
         You are answering a question about a boundary review you have been shown in full.
         Every boundary examined is in the input, with the reasoning that cleared or
-        condemned it, so there is nothing further to retrieve and nothing you have to
-        remember from a previous turn beyond the history supplied.
+        condemned it and the measurements it was detected from, so there is nothing further
+        to retrieve and nothing you have to remember from a previous turn beyond the history
+        supplied.
+
+        You are shown the review's own `conclusion` as well — the situation, the themes, the
+        recommended sequence and the limits. That is what the reader has at the top of their
+        page, so a question about it is a question about something you can see. It was
+        composed from these same verdicts and adds no fact about the repository: where it
+        seems to say more than the boundaries do, the boundaries are what happened. Cite
+        boundaries, never the conclusion, and if it reads as though it overstates a verdict,
+        say so plainly rather than defending it.
+
+        You are also given background: ArchCompass's own description of its method, and the
+        whole policy corpus. Both are supplied entire rather than selected, so a policy you
+        cannot find in the input is one that does not exist rather than one that was left
+        out. Use them to explain what the review's words mean — what a boundary is, what the
+        detector cannot see, what a policy actually says, why a verdict is phrased the way
+        it is. Prefer them over your own recollection of how such a tool might work.
+
+        The background is not evidence about this repository and it never overrules a
+        verdict. It describes the method; the review reports what that method found here.
+        Where a passage seems to point the other way from a verdict, the verdict stands and
+        the background explains what it was weighing. Do not answer a question about this
+        repository out of the background alone, and never treat a policy passage as though
+        the review had applied it to a boundary it did not.
 
         Answer from the review and the case. Where the review settles the question, say so
         and say which boundaries settle it. Where it does not, say plainly that the review
@@ -160,8 +207,10 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
         Then, in supported_by, return exactly one true-or-false value for each boundary in
         the order the boundaries were supplied. Mark true only for a boundary your answer
         actually rests on. If your answer rests on none of them — because the review does
-        not cover the question — mark them all false; that is a valid and expected answer.
-        Do not reorder, omit, or add entries, and never write a BR- code in any text field.
+        not cover the question, or because the question was about the method rather than
+        about this repository — mark them all false; that is a valid and expected answer.
+        Background is never grounding: only a boundary can be marked. Do not reorder, omit,
+        or add entries, and never write a BR- code in any text field.
         """
     ),
 )
@@ -169,7 +218,13 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
 
 SUMMARISE_REVIEW: Final = PromptContract(
     name="summarise-review",
-    version=2,
+    # v4 separates the prose fields from the grounded ones. At v3 both this contract and the
+    # run-specific arity note said "every statement carries one supported_by flag", and
+    # `situation` reads exactly like a statement — so a live run answered it with
+    # `{"statement": "...", "supported_by": [true, ...]}` serialised into the string, which
+    # satisfied `str` and printed as JSON at the top of the page. Only `themes` and
+    # `recommended_sequence` entries are grounded; the two prose fields are named as prose.
+    version=4,
     stage_contract=_text(
         """
         Every boundary in one repository has now been judged separately, and you are shown
@@ -216,18 +271,38 @@ SUMMARISE_REVIEW: Final = PromptContract(
         """
         Answer the fields in the order they appear, because that order is the reasoning.
 
-        First, in situation, state in two or three sentences what this repository is being
-        asked to do, drawn from the case rather than from the verdicts.
+        Two of the four fields are prose and two are lists of grounded entries. situation
+        and limits are prose: plain sentences, addressed to a reader, carrying no flags and
+        no structure of their own. Never write an object or a list into either of them, and
+        never write JSON as text inside a prose field — whatever you put there is printed
+        exactly as you wrote it.
+
+        First, in situation, give the bottom line in two or three sentences: what this
+        repository is being asked to do, what the verdicts found wrong with how it is built
+        for that, and what should be done about it. Someone who reads only this sentence and
+        nothing else on the page should know where they stand and what happens next.
+
+        Be concrete. Name the abstractions and the change, not the exercise: "the task
+        label port stands in front of a format the contract fixes, so fold it into its one
+        caller" is the bottom line, while "this review evaluates whether the port-adapter
+        boundaries are necessary" is a description of the activity and tells a reader
+        nothing they did not already know from opening the page. Never begin by saying what
+        the review examines or assesses.
+
+        Where every boundary was cleared, the bottom line is that: say what the repository
+        is doing and that the structure is holding up, and do not manufacture a problem to
+        fill the middle of the sentence.
 
         Then, in themes, give what the verdicts show when read together — at most four, each
         one observation rather than a summary of everything. Then, in recommended_sequence,
         give what to do and in what order, at most four steps, and only where the verdicts
         support it. Both lists may be empty.
 
-        Every statement carries one supported_by flag per boundary, in the order the
-        boundaries appear above. Mark true only for the boundaries that statement is actually
-        about: a statement that marks all of them tells the reader nothing about where to
-        look, and one that marks none will be discarded, so make the claim you can ground.
+        Every entry in those two lists — and nothing else in the reply — carries one
+        supported_by flag per boundary, in the order the boundaries appear above. Mark true
+        only for the boundaries that entry is actually about: an entry that marks all of them
+        tells the reader nothing about where to look, and one that marks none will be
+        discarded, so make the claim you can ground.
 
         Finally, in limits, write one or two sentences of prose — not a list, not a JSON
         array — saying what this review could not see, drawn from the boundaries' own

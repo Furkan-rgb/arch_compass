@@ -173,10 +173,19 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             assert "Not scored" not in page.content()
 
             # 9. A follow-up question is answered and its grounding shown.
+            #
+            #    The wait for the preview to be gone is what makes this about the record. An
+            #    answer's prose now arrives as it is written, and while it does there is a
+            #    second `.dock__a` on the page carrying no grounding — because grounding comes
+            #    from flags that do not exist until the reply is complete. Whether the
+            #    substitute's preview survives long enough to be seen at all is a timing
+            #    question, so nothing here asserts it appears; `detached` passes either way,
+            #    and the assertions below are about the message that was appended.
             page.get_by_label("Question about this review").fill(
                 "Why was the TaskFormatter boundary judged the way it was?"
             )
             page.get_by_role("button", name="Ask", exact=True).click()
+            page.wait_for_selector(".dock__pending", state="detached", timeout=60_000)
             page.wait_for_selector(".dock__a", timeout=60_000)
             grounding = page.locator(".dock__grounding").first.inner_text()
             assert "BR-" in grounding, grounding
@@ -186,6 +195,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.get_by_role("button", name="New thread").click()
             page.get_by_label("Question about this review").fill("What should I do first?")
             page.get_by_role("button", name="Ask", exact=True).click()
+            page.wait_for_selector(".dock__pending", state="detached", timeout=60_000)
             page.wait_for_selector(".dock__a", timeout=60_000)
             threads = page.locator(".dock__threads button")
             # Two threads plus the "new thread" control.
@@ -194,6 +204,61 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.locator(".dock__threads button").first.click()
             page.wait_for_selector(".dock__history li", timeout=10_000)
             assert "TaskFormatter" in page.locator(".dock__history").inner_text()
+
+            # 10b. The dock has two heights, and which one applies follows the scroll.
+            #
+            #      Floating over content still being read it is capped at a fifth of the
+            #      screen, however long the thread grows; once the page's content has ended
+            #      there is nothing underneath left to cover and it may use the whole screen,
+            #      scrolling internally rather than making the document enormous.
+            #
+            #      Asserted on the computed cap rather than only on the rendered height: two
+            #      short answers may not reach the cap, and a test that passed because the
+            #      content happened to be small would say nothing about a long thread.
+            viewport = page.evaluate("window.innerHeight")
+            page.evaluate("window.scrollTo(0, 0)")
+            page.wait_for_function(
+                "!document.querySelector('.dock').classList.contains('dock--settled')"
+            )
+            floating = page.evaluate(
+                "parseFloat(getComputedStyle(document.querySelector('.dock')).maxHeight)"
+            )
+            assert round(floating) == round(viewport * 0.2), (floating, viewport)
+            box = page.locator(".dock").bounding_box()
+            assert box is not None and box["height"] <= viewport * 0.2 + 1, box
+            # The cap must never take the input with it: a dock you cannot type into is worse
+            # than one that covers the page.
+            assert page.get_by_label("Question about this review").is_visible()
+
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_function(
+                "document.querySelector('.dock').classList.contains('dock--settled')"
+            )
+            assert round(
+                page.evaluate(
+                    "parseFloat(getComputedStyle(document.querySelector('.dock')).maxHeight)"
+                )
+            ) == round(viewport)
+            assert page.get_by_label("Question about this review").is_visible()
+
+            # 10a. A bearing card is as tall as its own sentence. They shared a class with
+            #      the Policies page cards, and so inherited a 255px floor, a hover lift and
+            #      a pointer cursor — a card of two lines stood a quarter of a screen tall.
+            cards = page.locator(".finding").first.locator(".bearing")
+            assert cards.count() >= 2, cards.count()
+            heights = [
+                round(box["height"])
+                for index in range(cards.count())
+                if (box := cards.nth(index).bounding_box()) is not None
+            ]
+            assert heights and max(heights) < 200, heights
+            # And no column is left blank: two cards take two columns, not two of three.
+            columns = page.evaluate(
+                """() => getComputedStyle(
+                    document.querySelector('.finding .bearings')
+                ).columnCount"""
+            )
+            assert columns == str(min(3, cards.count())), (columns, cards.count())
 
             # 11. The review carries its own atlas, drawn around the boundaries it examined
             #     and marked with their verdicts. Which verdict appears here is the
@@ -204,15 +269,60 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.wait_for_selector(".review-atlas .atlas-canvas", timeout=30_000)
             page.wait_for_selector(".review-atlas .atlas-node--hotspot", timeout=30_000)
 
-            # 12. A finding opens the full explorer on the boundary it is about, which is
-            #     the explorer's way back in: entered from the question rather than as a map.
-            atlas = page.get_by_role("link", name="Show BR-001 in the atlas")
+            # 11a. The canvas fills its viewport. It used to keep a fixed height while the
+            #      viewport stretched to match the taller detail column beside it, leaving
+            #      a band of dead background under the graph.
+            filled = page.evaluate(
+                """() => {
+                    const viewport = document.querySelector('.review-atlas .atlas-viewport');
+                    const canvas = document.querySelector('.review-atlas .atlas-canvas');
+                    return [
+                        viewport.getBoundingClientRect().height,
+                        canvas.getBoundingClientRect().height,
+                    ];
+                }"""
+            )
+            assert filled[0] > 0
+            # One pixel of slack for sub-pixel layout rounding, not for a missing rule.
+            assert abs(filled[0] - filled[1]) <= 1, filled
+
+            # 12. A finding shows its boundary on that map, without leaving the review.
+            #     The question and the answer are one reading, so this selects the node in
+            #     place rather than opening a second page to hold it.
+            atlas = page.get_by_role("button", name="Show BR-001 in the atlas")
             assert atlas.count() == 1
-            atlas.click()
-            page.wait_for_url("**/repositories?root=*node=*", timeout=20_000)
-            page.wait_for_selector(".atlas-node--selected, .atlas-canvas", timeout=30_000)
-            page.go_back()
-            page.wait_for_selector(".review-head", timeout=20_000)
+            atlas.first.click()
+            page.wait_for_selector(".review-atlas .atlas-node--active", timeout=30_000)
+            # Still on the review: nothing navigated away.
+            assert page.locator(".review-head").count() == 1
+
+            # 12a. Clicking a node answers where the click was made. It used to set the
+            #      location hash, which threw the reader back up to the finding, and to
+            #      re-centre the canvas, which dragged the graph out from under the pointer.
+            node = page.locator(".review-atlas [data-atlas-node-id]").first
+            # Brought into view first, and only then measured: Playwright scrolls to an
+            # element before clicking it, and that scroll is the harness's, not the page's.
+            node.scroll_into_view_if_needed()
+            page.wait_for_timeout(700)  # let both smooth scrolls settle
+            before = page.evaluate(
+                """() => {
+                    const canvas = document.querySelector('.review-atlas .atlas-canvas');
+                    return [window.scrollY, canvas.scrollLeft, canvas.scrollTop];
+                }"""
+            )
+            url_before = page.url
+            node.click()
+            page.wait_for_timeout(700)
+            after = page.evaluate(
+                """() => {
+                    const canvas = document.querySelector('.review-atlas .atlas-canvas');
+                    return [window.scrollY, canvas.scrollLeft, canvas.scrollTop];
+                }"""
+            )
+            assert before == after, (before, after)
+            # Compared rather than asserted absent: a citation clicked earlier left a hash
+            # in the URL, and what matters is that selecting a node does not write one.
+            assert page.url == url_before
 
             # 13. Past reviews are a standing record with their own place, grouped by the
             #     case each judged, and reopen from there. The front door keeps a pointer,
@@ -236,17 +346,17 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.locator(".review-row").first.click()
             page.wait_for_selector(".review-head", timeout=20_000)
 
-            # 14. The atlas explorer is no longer a navigation peer: it is entered from
-            #     the repository rail, on the repository the flow is pointed at.
+            # 14. The standalone atlas explorer is gone entirely. The only map is the one
+            #     inside a review, where a boundary is already the question being asked.
             page.goto(workspace_url, wait_until="networkidle")
             assert page.get_by_role("link", name="Policies").count() == 1
             assert page.get_by_role("link", name="Repositories").count() == 0
-            page.get_by_role("link", name="Explore this atlas").click()
-            page.wait_for_url("**/repositories?root=*", timeout=20_000)
-            page.wait_for_selector("text=boundary-review", timeout=20_000)
+            assert page.get_by_role("link", name="Explore this atlas").count() == 0
 
-            # 15. The old cases path does not 404; it lands on the flow.
+            # 15. Neither superseded path 404s; both land on the flow.
             page.goto(f"{workspace_url}/cases", wait_until="networkidle")
+            page.wait_for_selector("text=Start a review", timeout=20_000)
+            page.goto(f"{workspace_url}/repositories", wait_until="networkidle")
             page.wait_for_selector("text=Start a review", timeout=20_000)
         finally:
             browser.close()

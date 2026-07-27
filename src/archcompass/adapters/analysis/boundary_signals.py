@@ -342,14 +342,22 @@ def add_structural_protocol_edges(nodes: dict[str, AtlasNode],
             }
             if not all(operation.symbol_name in candidate_methods for operation in operations):
                 continue
-            if not all(
+            agreements = [
                 _structural_method_match(
                     operation,
                     candidate_methods[operation.symbol_name],
                     parsed_by_path,
                 )
                 for operation in operations
-            ):
+            ]
+            if any(agreement is None for agreement in agreements):
+                continue
+            # Enough evidence that this is not a coincidence, judged over the whole class
+            # rather than one method at a time. Two operations matching by name is already
+            # unlikely by accident; a lone operation has to earn it with annotations.
+            # The same bar applied per-method made any protocol containing a no-argument
+            # method — `close()`, `check_available()` — impossible to satisfy at all.
+            if len(operations) < 2 and sum(filter(None, agreements)) < 2:
                 continue
             edges.append(
                 build_edge(
@@ -365,7 +373,15 @@ def add_structural_protocol_edges(nodes: dict[str, AtlasNode],
 def _structural_method_match(protocol_method: AtlasNode,
     candidate_method: AtlasNode,
     parsed_by_path: dict[str, ParsedModule],
-) -> bool:
+) -> int | None:
+    """How strongly one operation matches, or `None` when the two contradict.
+
+    The count is annotation positions where both sides are annotated and agree — evidence
+    the caller weighs across the whole class. Returning it separately from compatibility is
+    the point: an operation can be perfectly compatible and carry no evidence at all
+    (`close(self) -> None`), and treating those two as one question is what broke this.
+    """
+
     protocol_syntax = ast_for_node(
         parsed_by_path.get(protocol_method.path),
         protocol_method,
@@ -381,59 +397,113 @@ def _structural_method_match(protocol_method: AtlasNode,
         candidate_syntax,
         (ast.FunctionDef, ast.AsyncFunctionDef),
     ):
-        return False
+        return None
     if isinstance(protocol_syntax, ast.AsyncFunctionDef) != isinstance(
         candidate_syntax,
         ast.AsyncFunctionDef,
     ):
-        return False
-    protocol_annotations = _callable_annotations(protocol_syntax)
-    candidate_annotations = _callable_annotations(candidate_syntax)
-    if len(protocol_annotations) != len(candidate_annotations):
-        return False
-    comparable = [
-        (expected, actual)
-        for expected, actual in zip(
-            protocol_annotations,
-            candidate_annotations,
-            strict=True,
-        )
-        if expected
-    ]
-    return len(comparable) >= 2 and all(
-        expected == actual for expected, actual in comparable
-    )
+        return None
+    agreement = _parameter_agreement(protocol_syntax, candidate_syntax)
+    if agreement is None:
+        return None
+    expected_return = _returned_annotation(protocol_syntax)
+    actual_return = _returned_annotation(candidate_syntax)
+    if not _compatible_annotation(expected_return, actual_return):
+        return None
+    returns_agree = bool(expected_return) and expected_return == actual_return
+    return agreement + int(returns_agree)
 
-def _callable_annotations(
+
+#: Names whose meaning is fixed by the language, so two spellings of one really are
+#: comparable. Everything else may be an alias, a re-export, or a subtype the parse cannot
+#: resolve — and an adapter narrowing a return or widening a parameter is the abstraction
+#: working, not evidence it is a different thing.
+_COMPARABLE_ANNOTATIONS = frozenset(
+    {
+        "bool", "bytes", "complex", "dict", "float", "frozenset", "int", "list",
+        "None", "set", "str", "tuple",
+    }
+)
+
+
+def _compatible_annotation(expected: str, actual: str) -> bool:
+    """Whether an adapter's annotation contradicts the protocol's.
+
+    Only a disagreement between two builtins counts. `-> Voice` against
+    `-> _QwenVoice | _QwenBuiltinVoice` is a port doing its job: the adapter returns the
+    concrete type the abstraction exists to hide. Comparing those as strings rejected every
+    correctly written adapter in a real repository, which is the opposite of the intent.
+    """
+
+    if not expected or not actual or expected == actual:
+        return True
+    return not (expected in _COMPARABLE_ANNOTATIONS and actual in _COMPARABLE_ANNOTATIONS)
+
+
+def _parameter_agreement(
+    protocol_syntax: ast.FunctionDef | ast.AsyncFunctionDef,
+    candidate_syntax: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> int | None:
+    """Agreeing annotated parameters, or `None` when the adapter contradicts the protocol.
+
+    The adapter may take *more* than the protocol declares, so long as the surplus all has
+    defaults: refining `voices()` into `voices(root: Path | None = None)` still honours
+    every call the protocol promises, and demanding identical arity rejected exactly that.
+    """
+
+    expected = _declared_parameters(protocol_syntax)
+    actual = _declared_parameters(candidate_syntax)
+    if len(actual) < len(expected):
+        return None
+    agreement = 0
+    for wanted, given in zip(expected, actual, strict=False):
+        wanted_annotation = _annotation(wanted)
+        given_annotation = _annotation(given)
+        if not _compatible_annotation(wanted_annotation, given_annotation):
+            return None
+        if wanted_annotation and wanted_annotation == given_annotation:
+            agreement += 1
+    surplus = actual[len(expected):]
+    if not all(_has_default(candidate_syntax, argument) for argument in surplus):
+        return None
+    return agreement
+
+
+def _declared_parameters(
     syntax: ast.FunctionDef | ast.AsyncFunctionDef,
-) -> list[str]:
+) -> list[ast.arg]:
     arguments = [
         *syntax.args.posonlyargs,
         *syntax.args.args,
         *syntax.args.kwonlyargs,
     ]
-    non_receiver = [
-        argument for argument in arguments if argument.arg not in {"self", "cls"}
-    ]
-    if syntax.args.vararg is not None:
-        non_receiver.append(syntax.args.vararg)
-    if syntax.args.kwarg is not None:
-        non_receiver.append(syntax.args.kwarg)
-    return [
-        *[
-            (
-                ast.unparse(argument.annotation).replace(" ", "")
-                if argument.annotation is not None
-                else ""
-            )
-            for argument in non_receiver
-        ],
-        (
-            ast.unparse(syntax.returns).replace(" ", "")
-            if syntax.returns is not None
-            else ""
-        ),
-    ]
+    return [argument for argument in arguments if argument.arg not in {"self", "cls"}]
+
+
+def _has_default(
+    syntax: ast.FunctionDef | ast.AsyncFunctionDef, argument: ast.arg
+) -> bool:
+    positional = [*syntax.args.posonlyargs, *syntax.args.args]
+    if argument in positional:
+        offset = len(positional) - len(syntax.args.defaults)
+        return positional.index(argument) >= offset
+    if argument in syntax.args.kwonlyargs:
+        default = syntax.args.kw_defaults[syntax.args.kwonlyargs.index(argument)]
+        return default is not None
+    return False
+
+
+def _annotation(argument: ast.arg) -> str:
+    return (
+        ast.unparse(argument.annotation).replace(" ", "")
+        if argument.annotation is not None
+        else ""
+    )
+
+
+def _returned_annotation(syntax: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
+    return ast.unparse(syntax.returns).replace(" ", "") if syntax.returns is not None else ""
+
 
 def _boundary_preparation_fingerprint(method: AtlasNode,
     parsed: ParsedModule | None,

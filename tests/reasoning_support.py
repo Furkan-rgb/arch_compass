@@ -22,6 +22,13 @@ from archcompass.domain.policy import (
     PolicySource,
     PolicyStrength,
 )
+from archcompass.domain.review import (
+    BoundaryReview,
+    BoundaryReviewReport,
+    ReviewedBoundary,
+    ReviewOverview,
+    ReviewStatus,
+)
 
 
 def case() -> ArchitectureCase:
@@ -53,6 +60,72 @@ def candidate() -> FindingCandidate:
             FindingMeasurement(name="implementations", value=1, unit="implementations")
         ],
         limitations="Counted from one static snapshot.",
+    )
+
+
+def reviewed_boundary(
+    reference: str,
+    name: str,
+    *,
+    material: bool,
+    pattern: FindingPattern = FindingPattern.SOLE_IMPLEMENTATION,
+    measurements: list[FindingMeasurement] | None = None,
+) -> ReviewedBoundary:
+    """One judged boundary whose own text never contains its reference.
+
+    Named separately from the reference on purpose: a fixture with `BR-001` inside the
+    abstraction's name would make "no reference crosses the wire" pass for the wrong reason.
+    """
+
+    return ReviewedBoundary(
+        reference=reference,
+        candidate=FindingCandidate(
+            pattern=pattern,
+            summary=f"package.{name} is implemented only by package.{name}Adapter.",
+            participants=[
+                FindingParticipant(
+                    node_id=name.lower(),
+                    qualified_name=f"package.{name}",
+                    role="Declares the abstraction.",
+                )
+            ],
+            measurements=(
+                [FindingMeasurement(name="implementations", value=1)]
+                if measurements is None
+                else measurements
+            ),
+            limitations="A static count cannot see runtime registration.",
+        ),
+        material=material,
+        rationale=f"Argued from the case, about {name}.",
+        recommended_response="Call the implementation directly." if material else "",
+    )
+
+
+def review(
+    boundaries: list[ReviewedBoundary],
+    *,
+    overview: ReviewOverview | None = None,
+) -> BoundaryReview:
+    """A succeeded review holding those boundaries, ready to be questioned."""
+
+    return BoundaryReview(
+        case_id="case-test",
+        case_revision=1,
+        atlas_version_id="atlas-test",
+        status=ReviewStatus.SUCCEEDED,
+        reasoning_model="fake:fake-answerer",
+        prompt_identity="answer-review-question:v3:abcdef123456",
+        report=BoundaryReviewReport(
+            case_title="Scheduler boundaries",
+            problem_and_desired_outcome="Decide.\n\nA verdict per boundary.",
+            reviewed=boundaries,
+            overview=overview
+            or ReviewOverview(
+                situation="One operator, one server.",
+                limits="One detector ran.",
+            ),
+        ),
     )
 
 

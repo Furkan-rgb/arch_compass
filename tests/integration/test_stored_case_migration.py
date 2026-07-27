@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -181,11 +182,27 @@ def test_a_case_written_today_is_untouched_by_the_migration(tmp_path: Path) -> N
 
 
 def test_the_workspace_database_applies_every_migration(tmp_path: Path) -> None:
-    """A fresh workspace ends on the latest version, so nothing is skipped in ordering."""
+    """A fresh workspace applies every shipped migration exactly once, in order.
+
+    Deliberately not "the versions are contiguous". That assertion used to be here, and it
+    caused the failure it was meant to prevent: a withdrawn migration left a gap, the gap
+    was closed by renumbering a later migration down into the free slot, and every workspace
+    that had already recorded that number then skipped the renumbered one — so the table it
+    created was missing in exactly the workspaces that had data in them.
+
+    A migration number is an identifier, not a position. What matters is that each shipped
+    file runs once and that ordering is respected; a retired number is a gap that must stay
+    open.
+    """
 
     database = SQLiteDatabase(tmp_path / "archcompass.db")
     database.initialize()
 
+    shipped = sorted(
+        int(resource.name.split("_", maxsplit=1)[0])
+        for resource in files("archcompass.adapters.persistence.migrations").iterdir()
+        if resource.name.endswith(".sql")
+    )
     with database.connect() as connection:
         versions = [
             int(row[0])
@@ -193,8 +210,41 @@ def test_the_workspace_database_applies_every_migration(tmp_path: Path) -> None:
                 "SELECT version FROM schema_migrations ORDER BY version"
             )
         ]
-    assert versions == list(range(1, max(versions) + 1))
+
+    assert versions == shipped
+    assert len(versions) == len(set(versions))
     assert max(versions) >= 11
+
+
+def test_a_migration_number_is_never_reused(tmp_path: Path) -> None:
+    """A workspace that recorded a since-withdrawn version still reaches the full schema.
+
+    This is the regression for a real failure: reusing a retired number meant the migration
+    never ran where it was most needed, and the first sign of it was a review dying on
+    `no such table` in a workspace that had been working the day before.
+    """
+
+    path = tmp_path / "archcompass.db"
+    SQLiteDatabase(path).initialize()
+    with sqlite3.connect(path) as connection:
+        # Stand in for a workspace that applied a version this build no longer ships.
+        retired = 15
+        connection.execute("DELETE FROM schema_migrations WHERE version >= ?", (retired,))
+        connection.execute(
+            "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (retired, "2026-01-01T00:00:00+00:00"),
+        )
+        connection.execute("DROP TABLE IF EXISTS atlas_module_facts")
+        connection.commit()
+
+    SQLiteDatabase(path).initialize()
+
+    with sqlite3.connect(path) as connection:
+        tables = {
+            str(row[0])
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+    assert "atlas_module_facts" in tables
 
 
 def test_sqlite_supports_the_json_functions_the_migration_needs() -> None:

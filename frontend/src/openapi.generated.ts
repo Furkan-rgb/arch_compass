@@ -6,6 +6,11 @@
 
 export interface components {
   schemas: {
+    "AnswerProgress": components["schemas"]["AnswerProse"] | components["schemas"]["QuestionAnswered"] | components["schemas"]["QuestionFailed"];
+    "AnswerProse": {
+    "event"?: "prose";
+    "text": string;
+  };
     "ArchitectureCase": {
     "schema_version"?: 2;
     "case_id"?: string;
@@ -226,7 +231,7 @@ export interface components {
     "location"?: components["schemas"]["SourceLocation"] | null;
     "role": string;
   };
-    "FindingPattern": "sole_implementation";
+    "FindingPattern": "sole_implementation" | "duplicated_knowledge" | "scattered_concept";
     "HotspotsQuery": {
     "kind": "hotspots";
     "metric": string;
@@ -318,6 +323,14 @@ export interface components {
     "message": string;
     "retryable"?: boolean;
     "field_errors"?: Array<string>;
+  };
+    "QuestionAnswered": {
+    "event"?: "answered";
+    "message": components["schemas"]["ReviewMessage"];
+  };
+    "QuestionFailed": {
+    "event"?: "failed";
+    "problem": components["schemas"]["ProblemDetail"];
   };
     "RelationQuery": {
     "kind": "direct_dependencies" | "direct_dependants" | "known_callers" | "implementations" | "related_tests";
@@ -430,6 +443,7 @@ export interface components {
     "rationale": string;
     "policy_bearings"?: Array<components["schemas"]["PolicyBearing"]>;
     "recommended_response"?: string;
+    "verdict_label": string;
   };
     "ScoredBoundaryResponse": {
     "reference": string;
@@ -939,6 +953,24 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "stream_review_question_api_review_conversations__conversation_id__messages_stream_post": {
+    parameters: {
+      query: never;
+      path: {
+      "conversation_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["ReviewQuestionRequest"];
+    responses: {
+      "200": components["schemas"]["AnswerProgress"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
+      "503": components["schemas"]["ProblemDetail"];
+    };
+  };
   "update_case_api_cases__case_id__patch": {
     parameters: {
       query: never;
@@ -1031,6 +1063,9 @@ export interface paths {
   };
   "/api/review-conversations/{conversation_id}/messages": {
     post: operations["ask_review_question_api_review_conversations__conversation_id__messages_post"];
+  };
+  "/api/review-conversations/{conversation_id}/messages/stream": {
+    post: operations["stream_review_question_api_review_conversations__conversation_id__messages_stream_post"];
   };
   "/api/reviews": {
     get: operations["list_reviews_api_reviews_get"];

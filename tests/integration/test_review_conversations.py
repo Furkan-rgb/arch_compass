@@ -113,6 +113,189 @@ def test_a_failed_turn_is_recorded_rather_than_dropped(
     assert len(stored.messages) == 1
 
 
+def test_the_whole_corpus_and_primer_reach_the_answering_stage(
+    runtime: Runtime,
+) -> None:
+    """A reader can ask what a boundary *is*, not only what this review found.
+
+    Background is assembled by the application and handed to the stage, so the model never
+    chooses its own evidence. The substitute counts what it was given, which is how the
+    wiring is observed without asserting on a real model's prose.
+
+    The count is the point. Presented whole means every policy, every turn — an index that
+    returned the nearest handful was built and measured first, and it missed the primer's
+    own "what the detector cannot see" section when asked exactly that question.
+    """
+
+    review = _review(runtime)
+    conversation = runtime.review_conversation_service.create(review.review_id)
+    presented = len(runtime.policy_service.catalog())
+    assert presented > 0
+
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id,
+        "What is a boundary, and what can the detector not see?",
+    )
+
+    assert message.answer is not None
+    assert (
+        f"the method primer and {presented} policies, whole" in message.answer.answer
+    ), message.answer.answer
+
+
+def test_prose_arrives_before_the_answer_does_and_matches_it(runtime: Runtime) -> None:
+    """The preview is a window onto the same turn, not a different one.
+
+    Asserted against the stored record rather than against the fragments: what a reader was
+    shown has to be the answer that was appended, or the two can drift and only one of them is
+    the review's.
+    """
+
+    review = _review(runtime)
+    conversation = runtime.review_conversation_service.create(review.review_id)
+    seen: list[str] = []
+
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id,
+        "What did you make of the TaskFormatter boundary?",
+        on_prose=seen.append,
+    )
+
+    assert message.answer is not None
+    assert len(seen) > 1
+    assert "".join(seen) == message.answer.answer
+    stored = runtime.review_conversation_service.show(conversation.conversation_id)
+    assert stored.messages[-1].answer is not None
+    assert stored.messages[-1].answer.answer == message.answer.answer
+
+
+def test_a_preview_never_becomes_the_stored_record(
+    runtime: Runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A turn that emits text and then fails is a failed turn, with no answer in it.
+
+    This is the property that makes a preview safe: fragments are prose on its way to being
+    checked, so text a reader has already seen cannot promote itself into the history.
+    """
+
+    review = _review(runtime)
+    conversation = runtime.review_conversation_service.create(review.review_id)
+    seen: list[str] = []
+
+    class _FailsAfterSpeaking:
+        @staticmethod
+        def stream_review_answer(
+            _review_: object,
+            _history: object,
+            _question: object,
+            _knowledge: object,
+            on_prose: object,
+        ) -> None:
+            assert callable(on_prose)
+            on_prose("A half-written answer that")
+            raise ProviderError("the model stopped mid-answer")
+
+    monkeypatch.setattr(
+        runtime.review_conversation_service, "_reasoner", _FailsAfterSpeaking()
+    )
+
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id,
+        "Does a preview ever become the record?",
+        on_prose=seen.append,
+    )
+
+    assert seen == ["A half-written answer that"]
+    assert message.answer is None
+    assert "stopped mid-answer" in message.failure
+    stored = runtime.review_conversation_service.show(conversation.conversation_id)
+    assert [item.answer for item in stored.messages] == [None]
+
+
+def test_a_reasoner_that_cannot_stream_still_answers(
+    runtime: Runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Streaming is a capability of the provider, so its absence is not a failed turn."""
+
+    review = _review(runtime)
+    conversation = runtime.review_conversation_service.create(review.review_id)
+    real = runtime.review_conversation_service._reasoner
+    seen: list[str] = []
+
+    class _CannotStream:
+        """Everything a reasoner needs, minus the streaming method."""
+
+        answer_review_question = staticmethod(real.answer_review_question)
+
+    monkeypatch.setattr(runtime.review_conversation_service, "_reasoner", _CannotStream())
+
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id,
+        "What did you make of the TaskFormatter boundary?",
+        on_prose=seen.append,
+    )
+
+    assert seen == []
+    assert message.answer is not None
+    assert message.answer.answer
+
+
+def test_background_never_grounds_an_answer(runtime: Runtime) -> None:
+    """Only a boundary can support a claim about this repository.
+
+    Background explains the method. If it could ground an answer, "the review says so" and
+    "a policy document says so" would be indistinguishable in the record — and the second
+    is not a finding about any repository at all.
+    """
+
+    review = _review(runtime)
+    report = review.report
+    assert report is not None
+    conversation = runtime.review_conversation_service.create(review.review_id)
+
+    # A question the review cannot answer, whose words are all over the primer and the
+    # corpus: whatever background comes back, none of it may become a citation.
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id,
+        "In general, when is an abstraction with one implementation premature?",
+    )
+
+    assert message.answer is not None
+    known = {item.reference for item in report.reviewed}
+    assert set(message.answer.supporting_references) <= known
+
+
+def test_a_question_is_still_answered_when_the_corpus_cannot_be_read(
+    runtime: Runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Background is an aid. Losing it must not take a working conversation off a person."""
+
+    review = _review(runtime)
+    conversation = runtime.review_conversation_service.create(review.review_id)
+
+    def broken(*_: object, **__: object) -> None:
+        raise RuntimeError("the policy corpus could not be read")
+
+    monkeypatch.setattr(
+        runtime.review_conversation_service._policies,
+        "catalog",
+        broken,
+    )
+
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id,
+        "What did you make of the TaskFormatter boundary?",
+    )
+
+    assert message.answer is not None
+    # The primer is bundled and still there, so background degrades to it rather than
+    # vanishing; what must not happen is the turn failing.
+    assert "the method primer and 0 policies, whole" in message.answer.answer
+
+
 def test_a_blank_or_oversized_question_is_refused(runtime: Runtime) -> None:
     review = _review(runtime)
     conversation = runtime.review_conversation_service.create(review.review_id)

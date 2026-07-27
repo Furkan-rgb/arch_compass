@@ -17,8 +17,9 @@ Two properties are defended here that the key cannot express:
   works out where the boundaries are wrong; a case that says it first grades the model on
   reading rather than on judgement.
 - The repetition must really be in the repository. The same voice list is written into four
-  modules and one copy has drifted. No detector sees that today — it is *repetition without
-  ownership*, master plan §8A.3 — and the fixture carries it so it is ready when one does.
+  modules and one copy has drifted. The fixture carried that for a long time before any
+  detector could see it — *repetition without ownership*, master plan §8A.3 — and now that
+  one can, it is scored rather than merely present.
 """
 
 from __future__ import annotations
@@ -84,18 +85,36 @@ def test_the_detector_finds_exactly_the_boundaries_the_key_scores() -> None:
     assert sorted(_detected()) == sorted(_key())
 
 
-def test_every_detected_boundary_is_the_same_shape() -> None:
-    """The fixture must not let a run score by telling the shapes apart, only the case."""
+def test_no_boundary_can_be_scored_by_its_shape_alone() -> None:
+    """Within a pattern the candidates must be indistinguishable, so only the case decides.
+
+    This used to assert the whole fixture was one shape. It is not any more, deliberately:
+    the repetition it always carried is detected and scored now, so the fixture exercises
+    both directions of the catalogue. The guarantee it was protecting is narrower than the
+    old assertion and is what actually matters — a run must not be able to tell two
+    *sole-implementation* boundaries apart by counting, because then it could score three
+    material and three not without ever reading the case.
+    """
 
     atlas = PythonAstRepositoryAnalyzer().analyze(FIXTURE / "repository")
     candidates = detect_finding_candidates(atlas)
+    boundaries = [
+        candidate
+        for candidate in candidates
+        if candidate.pattern is FindingPattern.SOLE_IMPLEMENTATION
+    ]
 
-    assert {candidate.pattern for candidate in candidates} == {
-        FindingPattern.SOLE_IMPLEMENTATION
-    }
-    for candidate in candidates:
+    assert len(boundaries) == 6
+    for candidate in boundaries:
         measured = {item.name: item.value for item in candidate.measurements}
         assert measured["implementations"] == 1
+    # And both directions really are present, or the fixture has quietly stopped testing
+    # the discrimination its key is written for.
+    assert {candidate.pattern for candidate in candidates} == {
+        FindingPattern.SOLE_IMPLEMENTATION,
+        FindingPattern.DUPLICATED_KNOWLEDGE,
+        FindingPattern.SCATTERED_CONCEPT,
+    }
 
 
 def test_the_key_is_a_real_discrimination_and_not_a_lean() -> None:

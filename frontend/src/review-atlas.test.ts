@@ -36,6 +36,9 @@ function boundary(
   return {
     reference,
     material,
+    // Derived by the review, not by the page: the wording depends on which shape was
+    // judged, so the map shows whatever the review computed rather than its own phrase.
+    verdict_label: material ? "Not earning its place" : "Earning its place",
     rationale: `Why ${reference} came out this way.`,
     recommended_response: "",
     policy_bearings: [],
@@ -85,7 +88,7 @@ describe("reviewAtlasNodes", () => {
     const byId = new Map(reviewAtlasNodes(results, boundaries).map((n) => [n.id, n]));
 
     expect(byId.get("node_a")?.description).toContain("BR-001");
-    expect(byId.get("node_a")?.description).toContain("Should change");
+    expect(byId.get("node_a")?.description).toContain("Not earning its place");
     expect(byId.get("node_b")?.description).toContain("Earning its place");
     expect(byId.get("node_a_impl")?.description).toContain("BR-001");
   });

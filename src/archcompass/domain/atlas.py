@@ -152,6 +152,39 @@ class ObscuritySignal(DomainModel):
     limitations: str = ""
 
 
+class DefinedConstant(DomainModel):
+    """One module-level constant, and enough of its value to compare two of them.
+
+    The value is fingerprinted rather than stored. Two modules holding the same literal is
+    the fact detection needs; the literal itself may be a credential, and an atlas that
+    copied it would put it in every prompt and every stored review.
+    """
+
+    name: str = Field(min_length=1)
+    #: Empty when the value is not a literal — a computed constant is still a name two
+    #: modules share, but nothing can be claimed about whether they agree.
+    value_fingerprint: str = ""
+    line: int = Field(ge=1)
+
+
+class ModuleFacts(DomainModel):
+    """What one module states and what it names, as facts a detector can derive from.
+
+    Separate from `AtlasNode` because these are properties of a file's whole text rather
+    than of a symbol, and because the repetition detectors need to compare modules against
+    each other — a fact stored per symbol cannot answer "which modules share this".
+    """
+
+    node_id: str = Field(min_length=1)
+    path: str = Field(min_length=1)
+    qualified_name: str = Field(min_length=1)
+    constants: list[DefinedConstant] = Field(default_factory=list[DefinedConstant])
+    #: Modules of *this* repository whose name this module's text mentions, in an
+    #: identifier or a string literal. Bounded to names the repository actually owns, so
+    #: this is a small set rather than a copy of the file's vocabulary.
+    mentions: list[str] = Field(default_factory=list[str])
+
+
 class FindingPattern(StrEnum):
     """Structural shapes a detector can establish from the atlas graph.
 
@@ -159,15 +192,23 @@ class FindingPattern(StrEnum):
     policies the corpus already states, because the corpus is what says which patterns
     are worth detecting at all (master plan 8A.1).
 
-    One member, deliberately: the MVP ships one detector (master plan 8A.3). It stays an
-    enum rather than a string because the pattern name is an application-owned key that
-    reaches the model as a label, and a closed set is how it stays one (12.0). Adding the
-    second direction of the catalogue should then be a member and a function, not a
-    change of type.
+    A closed set rather than a string, because the pattern name is an application-owned key
+    that reaches the model as a label (12.0).
+
+    Both directions of master plan 8A.3 are now present, and the distinction between them
+    is the point. `SOLE_IMPLEMENTATION` is indirection that may be hiding nothing — the
+    advice, if any, is *remove it*. The other two are repetition with no owner — the advice,
+    if any, is *give this one owner*. An advisor holding only the first becomes an advocate
+    for the second, which is the failure this enum exists to keep visible.
     """
 
     #: An abstraction with exactly one implementation behind it.
     SOLE_IMPLEMENTATION = "sole_implementation"
+    #: The same named constant stated in several modules, with no module owning it.
+    DUPLICATED_KNOWLEDGE = "duplicated_knowledge"
+    #: One module's concern named across modules that have no other reason to know it —
+    #: a vendor, a format or a backend whose name has spread beyond the module that owns it.
+    SCATTERED_CONCEPT = "scattered_concept"
 
 
 class FindingParticipant(DomainModel):
@@ -240,6 +281,10 @@ class Atlas(DomainModel):
     edges: list[AtlasEdge]
     metrics: list[MetricProfile]
     signals: list[ObscuritySignal] = Field(default_factory=list[ObscuritySignal])
+    #: Per-module text facts, for the detectors that compare modules against each other.
+    #: An atlas written by an earlier parser has none; `parser_version` makes such an atlas
+    #: stale rather than quietly empty, so an absent list is never read as "nothing found".
+    module_facts: list[ModuleFacts] = Field(default_factory=list[ModuleFacts])
 
 
 class RepositoryContentIdentity(DomainModel):

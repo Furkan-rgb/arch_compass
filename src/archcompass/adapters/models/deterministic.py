@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
 from hashlib import sha256
 from typing import ClassVar
 
@@ -13,6 +14,7 @@ from archcompass.domain.atlas import (
 from archcompass.domain.case import (
     ArchitectureCase,
 )
+from archcompass.domain.knowledge import MethodKnowledge
 from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
     BoundaryReview,
@@ -136,14 +138,20 @@ class DeterministicReasoningProvider:
         if material:
             themes.append(
                 OverviewStatement(
-                    text=f"{len(material)} of {len(boundaries)} were judged material.",
+                    text=(
+                        f"{len(material)} of {len(boundaries)} were found not to be "
+                        "earning their place."
+                    ),
                     supporting_references=[item.reference for item in material],
                 )
             )
         if cleared:
             themes.append(
                 OverviewStatement(
-                    text=f"{len(cleared)} of {len(boundaries)} were judged not material.",
+                    text=(
+                        f"{len(cleared)} of {len(boundaries)} were found to be earning "
+                        "their place."
+                    ),
                     supporting_references=[item.reference for item in cleared],
                 )
             )
@@ -172,11 +180,37 @@ class DeterministicReasoningProvider:
             limits=" ".join(stated) or "The detector stated no limitation.",
         )
 
+    def stream_review_answer(
+        self,
+        review: BoundaryReview,
+        history: list[ReviewMessage],
+        question: str,
+        knowledge: MethodKnowledge,
+        on_prose: Callable[[str], None],
+    ) -> ReviewAnswer:
+        """The same answer, handed over a word at a time.
+
+        Implemented here so the streaming path has something to run against without a live
+        model: the route, the application service and the browser all behave as they do
+        against a real provider, and the assertion that a preview never becomes the stored
+        record is checkable offline.
+
+        Split on whitespace rather than by characters or tokens. A fragment boundary is
+        arbitrary in every real transport too, and words make a test's expectations readable
+        without pretending to imitate how any particular provider chunks its output.
+        """
+
+        answer = self.answer_review_question(review, history, question, knowledge)
+        for index, word in enumerate(answer.answer.split(" ")):
+            on_prose(word if index == 0 else f" {word}")
+        return answer
+
     def answer_review_question(
         self,
         review: BoundaryReview,
         history: list[ReviewMessage],
         question: str,
+        knowledge: MethodKnowledge,
     ) -> ReviewAnswer:
         report = review.report
         if report is None:
@@ -190,6 +224,15 @@ class DeterministicReasoningProvider:
             for item in report.reviewed
             if words & set(re.findall(r"[a-z0-9]+", item.candidate.summary.casefold()))
         ]
+        # The background is counted but never cited. Counting it makes the wiring
+        # observable — a test can prove the whole corpus reached this stage — while leaving
+        # `supporting_references` boundaries-only, which is the rule the real stage obeys.
+        consulted = (
+            f" Background consulted: the method primer and {len(knowledge.policies)} "
+            "policies, whole."
+            if knowledge.method
+            else ""
+        )
         return ReviewAnswer(
             answer=(
                 f"{report.headline} "
@@ -199,6 +242,7 @@ class DeterministicReasoningProvider:
                     if supporting
                     else "This review does not cover what the question asks about."
                 )
+                + consulted
                 + f" (turn {len(history) + 1})"
             ),
             supporting_references=[item.reference for item in supporting],
