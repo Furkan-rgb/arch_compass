@@ -705,10 +705,34 @@ model rather than a broken build.
 
 The long-term goal is for ArchCompass to become a persistent architectural reasoning layer around software development.
 
-The nearest is named in the master plan rather than left as an ambition:
+The route there is a product observation as much as an engineering one: architecture
+advice earns its keep at the moment a boundary decision is being made, and there are two
+such moments — a pull request is open, or a coding agent is about to write code. A
+whole-repository review read outside any decision is how the mechanism is demonstrated
+and evaluated; the same review, arriving at one of those moments, is the product. The
+sequence, argued in full in the master plan (§6C, §17):
 
-- **Greenfield candidates** — stated in the case instead of parsed from code, so a
-  boundary can be judged before it is built.
+1. **Elicitation — the review asks for the case** *(current)*. The case is what makes
+   judgement possible, and also the tax nobody pays before seeing value — so invert it.
+   A review may run against a thin case; each verdict states the circumstance it turned
+   on, and the review hands back the questions whose answers would settle its verdicts,
+   each naming the boundaries that turn on it. Answers become ordinary user-authored
+   case revisions through the existing revise-and-review loop, so the case accretes from
+   use instead of being authored up front. No new model calls: the judgement and
+   overview stages already run, and elicitation extends what they return.
+2. **Greenfield candidates** — boundaries stated in the case instead of parsed from
+   code, judged before they are built (§4.1 of the master plan). Elicitation is also how
+   a greenfield case — thin by definition — thickens.
+3. **Diff-scoped review** — the pull-request moment. A diff carries a handful of
+   candidates rather than a repository's worth, so cost is bounded by the change, and a
+   boundary is judged once, when it is introduced, rather than re-litigated on every
+   run.
+4. **Coding-agent integration** — an MCP surface with two calls: consult a proposed
+   boundary before the code exists, review a diff after it is written. The consumer of
+   architecture advice at scale is increasingly the agent about to create the boundary.
+5. **Decision lifecycle and architectural memory** — acceptance and supersession of
+   decisions, then drift, git co-change evidence and decision history. Memory compounds
+   only once the advisor is in the loop, which is why it is last rather than least.
 
 ### Detection roadmap
 
@@ -718,6 +742,48 @@ detection is a complete sweep with no ranking, so every detector adds a model ca
 match and a line in every report, and a fuzzy detector dilutes the signal a precise one
 carries. Each item below either maps to a policy already in the corpus or closes a gap a
 current detector admits to.
+
+#### Ranked for adoption
+
+A separate question from which detector comes next: what would have to improve before an
+engineering organisation could run this on its own repository. Most binding first — and
+the list is about detection's surroundings more than its catalogue, because the bottleneck
+is not how many shapes detection can see.
+
+1. **Scope, before ranking.** Detection is a complete sweep and judgement is one model
+   call per candidate, so cost and report length grow with the repository. On the bundled
+   examples that is exact and affordable; on a monorepo it is neither — the duplication
+   detector alone would fire on every shared constant name. The remedy that preserves the
+   no-ranking principle is scope: review one package, one subsystem or one diff
+   *completely*, rather than the whole repository approximately. This is why diff-scoped
+   review sits on the product path above rather than among the directions further out.
+2. **Verdicts that survive a rerun.** Organisations run tools repeatedly; today every run
+   re-judges every boundary, which multiplies cost and lets an unchanged boundary flip
+   verdicts between Mondays. A stored verdict should hold while the candidate, the case
+   revision and the policy corpus are unchanged — and a team must be able to accept a
+   boundary so it appears as accepted rather than re-litigated in every report (the
+   decision-lifecycle step of the product path above).
+3. **Edge resolution** (the fidelity item below). Real codebases wire implementations
+   through registries, dependency-injection containers and framework decorators that
+   static inheritance counting cannot see. Every unresolved edge is a candidate that is
+   wrong in a specific, checkable way — and one confidently wrong *only one
+   implementation*, shown to the engineer who wrote the second one, is how a trial ends.
+4. **A second language.** Python-only is the hard ceiling on who can adopt at all. It
+   ranks after fidelity rather than before, because judgement never sees a parse — the
+   language surface is contained in the atlas — and a detector set that has not earned
+   trust in one language is not improved by being wrong in two.
+5. **Evidence from history** (the architectural-memory step of the product path).
+   Modules that always change together are the evidence class a skeptical team finds
+   hardest to argue with, because it is their own history rather than a theory about
+   their code.
+
+Deliberately *not* on this list: more detectors — each one adds a model call per match,
+and precision earns adoption where coverage does not. Implementations that live in
+another repository need no detector fix either: the limitations printed on the candidate
+name that blind spot, and a `confirmed_facts` entry in the case settles it at judgement
+time. And the split itself — deterministic detect, model judge, nothing model-written
+used as a key, limits stated per boundary — is the part an organisation's reviewers can
+accept, and the part to keep.
 
 **Sharpen what already runs — cheapest, reversible:**
 
@@ -750,19 +816,15 @@ current detector admits to.
 - [ ] Implementations bound dynamically through a registry or factory, which static
       parsing cannot resolve.
 - [ ] Git co-change / churn coupling — modules that always change together, invisible to a
-      single snapshot (the *Git co-change evidence* direction below).
+      single snapshot (the architectural-memory step of the product path).
 
-Further out:
+Further out, beyond the numbered product path:
 
-- Explicit acceptance and supersession of architecture decisions.
-- Coding-agent integration.
 - Implementation-plan review.
-- Branch and diff analysis.
-- Architectural drift detection.
 - Comparison between repository atlas versions.
 - Revisit-trigger evaluation.
-- Git co-change evidence.
-- Additional programming languages.
+- Additional programming languages — deliberately last: a detector set that has not
+  earned trust in one language is not improved by being wrong in two.
 
 These are directions, not current capabilities.
 

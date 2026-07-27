@@ -16,7 +16,11 @@ from typing import cast
 
 import pytest
 
-from archcompass.adapters.models.structured import ChatMessage, StructuredReasoningProvider
+from archcompass.adapters.models.structured import (
+    ChatMessage,
+    ProposedCandidateVerdict,
+    StructuredReasoningProvider,
+)
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.atlas import (
     FindingCandidate,
@@ -128,7 +132,7 @@ def _reply(
 ) -> str:
     return json.dumps(
         {
-            "material": material,
+            "verdict": "should_change" if material else "leave_as_is",
             "rationale": "The boundary is the process edge this case names.",
             "policy_bearings": [{"bears_on": flag, "how": how} for flag, how in bearings],
             "recommended_response": response,
@@ -223,6 +227,59 @@ def test_an_immaterial_verdict_carries_no_recommended_response() -> None:
 
     assert verdict.material is False
     assert verdict.recommended_response == ""
+
+
+def test_the_verdict_is_a_word_the_model_chooses_rather_than_a_polarity_it_sets() -> None:
+    """The inversion this replaced, and why a better field name would not have been enough.
+
+    `material` was a bare `bool`, so the schema constraining generation carried nothing about
+    which way it pointed — and read as ordinary English the name asks whether the boundary
+    matters, which is the opposite of the finding it recorded. Three live runs argued a
+    boundary was justified and recorded "should change", one of them writing "Retain the
+    abstraction as it fulfills a mandatory technical constraint" into `recommended_response`
+    beside it. The report, the summary and every question about them inherited that.
+
+    A boolean named anything still has to be read for polarity, so the check that matters is
+    the one below: the two values are words in the grammar, and nothing else is representable.
+    """
+
+    schema = cast(
+        dict[str, object],
+        ProposedCandidateVerdict.model_json_schema()["properties"],
+    )
+    verdict_field = cast(dict[str, object], schema["verdict"])
+
+    assert sorted(cast(list[str], verdict_field["enum"])) == ["leave_as_is", "should_change"]
+    assert "material" not in schema
+    assert verdict_field.get("type") != "boolean"
+
+    changed, _ = _provider(_reply((False, ""), (False, ""), (False, ""), material=True))
+    kept, _ = _provider(_reply((False, ""), (False, ""), (False, ""), material=False))
+
+    assert changed.judge_finding_candidate(_case(), _candidate(), POLICIES).material is True
+    assert kept.judge_finding_candidate(_case(), _candidate(), POLICIES).material is False
+
+
+def test_a_verdict_answered_with_the_old_boolean_is_refused() -> None:
+    """`extra="forbid"` plus a required word: a stale flag cannot be read as a verdict.
+
+    Worth stating rather than assuming. Silently defaulting a missing verdict would put the
+    inversion back with no way to see it, and the fail-safe direction for a field this
+    consequential is to refuse the reply and repair it.
+    """
+
+    stale = json.dumps(
+        {
+            "material": True,
+            "rationale": "The boundary is the process edge this case names.",
+            "policy_bearings": [{"bears_on": False, "how": ""} for _ in range(3)],
+            "recommended_response": "Remove the interface.",
+        }
+    )
+    provider, _ = _provider(stale, stale)
+
+    with pytest.raises(ModelOutputValidationError):
+        provider.judge_finding_candidate(_case(), _candidate(), POLICIES)
 
 
 def test_the_verdict_carries_the_candidate_id_the_application_already_held() -> None:

@@ -151,17 +151,39 @@ class ProposedCandidateVerdict(BaseModel):
     would be asking the model to copy a value ArchCompass already holds.
 
     Field order is load-bearing. A structured-output model fills the schema in order, so
-    `material` before `rationale` makes it commit to a verdict and then argue for it. A
-    live run produced exactly that: `material=false` beside a rationale concluding
+    the verdict before `rationale` makes it commit and then argue for what it committed to.
+    A live run produced exactly that: a cleared verdict beside a rationale concluding
     "removing the interface simplifies the call path without losing any necessary
     structural benefit". The argument is written first here so the conclusion follows it.
+
+    The verdict is a word rather than a flag, and the flag it replaced is why. `material`
+    was a bare `bool`, so the schema constraining generation said only `{"type":
+    "boolean"}` — nothing at the point of writing carried which way it pointed. Read as
+    ordinary English "is this boundary material?" asks whether it matters, and a model that
+    had just argued the boundary was justified answered yes; ArchCompass read the same
+    `true` as "the finding is material", meaning there is a problem here. Three live runs
+    recorded the inversion, each unmistakable — one wrote "Retain the abstraction as it
+    fulfills a mandatory technical constraint" into `recommended_response`, a field that
+    exists only to say what to do about a problem, beside a flag saying the boundary should
+    be removed. The report, the summary and every conversation about them inherited it.
+
+    That trap was already documented three times in this codebase, at `_answer`, at the
+    summary stage and in `BoundaryReviewReport.headline` — each time by spelling the verdict
+    out in English before showing it to a model or a reader. All three are consumers. This
+    is the producer, and it is the one place where being wrong cannot be recovered from.
+
+    A boolean named anything still has to be read for polarity. A word is the conclusion.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     rationale: str = Field(min_length=1)
     policy_bearings: list[ProposedPolicyBearing]
-    material: bool
+    #: Neutral across all three patterns on purpose. Each names a different problem —
+    #: indirection to remove, a fact needing one owner, knowledge to move back behind its
+    #: boundary — and every one of them is a change, so this pair needs no per-pattern
+    #: vocabulary and cannot drift out of step with one.
+    verdict: Literal["leave_as_is", "should_change"]
     recommended_response: str = ""
 
 
@@ -467,14 +489,16 @@ class StructuredReasoningProvider:
             # rather than kept as something a reader cannot check.
             if item.bears_on and item.how.strip()
         ]
+        # The word becomes the domain's flag here and nowhere else. `material` keeps its
+        # name in the domain, where it is read by code rather than written by a model, and
+        # this single line is the whole of the translation.
+        material = proposed.verdict == "should_change"
         return CandidateVerdict(
             candidate_id=candidate.candidate_id,
-            material=proposed.material,
+            material=material,
             rationale=proposed.rationale,
             policy_bearings=bearings,
-            recommended_response=(
-                proposed.recommended_response.strip() if proposed.material else ""
-            ),
+            recommended_response=(proposed.recommended_response.strip() if material else ""),
         )
 
     def summarise_review(
@@ -594,6 +618,24 @@ class StructuredReasoningProvider:
             raise ValueError("A review without a report cannot be questioned")
         boundaries = report.reviewed
         expected = len(boundaries)
+        # Where each conclusion entry came from, by position rather than by code. A
+        # statement stores `BR-` references, which must never enter an input the model can
+        # quote back (12.0) — but the positions behind them are ArchCompass's own key and
+        # are already the vocabulary every boundary below is presented in.
+        #
+        # Without this, "tell me more about recommendation 3" can only be answered by
+        # matching words against the boundary list, and a live conversation showed what
+        # that costs: three turns sourced from the conclusion's own summary, one of them
+        # saying so outright, while citing a boundary whose record was never opened.
+        position_of = {item.reference: index for index, item in enumerate(boundaries, start=1)}
+
+        def rests_on(statement: OverviewStatement) -> list[int]:
+            return sorted(
+                position_of[reference]
+                for reference in statement.supporting_references
+                if reference in position_of
+            )
+
         proposed = self._complete(
             ReasoningTask.ANSWER_REVIEW_QUESTION,
             {
@@ -610,9 +652,22 @@ class StructuredReasoningProvider:
                 # back (12.0); the boundaries themselves are all below with their reasoning.
                 "conclusion": {
                     "situation": report.overview.situation,
-                    "themes": [item.text for item in report.overview.themes],
+                    "themes": [
+                        {"text": item.text, "rests_on_boundary_positions": rests_on(item)}
+                        for item in report.overview.themes
+                    ],
+                    # Numbered as the reader sees them. The page renders this as an ordered
+                    # list, so "recommendation 3" is the third entry here and nothing has to
+                    # be inferred from the order of a bare array.
                     "recommended_sequence": [
-                        item.text for item in report.overview.recommended_sequence
+                        {
+                            "number": number,
+                            "text": item.text,
+                            "rests_on_boundary_positions": rests_on(item),
+                        }
+                        for number, item in enumerate(
+                            report.overview.recommended_sequence, start=1
+                        )
                     ],
                     "limits": report.overview.limits,
                 },

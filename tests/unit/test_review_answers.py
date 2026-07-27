@@ -149,6 +149,40 @@ def test_the_detectors_own_numbers_are_in_the_request() -> None:
     assert "duplicated_knowledge" in sent
 
 
+def test_each_conclusion_entry_says_which_boundaries_it_was_built_from() -> None:
+    """By position, so "tell me more about recommendation 3" has somewhere to go.
+
+    Without it the conclusion is the only place a recommendation exists, and the boundaries
+    carry no link back — so a question about one can only be answered by matching its words
+    against the boundary list. A live conversation showed what that costs: three turns
+    answered out of the conclusion's own summary while citing a boundary whose record was
+    never opened.
+    """
+
+    sent, _ = _request()
+    payload = json.loads(sent.rsplit("\n\nInput:\n", maxsplit=1)[1])
+    conclusion = payload["conclusion"]
+
+    # BR-001 and BR-002 are the first two boundaries supplied; the theme rests on both.
+    assert conclusion["themes"] == [
+        {
+            "text": OVERVIEW.themes[0].text,
+            "rests_on_boundary_positions": [1, 2],
+        }
+    ]
+    # Numbered as the page numbers them, and pointing at BR-002 alone.
+    assert conclusion["recommended_sequence"] == [
+        {
+            "number": 1,
+            "text": OVERVIEW.recommended_sequence[0].text,
+            "rests_on_boundary_positions": [2],
+        }
+    ]
+    # Positions index the boundaries actually supplied, so they resolve to a record.
+    positions = {item["position"] for item in payload["boundaries"]}
+    assert {1, 2} <= positions
+
+
 def test_no_boundary_reference_crosses_into_the_request() -> None:
     """Including the conclusion's, which is where they would most easily have slipped in.
 
