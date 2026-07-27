@@ -30,7 +30,7 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
     """The enum and the registry must not drift; a gap surfaces as a runtime KeyError."""
 
     expected_versions = {
-        ReasoningTask.JUDGE_FINDING_CANDIDATE: 7,
+        ReasoningTask.JUDGE_FINDING_CANDIDATE: 8,
         ReasoningTask.SUMMARISE_REVIEW: 5,
         ReasoningTask.ANSWER_REVIEW_QUESTION: 4,
     }
@@ -217,3 +217,24 @@ def test_the_judgement_request_keeps_the_hinge_inside_the_argument() -> None:
     # The unknown must be the reader's to settle, not the repository's or nobody's.
     assert "whether requirements might change" in request
     assert "asking them to do the detector's job" in request
+
+
+def test_the_judgement_contract_makes_the_stage_read_the_case_before_asking() -> None:
+    """Saying what a hinge is for was not enough to stop it hinging everything.
+
+    A live `gemma4:26b` run hinged 8 of 8 on the *complete* `speech-vendor` case, one
+    verdict resting on "whether a second speech vendor is actually being introduced" against
+    a case whose expected_future_changes opens by saying one is under contract. The check
+    against the case is now a step with an order and a named failure rather than a property
+    the stage was expected to infer from what a hinge is for.
+    """
+
+    contract = _normalized(JUDGE_FINDING_CANDIDATE.stage_contract)
+
+    assert "before you claim the case is silent, go and look" in contract
+    # The fields it must actually look in, so "the case" is not left as an abstraction.
+    for field in ("expected_future_changes", "confirmed_facts", "non_goals"):
+        assert field in contract
+    assert "the case answered you" in contract
+    assert "a partial answer in the case is still an answer" in contract
+    assert "a hinge on every boundary is the same as a hinge on none" in contract

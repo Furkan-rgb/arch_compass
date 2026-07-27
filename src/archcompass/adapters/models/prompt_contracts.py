@@ -86,7 +86,14 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
     # verdicts to. The adapter now drops such a hinge rather than raising, and this says
     # plainly that a hinge you cannot name is the other answer rather than a form to leave
     # half-filled.
-    version=7,
+    #
+    # v8 makes the stage look before it claims. v7 said a hinge is for what the case does
+    # not state and that hinging everything is worthless, and a live run hinged 8 of 8
+    # anyway — on the *complete* `speech-vendor` case, where one verdict rested on "whether
+    # a second speech vendor is actually being introduced" and the case says in as many
+    # words that one is under contract. Saying what a hinge is for was not enough; the check
+    # against the case is now a step with a stated order and a named failure.
+    version=8,
     stage_contract=_text(
         """
         A structural detector found one pattern in this repository and reported what it
@@ -152,9 +159,24 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
         change your answer — most often whether a variation is actually coming, whether an
         external contract is fixed, or whether a decision has been settled.
 
+        Before you claim the case is silent, go and look. Read
+        expected_future_changes, confirmed_facts, technical_constraints, non_goals and
+        assumptions for the fact you are about to ask for. If any of them states it, there
+        is no hinge: the case answered you, and asking again puts a question to the reader
+        that they already wrote down. This is the mistake to avoid above all others here —
+        a run once rested a verdict on "whether a second vendor is actually being
+        introduced" against a case whose expected_future_changes began "a second vendor is
+        under contract".
+
+        A partial answer in the case is still an answer. If the case says a change is
+        coming and does not say when, the change is coming; if it rules something out as a
+        non-goal, it is ruled out. Do not hinge on the detail the case left off when the
+        part it did state is what your verdict turned on.
+
         A hinge on every boundary is the same as a hinge on none. It reads as a stage
         hedging every answer it gives, and a reader who is told six verdicts are provisional
-        learns nothing about which one to go and check.
+        learns nothing about which one to go and check. Expect most of a well-written case's
+        boundaries to stand either way, and only a thin case to produce many hinges.
         """
     ),
     request=_text(
