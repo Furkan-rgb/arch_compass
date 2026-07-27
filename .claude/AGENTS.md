@@ -109,7 +109,10 @@ iterate loop. Implement one step per task; do not pull later steps forward.
 - The built frontend bundle under `presentation/web/static` is committed; `make check`
   fails if it no longer matches `frontend/` — rebuild and commit it with UI changes.
 - Frontend deps already include `js-yaml`, `react-hook-form`, `@hookform/resolvers` —
-  don't add a second YAML or form library.
+  don't add a second YAML or form library. Markdown has one home too: `frontend/src/markdown.tsx`
+  decides plugins, highlighted languages and HTML handling for every surface that renders it.
+  Highlighting is refractor's bare core with a named language list; the engine was chosen by
+  measuring the committed bundle (highlight.js cost 54KB gzipped against refractor's 16).
 - Changing a prompt's text changes its identity (`adapters/models/prompt_contracts.py`),
   so bump the stage version deliberately; a review records the identity that ran.
 - Domain models validate the current schema only; no legacy shims or upgrade validators

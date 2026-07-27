@@ -25,7 +25,7 @@ from archcompass.domain.review import (
     ReviewOverview,
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
-from archcompass.ports.reasoning import ReasoningTask
+from archcompass.ports.reasoning import ReasoningTask, StreamingAnswerReasoner
 
 
 class DeterministicEmbeddingProvider:
@@ -247,3 +247,10 @@ class DeterministicReasoningProvider:
             ),
             supporting_references=[item.reference for item in supporting],
         )
+
+
+#: As in `structured`: the streaming capability is found by `isinstance`, which compares
+#: method names alone, so the signature is stated here to be checked. It matters more for a
+#: substitute than for a real provider — this is what the streaming route runs against
+#: offline, so a drift here would make those tests pass against the wrong shape.
+_conforms: type[StreamingAnswerReasoner] = DeterministicReasoningProvider

@@ -573,6 +573,36 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 .markdown code { padding: 2px 5px; color: var(--teal-deep); background: var(--teal-soft); border-radius: 3px; font-size: .9em; }
 .markdown pre, pre { max-width: 100%; padding: 17px; overflow-x: auto; color: var(--color-code-text); background: var(--color-code-bg); border-radius: 7px; font-size: var(--text-small); line-height: 1.65; }
 .markdown blockquote { margin-left: 0; padding-left: 16px; color: var(--ink-muted); border-left: 3px solid var(--teal); }
+
+/*
+  Syntax colours for a fenced block that named its language.
+
+  One palette rather than two: a code block sits on `--color-code-bg`, which is dark in both
+  the light and the dark theme, so the tokens are chosen against that and need no variant.
+
+  Muted on purpose. The colours are here to separate a string from a keyword from a comment at
+  a glance, not to decorate — an answer is prose with a snippet in it, and a snippet lit up
+  like a Christmas tree pulls the eye away from the sentence explaining it. Comments are dimmed
+  rather than tinted, because in a suggested change they are usually the annotation ("# before"
+  / "# after") and should read as quieter than the code around them.
+*/
+.token.comment, .token.prolog, .token.doctype, .token.cdata { color: #7d8a9c; font-style: italic; }
+.token.keyword, .token.boolean, .token.selector, .token.important { color: #93b8e8; }
+.token.string, .token.char, .token.attr-value, .token.regex { color: #a8cfa2; }
+.token.number, .token.symbol, .token.constant { color: #dcbc8a; }
+.token.function, .token.class-name { color: #e6d3a3; }
+.token.builtin { color: #9fd0c8; }
+.token.decorator, .token.annotation, .token.tag { color: #a99ac9; }
+.token.property, .token.attr-name, .token.variable { color: #cbd5e1; }
+.token.operator, .token.punctuation { color: #93a1b2; }
+.token.italic { font-style: italic; }
+.token.bold { font-weight: 600; }
+/* A diff is the one grammar where the colour carries meaning rather than category, and it is
+   applied per line rather than per token — a removed line is removed whatever is on it. */
+.token.inserted, .code-line.inserted { color: #9ad0a3; }
+.token.deleted, .code-line.deleted { color: #dfa0a6; }
+/* Every line becomes an element, whether it was coloured or not. It must not become a block. */
+.markdown pre .code-line { display: inline; }
 .policy-markdown { margin-top: 27px; }
 
 .wizard-steps { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0 0 22px; padding: 0; list-style: none; }
@@ -1447,30 +1477,55 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 /* The dock rides the viewport bottom while the page has further to scroll, then lands in
    its own place at the end. `position: sticky` does both from one rule, so the resting
    state cannot drift out of step with the scroll position. */
-.dock {
+/*
+  The space the dock occupies in the document, and the reason its two heights are stable.
+
+  It is a fixed 20vh whatever the dock is doing, and the dock is positioned inside it rather
+  than laid out by it. So the document's height does not depend on how tall the dock is, and
+  that is the whole trick: the previous version put the dock in the flow, which meant growing
+  it made the page longer, made the reader no longer at the bottom, and shrank it again. One
+  pixel of scroll could resize the dock by several hundred, the element under the pointer
+  changed mid-gesture, and the rest of that gesture went somewhere else — which is what being
+  stuck between two sizes actually was.
+
+  With the space reserved, "is the reader at the end of the page" is a fact about the content
+  alone. Nothing the dock does can change the answer, so there is no loop to fall into.
+*/
+/* Sits in the flow at the end of the page's content, immediately above the slot. Its distance
+   from the bottom of the screen is how "has the reader reached the end" is measured — see the
+   effect in `ReviewDetailPage`, which cannot use `scrollHeight` for it. No appearance. */
+.dock__anchor { height: 1px; }
+.dock-slot {
   position: sticky;
   bottom: 0;
   z-index: 12;
+  height: 20vh;
+  margin: 0 -6px;
+}
+.dock {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
   /* A column so the history is the only part that flexes: the input and the thread row keep
      their size at every height, and the cap below can never squeeze the form out of reach. */
   display: flex;
   flex-direction: column;
-  /* Two heights, because the dock is two things. Riding the bottom of the viewport it sits
-     over content still being read, so it stays out of the way however long the thread gets;
-     once the review's content has ended there is nothing left underneath to cover, and it
-     may use the screen. `--dock-max` is set by `.dock--settled`. */
+  /* Two heights: the reserved slot while there is page left to read, and up to the whole
+     screen once the reader has reached the end and there is nothing underneath left to cover.
+     `--dock-max` is written by `ReviewDetailPage`; the fallback is what the first paint gets.
+     Transitioned so crossing between them reads as the panel opening rather than as a jump. */
   max-height: var(--dock-max, 20vh);
-  margin: 0 -6px;
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 11px;
   background: var(--color-bg-surface);
   box-shadow: 0 -2px 16px rgb(16 22 30 / 9%), var(--shadow-panel);
+  transition: max-height 160ms ease-out;
 }
-.dock--settled { --dock-max: 100vh; }
-/* Zero-width marker sitting at the end of the page's content, just above the dock. What it
-   reports is read in `ReviewDetailPage`; it has no appearance of its own. */
-.dock__anchor { height: 1px; }
+@media (prefers-reduced-motion: reduce) {
+  .dock { transition: none; }
+}
 .dock__toggle,
 .dock__threads,
 .dock__form { flex: 0 0 auto; }
@@ -1481,9 +1536,32 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 /* The only part that flexes, and the only part that scrolls. `min-height: 0` is what lets it
    actually shrink inside the cap — a flex item's automatic minimum is its content, so without
    it a long thread pushes the form off the bottom of the dock instead of scrolling. */
+/* Scroll chaining is left on deliberately. `overscroll-behavior: contain` would keep a gesture
+   inside the thread once it started there, which is right for a small floating bubble and
+   wrong for this: the dock spans the width of the page along its bottom edge, so containing
+   the scroll means a pointer anywhere near the bottom of the screen stops the page moving.
+   Reaching the top of the thread and continuing onto the page is the behaviour to want here. */
 .dock__history { display: grid; flex: 1 1 auto; gap: 15px; min-height: 0; margin: 0 0 13px; padding: 3px 4px 3px 0; overflow-y: auto; list-style: none; }
 .dock__q { margin: 0 0 7px; font-weight: 600; }
-.dock__a { max-width: 82ch; margin: 0 0 6px; line-height: 1.6; white-space: pre-wrap; }
+/* An answer is rendered markdown, so `white-space: pre-wrap` is gone: paragraphs, lists and
+   fences are structure now rather than newlines to preserve. The scale is turned down from
+   the Policies page's — a heading in a chat answer is a sentence, not a chapter. */
+.dock__a { max-width: 82ch; margin: 0 0 6px; font-size: 14px; line-height: 1.6; }
+.dock__a > :first-child { margin-top: 0; }
+.dock__a > :last-child { margin-bottom: 0; }
+.dock__a p, .dock__a ul, .dock__a ol { margin: 0 0 8px; }
+.dock__a h1, .dock__a h2, .dock__a h3, .dock__a h4 {
+  margin: 12px 0 5px;
+  padding: 0;
+  border: 0;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+/* A fenced block keeps its own line breaks and scrolls sideways rather than forcing the dock
+   wider than the page — the one thing a long line of code will otherwise do. */
+.dock__a pre { margin: 8px 0; padding: 11px 13px; font-size: 12.5px; line-height: 1.55; }
+.dock__a pre code { padding: 0; color: inherit; background: none; font-size: inherit; }
 .dock__grounding { margin: 0; color: var(--color-text-tertiary); font-size: 12px; }
 .dock__grounding--none { color: var(--color-warning); }
 .dock__failed { margin: 0; color: var(--color-warning); font-size: 13px; }

@@ -18,6 +18,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import { CaseForm, casePayload, type CaseFormValues } from "../case-form";
+import { Markdown } from "../markdown";
 import { ErrorPanel, Loading, formatDate, shortId } from "../components";
 import { ReviewAtlas } from "../review-atlas";
 import { ReviewInProgress } from "../review-in-progress";
@@ -44,6 +45,26 @@ import type {
  * the verdicts it was built from. `:target` highlights the finding on arrival, so the jump
  * is visible without any script deciding what "selected" means.
  */
+/**
+ * An answer as the model wrote it: prose, with code shown as code.
+ *
+ * The same renderer the Policies page uses, so a fenced block, a table or a bulleted list
+ * reads the same wherever it appears. It also matters more here than there — an answer about
+ * a boundary routinely shows the two-line change it is describing, and a diff rendered as one
+ * run-on paragraph is worse than no example at all.
+ *
+ * Safe to call on a partial answer. An unclosed fence is treated as a code block running to
+ * the end of what has arrived, which is exactly right for a block still being written; it is
+ * highlighted from the first line rather than turning colour once the answer finishes.
+ */
+export function AnswerProse({ text }: { text: string }) {
+  return (
+    <div className="markdown dock__a">
+      <Markdown>{text}</Markdown>
+    </div>
+  );
+}
+
 function Citations({ references }: { references: string[] }) {
   return (
     <span className="cites">
@@ -312,18 +333,12 @@ export function ReviewDetailPage() {
    * do not exist until the whole reply has arrived — so it is labelled as still being written
    * rather than shown as an answer the review supports.
    */
-  const [pending, setPending] = useState<{ question: string; prose: string } | null>(null);
-  /**
-   * Whether the page's content has run out below the dock, which is what decides how tall the
-   * dock may be. Read from a marker rendered at the end of that content, immediately above the
-   * dock — deliberately not from "is the window scrolled to the bottom".
-   *
-   * The marker's position depends only on what is above it, so the dock growing cannot move
-   * it. Measuring the window instead would feed back: reaching the bottom would let the dock
-   * grow, growing would make the document taller, and the taller document would mean the
-   * bottom was no longer reached — a loop that ends in the dock flickering between heights.
-   */
-  const [settled, setSettled] = useState(false);
+  const [pending, setPending] = useState<{
+    question: string;
+    prose: string;
+  } | null>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
+  const slotRef = useRef<HTMLDivElement>(null);
   const contentEnd = useRef<HTMLDivElement>(null);
   const [revising, setRevising] = useState(false);
   // The map is one section of this page, so which node it shows is the page's state: a
@@ -355,15 +370,72 @@ export function ReviewDetailPage() {
     enabled: Boolean(reviewId),
   });
 
-  // Re-run when the review arrives, because the marker is only rendered once there is a
-  // report to render — until then this page is a spinner and there is no dock to size.
+  /**
+   * How tall the dock may be: its reserved slot while there is page left to read, and up to
+   * the whole screen once the reader has reached the end of it.
+   *
+   * How far from the end the reader is comes from two element positions and never from
+   * `scrollHeight`. With a sticky element on the page those disagree: Chromium reports a
+   * scroll height a couple of hundred pixels larger than the furthest the page will actually
+   * scroll, so a page scrolled fully to the bottom looks like it still has some way to go and
+   * the dock never expands at all. `marker` sits in the flow just above the slot, so its
+   * distance from the viewport's bottom edge is a fact about the content and is exact.
+   *
+   * That the slot reserves a fixed space is what makes the measurement stable. In the flow the
+   * dock's own height moved the end of the page, so the answer to "am I at the end" changed as
+   * a result of acting on it — the loop that made the dock feel stuck between its two sizes.
+   * Nothing here can change what it measures.
+   *
+   * The two thresholds are hysteresis, and they are the second half of the robustness: forty
+   * pixels from the end to expand, a hundred and sixty to collapse again. The gap is what stops
+   * the boundary being a knife edge — a trackpad settling short of the end, or the atlas
+   * finishing its layout and moving things by a few pixels, would otherwise leave the dock
+   * flipping between its two sizes. The entry threshold is deliberately forgiving: there is
+   * nothing below the dock to cover, so being near the end is as good as being at it.
+   *
+   * Written straight onto the node rather than held in state. Scroll-driven styling routed
+   * through React re-renders the page on every frame of a scroll, and what it computes is a
+   * presentational value nothing else reads.
+   */
   const status = review.data?.status;
   useEffect(() => {
-    const marker = contentEnd.current;
-    if (!marker) return;
-    const observer = new IntersectionObserver(([entry]) => setSettled(entry.isIntersecting));
-    observer.observe(marker);
-    return () => observer.disconnect();
+    if (!dockRef.current) return;
+    let frame = 0;
+    let expanded = false;
+    const measure = () => {
+      frame = 0;
+      const dock = dockRef.current;
+      const marker = contentEnd.current;
+      const slot = slotRef.current;
+      if (!dock || !marker || !slot) return;
+      // At the very end of the page the marker sits exactly one slot's height above the
+      // bottom of the screen, because the slot is the last thing in the flow. Anything more
+      // than that is page still to come.
+      const fromEnd =
+        marker.getBoundingClientRect().top +
+        slot.getBoundingClientRect().height -
+        window.innerHeight;
+      expanded = fromEnd <= (expanded ? 160 : 40);
+      dock.style.setProperty("--dock-max", expanded ? "100vh" : "20vh");
+    };
+    // Coalesced to one measurement per frame: scroll fires far more often than the screen is
+    // painted, and each measurement reads layout.
+    const schedule = () => {
+      frame ||= requestAnimationFrame(measure);
+    };
+    measure();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    // The page changes height without anyone scrolling — the atlas finishes loading, an answer
+    // arrives — and where the end of it is moves with that.
+    const resized = new ResizeObserver(schedule);
+    resized.observe(document.body);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      resized.disconnect();
+    };
   }, [status]);
 
   const caseId = review.data?.case_id;
@@ -394,7 +466,10 @@ export function ReviewDetailPage() {
 
   // The atlas the review pinned answers where the repository is; a review carries the
   // version, and the listing is what turns a version into a path.
-  const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
+  const repositories = useQuery({
+    queryKey: ["repositories"],
+    queryFn: api.repositories,
+  });
   const repositoryRoot =
     repositories.data?.find((item) => item.version_id === atlasVersionId)?.root_path ||
     pinnedCase.data?.snapshot?.repository?.root_path ||
@@ -426,7 +501,7 @@ export function ReviewDetailPage() {
   useEffect(() => {
     const list = historyRef.current;
     if (list) list.scrollTop = list.scrollHeight;
-  }, [messages.length, pending?.prose, open, settled]);
+  }, [messages.length, pending?.prose, open]);
 
   // The listing is newest first, so the review before this one in it is the newer one.
   const ordered = siblings.data || [];
@@ -465,10 +540,13 @@ export function ReviewDetailPage() {
       // fragments have built — never the record — and is dropped the moment the appended
       // message arrives, which is what a re-read of this thread will show.
       setPending({ question: text, prose: "" });
-      const message = await api.streamReviewQuestion(target.conversation_id, text, (fragment) =>
-        setPending((current) =>
-          current ? { ...current, prose: current.prose + fragment } : current,
-        ),
+      const message = await api.streamReviewQuestion(
+        target.conversation_id,
+        text,
+        (fragment) =>
+          setPending((current) =>
+            current ? { ...current, prose: current.prose + fragment } : current,
+          ),
       );
       return { message, target };
     },
@@ -477,7 +555,9 @@ export function ReviewDetailPage() {
       setOpen(true);
       // A question asked into a new thread lands in that thread, not back in the newest.
       setThreadId(target.conversation_id || null);
-      await client.invalidateQueries({ queryKey: ["review-conversations", reviewId] });
+      await client.invalidateQueries({
+        queryKey: ["review-conversations", reviewId],
+      });
       // Cleared after the history has been refetched, so the answer never blinks out of
       // existence between the preview going and the stored message arriving.
       setPending(null);
@@ -524,7 +604,10 @@ export function ReviewDetailPage() {
     repositoryRoot && reviewed.length > 0
       ? (nodeId: string) => {
           setAtlasNodeId(nodeId);
-          atlasRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          atlasRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
         }
       : null;
 
@@ -636,8 +719,8 @@ export function ReviewDetailPage() {
 
       <p className="boundaries-note">
         Every boundary examined is below, cleared ones included. <code>BR-001</code> and the
-        rest are references ArchCompass assigns in detection order — the citations above lead
-        to them, and citing one in a question makes the answer cite it back.
+        rest are references ArchCompass assigns in detection order — the citations above
+        lead to them, and citing one in a question makes the answer cite it back.
       </p>
 
       {material.length > 0 ? (
@@ -698,151 +781,150 @@ export function ReviewDetailPage() {
       ) : null}
 
       {/*
-        `position: sticky; bottom: 0`: the dock rides the bottom of the viewport while there is
-        page left below it, then settles into its own place in the flow when you reach the end.
-        Scroll position stays the single source of truth for where it sits, so the dock cannot
-        disagree with where the page actually is.
-
-        How tall it may be is the one thing CSS cannot answer on its own, so the marker below
-        reports whether the page's content has ended. It sits here rather than after the dock
-        on purpose — see `settled` above.
+        The slot is what sits in the page — a fixed 20vh, sticky to the bottom of the viewport
+        while there is page left below it, settling into its own place at the end. The dock is
+        positioned inside it and may be taller than it, which is what keeps the document's
+        height independent of the conversation's length. See `.dock-slot` and the effect above.
       */}
       <div ref={contentEnd} className="dock__anchor" aria-hidden />
-      <div
-        className={`dock ${open ? "dock--open" : ""} ${settled ? "dock--settled" : ""}`}
-      >
-        {messages.length > 0 ? (
-          <button
-            type="button"
-            className="dock__toggle"
-            aria-expanded={open}
-            onClick={() => setOpen((value) => !value)}
-          >
-            <MessageCircleQuestion size={15} aria-hidden />
-            {messages.length} {messages.length === 1 ? "question" : "questions"} asked
-            <ChevronDown size={15} aria-hidden className="dock__chevron" />
-          </button>
-        ) : null}
-
-        {/* Threads are durable, so they are worth returning to. Each is labelled by its
-            first question rather than by its title: every thread on one review would
-            otherwise carry the same generated name. */}
-        {threads.length > 0 || threadId === "new" ? (
-          <div className="dock__threads" role="group" aria-label="Question threads">
-            {/* Oldest first, though the listing arrives newest first: a thread should not
-                move along the row every time another one is started. The newest is still
-                what opens by default — that is the one you came back to. */}
-            {[...threads].reverse().map((thread) => (
-              <button
-                key={thread.conversation_id}
-                type="button"
-                aria-pressed={conversation?.conversation_id === thread.conversation_id}
-                className={
-                  conversation?.conversation_id === thread.conversation_id ? "is-active" : ""
-                }
-                onClick={() => {
-                  setThreadId(thread.conversation_id || null);
-                  setOpen(true);
-                }}
-                title={thread.messages?.[0]?.question || thread.title}
-              >
-                <span>{thread.messages?.[0]?.question || thread.title}</span>
-              </button>
-            ))}
+      <div ref={slotRef} className="dock-slot">
+        <div ref={dockRef} className={`dock ${open ? "dock--open" : ""}`}>
+          {messages.length > 0 ? (
             <button
               type="button"
-              aria-pressed={threadId === "new"}
-              className={threadId === "new" ? "is-active" : ""}
-              onClick={() => {
-                setThreadId("new");
-                setOpen(false);
-              }}
+              className="dock__toggle"
+              aria-expanded={open}
+              onClick={() => setOpen((value) => !value)}
             >
-              <Plus size={13} aria-hidden /> New thread
+              <MessageCircleQuestion size={15} aria-hidden />
+              {messages.length} {messages.length === 1 ? "question" : "questions"} asked
+              <ChevronDown size={15} aria-hidden className="dock__chevron" />
             </button>
-          </div>
-        ) : null}
+          ) : null}
 
-        {open || pending ? (
-          <ol className="dock__history" ref={historyRef}>
-            {messages.map((message) => (
-              <li key={message.message_id}>
-                <p className="dock__q">{message.question}</p>
-                {message.answer ? (
-                  <>
-                    <p className="dock__a">{message.answer.answer}</p>
-                    {/* Labelled, never hidden: a reader has to be able to tell "the review
+          {/* Threads are durable, so they are worth returning to. Each is labelled by its
+            first question rather than by its title: every thread on one review would
+            otherwise carry the same generated name. */}
+          {threads.length > 0 || threadId === "new" ? (
+            <div className="dock__threads" role="group" aria-label="Question threads">
+              {/* Oldest first, though the listing arrives newest first: a thread should not
+                move along the row every time another one is started. The newest is still
+                what opens by default — that is the one you came back to. */}
+              {[...threads].reverse().map((thread) => (
+                <button
+                  key={thread.conversation_id}
+                  type="button"
+                  aria-pressed={conversation?.conversation_id === thread.conversation_id}
+                  className={
+                    conversation?.conversation_id === thread.conversation_id
+                      ? "is-active"
+                      : ""
+                  }
+                  onClick={() => {
+                    setThreadId(thread.conversation_id || null);
+                    setOpen(true);
+                  }}
+                  title={thread.messages?.[0]?.question || thread.title}
+                >
+                  <span>{thread.messages?.[0]?.question || thread.title}</span>
+                </button>
+              ))}
+              <button
+                type="button"
+                aria-pressed={threadId === "new"}
+                className={threadId === "new" ? "is-active" : ""}
+                onClick={() => {
+                  setThreadId("new");
+                  setOpen(false);
+                }}
+              >
+                <Plus size={13} aria-hidden /> New thread
+              </button>
+            </div>
+          ) : null}
+
+          {open || pending ? (
+            <ol className="dock__history" ref={historyRef}>
+              {messages.map((message) => (
+                <li key={message.message_id}>
+                  <p className="dock__q">{message.question}</p>
+                  {message.answer ? (
+                    <>
+                      <AnswerProse text={message.answer.answer} />
+                      {/* Labelled, never hidden: a reader has to be able to tell "the review
                         says this" from "the model thinks this". */}
-                    {(message.answer.supporting_references || []).length > 0 ? (
-                      <p className="dock__grounding">
-                        Grounded on {(message.answer.supporting_references || []).join(", ")}
-                      </p>
-                    ) : (
-                      <p className="dock__grounding dock__grounding--none">
-                        Not grounded on any reviewed boundary
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <p className="dock__failed">{message.failure}</p>
-                )}
-              </li>
-            ))}
-            {/* The turn in flight. `aria-live` so the answer is read as it arrives rather
+                      {(message.answer.supporting_references || []).length > 0 ? (
+                        <p className="dock__grounding">
+                          Grounded on{" "}
+                          {(message.answer.supporting_references || []).join(", ")}
+                        </p>
+                      ) : (
+                        <p className="dock__grounding dock__grounding--none">
+                          Not grounded on any reviewed boundary
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="dock__failed">{message.failure}</p>
+                  )}
+                </li>
+              ))}
+              {/* The turn in flight. `aria-live` so the answer is read as it arrives rather
                 than announced once at the end; `aria-busy` so a screen reader is told this
                 is unfinished, which is the same thing the caption below says in text. */}
-            {pending ? (
-              <li className="dock__pending" aria-live="polite" aria-busy="true">
-                <p className="dock__q">{pending.question}</p>
-                {pending.prose ? (
-                  <>
-                    <p className="dock__a">{pending.prose}</p>
-                    {/* Not "not grounded" — nothing is settled yet, and a grounding line
+              {pending ? (
+                <li className="dock__pending" aria-live="polite" aria-busy="true">
+                  <p className="dock__q">{pending.question}</p>
+                  {pending.prose ? (
+                    <>
+                      <AnswerProse text={pending.prose} />
+                      {/* Not "not grounded" — nothing is settled yet, and a grounding line
                         here would be a claim about an answer that is still being written. */}
-                    <p className="dock__grounding dock__grounding--pending">
-                      Still being written
-                    </p>
-                  </>
-                ) : (
-                  <p className="dock__grounding dock__grounding--pending">Thinking…</p>
-                )}
-              </li>
-            ) : null}
-          </ol>
-        ) : null}
+                      <p className="dock__grounding dock__grounding--pending">
+                        Still being written
+                      </p>
+                    </>
+                  ) : (
+                    <p className="dock__grounding dock__grounding--pending">Thinking…</p>
+                  )}
+                </li>
+              ) : null}
+            </ol>
+          ) : null}
 
-        <form
-          className="dock__form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (question.trim()) ask.mutate(question.trim());
-          }}
-        >
-          <input
-            type="text"
-            className="dock__input"
-            placeholder="Ask about this review…"
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            onFocus={() => messages.length > 0 && setOpen(true)}
-            disabled={ask.isPending}
-            aria-label="Question about this review"
-          />
-          <button
-            type="submit"
-            className="button button--primary"
-            disabled={ask.isPending || !question.trim()}
+          <form
+            className="dock__form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (question.trim()) ask.mutate(question.trim());
+            }}
           >
-            {ask.isPending ? (
-              "Thinking…"
-            ) : (
-              <>
-                Ask <CornerDownLeft size={14} aria-hidden />
-              </>
-            )}
-          </button>
-        </form>
-        {ask.isError ? <ErrorPanel error={ask.error} /> : null}
+            <input
+              type="text"
+              className="dock__input"
+              placeholder="Ask about this review…"
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
+              onFocus={() => messages.length > 0 && setOpen(true)}
+              disabled={ask.isPending}
+              aria-label="Question about this review"
+            />
+            <button
+              type="submit"
+              className="button button--primary"
+              disabled={ask.isPending || !question.trim()}
+            >
+              {ask.isPending ? (
+                "Thinking…"
+              ) : (
+                <>
+                  Ask <CornerDownLeft size={14} aria-hidden />
+                </>
+              )}
+            </button>
+          </form>
+          {ask.isError ? <ErrorPanel error={ask.error} /> : null}
+        </div>
       </div>
     </div>
   );

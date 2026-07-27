@@ -13,8 +13,6 @@ from archcompass.ports.repositories import (
     CaseRepository,
 )
 
-ReasoningProvider = FocusedReasoningProvider
-
 __all__ = [
     "AtlasQueryService",
     "AtlasRepository",
@@ -23,7 +21,6 @@ __all__ = [
     "FocusedReasoningProvider",
     "PolicyIndex",
     "PolicyRetriever",
-    "ReasoningProvider",
     "RepositoryAnalyzer",
     "SourceReader",
 ]

@@ -9,8 +9,6 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 
 import { api } from "../api";
 import {
@@ -20,6 +18,7 @@ import {
   PageHeader,
   useDialogFocus,
 } from "../components";
+import { Markdown } from "../markdown";
 import { policyApplicabilityLabel } from "../policy-applicability";
 import type { Policy } from "../types";
 
@@ -226,7 +225,7 @@ export function PoliciesPage() {
               </span>
             </div>
             <div className="markdown policy-markdown">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{selected.body}</ReactMarkdown>
+              <Markdown>{selected.body}</Markdown>
             </div>
             <footer><code>{selected.source_path}</code></footer>
           </aside>

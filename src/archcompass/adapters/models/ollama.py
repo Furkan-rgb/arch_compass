@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from archcompass.adapters.models.structured import (
     ChatMessage,
+    StreamingChatTransport,
     StructuredReasoningProvider,
     ThinkLevel,
     timeout_seconds,
@@ -252,3 +253,10 @@ class OllamaChatTransport:
 class OllamaReasoningProvider(StructuredReasoningProvider):
     def __init__(self, config: ReasoningModelConfig) -> None:
         super().__init__(config, OllamaChatTransport(config))
+
+
+#: `ChatTransport` is already checked by handing this to `StructuredReasoningProvider` above.
+#: `StreamingChatTransport` is not: it is reached by `isinstance`, which compares method names
+#: alone, and a transport is held as a `ChatTransport` everywhere else. This states the
+#: signature so `stream` cannot drift from what the streaming path calls.
+_conforms: type[StreamingChatTransport] = OllamaChatTransport

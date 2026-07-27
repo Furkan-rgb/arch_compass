@@ -208,38 +208,50 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             # 10b. The dock has two heights, and which one applies follows the scroll.
             #
             #      Floating over content still being read it is capped at a fifth of the
-            #      screen, however long the thread grows; once the page's content has ended
-            #      there is nothing underneath left to cover and it may use the whole screen,
-            #      scrolling internally rather than making the document enormous.
+            #      screen, however long the thread grows; at the end of the page there is
+            #      nothing underneath left to cover and it may use the whole screen, scrolling
+            #      internally rather than making the document enormous.
             #
             #      Asserted on the computed cap rather than only on the rendered height: two
             #      short answers may not reach the cap, and a test that passed because the
             #      content happened to be small would say nothing about a long thread.
+            cap = "parseFloat(getComputedStyle(document.querySelector('.dock')).maxHeight)"
+            extent = "document.documentElement.scrollHeight - window.innerHeight"
             viewport = page.evaluate("window.innerHeight")
+
             page.evaluate("window.scrollTo(0, 0)")
-            page.wait_for_function(
-                "!document.querySelector('.dock').classList.contains('dock--settled')"
-            )
-            floating = page.evaluate(
-                "parseFloat(getComputedStyle(document.querySelector('.dock')).maxHeight)"
-            )
-            assert round(floating) == round(viewport * 0.2), (floating, viewport)
+            # Waited to the resting value, not merely past halfway: the two heights are
+            # transitioned, so a read taken while that is running is a frame of animation.
+            page.wait_for_function(f"{cap} <= {viewport * 0.2 + 1}")
+            assert round(page.evaluate(cap)) == round(viewport * 0.2)
             box = page.locator(".dock").bounding_box()
             assert box is not None and box["height"] <= viewport * 0.2 + 1, box
             # The cap must never take the input with it: a dock you cannot type into is worse
             # than one that covers the page.
             assert page.get_by_label("Question about this review").is_visible()
+            floating_extent = page.evaluate(extent)
 
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_function(
-                "document.querySelector('.dock').classList.contains('dock--settled')"
-            )
-            assert round(
-                page.evaluate(
-                    "parseFloat(getComputedStyle(document.querySelector('.dock')).maxHeight)"
-                )
-            ) == round(viewport)
+            page.evaluate(f"window.scrollTo(0, {extent})")
+            page.wait_for_function(f"{cap} >= {viewport - 1}")
+            assert round(page.evaluate(cap)) == round(viewport)
             assert page.get_by_label("Question about this review").is_visible()
+
+            # 10c. The two heights cannot fight each other. The dock's size no longer changes
+            #      how far the page scrolls, which is what made the first version of this
+            #      stick: growing it moved the end of the page, which un-made the condition
+            #      that grew it. With that decoupled, a pixel of jitter on the boundary — a
+            #      trackpad settling, a rounding difference — cannot flip anything either.
+            assert page.evaluate(extent) == floating_extent, "the dock resized the document"
+
+            seen = set()
+            for _ in range(6):
+                page.evaluate("window.scrollBy(0, -1)")
+                page.wait_for_timeout(60)
+                seen.add(round(page.evaluate(cap)))
+                page.evaluate("window.scrollBy(0, 1)")
+                page.wait_for_timeout(60)
+                seen.add(round(page.evaluate(cap)))
+            assert seen == {round(viewport)}, seen
 
             # 10a. A bearing card is as tall as its own sentence. They shared a class with
             #      the Policies page cards, and so inherited a 255px floor, a hover lift and

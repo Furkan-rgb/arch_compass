@@ -42,7 +42,7 @@ from archcompass.domain.review import (
     ReviewOverview,
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
-from archcompass.ports.reasoning import ReasoningTask
+from archcompass.ports.reasoning import ReasoningTask, StreamingAnswerReasoner
 
 Item = TypeVar("Item", bound=BaseModel)
 
@@ -325,6 +325,12 @@ class StreamingChatTransport(Protocol):
     transport that cannot do it omits the method and every stage still works, answering after
     the last token instead of during. Adding `stream` to `ChatTransport` would instead make
     every transport claim a capability and raise when asked to use it.
+
+    That check is by name only. `runtime_checkable` compares which methods exist and nothing
+    about their signatures, and a transport is held here as a `ChatTransport`, which says
+    nothing about streaming — so a drifted `stream` would pass `isinstance` and fail on the
+    call with nothing before it noticing. Every transport that streams therefore states its
+    conformance to this protocol where it is defined.
 
     `stream` yields the same text `complete` would have returned, in order and in fragments
     of whatever size the vendor sends. Concatenated, the fragments are the whole reply and
@@ -956,3 +962,11 @@ class StructuredReasoningProvider:
             think=think,
             temperature=temperature,
         )
+
+
+#: Conformance to the optional streaming capability, stated so the type checker verifies it.
+#: The application reaches this class through `isinstance`, which compares method names and
+#: not signatures, so without this a drifted `stream_review_answer` would be caught by
+#: nothing until it failed on the call. The class object rather than an instance: this needs
+#: a configured transport to build, and nothing here needs one to check the signature.
+_conforms: type[StreamingAnswerReasoner] = StructuredReasoningProvider

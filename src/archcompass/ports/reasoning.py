@@ -103,6 +103,13 @@ class StreamingAnswerReasoner(Protocol):
     when the answer is no. Folding this into `FocusedReasoningProvider` would instead make
     every reasoner declare a capability it might not have.
 
+    That check is by name only. `runtime_checkable` compares which methods exist and nothing
+    about their signatures, so a `stream_review_answer` taking different arguments passes
+    `isinstance` and then fails on the call — and no type checker sees it either, because a
+    reasoner is built and passed around as `FocusedReasoningProvider`, which says nothing
+    about streaming. Every implementation therefore states its conformance to this protocol
+    where it is defined, so the signature is checked at the one place that knows it.
+
     What is streamed is a preview and nothing more. `stream_review_answer` returns the same
     validated `ReviewAnswer` the non-streaming call returns, from the same validation, and
     the answer that gets stored is that one — never the accumulated fragments. Grounding is
