@@ -36,14 +36,26 @@ ArchCompass gives the developer and coding agent a persistent, evidence-backed a
 ## What ArchCompass Does
 
 ArchCompass reviews the **boundaries** in an existing repository — the abstractions,
-ports and indirections that already exist — and decides, one at a time, whether each is
-earning its place given what you are actually building.
+ports and indirections that already exist, and the knowledge those boundaries were meant
+to contain — and decides, one at a time, whether each is earning its place given what you
+are actually building.
 
-A structural detector finds every abstraction with exactly one implementation behind it.
-That shape is not a violation: it is what a deliberate port looks like, and it is also
-what premature abstraction looks like. Counting cannot separate them. So each one is put
-to a model together with your case and the whole policy corpus, and the answer is a
-verdict with its reasoning.
+Three structural detectors sweep the repository, covering both directions in which a
+boundary can be wrong:
+
+- **Indirection that hides nothing** — an abstraction with exactly one implementation
+  behind it. It is what a deliberate port looks like, and also what premature abstraction
+  looks like; counting cannot separate them.
+- **Knowledge with no owner** — a constant stated in several modules at once, agreeing
+  today by luck and liable to drift silently when one copy changes.
+- **A concept that has escaped its package** — a vendor, format or backend named across
+  modules that were given a boundary to reach it through and went around it instead.
+
+None of these is a violation. An advisor that reported only the first would become an
+advocate for copying; one that reported only the others would become an advocate for
+abstraction. So each candidate is put to a model together with your case and the whole
+policy corpus, and the answer is a verdict with its reasoning — *remove the boundary*,
+*give this knowledge one owner*, or *leave it exactly as it is*.
 
 For example:
 
@@ -121,10 +133,10 @@ A structural shape found in the atlas, with the evidence that establishes it —
 participants, what was measured, the relationships between them, and **what the detection
 method could not see**.
 
-A candidate is explicitly not a violation. One detector ships today: an abstraction with
-exactly one implementation. The catalogue is deliberately half-finished, and the master
-plan says so: nothing yet detects *repetition without ownership*, so silence about
-repetition is not evidence there is none.
+A candidate is explicitly not a violation. Three detectors ship, covering both directions
+of the catalogue: an abstraction with exactly one implementation (*indirection without
+hiding*), a constant stated in several modules with no module owning it, and a concept
+named beyond the package that owns it (the two shapes of *repetition without ownership*).
 
 ### PolicyCorpus
 
@@ -343,7 +355,9 @@ A report contains:
 2. Which policies were presented.
 3. Every boundary examined, each with:
    - a `BR-nnn` reference, assigned by ArchCompass in detection order;
-   - the abstraction and its sole implementation, located in the source;
+   - the participants in the boundary — the abstraction and its implementation, the
+     modules sharing a constant, or the module whose concept escaped and where — located
+     in the source;
    - the verdict — material or not — and the reasoning behind it;
    - a recommended response, **only** when material;
    - the policies that bear on it and how;
@@ -366,7 +380,9 @@ archcompass reviews show <review-id>
 - Persistent, append-only ArchitectureCase revisions.
 - Python repository analysis using the built-in AST, stored as a versioned RepositoryAtlas.
 - Structural nodes, edges, metrics and obscurity signals; bounded atlas queries and excerpts.
-- One structural detector: abstractions with a single implementation.
+- Three structural detectors, both directions of the catalogue: abstractions with a
+  single implementation, constants stated in several modules with no owner, and concepts
+  named beyond the package that owns them.
 - Judgement of each candidate against the case and the whole policy corpus, with policies
   bound by position and no identifier crossing the wire in either direction.
 - Immutable BoundaryReview records, in JSON and Markdown.
@@ -376,17 +392,17 @@ archcompass reviews show <review-id>
   substitutes so the whole suite runs without a model.
 - A browser workspace: pick a bundled example, read the review, ask about it, and explore
   the atlas graph.
-- Two scored examples with known answers, each six boundaries the detector cannot separate
-  and a case that decides them. `boundary-review` asks whether a boundary absorbs any
-  variation at all; `speech-vendor` asks whether it is in the right place. `make demo`
-  grades a live run against the first, `make eval-local` against both.
+- Three scored examples with known answers. `boundary-review` asks whether a boundary
+  absorbs any variation at all; `speech-vendor` asks whether it is in the right place; and
+  `audiobook-studio` exercises all three detectors at once, with both verdicts appearing
+  under each repetition detector. `make demo` grades a live run against the first,
+  `make eval-local` against all three.
 
-Experimental. Two limits are worth stating plainly rather than discovering:
+Experimental. One limit is worth stating plainly rather than discovering:
 
-- **Half the catalogue.** Only *indirection without hiding* is detected. Nothing looks for
-  *repetition without ownership*, so silence about repetition is not evidence there is none.
-- **Brownfield only.** Greenfield is architecturally reachable and unbuilt; see §4.1 of the
-  master plan.
+- **Brownfield only.** Every candidate is parsed from existing code. Greenfield — a
+  boundary judged from the case alone, before it is built — is architecturally reachable
+  and unbuilt; see §4.1 of the master plan.
 
 ---
 
@@ -533,7 +549,7 @@ Or grade a run against known answers:
 ```bash
 make demo          # Google, about two minutes
 make demo-local    # Ollama
-make eval-local    # both examples, on Ollama
+make eval-local    # all three examples, on Ollama
 ```
 
 `eval/cases/boundary-review` has six boundaries the detector cannot tell apart and a case
@@ -547,6 +563,14 @@ clearing all six is the *plausible* mistake there. Three are drawn at the vendor
 are vendor-shaped seams cut into modules that have no other reason to know a vendor exists.
 Its case names no defect, no fix and none of the classes at issue, so the score measures
 judgement rather than reading.
+
+`eval/cases/audiobook-studio` is the hardest, and the only one that exercises all three
+detectors together. Both verdicts appear under each repetition detector: for a duplicated
+constant and for a scattered vendor name alike, one instance is a real finding and one is
+not, and only the case says which. Its adapters conform structurally rather than
+inheriting and widen the signatures their ports leave narrow, so a detector that reads a
+port by the spelling of its base class finds nothing here and reports it as a clean bill
+of health.
 
 ### Review your own repository
 
@@ -681,11 +705,8 @@ model rather than a broken build.
 
 The long-term goal is for ArchCompass to become a persistent architectural reasoning layer around software development.
 
-The nearest two are named in the master plan rather than left as ambitions:
+The nearest is named in the master plan rather than left as an ambition:
 
-- **The second half of the catalogue** — a detector for *repetition without ownership*,
-  the case for an agnostic base with specific implementations behind it. Until it exists
-  the advisor sees one direction of unnecessary complexity.
 - **Greenfield candidates** — stated in the case instead of parsed from code, so a
   boundary can be judged before it is built.
 
