@@ -19,3 +19,6 @@ reports/
 frontend/node_modules/
 frontend/coverage/
 frontend/*.tsbuildinfo
+# Local agent orientation, kept out of the repository.
+.agents/
+.claude/

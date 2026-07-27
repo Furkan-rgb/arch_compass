@@ -710,6 +710,48 @@ The nearest is named in the master plan rather than left as an ambition:
 - **Greenfield candidates** — stated in the case instead of parsed from code, so a
   boundary can be judged before it is built.
 
+### Detection roadmap
+
+Detection today runs three detectors across the two catalogue directions. These are
+candidates for the next ones — experiments, not commitments. The bar is deliberately high:
+detection is a complete sweep with no ranking, so every detector adds a model call per
+match and a line in every report, and a fuzzy detector dilutes the signal a precise one
+carries. Each item below either maps to a policy already in the corpus or closes a gap a
+current detector admits to.
+
+**Sharpen what already runs — cheapest, reversible:**
+
+- [ ] Attach already-computed atlas signal — cycle membership, instability,
+      reverse-dependency reach — to existing candidates as measurements, improving the
+      model's judgement with no new model calls.
+
+**New detectors — a policy exists and the signal is already computed:**
+
+- [ ] Cyclic dependency (`keep-dependencies-acyclic`). The atlas already finds cycles, and
+      an accepted cluster and a layering violation look identical to counting.
+- [ ] A stable module depending on an unstable one (`depend-toward-stability`), derivable
+      from the fan-in and fan-out already measured.
+- [ ] A pass-through / tramp parameter, threaded through a call and never used
+      (`avoid-pass-through-parameters`).
+- [ ] A shallow module: a wide interface with little hidden behind it
+      (`prefer-deep-modules`, `keep-interfaces-simple`).
+
+**Fidelity — research:**
+
+- [ ] Evaluate a type checker (pyright/mypy) as an edge-resolution backend, to cut
+      unresolved static calls and lift every detector at once. A linter or type checker may
+      inform detection, never a verdict, and its rule identity never reaches the model.
+
+**Known blind spots — harder, and noisier:**
+
+- [ ] Duplicated knowledge with no shared name — the same rule written twice in different
+      words, which the name-based detector cannot see (structural clones).
+- [ ] A concept that leaked without carrying its name.
+- [ ] Implementations bound dynamically through a registry or factory, which static
+      parsing cannot resolve.
+- [ ] Git co-change / churn coupling — modules that always change together, invisible to a
+      single snapshot (the *Git co-change evidence* direction below).
+
 Further out:
 
 - Explicit acceptance and supersession of architecture decisions.
