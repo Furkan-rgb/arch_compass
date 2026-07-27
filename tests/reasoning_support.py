@@ -159,6 +159,7 @@ def verdict_json(
         {
             "rationale": rationale,
             "policy_bearings": [{"bears_on": False, "how": ""} for _ in range(bearings)],
+            "hinge": {"dependence": "stands_either_way"},
             "verdict": "should_change" if material else "leave_as_is",
             "recommended_response": "Name the implementation directly." if material else "",
         }

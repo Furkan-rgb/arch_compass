@@ -73,7 +73,13 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
     # read as "yes, there is a problem", one of them writing "Retain the abstraction" into
     # the field that exists only to say what to do about a problem. The wording below states
     # the polarity where the choice is made, which the schema now also does.
-    version=5,
+    #
+    # v6 adds the hinge (master plan 6C). This stage is the only one that knows what the
+    # case failed to settle about *this* boundary, and until now that knowledge was spent
+    # and discarded: a verdict reached on an assumption recorded the verdict and not the
+    # assumption. Naming it is what lets the overview ask for the case instead of the case
+    # having to be complete before the first review.
+    version=6,
     stage_contract=_text(
         """
         A structural detector found one pattern in this repository and reported what it
@@ -128,6 +134,20 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
         dependency from a coincidence. Neither can establish that variation exists — only
         the case can say that, and where the case says the opposite, the absence is not an
         open question.
+
+        Finally, say what your verdict assumed because the case did not state it. That is
+        the `hinge`, and it is about the case, never about the code: what the detector could
+        not see is already recorded with the candidate, and what the repository contains is
+        not something the reader needs to be asked.
+
+        Most verdicts stand either way, and `stands_either_way` is the ordinary answer. A
+        boundary is contingent only when a fact the case is silent about would genuinely
+        change your answer — most often whether a variation is actually coming, whether an
+        external contract is fixed, or whether a decision has been settled.
+
+        A hinge on every boundary is the same as a hinge on none. It reads as a stage
+        hedging every answer it gives, and a reader who is told six verdicts are provisional
+        learns nothing about which one to go and check.
         """
     ),
     request=_text(
@@ -143,6 +163,27 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
         connection in how; leave how empty when bears_on is false. Most policies will not
         bear on this candidate at all. Never write a policy's name, number or identifier in
         any text field — position is what identifies a policy here.
+
+        Then fill in hinge, which is still part of the argument rather than the conclusion.
+        Name in unknown the one thing this case does not say that would change your answer,
+        and write in if_confirmed and if_denied the verdict this boundary gets under each
+        answer. Write them out as verdicts — "the boundary absorbs a change that is coming
+        and should stay", "nothing arrives to justify the indirection and it should be
+        removed" — not as descriptions of the unknown.
+
+        Then read those two back and set dependence from them. If they say the same thing,
+        the verdict does not actually move and dependence is stands_either_way; leave the
+        three fields as they are, since what you wrote is still the honest record of what
+        you considered. Only where the two genuinely differ is this turns_on_this_unknown.
+
+        The unknown must be something the reader can settle from what they know about their
+        own project — whether a second vendor is coming, whether that format is fixed by a
+        downstream system, whether that deployment is still under discussion. "Whether
+        requirements might change" is not an unknown; it is uncertainty with nobody to
+        address it to. Neither is anything the repository itself would answer: how many
+        implementations exist, what depends on what, whether a test covers it. Those are
+        questions for the code, and asking the reader to look them up is asking them to do
+        the detector's job.
 
         Only then set verdict, and set it to whatever the argument you just made supports —
         including when that is not the answer you expected when you started. Write
@@ -271,7 +312,11 @@ SUMMARISE_REVIEW: Final = PromptContract(
     # `{"statement": "...", "supported_by": [true, ...]}` serialised into the string, which
     # satisfied `str` and printed as JSON at the top of the page. Only `themes` and
     # `recommended_sequence` entries are grounded; the two prose fields are named as prose.
-    version=4,
+    #
+    # v5 adds open_questions (master plan 6C). Each verdict now reports what the case left
+    # open for it, and this is the only stage that sees all of them at once — which is where
+    # four boundaries turning on one unknown become one question rather than four.
+    version=5,
     stage_contract=_text(
         """
         Every boundary in one repository has now been judged separately, and you are shown
@@ -312,6 +357,19 @@ SUMMARISE_REVIEW: Final = PromptContract(
         State the limits from what the boundaries themselves report under
         `detection_limits`, and from what the case leaves open. Do not say that no limits
         were supplied: they are in the input.
+
+        You are also shown, for each boundary, what its verdict turned on that the case did
+        not settle — its `verdict_turns_on`. Most will say the verdict stands whichever way
+        the open questions fall, and that is the ordinary and good answer. Where a boundary
+        does name an unknown, it is telling you the one thing that would change that
+        verdict.
+
+        Turning those into questions is work only this stage can do, because only this stage
+        sees them together. Several boundaries turning on the same fact are one question,
+        not several: whether a second speech vendor is actually coming is one thing to ask,
+        however many verdicts move when it is answered. Asked once, citing every boundary it
+        settles, it is the most useful sentence on the page; asked four times it is noise
+        that buries the four verdicts underneath it.
         """
     ),
     request=_text(
@@ -351,9 +409,44 @@ SUMMARISE_REVIEW: Final = PromptContract(
         tells the reader nothing about where to look, and one that marks none will be
         discarded, so make the claim you can ground.
 
-        Finally, in limits, write one or two sentences of prose — not a list, not a JSON
+        Then, in limits, write one or two sentences of prose — not a list, not a JSON
         array — saying what this review could not see, drawn from the boundaries' own
         detection_limits and from what the case leaves open.
+
+        Finally, in open_questions, ask for what the case would have to say for the
+        contingent verdicts to settle. Build them only from the boundaries whose
+        verdict_turns_on names an unknown; where none does, return an empty list, which is
+        the good outcome and means every verdict stands on what the case already says.
+
+        Merge before you write. Group the boundaries that turn on the same fact and ask
+        about that fact once, marking every boundary it would settle. Two questions that
+        would be answered by the same sentence are one question.
+
+        For each, give the unknown as the circumstance the case does not state; then in
+        why_it_matters say which verdicts move and which way, so a reader can tell a
+        question worth answering from one that changes nothing. Name the abstractions, as
+        everywhere else here, never a position or a reference code.
+
+        Then write the question itself, addressed to the reader and answerable from what
+        they know about their own project: "is a second speech vendor actually contracted,
+        or is that still speculative?" Not "will requirements change?", which no one can
+        answer, and not anything the repository would settle — how many implementations
+        exist, what depends on what — because those are questions for the code and the
+        reader is not the one who should be looking them up.
+
+        Do not answer your own question, and do not assume an answer while writing it. The
+        point is to ask.
+
+        Last, set answer_belongs_in to the part of the case the answer would go into:
+        expected_future_changes for a change that is coming, confirmed_facts for something
+        settled and known, technical_constraints for something the design is bound by,
+        non_goals for something deliberately ruled out, assumptions for something being
+        taken on trust.
+
+        Every question carries one supported_by flag per boundary, in the order the
+        boundaries appear above. Mark true for every boundary the answer would settle. A
+        question that marks none will be discarded, because a question about nothing this
+        review examined is not a question about this repository.
         """
     ),
 )

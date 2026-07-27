@@ -22,6 +22,7 @@ from pydantic import Field, computed_field, model_validator
 
 from archcompass.domain.atlas import FindingCandidate, FindingPattern
 from archcompass.domain.base import DomainModel, new_id, utc_now
+from archcompass.domain.case import CaseField
 from archcompass.domain.diagnostics import FailureDiagnostic
 
 
@@ -39,6 +40,29 @@ class PolicyBearing(DomainModel):
     how: str = Field(min_length=1)
 
 
+class VerdictHinge(DomainModel):
+    """The circumstance a verdict assumed because the case did not state it (6C.2).
+
+    Not the same thing as a detection limit. A candidate already says what the *method*
+    could not see — an implementation registered at runtime, a name that might be a
+    coincidence. This says what the *case* did not say, which is the other half of what a
+    verdict rests on and the only half a user can fix.
+
+    Present only where the verdict actually moves. A hinge on every boundary would be a
+    verdict hedging itself, and the whole value here is that the ones carrying a hinge are
+    the ones worth asking about.
+    """
+
+    #: What the case does not state, phrased as the circumstance rather than as a question.
+    #: The question is composed later, across boundaries, where duplicates can be merged.
+    unknown: str = Field(min_length=1)
+    #: The verdict this boundary gets if the unknown turns out to hold, and if it does not.
+    #: Both are required: a hinge that cannot say which way it moves is not a hinge, it is
+    #: an admission of unease, and a reader cannot act on it.
+    if_confirmed: str = Field(min_length=1)
+    if_denied: str = Field(min_length=1)
+
+
 class CandidateVerdict(DomainModel):
     """Whether a detected pattern matters in this case, and why.
 
@@ -52,6 +76,11 @@ class CandidateVerdict(DomainModel):
     material: bool
     rationale: str = Field(min_length=1)
     policy_bearings: list[PolicyBearing] = Field(default_factory=list[PolicyBearing])
+    #: What the verdict turned on that the case did not settle, where it turned on anything.
+    #: `None` is the ordinary answer and means the verdict stands whichever way the unknown
+    #: falls — translated from an explicit declaration by the adapter, never inferred from
+    #: a model's silence.
+    hinge: VerdictHinge | None = None
     #: What to do about it. Empty when the verdict is that nothing needs doing, because
     #: an advisor that always has a next action has not really answered the question.
     recommended_response: str = ""
@@ -104,6 +133,11 @@ class ReviewedBoundary(DomainModel):
     material: bool
     rationale: str = Field(min_length=1)
     policy_bearings: list[PolicyBearing] = Field(default_factory=list[PolicyBearing])
+    #: What this verdict assumed because the case was silent, where it assumed anything.
+    #: Carried on the boundary rather than only in the overview's questions, because a
+    #: reader deciding whether to act on this one verdict needs to know what it rested on
+    #: at the point of deciding — the same reason detection limits print here.
+    hinge: VerdictHinge | None = None
     #: Present only when material. A verdict that nothing needs doing has no next action,
     #: and an advisor that always produces one has not answered the question.
     recommended_response: str = ""
@@ -168,6 +202,37 @@ class OverviewStatement(DomainModel):
     supporting_references: list[str] = Field(min_length=1)
 
 
+class OpenQuestion(DomainModel):
+    """One thing the case does not say that would settle verdicts, and where it belongs.
+
+    Composed across the whole set rather than per boundary, because that is the only place
+    duplicates can be merged: four boundaries turning on whether a second vendor is coming
+    are one question citing four boundaries, and asking it four times is noise (6C.2).
+
+    This is advisor output and lives in the review, immutable and pinned like every other
+    conclusion. It is never written into the case. An answer enters the case only as a
+    revision the user authored and saw (6C.4, invariant 25).
+    """
+
+    #: `Q-n`, assigned by the application in presentation order after validation. Nothing
+    #: in a model's reply is ever this value.
+    reference: str = Field(pattern=r"^Q-[0-9]+$")
+    #: The circumstance the case does not state.
+    unknown: str = Field(min_length=1)
+    #: Which way the cited verdicts move under each answer, so a reader can tell a question
+    #: worth answering from one that changes nothing.
+    why_it_matters: str = Field(min_length=1)
+    #: Phrased so the user can answer it from what they know. A question they cannot settle
+    #: is the model returning its own uncertainty to sender rather than asking for anything.
+    question: str = Field(min_length=1)
+    #: Which case field the answer belongs in, chosen from a closed set — the model picks a
+    #: slot, never names one.
+    answer_belongs_in: CaseField
+    #: `BR-nnn`, attached by the application from positional flags. A question resting on no
+    #: boundary is discarded rather than recorded, exactly as an ungrounded theme is.
+    supporting_references: list[str] = Field(min_length=1)
+
+
 class ReviewOverview(DomainModel):
     """What the boundaries add up to, composed once from all of them.
 
@@ -190,12 +255,21 @@ class ReviewOverview(DomainModel):
     #: What this review could not see. Stated once here because it is a property of the
     #: method rather than of any one boundary, which prints its own limits too.
     limits: str = Field(min_length=1)
+    #: What the case would have to say for the contingent verdicts to settle (6C). Empty is
+    #: the good outcome, not a gap: it means no verdict turned on anything the case left
+    #: open. There is no cap — the bound is structural, since every question traces to a
+    #: hinge and hinges exist only where a verdict admitted contingency (6C.5).
+    open_questions: list[OpenQuestion] = Field(default_factory=list[OpenQuestion])
 
 
 class BoundaryReviewReport(DomainModel):
     """Every boundary in one repository, judged against one case, and what that amounts to."""
 
-    schema_version: Literal[2] = 2
+    # 3 adds the overview's open questions (6C). No shim, under ADR 0002: a stored version-2
+    # review no longer parses, is reported through `UnreadableStoredRecordError`, and is
+    # re-run. A report that may or may not carry questions would multiply states on every
+    # read path from here on, which is the cost the version number exists to refuse.
+    schema_version: Literal[3] = 3
     report_id: str = Field(default_factory=lambda: new_id("review"))
     case_title: str = Field(min_length=1)
     problem_and_desired_outcome: str = Field(min_length=1)
@@ -228,10 +302,21 @@ class BoundaryReviewReport(DomainModel):
             reference
             for statement in (*self.overview.themes, *self.overview.recommended_sequence)
             for reference in statement.supporting_references
+        } | {
+            reference
+            for question in self.overview.open_questions
+            for reference in question.supporting_references
         }
         unknown = sorted(cited - known)
         if unknown:
             raise ValueError(f"The overview cites boundaries this review lacks: {unknown}")
+        return self
+
+    @model_validator(mode="after")
+    def require_unique_question_references(self) -> BoundaryReviewReport:
+        references = [item.reference for item in self.overview.open_questions]
+        if len(references) != len(set(references)):
+            raise ValueError("Open question references must be unique")
         return self
 
     @property
@@ -317,9 +402,10 @@ def empty_review_overview() -> ReviewOverview:
             "recognise, so there was nothing to judge against this case."
         ),
         limits=(
-            "One detector ran: an abstraction with exactly one implementation. Finding "
-            "nothing means that shape is absent, not that the repository is without "
-            "structural problems."
+            "Three detectors ran: an abstraction with exactly one implementation, a "
+            "constant stated in several modules with no owner, and a concept named beyond "
+            "the package that owns it. Finding nothing means those shapes are absent, not "
+            "that the repository is without structural problems."
         ),
     )
 
@@ -341,6 +427,7 @@ def reviewed_boundaries(
             material=verdict.material,
             rationale=verdict.rationale,
             policy_bearings=verdict.policy_bearings,
+            hinge=verdict.hinge,
             recommended_response=verdict.recommended_response if verdict.material else "",
         )
         for ordinal, (candidate, verdict) in enumerate(verdicts, start=1)

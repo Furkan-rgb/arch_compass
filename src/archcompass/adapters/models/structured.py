@@ -25,7 +25,7 @@ from archcompass.adapters.models.prompt_contracts import STAGE_PROMPTS
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.atlas import FindingCandidate
 from archcompass.domain.base import canonical_json
-from archcompass.domain.case import ArchitectureCase
+from archcompass.domain.case import ArchitectureCase, CaseField
 from archcompass.domain.errors import (
     ModelOutputValidationError,
     PromptBudgetExceededError,
@@ -36,10 +36,12 @@ from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
     BoundaryReview,
     CandidateVerdict,
+    OpenQuestion,
     OverviewStatement,
     PolicyBearing,
     ReviewedBoundary,
     ReviewOverview,
+    VerdictHinge,
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
 from archcompass.ports.reasoning import ReasoningTask, StreamingAnswerReasoner
@@ -89,6 +91,93 @@ def _grounded_statements(
             OverviewStatement(text=item.text.strip(), supporting_references=references)
         )
     return statements
+
+
+def _grounded_questions(
+    proposed: list[ProposedOpenQuestion],
+    boundaries: list[ReviewedBoundary],
+) -> list[OpenQuestion]:
+    """Attach references from positions, drop what rests on nothing, and number what is left.
+
+    `Q-n` is assigned here — after validation, in presentation order, by the application —
+    for the same reason `BR-nnn` is: a reader will cite it, so it cannot be a value a model
+    wrote (12.0). Numbering after the drop rather than before is what keeps the sequence
+    gapless; a reader seeing Q-1 and Q-3 would reasonably ask what happened to the one in
+    between, and the honest answer is that it was never a question.
+
+    A question grounded on no boundary is discarded rather than kept, exactly as an
+    ungrounded theme is. It is not a question about this repository at all: every real one
+    traces to a verdict that admitted it turned on something.
+    """
+
+    questions: list[OpenQuestion] = []
+    for item in proposed:
+        references = [
+            boundary.reference
+            for boundary, supports in zip(boundaries, item.supported_by, strict=True)
+            if supports
+        ]
+        if not references:
+            continue
+        questions.append(
+            OpenQuestion(
+                reference=f"Q-{len(questions) + 1}",
+                unknown=item.unknown.strip(),
+                why_it_matters=item.why_it_matters.strip(),
+                question=item.question.strip(),
+                answer_belongs_in=item.answer_belongs_in,
+                supporting_references=references,
+            )
+        )
+    return questions
+
+
+def _hinge(proposed: ProposedVerdictHinge) -> VerdictHinge | None:
+    """The declaration becomes an absence here, and nowhere else.
+
+    One line of translation, like `material` beside it: the model says which of two things
+    is true, and the domain carries `None` for the ordinary one. Nothing downstream reads a
+    word, and nothing upstream infers a fact from a blank field.
+    """
+
+    if proposed.dependence != "turns_on_this_unknown":
+        return None
+    return VerdictHinge(
+        unknown=proposed.unknown.strip(),
+        if_confirmed=proposed.if_confirmed.strip(),
+        if_denied=proposed.if_denied.strip(),
+    )
+
+
+def _hinge_defects(proposed: ProposedVerdictHinge) -> list[str]:
+    """A hinge that says it exists must say what it is.
+
+    The schema cannot express this: the three prose fields have to be optional for a verdict
+    that stands either way, so nothing in the grammar stops a reply declaring a hinge and
+    leaving it blank. That would reach the report as a boundary marked contingent on
+    nothing, which is worse than either honest answer — a reader is told the verdict rests
+    on an unknown and never told which.
+    """
+
+    if proposed.dependence != "turns_on_this_unknown":
+        return []
+    missing = [
+        name
+        for name, value in (
+            ("unknown", proposed.unknown),
+            ("if_confirmed", proposed.if_confirmed),
+            ("if_denied", proposed.if_denied),
+        )
+        if not value.strip()
+    ]
+    if not missing:
+        return []
+    return [
+        "hinge.dependence is turns_on_this_unknown, so "
+        + ", ".join(missing)
+        + " must be filled in: name what the case does not say and give the verdict under "
+        "each answer. Use stands_either_way if the verdict does not actually move."
+    ]
 
 
 def _prose_defects(field: str, value: str) -> list[str]:
@@ -144,6 +233,36 @@ class ProposedPolicyBearing(BaseModel):
     how: str = ""
 
 
+class ProposedVerdictHinge(BaseModel):
+    """What the verdict assumed because the case did not say it (master plan 6C.2).
+
+    Required on every verdict, and `dependence` is why. "This one turns on nothing" has to
+    be something the model *says*, because the alternative — reading an omitted or empty
+    field as "nothing was open" — cannot tell a verdict that genuinely stands either way
+    from one where the stage simply did not consider the question. Those are opposite facts
+    and elicitation is built on the difference.
+
+    Field order is the reasoning, as everywhere else. Naming the unknown and writing out the
+    verdict under each answer comes first; whether it *is* a hinge is then read off those two
+    branches rather than declared up front and argued for. Two branches that say the same
+    thing are a verdict that stands either way, and a model that has just written them out
+    can see that as easily as a reader can.
+
+    `dependence` is a word rather than a flag for the same reason `verdict` is one. A
+    boolean here would be read for polarity at every call site, and the field it sits beside
+    is the one place in this codebase where that has already gone wrong in production.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The circumstance the case does not state. Empty only where nothing was open.
+    unknown: str = ""
+    #: The verdict this boundary gets under each answer, written out rather than named.
+    if_confirmed: str = ""
+    if_denied: str = ""
+    dependence: Literal["stands_either_way", "turns_on_this_unknown"]
+
+
 class ProposedCandidateVerdict(BaseModel):
     """Model-facing judgement of one detected pattern.
 
@@ -179,6 +298,10 @@ class ProposedCandidateVerdict(BaseModel):
 
     rationale: str = Field(min_length=1)
     policy_bearings: list[ProposedPolicyBearing]
+    #: Before the verdict, because a hinge is part of the argument: an argument states what
+    #: it rests on before the conclusion that rests on it (6C.2). Placed after the bearings
+    #: so the policies have been weighed before the stage says what it still lacked.
+    hinge: ProposedVerdictHinge
     #: Neutral across all three patterns on purpose. Each names a different problem —
     #: indirection to remove, a fact needing one owner, knowledge to move back behind its
     #: boundary — and every one of them is a change, so this pair needs no per-pattern
@@ -201,6 +324,32 @@ class ProposedOverviewStatement(BaseModel):
     supported_by: list[bool]
 
 
+class ProposedOpenQuestion(BaseModel):
+    """One question the case would have to answer, grounded by position (6C.2).
+
+    Composed here rather than beside each verdict because this is the only stage that can
+    see the whole set, and merging is the entire point: four boundaries turning on the same
+    unknown are one question citing four boundaries. Asked four times it is noise; asked
+    once it is the most useful sentence in the report.
+
+    Field order follows 6C.2 — the unknown, then which verdicts move and how, then the
+    question a person can actually answer, and only then where the answer belongs. The
+    destination is last because it is a routing decision about a question that must already
+    exist, and it is an enumeration because the model picks a slot rather than naming a
+    field (12.0).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    unknown: str = Field(min_length=1)
+    why_it_matters: str = Field(min_length=1)
+    #: Grounding sits with the claim it grounds: `why_it_matters` says which verdicts move,
+    #: and these flags are that same statement in the form the application can resolve.
+    supported_by: list[bool]
+    question: str = Field(min_length=1)
+    answer_belongs_in: CaseField
+
+
 class ProposedReviewOverview(BaseModel):
     """Model-facing synthesis of every verdict in one review.
 
@@ -209,7 +358,9 @@ class ProposedReviewOverview(BaseModel):
     that produced it, and there would be no way to tell which one a reader should believe.
 
     Field order is the reasoning: the situation the case describes, then what the verdicts
-    show against it, then what to do about that, then what none of it could see.
+    show against it, then what to do about that, then what none of it could see — and last
+    what the case would have to say for the contingent verdicts to settle, which is the one
+    field that can only be written once all the others have been.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -222,6 +373,13 @@ class ProposedReviewOverview(BaseModel):
         default_factory=list[ProposedOverviewStatement], max_length=4
     )
     limits: str = Field(min_length=1)
+    #: No `max_length`. The bound is structural — every question must trace to a hinge, and
+    #: hinges exist only where a verdict admitted contingency — so a numeric cap here would
+    #: encode an opinion about how much uncertainty a review is allowed to admit, which is
+    #: 8A.4's rule applied to questions (6C.5).
+    open_questions: list[ProposedOpenQuestion] = Field(
+        default_factory=list[ProposedOpenQuestion]
+    )
 
 
 class ProposedReviewAnswer(BaseModel):
@@ -472,14 +630,17 @@ class StructuredReasoningProvider:
             # The schema fixes the arity and the repair round exists for the model that
             # ignores it. Position is the only thing tying a bearing to a policy, so a
             # short list would silently re-map every entry after the gap.
-            candidate_validator=lambda item: (
-                []
-                if len(item.policy_bearings) == expected
-                else [
-                    f"policy_bearings must contain exactly {expected} entries, one per "
-                    f"supplied policy in order, but contains {len(item.policy_bearings)}"
-                ]
-            ),
+            candidate_validator=lambda item: [
+                *(
+                    []
+                    if len(item.policy_bearings) == expected
+                    else [
+                        f"policy_bearings must contain exactly {expected} entries, one per "
+                        f"supplied policy in order, but contains {len(item.policy_bearings)}"
+                    ]
+                ),
+                *_hinge_defects(item.hinge),
+            ],
         )
         bearings = [
             PolicyBearing(policy_id=policy.id, policy_title=policy.title, how=item.how.strip())
@@ -498,6 +659,7 @@ class StructuredReasoningProvider:
             material=material,
             rationale=proposed.rationale,
             policy_bearings=bearings,
+            hinge=_hinge(proposed.hinge),
             recommended_response=(proposed.recommended_response.strip() if material else ""),
         )
 
@@ -539,15 +701,35 @@ class StructuredReasoningProvider:
                         # provided in input>": the stage was asked to state the limits of a
                         # method it had never been told anything about.
                         "detection_limits": item.candidate.limitations,
+                        # What the *case* did not say, which is the other half of what the
+                        # verdict rested on and the only half a user can fix. This stage
+                        # cannot consolidate hinges it was never shown, and a question
+                        # composed without them would be this stage's own uncertainty
+                        # rather than the judgement's (6C.2).
+                        "verdict_turns_on": (
+                            {
+                                "unknown": item.hinge.unknown,
+                                "if_confirmed": item.hinge.if_confirmed,
+                                "if_denied": item.hinge.if_denied,
+                            }
+                            if item.hinge is not None
+                            # Spelled out rather than omitted, for the reason the verdict
+                            # is: an absent key is read as "not mentioned", and this is a
+                            # positive finding — the judgement considered what it lacked
+                            # and concluded the verdict holds regardless.
+                            else "nothing — this verdict stands whichever way the "
+                            "unanswered questions about this case fall"
+                        ),
                     }
                     for index, item in enumerate(boundaries, start=1)
                 ],
             },
             ProposedReviewOverview,
             runtime_instruction=(
-                f"Every entry in themes and recommended_sequence must carry exactly "
-                f"{expected} supported_by flags, one for each boundary, in the order the "
-                "boundaries appear above. situation and limits are prose and carry no flags."
+                f"Every entry in themes, recommended_sequence and open_questions must carry "
+                f"exactly {expected} supported_by flags, one for each boundary, in the order "
+                "the boundaries appear above. situation and limits are prose and carry no "
+                "flags."
             ),
             schema_override=self._overview_schema(boundary_count=expected),
             candidate_validator=lambda item: [
@@ -557,7 +739,11 @@ class StructuredReasoningProvider:
                     f"every supported_by must contain exactly {expected} flags, one per "
                     f"boundary in order, but one entry contains "
                     f"{len(statement.supported_by)}"
-                    for statement in (*item.themes, *item.recommended_sequence)
+                    for statement in (
+                        *item.themes,
+                        *item.recommended_sequence,
+                        *item.open_questions,
+                    )
                     if len(statement.supported_by) != expected
                 ),
             ],
@@ -569,6 +755,7 @@ class StructuredReasoningProvider:
                 proposed.recommended_sequence, boundaries
             ),
             limits=proposed.limits.strip(),
+            open_questions=_grounded_questions(proposed.open_questions, boundaries),
         )
 
     def answer_review_question(
@@ -758,32 +945,34 @@ class StructuredReasoningProvider:
 
     @staticmethod
     def _overview_schema(*, boundary_count: int) -> dict[str, object]:
-        """Fix one grounding flag per boundary inside every statement.
+        """Fix one grounding flag per boundary inside every grounded shape.
 
-        The statement shape is a single definition shared by both lists, so bounding it once
-        bounds every statement in the reply. Same binding as everywhere else: nothing in a
-        flag says which boundary it belongs to, so a short list shifts every later flag onto
-        the wrong boundary and still validates.
+        Two definitions carry flags — a statement, shared by `themes` and
+        `recommended_sequence`, and a question — so bounding both bounds every flag list in
+        the reply. Same binding as everywhere else: nothing in a flag says which boundary it
+        belongs to, so a short list shifts every later flag onto the wrong boundary and still
+        validates.
         """
 
         schema = ProposedReviewOverview.model_json_schema()
         definitions = _object_mapping(schema.get("$defs"))
         if definitions is None:
             return schema
-        statement = _object_mapping(definitions.get("ProposedOverviewStatement"))
-        if statement is None:
-            return schema
-        properties = _object_mapping(statement.get("properties"))
-        if properties is None:
-            return schema
-        supported = _object_mapping(properties.get("supported_by"))
-        if supported is None:
-            return schema
-        supported["minItems"] = boundary_count
-        supported["maxItems"] = boundary_count
-        properties["supported_by"] = supported
-        statement["properties"] = properties
-        definitions["ProposedOverviewStatement"] = statement
+        for name in ("ProposedOverviewStatement", "ProposedOpenQuestion"):
+            grounded = _object_mapping(definitions.get(name))
+            if grounded is None:
+                continue
+            properties = _object_mapping(grounded.get("properties"))
+            if properties is None:
+                continue
+            supported = _object_mapping(properties.get("supported_by"))
+            if supported is None:
+                continue
+            supported["minItems"] = boundary_count
+            supported["maxItems"] = boundary_count
+            properties["supported_by"] = supported
+            grounded["properties"] = properties
+            definitions[name] = grounded
         schema["$defs"] = definitions
         return schema
 

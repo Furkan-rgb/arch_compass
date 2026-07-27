@@ -295,7 +295,7 @@ def test_the_stage_tells_the_model_which_fields_carry_flags() -> None:
     sent = cast(list[ChatMessage], transport.requests[0]["messages"])
     request = "\n".join(message["content"] for message in sent)
     assert "situation and limits are prose and carry no flags" in request
-    assert "Every entry in themes and recommended_sequence" in request
+    assert "Every entry in themes, recommended_sequence and open_questions" in request
 
 
 def test_the_overview_has_no_field_in_which_to_restate_a_verdict() -> None:
@@ -303,7 +303,13 @@ def test_the_overview_has_no_field_in_which_to_restate_a_verdict() -> None:
 
     fields = set(ReviewOverview.model_fields)
 
-    assert fields == {"situation", "themes", "recommended_sequence", "limits"}
+    assert fields == {
+        "situation",
+        "themes",
+        "recommended_sequence",
+        "limits",
+        "open_questions",
+    }
     assert not {"material", "verdict", "confidence"} & fields
 
 

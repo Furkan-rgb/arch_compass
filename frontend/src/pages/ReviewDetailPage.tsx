@@ -85,9 +85,20 @@ function Citations({ references }: { references: string[] }) {
  * Closes with the limits, because a reader who has just been told what to do is exactly who
  * needs to know what was not examined.
  */
-function Overview({ overview }: { overview: ReviewOverview }) {
+export function Overview({
+  overview,
+  onAnswer,
+}: {
+  overview: ReviewOverview;
+  // Opens the case editor this page already carries. The answer path is the revise-and-
+  // review loop that exists, not a second way to write a case: a question names a field
+  // and the reader fills it in, so what the advisor supplies is the question and what
+  // enters the case is the user's own revision (master plan §6C.4).
+  onAnswer?: (() => void) | null;
+}) {
   const themes = overview.themes || [];
   const sequence = overview.recommended_sequence || [];
+  const questions = overview.open_questions || [];
   return (
     // "Conclusion", not "Findings": the findings are the boundaries below, each with its
     // own verdict. This is the one thing none of those separate calls could produce — what
@@ -129,6 +140,43 @@ function Overview({ overview }: { overview: ReviewOverview }) {
       <p className="overview__limits">
         <strong>What this review could not see.</strong> {overview.limits}
       </p>
+
+      {/* Last, and only when there is something to ask. A review that opens by asking for
+          more information has put its price before its value, which is the adoption tax
+          elicitation exists to remove — so the questions come after the answer, addressed
+          to a reader who has already seen what the review is worth. */}
+      {questions.length > 0 ? (
+        <div className="overview__group questions">
+          <h3>What the case does not say</h3>
+          <p className="questions__lead">
+            Each of these would settle verdicts above. Answering one is a case revision, and
+            a new review against it can reach a different verdict.
+          </p>
+          <ol className="questions__list">
+            {questions.map((item) => (
+              <li key={item.reference} className="question">
+                <p className="question__ask">
+                  <code className="question__ref">{item.reference}</code>
+                  {item.question}
+                </p>
+                <p className="question__unknown">{item.unknown}</p>
+                <p className="question__why">
+                  <span>{item.why_it_matters}</span>
+                  <Citations references={item.supporting_references || []} />
+                </p>
+                <p className="question__target">
+                  An answer belongs in <code>{item.answer_belongs_in}</code>
+                  {onAnswer ? (
+                    <button type="button" className="question__answer" onClick={onAnswer}>
+                      Answer it in the case
+                    </button>
+                  ) : null}
+                </p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -210,6 +258,17 @@ function Finding({
           None of the {policyCount} policies presented bore on this boundary.
         </p>
       )}
+
+      {/* What the case did not say, beside what the method could not see. Two different
+          things a verdict rests on, and only this one is the reader's to fix — which is why
+          it sits above the limits rather than being folded into them. */}
+      {item.hinge ? (
+        <p className="finding__hinge">
+          <strong>This verdict turns on an open question.</strong> {item.hinge.unknown}{" "}
+          <span className="finding__hinge-branch">If so: {item.hinge.if_confirmed}</span>{" "}
+          <span className="finding__hinge-branch">If not: {item.hinge.if_denied}</span>
+        </p>
+      ) : null}
 
       <p className="finding__limits">{item.candidate.limitations}</p>
 
@@ -713,7 +772,13 @@ export function ReviewDetailPage() {
         />
       ) : null}
 
-      <Overview overview={report.overview} />
+      {/* The answer path is offered only where it can actually be walked: revising runs a
+          new review, which needs the repository still indexed. A question with a button
+          that fails is worse than one that leaves the reader to the case editor above. */}
+      <Overview
+        overview={report.overview}
+        onAnswer={repositoryRoot ? () => setRevising(true) : null}
+      />
 
       {score.data ? <Score score={score.data} /> : null}
 

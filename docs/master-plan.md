@@ -488,9 +488,11 @@ Each question carries, in this order:
    A question the user cannot settle — *"will requirements change?"* — is not a
    question; it is the model returning its own uncertainty to sender.
 4. **Where the answer belongs** — one of the case's own fields, chosen from a closed
-   enum: `expected_future_changes`, `confirmed_facts`, `constraints`, `non_goals`,
-   `assumptions`. The model picks a slot from a bounded set; it never names a field
-   freely.
+   enum: `expected_future_changes`, `confirmed_facts`, `technical_constraints`,
+   `non_goals`, `assumptions`. The model picks a slot from a bounded set; it never names
+   a field freely. Five of the case's fields rather than all of them: these are the ones
+   that decide whether a boundary is earning its place, and offering a destination that
+   cannot flip a verdict would only give a wrong answer somewhere to go.
 
 ## 6C.3 Binding discipline
 

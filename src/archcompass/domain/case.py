@@ -20,6 +20,29 @@ class StatementKind(StrEnum):
     FORCE = "force"
 
 
+class CaseField(StrEnum):
+    """The fields an elicited answer may enter, as a closed set (master plan 6C.2).
+
+    A review that asks for the case says where each answer belongs, and this is the whole
+    range of that answer. It is an enumeration rather than a string because the model picks
+    the slot: a free-text field name is an identifier written by a model, which 12.0 forbids
+    for exactly the reason it would fail here — a plausible misspelling routes an answer to
+    a field that does not exist, and nothing downstream can tell that from a field the case
+    simply has not got.
+
+    Five of the case's fields, not all of them. These are the ones that decide whether a
+    boundary is earning its place — what is coming, what is settled, what is ruled out, and
+    what is being taken on trust. A title or a list of actors cannot flip a verdict, so
+    offering them as a destination would only give a wrong answer somewhere to go.
+    """
+
+    EXPECTED_FUTURE_CHANGES = "expected_future_changes"
+    CONFIRMED_FACTS = "confirmed_facts"
+    TECHNICAL_CONSTRAINTS = "technical_constraints"
+    NON_GOALS = "non_goals"
+    ASSUMPTIONS = "assumptions"
+
+
 class CaseStatement(DomainModel):
     id: str = Field(default_factory=lambda: new_id("stmt"))
     text: str = Field(min_length=1)

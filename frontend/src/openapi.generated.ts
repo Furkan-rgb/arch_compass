@@ -114,7 +114,7 @@ export interface components {
     "created_at"?: string;
   };
     "BoundaryReviewReport": {
-    "schema_version"?: 2;
+    "schema_version"?: 3;
     "report_id"?: string;
     "case_title": string;
     "problem_and_desired_outcome": string;
@@ -147,6 +147,7 @@ export interface components {
     "title": string;
     "summary": string;
   };
+    "CaseField": "expected_future_changes" | "confirmed_facts" | "technical_constraints" | "non_goals" | "assumptions";
     "CaseRevision": {
     "case_id": string;
     "revision": number;
@@ -262,6 +263,14 @@ export interface components {
     "nature"?: components["schemas"]["MetricNature"];
     "definition"?: string;
     "limitations"?: string;
+  };
+    "OpenQuestion": {
+    "reference": string;
+    "unknown": string;
+    "why_it_matters": string;
+    "question": string;
+    "answer_belongs_in": components["schemas"]["CaseField"];
+    "supporting_references": Array<string>;
   };
     "OverviewStatement": {
     "text": string;
@@ -409,6 +418,7 @@ export interface components {
     "themes"?: Array<components["schemas"]["OverviewStatement"]>;
     "recommended_sequence"?: Array<components["schemas"]["OverviewStatement"]>;
     "limits": string;
+    "open_questions"?: Array<components["schemas"]["OpenQuestion"]>;
   };
     "ReviewProgress": components["schemas"]["ReviewStarted"] | components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewSummarising"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewFailed"];
     "ReviewQuestionRequest": {
@@ -442,6 +452,7 @@ export interface components {
     "material": boolean;
     "rationale": string;
     "policy_bearings"?: Array<components["schemas"]["PolicyBearing"]>;
+    "hinge"?: components["schemas"]["VerdictHinge"] | null;
     "recommended_response"?: string;
     "verdict_label": string;
   };
@@ -489,6 +500,11 @@ export interface components {
     "kind": "subsystem_summary";
     "node_id": string;
     "limit"?: number;
+  };
+    "VerdictHinge": {
+    "unknown": string;
+    "if_confirmed": string;
+    "if_denied": string;
   };
     "WorkspaceModels": {
     "reasoning": components["schemas"]["ModelIdentity"];

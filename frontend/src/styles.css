@@ -1419,6 +1419,20 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 .overview__limits { max-width: 82ch; margin: 22px 0 0; padding-top: 15px; border-top: 1px solid var(--line); color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
 .overview__limits strong { color: var(--color-text-secondary); }
 
+/* The questions read as an invitation, not as a defect: they are what the reader can do to
+   sharpen the verdicts above, so they carry the accent rather than the warning colour. */
+.questions__lead { max-width: 82ch; margin: 0 0 14px; color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
+.questions__list { display: grid; gap: 14px; max-width: 82ch; margin: 0; padding: 0; list-style: none; }
+.question { padding: 14px 16px; border: 1px solid var(--color-accent-border); border-radius: 10px; background: var(--color-accent-soft); }
+.question__ask { display: flex; flex-wrap: wrap; gap: 5px 9px; align-items: baseline; margin: 0 0 8px; font-size: 15px; font-weight: 600; line-height: 1.5; }
+.question__ref { padding: 1px 7px; border: 1px solid var(--color-accent-border); border-radius: 20px; background: var(--color-surface); color: var(--color-accent-strong); font-family: "SFMono-Regular", Consolas, monospace; font-size: 11.5px; font-weight: 400; letter-spacing: .04em; }
+.question__unknown { margin: 0 0 6px; color: var(--color-text-secondary); font-size: 13.5px; line-height: 1.6; }
+.question__why { display: flex; flex-wrap: wrap; gap: 5px 10px; align-items: baseline; margin: 0 0 6px; color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
+.question__target { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin: 0; color: var(--color-text-tertiary); font-size: 12px; }
+.question__target code { font-size: 11.5px; }
+.question__answer { padding: 0; border: 0; background: none; color: var(--color-accent-strong); font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; }
+.question__answer:hover { color: var(--color-accent); }
+
 /* Citations are links, not decoration: they are how a claim connects to its evidence. */
 .cites { display: inline-flex; flex-wrap: wrap; gap: 5px; }
 .cite { padding: 1px 7px; color: var(--color-accent-strong); border: 1px solid var(--color-accent-border); border-radius: 20px; background: var(--color-accent-soft); font-family: "SFMono-Regular", Consolas, monospace; font-size: 11.5px; letter-spacing: .04em; text-decoration: none; white-space: nowrap; }
@@ -1469,6 +1483,11 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 .bearing__title { display: block; margin-bottom: 4px; color: var(--color-text-primary); font-size: 12.5px; font-weight: 650; line-height: 1.35; }
 .bearing__how { display: block; color: var(--color-text-secondary); font-size: 12.5px; line-height: 1.5; }
 .finding__policies--none { max-width: 78ch; padding: 0; background: none; color: var(--color-text-tertiary); }
+/* Weighted above the detection limits below it and below the reasoning above it: what the
+   case left open is the one thing on this card the reader can go and settle. */
+.finding__hinge { max-width: 78ch; margin: 0 0 10px; padding-left: 11px; border-left: 2px solid var(--color-accent-border); color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
+.finding__hinge strong { color: var(--color-accent-strong); }
+.finding__hinge-branch { display: block; color: var(--ink-muted); }
 .finding__limits { max-width: 78ch; margin: 0; color: var(--color-text-tertiary); font-size: 12px; line-height: 1.5; }
 /* A button now, not a link: the map it shows is a section of this same page. */
 .finding__atlas { display: inline-flex; gap: 6px; align-items: center; margin-top: 12px; padding: 0; border: 0; background: none; color: var(--color-accent-strong); font: inherit; font-size: 13px; text-decoration: none; cursor: pointer; }

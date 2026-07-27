@@ -10,19 +10,23 @@ from typing import ClassVar
 
 from archcompass.domain.atlas import (
     FindingCandidate,
+    FindingPattern,
 )
 from archcompass.domain.case import (
     ArchitectureCase,
+    CaseField,
 )
 from archcompass.domain.knowledge import MethodKnowledge
 from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
     BoundaryReview,
     CandidateVerdict,
+    OpenQuestion,
     OverviewStatement,
     PolicyBearing,
     ReviewedBoundary,
     ReviewOverview,
+    VerdictHinge,
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
 from archcompass.ports.reasoning import ReasoningTask, StreamingAnswerReasoner
@@ -52,14 +56,14 @@ class DeterministicEmbeddingProvider:
 
 class DeterministicReasoningProvider:
     _PROMPTS: ClassVar[dict[ReasoningTask, str]] = {
-        ReasoningTask.JUDGE_FINDING_CANDIDATE: "judge-finding-candidate:v3",
-        ReasoningTask.SUMMARISE_REVIEW: "summarise-review:v2",
+        ReasoningTask.JUDGE_FINDING_CANDIDATE: "judge-finding-candidate:v4",
+        ReasoningTask.SUMMARISE_REVIEW: "summarise-review:v3",
         ReasoningTask.ANSWER_REVIEW_QUESTION: "answer-review-question:v1",
     }
 
     @property
     def model_identity(self) -> str:
-        return "fake:deterministic-architecture-v3"
+        return "fake:deterministic-architecture-v4"
 
     def prompt_identity(self, task: ReasoningTask) -> str:
         return self._PROMPTS[task]
@@ -70,7 +74,6 @@ class DeterministicReasoningProvider:
         candidate: FindingCandidate,
         policies: list[PolicyDocument],
     ) -> CandidateVerdict:
-        del case
         # The one call a substitute can make from the measurements alone: indirection
         # that nothing depends on is in front of nothing. Every other candidate is
         # reported as fine, which is both the honest default here and the answer a real
@@ -100,9 +103,39 @@ class DeterministicReasoningProvider:
             for policy in policies
             if any(word in " ".join([policy.title, *policy.tags]).lower() for word in words)
         ]
+        # Derived from the case, which is what a hinge is about: a verdict reached without
+        # being told what is coming rests on the assumption that nothing is. A fixture that
+        # always produced a hinge — or never did — would make every assertion about
+        # elicitation vacuous, so this turns on a field the test can set either way.
+        #
+        # Restricted to indirection, because that is the only one of the three shapes where
+        # a coming change is the question. Whether two modules state one fact or two is
+        # settled by what the copies mean, and no amount of future variation changes it. The
+        # substitute obeys the rule its own contract states here — a hinge on every boundary
+        # is a hinge on none — so an offline run does not read as an advisor hedging
+        # everything it says.
+        hinge = (
+            VerdictHinge(
+                unknown=(
+                    "The case names no expected future change, so nothing states whether "
+                    "the variation this boundary would absorb is coming."
+                ),
+                if_confirmed=(
+                    "The boundary stands in front of a change that is actually coming and "
+                    "should stay as it is."
+                ),
+                if_denied=(
+                    "Nothing arrives for the boundary to absorb, and it should be removed."
+                ),
+            )
+            if candidate.pattern is FindingPattern.SOLE_IMPLEMENTATION
+            and not case.expected_future_changes
+            else None
+        )
         return CandidateVerdict(
             candidate_id=candidate.candidate_id,
             material=material,
+            hinge=hinge,
             rationale=(
                 (
                     "Nothing in this snapshot depends on the abstraction, so the boundary "
@@ -162,12 +195,46 @@ class DeterministicReasoningProvider:
         for item in boundaries:
             if item.candidate.limitations and item.candidate.limitations not in stated:
                 stated.append(item.candidate.limitations)
+        # Consolidated the way the real stage is asked to consolidate: boundaries naming the
+        # same unknown become one question citing all of them. Grouping by the unknown's own
+        # text is cruder than a model reading them for sense, but it is the same operation,
+        # so a test that asserts one question over four boundaries is asserting the
+        # behaviour rather than a fixture's shape.
+        by_unknown: dict[str, list[ReviewedBoundary]] = {}
+        for item in boundaries:
+            if item.hinge is not None:
+                by_unknown.setdefault(item.hinge.unknown, []).append(item)
+        questions = [
+            OpenQuestion(
+                reference=f"Q-{position}",
+                unknown=unknown,
+                # One sentence per distinct consequence, not one per boundary. Boundaries
+                # that move the same way say so once: repeating an identical clause six
+                # times is how a consolidated question reads as though nothing was merged.
+                why_it_matters=(
+                    f"{len(sharing)} of {len(boundaries)} verdicts move on this. "
+                    + " ".join(
+                        dict.fromkeys(
+                            item.hinge.if_denied for item in sharing if item.hinge
+                        )
+                    )
+                ),
+                question=(
+                    "Is any of that variation actually coming, or is the current shape "
+                    "what this repository will keep?"
+                ),
+                answer_belongs_in=CaseField.EXPECTED_FUTURE_CHANGES,
+                supporting_references=[item.reference for item in sharing],
+            )
+            for position, (unknown, sharing) in enumerate(by_unknown.items(), start=1)
+        ]
         return ReviewOverview(
             situation=(
                 f"{case.title}. {case.problem_statement}"
                 if case.problem_statement
                 else case.title
             ),
+            open_questions=questions,
             themes=themes,
             recommended_sequence=[
                 OverviewStatement(

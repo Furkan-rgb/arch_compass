@@ -30,8 +30,8 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
     """The enum and the registry must not drift; a gap surfaces as a runtime KeyError."""
 
     expected_versions = {
-        ReasoningTask.JUDGE_FINDING_CANDIDATE: 5,
-        ReasoningTask.SUMMARISE_REVIEW: 4,
+        ReasoningTask.JUDGE_FINDING_CANDIDATE: 6,
+        ReasoningTask.SUMMARISE_REVIEW: 5,
         ReasoningTask.ANSWER_REVIEW_QUESTION: 4,
     }
 

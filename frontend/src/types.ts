@@ -13,6 +13,7 @@ export type ReviewProgress = OpenAPIComponents["schemas"]["ReviewProgress"];
 export type AnswerProgress = OpenAPIComponents["schemas"]["AnswerProgress"];
 export type ReviewOverview = OpenAPIComponents["schemas"]["ReviewOverview"];
 export type OverviewStatement = OpenAPIComponents["schemas"]["OverviewStatement"];
+export type OpenQuestion = OpenAPIComponents["schemas"]["OpenQuestion"];
 export type ArchitectureCase = OpenAPIComponents["schemas"]["ArchitectureCase"];
 export type AtlasVersion = OpenAPIComponents["schemas"]["AtlasVersion"];
 export type CaseRevision = OpenAPIComponents["schemas"]["CaseRevision"];

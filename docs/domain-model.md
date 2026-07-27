@@ -68,12 +68,21 @@ cannot see, so "this does not matter here" stays a first-class answer downstream
 ## CandidateVerdict
 
 What the model made of one candidate: `material`, the reasoning, the policies that bear on
-it, and a recommended response present only when material.
+it, an optional `hinge`, and a recommended response present only when material.
 
 The verdict carries no identifier the model authored. `candidate_id` is copied from the
 request, and each `PolicyBearing` gets its policy identity from the position it occupied in
 the presented corpus. A bearing asserted without saying how is dropped rather than recorded
 as an unexplained flag.
+
+`VerdictHinge` is what the verdict assumed because *the case* did not state it — the
+unknown, and the verdict under each answer (master plan §6C). It is the other half of what
+a verdict rests on: the candidate already says what the *method* could not see, and only
+this half is something the reader can fix. `None` is the ordinary answer and means the
+verdict stands whichever way the unknown falls. It is translated from an explicit
+declaration in the reply rather than inferred from a blank field, because "nothing was
+open" and "the stage never considered it" are opposite facts that an omission cannot
+distinguish.
 
 ## BoundaryReview
 
@@ -87,9 +96,19 @@ presented, and every `ReviewedBoundary` examined. `reviewed` may be empty: the d
 and found no candidate, which is a result rather than a failure.
 
 `ReviewedBoundary` carries a `BR-nnn` reference assigned by the application in detection
-order, the candidate, the verdict, the reasoning, the policy bearings, and a recommended
-response. A boundary that is not material carrying a response is rejected — an advisor that
-always has a next action has not answered the question.
+order, the candidate, the verdict, the reasoning, the policy bearings, the hinge where the
+verdict had one, and a recommended response. A boundary that is not material carrying a
+response is rejected — an advisor that always has a next action has not answered the
+question.
+
+`ReviewOverview` carries the review's `open_questions` alongside its themes and sequence.
+An `OpenQuestion` holds a `Q-n` reference assigned by the application in presentation
+order, the unknown, why it matters, the question itself, the `CaseField` an answer belongs
+in, and the `BR-nnn` values it rests on. Questions are consolidated across boundaries —
+several verdicts turning on one unknown are one question citing all of them — and one
+resting on no boundary is discarded rather than recorded, exactly as an ungrounded theme
+is. They are advisor output and live in the review; an answer enters the case only as a
+user-authored revision (master plan §6C.4, invariant 25).
 
 Deliberately absent: design forces, alternatives, scenario analysis, an ADR, an
 implementation sequence. A review judges boundaries that already exist rather than weighing

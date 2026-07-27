@@ -41,9 +41,16 @@ def _boundary(item: ReviewedBoundary) -> list[str]:
         lines += [
             f"- **{bearing.policy_title}** — {bearing.how}" for bearing in item.policy_bearings
         ]
-    # Stated on every boundary rather than once at the end. A reader deciding whether to
-    # act on this specific verdict needs to know what the method could not see, at the
-    # point of deciding.
+    # Both stated on every boundary rather than once at the end, and both for the same
+    # reason: a reader deciding whether to act on this verdict needs to know what it rested
+    # on at the point of deciding. The two are different halves — what the method could not
+    # see, and what the case did not say — and only the second is one they can fix.
+    if item.hinge is not None:
+        lines += [
+            "",
+            f"*This verdict turns on an open question.* {item.hinge.unknown} "
+            f"If so: {item.hinge.if_confirmed} If not: {item.hinge.if_denied}",
+        ]
     lines += ["", f"*Detection limits.* {item.candidate.limitations}"]
     return lines
 
@@ -71,6 +78,23 @@ def _overview(overview: ReviewOverview) -> list[str]:
             for position, statement in enumerate(overview.recommended_sequence, start=1)
         ]
     lines += ["", f"*What this review could not see.* {overview.limits}"]
+    if overview.open_questions:
+        lines += ["", "### What the case does not say", ""]
+        lines.append(
+            "Each of these would settle verdicts above. Answering one is a case revision, "
+            "and a new review against it can reach a different verdict — which is the "
+            "mechanism working rather than the advisor changing its mind."
+        )
+        for question in overview.open_questions:
+            lines += [
+                "",
+                f"**{question.reference}. {question.question}**",
+                "",
+                f"- *Unstated:* {question.unknown}",
+                f"- *Why it matters:* {question.why_it_matters} "
+                f"({', '.join(question.supporting_references)})",
+                f"- *An answer belongs in:* `{question.answer_belongs_in.value}`",
+            ]
     return lines
 
 
