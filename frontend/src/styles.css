@@ -1784,3 +1784,8 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
   .case-field__example { grid-template-columns: 1fr; gap: 2px; }
   .case-field__tag { justify-self: start; }
 }
+
+/* Rail B is optional, and the flow has to say so where the eye lands: a lettered step with
+   no qualifier reads as a thing that must be done before the run. */
+.rail__step--optional { opacity: .55; }
+.rail__optional { padding: 1px 7px; border: 1px solid var(--line); border-radius: 20px; color: var(--color-text-tertiary); font-size: 11px; letter-spacing: .03em; }

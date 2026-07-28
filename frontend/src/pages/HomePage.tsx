@@ -169,8 +169,12 @@ export function HomePage() {
     applyRepositoryHint(item.repository_root);
   };
 
-  const ready = Boolean(repositoryRoot && caseId);
-  const busy = run.running || loadExample.isPending || index.isPending;
+  // A repository is the whole requirement. Rail B fills the other half when someone has a
+  // case already; without one the run opens an empty case about the repository and the
+  // review's own questions fill it in (master plan §6C.1).
+  const ready = Boolean(repositoryRoot);
+  const busy =
+    run.running || loadExample.isPending || index.isPending || reviewRepository.isPending;
 
   return (
     <div className="page">
@@ -275,55 +279,38 @@ export function HomePage() {
                 aria-label="Local repository path"
               />
             </label>
-            {/* Two ways out of the same box. Reviewing straight away is the one to reach
-                for: a review runs on the repository alone and comes back asking for what it
-                could not weigh, so writing a case first is work nobody has to do until they
-                have seen something (master plan §6C.1). Indexing without reviewing stays,
-                because rail B is still there for anyone who has a case already. */}
-            <div className="rail__actions">
-              <button
-                type="button"
-                className="button button--primary"
-                disabled={!path.trim() || busy || reviewRepository.isPending}
-                onClick={() => reviewRepository.mutate(path.trim())}
-              >
-                <Play size={15} aria-hidden />
-                {reviewRepository.isPending ? "Starting…" : "Review it now"}
-              </button>
-              <button
-                type="button"
-                className="button button--secondary"
-                disabled={!path.trim() || busy || reviewRepository.isPending}
-                onClick={() => index.mutate(path.trim())}
-              >
-                <Plus size={15} aria-hidden />
-                {index.isPending ? "Indexing…" : "Index only"}
-              </button>
-            </div>
-            <p className="rail__note">
-              Reviewing now needs no case. The run judges every boundary on the code alone
-              and asks what it could not weigh; your answers become the case.
-            </p>
+            <button
+              type="button"
+              className="button button--secondary"
+              disabled={!path.trim() || busy}
+              onClick={() => index.mutate(path.trim())}
+            >
+              <Plus size={15} aria-hidden />
+              {index.isPending ? "Indexing…" : "Index this path"}
+            </button>
             <p className="rail__note">
               The workspace must not sit inside the project being analysed.
             </p>
             {index.isError ? <ErrorPanel error={index.error} /> : null}
-            {reviewRepository.isError ? (
-              <ErrorPanel error={reviewRepository.error} />
-            ) : null}
           </div>
 
           <div className={`rail ${caseId ? "rail--filled" : ""}`}>
             <div className="rail__head">
-              <span className="rail__step">B</span>
+              <span className="rail__step rail__step--optional">B</span>
               <h3>Case</h3>
+              <span className="rail__optional">optional</span>
               {caseId ? (
                 <CircleCheck className="rail__done" size={17} aria-label="Chosen" />
               ) : null}
             </div>
+            {/* Optional, and saying so is the point. A case is what separates a boundary
+                that earns its place from one that does not, and it is also the reason
+                nobody got as far as a first verdict — so the review runs without one and
+                asks for what it lacked instead (master plan §6C.1). */}
             <p className="rail__hint">
-              Requirements, constraints and expected future changes for one decision. Each
-              case revision is immutable, and a review pins the exact revision it used.
+              Skip this and the review runs on the repository alone, then asks what it could
+              not weigh — your answers become the case. Pick or write one here only if you
+              already know what this software has to do.
             </p>
 
             {cases.isLoading ? <Loading label="Reading cases…" /> : null}
@@ -456,15 +443,22 @@ export function HomePage() {
             type="button"
             className="button button--primary"
             disabled={!ready || busy}
-            onClick={() =>
-              repositoryRoot && caseId && run.start(caseId, repositoryRoot)
-            }
+            onClick={() => {
+              if (!repositoryRoot) return;
+              // One run, two ways in. A chosen case is reviewed against; no case opens an
+              // empty one about this repository first, so the button never demands a rail
+              // the reader has deliberately skipped.
+              if (caseId) run.start(caseId, repositoryRoot);
+              else reviewRepository.mutate(repositoryRoot);
+            }}
           >
             <Play size={16} aria-hidden />
-            {run.running ? "Starting…" : "Run review"}
+            {busy ? "Starting…" : "Run review"}
           </button>
           <p>
-            {ready ? (
+            {!ready ? (
+              <>Choose or index a repository to run. A case is optional.</>
+            ) : caseId ? (
               <>
                 Judging every boundary in{" "}
                 <strong>{repositoryRoot?.split("/").at(-1)}</strong> against{" "}
@@ -473,8 +467,10 @@ export function HomePage() {
               </>
             ) : (
               <>
-                Fill both rails to run: {repositoryRoot ? "a case" : "a repository"} is
-                still missing.
+                Judging every boundary in{" "}
+                <strong>{repositoryRoot?.split("/").at(-1)}</strong> on the code alone, with
+                no case written. The review will ask what it could not weigh, and your
+                answers become the case.
               </>
             )}
           </p>
