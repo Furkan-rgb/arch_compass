@@ -464,6 +464,24 @@ def create_app(runtime: Runtime) -> FastAPI:
     def index_repository(request: RepositoryPathRequest) -> AtlasVersion:
         return runtime.repository_service.index(Path(request.root_path))
 
+    @app.post(
+        "/api/repositories/start",
+        status_code=201,
+        responses=_problem_responses(404, 422),
+    )
+    def start_from_repository(request: RepositoryPathRequest) -> CaseRevision:
+        """Index a repository and open a case about it, with nothing written in it yet.
+
+        The whole of the first step for someone who has not authored a case. Both halves
+        happen here so the flow either produces something reviewable or fails outright,
+        rather than leaving a case pointing at an atlas that was never built — the same
+        ordering, and the same reason, as loading a bundled example.
+        """
+
+        root = Path(request.root_path)
+        runtime.repository_service.index(root)
+        return runtime.case_service.start_from_repository(root)
+
     @app.get("/api/repositories/summary")
     def repository_summary(root_path: str) -> AtlasQueryResult:
         return runtime.atlas_service.summary(Path(root_path))

@@ -30,7 +30,7 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
     """The enum and the registry must not drift; a gap surfaces as a runtime KeyError."""
 
     expected_versions = {
-        ReasoningTask.JUDGE_FINDING_CANDIDATE: 9,
+        ReasoningTask.JUDGE_FINDING_CANDIDATE: 10,
         ReasoningTask.SUMMARISE_REVIEW: 5,
         ReasoningTask.ANSWER_REVIEW_QUESTION: 4,
     }
@@ -256,3 +256,23 @@ def test_the_judgement_contract_names_the_two_ways_a_stage_hedges() -> None:
     assert "judge the case as it stands" in contract
     assert "the question you were asked" in contract
     assert "it is the verdict left unmade" in contract
+
+
+def test_the_judgement_contract_will_not_read_silence_as_evidence() -> None:
+    """A case may now say nothing at all, and that must not condemn everything.
+
+    Measured before it was allowed: told nothing about the future, a run condemned three
+    boundaries the written case justifies, because nothing in the case justified them. Read
+    that way an unwritten case is evidence against every boundary at once, and the advisor
+    becomes the abstraction destroyer §3.1 exists to correct — on the first run a new user
+    sees. The rule was already in the shared contract; this applies it where the verdict is
+    actually made.
+    """
+
+    contract = _normalized(JUDGE_FINDING_CANDIDATE.stage_contract)
+
+    assert "a case may say nothing at all" in contract
+    assert "absence of evidence is not evidence of absence" in contract
+    assert "leave it as it is and put what you were not told in the hinge" in contract
+    # And silence must not become a blanket excuse in the other direction either.
+    assert "a silent case is not a reason to clear a constant copied into four modules" in contract

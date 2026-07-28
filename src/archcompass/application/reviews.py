@@ -20,7 +20,7 @@ from time import monotonic
 from archcompass.application.policies import PolicyService
 from archcompass.application.review_rendering import render_report
 from archcompass.domain.atlas import Atlas, FindingCandidate
-from archcompass.domain.case import CaseRevision
+from archcompass.domain.case import ArchitectureCase, CaseRevision
 from archcompass.domain.errors import (
     ArchCompassError,
     AtlasNotFoundError,
@@ -42,6 +42,25 @@ from archcompass.ports.repositories import (
     BoundaryReviewRepository,
     CaseRepository,
 )
+
+#: What a report says the case was for when the case says nothing. A review may run against
+#: a repository alone (master plan §6C.1), and the honest reading of that is not a blank
+#: heading but a statement that nothing was asked for yet — which is also what the review's
+#: own questions are about to address.
+UNSTATED_CASE = (
+    "No problem or desired outcome has been stated for this case yet. These boundaries "
+    "were judged on the repository alone, so what the review could not weigh is recorded "
+    "as the questions it asks below."
+)
+
+
+def _stated_case(case: ArchitectureCase) -> str:
+    """The case's own words, or a sentence saying it has none."""
+
+    stated = "\n\n".join(
+        part for part in (case.problem_statement.strip(), case.desired_outcome.strip()) if part
+    )
+    return stated or UNSTATED_CASE
 
 
 @dataclass(frozen=True)
@@ -206,9 +225,7 @@ class ReviewService:
         )
         report = BoundaryReviewReport(
             case_title=revision.snapshot.title,
-            problem_and_desired_outcome=(
-                f"{revision.snapshot.problem_statement}\n\n{revision.snapshot.desired_outcome}"
-            ),
+            problem_and_desired_outcome=_stated_case(revision.snapshot),
             reviewed=boundaries,
             overview=overview,
             policies_presented=[policy.id for policy in policies],

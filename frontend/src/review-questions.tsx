@@ -124,9 +124,9 @@ export function OpenQuestions({
     <div className="overview__group questions">
       <h3>What the case does not say</h3>
       <p className="questions__lead">
-        Each of these would settle verdicts above. Answer what you know and leave the rest —
-        what you write becomes a new revision of the case, and a review against it can reach
-        a different verdict.
+        The verdicts above rest on these. Answer what you know and leave the rest — the
+        review carries on against what you write, and a verdict that turned on one of these
+        can come out the other way.
       </p>
 
       <ol className="questions__list">
@@ -169,8 +169,8 @@ export function OpenQuestions({
       {answered.length > 0 ? (
         <div className="questions__preview">
           <p className="questions__preview-head">
-            {answered.length} of {questions.length} answered. Revision{" "}
-            {nextRevision ?? "?"} will add:
+            {answered.length} of {questions.length} answered. Carrying on will record
+            revision {nextRevision ?? "?"} of the case, adding:
           </p>
           <ul>
             {(Object.entries(grouped) as [CaseField, string[]][]).map(([field, texts]) => (
@@ -185,8 +185,10 @@ export function OpenQuestions({
             ))}
           </ul>
           <p className="questions__preview-note">
-            This does not change the review you are reading. Both reviews stay, each pinned
-            to the case revision it ran against.
+            The review you are reading is kept as it stands. Carrying on judges the same
+            boundaries again against the answered case, and both passes remain readable —
+            each pinned to the case revision it ran against, so you can see what your answer
+            changed.
           </p>
         </div>
       ) : null}
@@ -212,10 +214,12 @@ export function OpenQuestions({
         }}
       >
         {pending
-          ? "Reviewing…"
+          ? "Carrying on…"
           : answered.length === 0
             ? "Answer at least one to continue"
-            : `Save revision & review again`}
+            : answered.length === questions.length
+              ? "Continue the review"
+              : `Continue with ${answered.length} of ${questions.length} answered`}
       </button>
     </div>
   );

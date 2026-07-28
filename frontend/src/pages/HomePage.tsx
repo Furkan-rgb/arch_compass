@@ -99,6 +99,30 @@ export function HomePage() {
   // verdict, because the stream announces the review's identity before the first model call.
   const run = useRun();
 
+  // Index, open an empty case about it, and go straight to the review — the whole first
+  // step for someone who has not written a case (master plan §6C.1). The questions the run
+  // comes back with are how the case gets written, so requiring one first would put the
+  // price ahead of the value.
+  const reviewRepository = useMutation({
+    mutationFn: async (root: string) => {
+      const revision = await api.startFromRepository(root);
+      if (!revision.case_id) {
+        throw new Error("The workspace returned a case without an identifier.");
+      }
+      return { caseId: revision.case_id, root };
+    },
+    onSuccess: async (started) => {
+      setPath("");
+      setCaseId(started.caseId);
+      setRepositoryRoot(started.root);
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["cases"] }),
+        client.invalidateQueries({ queryKey: ["repositories"] }),
+      ]);
+      run.start(started.caseId, started.root);
+    },
+  });
+
   const created = async (revision: CaseRevision) => {
     setEditor(null);
     setCaseId(revision.case_id);
@@ -159,9 +183,10 @@ export function HomePage() {
       <section className="panel">
         <h2 className="panel__title">Start a review</h2>
         <p className="panel__hint">
-          Two inputs, in either order: the repository to examine, and the case that says
-          what it has to do. The case is what separates a boundary that earns its place
-          from one that does not.
+          Point at a repository and review it. A case says what the software has to do and
+          is what separates a boundary that earns its place from one that does not — but you
+          do not have to write one first: the review asks for what it could not weigh, and
+          your answers become the case.
         </p>
 
         {examples.isLoading ? <Loading label="Finding examples…" /> : null}
@@ -250,19 +275,42 @@ export function HomePage() {
                 aria-label="Local repository path"
               />
             </label>
-            <button
-              type="button"
-              className="button button--secondary"
-              disabled={!path.trim() || busy}
-              onClick={() => index.mutate(path.trim())}
-            >
-              <Plus size={15} aria-hidden />
-              {index.isPending ? "Indexing…" : "Index this path"}
-            </button>
+            {/* Two ways out of the same box. Reviewing straight away is the one to reach
+                for: a review runs on the repository alone and comes back asking for what it
+                could not weigh, so writing a case first is work nobody has to do until they
+                have seen something (master plan §6C.1). Indexing without reviewing stays,
+                because rail B is still there for anyone who has a case already. */}
+            <div className="rail__actions">
+              <button
+                type="button"
+                className="button button--primary"
+                disabled={!path.trim() || busy || reviewRepository.isPending}
+                onClick={() => reviewRepository.mutate(path.trim())}
+              >
+                <Play size={15} aria-hidden />
+                {reviewRepository.isPending ? "Starting…" : "Review it now"}
+              </button>
+              <button
+                type="button"
+                className="button button--secondary"
+                disabled={!path.trim() || busy || reviewRepository.isPending}
+                onClick={() => index.mutate(path.trim())}
+              >
+                <Plus size={15} aria-hidden />
+                {index.isPending ? "Indexing…" : "Index only"}
+              </button>
+            </div>
+            <p className="rail__note">
+              Reviewing now needs no case. The run judges every boundary on the code alone
+              and asks what it could not weigh; your answers become the case.
+            </p>
             <p className="rail__note">
               The workspace must not sit inside the project being analysed.
             </p>
             {index.isError ? <ErrorPanel error={index.error} /> : null}
+            {reviewRepository.isError ? (
+              <ErrorPanel error={reviewRepository.error} />
+            ) : null}
           </div>
 
           <div className={`rail ${caseId ? "rail--filled" : ""}`}>

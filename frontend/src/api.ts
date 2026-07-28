@@ -284,6 +284,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ root_path: rootPath }),
     }),
+  // Indexes and opens a case about the repository in one step, with nothing written in it.
+  // The entry for someone who has not authored a case and should not have to: the review
+  // runs on the code alone and asks for what it lacked (master plan §6C.1).
+  startFromRepository: (rootPath: string) =>
+    request<CaseRevision>("/api/repositories/start", {
+      method: "POST",
+      body: JSON.stringify({ root_path: rootPath }),
+    }),
   repositorySummary: (rootPath: string) =>
     request<AtlasQueryResult>(
       `/api/repositories/summary?root_path=${encodeURIComponent(rootPath)}`,

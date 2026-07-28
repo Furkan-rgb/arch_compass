@@ -272,6 +272,9 @@ class BoundaryReviewReport(DomainModel):
     schema_version: Literal[3] = 3
     report_id: str = Field(default_factory=lambda: new_id("review"))
     case_title: str = Field(min_length=1)
+    #: What the case said it was for, where it said anything. A review can run against a
+    #: repository and an unwritten case, and this is then the sentence saying so rather than
+    #: a blank a reader has to interpret.
     problem_and_desired_outcome: str = Field(min_length=1)
     #: Every boundary examined, material or not. Empty is valid and meaningful: the
     #: detector ran and found no candidate, which is a result rather than a failure.

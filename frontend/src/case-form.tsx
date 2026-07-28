@@ -202,10 +202,10 @@ export function CaseForm({
               <input {...form.register("title", { required: true })} />
             </Field>
             <Field label="What decision are you facing?">
-              <textarea rows={3} {...form.register("problem_statement", { required: true })} />
+              <textarea rows={3} {...form.register("problem_statement")} />
             </Field>
             <Field label="What would a good answer give you?">
-              <textarea rows={2} {...form.register("desired_outcome", { required: true })} />
+              <textarea rows={2} {...form.register("desired_outcome")} />
             </Field>
           </div>
 

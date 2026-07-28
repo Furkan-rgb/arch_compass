@@ -15,8 +15,8 @@ export interface components {
     "schema_version"?: 2;
     "case_id"?: string;
     "title": string;
-    "problem_statement": string;
-    "desired_outcome": string;
+    "problem_statement"?: string;
+    "desired_outcome"?: string;
     "actors_and_workflows"?: Array<string>;
     "functional_requirements"?: Array<string>;
     "quality_attributes"?: Array<string>;
@@ -956,6 +956,20 @@ export interface operations {
       "404": components["schemas"]["ProblemDetail"];
     };
   };
+  "start_from_repository_api_repositories_start_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["RepositoryPathRequest"];
+    responses: {
+      "201": components["schemas"]["CaseRevision"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
   "stream_review_api_reviews_stream_post": {
     parameters: {
       query: never;
@@ -1066,6 +1080,9 @@ export interface paths {
   };
   "/api/repositories/inspect": {
     get: operations["repository_inspect_api_repositories_inspect_get"];
+  };
+  "/api/repositories/start": {
+    post: operations["start_from_repository_api_repositories_start_post"];
   };
   "/api/repositories/summary": {
     get: operations["repository_summary_api_repositories_summary_get"];

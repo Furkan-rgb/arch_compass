@@ -94,13 +94,23 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
     # words that one is under contract. Saying what a hinge is for was not enough; the check
     # against the case is now a step with a stated order and a named failure.
     #
+    # v10 covers the case that says nothing at all. A review may now run against a
+    # repository alone (master plan §6C.1), and the first thing measured on a thin case was
+    # the failure that makes that unsafe: told nothing about the future, a run condemned
+    # AudioSink, SpeechProvider and BookStore — three boundaries the written case justifies
+    # — because nothing in the case justified them. Read that way, silence is evidence
+    # against every boundary at once, and the advisor becomes the abstraction destroyer §3.1
+    # exists to correct, on the first run a new user ever sees. The rule was already in the
+    # shared contract and needed applying here: absence of evidence is not evidence of
+    # absence. An unstated case is an unknown, and an unknown is a hinge.
+    #
     # v9 names the two ways a stage still hedges after it has looked, both measured on
     # `warehouse-sync`, which hinged 5 of 5 where 2 was right. It hinged on whether a
     # constraint the case *states* is permanent — every stated fact can be revised, so
     # durability makes everything contingent and distinguishes nothing — and it hinged on
     # whether two constants are one fact, which is the question this stage exists to answer.
     # Both look like diligence and are refusals to decide.
-    version=9,
+    version=10,
     stage_contract=_text(
         """
         A structural detector found one pattern in this repository and reported what it
@@ -155,6 +165,24 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
         dependency from a coincidence. Neither can establish that variation exists — only
         the case can say that, and where the case says the opposite, the absence is not an
         open question.
+
+        A case may say nothing at all. Reviews run against a repository alone, before anyone
+        has written down what they are building or why, and such a case will state no future
+        change, no constraint and no non-goal — because none has been supplied yet, not
+        because the answer to each is no.
+
+        That distinction decides these runs. "The case names no variation this boundary would
+        absorb" is a reason to condemn indirection only when the case is one that *would*
+        have said so. Where the case is silent throughout, the same sentence means you were
+        not told, and absence of evidence is not evidence of absence: judging a boundary
+        unjustified because an unwritten case failed to justify it condemns every boundary in
+        the repository at once, which is no judgement at all.
+
+        So when the case says nothing and the only argument against a shape is that silence,
+        leave it as it is and put what you were not told in the hinge. That is what the hinge
+        is for, and the questions built from it are how the case gets written. Judge normally
+        wherever the case does speak — a silent case is not a reason to clear a constant
+        copied into four modules, because the evidence for that is in the code.
 
         Finally, say what your verdict assumed because the case did not state it. That is
         the `hinge`, and it is about the case, never about the code: what the detector could

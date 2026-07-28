@@ -24,6 +24,7 @@ import pytest
 import yaml
 
 from archcompass.application.review_rendering import render_review
+from archcompass.application.reviews import UNSTATED_CASE
 from archcompass.bootstrap import Runtime
 from archcompass.domain.case import ArchitectureCase, CaseField, CaseUpdate
 from archcompass.domain.finding_detectors import detect_finding_candidates
@@ -258,3 +259,61 @@ def test_the_key_explains_every_boundary_it_grades(field: str) -> None:
         assert len(entry["because"].split()) > 15, (
             f"{entry['abstraction']} is graded without saying why"
         )
+
+
+def test_a_review_runs_against_a_repository_with_no_case_written(runtime: Runtime) -> None:
+    """The entry for someone who has not written a case (master plan §6C.1).
+
+    The point of elicitation taken to its conclusion: point at code, get every boundary
+    judged, and get back the questions that would settle them. Writing a case first is work
+    nobody has to do until they have seen something.
+    """
+
+    runtime.repository_service.index(REPOSITORY)
+    revision = runtime.case_service.start_from_repository(REPOSITORY)
+
+    assert revision.snapshot.title == "Boundaries in repository"
+    # Empty, not pre-filled. A placeholder problem statement would be read by the judging
+    # stage as intent the user never expressed (invariant 23).
+    assert revision.snapshot.problem_statement == ""
+    assert revision.snapshot.desired_outcome == ""
+
+    review = runtime.review_service.review(revision.case_id, repository_root=REPOSITORY)
+
+    assert review.status is ReviewStatus.SUCCEEDED
+    report = review.report
+    assert report is not None
+    assert len(report.reviewed) == 5, "an unwritten case still gets every boundary judged"
+    assert report.overview.open_questions, "and must come back asking for what it lacked"
+    # The report says the case was unwritten rather than printing a blank heading.
+    assert report.problem_and_desired_outcome == UNSTATED_CASE
+    assert UNSTATED_CASE in render_review(review)
+
+
+def test_answering_carries_the_same_boundaries_forward(runtime: Runtime) -> None:
+    """Continuing is a second pass over the same repository, not a different question.
+
+    The atlas does not change, so the same boundaries are judged again against a case that
+    now says more. That is what makes the two passes comparable — and what makes a verdict
+    that moved attributable to the answer rather than to anything else.
+    """
+
+    runtime.repository_service.index(REPOSITORY)
+    revision = runtime.case_service.start_from_repository(REPOSITORY)
+    first = runtime.review_service.review(revision.case_id, repository_root=REPOSITORY)
+
+    runtime.case_service.update(
+        revision.case_id,
+        CaseUpdate(expected_future_changes=["A second warehouse arrives next quarter."]),
+        actor="operator",
+    )
+    second = runtime.review_service.review(revision.case_id, repository_root=REPOSITORY)
+
+    before = first.report
+    after = second.report
+    assert before is not None and after is not None
+    assert [item.candidate.summary for item in after.reviewed] == [
+        item.candidate.summary for item in before.reviewed
+    ]
+    assert first.atlas_version_id == second.atlas_version_id
+    assert (first.case_revision, second.case_revision) == (1, 2)

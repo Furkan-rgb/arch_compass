@@ -65,8 +65,19 @@ class ArchitectureCase(DomainModel):
     schema_version: Literal[2] = 2
     case_id: str = Field(default_factory=lambda: new_id("case"))
     title: str = Field(min_length=1)
-    problem_statement: str = Field(min_length=1)
-    desired_outcome: str = Field(min_length=1)
+    #: Both optional, and empty is the ordinary state of a case nobody has written yet.
+    #: Requiring them made authoring a case the price of seeing a single verdict, which is
+    #: the tax elicitation exists to remove (master plan §6C.1): a review can run against a
+    #: repository alone and ask for what it lacked.
+    #:
+    #: Relaxing rather than removing, so nothing stored has to move. A case already holding
+    #: these validates unchanged, which is why `schema_version` stays at 2 — widening what a
+    #: field accepts breaks no document, unlike the narrowing ADR-0002 governs.
+    #:
+    #: `title` stays required. It is how a case is picked out of a listing, and a repository
+    #: supplies one without anybody inventing intent.
+    problem_statement: str = ""
+    desired_outcome: str = ""
     actors_and_workflows: list[str] = Field(default_factory=list[str])
     functional_requirements: list[str] = Field(default_factory=list[str])
     quality_attributes: list[str] = Field(default_factory=list[str])
