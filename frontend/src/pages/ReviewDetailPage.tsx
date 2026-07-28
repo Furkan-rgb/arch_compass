@@ -22,6 +22,7 @@ import { Markdown } from "../markdown";
 import { ErrorPanel, Loading, formatDate, shortId } from "../components";
 import { ReviewAtlas } from "../review-atlas";
 import { ReviewInProgress } from "../review-in-progress";
+import { RunProgress } from "../run-progress";
 import { useRun } from "../run";
 import { OpenQuestions } from "../review-questions";
 import type {
@@ -662,8 +663,45 @@ export function ReviewDetailPage() {
         }
       : null;
 
+  /**
+   * Whether this review is still waiting on the reader, and how many answers.
+   *
+   * Derived from the stored record rather than held in this page: a review that asked
+   * questions and has no later review of its case has not been carried on from, whoever is
+   * looking and however many times they have left and come back. Nothing has to be
+   * remembered for the run to still be waiting when they return.
+   *
+   * A newer review of the same case is what "carried on" looks like, so it settles this
+   * even when the answers came from somewhere else entirely — the CLI, another tab.
+   */
+  const openQuestions = report.overview.open_questions || [];
+  const awaitingAnswers = newer ? 0 : openQuestions.length;
+
   return (
     <div className="page page--review">
+      {/* The run's own steps, still on screen, because the last one has not finished. Every
+          other stage ends when the application ends it; this one is waiting on a person,
+          and hiding it would present a review as complete while it is still holding. */}
+      {awaitingAnswers > 0 ? (
+        <RunProgress
+          progress={{
+            total: reviewed.length,
+            boundaries: reviewed.map((item) => item.candidate.summary),
+            verdicts: reviewed.map((item) => item.material),
+            judged: reviewed.length,
+            summarising: true,
+          }}
+          awaiting={awaitingAnswers}
+          heading={
+            <>
+              This review is waiting on you. Every boundary is judged and the verdicts below
+              stand — but {awaitingAnswers === 1 ? "one of them rests" : "some of them rest"}{" "}
+              on something the case does not say.
+            </>
+          }
+        />
+      ) : null}
+
       <header className="review-head">
         <span className="eyebrow">Boundary review</span>
         <h1>{report.case_title}</h1>

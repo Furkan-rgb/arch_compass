@@ -97,3 +97,57 @@ describe("RunProgress", () => {
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
 });
+
+/**
+ * The one stage that does not end on its own.
+ *
+ * Every other step here finishes because the application finished it. This one is waiting
+ * on a person, so it has to read as held rather than as done — and because it is derived
+ * from the stored review rather than from page state, it is still held when the reader
+ * comes back to it.
+ */
+describe("RunProgress waiting on answers", () => {
+  it("names the step before there is anything to say about it", () => {
+    render(<RunProgress progress={null} />);
+
+    // Present from the first frame, so a reader knows the run may ask before it does.
+    expect(screen.getByRole("status")).toHaveTextContent("Answer what the case does not say");
+  });
+
+  it("holds while questions are outstanding, and says how many", () => {
+    render(
+      <RunProgress
+        progress={{ ...detected, verdicts: [false, true, false], judged: 3, summarising: true }}
+        awaiting={2}
+      />,
+    );
+
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("2 questions are waiting on you");
+    expect(status).toHaveTextContent("The review carries on against your answers");
+  });
+
+  it("counts one question without pluralising it", () => {
+    render(
+      <RunProgress
+        progress={{ ...detected, verdicts: [false, true, false], judged: 3, summarising: true }}
+        awaiting={1}
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("1 question is waiting on you");
+  });
+
+  it("reports nothing left open as a result rather than a blank", () => {
+    render(
+      <RunProgress
+        progress={{ ...detected, verdicts: [false, true, false], judged: 3, summarising: true }}
+        awaiting={0}
+      />,
+    );
+
+    // A run that asked nothing is a finding: every verdict stood on what the case said.
+    expect(screen.getByRole("status")).toHaveTextContent("Nothing was left open");
+    expect(screen.getByRole("status")).not.toHaveTextContent("waiting on you");
+  });
+});

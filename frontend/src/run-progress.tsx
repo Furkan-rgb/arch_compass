@@ -80,12 +80,24 @@ function Stage({
   );
 }
 
+/**
+ * How many answers the run is waiting on, once it knows.
+ *
+ * `null` while the run is still producing verdicts — nothing can be said about questions
+ * that have not been composed yet. `0` once it has finished and asked nothing. A positive
+ * number is a run that is not over: it has judged everything it can against what it was
+ * told, and what happens next is the reader's to supply.
+ */
+export type AwaitingAnswers = number | null;
+
 export function RunProgress({
   progress,
   heading,
+  awaiting = null,
 }: {
   progress: RunState;
   heading?: ReactNode;
+  awaiting?: AwaitingAnswers;
 }) {
   const detected = progress !== null;
   const total = progress?.total ?? 0;
@@ -96,6 +108,11 @@ export function RunProgress({
     : summarising || judged >= total
       ? "done"
       : "active";
+  // The one stage that does not end on its own. Every other step here finishes because the
+  // application finished it; this one is waiting on a person, and it stays waiting across a
+  // reload because it is derived from the stored review rather than from this page's state.
+  const answering: StageState =
+    awaiting === null ? "waiting" : awaiting > 0 ? "active" : "done";
 
   return (
     <div className="run-flow" role="status" aria-live="polite">
@@ -141,6 +158,22 @@ export function RunProgress({
           state={summarising ? "active" : "waiting"}
           title="Read the verdicts as a set"
           detail="One last call: what they amount to together, and what the case left open."
+        />
+        <Stage
+          state={answering}
+          title="Answer what the case does not say"
+          detail={
+            awaiting === null ? (
+              "Where a verdict rested on something unstated, the run asks rather than guesses."
+            ) : awaiting > 0 ? (
+              <>
+                {awaiting === 1 ? "1 question is" : `${awaiting} questions are`} waiting on
+                you. The review carries on against your answers.
+              </>
+            ) : (
+              "Nothing was left open — every verdict stood on what the case already said."
+            )
+          }
         />
       </ol>
 
