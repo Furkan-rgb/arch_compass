@@ -131,10 +131,16 @@ export function RunProgress({
             )
           }
         />
+        {/* Named for both things this call does. It composes the conclusion *and* the
+            questions, because a verdict that rested on something the case did not say
+            records what that was, and this is the only stage that sees all of those at
+            once — where several boundaries turning on one fact become one question rather
+            than several. A reader watching the run should know the questions are coming
+            from here rather than wondering where they appeared from. */}
         <Stage
           state={summarising ? "active" : "waiting"}
           title="Read the verdicts as a set"
-          detail="One last call, over all of them at once."
+          detail="One last call: what they amount to together, and what the case left open."
         />
       </ol>
 
