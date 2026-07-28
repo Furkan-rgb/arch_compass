@@ -1428,10 +1428,25 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 .question__ref { padding: 1px 7px; border: 1px solid var(--color-accent-border); border-radius: 20px; background: var(--color-surface); color: var(--color-accent-strong); font-family: "SFMono-Regular", Consolas, monospace; font-size: 11.5px; font-weight: 400; letter-spacing: .04em; }
 .question__unknown { margin: 0 0 6px; color: var(--color-text-secondary); font-size: 13.5px; line-height: 1.6; }
 .question__why { display: flex; flex-wrap: wrap; gap: 5px 10px; align-items: baseline; margin: 0 0 6px; color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
-.question__target { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin: 0; color: var(--color-text-tertiary); font-size: 12px; }
+.question__target { display: block; margin: 0 0 5px; color: var(--color-text-tertiary); font-size: 12px; }
 .question__target code { font-size: 11.5px; }
-.question__answer { padding: 0; border: 0; background: none; color: var(--color-accent-strong); font: inherit; font-size: 12px; text-decoration: underline; cursor: pointer; }
-.question__answer:hover { color: var(--color-accent); }
+
+/* The box is the component. A question the reader cannot answer in place is a question
+   that sends them somewhere else to find the right field, which is what this replaced. */
+.question__answer-field { display: block; margin-top: 10px; }
+.question__answer-field textarea { display: block; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--color-surface); color: var(--color-text-primary); font: inherit; font-size: 13.5px; line-height: 1.55; resize: vertical; }
+.question__answer-field textarea:focus { outline: 2px solid var(--color-accent); outline-offset: -1px; border-color: transparent; }
+.question__answer-field textarea:disabled { opacity: .55; cursor: not-allowed; }
+
+/* Shown before it saves, never after: the reader has to see what enters their own case. */
+.questions__preview { margin-top: 16px; padding: 13px 15px; border: 1px dashed var(--color-accent-border); border-radius: 9px; background: var(--color-surface); }
+.questions__preview-head { margin: 0 0 8px; color: var(--color-text-secondary); font-size: 13px; font-weight: 600; }
+.questions__preview ul { margin: 0; padding-left: 17px; color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
+.questions__preview ul ul { margin: 3px 0 7px; padding-left: 14px; list-style: none; }
+.questions__preview code { font-size: 11.5px; color: var(--color-accent-strong); }
+.questions__preview-note { margin: 10px 0 0; color: var(--color-text-tertiary); font-size: 12px; line-height: 1.55; }
+.questions__error { margin: 12px 0 0; color: var(--color-danger, #b3261e); font-size: 13px; }
+.questions__submit { margin-top: 14px; }
 
 /* Citations are links, not decoration: they are how a claim connects to its evidence. */
 .cites { display: inline-flex; flex-wrap: wrap; gap: 5px; }

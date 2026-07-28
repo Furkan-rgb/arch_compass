@@ -23,8 +23,11 @@ import { ErrorPanel, Loading, formatDate, shortId } from "../components";
 import { ReviewAtlas } from "../review-atlas";
 import { ReviewInProgress } from "../review-in-progress";
 import { useRun } from "../run";
+import { OpenQuestions } from "../review-questions";
 import type {
   BoundaryReview,
+  CaseUpdate,
+  OpenQuestion,
   ReviewOverview,
   ReviewScore,
   ReviewedBoundary,
@@ -87,14 +90,13 @@ function Citations({ references }: { references: string[] }) {
  */
 export function Overview({
   overview,
-  onAnswer,
+  answering,
 }: {
   overview: ReviewOverview;
-  // Opens the case editor this page already carries. The answer path is the revise-and-
-  // review loop that exists, not a second way to write a case: a question names a field
-  // and the reader fills it in, so what the advisor supplies is the question and what
-  // enters the case is the user's own revision (master plan §6C.4).
-  onAnswer?: (() => void) | null;
+  // The questions surface, supplied rather than built here, so this component stays what
+  // it is: the conclusion, rendered. The answer path needs the case snapshot, a mutation
+  // and the run, none of which the conclusion has any business holding.
+  answering?: ((questions: OpenQuestion[]) => React.ReactNode) | null;
 }) {
   const themes = overview.themes || [];
   const sequence = overview.recommended_sequence || [];
@@ -145,38 +147,7 @@ export function Overview({
           more information has put its price before its value, which is the adoption tax
           elicitation exists to remove — so the questions come after the answer, addressed
           to a reader who has already seen what the review is worth. */}
-      {questions.length > 0 ? (
-        <div className="overview__group questions">
-          <h3>What the case does not say</h3>
-          <p className="questions__lead">
-            Each of these would settle verdicts above. Answering one is a case revision, and
-            a new review against it can reach a different verdict.
-          </p>
-          <ol className="questions__list">
-            {questions.map((item) => (
-              <li key={item.reference} className="question">
-                <p className="question__ask">
-                  <code className="question__ref">{item.reference}</code>
-                  {item.question}
-                </p>
-                <p className="question__unknown">{item.unknown}</p>
-                <p className="question__why">
-                  <span>{item.why_it_matters}</span>
-                  <Citations references={item.supporting_references || []} />
-                </p>
-                <p className="question__target">
-                  An answer belongs in <code>{item.answer_belongs_in}</code>
-                  {onAnswer ? (
-                    <button type="button" className="question__answer" onClick={onAnswer}>
-                      Answer it in the case
-                    </button>
-                  ) : null}
-                </p>
-              </li>
-            ))}
-          </ol>
-        </div>
-      ) : null}
+      {questions.length > 0 && answering ? answering(questions) : null}
     </section>
   );
 }
@@ -587,6 +558,27 @@ export function ReviewDetailPage() {
     },
   });
 
+  // The same two steps `revise` takes, from a different starting point: there the user
+  // edited the whole case, here they answered questions the review asked. Both end as one
+  // immutable revision and a new review of it, and neither touches this review.
+  //
+  // Deliberately not routed through `casePayload`. That composes the *whole* case from a
+  // form, so a reader who answered one of five questions would have every other list
+  // rewritten from whatever the form held; an update carrying only the answered fields
+  // leaves the rest of the case alone.
+  const answer = useMutation({
+    mutationFn: async (update: CaseUpdate) => {
+      if (!caseId || !repositoryRoot) {
+        throw new Error("This review's case and repository could not both be resolved.");
+      }
+      await api.updateCase(caseId, update);
+      run.start(caseId, repositoryRoot);
+    },
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ["cases"] });
+    },
+  });
+
   const ask = useMutation({
     mutationFn: async (text: string) => {
       // Created on first use rather than alongside the review: a conversation with no
@@ -772,12 +764,25 @@ export function ReviewDetailPage() {
         />
       ) : null}
 
-      {/* The answer path is offered only where it can actually be walked: revising runs a
-          new review, which needs the repository still indexed. A question with a button
-          that fails is worse than one that leaves the reader to the case editor above. */}
+      {/* The answer path is offered only where it can actually be walked: saving a
+          revision runs a new review, which needs the repository still indexed. Where it is
+          not, the questions still read — they are a finding in their own right — and the
+          boxes are disabled rather than absent, so a reader is told why rather than shown
+          a shorter page. */}
       <Overview
         overview={report.overview}
-        onAnswer={repositoryRoot ? () => setRevising(true) : null}
+        answering={(questions) => (
+          <OpenQuestions
+            questions={questions}
+            snapshot={pinnedCase.data?.snapshot}
+            nextRevision={caseRevision === undefined ? null : caseRevision + 1}
+            pending={answer.isPending}
+            disabled={!repositoryRoot}
+            error={answer.error}
+            onSubmit={(update) => answer.mutate(update)}
+            renderCitations={(references) => <Citations references={references} />}
+          />
+        )}
       />
 
       {score.data ? <Score score={score.data} /> : null}

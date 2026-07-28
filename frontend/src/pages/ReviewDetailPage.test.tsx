@@ -8,8 +8,8 @@
  * code block would be worse than waiting.
  */
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
 import { AnswerProse, Overview } from "./ReviewDetailPage";
 import type { OpenQuestion } from "../types";
@@ -102,12 +102,12 @@ describe("AnswerProse", () => {
 });
 
 /**
- * The questions a review hands back (master plan §6C).
+ * The conclusion renders itself and delegates the questions.
  *
- * They are the one part of the conclusion that asks the reader for something, so what is
- * defended here is that they arrive with everything needed to act on them — which verdicts
- * move, and where an answer goes — and that a review with nothing open shows no section at
- * all rather than an empty heading inviting a reader to look for something that is not there.
+ * Overview holds no case, no mutation and no run, so it cannot offer an answer box — and
+ * the questions need all three. What is defended here is only the seam: questions reach the
+ * surface that can act on them, and a review with nothing open shows no section at all
+ * rather than an empty heading inviting a reader to look for something not there.
  */
 describe("Overview open questions", () => {
   const base = {
@@ -117,80 +117,49 @@ describe("Overview open questions", () => {
     limits: "A static count cannot see runtime registration.",
   };
 
-  it("asks the question, names the verdicts it settles, and says where the answer goes", () => {
-    render(
-      <Overview
-        overview={{
-          ...base,
-          open_questions: [
-            {
-              reference: "Q-1",
-              unknown: "The case does not say whether a second vendor is contracted.",
-              why_it_matters: "Two verdicts move on this.",
-              question: "Is a second speech vendor actually contracted?",
-              answer_belongs_in: "expected_future_changes",
-              supporting_references: ["BR-001", "BR-003"],
-            },
-          ],
-        }}
-      />,
-    );
-
-    expect(screen.getByText("What the case does not say")).toBeTruthy();
-    expect(screen.getByText("Is a second speech vendor actually contracted?")).toBeTruthy();
-    expect(screen.getByText("Q-1")).toBeTruthy();
-    expect(screen.getByText("expected_future_changes")).toBeTruthy();
-    // The citations are links to the boundaries, so a reader who doubts the question can
-    // reach the verdicts that raised it.
-    expect(screen.getByText("BR-001")).toBeTruthy();
-    expect(screen.getByText("BR-003")).toBeTruthy();
-  });
-
-  it("shows no section when the case settled everything the verdicts turned on", () => {
-    render(<Overview overview={{ ...base, open_questions: [] }} />);
-
-    expect(screen.queryByText("What the case does not say")).toBeNull();
-    // The rest of the conclusion is still there: nothing open is a result, not an absence.
-    expect(screen.getByText("One operator, one server.")).toBeTruthy();
-  });
-});
-
-describe("Overview answer path", () => {
-  // Annotated rather than inferred: `answer_belongs_in` is a closed set, and a bare object
-  // literal widens it to `string`. The compiler refusing that is the frontend half of the
-  // rule that the destination is chosen from an enum and never named freely (§12.0).
   const question: OpenQuestion = {
     reference: "Q-1",
     unknown: "The case does not say whether a second vendor is contracted.",
     why_it_matters: "Two verdicts move on this.",
     question: "Is a second speech vendor actually contracted?",
     answer_belongs_in: "expected_future_changes",
-    supporting_references: ["BR-001"],
-  };
-  const base = {
-    situation: "One operator, one server.",
-    themes: [],
-    recommended_sequence: [],
-    limits: "A static count cannot see runtime registration.",
-    open_questions: [question],
+    supporting_references: ["BR-001", "BR-003"],
   };
 
-  it("hands the reader to the case editor rather than writing the answer itself", () => {
-    const opened = vi.fn();
-    render(<Overview overview={base} onAnswer={opened} />);
+  it("hands its questions to the surface that can answer them", () => {
+    const seen: OpenQuestion[][] = [];
 
-    fireEvent.click(screen.getByRole("button", { name: "Answer it in the case" }));
+    render(
+      <Overview
+        overview={{ ...base, open_questions: [question] }}
+        answering={(questions) => {
+          seen.push(questions);
+          return <p>answer surface</p>;
+        }}
+      />,
+    );
 
-    // What the advisor supplies is the question; the revision is the user's own (§6C.4).
-    expect(opened).toHaveBeenCalledTimes(1);
+    expect(seen).toEqual([[question]]);
+    expect(screen.getByText("answer surface")).toBeTruthy();
+    // The conclusion itself is still there: the questions are an addition, not a takeover.
+    expect(screen.getByText("One operator, one server.")).toBeTruthy();
   });
 
-  it("offers no answer button where the loop cannot be walked", () => {
-    // No repository indexed means revising cannot run a new review, and a button that
-    // fails is worse than none.
-    render(<Overview overview={base} onAnswer={null} />);
+  it("asks for nothing when the case settled everything the verdicts turned on", () => {
+    const seen: OpenQuestion[][] = [];
 
-    expect(screen.queryByRole("button", { name: "Answer it in the case" })).toBeNull();
-    expect(screen.getByText("Is a second speech vendor actually contracted?")).toBeTruthy();
+    render(
+      <Overview
+        overview={{ ...base, open_questions: [] }}
+        answering={(questions) => {
+          seen.push(questions);
+          return <p>answer surface</p>;
+        }}
+      />,
+    );
+
+    expect(seen).toEqual([]);
+    expect(screen.queryByText("answer surface")).toBeNull();
+    expect(screen.getByText("One operator, one server.")).toBeTruthy();
   });
 });
