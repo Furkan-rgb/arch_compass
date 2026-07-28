@@ -68,11 +68,13 @@ eval-local:
 # This repository is also a workspace, and it keeps a configuration per provider rather
 # than one unnamed `models.yaml`. Two of them is not a default, so `archcompass web` says
 # so instead of guessing; these targets are where the repository makes the choice.
+# `--models-config` is a global option on the app callback, so it goes before the
+# subcommand. After it, Typer rejects the whole invocation with "No such option".
 web:
-	uv run archcompass web --models-config config/models.ollama.yaml
+	uv run archcompass --models-config config/models.ollama.yaml web
 
 web-google:
-	uv run archcompass web --models-config config/models.google.yaml
+	uv run archcompass --models-config config/models.google.yaml web
 
 # Drives the committed bundle in a real browser against a real server, with the model
 # substituted. Outside `check` because it needs Playwright's chromium downloaded.
