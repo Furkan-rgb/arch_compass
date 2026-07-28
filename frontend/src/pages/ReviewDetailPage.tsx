@@ -696,7 +696,7 @@ export function ReviewDetailPage() {
             <>
               This review is waiting on you. Every boundary is judged and the verdicts below
               stand — but {awaitingAnswers === 1 ? "one of them rests" : "some of them rest"}{" "}
-              on something the case does not say.
+              on something it was not told, so it is asking rather than guessing.
             </>
           }
         />

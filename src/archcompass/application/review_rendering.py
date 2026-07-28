@@ -79,10 +79,13 @@ def _overview(overview: ReviewOverview) -> list[str]:
         ]
     lines += ["", f"*What this review could not see.* {overview.limits}"]
     if overview.open_questions:
-        lines += ["", "### What the case does not say", ""]
+        # Named for what the advisor is asking for rather than for a gap in a document.
+        # A review may run with nothing written down at all, and "what the case does not
+        # say" would then describe a hole in something that was never written.
+        lines += ["", "### What it needs to know", ""]
         lines.append(
-            "Each of these would settle verdicts above. Answering one is a case revision, "
-            "and a new review against it can reach a different verdict — which is the "
+            "Each of these would settle verdicts above. An answer becomes a revision of the "
+            "case, and a review against it can reach a different verdict — which is the "
             "mechanism working rather than the advisor changing its mind."
         )
         for question in overview.open_questions:

@@ -122,7 +122,10 @@ export function OpenQuestions({
 
   return (
     <div className="overview__group questions">
-      <h3>What the case does not say</h3>
+      {/* "What it needs to know", not "what the case does not say". Most runs start with
+          nothing written down, so naming a gap in a case reads as the reader's omission
+          when it is the advisor asking for what would settle its own verdicts. */}
+      <h3>What it needs to know</h3>
       <p className="questions__lead">
         The verdicts above rest on these. Answer what you know and leave the rest — the
         review carries on against what you write, and a verdict that turned on one of these

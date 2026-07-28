@@ -227,7 +227,7 @@ def test_a_thin_case_is_reviewed_and_asked_about(runtime: Runtime) -> None:
     assert len(questions) < len(report.reviewed)
 
     markdown = render_review(review)
-    assert "What the case does not say" in markdown
+    assert "What it needs to know" in markdown
     assert questions[0].question in markdown
 
 

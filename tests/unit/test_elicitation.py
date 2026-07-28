@@ -483,7 +483,7 @@ def test_the_questions_and_the_hinges_both_reach_the_rendered_report() -> None:
 
     markdown = render_report(_report([_question("Q-1", "BR-001", "BR-003")]))
 
-    assert "### What the case does not say" in markdown
+    assert "### What it needs to know" in markdown
     assert "**Q-1. Is a second vendor contracted?**" in markdown
     assert "(BR-001, BR-003)" in markdown
     assert "`expected_future_changes`" in markdown
@@ -496,4 +496,4 @@ def test_a_review_with_nothing_open_renders_no_question_section() -> None:
 
     markdown = render_report(_report([]))
 
-    assert "What the case does not say" not in markdown
+    assert "What it needs to know" not in markdown

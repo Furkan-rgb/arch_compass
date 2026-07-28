@@ -111,7 +111,7 @@ describe("RunProgress waiting on answers", () => {
     render(<RunProgress progress={null} />);
 
     // Present from the first frame, so a reader knows the run may ask before it does.
-    expect(screen.getByRole("status")).toHaveTextContent("Answer what the case does not say");
+    expect(screen.getByRole("status")).toHaveTextContent("Ask questions if needed");
   });
 
   it("holds while questions are outstanding, and says how many", () => {
@@ -147,7 +147,7 @@ describe("RunProgress waiting on answers", () => {
     );
 
     // A run that asked nothing is a finding: every verdict stood on what the case said.
-    expect(screen.getByRole("status")).toHaveTextContent("Nothing was left open");
+    expect(screen.getByRole("status")).toHaveTextContent("Nothing to ask");
     expect(screen.getByRole("status")).not.toHaveTextContent("waiting on you");
   });
 });

@@ -157,21 +157,25 @@ export function RunProgress({
         <Stage
           state={summarising ? "active" : "waiting"}
           title="Read the verdicts as a set"
-          detail="One last call: what they amount to together, and what the case left open."
+          detail="One last call: what they amount to together, and what is still worth asking."
         />
+        {/* Named for what the run does, not for a document it found wanting. Most runs now
+            start with nothing written down at all, so "what the case does not say" would be
+            describing a gap in something that does not exist — and it would read as the
+            reader's omission rather than as the advisor asking for what it needs. */}
         <Stage
           state={answering}
-          title="Answer what the case does not say"
+          title="Ask questions if needed"
           detail={
             awaiting === null ? (
-              "Where a verdict rested on something unstated, the run asks rather than guesses."
+              "Only where a verdict turned on something it was not told — it asks rather than guesses."
             ) : awaiting > 0 ? (
               <>
                 {awaiting === 1 ? "1 question is" : `${awaiting} questions are`} waiting on
                 you. The review carries on against your answers.
               </>
             ) : (
-              "Nothing was left open — every verdict stood on what the case already said."
+              "Nothing to ask — every verdict stood on what it already knew."
             )
           }
         />

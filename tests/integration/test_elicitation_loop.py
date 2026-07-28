@@ -167,7 +167,7 @@ def test_the_hinges_and_the_questions_both_reach_the_page(runtime: Runtime) -> N
     assert report is not None
     markdown = render_review(review)
     assert review.markdown_report == markdown
-    assert "### What the case does not say" in markdown
+    assert "### What it needs to know" in markdown
     for question in report.overview.open_questions:
         assert question.question in markdown
         assert question.answer_belongs_in.value in markdown
