@@ -22,6 +22,13 @@ import { CaseForm, casePayload, type CaseFormValues } from "../case-form";
 import { Badge, ErrorPanel, Loading, PageHeader } from "../components";
 import { latestPerRepository } from "../repositories";
 import { useRun } from "../run";
+import {
+  applyRepositoryHint as hintRepository,
+  chooseCase as pickCase,
+  isReady,
+  runIntent,
+  type StartSelection,
+} from "../start-selection";
 import type { BundledCase, CaseRevision, CaseSummary } from "../types";
 
 /** Which case surface is open, if any: writing a new one, or reading a stored one. */
@@ -57,6 +64,10 @@ export function HomePage() {
     [repositories.data],
   );
   const chosenCase = (cases.data || []).find((item) => item.case_id === caseId) || null;
+  const indexedRoots = useMemo(
+    () => indexed.map((repository) => repository.root_path),
+    [indexed],
+  );
 
   /**
    * A single indexed repository is not a choice to make. The atlas is substrate (master
@@ -149,30 +160,26 @@ export function HomePage() {
     onSuccess: created,
   });
 
-  /**
-   * A case that names an indexed repository fills the other rail too. The case already
-   * answers the question the repository rail asks, and making the user answer it again
-   * would be asking them to repeat themselves. An unindexed path is offered rather than
-   * selected: indexing is a real action with its own failure modes.
-   */
+  // Which rail a choice fills, what it leaves alone, and what Run then does all live in
+  // `start-selection`, where they are checkable without rendering anything. This component
+  // holds the state and applies the result; it decides none of the rules.
+  const selection: StartSelection = { repositoryRoot, caseId, path };
+
+  function apply(next: StartSelection) {
+    setRepositoryRoot(next.repositoryRoot);
+    setCaseId(next.caseId);
+    setPath(next.path);
+  }
+
   function applyRepositoryHint(root: string | null | undefined) {
-    if (!root) return;
-    if (indexed.some((repository) => repository.root_path === root)) {
-      setRepositoryRoot(root);
-    } else if (!path.trim()) {
-      setPath(root);
-    }
+    apply(hintRepository(selection, root, indexedRoots));
   }
 
   const chooseCase = (item: CaseSummary) => {
-    setCaseId(item.case_id);
-    applyRepositoryHint(item.repository_root);
+    apply(pickCase(selection, item, indexedRoots));
   };
 
-  // A repository is the whole requirement. Rail B fills the other half when someone has a
-  // case already; without one the run opens an empty case about the repository and the
-  // review's own questions fill it in (master plan §6C.1).
-  const ready = Boolean(repositoryRoot);
+  const ready = isReady(selection);
   const busy =
     run.running || loadExample.isPending || index.isPending || reviewRepository.isPending;
 
@@ -444,12 +451,16 @@ export function HomePage() {
             className="button button--primary"
             disabled={!ready || busy}
             onClick={() => {
-              if (!repositoryRoot) return;
-              // One run, two ways in. A chosen case is reviewed against; no case opens an
-              // empty one about this repository first, so the button never demands a rail
-              // the reader has deliberately skipped.
-              if (caseId) run.start(caseId, repositoryRoot);
-              else reviewRepository.mutate(repositoryRoot);
+              // One run, two ways in, decided in one place rather than re-derived here: a
+              // chosen case is reviewed against, and no case opens an empty one about this
+              // repository first.
+              const intent = runIntent(selection);
+              if (intent === null) return;
+              if (intent.kind === "against-case") {
+                run.start(intent.caseId, intent.repositoryRoot);
+              } else {
+                reviewRepository.mutate(intent.repositoryRoot);
+              }
             }}
           >
             <Play size={16} aria-hidden />
