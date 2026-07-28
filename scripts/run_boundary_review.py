@@ -155,14 +155,32 @@ def brownfield_examples() -> list[Example]:
     return found
 
 
-def run_example(runtime: Runtime, example: Example, sink: TextIO | None) -> Outcome:
+def run_example(
+    runtime: Runtime,
+    example: Example,
+    sink: TextIO | None,
+    *,
+    no_case: bool = False,
+) -> Outcome:
     answers = example.answers
     hinge_key, expected_questions = example.hinge_key
     runtime.repository_service.index(example.repository)
-    case = ArchitectureCase.model_validate(
-        yaml.safe_load(example.case.read_text(encoding="utf-8"))
-    )
-    revision = runtime.case_repository.create(case, actor="evaluation")
+    if no_case:
+        # The example's repository with its case thrown away — what a first-time user gets
+        # by pointing at their own code (master plan §6C.1). Two failures live here and pull
+        # opposite ways: condemning every boundary because an unwritten case justified none
+        # of them, and clearing every boundary without flagging what was never stated, which
+        # reads as approval nobody earned. Neither the verdict key nor the hinge key applies
+        # — both were written for the case as authored — so this run reports rather than
+        # scores, and the numbers to watch are how many were condemned and how many hinged.
+        answers = {}
+        hinge_key, expected_questions = {}, None
+        revision = runtime.case_service.start_from_repository(example.repository)
+    else:
+        case = ArchitectureCase.model_validate(
+            yaml.safe_load(example.case.read_text(encoding="utf-8"))
+        )
+        revision = runtime.case_repository.create(case, actor="evaluation")
 
     correct = 0
     unknown: list[str] = []
@@ -366,6 +384,15 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--no-case",
+        action="store_true",
+        help=(
+            "Throw the example's case away and review its repository alone, as a first-time "
+            "user does. Reports rather than scores: neither key applies to a case nobody "
+            "wrote."
+        ),
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=None,
@@ -392,7 +419,7 @@ def main() -> int:
             for example in examples:
                 marker = "" if example.expected else "  (no answer key)"
                 print(f"\n{example.name}{marker}", flush=True)
-                outcomes.append(run_example(runtime, example, sink))
+                outcomes.append(run_example(runtime, example, sink, no_case=arguments.no_case))
     finally:
         if sink is not None:
             sink.close()

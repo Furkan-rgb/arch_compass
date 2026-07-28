@@ -145,6 +145,38 @@ exists to answer. Read these as one run each and not as a measurement of the dif
 the direction matches what v9 targeted, but nothing here separates a real gain from
 run-to-run variance.
 
+#### The same repository with no case at all
+
+`--no-case` throws the example's case away and reviews its repository alone, which is what
+a first-time user gets by pointing at their own code. Neither key applies — both were
+written for the case as authored — so this reports rather than scores, and two opposite
+failures are what it is watching for.
+
+**Condemning everything.** An unwritten case justifies no boundary, and read as evidence
+that means every boundary is unjustified. Measured before it was allowed: a thin
+`speech-vendor` run condemned `AudioSink`, `SpeechProvider` and `BookStore`, three
+boundaries the written case justifies. That is §3.1's failure shipped as the first thing a
+new user sees, and judge prompt v10 exists to prevent it.
+
+**Clearing everything.** The mirror image, and the one v10 introduced. On `warehouse-sync`
+with no case, v10 condemned **0 of 5** and hinged **2 of 5** — no condemnation spree, but a
+report that clears a constant genuinely stated twice for one reason and a vendor name
+genuinely spelled out in a module with no business knowing it. A review that clears
+everything on the strength of a case nobody wrote reads as approval nobody earned, which is
+the same thing §3.1 says about a report that lists only problems, from the other side.
+
+The tension is real and worth stating rather than tuning away: v9 says a hinge on every
+boundary is worthless, and v10 says silence is an unknown. Both are right for the case they
+were written against, and an empty case is where they pull hardest — nearly every verdict
+genuinely does turn on something unstated, so *hinging widely and condemning little* is the
+honest shape there, with the overview consolidating the hinges into few questions. v10
+reaches the second half and not the first.
+
+One failure survives every version from v8 to v10: both duplicated-constant boundaries hand
+back "are these one fact or two" rather than deciding it, with the evidence in the code in
+front of them. Three prompt revisions have not moved it, which points at a capability limit
+on `gemma4:26b` for that discrimination rather than at wording.
+
 These are architectural-quality benchmarks only when a real reasoning model's output is
 assessed against them. Running the deterministic double over the same fixtures is an integrity
 test and nothing more. Automated structural assertions such as valid citations are necessary,
