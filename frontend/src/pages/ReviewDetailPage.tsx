@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft,
   ArrowRight,
   ChevronDown,
   CircleCheck,
@@ -8,7 +7,6 @@ import {
   FlaskConical,
   MessageCircleQuestion,
   Network,
-  PencilLine,
   Plus,
   TriangleAlert,
   X,
@@ -17,18 +15,18 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { api } from "../api";
-import { CaseForm, casePayload, type CaseFormValues } from "../case-form";
-import { Markdown } from "../markdown";
+import { AnswerProse, Markdown } from "../markdown";
 import { ErrorPanel, Loading, formatDate, shortId } from "../components";
+import { AwaitingAnswers } from "../review-awaiting";
 import { ReviewAtlas } from "../review-atlas";
 import { ReviewInProgress } from "../review-in-progress";
-import { RunProgress } from "../run-progress";
 import { useRun } from "../run";
-import { OpenQuestions } from "../review-questions";
+import { QuestionDiscussion } from "../question-discussion";
+import { OpenQuestions, type SubmittedAnswer } from "../review-questions";
 import type {
   BoundaryReview,
-  CaseUpdate,
   OpenQuestion,
+  RecordedAnswer,
   ReviewOverview,
   ReviewScore,
   ReviewedBoundary,
@@ -49,26 +47,6 @@ import type {
  * the verdicts it was built from. `:target` highlights the finding on arrival, so the jump
  * is visible without any script deciding what "selected" means.
  */
-/**
- * An answer as the model wrote it: prose, with code shown as code.
- *
- * The same renderer the Policies page uses, so a fenced block, a table or a bulleted list
- * reads the same wherever it appears. It also matters more here than there — an answer about
- * a boundary routinely shows the two-line change it is describing, and a diff rendered as one
- * run-on paragraph is worse than no example at all.
- *
- * Safe to call on a partial answer. An unclosed fence is treated as a code block running to
- * the end of what has arrived, which is exactly right for a block still being written; it is
- * highlighted from the first line rather than turning colour once the answer finishes.
- */
-export function AnswerProse({ text }: { text: string }) {
-  return (
-    <div className="markdown dock__a">
-      <Markdown>{text}</Markdown>
-    </div>
-  );
-}
-
 function Citations({ references }: { references: string[] }) {
   return (
     <span className="cites">
@@ -89,19 +67,9 @@ function Citations({ references }: { references: string[] }) {
  * Closes with the limits, because a reader who has just been told what to do is exactly who
  * needs to know what was not examined.
  */
-export function Overview({
-  overview,
-  answering,
-}: {
-  overview: ReviewOverview;
-  // The questions surface, supplied rather than built here, so this component stays what
-  // it is: the conclusion, rendered. The answer path needs the case snapshot, a mutation
-  // and the run, none of which the conclusion has any business holding.
-  answering?: ((questions: OpenQuestion[]) => React.ReactNode) | null;
-}) {
+export function Overview({ overview }: { overview: ReviewOverview }) {
   const themes = overview.themes || [];
   const sequence = overview.recommended_sequence || [];
-  const questions = overview.open_questions || [];
   return (
     // "Conclusion", not "Findings": the findings are the boundaries below, each with its
     // own verdict. This is the one thing none of those separate calls could produce — what
@@ -143,12 +111,6 @@ export function Overview({
       <p className="overview__limits">
         <strong>What this review could not see.</strong> {overview.limits}
       </p>
-
-      {/* Last, and only when there is something to ask. A review that opens by asking for
-          more information has put its price before its value, which is the adoption tax
-          elicitation exists to remove — so the questions come after the answer, addressed
-          to a reader who has already seen what the review is worth. */}
-      {questions.length > 0 && answering ? answering(questions) : null}
     </section>
   );
 }
@@ -262,6 +224,201 @@ function Finding({
   );
 }
 
+/**
+ * Every boundary examined, grouped by verdict — the findings themselves.
+ *
+ * Extracted so the two surfaces that show verdicts show the identical thing. The waiting
+ * page renders these only behind an explicit reveal and under a warning; the concluded page
+ * renders them outright. What must never differ between the two is the verdicts, so there is
+ * one component rather than a full version and an abridged one.
+ */
+function Findings({
+  reviewed,
+  policyCount,
+  onShowInAtlas,
+}: {
+  reviewed: ReviewedBoundary[];
+  policyCount: number;
+  onShowInAtlas: ((nodeId: string) => void) | null;
+}) {
+  const material = reviewed.filter((item) => item.material);
+  const cleared = reviewed.filter((item) => !item.material);
+  return (
+    <>
+      {material.length > 0 ? (
+        <section className="group">
+          <h2 className="group__title">
+            <TriangleAlert size={16} aria-hidden /> What should change
+            <span className="group__count">{material.length}</span>
+          </h2>
+          {/* Shape-neutral, because these are grouped by verdict and the group can hold
+              both directions of the catalogue at once: indirection that hides nothing, and
+              knowledge with no owner. Each finding names its own shape on its own badge. */}
+          <p className="group__hint">
+            Each of these was found to cost more than it earns under this case.
+          </p>
+          {material.map((item) => (
+            <Finding
+              key={item.reference}
+              item={item}
+              policyCount={policyCount}
+              onShowInAtlas={onShowInAtlas}
+            />
+          ))}
+        </section>
+      ) : null}
+
+      {cleared.length > 0 ? (
+        <section className="group">
+          <h2 className="group__title">
+            <CircleCheck size={16} aria-hidden /> Examined and left alone
+            <span className="group__count">{cleared.length}</span>
+          </h2>
+          <p className="group__hint">
+            The advisor examined each of these and concluded it should stay as it is.
+          </p>
+          {cleared.map((item) => (
+            <Finding
+              key={item.reference}
+              item={item}
+              policyCount={policyCount}
+              onShowInAtlas={onShowInAtlas}
+            />
+          ))}
+        </section>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * What the reader's answers actually changed, read off the two passes.
+ *
+ * The single most persuasive thing this flow can show, and it costs no model call: both
+ * reviews are stored, both judged the same atlas, and the only difference between them is
+ * what the case says. A verdict that moved is therefore attributable to the answer and to
+ * nothing else — which is the claim elicitation makes, put in front of the person who just
+ * did the work.
+ *
+ * Matched by reference, which is safe precisely because detection is deterministic: the same
+ * atlas gives the same boundary the same `BR-nnn` in both passes.
+ */
+export function verdictChanges(
+  before: ReviewedBoundary[],
+  after: ReviewedBoundary[],
+): { reference: string; title: string; from: boolean; to: boolean }[] {
+  const previous = new Map(before.map((item) => [item.reference, item]));
+  return after.flatMap((item) => {
+    const earlier = previous.get(item.reference);
+    if (!earlier || earlier.material === item.material) return [];
+    return [
+      {
+        reference: item.reference,
+        title: item.candidate.participants[0]?.qualified_name ?? item.candidate.summary,
+        from: earlier.material,
+        to: item.material,
+      },
+    ];
+  });
+}
+
+/**
+ * Which of the reader's answers a boundary's verdict rested on.
+ *
+ * A question names the boundaries it would settle, and the revision names the questions it
+ * answered, so the join is already recorded on both sides and nothing here has to guess. It
+ * is the reason the provenance was worth storing: without it a second pass can say four
+ * verdicts moved, and cannot say which sentence moved any one of them.
+ *
+ * A changed verdict may have several answers behind it and may have none — a boundary can
+ * move because a question about a *different* boundary changed what the case says overall.
+ * Both are reported as what they are rather than forced into a single cause.
+ */
+export function answersBehind(
+  reference: string,
+  questions: OpenQuestion[],
+  answered: RecordedAnswer[],
+): { question: string; recordedText: string }[] {
+  const recorded = new Map(answered.map((item) => [item.question_reference, item]));
+  return questions.flatMap((question) => {
+    if (!(question.supporting_references || []).includes(reference)) return [];
+    const answer = recorded.get(question.reference);
+    if (!answer) return [];
+    return [{ question: question.question, recordedText: answer.recorded_text }];
+  });
+}
+
+function WhatChanged({
+  changes,
+  total,
+  questions,
+  answered,
+}: {
+  changes: ReturnType<typeof verdictChanges>;
+  total: number;
+  /** The questions the first pass asked, where that pass has loaded. */
+  questions: OpenQuestion[];
+  /** What the answered revision recorded. Empty for a revision authored by hand. */
+  answered: RecordedAnswer[];
+}) {
+  return (
+    <section className="changed">
+      <p className="changed__head">
+        <ArrowRight size={15} aria-hidden />
+        {changes.length === 0 ? (
+          <>
+            <strong>Your answers changed no verdict.</strong> All {total} came out the same
+            way against the answered case — which is a result, not a wasted round: it means
+            those verdicts never rested on what you were asked about.
+          </>
+        ) : (
+          <>
+            <strong>
+              {changes.length} of {total}{" "}
+              {changes.length === 1 ? "verdict" : "verdicts"} changed
+            </strong>{" "}
+            because of what you answered. Same repository, same atlas, same model — the only
+            difference between the two passes is what the case now says.
+          </>
+        )}
+      </p>
+      {changes.length > 0 ? (
+        <ul className="changed__rows">
+          {changes.map((item) => {
+            const behind = answersBehind(item.reference, questions, answered);
+            return (
+              <li key={item.reference}>
+                <a className="cite" href={`#${item.reference}`}>
+                  {item.reference}
+                </a>
+                <code>{item.title}</code>
+                <span className="changed__move">
+                  {item.from ? "should change" : "earning its place"} →{" "}
+                  <strong>{item.to ? "should change" : "earning its place"}</strong>
+                </span>
+                {/* The sentence that did it, where one can be named. Absent rather than
+                    guessed at: a verdict can move because a question about another boundary
+                    changed what the case says overall, and claiming a cause there would be
+                    inventing one. */}
+                {behind.length > 0 ? (
+                  <ul className="changed__because">
+                    {behind.map((answer) => (
+                      <li key={answer.question}>
+                        <span className="changed__asked">{answer.question}</span>
+                        <span className="changed__answered">{answer.recordedText}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
 function Score({ score }: { score: ReviewScore }) {
   return (
     <section className="scorebar">
@@ -371,7 +528,6 @@ export function ReviewDetailPage() {
   const dockRef = useRef<HTMLDivElement>(null);
   const slotRef = useRef<HTMLDivElement>(null);
   const contentEnd = useRef<HTMLDivElement>(null);
-  const [revising, setRevising] = useState(false);
   // The map is one section of this page, so which node it shows is the page's state: a
   // finding above can ask for its own boundary, and the two must not each hold an answer.
   const [atlasNodeId, setAtlasNodeId] = useState<string | null>(null);
@@ -474,10 +630,13 @@ export function ReviewDetailPage() {
   const atlasVersionId = review.data?.atlas_version_id;
 
   /**
-   * Every review of this case, so this one can point at its neighbours. Derived from the
-   * listing rather than stored on the review: a link recorded at creation time would be a
-   * second copy of the same fact, and the earlier review would have to be edited to hold
-   * it — which reviews do not permit.
+   * The listing entry for this review, which is where a running review's counts live — the
+   * review document has no room for how far it has got.
+   *
+   * It also used to feed links to the neighbouring reviews of this case. Those are gone:
+   * they navigated by case revision, and following one to a first pass landed the reader on
+   * the in-progress screen, which is not where that review is. Moving between the passes of
+   * a case is worth having and will be built as its own thing rather than as two arrows.
    */
   const siblings = useQuery({
     queryKey: ["reviews", caseId],
@@ -493,6 +652,20 @@ export function ReviewDetailPage() {
     queryKey: ["case", caseId, caseRevision],
     queryFn: () => api.case(caseId!, caseRevision),
     enabled: Boolean(caseId && caseRevision),
+  });
+
+  /**
+   * The first pass this review answers, where there is one.
+   *
+   * Fetched rather than derived, because what it is needed for is the verdicts themselves —
+   * the listing carries counts, and "which verdicts moved" is a comparison per boundary. Only
+   * on a second pass, so an ordinary review makes no extra request.
+   */
+  const elicitedFrom = review.data?.elicited_from ?? null;
+  const earlierPass = useQuery({
+    queryKey: ["review", elicitedFrom],
+    queryFn: () => api.review(elicitedFrom!),
+    enabled: Boolean(elicitedFrom),
   });
 
   // The atlas the review pinned answers where the repository is; a review carries the
@@ -534,46 +707,19 @@ export function ReviewDetailPage() {
     if (list) list.scrollTop = list.scrollHeight;
   }, [messages.length, pending?.prose, open]);
 
-  // The listing is newest first, so the review before this one in it is the newer one.
-  const ordered = siblings.data || [];
-  const position = ordered.findIndex((item) => item.review_id === reviewId);
-  const newer = position > 0 ? ordered[position - 1] : null;
-  const earlier = position >= 0 ? ordered[position + 1] || null : null;
-
-  const revise = useMutation({
-    mutationFn: async (values: CaseFormValues) => {
-      if (!caseId || !repositoryRoot) {
-        throw new Error("This review's case and repository could not both be resolved.");
-      }
-      // Two steps, deliberately in this order and never in place: a new immutable case
-      // revision, then a new review of it. This review is not touched by either.
-      await api.updateCase(caseId, casePayload(values));
-      // Handed to the run, which takes the reader to the new review as soon as it has an
-      // identity — the same path the start step takes, so there is one place a run is
-      // watched however it was started.
-      run.start(caseId, repositoryRoot);
-    },
-    onSuccess: async () => {
-      setRevising(false);
-      await client.invalidateQueries({ queryKey: ["cases"] });
-    },
-  });
-
-  // The same two steps `revise` takes, from a different starting point: there the user
-  // edited the whole case, here they answered questions the review asked. Both end as one
-  // immutable revision and a new review of it, and neither touches this review.
+  // Answering, in one call. The workspace resolves each `Q-n` against this review's own
+  // report, composes the revision and records what it answered in the same transaction —
+  // which is what makes the link from a case line back to its question impossible to lose.
   //
-  // Deliberately not routed through `casePayload`. That composes the *whole* case from a
-  // form, so a reader who answered one of five questions would have every other list
-  // rewritten from whatever the form held; an update carrying only the answered fields
-  // leaves the rest of the case alone.
+  // The new run then names this review as the one it answers, and that is what makes it a
+  // second pass: it judges against the answered case and concludes rather than asking again.
   const answer = useMutation({
-    mutationFn: async (update: CaseUpdate) => {
+    mutationFn: async (answers: SubmittedAnswer[]) => {
       if (!caseId || !repositoryRoot) {
         throw new Error("This review's case and repository could not both be resolved.");
       }
-      await api.updateCase(caseId, update);
-      run.start(caseId, repositoryRoot);
+      await api.answerReview(reviewId, answers);
+      run.start(caseId, repositoryRoot, reviewId);
     },
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["cases"] });
@@ -636,7 +782,11 @@ export function ReviewDetailPage() {
       />
     );
   }
-  if (review.data && review.data.status !== "succeeded") {
+  if (
+    review.data &&
+    review.data.status !== "succeeded" &&
+    review.data.status !== "awaiting_answers"
+  ) {
     return <Unfinished review={review.data} />;
   }
   const report = review.data?.report;
@@ -648,6 +798,51 @@ export function ReviewDetailPage() {
   const policyCount = (report.policies_presented || []).length;
   const material = reviewed.filter((item) => item.material);
   const cleared = reviewed.filter((item) => !item.material);
+  const openQuestions = report.overview.open_questions || [];
+
+  const questions = (
+    <OpenQuestions
+      questions={openQuestions}
+      nextRevision={caseRevision === undefined ? null : caseRevision + 1}
+      pending={answer.isPending}
+      disabled={!repositoryRoot}
+      error={answer.error}
+      onSubmit={(answers) => answer.mutate(answers)}
+      renderCitations={(references) => <Citations references={references} />}
+      renderDiscussion={(question, adopt) => (
+        <QuestionDiscussion
+          reviewId={reviewId}
+          question={question}
+          onAdopt={adopt}
+          disabled={!repositoryRoot}
+        />
+      )}
+    />
+  );
+
+  // The whole of the change the user asked for: a run that is still asking does not reach a
+  // results screen. Its verdicts exist and are stored — they are what the questions were
+  // built from — but nothing presents them as findings until a second pass has judged them
+  // against the answers.
+  if (review.data?.status === "awaiting_answers") {
+    return (
+      <AwaitingAnswers
+        review={review.data}
+        questionCount={openQuestions.length}
+        reviewed={reviewed}
+        policyCount={policyCount}
+        findings={
+          <Findings
+            reviewed={reviewed}
+            policyCount={policyCount}
+            onShowInAtlas={null}
+          />
+        }
+      >
+        {questions}
+      </AwaitingAnswers>
+    );
+  }
 
   // Only when there is a map below to be shown in. Selecting first and scrolling second so
   // the node is already the selected one when the section arrives, rather than settling
@@ -663,45 +858,14 @@ export function ReviewDetailPage() {
         }
       : null;
 
-  /**
-   * Whether this review is still waiting on the reader, and how many answers.
-   *
-   * Derived from the stored record rather than held in this page: a review that asked
-   * questions and has no later review of its case has not been carried on from, whoever is
-   * looking and however many times they have left and come back. Nothing has to be
-   * remembered for the run to still be waiting when they return.
-   *
-   * A newer review of the same case is what "carried on" looks like, so it settles this
-   * even when the answers came from somewhere else entirely — the CLI, another tab.
-   */
-  const openQuestions = report.overview.open_questions || [];
-  const awaitingAnswers = newer ? 0 : openQuestions.length;
+  // Both passes are stored, both judged the same atlas, and the only difference between them
+  // is what the case says — so a verdict that moved is attributable to the answer and to
+  // nothing else. Absent until the earlier pass has loaded, and absent entirely on a review
+  // nobody was asked anything for.
+  const judgedBefore = earlierPass.data?.report?.reviewed;
 
   return (
     <div className="page page--review">
-      {/* The run's own steps, still on screen, because the last one has not finished. Every
-          other stage ends when the application ends it; this one is waiting on a person,
-          and hiding it would present a review as complete while it is still holding. */}
-      {awaitingAnswers > 0 ? (
-        <RunProgress
-          progress={{
-            total: reviewed.length,
-            boundaries: reviewed.map((item) => item.candidate.summary),
-            verdicts: reviewed.map((item) => item.material),
-            judged: reviewed.length,
-            summarising: true,
-          }}
-          awaiting={awaitingAnswers}
-          heading={
-            <>
-              This review is waiting on you. Every boundary is judged and the verdicts below
-              stand — but {awaitingAnswers === 1 ? "one of them rests" : "some of them rest"}{" "}
-              on something it was not told, so it is asking rather than guessing.
-            </>
-          }
-        />
-      ) : null}
-
       <header className="review-head">
         <span className="eyebrow">Boundary review</span>
         <h1>{report.case_title}</h1>
@@ -739,89 +903,25 @@ export function ReviewDetailPage() {
             <dd>{formatDate(review.data?.created_at)}</dd>
           </div>
         </dl>
-
-        <div className="review-head__actions">
-          <button
-            type="button"
-            className="button button--primary"
-            disabled={revise.isPending || !repositoryRoot}
-            title={
-              repositoryRoot
-                ? undefined
-                : "The repository this review ran against is no longer indexed."
-            }
-            onClick={() => setRevising((value) => !value)}
-          >
-            <PencilLine size={15} aria-hidden /> Revise case &amp; review again
-          </button>
-          {ordered.length > 1 ? (
-            <nav className="review-siblings" aria-label="Other reviews of this case">
-              {earlier ? (
-                <Link to={`/reviews/${earlier.review_id}`}>
-                  <ArrowLeft size={14} aria-hidden /> Earlier review · case rev{" "}
-                  {earlier.case_revision}
-                </Link>
-              ) : null}
-              <span>
-                {position + 1} of {ordered.length} reviews of this case
-              </span>
-              {newer ? (
-                <Link to={`/reviews/${newer.review_id}`}>
-                  Newer review · case rev {newer.case_revision}{" "}
-                  <ArrowRight size={14} aria-hidden />
-                </Link>
-              ) : null}
-            </nav>
-          ) : null}
-        </div>
       </header>
 
-      {revising ? (
-        <CaseForm
-          // Keyed by what has actually loaded, not by what was asked for: the review knows
-          // its case and revision immediately, so keying on those alone would hold the key
-          // steady while the answers were still arriving and mount the form empty.
-          key={`${caseId}:${pinnedCase.data?.revision ?? "loading"}`}
-          heading="Revise the case, then review again"
-          initial={pinnedCase.data?.snapshot}
-          submitLabel="Create revision &amp; review again"
-          pendingLabel="Reviewing…"
-          pending={revise.isPending}
-          loading={pinnedCase.isLoading}
-          error={pinnedCase.error || revise.error}
-          onSubmit={(values) => revise.mutate(values)}
-          onClose={() => setRevising(false)}
-          note={
-            <p className="case-editor__warning">
-              <strong>This does not change the review you are reading.</strong> Submitting
-              creates revision {(caseRevision ?? 0) + 1} of the case and runs a new review
-              against the same atlas, so only the case has changed. Both reviews stay, and
-              each links to the other.
-            </p>
-          }
+      {/* First, and only on a second pass: what the reader's own answers changed. They did
+          the work a moment ago, and this is the one place the product's claim is checkable
+          rather than asserted. */}
+      {judgedBefore ? (
+        <WhatChanged
+          changes={verdictChanges(judgedBefore, reviewed)}
+          total={reviewed.length}
+          questions={earlierPass.data?.report?.overview?.open_questions || []}
+          answered={pinnedCase.data?.answered?.answers || []}
         />
       ) : null}
 
-      {/* The answer path is offered only where it can actually be walked: saving a
-          revision runs a new review, which needs the repository still indexed. Where it is
-          not, the questions still read — they are a finding in their own right — and the
-          boxes are disabled rather than absent, so a reader is told why rather than shown
-          a shorter page. */}
-      <Overview
-        overview={report.overview}
-        answering={(questions) => (
-          <OpenQuestions
-            questions={questions}
-            snapshot={pinnedCase.data?.snapshot}
-            nextRevision={caseRevision === undefined ? null : caseRevision + 1}
-            pending={answer.isPending}
-            disabled={!repositoryRoot}
-            error={answer.error}
-            onSubmit={(update) => answer.mutate(update)}
-            renderCitations={(references) => <Citations references={references} />}
-          />
-        )}
-      />
+      {/* No questions here any more. A concluded review has none to ask — the summarising
+          stage has no field for one, which is what stops the loop reopening — so the
+          conclusion is the conclusion, and asking happens on its own surface before this
+          page exists. */}
+      <Overview overview={report.overview} />
 
       {score.data ? <Score score={score.data} /> : null}
 
@@ -831,48 +931,11 @@ export function ReviewDetailPage() {
         lead to them, and citing one in a question makes the answer cite it back.
       </p>
 
-      {material.length > 0 ? (
-        <section className="group">
-          <h2 className="group__title">
-            <TriangleAlert size={16} aria-hidden /> What should change
-            <span className="group__count">{material.length}</span>
-          </h2>
-          {/* Shape-neutral, because these are grouped by verdict and the group can hold
-              both directions of the catalogue at once: indirection that hides nothing, and
-              knowledge with no owner. Each finding names its own shape on its own badge. */}
-          <p className="group__hint">
-            Each of these was found to cost more than it earns under this case.
-          </p>
-          {material.map((item) => (
-            <Finding
-              key={item.reference}
-              item={item}
-              policyCount={policyCount}
-              onShowInAtlas={showInAtlas}
-            />
-          ))}
-        </section>
-      ) : null}
-
-      {cleared.length > 0 ? (
-        <section className="group">
-          <h2 className="group__title">
-            <CircleCheck size={16} aria-hidden /> Examined and left alone
-            <span className="group__count">{cleared.length}</span>
-          </h2>
-          <p className="group__hint">
-            The advisor examined each of these and concluded it should stay as it is.
-          </p>
-          {cleared.map((item) => (
-            <Finding
-              key={item.reference}
-              item={item}
-              policyCount={policyCount}
-              onShowInAtlas={showInAtlas}
-            />
-          ))}
-        </section>
-      ) : null}
+      <Findings
+        reviewed={reviewed}
+        policyCount={policyCount}
+        onShowInAtlas={showInAtlas}
+      />
 
       {/* After the verdicts, not before them. The map answers "where does this sit", which
           is a question a reader has only once they know what was decided; above the

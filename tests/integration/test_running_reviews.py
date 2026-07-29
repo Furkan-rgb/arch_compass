@@ -38,6 +38,10 @@ def _indexed_case(runtime: Runtime) -> str:
             title="Scheduler boundaries",
             problem_statement="Decide which of these ports are earning their place.",
             desired_outcome="A verdict per boundary.",
+            # Stated so these runs finish. A first pass against a case that says nothing
+            # about what is coming stops to ask, and "a review that ended" is the subject
+            # of every test here.
+            expected_future_changes=["A second scheduler backend is contracted for Q3"],
             repository=RepositoryReference(root_path=str(FIXTURE)),
         ),
         actor="test",

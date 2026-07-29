@@ -126,6 +126,24 @@ export const api = {
       body: JSON.stringify({ case_id: caseId, repository_root: repositoryRoot }),
     }),
   /**
+   * Record a round of answers as one case revision that says what it answered.
+   *
+   * One call, not a case patch composed here. The server resolves each `Q-n` against the
+   * review's own report and reads the destination field from the question, so a client
+   * cannot route an answer into a list its question never named — and cannot produce a
+   * revision that has lost the link back to what prompted it.
+   *
+   * Only answered questions are sent. Skipping is normal and is recorded as absence.
+   */
+  answerReview: (
+    reviewId: string,
+    answers: { question_reference: string; recorded_text: string }[],
+  ) =>
+    request<CaseRevision>(`/api/reviews/${encodeURIComponent(reviewId)}/answers`, {
+      method: "POST",
+      body: JSON.stringify({ answers }),
+    }),
+  /**
    * Ask a running review to stop. Returns when the record says cancelled, which is before
    * the work has actually stopped: the run reads that record between model calls, so a
    * local model can take a few more minutes to notice.
@@ -166,11 +184,17 @@ export const api = {
     caseId: string,
     repositoryRoot: string,
     onProgress: (event: ReviewProgress) => void,
+    /** The review this run answers, where it is the second pass of an elicitation. */
+    elicitedFrom?: string | null,
   ): Promise<BoundaryReview> => {
     let review: BoundaryReview | null = null;
     await streamLines<ReviewProgress>(
       "/api/reviews/stream",
-      { case_id: caseId, repository_root: repositoryRoot },
+      {
+        case_id: caseId,
+        repository_root: repositoryRoot,
+        elicited_from: elicitedFrom ?? null,
+      },
       "Arch Compass could not start the review.",
       (event) => {
         onProgress(event);
@@ -198,10 +222,23 @@ export const api = {
     request<ReviewConversation>(
       `/api/review-conversations/${encodeURIComponent(conversationId)}`,
     ),
-  createReviewConversation: (reviewId: string, title?: string): Promise<ReviewConversation> =>
+  createReviewConversation: (
+    reviewId: string,
+    title?: string,
+    /**
+     * `Q-n` to talk about one open question instead of the review as a whole. The only
+     * conversation a review still waiting on answers will open: it is shown the boundaries
+     * that question cites and none of the verdicts the page is withholding.
+     */
+    questionReference?: string,
+  ): Promise<ReviewConversation> =>
     request<ReviewConversation>("/api/review-conversations", {
       method: "POST",
-      body: JSON.stringify({ review_id: reviewId, ...(title ? { title } : {}) }),
+      body: JSON.stringify({
+        review_id: reviewId,
+        ...(title ? { title } : {}),
+        ...(questionReference ? { question_reference: questionReference } : {}),
+      }),
     }),
   askReviewQuestion: (conversationId: string, question: string) =>
     request<ReviewMessage>(

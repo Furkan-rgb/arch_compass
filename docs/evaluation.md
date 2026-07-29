@@ -158,19 +158,25 @@ that means every boundary is unjustified. Measured before it was allowed: a thin
 boundaries the written case justifies. That is §3.1's failure shipped as the first thing a
 new user sees, and judge prompt v10 exists to prevent it.
 
-**Clearing everything.** The mirror image, and the one v10 introduced. On `warehouse-sync`
-with no case, v10 condemned **0 of 5** and hinged **2 of 5** — no condemnation spree, but a
-report that clears a constant genuinely stated twice for one reason and a vendor name
-genuinely spelled out in a module with no business knowing it. A review that clears
-everything on the strength of a case nobody wrote reads as approval nobody earned, which is
-the same thing §3.1 says about a report that lists only problems, from the other side.
+**Clearing everything.** The mirror image. One `warehouse-sync` run with no case condemned
+**0 of 5** and hinged **2 of 5**, and this was written up as v10 having overshot into
+clearing everything. That claim was not supported: a second run of the identical
+repository, model and prompt gave **2 condemned and 4 hinged**. What the pair actually
+shows is run-to-run variance large enough to swamp the effect, so no conclusion about v10's
+direction can be drawn from either. It is recorded here as a failure mode worth watching
+for — a review that clears everything on the strength of a case nobody wrote reads as
+approval nobody earned, which is what §3.1 says about a problems-only report from the other
+side — and not as something measured.
 
-The tension is real and worth stating rather than tuning away: v9 says a hinge on every
-boundary is worthless, and v10 says silence is an unknown. Both are right for the case they
-were written against, and an empty case is where they pull hardest — nearly every verdict
-genuinely does turn on something unstated, so *hinging widely and condemning little* is the
-honest shape there, with the overview consolidating the hinges into few questions. v10
-reaches the second half and not the first.
+The tension behind it is real and worth stating rather than tuning away: v9 says a hinge on
+every boundary is worthless, and v10 says silence is an unknown. Both are right for the case
+they were written against, and an empty case is where they pull hardest — nearly every
+verdict genuinely does turn on something unstated, so *hinging widely and condemning little*
+is the honest shape there, with the questions consolidating those hinges into a few.
+
+That variance is also the strongest argument for the two-pass flow (ADR 0010): a no-case
+pass is unstable enough that its verdicts should not be reported as findings at all. On this
+same example, answering the questions moved **four of five** verdicts.
 
 One failure survives every version from v8 to v10: both duplicated-constant boundaries hand
 back "are these one fact or two" rather than deciding it, with the evidence in the code in

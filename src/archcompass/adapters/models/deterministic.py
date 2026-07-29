@@ -57,8 +57,10 @@ class DeterministicEmbeddingProvider:
 class DeterministicReasoningProvider:
     _PROMPTS: ClassVar[dict[ReasoningTask, str]] = {
         ReasoningTask.JUDGE_FINDING_CANDIDATE: "judge-finding-candidate:v4",
+        ReasoningTask.ELICIT_QUESTIONS: "elicit-questions:v1",
         ReasoningTask.SUMMARISE_REVIEW: "summarise-review:v3",
         ReasoningTask.ANSWER_REVIEW_QUESTION: "answer-review-question:v1",
+        ReasoningTask.DISCUSS_OPEN_QUESTION: "discuss-open-question:v1",
     }
 
     @property
@@ -157,6 +159,51 @@ class DeterministicReasoningProvider:
             ),
         )
 
+    def elicit_questions(
+        self,
+        case: ArchitectureCase,
+        boundaries: list[ReviewedBoundary],
+    ) -> list[OpenQuestion]:
+        # Consolidated the way the real stage is asked to consolidate: boundaries naming the
+        # same unknown become one question citing all of them. Grouping by the unknown's own
+        # text is cruder than a model reading them for sense, but it is the same operation,
+        # so a test that asserts one question over four boundaries is asserting the
+        # behaviour rather than a fixture's shape.
+        by_unknown: dict[str, list[ReviewedBoundary]] = {}
+        for item in boundaries:
+            if item.hinge is not None:
+                by_unknown.setdefault(item.hinge.unknown, []).append(item)
+        return [
+            OpenQuestion(
+                reference=f"Q-{position}",
+                # Composed from the boundaries themselves rather than from a fixed sentence,
+                # so a test that asserts the observation names what was examined is asserting
+                # that the field carries evidence at all.
+                what_the_review_saw=(
+                    "Examined "
+                    + ", ".join(item.candidate.summary for item in sharing)
+                    + ". The case does not settle this either way."
+                ),
+                unknown=unknown,
+                # One sentence per distinct consequence, not one per boundary. Boundaries
+                # that move the same way say so once: repeating an identical clause six
+                # times is how a consolidated question reads as though nothing was merged.
+                why_it_matters=(
+                    f"{len(sharing)} of {len(boundaries)} verdicts move on this. "
+                    + " ".join(
+                        dict.fromkeys(item.hinge.if_denied for item in sharing if item.hinge)
+                    )
+                ),
+                question=(
+                    "Is any of that variation actually coming, or is the current shape "
+                    "what this repository will keep?"
+                ),
+                answer_belongs_in=CaseField.EXPECTED_FUTURE_CHANGES,
+                supporting_references=[item.reference for item in sharing],
+            )
+            for position, (unknown, sharing) in enumerate(by_unknown.items(), start=1)
+        ]
+
     def summarise_review(
         self,
         case: ArchitectureCase,
@@ -195,46 +242,15 @@ class DeterministicReasoningProvider:
         for item in boundaries:
             if item.candidate.limitations and item.candidate.limitations not in stated:
                 stated.append(item.candidate.limitations)
-        # Consolidated the way the real stage is asked to consolidate: boundaries naming the
-        # same unknown become one question citing all of them. Grouping by the unknown's own
-        # text is cruder than a model reading them for sense, but it is the same operation,
-        # so a test that asserts one question over four boundaries is asserting the
-        # behaviour rather than a fixture's shape.
-        by_unknown: dict[str, list[ReviewedBoundary]] = {}
-        for item in boundaries:
-            if item.hinge is not None:
-                by_unknown.setdefault(item.hinge.unknown, []).append(item)
-        questions = [
-            OpenQuestion(
-                reference=f"Q-{position}",
-                unknown=unknown,
-                # One sentence per distinct consequence, not one per boundary. Boundaries
-                # that move the same way say so once: repeating an identical clause six
-                # times is how a consolidated question reads as though nothing was merged.
-                why_it_matters=(
-                    f"{len(sharing)} of {len(boundaries)} verdicts move on this. "
-                    + " ".join(
-                        dict.fromkeys(
-                            item.hinge.if_denied for item in sharing if item.hinge
-                        )
-                    )
-                ),
-                question=(
-                    "Is any of that variation actually coming, or is the current shape "
-                    "what this repository will keep?"
-                ),
-                answer_belongs_in=CaseField.EXPECTED_FUTURE_CHANGES,
-                supporting_references=[item.reference for item in sharing],
-            )
-            for position, (unknown, sharing) in enumerate(by_unknown.items(), start=1)
-        ]
+        # No questions. The real stage's schema has no field for one — asking belongs to the
+        # first pass, and this runs only on the second — so a substitute that produced them
+        # here would let a test pass against a shape the provider cannot return.
         return ReviewOverview(
             situation=(
                 f"{case.title}. {case.problem_statement}"
                 if case.problem_statement
                 else case.title
             ),
-            open_questions=questions,
             themes=themes,
             recommended_sequence=[
                 OverviewStatement(
@@ -250,6 +266,7 @@ class DeterministicReasoningProvider:
     def stream_review_answer(
         self,
         review: BoundaryReview,
+        case: ArchitectureCase,
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
@@ -267,7 +284,7 @@ class DeterministicReasoningProvider:
         without pretending to imitate how any particular provider chunks its output.
         """
 
-        answer = self.answer_review_question(review, history, question, knowledge)
+        answer = self.answer_review_question(review, case, history, question, knowledge)
         for index, word in enumerate(answer.answer.split(" ")):
             on_prose(word if index == 0 else f" {word}")
         return answer
@@ -275,6 +292,7 @@ class DeterministicReasoningProvider:
     def answer_review_question(
         self,
         review: BoundaryReview,
+        case: ArchitectureCase,
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
@@ -313,6 +331,66 @@ class DeterministicReasoningProvider:
                 + f" (turn {len(history) + 1})"
             ),
             supporting_references=[item.reference for item in supporting],
+        )
+
+    def stream_open_question_discussion(
+        self,
+        review: BoundaryReview,
+        case: ArchitectureCase,
+        question: OpenQuestion,
+        history: list[ReviewMessage],
+        asked: str,
+        knowledge: MethodKnowledge,
+        on_prose: Callable[[str], None],
+    ) -> ReviewAnswer:
+        answer = self.discuss_open_question(
+            review, case, question, history, asked, knowledge
+        )
+        for index, word in enumerate(answer.answer.split(" ")):
+            on_prose(word if index == 0 else f" {word}")
+        return answer
+
+    def discuss_open_question(
+        self,
+        review: BoundaryReview,
+        case: ArchitectureCase,
+        question: OpenQuestion,
+        history: list[ReviewMessage],
+        asked: str,
+        knowledge: MethodKnowledge,
+    ) -> ReviewAnswer:
+        report = review.report
+        if report is None:
+            raise ValueError("A review without a report cannot be discussed")
+        # The cited boundaries and no others, which is the property worth substituting for.
+        # A test asserting that an uncited verdict never reaches this stage is asserting the
+        # rule that lets the stage run at all while a first pass withholds its verdicts.
+        cited = set(question.supporting_references)
+        supporting = [item for item in report.reviewed if item.reference in cited]
+        consulted = (
+            f" Background consulted: the method primer and {len(knowledge.policies)} "
+            "policies, whole."
+            if knowledge.method
+            else ""
+        )
+        # Suggested only once the reader has said something, and derived from what they
+        # said rather than from a fixture. Before the first turn there is nothing they have
+        # told anyone, so there is nothing honest to propose — which is the behaviour the
+        # real contract is asked for and the one a test should be able to pin.
+        settled = "sure" in asked.casefold() or "yes" in asked.casefold()
+        return ReviewAnswer(
+            answer=(
+                f"About {question.unknown} "
+                # Counted rather than quoted, the way background already is: a test can then
+                # prove the pinned revision reached this stage without the substitute
+                # pretending to reason about what it says.
+                f"(case states {len(case.expected_future_changes) + len(case.assumptions)}): "
+                + "; ".join(item.candidate.summary for item in supporting)
+                + consulted
+                + f" (turn {len(history) + 1})"
+            ),
+            supporting_references=[item.reference for item in supporting],
+            suggested_answer=asked.strip() if settled else "",
         )
 
 

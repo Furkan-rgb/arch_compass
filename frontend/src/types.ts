@@ -19,6 +19,7 @@ export type AtlasVersion = OpenAPIComponents["schemas"]["AtlasVersion"];
 export type CaseRevision = OpenAPIComponents["schemas"]["CaseRevision"];
 export type CaseSummary = OpenAPIComponents["schemas"]["CaseSummary"];
 export type CaseUpdate = OpenAPIComponents["schemas"]["CaseUpdate"];
+export type RecordedAnswer = OpenAPIComponents["schemas"]["RecordedAnswer"];
 
 export interface WorkspaceSummary {
   workspace: string;

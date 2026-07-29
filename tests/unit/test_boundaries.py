@@ -157,6 +157,7 @@ def test_review_answers_are_assembled_before_model_adapters() -> None:
         assert [argument.arg for argument in methods[0].args.args] == [
             "self",
             "review",
+            "case",
             "history",
             "question",
             "knowledge",

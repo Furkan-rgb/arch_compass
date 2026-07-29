@@ -9,7 +9,14 @@ const detected: RunState = {
   boundaries: BOUNDARIES,
   verdicts: [null, null, null],
   judged: 0,
+  eliciting: false,
   summarising: false,
+};
+
+const judged: RunState = {
+  ...detected,
+  verdicts: [false, true, false],
+  judged: 3,
 };
 
 describe("applyProgress", () => {
@@ -52,6 +59,21 @@ describe("applyProgress", () => {
       }),
     ).toBeNull();
   });
+
+  it("keeps the two set-wide calls apart, because they are different stages", () => {
+    // One ends in a conclusion and the other may end in a run that stops and waits for a
+    // person. A single "the last call is running" flag could not tell the reader which.
+    expect(applyProgress(detected, { event: "eliciting", total: 3 })).toMatchObject({
+      eliciting: true,
+      summarising: false,
+      judged: 3,
+    });
+    expect(applyProgress(detected, { event: "summarising", total: 3 })).toMatchObject({
+      eliciting: false,
+      summarising: true,
+      judged: 3,
+    });
+  });
 });
 
 describe("RunProgress", () => {
@@ -73,15 +95,11 @@ describe("RunProgress", () => {
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
   });
 
-  it("moves on to the last stage rather than counting past the end", () => {
-    render(
-      <RunProgress
-        progress={{ ...detected, verdicts: [false, true, false], judged: 3, summarising: true }}
-      />,
-    );
+  it("moves on to the asking stage rather than counting past the end", () => {
+    render(<RunProgress progress={{ ...judged, eliciting: true }} />);
 
     const status = screen.getByRole("status");
-    expect(status).toHaveTextContent("Read the verdicts as a set");
+    expect(status).toHaveTextContent("Ask what it needs to know");
     expect(status).not.toHaveTextContent("4 of 3");
     expect(status).not.toHaveTextContent("judging…");
   });
@@ -89,7 +107,14 @@ describe("RunProgress", () => {
   it("reports an empty sweep as a result rather than as a stalled run", () => {
     render(
       <RunProgress
-        progress={{ total: 0, boundaries: [], verdicts: [], judged: 0, summarising: false }}
+        progress={{
+          total: 0,
+          boundaries: [],
+          verdicts: [],
+          judged: 0,
+          eliciting: false,
+          summarising: false,
+        }}
       />,
     );
 
@@ -99,55 +124,80 @@ describe("RunProgress", () => {
 });
 
 /**
- * The one stage that does not end on its own.
+ * Seven stages across two runs, drawn as one journey.
  *
- * Every other step here finishes because the application finished it. This one is waiting
- * on a person, so it has to read as held rather than as done — and because it is derived
- * from the stored review rather than from page state, it is still held when the reader
- * comes back to it.
+ * That is what the reader experiences: they point at a repository, it judges, it asks, they
+ * answer, it judges again and concludes. Each pass is its own immutable review pinned to its
+ * own case revision, so the second cannot be a continuation of the first as a record — but
+ * drawing them as two unrelated three-stage runs would hide the only part that needs
+ * explaining, which is the middle the reader has to supply.
  */
-describe("RunProgress waiting on answers", () => {
-  it("names the step before there is anything to say about it", () => {
+describe("RunProgress across the two passes", () => {
+  it("names every stage of the journey from the first frame", () => {
     render(<RunProgress progress={null} />);
 
-    // Present from the first frame, so a reader knows the run may ask before it does.
-    expect(screen.getByRole("status")).toHaveTextContent("Ask questions if needed");
+    // Present before any of them has anything to report, so a reader knows what they are
+    // in for — including that they will be asked, and that nothing is reported until then.
+    const status = screen.getByRole("status");
+    for (const stage of [
+      "Sweep the atlas",
+      "Judge each boundary",
+      "Ask what it needs to know",
+      "Answer the questions",
+      "Write the case from your answers",
+      "Judge each boundary again",
+      "Read the verdicts as a set",
+    ]) {
+      expect(status).toHaveTextContent(stage);
+    }
+  });
+
+  it("says outright that nothing is reported until the questions are settled", () => {
+    render(<RunProgress progress={null} />);
+
+    // The reason for the hold, stated where the hold is drawn. Without it, a reader who
+    // reaches the questions and no results reasonably reads the run as broken.
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Nothing is reported until these are settled",
+    );
   });
 
   it("holds while questions are outstanding, and says how many", () => {
-    render(
-      <RunProgress
-        progress={{ ...detected, verdicts: [false, true, false], judged: 3, summarising: true }}
-        awaiting={2}
-      />,
-    );
+    render(<RunProgress progress={{ ...judged, eliciting: true }} awaiting={2} />);
 
     const status = screen.getByRole("status");
     expect(status).toHaveTextContent("2 questions are waiting on you");
-    expect(status).toHaveTextContent("The review carries on against your answers");
+    expect(status).toHaveTextContent("Answer what you know and leave the rest");
   });
 
   it("counts one question without pluralising it", () => {
-    render(
-      <RunProgress
-        progress={{ ...detected, verdicts: [false, true, false], judged: 3, summarising: true }}
-        awaiting={1}
-      />,
-    );
+    render(<RunProgress progress={{ ...judged, eliciting: true }} awaiting={1} />);
 
     expect(screen.getByRole("status")).toHaveTextContent("1 question is waiting on you");
   });
 
   it("reports nothing left open as a result rather than a blank", () => {
-    render(
-      <RunProgress
-        progress={{ ...detected, verdicts: [false, true, false], judged: 3, summarising: true }}
-        awaiting={0}
-      />,
-    );
+    render(<RunProgress progress={{ ...judged, eliciting: true }} awaiting={0} />);
 
     // A run that asked nothing is a finding: every verdict stood on what the case said.
     expect(screen.getByRole("status")).toHaveTextContent("Nothing to ask");
     expect(screen.getByRole("status")).not.toHaveTextContent("waiting on you");
+  });
+
+  it("draws the first pass as history once the second one is running", () => {
+    render(
+      <RunProgress
+        progress={{ ...detected, verdicts: [false, null, null], judged: 1 }}
+        pass={2}
+        answersRecorded={2}
+      />,
+    );
+
+    const status = screen.getByRole("status");
+    // The second pass counts its own re-judging, and says the earlier stages happened
+    // rather than hiding them — otherwise the word "again" has nothing to refer back to.
+    expect(status).toHaveTextContent("1 of 3 re-judged");
+    expect(status).toHaveTextContent("The questions you answered were composed here");
+    expect(status).toHaveTextContent("Recorded as revision 2 of the case");
   });
 });

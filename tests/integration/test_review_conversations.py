@@ -27,6 +27,11 @@ def _review(runtime: Runtime) -> BoundaryReview:
             title="Boundary review",
             problem_statement="Decide which boundaries earn their place.",
             desired_outcome="An honest verdict per boundary.",
+            # Stated so this review finishes rather than stopping to ask. A first pass whose
+            # verdicts hinge on an unwritten case ends in `awaiting_answers` and has nothing
+            # settled enough to hold a conversation about, which is a different subject from
+            # the one these tests are about.
+            expected_future_changes=["A second scheduler backend is contracted for Q3"],
             repository=RepositoryReference(root_path=str(FIXTURE)),
         ),
         actor="test",
@@ -187,6 +192,7 @@ def test_a_preview_never_becomes_the_stored_record(
         @staticmethod
         def stream_review_answer(
             _review_: object,
+            _case: object,
             _history: object,
             _question: object,
             _knowledge: object,
@@ -195,6 +201,22 @@ def test_a_preview_never_becomes_the_stored_record(
             assert callable(on_prose)
             on_prose("A half-written answer that")
             raise ProviderError("the model stopped mid-answer")
+
+        # Present so this double still satisfies `StreamingAnswerReasoner`, which is checked
+        # by `isinstance` and therefore by which method names exist. Without it the double
+        # stops being a streaming reasoner, the service quietly takes the unstreamed path,
+        # and the test passes or fails for a reason that has nothing to do with previews.
+        @staticmethod
+        def stream_open_question_discussion(
+            _review_: object,
+            _case: object,
+            _question_: object,
+            _history: object,
+            _asked: object,
+            _knowledge: object,
+            _on_prose: object,
+        ) -> None:
+            raise AssertionError("This conversation is not about an open question")
 
     monkeypatch.setattr(
         runtime.review_conversation_service, "_reasoner", _FailsAfterSpeaking()

@@ -122,6 +122,7 @@ def _grounded_questions(
         questions.append(
             OpenQuestion(
                 reference=f"Q-{len(questions) + 1}",
+                what_the_review_saw=item.what_the_review_saw.strip(),
                 unknown=item.unknown.strip(),
                 why_it_matters=item.why_it_matters.strip(),
                 question=item.question.strip(),
@@ -321,15 +322,20 @@ class ProposedOpenQuestion(BaseModel):
     unknown are one question citing four boundaries. Asked four times it is noise; asked
     once it is the most useful sentence in the report.
 
-    Field order follows 6C.2 — the unknown, then which verdicts move and how, then the
-    question a person can actually answer, and only then where the answer belongs. The
-    destination is last because it is a routing decision about a question that must already
-    exist, and it is an enumeration because the model picks a slot rather than naming a
-    field (12.0).
+    Field order follows 6C.2 — what was seen, then the unknown it leaves, then which
+    verdicts move and how, then the question a person can actually answer, and only then
+    where the answer belongs. The destination is last because it is a routing decision about
+    a question that must already exist, and it is an enumeration because the model picks a
+    slot rather than naming a field (12.0).
+
+    `what_the_review_saw` leads because it is the only field written from evidence rather
+    than from the question, and putting it after would make it a justification composed to
+    fit a question already asked.
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    what_the_review_saw: str = Field(min_length=1)
     unknown: str = Field(min_length=1)
     why_it_matters: str = Field(min_length=1)
     #: Grounding sits with the claim it grounds: `why_it_matters` says which verdicts move,
@@ -339,6 +345,30 @@ class ProposedOpenQuestion(BaseModel):
     answer_belongs_in: CaseField
 
 
+class ProposedElicitation(BaseModel):
+    """Everything the first pass asks for, and nothing else.
+
+    One field, which is the point. This shape was previously the tail of
+    `ProposedReviewOverview`, where the stage producing it was also composing a conclusion —
+    and on a first pass, whose case usually says nothing at all, that conclusion was drawn
+    from silence and then discarded by the second pass. Asking is the whole of this call.
+
+    A wrapper object rather than a bare array because a JSON Schema for structured output
+    has to name a root object, and because the field's name is part of what the model is
+    told it is doing.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: No `max_length`. The bound is structural — every question must trace to a hinge, and
+    #: hinges exist only where a verdict admitted contingency — so a numeric cap here would
+    #: encode an opinion about how much uncertainty a review is allowed to admit, which is
+    #: 8A.4's rule applied to questions (6C.5).
+    open_questions: list[ProposedOpenQuestion] = Field(
+        default_factory=list[ProposedOpenQuestion]
+    )
+
+
 class ProposedReviewOverview(BaseModel):
     """Model-facing synthesis of every verdict in one review.
 
@@ -346,10 +376,14 @@ class ProposedReviewOverview(BaseModel):
     together; a `material` flag here would let a summary silently contradict the judgement
     that produced it, and there would be no way to tell which one a reader should believe.
 
+    No question field either, and its absence is load-bearing. Questions are asked by the
+    first pass, before any conclusion exists; this stage runs only on the second, against a
+    case the reader has just answered. A reply that could open a fresh round would leave the
+    flow with no way to terminate, and removing the field enforces that in the grammar rather
+    than in prose a model may or may not follow.
+
     Field order is the reasoning: the situation the case describes, then what the verdicts
-    show against it, then what to do about that, then what none of it could see — and last
-    what the case would have to say for the contingent verdicts to settle, which is the one
-    field that can only be written once all the others have been.
+    show against it, then what to do about that, and last what none of it could see.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -362,13 +396,6 @@ class ProposedReviewOverview(BaseModel):
         default_factory=list[ProposedOverviewStatement], max_length=4
     )
     limits: str = Field(min_length=1)
-    #: No `max_length`. The bound is structural — every question must trace to a hinge, and
-    #: hinges exist only where a verdict admitted contingency — so a numeric cap here would
-    #: encode an opinion about how much uncertainty a review is allowed to admit, which is
-    #: 8A.4's rule applied to questions (6C.5).
-    open_questions: list[ProposedOpenQuestion] = Field(
-        default_factory=list[ProposedOpenQuestion]
-    )
 
 
 class ProposedReviewAnswer(BaseModel):
@@ -383,6 +410,31 @@ class ProposedReviewAnswer(BaseModel):
 
     answer: str = Field(min_length=1)
     supported_by: list[bool]
+
+
+class ProposedQuestionDiscussion(BaseModel):
+    """Model-facing reply while a review is still waiting on the reader (§6C.7).
+
+    `ProposedReviewAnswer` plus one field, and the fact that it is a separate shape rather
+    than an optional tail of that one is what keeps the two stages apart. A conversation
+    about a concluded review has no `suggested_answer` in its schema, so it cannot propose
+    a case entry however it is prompted — the same grammatical enforcement that stops
+    `summarise_review` reopening the elicitation loop (§6C.6).
+
+    `suggested_answer` is last, after the prose and after the grounding, because it is a
+    distillation of a conversation that has to have happened first. A model that writes it
+    before reasoning is proposing an answer and then justifying it, which is the failure
+    §6C.5 names as self-answering.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str = Field(min_length=1)
+    supported_by: list[bool]
+    #: Empty far more often than not, and no `min_length` for that reason. It is a phrasing
+    #: of something the reader has said, so before they have said anything there is nothing
+    #: honest to put here.
+    suggested_answer: str = ""
 
 
 @dataclass(frozen=True)
@@ -649,6 +701,97 @@ class StructuredReasoningProvider:
             recommended_response=(proposed.recommended_response.strip() if material else ""),
         )
 
+    def elicit_questions(
+        self,
+        case: ArchitectureCase,
+        boundaries: list[ReviewedBoundary],
+    ) -> list[OpenQuestion]:
+        expected = len(boundaries)
+        proposed = self._complete(
+            ReasoningTask.ELICIT_QUESTIONS,
+            {
+                "case": case.model_dump(mode="json"),
+                "boundaries": self._boundaries_for_reading(boundaries),
+            },
+            ProposedElicitation,
+            runtime_instruction=(
+                f"Every entry in open_questions must carry exactly {expected} supported_by "
+                "flags, one for each boundary, in the order the boundaries appear above."
+            ),
+            schema_override=self._grounded_schema(
+                ProposedElicitation, boundary_count=expected
+            ),
+            candidate_validator=lambda item: [
+                f"every supported_by must contain exactly {expected} flags, one per "
+                f"boundary in order, but one entry contains {len(question.supported_by)}"
+                for question in item.open_questions
+                if len(question.supported_by) != expected
+            ],
+        )
+        return _grounded_questions(proposed.open_questions, boundaries)
+
+    @staticmethod
+    def _boundaries_for_reading(
+        boundaries: list[ReviewedBoundary],
+    ) -> list[dict[str, object]]:
+        """Every verdict as the two set-wide stages are shown it.
+
+        One presentation, shared, because the two stages read the same set for two different
+        purposes and a boundary described differently to each would make their answers
+        incomparable — the questions one asks are about the verdicts the other reports.
+
+        No reference codes, for the same reason policies are presented without IDs: an
+        identifier in the input is one the model can quote back, and position is already a
+        complete and unforgeable binding (12.0).
+        """
+
+        return [
+            {
+                "position": index,
+                "boundary": item.candidate.summary,
+                # Spelled out rather than passed as `material`. A live run grouped a
+                # boundary judged material among the ones "maintained for testability",
+                # which is what that word invites: read as ordinary English it says the
+                # boundary matters, and the verdict means the opposite. The settled verdict
+                # must not be re-readable.
+                "verdict": (
+                    "NOT earning its place — this boundary should change"
+                    if item.material
+                    else "earning its place — this boundary should stay as it is"
+                ),
+                "reasoning": item.rationale,
+                "recommended_response": item.recommended_response,
+                "policies_that_bear": [
+                    f"{bearing.policy_title}: {bearing.how}"
+                    for bearing in item.policy_bearings
+                ],
+                # The detector's own statement of what it could not see. Without it a live
+                # run filled the overview's `limits` field with "<No limits provided in
+                # input>": the stage was asked to state the limits of a method it had never
+                # been told anything about.
+                "detection_limits": item.candidate.limitations,
+                # What the *case* did not say, which is the other half of what the verdict
+                # rested on and the only half a user can fix. Neither stage can consolidate
+                # hinges it was never shown, and a question composed without them would be
+                # that stage's own uncertainty rather than the judgement's (6C.2).
+                "verdict_turns_on": (
+                    {
+                        "unknown": item.hinge.unknown,
+                        "if_confirmed": item.hinge.if_confirmed,
+                        "if_denied": item.hinge.if_denied,
+                    }
+                    if item.hinge is not None
+                    # Spelled out rather than omitted, for the reason the verdict is: an
+                    # absent key is read as "not mentioned", and this is a positive finding —
+                    # the judgement considered what it lacked and concluded the verdict holds
+                    # regardless.
+                    else "nothing — this verdict stands whichever way the "
+                    "unanswered questions about this case fall"
+                ),
+            }
+            for index, item in enumerate(boundaries, start=1)
+        ]
+
     def summarise_review(
         self,
         case: ArchitectureCase,
@@ -659,65 +802,17 @@ class StructuredReasoningProvider:
             ReasoningTask.SUMMARISE_REVIEW,
             {
                 "case": case.model_dump(mode="json"),
-                # No reference codes, for the same reason policies are presented without
-                # IDs: an identifier in the input is one the model can quote back, and
-                # position is already a complete and unforgeable binding.
-                "boundaries": [
-                    {
-                        "position": index,
-                        "boundary": item.candidate.summary,
-                        # Spelled out rather than passed as `material`. A live run grouped a
-                        # boundary judged material among the ones "maintained for
-                        # testability", which is what that word invites: read as ordinary
-                        # English it says the boundary matters, and the verdict means the
-                        # opposite. The settled verdict must not be re-readable.
-                        "verdict": (
-                            "NOT earning its place — this boundary should change"
-                            if item.material
-                            else "earning its place — this boundary should stay as it is"
-                        ),
-                        "reasoning": item.rationale,
-                        "recommended_response": item.recommended_response,
-                        "policies_that_bear": [
-                            f"{bearing.policy_title}: {bearing.how}"
-                            for bearing in item.policy_bearings
-                        ],
-                        # The detector's own statement of what it could not see. Without it
-                        # a live run filled the overview's `limits` field with "<No limits
-                        # provided in input>": the stage was asked to state the limits of a
-                        # method it had never been told anything about.
-                        "detection_limits": item.candidate.limitations,
-                        # What the *case* did not say, which is the other half of what the
-                        # verdict rested on and the only half a user can fix. This stage
-                        # cannot consolidate hinges it was never shown, and a question
-                        # composed without them would be this stage's own uncertainty
-                        # rather than the judgement's (6C.2).
-                        "verdict_turns_on": (
-                            {
-                                "unknown": item.hinge.unknown,
-                                "if_confirmed": item.hinge.if_confirmed,
-                                "if_denied": item.hinge.if_denied,
-                            }
-                            if item.hinge is not None
-                            # Spelled out rather than omitted, for the reason the verdict
-                            # is: an absent key is read as "not mentioned", and this is a
-                            # positive finding — the judgement considered what it lacked
-                            # and concluded the verdict holds regardless.
-                            else "nothing — this verdict stands whichever way the "
-                            "unanswered questions about this case fall"
-                        ),
-                    }
-                    for index, item in enumerate(boundaries, start=1)
-                ],
+                "boundaries": self._boundaries_for_reading(boundaries),
             },
             ProposedReviewOverview,
             runtime_instruction=(
-                f"Every entry in themes, recommended_sequence and open_questions must carry "
-                f"exactly {expected} supported_by flags, one for each boundary, in the order "
-                "the boundaries appear above. situation and limits are prose and carry no "
-                "flags."
+                f"Every entry in themes and recommended_sequence must carry exactly "
+                f"{expected} supported_by flags, one for each boundary, in the order the "
+                "boundaries appear above. situation and limits are prose and carry no flags."
             ),
-            schema_override=self._overview_schema(boundary_count=expected),
+            schema_override=self._grounded_schema(
+                ProposedReviewOverview, boundary_count=expected
+            ),
             candidate_validator=lambda item: [
                 *_prose_defects("situation", item.situation),
                 *_prose_defects("limits", item.limits),
@@ -725,15 +820,13 @@ class StructuredReasoningProvider:
                     f"every supported_by must contain exactly {expected} flags, one per "
                     f"boundary in order, but one entry contains "
                     f"{len(statement.supported_by)}"
-                    for statement in (
-                        *item.themes,
-                        *item.recommended_sequence,
-                        *item.open_questions,
-                    )
+                    for statement in (*item.themes, *item.recommended_sequence)
                     if len(statement.supported_by) != expected
                 ),
             ],
         )
+        # No `open_questions`. This stage runs only on a second pass and its schema has no
+        # field for one, which is what stops the elicitation loop from reopening itself.
         return ReviewOverview(
             situation=proposed.situation.strip(),
             themes=_grounded_statements(proposed.themes, boundaries),
@@ -741,21 +834,22 @@ class StructuredReasoningProvider:
                 proposed.recommended_sequence, boundaries
             ),
             limits=proposed.limits.strip(),
-            open_questions=_grounded_questions(proposed.open_questions, boundaries),
         )
 
     def answer_review_question(
         self,
         review: BoundaryReview,
+        case: ArchitectureCase,
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
     ) -> ReviewAnswer:
-        return self._answer(review, history, question, knowledge, preview=None)
+        return self._answer(review, case, history, question, knowledge, preview=None)
 
     def stream_review_answer(
         self,
         review: BoundaryReview,
+        case: ArchitectureCase,
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
@@ -771,6 +865,7 @@ class StructuredReasoningProvider:
 
         return self._answer(
             review,
+            case,
             history,
             question,
             knowledge,
@@ -780,6 +875,7 @@ class StructuredReasoningProvider:
     def _answer(
         self,
         review: BoundaryReview,
+        case: ArchitectureCase,
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
@@ -813,7 +909,12 @@ class StructuredReasoningProvider:
             ReasoningTask.ANSWER_REVIEW_QUESTION,
             {
                 "case_title": report.case_title,
-                "case": report.problem_and_desired_outcome,
+                # The case whole, not the report's two-sentence restatement of its problem.
+                # It is half of what every verdict here was reached from — the judging stage
+                # weighed each boundary against these constraints, non-goals and expected
+                # changes — so an explanation that could not see them was explaining a
+                # conclusion from half its evidence.
+                "case": case.model_dump(mode="json"),
                 "counts": report.headline,
                 # The conclusion a reader has in front of them, so a question about it is
                 # answerable. Composed from these same verdicts by an earlier call, which is
@@ -927,25 +1028,198 @@ class StructuredReasoningProvider:
             ],
         )
 
+    def discuss_open_question(
+        self,
+        review: BoundaryReview,
+        case: ArchitectureCase,
+        question: OpenQuestion,
+        history: list[ReviewMessage],
+        asked: str,
+        knowledge: MethodKnowledge,
+    ) -> ReviewAnswer:
+        return self._discuss(
+            review, case, question, history, asked, knowledge, preview=None
+        )
 
+    def stream_open_question_discussion(
+        self,
+        review: BoundaryReview,
+        case: ArchitectureCase,
+        question: OpenQuestion,
+        history: list[ReviewMessage],
+        asked: str,
+        knowledge: MethodKnowledge,
+        on_prose: Callable[[str], None],
+    ) -> ReviewAnswer:
+        return self._discuss(
+            review,
+            case,
+            question,
+            history,
+            asked,
+            knowledge,
+            preview=ProsePreview(field="answer", emit=on_prose),
+        )
+
+    def _discuss(
+        self,
+        review: BoundaryReview,
+        case: ArchitectureCase,
+        question: OpenQuestion,
+        history: list[ReviewMessage],
+        asked: str,
+        knowledge: MethodKnowledge,
+        *,
+        preview: ProsePreview | None,
+    ) -> ReviewAnswer:
+        report = review.report
+        if report is None:
+            raise ValueError("A review without a report cannot be discussed")
+        # The cited boundaries and no others, in the order the report stores them. This is
+        # the whole of what makes the stage safe to run while a first pass is withholding
+        # its verdicts: the ones not cited are not in the input, so there is no side door to
+        # the held set (§6C.6). It is also the honest scope — these are the verdicts this
+        # question would settle, and the rest have nothing to do with it.
+        cited = set(question.supporting_references)
+        boundaries = [item for item in report.reviewed if item.reference in cited]
+        if not boundaries:
+            raise ValueError(
+                f"Question {question.reference} cites no boundary this review contains"
+            )
+        expected = len(boundaries)
+        proposed = self._complete(
+            ReasoningTask.DISCUSS_OPEN_QUESTION,
+            {
+                "case_title": report.case_title,
+                # The case whole, and it matters most here. The reader is being asked to add
+                # something to this document, so "what does it already say about that" is
+                # among the first things they will ask.
+                #
+                # This is the revision the review pinned, which means it holds what was
+                # written before this round — including answers from any earlier round — and
+                # not the answers being typed right now. Those batch into one revision at the
+                # end (§6C.4). So this stage cannot see a reply the reader is still free to
+                # change or delete, which is correct: an answer is not an answer until they
+                # save it.
+                "case": case.model_dump(mode="json"),
+                # No conclusion and no counts. A first pass has neither — its overview is
+                # composed from known facts with the themes left empty — and a stage that
+                # asked for them would be reading a summary of the set this reader has
+                # deliberately not been shown.
+                "the_question_being_discussed": {
+                    "what_the_review_saw": question.what_the_review_saw,
+                    "the_unknown": question.unknown,
+                    "why_it_matters": question.why_it_matters,
+                    "question_put_to_the_reader": question.question,
+                    "where_their_answer_would_be_recorded": (
+                        question.answer_belongs_in.value
+                    ),
+                },
+                "background_how_archcompass_works": knowledge.method,
+                "background_policy_corpus": [
+                    {"title": policy.title, "text": policy.body}
+                    for policy in knowledge.policies
+                ],
+                # Presented as the answering stage presents them, minus the reference codes
+                # for the usual reason (12.0). The same fields, because a reader asking
+                # "why does this boundary make you ask that" needs what that stage needed.
+                "boundaries_this_question_would_settle": [
+                    {
+                        "position": index,
+                        "boundary": item.candidate.summary,
+                        "pattern": item.candidate.pattern.value,
+                        "verdict": (
+                            "NOT earning its place — this boundary should change"
+                            if item.material
+                            else "earning its place — this boundary should stay as it is"
+                        ),
+                        "reasoning": item.rationale,
+                        "recommended_response": item.recommended_response,
+                        "measurements": [
+                            {"name": measure.name, "value": measure.value, "unit": measure.unit}
+                            for measure in item.candidate.measurements
+                        ],
+                        "policies_that_bear": [
+                            f"{bearing.policy_title}: {bearing.how}"
+                            for bearing in item.policy_bearings
+                        ],
+                        "detection_limits": item.candidate.limitations,
+                        # What this verdict said it turned on, which is why this boundary is
+                        # cited at all. Without it the reader can be told the verdict but not
+                        # what their answer would do to it.
+                        "verdict_turns_on": (
+                            None
+                            if item.hinge is None
+                            else {
+                                "unknown": item.hinge.unknown,
+                                "if_confirmed": item.hinge.if_confirmed,
+                                "if_denied": item.hinge.if_denied,
+                            }
+                        ),
+                    }
+                    for index, item in enumerate(boundaries, start=1)
+                ],
+                "earlier_turns": [
+                    {
+                        "asked": message.question,
+                        "replied": "" if message.answer is None else message.answer.answer,
+                    }
+                    for message in history
+                ],
+                "asked": asked,
+            },
+            ProposedQuestionDiscussion,
+            runtime_instruction=(
+                f"Return exactly {expected} supported_by values, one for each boundary, in "
+                "the order the boundaries appear above."
+            ),
+            schema_override=self._review_answer_schema(
+                ProposedQuestionDiscussion, boundary_count=expected
+            ),
+            candidate_validator=lambda item: [
+                *_prose_defects("answer", item.answer),
+                *(
+                    [
+                        f"supported_by must contain exactly {expected} values, one per "
+                        f"boundary in order, but contains {len(item.supported_by)}"
+                    ]
+                    if len(item.supported_by) != expected
+                    else []
+                ),
+            ],
+            preview=preview,
+        )
+        return ReviewAnswer(
+            answer=proposed.answer,
+            supporting_references=[
+                item.reference
+                for item, supports in zip(boundaries, proposed.supported_by, strict=True)
+                if supports
+            ],
+            suggested_answer=proposed.suggested_answer.strip(),
+        )
 
     @staticmethod
-    def _overview_schema(*, boundary_count: int) -> dict[str, object]:
-        """Fix one grounding flag per boundary inside every grounded shape.
+    def _grounded_schema(
+        model: type[BaseModel],
+        *,
+        boundary_count: int,
+    ) -> dict[str, object]:
+        """Fix one grounding flag per boundary inside every grounded shape a reply nests.
 
-        Two definitions carry flags — a statement, shared by `themes` and
-        `recommended_sequence`, and a question — so bounding both bounds every flag list in
-        the reply. Same binding as everywhere else: nothing in a flag says which boundary it
-        belongs to, so a short list shifts every later flag onto the wrong boundary and still
-        validates.
+        Applied to every definition carrying `supported_by` rather than to a named list, so a
+        shape added to one of these replies is bounded by having the field rather than by
+        being remembered here. Same binding as everywhere else: nothing in a flag says which
+        boundary it belongs to, so a short list shifts every later flag onto the wrong
+        boundary and still validates.
         """
 
-        schema = ProposedReviewOverview.model_json_schema()
+        schema = model.model_json_schema()
         definitions = _object_mapping(schema.get("$defs"))
         if definitions is None:
             return schema
-        for name in ("ProposedOverviewStatement", "ProposedOpenQuestion"):
-            grounded = _object_mapping(definitions.get(name))
+        for name, definition in list(definitions.items()):
+            grounded = _object_mapping(definition)
             if grounded is None:
                 continue
             properties = _object_mapping(grounded.get("properties"))
@@ -963,15 +1237,23 @@ class StructuredReasoningProvider:
         return schema
 
     @staticmethod
-    def _review_answer_schema(*, boundary_count: int) -> dict[str, object]:
+    def _review_answer_schema(
+        model: type[BaseModel] = ProposedReviewAnswer,
+        *,
+        boundary_count: int,
+    ) -> dict[str, object]:
         """Fix one grounding flag per boundary, in the order they were presented.
 
         Same binding as the verdict schema: nothing in the reply says which boundary a
         flag belongs to, so a short list silently shifts every later flag onto the wrong
         boundary and still validates.
+
+        Takes the shape rather than naming one, because the discussion stage grounds
+        identically over a subset of the same boundaries. Two stages binding the same way
+        should not be able to drift into binding differently.
         """
 
-        schema = ProposedReviewAnswer.model_json_schema()
+        schema = model.model_json_schema()
         properties = _object_mapping(schema.get("properties"))
         if properties is None:
             return schema

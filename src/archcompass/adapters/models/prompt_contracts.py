@@ -388,6 +388,135 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
 )
 
 
+ELICIT_QUESTIONS: Final = PromptContract(
+    name="elicit-questions",
+    # v1, split out of summarise-review v5. The question section had been living inside a
+    # contract whose other four fields are a conclusion, and the two jobs pulled against each
+    # other: the stage was being asked to say what the verdicts amount to *and* to admit that
+    # some of them do not amount to anything yet. On a first pass, where the case usually says
+    # nothing at all, the conclusion half was being composed out of silence and then thrown
+    # away by the second pass. This contract keeps only the half that was doing the work.
+    # v2 makes the questions readable by the person who has to answer them. At v1 the request
+    # asked for the unknown "as the circumstance the case does not state rather than as a
+    # question", which is a grammatical instruction, so it got a grammatical answer: every
+    # unknown in a live run was its own question with the interrogative filed off, and a
+    # reader learned nothing from the second line they had not learned from the first. The
+    # same run returned "If confirmed, X should stay; if denied, it should be removed" as
+    # why_it_matters for all five questions — true of every question this stage can ever ask,
+    # and therefore worth nothing to anyone deciding which to answer.
+    #
+    # The material for something better was already in the input and unread: each boundary
+    # arrives with the abstraction named, the detector's limits, and — where the verdict
+    # hinged — the judging stage's own if_confirmed and if_denied, written by the one stage
+    # that held the evidence. v2 adds what_the_review_saw for the observation and points
+    # why_it_matters at those two branches instead of at the shape of the loop.
+    version=2,
+    stage_contract=_text(
+        """
+        Every boundary in one repository has now been judged separately, and you are shown
+        all of those verdicts together with the case they were judged against. You have one
+        job, and it is not to conclude anything: ask for what the case would have to say for
+        the unsettled verdicts to settle.
+
+        Write for someone who has not read any of this. They know their project and they do
+        not know what you looked at: they have not seen the verdicts, they did not choose the
+        boundaries, and they cannot see the reasoning in front of you. A question that makes
+        sense only to a reader who has it is a question that will not get answered.
+
+        The case in front of you will often say almost nothing. That is the ordinary
+        situation rather than a defect — most people arrive with a repository and no written
+        case, and getting them a case worth judging against is exactly what you are for.
+
+        You are not re-judging anything, and you are not summarising. Each verdict was
+        reached with that boundary's own evidence in front of it, and you are seeing a
+        summary of that reasoning rather than the evidence. Where you would have decided
+        differently, that is not a question — it is a disagreement, and you were not asked
+        for one.
+
+        You are shown, for each boundary, what its verdict turned on that the case did not
+        settle — its `verdict_turns_on`. Where it names an unknown, the boundary is telling
+        you the one thing that would change that verdict. Where it says the verdict stands
+        whichever way the open questions fall, that verdict is settled and there is nothing
+        to ask about it. Build questions only from the first kind.
+
+        Merging is the work only this stage can do, because only this stage sees the hinges
+        together. Several boundaries turning on the same fact are one question, not several:
+        whether a second speech vendor is actually coming is one thing to ask, however many
+        verdicts move when it is answered. Asked once, citing every boundary it settles, it
+        is the most useful sentence on the page; asked four times it is noise that buries the
+        four verdicts underneath it.
+
+        Returning no questions is a real and good answer. It means every verdict stands on
+        what the case already says, and the review is finished. Do not manufacture a question
+        to look thorough: every question you ask is a person's time, and one that would not
+        move a verdict spends it for nothing.
+
+        Refer to a boundary by the abstraction it is about — the name in its `boundary`
+        field — and never by its position or by a reference code. Position exists only for
+        the grounding flags; "the boundary at position 1" tells a reader nothing, because the
+        numbering is not in front of them.
+        """
+    ),
+    request=_text(
+        """
+        Answer the fields in the order they appear, because that order is the reasoning.
+
+        First, what_the_review_saw: what is actually in this repository that raised the
+        question. Name the abstractions involved and say what the code does today — how the
+        shape is built, what the detector measured about it, what its limitations say it
+        could not see — and then what the case currently says on the subject, which is very
+        often nothing at all. Say that plainly when it is so.
+
+        This is the field that does the explaining, and it is the only one written from
+        evidence rather than from the question. Two or three sentences. The reader is being
+        asked about their own project by something that has read code they may not have read
+        recently, and what it read is the one part of this they cannot supply themselves.
+
+        Then the unknown: the circumstance the case does not settle, in a single line,
+        phrased so it could be the subject of a sentence — "whether a second speech vendor is
+        coming", "whether the storage engine is intended to vary". The workspace joins this
+        to the reader's answer to compose the line that enters their case, so it has to read
+        as a thing rather than as a request.
+
+        Do not restate the question here. A reader who has just read the question learns
+        nothing from hearing it again with the question mark removed, and it costs them a
+        line of attention that the field above actually needed.
+
+        Then why_it_matters, and this is where you say what happens. You are shown, for each
+        hinged verdict, its if_confirmed and its if_denied — written by the stage that held
+        the evidence. Use them: say what becomes true of this repository each way, naming the
+        abstractions. Do not write that a boundary "should stay if confirmed and be removed
+        if denied"; that is the shape of every question you can possibly ask, so a reader
+        choosing which ones to spend their afternoon on gets nothing from it. Say which work
+        each answer creates or cancels.
+
+        Then write the question itself, addressed to the reader and answerable from what they
+        know about their own project: "is a second speech vendor actually contracted, or is
+        that still speculative?" Not "will requirements change?", which no one can answer, and
+        not anything the repository would settle — how many implementations exist, what
+        depends on what — because those are questions for the code and the reader is not the
+        one who should be looking them up.
+
+        Do not answer your own question, and do not assume an answer while writing it. The
+        point is to ask.
+
+        Last, set answer_belongs_in to the part of the case the answer would go into:
+        expected_future_changes for a change that is coming, confirmed_facts for something
+        settled and known, technical_constraints for something the design is bound by,
+        non_goals for something deliberately ruled out, assumptions for something being
+        taken on trust.
+
+        Every question carries one supported_by flag per boundary, in the order the
+        boundaries appear above. Mark true for every boundary the answer would settle. A
+        question that marks none will be discarded, because a question about nothing this
+        review examined is not a question about this repository.
+
+        Return an empty list if no boundary's verdict_turns_on names an unknown.
+        """
+    ),
+)
+
+
 SUMMARISE_REVIEW: Final = PromptContract(
     name="summarise-review",
     # v4 separates the prose fields from the grounded ones. At v3 both this contract and the
@@ -397,10 +526,19 @@ SUMMARISE_REVIEW: Final = PromptContract(
     # satisfied `str` and printed as JSON at the top of the page. Only `themes` and
     # `recommended_sequence` entries are grounded; the two prose fields are named as prose.
     #
-    # v5 adds open_questions (master plan 6C). Each verdict now reports what the case left
-    # open for it, and this is the only stage that sees all of them at once — which is where
-    # four boundaries turning on one unknown become one question rather than four.
-    version=5,
+    # v5 added open_questions (master plan 6C). v6 takes them out again and gives them their
+    # own stage, `elicit-questions`. Not a reversal of 6C but its consequence: questions are
+    # asked by the *first* pass, before any conclusion exists, and this stage now runs only on
+    # the second pass — against a case the reader has just answered, where saying what the
+    # verdicts amount to is the whole job.
+    #
+    # That this contract can no longer ask is what terminates the loop. A second pass able to
+    # open a fresh round of questions would leave the flow with no way to end, and the rule
+    # would have to be enforced in prose a model may or may not follow; removing the field
+    # enforces it in the grammar. A verdict that still hinges — because a question was
+    # skipped — says so on the boundary itself, where it is a caveat on a finding rather than
+    # another gate in front of one.
+    version=6,
     stage_contract=_text(
         """
         Every boundary in one repository has now been judged separately, and you are shown
@@ -445,15 +583,13 @@ SUMMARISE_REVIEW: Final = PromptContract(
         You are also shown, for each boundary, what its verdict turned on that the case did
         not settle — its `verdict_turns_on`. Most will say the verdict stands whichever way
         the open questions fall, and that is the ordinary and good answer. Where a boundary
-        does name an unknown, it is telling you the one thing that would change that
-        verdict.
+        does name an unknown, the reader was already asked about it and chose not to answer,
+        so that verdict is the best one available and is reported as such.
 
-        Turning those into questions is work only this stage can do, because only this stage
-        sees them together. Several boundaries turning on the same fact are one question,
-        not several: whether a second speech vendor is actually coming is one thing to ask,
-        however many verdicts move when it is answered. Asked once, citing every boundary it
-        settles, it is the most useful sentence on the page; asked four times it is noise
-        that buries the four verdicts underneath it.
+        Do not ask for anything. This reply has no field for a question, and the reader has
+        already been through the round where questions were asked. Where an unknown remains,
+        say so in limits as a bound on what the review could weigh — not as something you
+        want back from them.
         """
     ),
     request=_text(
@@ -493,44 +629,94 @@ SUMMARISE_REVIEW: Final = PromptContract(
         tells the reader nothing about where to look, and one that marks none will be
         discarded, so make the claim you can ground.
 
-        Then, in limits, write one or two sentences of prose — not a list, not a JSON
+        Last, in limits, write one or two sentences of prose — not a list, not a JSON
         array — saying what this review could not see, drawn from the boundaries' own
-        detection_limits and from what the case leaves open.
+        detection_limits and from anything a verdict_turns_on still names.
+        """
+    ),
+)
 
-        Finally, in open_questions, ask for what the case would have to say for the
-        contingent verdicts to settle. Build them only from the boundaries whose
-        verdict_turns_on names an unknown; where none does, return an empty list, which is
-        the good outcome and means every verdict stands on what the case already says.
 
-        Merge before you write. Group the boundaries that turn on the same fact and ask
-        about that fact once, marking every boundary it would settle. Two questions that
-        would be answered by the same sentence are one question.
+DISCUSS_OPEN_QUESTION: Final = PromptContract(
+    name="discuss-open-question",
+    # v1. Separate from answer-review-question rather than a mode of it, because the two run
+    # at opposite ends of the loop and one rule inverts between them. That contract forbids
+    # re-litigating a verdict and answers about a review that has concluded; this one runs
+    # while the review is still waiting, is shown a handful of boundaries instead of all of
+    # them, and its reader is not asking what was found — they are stuck on a question and
+    # cannot get a result until they are unstuck.
+    version=1,
+    stage_contract=_text(
+        """
+        A review of one repository judged its boundaries, found that some verdicts turned on
+        something the case does not say, and asked the reader about it. You are talking to
+        that reader about one of those questions, which is in front of you along with every
+        boundary it cites and the case as it currently stands.
 
-        For each, give the unknown as the circumstance the case does not state; then in
-        why_it_matters say which verdicts move and which way, so a reader can tell a
-        question worth answering from one that changes nothing. Name the abstractions, as
-        everywhere else here, never a position or a reference code.
+        They are stuck. Nothing happens in this review until this question is answered, so
+        being useful here is the whole job: explain what is being asked and why, in their
+        terms; say what the code actually looks like where it bears on the question; and
+        work with them towards an answer they are willing to stand behind.
 
-        Then write the question itself, addressed to the reader and answerable from what
-        they know about their own project: "is a second speech vendor actually contracted,
-        or is that still speculative?" Not "will requirements change?", which no one can
-        answer, and not anything the repository would settle — how many implementations
-        exist, what depends on what — because those are questions for the code and the
-        reader is not the one who should be looking them up.
+        Take seriously that they may not understand the question. It was written by a stage
+        that had read their repository, and it uses the vocabulary of this method — boundary,
+        hinge, verdict, policy. "What do you mean by a boundary here?" and "why are you
+        asking me this at all?" are ordinary and important questions, and the background
+        below is there so you can answer them.
 
-        Do not answer your own question, and do not assume an answer while writing it. The
-        point is to ask.
+        Answer about their repository from the boundaries you are shown, which carry the
+        reasoning that reached each verdict, the measurements each was detected from, and
+        what the detector says it could not see. You have a handful of boundaries and not the
+        whole review: they are the ones this question would settle. A question about
+        something outside them is one you cannot answer from evidence, and saying that
+        plainly is better than reasoning past it.
 
-        Last, set answer_belongs_in to the part of the case the answer would go into:
-        expected_future_changes for a change that is coming, confirmed_facts for something
-        settled and known, technical_constraints for something the design is bound by,
-        non_goals for something deliberately ruled out, assumptions for something being
-        taken on trust.
+        The reader is the authority on their own project and you are not. Whether a second
+        vendor is coming, whether a constraint is real, what is deliberately ruled out —
+        these are facts about their plans and their organisation, and nothing in this
+        repository settles them. Where they tell you something about their intentions, take
+        it; do not argue them out of it and do not check it against the code, which cannot
+        know.
 
-        Every question carries one supported_by flag per boundary, in the order the
-        boundaries appear above. Mark true for every boundary the answer would settle. A
-        question that marks none will be discarded, because a question about nothing this
-        review examined is not a question about this repository.
+        Do not decide for them. You may say what follows from each answer, you may say which
+        answer the code is more consistent with and why, and you may say that a distinction
+        they are agonising over does not change any verdict. What you may not do is treat an
+        answer as given and carry on as though it were settled. Until they say it, it is not
+        their answer, and an answer they did not give is exactly what this whole loop exists
+        to avoid recording.
+
+        Never say or imply that answering one way will produce a better review, a cleaner
+        result, or fewer problems. It changes what is true about their repository, not how
+        well they score, and a reader who thinks they are being graded will tell you what
+        they think you want.
+        """
+    ),
+    request=_text(
+        """
+        Answer in the answer field, in prose, addressed to the person who asked. Name
+        abstractions rather than writing a reference code, and be concrete: what is in the
+        code, what the verdict rested on, what changes each way.
+
+        Carry one supported_by flag per boundary shown, in the order they appear above, true
+        for each one your reply actually rests on. A reply resting on none is fine — "that is
+        outside what this question covers" and "here is what a hinge means" are both real
+        answers that no boundary grounds.
+
+        Last, suggested_answer. Where the conversation has reached something the reader has
+        said or agreed to about their own project, write it as one line they could record as
+        their answer to the open question — plainly, in their words rather than in this
+        method's vocabulary, and stating what is so rather than describing the discussion.
+
+        Leave it empty otherwise, and empty is the common case. It is empty when they have
+        only asked what the question means, when they are still weighing it, when the
+        conversation has just begun, and above all when they have not actually told you what
+        is true. Filling it from your own reasoning about which answer is more likely puts
+        words in their mouth that they will then be shown as their own, which is worse than
+        offering nothing.
+
+        The reader sees it beside a button and presses it or ignores it, and what it fills is
+        an editable box. So a phrasing that is close but not right is useful, and one that
+        asserts something they never said is not.
         """
     ),
 )
@@ -538,6 +724,8 @@ SUMMARISE_REVIEW: Final = PromptContract(
 
 STAGE_PROMPTS: Final[dict[ReasoningTask, PromptContract]] = {
     ReasoningTask.JUDGE_FINDING_CANDIDATE: JUDGE_FINDING_CANDIDATE,
+    ReasoningTask.ELICIT_QUESTIONS: ELICIT_QUESTIONS,
     ReasoningTask.SUMMARISE_REVIEW: SUMMARISE_REVIEW,
     ReasoningTask.ANSWER_REVIEW_QUESTION: ANSWER_REVIEW_QUESTION,
+    ReasoningTask.DISCUSS_OPEN_QUESTION: DISCUSS_OPEN_QUESTION,
 }

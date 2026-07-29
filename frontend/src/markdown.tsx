@@ -58,3 +58,27 @@ export function Markdown({ children }: { children: string }) {
     </ReactMarkdown>
   );
 }
+
+/**
+ * An answer as the model wrote it: prose, with code shown as code.
+ *
+ * The same renderer the Policies page uses, so a fenced block, a table or a bulleted list
+ * reads the same wherever it appears. It also matters more here than there — an answer about
+ * a boundary routinely shows the two-line change it is describing, and a diff rendered as one
+ * run-on paragraph is worse than no example at all.
+ *
+ * Safe to call on a partial answer. An unclosed fence is treated as a code block running to
+ * the end of what has arrived, which is exactly right for a block still being written; it is
+ * highlighted from the first line rather than turning colour once the answer finishes.
+ *
+ * Lives here rather than beside the review page because two surfaces render model prose now
+ * — the review conversation and the per-question discussion — and the second importing it
+ * from the first would make the page and a component it renders import each other.
+ */
+export function AnswerProse({ text }: { text: string }) {
+  return (
+    <div className="markdown dock__a">
+      <Markdown>{text}</Markdown>
+    </div>
+  );
+}

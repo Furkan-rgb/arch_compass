@@ -299,16 +299,13 @@ BOUNDARIES = [
 ]
 
 
-def _overview_reply(*questions: tuple[str, list[bool]]) -> str:
+def _elicitation_reply(*questions: tuple[str, list[bool]]) -> str:
     return json.dumps(
         {
-            "situation": "One operator, one server.",
-            "themes": [],
-            "recommended_sequence": [],
-            "limits": "A static count cannot see runtime registration.",
             "open_questions": [
                 {
-                    "unknown": "The case does not say whether a second vendor is contracted.",
+                    "what_the_review_saw": "Speech and Voice both wrap one implementation.",
+                    "unknown": "whether a second vendor is contracted",
                     "why_it_matters": f"Two verdicts move: {text}",
                     "supported_by": flags,
                     "question": text,
@@ -324,14 +321,35 @@ def test_a_question_resolves_to_the_boundaries_that_occupied_its_slots() -> None
     """Positional binding, exactly as themes and answers already bind (§12.0)."""
 
     provider, _ = _provider(
-        _overview_reply(("Is a second vendor contracted?", [True, False, True]))
+        _elicitation_reply(("Is a second vendor contracted?", [True, False, True]))
     )
 
-    overview = provider.summarise_review(_case(), BOUNDARIES)
+    questions = provider.elicit_questions(_case(), BOUNDARIES)
 
-    assert [item.reference for item in overview.open_questions] == ["Q-1"]
-    assert overview.open_questions[0].supporting_references == ["BR-001", "BR-003"]
-    assert overview.open_questions[0].answer_belongs_in is CaseField.EXPECTED_FUTURE_CHANGES
+    assert [item.reference for item in questions] == ["Q-1"]
+    assert questions[0].supporting_references == ["BR-001", "BR-003"]
+    assert questions[0].answer_belongs_in is CaseField.EXPECTED_FUTURE_CHANGES
+
+
+def test_a_question_carries_what_was_seen_and_a_subject_for_the_answer() -> None:
+    """The two fields v2 separated, which v1 had collapsed into one restatement.
+
+    `what_the_review_saw` is the evidence a reader cannot supply for themselves, and
+    `unknown` is a subject rather than a description because the workspace joins it to the
+    reader's answer to compose the line that enters their case (§6C.4). A question whose
+    unknown is its own question with the question mark removed can do neither job.
+    """
+
+    provider, _ = _provider(
+        _elicitation_reply(("Is a second vendor contracted?", [True, False, True]))
+    )
+
+    questions = provider.elicit_questions(_case(), BOUNDARIES)
+
+    assert questions[0].what_the_review_saw == (
+        "Speech and Voice both wrap one implementation."
+    )
+    assert questions[0].unknown == "whether a second vendor is contracted"
 
 
 def test_a_question_resting_on_no_boundary_is_discarded() -> None:
@@ -343,29 +361,27 @@ def test_a_question_resting_on_no_boundary_is_discarded() -> None:
     """
 
     provider, _ = _provider(
-        _overview_reply(("Will the requirements change?", [False, False, False]))
+        _elicitation_reply(("Will the requirements change?", [False, False, False]))
     )
 
-    overview = provider.summarise_review(_case(), BOUNDARIES)
-
-    assert overview.open_questions == []
+    assert provider.elicit_questions(_case(), BOUNDARIES) == []
 
 
 def test_question_numbering_is_gapless_after_a_discard() -> None:
     """`Q-n` is assigned after the drop, so a reader is never shown a missing number."""
 
     provider, _ = _provider(
-        _overview_reply(
+        _elicitation_reply(
             ("Grounded on nothing.", [False, False, False]),
             ("Is a second vendor contracted?", [True, False, True]),
             ("Is the label format fixed?", [False, True, False]),
         )
     )
 
-    overview = provider.summarise_review(_case(), BOUNDARIES)
+    questions = provider.elicit_questions(_case(), BOUNDARIES)
 
-    assert [item.reference for item in overview.open_questions] == ["Q-1", "Q-2"]
-    assert overview.open_questions[0].question == "Is a second vendor contracted?"
+    assert [item.reference for item in questions] == ["Q-1", "Q-2"]
+    assert questions[0].question == "Is a second vendor contracted?"
 
 
 def test_the_hinges_are_presented_to_the_stage_that_consolidates_them() -> None:
@@ -377,10 +393,10 @@ def test_the_hinges_are_presented_to_the_stage_that_consolidates_them() -> None:
     """
 
     provider, transport = _provider(
-        _overview_reply(("Is a second vendor contracted?", [True, False, True]))
+        _elicitation_reply(("Is a second vendor contracted?", [True, False, True]))
     )
 
-    provider.summarise_review(_case(), BOUNDARIES)
+    provider.elicit_questions(_case(), BOUNDARIES)
 
     sent = cast(list[ChatMessage], transport.requests[0]["messages"])
     request = "\n".join(message["content"] for message in sent)
@@ -395,10 +411,10 @@ def test_the_schema_fixes_one_flag_per_boundary_inside_a_question() -> None:
     """Arity is the whole binding: a short list re-attributes every flag after the gap."""
 
     provider, transport = _provider(
-        _overview_reply(("Is a second vendor contracted?", [True, False, True]))
+        _elicitation_reply(("Is a second vendor contracted?", [True, False, True]))
     )
 
-    provider.summarise_review(_case(), BOUNDARIES)
+    provider.elicit_questions(_case(), BOUNDARIES)
 
     schema = cast(dict[str, object], transport.requests[0]["schema"])
     definitions = cast(dict[str, object], schema["$defs"])
@@ -409,11 +425,11 @@ def test_the_schema_fixes_one_flag_per_boundary_inside_a_question() -> None:
 
 
 def test_a_wrong_length_of_flags_is_refused_rather_than_re_attributed() -> None:
-    short = _overview_reply(("Is a second vendor contracted?", [True, False]))
+    short = _elicitation_reply(("Is a second vendor contracted?", [True, False]))
     provider, _ = _provider(short, short)
 
     with pytest.raises(ModelOutputValidationError, match="supported_by"):
-        provider.summarise_review(_case(), BOUNDARIES)
+        provider.elicit_questions(_case(), BOUNDARIES)
 
 
 def test_the_destination_is_a_closed_set_the_model_chooses_from() -> None:
@@ -425,16 +441,30 @@ def test_the_destination_is_a_closed_set_the_model_chooses_from() -> None:
     """
 
     provider, transport = _provider(
-        _overview_reply(("Is a second vendor contracted?", [True, False, True]))
+        _elicitation_reply(("Is a second vendor contracted?", [True, False, True]))
     )
 
-    provider.summarise_review(_case(), BOUNDARIES)
+    provider.elicit_questions(_case(), BOUNDARIES)
 
     schema = cast(dict[str, object], transport.requests[0]["schema"])
     definitions = cast(dict[str, object], schema["$defs"])
     assert sorted(cast(dict[str, object], definitions["CaseField"])["enum"]) == sorted(
         field.value for field in CaseField
     )
+
+
+def test_the_summarising_stage_has_no_way_to_ask_anything() -> None:
+    """What terminates the loop, held in the grammar rather than in prose.
+
+    A second pass runs against a case the reader has just answered, and a reply that could
+    open a fresh round would leave the flow with no way to end. Stating that as an
+    instruction would leave it to a model to obey; removing the field means a reply carrying
+    a question does not parse at all.
+    """
+
+    from archcompass.adapters.models.structured import ProposedReviewOverview
+
+    assert "open_questions" not in ProposedReviewOverview.model_json_schema()["properties"]
 
 
 def _report(questions: list[OpenQuestion]) -> BoundaryReviewReport:
@@ -453,7 +483,8 @@ def _report(questions: list[OpenQuestion]) -> BoundaryReviewReport:
 def _question(reference: str, *references: str) -> OpenQuestion:
     return OpenQuestion(
         reference=reference,
-        unknown="The case does not say whether a second vendor is contracted.",
+        what_the_review_saw="Speech and Voice both wrap one implementation.",
+        unknown="whether a second vendor is contracted",
         why_it_matters="Two verdicts move.",
         question="Is a second vendor contracted?",
         answer_belongs_in=CaseField.EXPECTED_FUTURE_CHANGES,
@@ -473,21 +504,46 @@ def test_a_report_refuses_two_questions_sharing_one_reference() -> None:
         _report([_question("Q-1", "BR-001"), _question("Q-1", "BR-003")])
 
 
-def test_the_questions_and_the_hinges_both_reach_the_rendered_report() -> None:
-    """A hinge prints against its own boundary; the question prints once, with its citations.
+def test_a_pass_that_is_asking_renders_its_questions_and_withholds_its_verdicts() -> None:
+    """The document a first pass produces: what it needs to know, and no findings.
 
-    The hinge is repeated per boundary for the same reason detection limits are: someone
-    deciding whether to act on one verdict needs to know what it rested on at the point of
-    deciding, not in a footer they have already scrolled past.
+    Each question prints once with the boundaries it would settle and the field an answer
+    lands in. The verdicts behind those citations are deliberately absent — they exist and
+    are stored, but four of five moved on the bundled example once its questions were
+    answered, so printing them under "what should change" would report as findings a set
+    that is more likely wrong than right (ADR 0010).
     """
 
-    markdown = render_report(_report([_question("Q-1", "BR-001", "BR-003")]))
+    markdown = render_report(
+        _report([_question("Q-1", "BR-001", "BR-003")]), awaiting_answers=True
+    )
 
-    assert "### What it needs to know" in markdown
+    assert "## What it needs to know" in markdown
     assert "**Q-1. Is a second vendor contracted?**" in markdown
+    # The observation, as prose under the question. It is the part of a question a reader
+    # cannot work out for themselves, so it is not filed as one bullet among three.
+    assert "Speech and Voice both wrap one implementation." in markdown
     assert "(BR-001, BR-003)" in markdown
     assert "`expected_future_changes`" in markdown
-    # The hinge, against each boundary that carries one, and not against the one that does not.
+    # No findings, and the reader is told that is a choice rather than a gap.
+    assert "## What should change" not in markdown
+    assert "Examined and left alone" not in markdown
+    assert "*This verdict turns on an open question.*" not in markdown
+    assert "waiting on answers" in markdown
+
+
+def test_a_concluded_review_prints_each_hinge_against_its_own_boundary() -> None:
+    """A verdict that still rests on something says so where it is acted on.
+
+    The reader was asked and did not answer, so the contingency survives into the findings.
+    It is repeated per boundary for the same reason detection limits are: someone deciding
+    whether to act on one verdict needs to know what it rested on at the point of deciding,
+    not in a footer they have already scrolled past.
+    """
+
+    markdown = render_report(_report([]))
+
+    # Against each boundary that carries one, and not against the one that does not.
     assert markdown.count("*This verdict turns on an open question.*") == 2
 
 

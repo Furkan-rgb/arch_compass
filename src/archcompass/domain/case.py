@@ -183,12 +183,73 @@ class CaseUpdate(DomainModel):
         return self
 
 
+class RecordedAnswer(DomainModel):
+    """One question this revision answered, and the line that answered it.
+
+    `recorded_text` rather than a pointer into the snapshot. Only `confirmed_facts` and
+    `assumptions` carry statement identity; the other three destinations are lists of bare
+    strings with nothing to point at. Storing the text is also the more honest record: this
+    is provenance about one immutable revision, so what was written at that revision is a
+    fact and cannot rot. A later revision may reword the line without making this wrong.
+    """
+
+    #: `Q-n`, resolved by the application against the review's own report. A reference that
+    #: review never asked is refused rather than stored (§12.0).
+    question_reference: str = Field(pattern=r"^Q-[0-9]+$")
+    #: Which list the line joined, so it can be found in the snapshot without scanning five.
+    #: Read from the question rather than from the request: the destination is the question's
+    #: property, not the answering client's opinion.
+    answer_belongs_in: CaseField
+    recorded_text: str = Field(min_length=1)
+
+
+class AnsweredQuestions(DomainModel):
+    """What prompted this revision: one round of answering one review's questions.
+
+    `review_id` sits here rather than on each answer because one round of answering produces
+    one revision against one review. Repeating it per entry would admit a state where the
+    entries disagree about which review they came from, and there is no such state.
+
+    Skipped questions are absent rather than flagged. Which ones they were is the review's
+    questions minus these, so a stored flag would be a second copy of a fact the application
+    can compute — the rule `ReviewAnswer.grounded` already follows.
+    """
+
+    review_id: str = Field(min_length=1)
+    answers: list[RecordedAnswer] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def each_question_is_answered_once(self) -> AnsweredQuestions:
+        references = [item.question_reference for item in self.answers]
+        duplicated = sorted({item for item in references if references.count(item) > 1})
+        if duplicated:
+            raise ValueError(f"A revision answers each question once, but repeats: {duplicated}")
+        return self
+
+    def skipped_references(self, asked: list[str]) -> list[str]:
+        """Which of a review's questions this round left unanswered.
+
+        Takes the asked set rather than reading it, because a revision does not hold the
+        review — the caller has it, and passing it keeps this a domain calculation rather
+        than a repository lookup hidden inside a model.
+        """
+
+        answered = {item.question_reference for item in self.answers}
+        return [reference for reference in asked if reference not in answered]
+
+
 class CaseRevision(DomainModel):
     case_id: str
     revision: int = Field(ge=1)
     snapshot: ArchitectureCase
     event_type: Literal["created", "user_update"]
     actor: str
+    #: Present where this revision came from answering a review's questions, absent where it
+    #: was authored by hand — and that absence is the only thing that tells the two apart
+    #: (§6C.4). Provenance, never write-back: nothing here is model-written, and the answer
+    #: is still the user's (invariant 25). Distinct from the `origin_run_id` ADR 0007
+    #: removed, which marked revisions authored *by a run* rather than prompted by one.
+    answered: AnsweredQuestions | None = None
     created_at: datetime = Field(default_factory=utc_now)
 
     @model_validator(mode="after")

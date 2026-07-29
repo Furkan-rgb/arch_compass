@@ -145,6 +145,120 @@ def test_a_streamed_review_counts_its_boundaries_before_judging_them(
     assert client.get(f"/api/reviews/{review_id}").status_code == 200
 
 
+def test_the_api_walks_both_passes_of_an_elicitation(runtime: Runtime) -> None:
+    """The whole flow over HTTP, exactly as the browser walks it.
+
+    Point at a repository with no case written, get every boundary judged, get back the
+    questions, answer them into the case, and carry on. What is defended is that the halt is
+    real at the transport level — the first pass reports `awaiting_answers` and the client
+    cannot mistake it for a result — and that naming it on the second request is what turns
+    the second run into one that concludes instead of asking again.
+    """
+
+    repository = str(Path("eval/cases/warehouse-sync/repository").resolve())
+
+    with TestClient(create_app(runtime)) as client:
+        started = client.post("/api/repositories/start", json={"root_path": repository})
+        assert started.status_code == 201, started.text
+        case_id = started.json()["case_id"]
+        # Nothing written: the entry for someone who has a repository and no case.
+        assert started.json()["snapshot"]["problem_statement"] == ""
+
+        first = client.post(
+            "/api/reviews",
+            json={"case_id": case_id, "repository_root": repository},
+        )
+        assert first.status_code == 201, first.text
+        first_review = first.json()
+
+        assert first_review["status"] == "awaiting_answers"
+        assert first_review["elicited_from"] is None
+        questions = first_review["report"]["overview"]["open_questions"]
+        assert questions, "a repository with no case must come back asking"
+        # Judged in full, and the verdicts are kept — they are what the questions were built
+        # from, and the citations below would point at nothing otherwise.
+        reviewed = first_review["report"]["reviewed"]
+        assert len(reviewed) == 5
+        known = {item["reference"] for item in reviewed}
+        for question in questions:
+            assert set(question["supporting_references"]) <= known
+
+        # The listing says the same thing, which is the point of the status: a run holding
+        # for answers must not sit among the finished ones reporting a verdict split.
+        listed = {item["review_id"]: item for item in client.get("/api/reviews").json()}
+        assert listed[first_review["review_id"]]["status"] == "awaiting_answers"
+
+        # It is refused as a subject for questions, too. Its verdicts are exactly the ones
+        # the run said it could not settle, so discussing them would hand back through a
+        # side door the set the page deliberately withholds.
+        conversation = client.post(
+            "/api/review-conversations",
+            json={"review_id": first_review["review_id"]},
+        )
+        assert conversation.status_code == 404
+        assert "waiting on answers" in conversation.json()["message"]
+
+        # The answer, through the route that cannot lose what it answered. The client sends
+        # the reference and the line the reader saw, and nothing that decides where it goes:
+        # the workspace reads the destination from the question itself.
+        assert questions[0]["answer_belongs_in"] == "expected_future_changes"
+        answered = client.post(
+            f"/api/reviews/{first_review['review_id']}/answers",
+            json={
+                "answers": [
+                    {
+                        "question_reference": questions[0]["reference"],
+                        "recorded_text": (
+                            "A second warehouse is under contract and arrives next quarter."
+                        ),
+                    }
+                ]
+            },
+        )
+        assert answered.status_code == 201, answered.text
+        revision = answered.json()
+        assert revision["revision"] == 2
+
+        # The arrow back: this revision says which review it answered and with what, so a
+        # verdict that moves below can be attributed to the sentence that moved it (§6C.4).
+        assert revision["answered"]["review_id"] == first_review["review_id"]
+        recorded = revision["answered"]["answers"]
+        assert [item["question_reference"] for item in recorded] == [
+            questions[0]["reference"]
+        ]
+        assert recorded[0]["answer_belongs_in"] == "expected_future_changes"
+
+        # A reference this review never asked is refused rather than recorded.
+        refused = client.post(
+            f"/api/reviews/{first_review['review_id']}/answers",
+            json={"answers": [{"question_reference": "Q-99", "recorded_text": "Nothing."}]},
+        )
+        assert refused.status_code == 422
+        assert "asked no question Q-99" in refused.json()["message"]
+
+        second = client.post(
+            "/api/reviews",
+            json={
+                "case_id": case_id,
+                "repository_root": repository,
+                "elicited_from": first_review["review_id"],
+            },
+        )
+        assert second.status_code == 201, second.text
+        second_review = second.json()
+
+    # The second pass concludes and does not ask again.
+    assert second_review["status"] == "succeeded"
+    assert second_review["elicited_from"] == first_review["review_id"]
+    assert second_review["report"]["overview"]["open_questions"] == []
+    assert second_review["case_revision"] == 2
+    # Same repository, same atlas — so a verdict that moved is attributable to the answer.
+    assert second_review["atlas_version_id"] == first_review["atlas_version_id"]
+    assert [item["reference"] for item in second_review["report"]["reviewed"]] == [
+        item["reference"] for item in reviewed
+    ]
+
+
 def test_a_streamed_review_that_fails_says_so_in_the_stream(
     runtime: Runtime,
     tmp_path: Path,
@@ -324,6 +438,23 @@ def test_a_review_of_unscored_code_reports_no_score_rather_than_a_made_up_one(
 
         assert scored.status_code == 200
         assert scored.json() is None
+
+
+def test_a_validation_failure_says_which_field_was_wrong(runtime: Runtime) -> None:
+    """The message a reader sees has to point at something.
+
+    "The request did not match the API contract" is true of every possible cause and points at
+    none of them. The field is what makes the difference between an error and a diagnosis.
+    """
+
+    with TestClient(create_app(runtime)) as client:
+        refused = client.post("/api/reviews", json={"case_id": "c"})
+
+    assert refused.status_code == 422
+    problem = refused.json()
+    assert problem["field_errors"]
+    for field in problem["field_errors"]:
+        assert field in problem["message"]
 
 
 def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> None:

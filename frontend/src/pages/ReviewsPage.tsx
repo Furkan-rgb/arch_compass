@@ -5,6 +5,7 @@ import {
   CircleSlash,
   Compass,
   Loader,
+  MessageCircleQuestion,
   MoreVertical,
   Square,
   Trash2,
@@ -50,6 +51,17 @@ export function Outcome({ review }: { review: BoundaryReviewSummary }) {
               review.boundaries_reviewed + 1,
               review.boundaries_detected,
             )} of ${review.boundaries_detected}`}
+      </Badge>
+    );
+  }
+  if (review.status === "awaiting_answers") {
+    // The whole reason this status exists. A first pass whose questions nobody has answered
+    // used to be stored as succeeded, so it sat in this listing reporting a verdict split —
+    // for ever — over verdicts the run itself said it could not settle. It reports what it
+    // is instead: unfinished, and unfinished by the reader rather than by the machine.
+    return (
+      <Badge tone="teal">
+        <MessageCircleQuestion size={13} aria-hidden /> waiting on your answers
       </Badge>
     );
   }

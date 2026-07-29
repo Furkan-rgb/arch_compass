@@ -24,6 +24,7 @@ from pydantic import (
     model_validator,
 )
 
+from archcompass.application.cases import WrittenAnswer
 from archcompass.application.reviews import JudgedCandidate
 from archcompass.bootstrap import Runtime
 from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion, FindingCandidate
@@ -33,6 +34,7 @@ from archcompass.domain.errors import (
     AtlasNotFoundError,
     CaseNotFoundError,
     CaseRevisionConflictError,
+    CaseValidationError,
     ConversationNotFoundError,
     ConversationRetrievalError,
     ConversationRevisionConflictError,
@@ -136,11 +138,39 @@ class AtlasExploreRequest(APIModel):
 class ReviewRequest(APIModel):
     case_id: str = Field(min_length=1)
     repository_root: str = Field(min_length=1)
+    #: The first pass whose questions produced this case revision, where this run is the
+    #: second pass of an elicitation. Absent for every review that was not reached by
+    #: answering, which is the ordinary start. Supplying it is what stops the run asking
+    #: again: a second pass concludes rather than eliciting, and the loop terminates.
+    elicited_from: str | None = Field(default=None, min_length=1)
+
+
+class SubmittedAnswer(APIModel):
+    """One answer: which question it settles, and the line the reader saw before saving.
+
+    No destination field. Where an answer belongs is the question's property, read from the
+    review by the server — a client that could name it could route an answer into a list its
+    question never mentioned, and nothing afterwards could tell that apart from a question
+    that did.
+    """
+
+    question_reference: str = Field(pattern=r"^Q-[0-9]+$")
+    recorded_text: str = Field(min_length=1, max_length=4000)
+
+
+class ReviewAnswersRequest(APIModel):
+    #: Only the questions that were answered. Skipping is normal and is recorded as absence,
+    #: so a blank entry is refused rather than stored as an answer nobody gave.
+    answers: list[SubmittedAnswer] = Field(min_length=1)
 
 
 class ReviewConversationCreateRequest(APIModel):
     review_id: str = Field(min_length=1)
     title: str | None = Field(default=None, min_length=1)
+    #: `Q-n` to talk about one open question rather than the review as a whole (§6C.7).
+    #: The only form of conversation a review still waiting on answers will open, and
+    #: resolved against that review's own report — a reference it did not ask is refused.
+    question_reference: str | None = Field(default=None, pattern=r"^Q-[0-9]+$")
 
 
 class ReviewQuestionRequest(APIModel):
@@ -246,6 +276,10 @@ class ReviewStarted(APIModel):
     review_id: str
     case_id: str
     case_revision: int
+    #: Which pass this is, echoed back so a watcher can draw the run's stages without
+    #: having to remember what it asked for. A client that reloaded onto a stream it did
+    #: not start has no other way to know.
+    elicited_from: str | None = None
 
 
 class ReviewDetected(APIModel):
@@ -268,6 +302,18 @@ class ReviewJudged(APIModel):
     total: int
     abstraction: str
     material: bool
+
+
+class ReviewEliciting(APIModel):
+    """Every boundary is judged; the first pass is composing what it needs to ask.
+
+    Distinct from `summarising` because it is a different call with a different outcome: one
+    ends in a conclusion, the other may end in a run that stops and waits for a person.
+    Exactly one of the two arrives in any run.
+    """
+
+    event: Literal["eliciting"] = "eliciting"
+    total: int
 
 
 class ReviewSummarising(APIModel):
@@ -295,6 +341,7 @@ ReviewProgressLine = Annotated[
     ReviewStarted
     | ReviewDetected
     | ReviewJudged
+    | ReviewEliciting
     | ReviewSummarising
     | ReviewCompleted
     | ReviewFailed,
@@ -394,11 +441,16 @@ def create_app(runtime: Runtime) -> FastAPI:
             + str(detail["msg"])
             for detail in error.errors()
         ]
+        # The fields are in the message, not only beside it. "The request did not match the
+        # API contract" is true of every possible cause and points at none of them; a reader
+        # who saw `body.elicited_from: Extra inputs are not permitted` would have known in one
+        # glance that their page and their server disagreed about what a review request is.
+        detail = f" ({'; '.join(fields)})" if fields else ""
         return JSONResponse(
             status_code=422,
             content=ProblemDetail(
                 code="validation_error",
-                message="The request did not match the API contract.",
+                message=f"The request did not match the API contract{detail}.",
                 field_errors=fields,
             ).model_dump(mode="json"),
     )
@@ -586,6 +638,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         return runtime.review_service.review(
             request.case_id,
             repository_root=Path(request.repository_root),
+            elicited_from=request.elicited_from,
         )
 
     @app.post(
@@ -631,6 +684,39 @@ def create_app(runtime: Runtime) -> FastAPI:
     )
     def get_review(review_id: str) -> BoundaryReview:
         return runtime.review_repository.get(review_id)
+
+    @app.post(
+        "/api/reviews/{review_id}/answers",
+        status_code=201,
+        responses=_problem_responses(404, 409, 422),
+    )
+    def answer_review_questions(
+        review_id: str,
+        request: ReviewAnswersRequest,
+    ) -> CaseRevision:
+        """Record a round of answers as one case revision that says what it answered.
+
+        Its own route rather than a `PATCH /api/cases/{id}` the browser composes, because
+        provenance written that way is optional by construction: a client that forgot it
+        produced a revision which had silently lost the link back to the question. Here the
+        link cannot be omitted — it is the thing the route exists to write.
+
+        The server resolves each `Q-n` against this review's own report and reads the
+        destination field from the question. A client sends the reference and the line the
+        reader saw, and nothing that decides where it goes (§12.0).
+        """
+
+        review = runtime.review_repository.get(review_id)
+        return runtime.case_service.answer(
+            review,
+            [
+                WrittenAnswer(
+                    question_reference=item.question_reference,
+                    recorded_text=item.recorded_text,
+                )
+                for item in request.answers
+            ],
+        )
 
     @app.post(
         "/api/reviews/{review_id}/cancel",
@@ -709,6 +795,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         return runtime.review_conversation_service.create(
             request.review_id,
             title=request.title,
+            question_reference=request.question_reference,
         )
 
     @app.get(
@@ -873,6 +960,7 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
         event: ReviewStarted
         | ReviewDetected
         | ReviewJudged
+        | ReviewEliciting
         | ReviewSummarising
         | ReviewCompleted
         | ReviewFailed,
@@ -885,6 +973,7 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
                 review_id=review.review_id,
                 case_id=review.case_id,
                 case_revision=review.case_revision,
+                elicited_from=review.elicited_from,
             )
         )
 
@@ -915,9 +1004,11 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
             review = runtime.review_service.review(
                 request.case_id,
                 repository_root=Path(request.repository_root),
+                elicited_from=request.elicited_from,
                 on_started=report_start,
                 on_detected=report_detection,
                 on_verdict=report_verdict,
+                on_eliciting=lambda: emit(ReviewEliciting(total=detected)),
                 on_summarising=lambda: emit(ReviewSummarising(total=detected)),
             )
         except ArchCompassError as error:
@@ -1052,6 +1143,7 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
     if isinstance(
         error,
         (
+            CaseValidationError,
             PathValidationError,
             PolicyFormatError,
             ModelOutputValidationError,

@@ -91,6 +91,18 @@ class ReviewStatus(StrEnum):
     #: happens rather than appearing only once it is over; it carries no report, and it is
     #: the one status a stored review ever moves out of.
     RUNNING = "running"
+    #: Every boundary was judged and the run then asked for what would settle the verdicts
+    #: it could not settle alone. Deliberately not a flavour of `succeeded`: a first pass
+    #: against an unwritten case moved four of five verdicts once its questions were
+    #: answered, so presenting those verdicts as findings would be presenting conclusions
+    #: that are far more likely to be wrong than right (ADR 0010).
+    #:
+    #: This is the one terminal status that is waiting on a person rather than on the
+    #: application, and it is terminal: nobody is obliged to answer, and a record that says
+    #: "still waiting" for ever is the truthful account of a question nobody came back to.
+    #: Answering does not move it — it produces a second review, pinned to the case revision
+    #: the answers created.
+    AWAITING_ANSWERS = "awaiting_answers"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     #: Stopped because someone asked it to stop. Kept apart from `failed`: a review nobody
@@ -217,7 +229,16 @@ class OpenQuestion(DomainModel):
     #: `Q-n`, assigned by the application in presentation order after validation. Nothing
     #: in a model's reply is ever this value.
     reference: str = Field(pattern=r"^Q-[0-9]+$")
-    #: The circumstance the case does not state.
+    #: What the review actually saw that raised this — which abstractions, what the code
+    #: does today, and what the case says about it now. The question and the unknown are
+    #: both one line, and one line is not enough to decide an answer from: a reader is being
+    #: asked about their own project by something that has read code they may not have, and
+    #: what it read is the part they cannot supply for themselves.
+    what_the_review_saw: str = Field(min_length=1)
+    #: The circumstance the case does not state, in one line and phrased to stand as the
+    #: subject of a sentence — the workspace composes the recorded case entry by joining
+    #: this to the user's answer, so that the answer still means something read alone
+    #: (§6C.4). It is not a restatement of the question; it is what the question is about.
     unknown: str = Field(min_length=1)
     #: Which way the cited verdicts move under each answer, so a reader can tell a question
     #: worth answering from one that changes nothing.
@@ -374,6 +395,19 @@ class BoundaryReview(DomainModel):
     atlas_version_id: str = Field(min_length=1)
     reasoning_model: str = Field(min_length=1)
     prompt_identity: str = Field(min_length=1)
+    #: The review whose questions produced the case revision this one judges against, where
+    #: this review is the second pass of an elicitation. `None` is a first pass, which is
+    #: every review that was not reached by answering.
+    #:
+    #: A stored link rather than an inference. "Has this review been carried on from?" was
+    #: previously read off the listing — any newer review of the same case counted — and
+    #: that is wrong in a way a user meets: revising the case by hand also produces a newer
+    #: review, which would silently mark the questions answered. It is also what lets the
+    #: second pass show what the answers actually changed.
+    #:
+    #: An optional field with a default, so every stored document still parses; ADR 0002
+    #: refuses shims for a *narrowed* schema, and this widens.
+    elicited_from: str | None = None
     report: BoundaryReviewReport | None = None
     markdown_report: str | None = None
     duration_seconds: float = Field(default=0.0, ge=0)
@@ -384,12 +418,36 @@ class BoundaryReview(DomainModel):
     created_at: datetime = Field(default_factory=utc_now)
 
     @model_validator(mode="after")
-    def succeeded_reviews_carry_a_report(self) -> BoundaryReview:
-        if self.status is ReviewStatus.SUCCEEDED and self.report is None:
-            raise ValueError("A succeeded review must carry its report")
-        if self.status is not ReviewStatus.SUCCEEDED and self.report is not None:
+    def reviews_that_reached_verdicts_carry_a_report(self) -> BoundaryReview:
+        """A report belongs to exactly the two statuses that got as far as judging.
+
+        A review waiting on answers has judged every boundary — the questions it asks are
+        the residue of those verdicts and cite them by reference, so there is nowhere else
+        for them to live. What it does not have is a conclusion, and its report says so by
+        carrying an overview the application composed rather than one a model wrote.
+
+        The other three statuses reached no verdict at all, and a report on any of them
+        would be a claim about a repository nothing examined.
+        """
+
+        reached_verdicts = {ReviewStatus.SUCCEEDED, ReviewStatus.AWAITING_ANSWERS}
+        if self.status in reached_verdicts and self.report is None:
+            raise ValueError(f"A {self.status.value} review must carry its report")
+        if self.status not in reached_verdicts and self.report is not None:
             raise ValueError(f"A {self.status.value} review must not carry a report")
         return self
+
+    @model_validator(mode="after")
+    def only_a_second_pass_names_the_review_it_came_from(self) -> BoundaryReview:
+        """A first pass has nothing to point at, and a self-link would be a cycle."""
+
+        if self.elicited_from is not None and self.elicited_from == self.review_id:
+            raise ValueError("A review cannot have been elicited from itself")
+        return self
+
+    @property
+    def awaiting_answers(self) -> bool:
+        return self.status is ReviewStatus.AWAITING_ANSWERS
 
 
 def empty_review_overview() -> ReviewOverview:
@@ -410,6 +468,61 @@ def empty_review_overview() -> ReviewOverview:
             "the package that owns it. Finding nothing means those shapes are absent, not "
             "that the repository is without structural problems."
         ),
+    )
+
+
+def first_pass_overview(
+    boundaries: list[ReviewedBoundary],
+    questions: list[OpenQuestion],
+) -> ReviewOverview:
+    """The overview of a pass that asked instead of concluding, composed rather than asked for.
+
+    A first pass runs `elicit_questions`, not `summarise_review`, so it has no model-written
+    conclusion — and that is deliberate rather than a gap. A summary composed against a case
+    that says nothing would be a conclusion drawn from silence, and the second pass discards
+    it anyway; spending a model call on a document nobody reads is the definition of
+    bookkeeping dressed as judgement (master plan 12.0).
+
+    So `situation` and `limits` are written here, from facts already known, and they say what
+    this pass actually is: verdicts reached, and the questions that would settle the ones that
+    could not settle themselves. `themes` and `recommended_sequence` stay empty because a first
+    pass has nothing to say about the set — saying it is the second pass's job.
+    """
+
+    hinged = sum(1 for item in boundaries if item.hinge is not None)
+    subject = "boundary" if len(boundaries) == 1 else "boundaries"
+    rested = (
+        "Every one of them stood on what it already knew"
+        if hinged == 0
+        else (
+            "One of them rested on something it was not told"
+            if hinged == 1
+            else f"{hinged} of them rested on something it was not told"
+        )
+    )
+    asking = (
+        "one question" if len(questions) == 1 else f"{len(questions)} questions"
+    )
+    # Relayed from the candidates rather than restated. The detector is what knows what it
+    # could not see, and prose written here would be this function's opinion of a method it
+    # does not implement.
+    stated: list[str] = []
+    for item in boundaries:
+        if item.candidate.limitations and item.candidate.limitations not in stated:
+            stated.append(item.candidate.limitations)
+    return ReviewOverview(
+        situation=(
+            f"{len(boundaries)} {subject} were judged against what this case says so far. "
+            f"{rested}, so before these verdicts are worth reading as findings, this pass is "
+            f"asking {asking}. Answering carries the review on: the same boundaries are "
+            "judged again against your answers, and that second pass is the one that "
+            "concludes."
+        ),
+        limits=(
+            " ".join(stated)
+            or "The detector stated no limitation on what it could see."
+        ),
+        open_questions=questions,
     )
 
 

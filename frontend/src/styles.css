@@ -1422,11 +1422,28 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 /* The questions read as an invitation, not as a defect: they are what the reader can do to
    sharpen the verdicts above, so they carry the accent rather than the warning colour. */
 .questions__lead { max-width: 82ch; margin: 0 0 14px; color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
+/* One question at a time, with every step reachable from this row. Numbered rather than
+   dotted: a reader who wants to change what they said about the second one should be able
+   to go straight to it, and a dot gives them nothing to aim at. Answered steps are filled,
+   so "what have I not done" is legible without counting. */
+.questions__steps { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; max-width: 82ch; margin: 0 0 14px; }
+.questions__step { min-width: 28px; height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: none; color: var(--color-text-tertiary); font: inherit; font-size: 12.5px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.questions__step:hover:not(.is-current) { border-color: var(--color-accent-border); color: var(--color-text-secondary); }
+.questions__step.is-answered { border-color: var(--color-accent-border); background: var(--color-accent-soft); color: var(--color-accent-strong); }
+.questions__step.is-current { border-color: var(--color-accent-strong); color: var(--color-accent-strong); font-weight: 600; box-shadow: inset 0 0 0 1px var(--color-accent-strong); }
+.questions__step--review { min-width: 0; }
+.questions__steps-count { margin-left: auto; color: var(--color-text-tertiary); font-size: 12px; }
+.questions__nav { display: flex; gap: 8px; max-width: 82ch; margin-top: 12px; }
+.questions__nav .button { font-size: 13px; }
+.questions__preview-empty { max-width: 78ch; margin: 16px 0 0; color: var(--color-text-tertiary); font-size: 13px; line-height: 1.6; }
 .questions__list { display: grid; gap: 14px; max-width: 82ch; margin: 0; padding: 0; list-style: none; }
-.question { padding: 14px 16px; border: 1px solid var(--color-accent-border); border-radius: 10px; background: var(--color-accent-soft); }
+.question { max-width: 82ch; padding: 14px 16px; border: 1px solid var(--color-accent-border); border-radius: 10px; background: var(--color-accent-soft); }
 .question__ask { display: flex; flex-wrap: wrap; gap: 5px 9px; align-items: baseline; margin: 0 0 8px; font-size: 15px; font-weight: 600; line-height: 1.5; }
 .question__ref { padding: 1px 7px; border: 1px solid var(--color-accent-border); border-radius: 20px; background: var(--color-surface); color: var(--color-accent-strong); font-family: "SFMono-Regular", Consolas, monospace; font-size: 11.5px; font-weight: 400; letter-spacing: .04em; }
-.question__unknown { margin: 0 0 6px; color: var(--color-text-secondary); font-size: 13.5px; line-height: 1.6; }
+/* What the review saw. Given the width and the leading of something meant to be read
+   rather than scanned — it is two or three sentences of evidence, and the one part of a
+   question the reader cannot work out for themselves. */
+.question__saw { max-width: 78ch; margin: 0 0 8px; color: var(--color-text-secondary); font-size: 13.5px; line-height: 1.65; }
 .question__why { display: flex; flex-wrap: wrap; gap: 5px 10px; align-items: baseline; margin: 0 0 6px; color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
 .question__target { display: block; margin: 0 0 5px; color: var(--color-text-tertiary); font-size: 12px; }
 .question__target code { font-size: 11.5px; }
@@ -1444,9 +1461,52 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
 .questions__preview ul { margin: 0; padding-left: 17px; color: var(--ink-muted); font-size: 13px; line-height: 1.6; }
 .questions__preview ul ul { margin: 3px 0 7px; padding-left: 14px; list-style: none; }
 .questions__preview code { font-size: 11.5px; color: var(--color-accent-strong); }
+.questions__preview-lead { margin: 0 0 10px; max-width: 76ch; color: var(--color-text-tertiary); font-size: 12.5px; line-height: 1.55; }
+/* The composed line is editable in place, so the preview holds inputs rather than text.
+   Laid out as "+ <box>" to keep reading as a diff: what is changing here is still one line
+   being added to one list, and it should not start looking like a form. */
+.questions__preview-line { display: grid; grid-template-columns: auto 1fr; gap: 4px 7px; align-items: start; margin-bottom: 7px; }
+.questions__preview-line > span { padding-top: 6px; color: var(--color-accent-strong); font-weight: 600; }
+.questions__preview-line textarea { width: 100%; padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--color-bg-surface, transparent); color: var(--ink); font: inherit; font-size: 13px; line-height: 1.55; resize: vertical; }
+.questions__preview-line textarea:focus-visible { outline: 2px solid var(--color-accent-border); outline-offset: 1px; }
+.questions__preview-reset { grid-column: 2; justify-self: start; padding: 0; border: 0; background: none; color: var(--color-text-tertiary); font-size: 11.5px; text-decoration: underline; cursor: pointer; }
+.questions__preview-reset:hover:not(:disabled) { color: var(--color-text-secondary); }
 .questions__preview-note { margin: 10px 0 0; color: var(--color-text-tertiary); font-size: 12px; line-height: 1.55; }
 .questions__error { margin: 12px 0 0; color: var(--color-danger, #b3261e); font-size: 13px; }
 .questions__submit { margin-top: 14px; }
+
+/* The verdicts a first pass reached and is not reporting.
+   Styled as an aside rather than as a section, and placed last, because the whole decision
+   here is that these are not the findings. The reveal is a plain button, not a primary one:
+   it has to be available — someone reviewing unfamiliar code may genuinely not be able to
+   answer — without reading as the equal alternative to answering, which the measurements
+   say it is not. */
+.held { margin: 44px 0 0; padding-top: 22px; border-top: 1px dashed var(--line); }
+.held__reveal { color: var(--color-text-secondary); font-size: 13.5px; }
+.held__warning { display: flex; gap: 10px; align-items: flex-start; max-width: 82ch; margin: 0 0 26px; padding: 13px 15px; border: 1px solid var(--color-warning-border, var(--line)); border-radius: 9px; background: var(--color-warning-soft, var(--color-bg-surface-raised)); color: var(--color-text-secondary); font-size: 13.5px; line-height: 1.65; }
+.held__warning svg { flex: none; margin-top: 3px; }
+.held__note { max-width: 82ch; margin: 20px 0 0; color: var(--color-text-tertiary); font-size: 12.5px; line-height: 1.6; }
+.held__note code { font-size: 11.5px; }
+
+/* What the reader's own answers changed, first thing on a second pass.
+   The one place this product's central claim is checkable rather than asserted, so it is
+   given the weight of a result: same repository, same atlas, same model, and the only
+   difference is what they just wrote down. */
+.changed { max-width: 82ch; margin: 0 0 30px; padding: 15px 17px; border: 1px solid var(--color-accent-border); border-radius: 10px; background: var(--color-accent-soft); }
+.changed__head { display: flex; gap: 10px; align-items: flex-start; margin: 0; font-size: 14px; line-height: 1.65; }
+.changed__head svg { flex: none; margin-top: 4px; color: var(--color-accent-strong); }
+.changed__rows { display: grid; gap: 7px; margin: 14px 0 0; padding: 0; list-style: none; }
+.changed__rows li { display: flex; flex-wrap: wrap; gap: 5px 10px; align-items: baseline; font-size: 13px; }
+.changed__rows code { font-size: 12px; color: var(--color-text-secondary); }
+.changed__move { color: var(--ink-muted); font-size: 12.5px; }
+.changed__move strong { color: var(--color-text-primary); }
+/* The answer behind a moved verdict. Indented under the row it explains and given the full
+   width of it, because the whole point is that this is the sentence the reader wrote — the
+   one place the product's central claim stops being asserted and becomes checkable. */
+.changed__because { display: grid; gap: 6px; width: 100%; margin: 2px 0 4px; padding: 0 0 0 13px; border-left: 2px solid var(--color-accent-border); list-style: none; }
+.changed__because li { display: grid; gap: 2px; font-size: 12.5px; }
+.changed__asked { color: var(--color-text-tertiary); }
+.changed__answered { color: var(--color-text-secondary); }
 
 /* Citations are links, not decoration: they are how a claim connects to its evidence. */
 .cites { display: inline-flex; flex-wrap: wrap; gap: 5px; }
@@ -1789,3 +1849,31 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--t
    no qualifier reads as a thing that must be done before the run. */
 .rail__step--optional { opacity: .55; }
 .rail__optional { padding: 1px 7px; border: 1px solid var(--line); border-radius: 20px; color: var(--color-text-tertiary); font-size: 11px; letter-spacing: .03em; }
+
+/* Talking about one open question, inside the question it is about.
+   Set apart from the card it sits in rather than floated into its own panel: it is part of
+   answering this question, and a reader who opens it has not navigated anywhere. Closed by
+   default, and the affordance for opening it names the reason someone would — not knowing
+   what is being asked is the ordinary case, not a failure to admit. */
+.discussion__open { display: inline-flex; gap: 6px; align-items: center; margin-top: 10px; padding: 0; border: 0; background: none; color: var(--color-accent-strong); font: inherit; font-size: 12.5px; cursor: pointer; }
+.discussion__open:hover:not(:disabled) { text-decoration: underline; }
+.discussion__open:disabled { color: var(--color-text-tertiary); cursor: default; }
+.discussion { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--color-accent-border); }
+.discussion__lead { max-width: 76ch; margin: 0 0 10px; color: var(--color-text-tertiary); font-size: 12.5px; line-height: 1.55; }
+.discussion__turns { display: grid; gap: 12px; margin: 0 0 12px; padding: 0; list-style: none; }
+.discussion__turn { display: grid; gap: 6px; }
+.discussion__asked { justify-self: start; max-width: 62ch; margin: 0; padding: 7px 11px; border-radius: 10px 10px 10px 2px; background: var(--color-bg-surface-raised, var(--color-surface)); color: var(--ink); font-size: 13px; line-height: 1.55; }
+.discussion__replied { max-width: 76ch; color: var(--color-text-secondary); font-size: 13.5px; line-height: 1.65; }
+.discussion__failed { margin: 0; color: var(--color-danger, #b3261e); font-size: 13px; }
+/* The suggestion, and the button that makes it the reader's. Marked out as an offer rather
+   than as a result, because that is exactly what it is: nothing has been recorded, and
+   pressing this only fills the box above. */
+.discussion__suggestion { display: grid; gap: 8px; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--color-accent-border); border-radius: 9px; background: var(--color-accent-soft); }
+.discussion__suggestion p { display: flex; gap: 8px; align-items: flex-start; margin: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
+.discussion__suggestion svg { flex: none; margin-top: 3px; color: var(--color-accent-strong); }
+.discussion__suggestion em { color: var(--ink); font-style: normal; font-weight: 600; }
+.discussion__adopt { justify-self: start; font-size: 12.5px; }
+.discussion__error { margin: 0 0 10px; color: var(--color-danger, #b3261e); font-size: 13px; }
+.discussion__compose { display: flex; gap: 8px; align-items: flex-start; }
+.discussion__compose textarea { flex: 1; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--color-bg-surface, transparent); color: var(--ink); font: inherit; font-size: 13px; line-height: 1.55; resize: vertical; }
+.discussion__compose .button { font-size: 13px; }

@@ -36,7 +36,13 @@ export function progressFromSummary(
     boundaries: [],
     verdicts: Array.from({ length: total }, () => null),
     judged: summary.boundaries_reviewed,
-    summarising: total > 0 && summary.boundaries_reviewed >= total,
+    // Which of the two set-wide calls is running is not in the counts — the record knows
+    // only that every verdict has landed. It is reported as the one this pass will make,
+    // which the row does know: a run that names the pass it answers concludes, and one that
+    // does not asks.
+    eliciting: total > 0 && summary.boundaries_reviewed >= total && !summary.elicited_from,
+    summarising:
+      total > 0 && summary.boundaries_reviewed >= total && Boolean(summary.elicited_from),
   };
 }
 
@@ -108,6 +114,7 @@ export function ReviewInProgress({
       <div className="in-progress">
         <RunProgress
           progress={progress}
+          pass={review.elicited_from ? 2 : 1}
           heading={
             watching ? (
               <>

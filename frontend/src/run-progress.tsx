@@ -6,16 +6,24 @@ import type { ReviewProgress } from "./types";
 /**
  * How far a running review has got, and how that is shown.
  *
- * A review is three stages, and each fails to explain itself alone: a deterministic sweep
- * whose length nobody knows until it finishes, one model call per boundary, and a last call
- * over all of them. A single spinner would make a two-minute run look like a hung request,
+ * A review is a sequence of stages and each fails to explain itself alone: a deterministic
+ * sweep whose length nobody knows until it finishes, one model call per boundary, a call
+ * over all of them, and — where the verdicts did not settle themselves — a stop, until a
+ * person answers. A single spinner would make a two-minute run look like a hung request,
  * and a bare percentage would not say what is taking the time. So the flow is drawn as the
  * stages it actually has, with the boundaries named as their verdicts land.
  *
+ * The seven stages span two runs. That is deliberate and it is what the reader experiences:
+ * one journey, whose middle is theirs to supply. Each pass is its own immutable review
+ * pinned to its own case revision, so the second cannot be a continuation of the first as a
+ * record — but as a flow it plainly is, and drawing it as two unrelated three-stage runs
+ * would hide the only part that needs explaining.
+ *
  * `judged` counts finished verdicts, so the boundary under judgement is the next one: the
  * count is derived from what has landed rather than from a separate "starting" message that
- * could disagree with it. Shared by both places a review can be started — the start step and
- * the review page's revise-and-review-again — because it is the same run either way.
+ * could disagree with it. Shared by every place a review is watched — the start step, the
+ * review page's revise-and-review-again, and the page that is holding for answers — because
+ * it is the same run either way.
  */
 export type RunState = {
   total: number;
@@ -23,6 +31,8 @@ export type RunState = {
   /** One entry per boundary, in detection order: `null` until that verdict lands. */
   verdicts: (boolean | null)[];
   judged: number;
+  /** The first pass's last call: composing what it needs to ask. */
+  eliciting: boolean;
   summarising: boolean;
 } | null;
 
@@ -34,6 +44,7 @@ export function applyProgress(current: RunState, event: ReviewProgress): RunStat
       boundaries: event.boundaries,
       verdicts: Array.from({ length: event.total }, () => null),
       judged: 0,
+      eliciting: false,
       summarising: false,
     };
   }
@@ -43,6 +54,9 @@ export function applyProgress(current: RunState, event: ReviewProgress): RunStat
     const verdicts = [...current.verdicts];
     verdicts[event.position - 1] = event.material;
     return { ...current, verdicts, judged: event.position };
+  }
+  if (event.event === "eliciting" && current) {
+    return { ...current, judged: event.total, eliciting: true };
   }
   if (event.event === "summarising" && current) {
     return { ...current, judged: event.total, summarising: true };
@@ -90,43 +104,72 @@ function Stage({
  */
 export type AwaitingAnswers = number | null;
 
+/**
+ * Which half of the journey this run is. `1` judges and then asks; `2` judges again against
+ * the answers and concludes.
+ *
+ * A second pass draws the first pass's stages as done rather than hiding them. They did
+ * happen, they are what produced the questions the reader just answered, and a progress list
+ * that started at "judge each boundary again" would leave the word "again" unexplained.
+ */
+export type RunPass = 1 | 2;
+
 export function RunProgress({
   progress,
   heading,
   awaiting = null,
+  pass = 1,
+  answersRecorded = null,
 }: {
   progress: RunState;
   heading?: ReactNode;
   awaiting?: AwaitingAnswers;
+  pass?: RunPass;
+  /** The case revision the answers created, once they have been recorded. */
+  answersRecorded?: number | null;
 }) {
   const detected = progress !== null;
   const total = progress?.total ?? 0;
   const judged = progress?.judged ?? 0;
+  const eliciting = progress?.eliciting ?? false;
   const summarising = progress?.summarising ?? false;
-  const judging: StageState = !detected
-    ? "waiting"
-    : summarising || judged >= total
-      ? "done"
-      : "active";
+  const second = pass === 2;
+  const judging: StageState = second
+    ? "done"
+    : !detected
+      ? "waiting"
+      : eliciting || summarising || judged >= total
+        ? "done"
+        : "active";
   // The one stage that does not end on its own. Every other step here finishes because the
   // application finished it; this one is waiting on a person, and it stays waiting across a
   // reload because it is derived from the stored review rather than from this page's state.
-  const answering: StageState =
-    awaiting === null ? "waiting" : awaiting > 0 ? "active" : "done";
+  const answering: StageState = second
+    ? "done"
+    : awaiting === null
+      ? "waiting"
+      : awaiting > 0
+        ? "active"
+        : "done";
+  // On a second pass the first three stages are history, so their detail is stated rather
+  // than counted: this run's own counters describe the *re*-judging below.
+  const firstPassTotal = second ? null : total;
 
   return (
     <div className="run-flow" role="status" aria-live="polite">
       {heading ? <p className="run-flow__heading">{heading}</p> : null}
       <ol className="run-flow__stages">
         <Stage
-          state={detected ? "done" : "active"}
+          state={second || detected ? "done" : "active"}
           title="Sweep the atlas"
           detail={
-            detected ? (
-              total === 1 ? (
+            firstPassTotal === null ? (
+              "The same atlas as the first pass — nothing about the code changed."
+            ) : detected ? (
+              firstPassTotal === 1 ? (
                 "1 boundary found"
               ) : (
-                `${total} boundaries found`
+                `${firstPassTotal} boundaries found`
               )
             ) : (
               <>Parsing is deterministic, so this part is quick.</>
@@ -137,7 +180,9 @@ export function RunProgress({
           state={judging}
           title="Judge each boundary"
           detail={
-            !detected ? (
+            second ? (
+              "Judged against what the case said before you answered."
+            ) : !detected ? (
               "One model call each, against the case and every policy."
             ) : total === 0 ? (
               "Nothing to judge in this repository."
@@ -148,16 +193,18 @@ export function RunProgress({
             )
           }
         />
-        {/* Named for both things this call does. It composes the conclusion *and* the
-            questions, because a verdict that rested on something the case did not say
-            records what that was, and this is the only stage that sees all of those at
-            once — where several boundaries turning on one fact become one question rather
-            than several. A reader watching the run should know the questions are coming
-            from here rather than wondering where they appeared from. */}
+        {/* Its own stage, and its own model call. A first pass does not compose a
+            conclusion — there is usually no case to draw one from — so what happens here is
+            only the merging: this is the only point that sees every hinge at once, where
+            several boundaries turning on one fact become one question rather than several. */}
         <Stage
-          state={summarising ? "active" : "waiting"}
-          title="Read the verdicts as a set"
-          detail="One last call: what they amount to together, and what is still worth asking."
+          state={second ? "done" : eliciting ? "active" : "waiting"}
+          title="Ask what it needs to know"
+          detail={
+            second
+              ? "The questions you answered were composed here."
+              : "Only where a verdict turned on something it was not told — it asks rather than guesses."
+          }
         />
         {/* Named for what the run does, not for a document it found wanting. Most runs now
             start with nothing written down at all, so "what the case does not say" would be
@@ -165,19 +212,64 @@ export function RunProgress({
             reader's omission rather than as the advisor asking for what it needs. */}
         <Stage
           state={answering}
-          title="Ask questions if needed"
+          title="Answer the questions"
           detail={
-            awaiting === null ? (
-              "Only where a verdict turned on something it was not told — it asks rather than guesses."
+            second ? (
+              "Answered."
+            ) : awaiting === null ? (
+              "Nothing is reported until these are settled — a verdict reached without them can come out the other way."
             ) : awaiting > 0 ? (
               <>
                 {awaiting === 1 ? "1 question is" : `${awaiting} questions are`} waiting on
-                you. The review carries on against your answers.
+                you. Answer what you know and leave the rest.
               </>
             ) : (
               "Nothing to ask — every verdict stood on what it already knew."
             )
           }
+        />
+        {/* A stage because it is a real and visible thing that happens to the reader's
+            workspace, not because it takes time: their answers become a case, immutably and
+            with a revision number, and that document is what the second pass is pinned to.
+            Skipped over entirely by a first pass that had nothing to ask. */}
+        <Stage
+          state={second ? "done" : answering === "done" ? "done" : "waiting"}
+          title="Write the case from your answers"
+          detail={
+            answersRecorded !== null ? (
+              <>Recorded as revision {answersRecorded} of the case.</>
+            ) : (
+              "Your answers become a case revision you can read, revise and re-run."
+            )
+          }
+        />
+        <Stage
+          state={
+            second
+              ? !detected
+                ? "waiting"
+                : summarising || judged >= total
+                  ? "done"
+                  : "active"
+              : "waiting"
+          }
+          title="Judge each boundary again"
+          detail={
+            !second ? (
+              "The same boundaries, against what you have just told it."
+            ) : !detected ? (
+              "One model call each, against the answered case and every policy."
+            ) : (
+              <>
+                {judged} of {total} re-judged
+              </>
+            )
+          }
+        />
+        <Stage
+          state={second && summarising ? "active" : "waiting"}
+          title="Read the verdicts as a set"
+          detail="One last call: what they amount to together. This is the pass that concludes."
         />
       </ol>
 
@@ -206,7 +298,7 @@ export function RunProgress({
           <ul className="run-flow__boundaries">
             {progress!.boundaries.map((name, index) => {
               const verdict = progress!.verdicts[index];
-              const current = index === judged && !summarising;
+              const current = index === judged && !summarising && !eliciting;
               return (
                 <li
                   key={`${name}-${index}`}

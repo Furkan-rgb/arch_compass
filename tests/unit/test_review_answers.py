@@ -26,6 +26,7 @@ from archcompass.adapters.models.structured import (
 )
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.atlas import FindingMeasurement, FindingPattern
+from archcompass.domain.case import ArchitectureCase
 from archcompass.domain.errors import ModelOutputValidationError
 from archcompass.domain.knowledge import MethodKnowledge
 from archcompass.domain.review import OverviewStatement, ReviewOverview
@@ -87,6 +88,15 @@ OVERVIEW = ReviewOverview(
 )
 
 
+CASE = ArchitectureCase(
+    title="Voices",
+    problem_statement="Decide which boundaries earn their place.",
+    desired_outcome="A verdict per boundary.",
+    technical_constraints=["Speech synthesis runs on the local machine only."],
+    non_goals=["Streaming audio to a browser."],
+)
+
+
 def _request() -> tuple[str, _RecordingTransport]:
     transport = _RecordingTransport(
         json.dumps({"answer": "As the review has it.", "supported_by": [True, False, False]})
@@ -104,6 +114,7 @@ def _request() -> tuple[str, _RecordingTransport]:
 
     provider.answer_review_question(
         review(BOUNDARIES, overview=OVERVIEW),
+        CASE,
         [],
         "What should I do first, and how many copies of the voice list are there?",
         MethodKnowledge(method="What ArchCompass means by a boundary.", policies=[]),
@@ -122,6 +133,22 @@ def test_every_boundary_reaches_the_stage_with_its_reasoning_and_verdict() -> No
         assert boundary.rationale in sent
     assert "earning its place" in sent
     assert "NOT earning its place" in sent
+
+
+def test_the_whole_pinned_case_reaches_the_stage_not_a_restatement_of_it() -> None:
+    """The case travels with the review everywhere the review goes.
+
+    This stage used to receive `problem_and_desired_outcome` — two sentences composed for
+    the report — and none of the fields a verdict was actually weighed against. So "why was
+    this condemned?" was answered by something that could not see the constraints and
+    non-goals the judging stage had in front of it when it condemned it.
+    """
+
+    sent, _ = _request()
+
+    assert CASE.problem_statement in sent
+    assert CASE.technical_constraints[0] in sent
+    assert CASE.non_goals[0] in sent
 
 
 def test_the_conclusion_the_reader_sees_is_in_the_request() -> None:
@@ -222,6 +249,7 @@ def test_the_answer_still_binds_by_position() -> None:
     with pytest.raises(ModelOutputValidationError, match="supported_by"):
         provider.answer_review_question(
             review(BOUNDARIES, overview=OVERVIEW),
+            CASE,
             [],
             "Which one first?",
             MethodKnowledge(method="Primer.", policies=[]),

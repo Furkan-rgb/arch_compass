@@ -27,6 +27,7 @@ describe("progressFromSummary", () => {
       boundaries: [],
       verdicts: [null, null, null, null, null, null],
       judged: 2,
+      eliciting: false,
       summarising: false,
     });
   });
@@ -39,7 +40,17 @@ describe("progressFromSummary", () => {
   });
 
   it("reaches the last stage when every boundary has been judged", () => {
-    expect(progressFromSummary(running({ boundaries_reviewed: 6 }))?.summarising).toBe(true);
+    // Which of the two set-wide calls that is, is not in the counts — but the row does say
+    // which pass this is, and a first pass asks where a second concludes.
+    const first = progressFromSummary(running({ boundaries_reviewed: 6 }));
+    expect(first?.eliciting).toBe(true);
+    expect(first?.summarising).toBe(false);
+
+    const second = progressFromSummary(
+      running({ boundaries_reviewed: 6, elicited_from: "rev_0" }),
+    );
+    expect(second?.summarising).toBe(true);
+    expect(second?.eliciting).toBe(false);
   });
 });
 
@@ -49,6 +60,7 @@ describe("watchedProgress", () => {
     boundaries: ["ports.Clock"],
     verdicts: [true, null, null, null, null, null],
     judged: 1,
+    eliciting: false,
     summarising: false,
   };
 

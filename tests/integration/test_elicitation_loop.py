@@ -23,10 +23,17 @@ from pathlib import Path
 import pytest
 import yaml
 
+from archcompass.application.cases import WrittenAnswer
 from archcompass.application.review_rendering import render_review
 from archcompass.application.reviews import UNSTATED_CASE
 from archcompass.bootstrap import Runtime
 from archcompass.domain.case import ArchitectureCase, CaseField, CaseUpdate
+from archcompass.domain.errors import (
+    CaseRevisionConflictError,
+    CaseValidationError,
+    ConversationNotFoundError,
+    PersistenceError,
+)
 from archcompass.domain.finding_detectors import detect_finding_candidates
 from archcompass.domain.review import ReviewStatus
 
@@ -84,19 +91,21 @@ def test_the_example_still_produces_the_five_boundaries_it_grades(runtime: Runti
     )
 
 
-def test_a_thin_case_is_reviewed_and_then_asked_about(runtime: Runtime) -> None:
-    """The whole point: value first, and the questions after it.
+def test_a_thin_case_is_judged_in_full_and_then_holds(runtime: Runtime) -> None:
+    """Investigate first, then ask — and do not report until the asking is answered.
 
-    A review must be complete before anything is asked. An advisor that opens by demanding
-    a better case has put its price ahead of its value, which is the adoption tax
-    elicitation exists to remove.
+    Both halves matter. Every boundary is judged before anything is asked, because a
+    question asked before looking is generic and the specific ones are the residue of real
+    judgement. And the run then stops rather than reporting, because verdicts reached
+    against a case this thin are provisional: on this very example, four of five moved once
+    the questions were answered (ADR 0010).
     """
 
     case_id = _loaded(runtime)
 
     review = runtime.review_service.review(case_id, repository_root=REPOSITORY)
 
-    assert review.status is ReviewStatus.SUCCEEDED
+    assert review.status is ReviewStatus.AWAITING_ANSWERS
     report = review.report
     assert report is not None
     assert len(report.reviewed) == 5, "every boundary is judged, thin case or not"
@@ -112,6 +121,43 @@ def test_a_thin_case_is_reviewed_and_then_asked_about(runtime: Runtime) -> None:
         assert question.answer_belongs_in in set(CaseField)
         assert question.question.strip()
         assert question.unknown.strip()
+
+    # A first pass asks; it does not conclude. Its overview is composed by the application
+    # from facts already known, so no model call was spent writing a synthesis of a case
+    # that has not been written yet.
+    assert report.overview.themes == []
+    assert report.overview.recommended_sequence == []
+
+
+def test_a_review_that_is_still_asking_is_not_a_finished_review(runtime: Runtime) -> None:
+    """The status, and the document, both have to stop claiming otherwise.
+
+    Before this, a first pass was stored as `succeeded` and rendered its verdicts under
+    "what should change" — so a run holding questions nobody had answered read as a finished
+    review, for ever, in every listing. The verdicts exist and are kept; what changes is that
+    nothing presents them as findings until they have been through a second pass.
+    """
+
+    case_id = _loaded(runtime)
+
+    review = runtime.review_service.review(case_id, repository_root=REPOSITORY)
+
+    assert review.awaiting_answers
+    listed = runtime.review_repository.list()
+    assert [item.status for item in listed if item.review_id == review.review_id] == [
+        "awaiting_answers"
+    ]
+
+    markdown = render_review(review)
+    assert "waiting on answers" in markdown
+    assert "## What should change" not in markdown
+    assert "## Examined and left alone" not in markdown
+    # The verdicts are held, not lost: every boundary was judged and the document says so
+    # rather than reading like a run that gave up part-way.
+    report = review.report
+    assert report is not None
+    assert len(report.reviewed) == 5
+    assert "all 5 boundaries were judged" in markdown
 
 
 def test_the_application_numbers_the_questions(runtime: Runtime) -> None:
@@ -156,8 +202,13 @@ def test_a_question_consolidates_the_boundaries_that_share_its_unknown(
     )
 
 
-def test_the_hinges_and_the_questions_both_reach_the_page(runtime: Runtime) -> None:
-    """A hinge prints against its own boundary; the question prints once, with citations."""
+def test_the_questions_reach_the_page_with_their_citations(runtime: Runtime) -> None:
+    """Each question prints once, saying which verdicts it would settle and where it lands.
+
+    The citations are the reason a reader can tell a question worth answering from one that
+    changes nothing, and they are the only thing on this document pointing at the held
+    verdicts — so they have to survive into the text rather than existing only as data.
+    """
 
     case_id = _loaded(runtime)
 
@@ -167,16 +218,12 @@ def test_the_hinges_and_the_questions_both_reach_the_page(runtime: Runtime) -> N
     assert report is not None
     markdown = render_review(review)
     assert review.markdown_report == markdown
-    assert "### What it needs to know" in markdown
+    assert "## What it needs to know" in markdown
     for question in report.overview.open_questions:
         assert question.question in markdown
         assert question.answer_belongs_in.value in markdown
         for reference in question.supporting_references:
             assert reference in markdown
-    # And beside each boundary that carried one, where a reader decides whether to act.
-    for item in report.reviewed:
-        if item.hinge:
-            assert item.hinge.unknown in markdown
 
 
 def test_answering_the_question_closes_the_loop(runtime: Runtime) -> None:
@@ -209,17 +256,84 @@ def test_answering_the_question_closes_the_loop(runtime: Runtime) -> None:
     )
     assert answered.revision == 2, "an answer is a new revision, never an edit"
 
-    second = runtime.review_service.review(case_id, repository_root=REPOSITORY)
+    second = runtime.review_service.review(
+        case_id,
+        repository_root=REPOSITORY,
+        elicited_from=first.review_id,
+    )
 
+    assert second.status is ReviewStatus.SUCCEEDED, "the second pass concludes"
     later = second.report
     assert later is not None
     assert later.overview.open_questions == [], "an answered case is not asked again"
     assert not any(item.hinge for item in later.reviewed)
     # Both reviews survive, each pinned to the revision it ran against — nothing was
-    # overwritten and there is nothing to reconcile.
+    # overwritten and there is nothing to reconcile. The link between them is stored rather
+    # than inferred from adjacency, so revising the case by hand cannot be mistaken for this.
     assert first.case_revision == 1
     assert second.case_revision == 2
+    assert first.elicited_from is None
+    assert second.elicited_from == first.review_id
     assert len(later.reviewed) == len(report.reviewed)
+
+
+def test_a_second_pass_cannot_open_a_fresh_round_of_questions(runtime: Runtime) -> None:
+    """What makes the loop terminate, asserted where a reader would look for the rule.
+
+    A reader may answer nothing, or answer one of five. The verdicts that still hinge are
+    reported as findings with their contingency stated, never as another gate: a second pass
+    that could ask again would leave the flow with no way to end. The rule is enforced by the
+    summarising stage having no field for a question, so it holds whatever a model returns.
+    """
+
+    case_id = _loaded(runtime)
+    first = runtime.review_service.review(case_id, repository_root=REPOSITORY)
+    assert first.awaiting_answers
+
+    # Deliberately no answer at all: the case is untouched, so every hinge that made the
+    # first pass stop is still open when the second one runs.
+    second = runtime.review_service.review(
+        case_id,
+        repository_root=REPOSITORY,
+        elicited_from=first.review_id,
+    )
+
+    assert second.status is ReviewStatus.SUCCEEDED
+    later = second.report
+    assert later is not None
+    assert later.overview.open_questions == [], "a second pass never asks"
+    assert any(item.hinge for item in later.reviewed), (
+        "the contingency is still real and is reported on the boundary rather than hidden"
+    )
+    markdown = render_review(second)
+    assert "## What it needs to know" not in markdown
+    assert "turns on an open question" in markdown
+
+
+def test_a_review_waiting_on_answers_survives_the_workspace_stopping(
+    runtime: Runtime,
+) -> None:
+    """The hold is durable because it is a status, not something a page remembers.
+
+    A workspace that restarts reports every row still marked `running` as failed, because a
+    run cannot outlive the process holding its request. A run waiting on a person is the
+    opposite case: nothing is executing, and the wait is exactly what should still be there
+    tomorrow. Sweeping it up with the abandoned runs would lose the questions and the
+    verdicts behind them.
+    """
+
+    case_id = _loaded(runtime)
+    review = runtime.review_service.review(case_id, repository_root=REPOSITORY)
+    assert review.awaiting_answers
+
+    abandoned = runtime.review_repository.abandon_running(
+        reason="The workspace stopped while this review was running."
+    )
+
+    assert abandoned == 0
+    stored = runtime.review_repository.get(review.review_id)
+    assert stored.status is ReviewStatus.AWAITING_ANSWERS
+    assert stored == review, "nothing about it changed, including the questions it asked"
 
 
 def test_the_case_ships_silent_on_the_fact_its_key_says_is_missing(runtime: Runtime) -> None:
@@ -280,7 +394,7 @@ def test_a_review_runs_against_a_repository_with_no_case_written(runtime: Runtim
 
     review = runtime.review_service.review(revision.case_id, repository_root=REPOSITORY)
 
-    assert review.status is ReviewStatus.SUCCEEDED
+    assert review.status is ReviewStatus.AWAITING_ANSWERS
     report = review.report
     assert report is not None
     assert len(report.reviewed) == 5, "an unwritten case still gets every boundary judged"
@@ -307,7 +421,11 @@ def test_answering_carries_the_same_boundaries_forward(runtime: Runtime) -> None
         CaseUpdate(expected_future_changes=["A second warehouse arrives next quarter."]),
         actor="operator",
     )
-    second = runtime.review_service.review(revision.case_id, repository_root=REPOSITORY)
+    second = runtime.review_service.review(
+        revision.case_id,
+        repository_root=REPOSITORY,
+        elicited_from=first.review_id,
+    )
 
     before = first.report
     after = second.report
@@ -317,3 +435,302 @@ def test_answering_carries_the_same_boundaries_forward(runtime: Runtime) -> None
     ]
     assert first.atlas_version_id == second.atlas_version_id
     assert (first.case_revision, second.case_revision) == (1, 2)
+
+
+def _waiting(runtime: Runtime) -> tuple[str, list[str]]:
+    """A first pass that stopped to ask, with the references of what it asked."""
+
+    case_id = _loaded(runtime)
+    review = runtime.review_service.review(case_id, repository_root=REPOSITORY)
+    assert review.status is ReviewStatus.AWAITING_ANSWERS
+    report = review.report
+    assert report is not None
+    return review.review_id, [item.reference for item in report.overview.open_questions]
+
+
+def test_a_review_still_asking_refuses_to_discuss_itself_but_will_discuss_a_question(
+    runtime: Runtime,
+) -> None:
+    """The two conversations a waiting review can be asked for, and why only one opens.
+
+    Refusing both would tell a reader who does not understand the question that they must
+    answer it before they may ask about it, which is §6C.5's adoption tax in its purest
+    form. Allowing both would hand over the withheld verdicts through a side door. What
+    separates them is scope: a question-scoped discussion is shown the boundaries that
+    question cites and no others (§6C.7).
+    """
+
+    review_id, references = _waiting(runtime)
+    assert references, "the example is built to leave something unstated"
+
+    with pytest.raises(ConversationNotFoundError, match="waiting on answers"):
+        runtime.review_conversation_service.create(review_id)
+
+    conversation = runtime.review_conversation_service.create(
+        review_id, question_reference=references[0]
+    )
+
+    assert conversation.question_reference == references[0]
+    # Titled with the question, because that is what the thread is about and a reader will
+    # have more than one of these open at once.
+    assert references[0] in conversation.title
+
+
+def test_a_discussion_never_sees_a_verdict_its_question_does_not_cite(
+    runtime: Runtime,
+) -> None:
+    """The property that makes the stage safe to run while verdicts are withheld.
+
+    Asserted through grounding, which is the only channel a boundary can come back out of:
+    references are resolved from positional flags over exactly the boundaries that were
+    presented, so a citation to an uncited boundary is unreachable rather than unlikely.
+    """
+
+    review_id, references = _waiting(runtime)
+    stored = runtime.review_repository.get(review_id)
+    report = stored.report
+    assert report is not None
+    question = next(
+        item for item in report.overview.open_questions if item.reference == references[0]
+    )
+    cited = set(question.supporting_references)
+    assert cited < {item.reference for item in report.reviewed}, (
+        "this assertion is vacuous unless the question cites fewer than every boundary"
+    )
+
+    conversation = runtime.review_conversation_service.create(
+        review_id, question_reference=references[0]
+    )
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id, "What are you actually asking me here?"
+    )
+
+    assert message.answer is not None
+    assert set(message.answer.supporting_references) <= cited
+
+
+def test_a_reference_the_review_never_asked_is_refused(runtime: Runtime) -> None:
+    """`Q-n` is the application's own identifier, so the application resolves it (§12.0)."""
+
+    review_id, _ = _waiting(runtime)
+
+    with pytest.raises(ConversationNotFoundError, match="asked no question Q-99"):
+        runtime.review_conversation_service.create(review_id, question_reference="Q-99")
+
+
+def test_a_discussion_offers_a_phrasing_only_after_the_reader_has_said_something(
+    runtime: Runtime,
+) -> None:
+    """It may help them reach an answer; it may not reach one on their behalf (§6C.5).
+
+    The substitute proposes a phrasing only where the reader's turn settles something, which
+    is the shape the contract asks a real model for. What is asserted here is the path — that
+    a suggestion travels as its own field of the record rather than as prose a caller has to
+    parse, and that an opening question produces none.
+    """
+
+    review_id, references = _waiting(runtime)
+    conversation = runtime.review_conversation_service.create(
+        review_id, question_reference=references[0]
+    )
+
+    opening = runtime.review_conversation_service.ask(
+        conversation.conversation_id, "I do not follow what this question is asking."
+    )
+    assert opening.answer is not None
+    assert opening.answer.suggested_answer == ""
+
+    settled = runtime.review_conversation_service.ask(
+        conversation.conversation_id,
+        "Yes, a second warehouse is contracted for next quarter.",
+    )
+
+    assert settled.answer is not None
+    assert settled.answer.suggested_answer
+
+
+def test_discussing_a_question_writes_nothing_to_the_case_or_the_review(
+    runtime: Runtime,
+) -> None:
+    """Invariant 25 across the new surface.
+
+    A suggested phrasing is offered and nothing more. The case gains no revision, the review
+    keeps the status and the questions it had, and the only way any of it reaches the case is
+    the walk the reader completes themselves.
+    """
+
+    review_id, references = _waiting(runtime)
+    before = runtime.review_repository.get(review_id)
+    case_before = runtime.case_repository.get(before.case_id)
+
+    conversation = runtime.review_conversation_service.create(
+        review_id, question_reference=references[0]
+    )
+    runtime.review_conversation_service.ask(
+        conversation.conversation_id,
+        "Yes, a second warehouse is contracted for next quarter.",
+    )
+
+    after = runtime.review_repository.get(review_id)
+    assert after == before, "a discussion is not a change to the review it is about"
+    assert runtime.case_repository.get(before.case_id).revision == case_before.revision
+
+
+def test_a_discussion_is_given_the_case_the_review_pinned(runtime: Runtime) -> None:
+    """The case guides the review, so it accompanies the review into the discussion.
+
+    Not the answers being typed in this round — those batch into one revision and do not
+    exist until the reader saves (§6C.4), so a stage reasoning from them would be reasoning
+    from a reply they can still delete. What it gets is the pinned revision: what was written
+    before, including answers from an earlier round.
+    """
+
+    review_id, references = _waiting(runtime)
+    stored = runtime.review_repository.get(review_id)
+    pinned = runtime.case_repository.get(stored.case_id, stored.case_revision).snapshot
+
+    # The workspace's case moves on; this review's does not. A conversation about an old
+    # review must be explained from what that review actually ran against.
+    runtime.case_service.update(
+        stored.case_id,
+        CaseUpdate(non_goals=["Something written after this review ran."]),
+        actor="operator",
+    )
+
+    conversation = runtime.review_conversation_service.create(
+        review_id, question_reference=references[0]
+    )
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id, "What does my case already say about this?"
+    )
+
+    # The substitute counts what the case states rather than quoting it, so this asserts
+    # arrival — and that what arrived was the pinned revision rather than the current one.
+    assert message.answer is not None
+    stated = len(pinned.expected_future_changes) + len(pinned.assumptions)
+    assert f"case states {stated}" in message.answer.answer
+    assert runtime.case_repository.get(stored.case_id).revision == stored.case_revision + 1
+
+
+def test_answering_records_which_questions_it_answered(runtime: Runtime) -> None:
+    """The arrow from a case line back to the question that produced it (§6C.4).
+
+    Everything either side of an answer was already kept — the questions in the review that
+    asked them, the case as an append-only history — and this is the join. Without it a
+    second pass can report that four verdicts moved and cannot say which sentence moved any
+    one of them.
+    """
+
+    review_id, references = _waiting(runtime)
+    stored = runtime.review_repository.get(review_id)
+    report = stored.report
+    assert report is not None
+    answered_reference = references[0]
+    question = next(
+        item for item in report.overview.open_questions if item.reference == answered_reference
+    )
+
+    revision = runtime.case_service.answer(
+        stored,
+        [
+            WrittenAnswer(
+                question_reference=answered_reference,
+                recorded_text="Whether a second warehouse is coming — no, and none is planned.",
+            )
+        ],
+    )
+
+    assert revision.revision == stored.case_revision + 1
+    assert revision.answered is not None
+    assert revision.answered.review_id == review_id
+    recorded = revision.answered.answers
+    assert [item.question_reference for item in recorded] == [answered_reference]
+    # The destination comes from the question, not from the request — the caller never named
+    # one, so a client cannot route an answer into a list its question did not mention.
+    assert recorded[0].answer_belongs_in is question.answer_belongs_in
+    # And the line is in the case, in that list.
+    entries = getattr(revision.snapshot, question.answer_belongs_in.value)
+    written = [item if isinstance(item, str) else item.text for item in entries]
+    assert "Whether a second warehouse is coming — no, and none is planned." in written
+
+
+def test_a_reference_the_review_never_asked_is_refused_when_answering(
+    runtime: Runtime,
+) -> None:
+    """`Q-n` is the application's own identifier, so the application resolves it (§12.0)."""
+
+    review_id, _ = _waiting(runtime)
+    stored = runtime.review_repository.get(review_id)
+
+    with pytest.raises(CaseValidationError, match="asked no question Q-99"):
+        runtime.case_service.answer(
+            stored,
+            [WrittenAnswer(question_reference="Q-99", recorded_text="Answering nothing.")],
+        )
+
+    # And nothing was written: a refused round leaves no revision behind.
+    assert runtime.case_repository.get(stored.case_id).revision == stored.case_revision
+
+
+def test_a_hand_edited_revision_records_no_answers(runtime: Runtime) -> None:
+    """The absence is the distinction. Editing the case is not answering a review."""
+
+    review_id, _ = _waiting(runtime)
+    stored = runtime.review_repository.get(review_id)
+
+    revision = runtime.case_service.update(
+        stored.case_id,
+        CaseUpdate(non_goals=["Something nobody was asked about."]),
+        actor="operator",
+    )
+
+    assert revision.answered is None
+
+
+def test_answering_one_review_twice_is_refused(runtime: Runtime) -> None:
+    """One review is asked once, so it maps to at most one answering revision.
+
+    Two guards, and the outer one fires first. Answering appends onto the revision the review
+    pinned, so a second round finds the case has already moved past it and is refused as the
+    stale write it is — before the unique index underneath ever has to decide.
+    """
+
+    review_id, references = _waiting(runtime)
+    stored = runtime.review_repository.get(review_id)
+    runtime.case_service.answer(
+        stored,
+        [WrittenAnswer(question_reference=references[0], recorded_text="Answered once.")],
+    )
+
+    with pytest.raises(CaseRevisionConflictError):
+        runtime.case_service.answer(
+            stored,
+            [WrittenAnswer(question_reference=references[0], recorded_text="And again.")],
+        )
+
+
+def test_the_store_refuses_a_second_revision_answering_the_same_review(
+    runtime: Runtime,
+) -> None:
+    """The backstop under the flow, reached by going around the service.
+
+    `answer()` cannot produce this — its stale-revision check fires first — which is exactly
+    why the constraint is in the schema. A property only the flow enforces is one a later
+    caller can break with nothing noticing.
+    """
+
+    review_id, references = _waiting(runtime)
+    stored = runtime.review_repository.get(review_id)
+    revision = runtime.case_service.answer(
+        stored,
+        [WrittenAnswer(question_reference=references[0], recorded_text="Answered once.")],
+    )
+
+    with pytest.raises(PersistenceError):
+        runtime.case_repository.append(
+            revision.snapshot,
+            expected_revision=revision.revision,
+            event_type="user_update",
+            actor="a caller going around the service",
+            answered=revision.answered,
+        )

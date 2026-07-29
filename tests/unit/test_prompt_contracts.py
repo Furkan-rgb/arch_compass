@@ -31,8 +31,10 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
 
     expected_versions = {
         ReasoningTask.JUDGE_FINDING_CANDIDATE: 10,
-        ReasoningTask.SUMMARISE_REVIEW: 5,
+        ReasoningTask.ELICIT_QUESTIONS: 2,
+        ReasoningTask.SUMMARISE_REVIEW: 6,
         ReasoningTask.ANSWER_REVIEW_QUESTION: 4,
+        ReasoningTask.DISCUSS_OPEN_QUESTION: 1,
     }
 
     assert set(STAGE_PROMPTS) == set(ReasoningTask)

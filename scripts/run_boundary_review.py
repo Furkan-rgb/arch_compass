@@ -240,14 +240,20 @@ def run_example(
             )
             sink.flush()
 
+    # A first pass, deliberately. This harness measures what one pass reaches from one case,
+    # which is exactly the thing the two-pass flow holds back from the reader — a run that
+    # stops to ask is the outcome under measurement, not a failure to complete.
     review = runtime.review_service.review(
         revision.case_id,
         repository_root=example.repository,
         on_verdict=report,
+        on_eliciting=lambda: print("  … composing what it needs to know", flush=True),
         on_summarising=lambda: print("  … reading the verdicts as a set", flush=True),
     )
     report_body = review.report
     assert report_body is not None
+    if review.awaiting_answers:
+        print("\n  This pass is waiting on answers; its verdicts are provisional.")
 
     overview = report_body.overview
     print(f"\n  {overview.situation}")

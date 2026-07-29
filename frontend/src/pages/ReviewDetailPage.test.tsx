@@ -11,8 +11,9 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { AnswerProse, Overview } from "./ReviewDetailPage";
-import type { OpenQuestion } from "../types";
+import { Overview, answersBehind, verdictChanges } from "./ReviewDetailPage";
+import { AnswerProse } from "../markdown";
+import type { OpenQuestion, RecordedAnswer, ReviewedBoundary } from "../types";
 
 describe("AnswerProse", () => {
   it("renders a fenced block as code, keeping its line breaks", () => {
@@ -102,14 +103,15 @@ describe("AnswerProse", () => {
 });
 
 /**
- * The conclusion renders itself and delegates the questions.
+ * The conclusion is a conclusion, and asks for nothing.
  *
- * Overview holds no case, no mutation and no run, so it cannot offer an answer box — and
- * the questions need all three. What is defended here is only the seam: questions reach the
- * surface that can act on them, and a review with nothing open shows no section at all
- * rather than an empty heading inviting a reader to look for something not there.
+ * It used to carry the questions too, on the reasoning that a review should show its value
+ * before naming its price. Measurement overturned that: on the bundled example four of five
+ * first-pass verdicts moved once the questions were answered, so the "value" the questions
+ * were placed after was mostly wrong. Asking now happens on its own surface, before any
+ * conclusion exists — and a review that has concluded has, by construction, nothing to ask.
  */
-describe("Overview open questions", () => {
+describe("Overview", () => {
   const base = {
     situation: "One operator, one server.",
     themes: [],
@@ -117,49 +119,140 @@ describe("Overview open questions", () => {
     limits: "A static count cannot see runtime registration.",
   };
 
-  const question: OpenQuestion = {
-    reference: "Q-1",
-    unknown: "The case does not say whether a second vendor is contracted.",
-    why_it_matters: "Two verdicts move on this.",
-    question: "Is a second speech vendor actually contracted?",
-    answer_belongs_in: "expected_future_changes",
-    supporting_references: ["BR-001", "BR-003"],
-  };
+  it("renders the bottom line and what the review could not see", () => {
+    render(<Overview overview={base} />);
 
-  it("hands its questions to the surface that can answer them", () => {
-    const seen: OpenQuestion[][] = [];
-
-    render(
-      <Overview
-        overview={{ ...base, open_questions: [question] }}
-        answering={(questions) => {
-          seen.push(questions);
-          return <p>answer surface</p>;
-        }}
-      />,
-    );
-
-    expect(seen).toEqual([[question]]);
-    expect(screen.getByText("answer surface")).toBeTruthy();
-    // The conclusion itself is still there: the questions are an addition, not a takeover.
     expect(screen.getByText("One operator, one server.")).toBeTruthy();
+    expect(screen.getByText(/static count cannot see runtime registration/)).toBeTruthy();
   });
 
-  it("asks for nothing when the case settled everything the verdicts turned on", () => {
-    const seen: OpenQuestion[][] = [];
+  it("has no answer surface, because a concluded review is not still asking", () => {
+    // Structural rather than cosmetic: the summarising stage has no field for a question,
+    // so a conclusion carrying one could only have come from somewhere it should not.
+    render(<Overview overview={base} />);
 
-    render(
-      <Overview
-        overview={{ ...base, open_questions: [] }}
-        answering={(questions) => {
-          seen.push(questions);
-          return <p>answer surface</p>;
-        }}
-      />,
+    expect(screen.queryByText("What it needs to know")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+});
+
+/**
+ * What the reader's own answers changed, read off the two stored passes.
+ *
+ * The one place the product's central claim is checkable rather than asserted — and it costs
+ * no model call, because both passes are stored and the only difference between them is what
+ * the case says. Matching by reference is safe because detection is deterministic: the same
+ * atlas gives the same boundary the same `BR-nnn` in both passes.
+ */
+describe("verdictChanges", () => {
+  const boundary = (reference: string, name: string, material: boolean): ReviewedBoundary => ({
+    reference,
+    candidate: {
+      pattern: "sole_implementation",
+      summary: `package.${name} is implemented only by package.${name}Adapter.`,
+      participants: [
+        {
+          node_id: name.toLowerCase(),
+          qualified_name: `package.${name}`,
+          role: "Declares the abstraction.",
+        },
+      ],
+      limitations: "A static count cannot see runtime registration.",
+    },
+    material,
+    rationale: "Argued from the case.",
+    verdict_label: material ? "Not earning its place" : "Earning its place",
+  });
+
+  it("reports only the verdicts that actually moved, and which way", () => {
+    const before = [
+      boundary("BR-001", "Feed", true),
+      boundary("BR-002", "Ledger", false),
+      boundary("BR-003", "Digest", false),
+    ];
+    const after = [
+      boundary("BR-001", "Feed", false),
+      boundary("BR-002", "Ledger", false),
+      boundary("BR-003", "Digest", true),
+    ];
+
+    expect(verdictChanges(before, after)).toEqual([
+      { reference: "BR-001", title: "package.Feed", from: true, to: false },
+      { reference: "BR-003", title: "package.Digest", from: false, to: true },
+    ]);
+  });
+
+  it("reports no change as no change rather than as nothing to say", () => {
+    const same = [boundary("BR-001", "Feed", false)];
+
+    // A round that moved nothing is a result: those verdicts never rested on what the
+    // reader was asked about. The caller says so; this returns the empty list honestly.
+    expect(verdictChanges(same, same)).toEqual([]);
+  });
+
+  it("ignores a boundary the earlier pass never judged", () => {
+    // Cannot happen while the atlas is pinned, and is still not guessed at: a boundary with
+    // nothing to compare against has not "changed", and claiming it had would be inventing
+    // a movement out of an absence.
+    expect(verdictChanges([], [boundary("BR-001", "Feed", true)])).toEqual([]);
+  });
+});
+
+/**
+ * Which of the reader's own sentences moved a verdict.
+ *
+ * The join exists on both sides already — a question names the boundaries it would settle,
+ * and the answered revision names the questions it answered — so this reads a record rather
+ * than inferring a cause. It is the reason that record was worth storing: without it a
+ * second pass can say four verdicts moved and cannot say which sentence moved any of them.
+ */
+describe("answersBehind", () => {
+  const question = (reference: string, cites: string[]): OpenQuestion => ({
+    reference,
+    what_the_review_saw: "Two modules wrap one supplier.",
+    unknown: `whether ${reference} matters`,
+    why_it_matters: "A verdict moves.",
+    question: `Is ${reference} settled?`,
+    answer_belongs_in: "expected_future_changes",
+    supporting_references: cites,
+  });
+
+  const recorded = (reference: string, text: string): RecordedAnswer => ({
+    question_reference: reference,
+    answer_belongs_in: "expected_future_changes",
+    recorded_text: text,
+  });
+
+  it("names the answer to a question that cited the boundary", () => {
+    const behind = answersBehind(
+      "BR-001",
+      [question("Q-1", ["BR-001", "BR-005"]), question("Q-2", ["BR-003"])],
+      [recorded("Q-1", "A second warehouse arrives next quarter.")],
     );
 
-    expect(seen).toEqual([]);
-    expect(screen.queryByText("answer surface")).toBeNull();
-    expect(screen.getByText("One operator, one server.")).toBeTruthy();
+    expect(behind).toEqual([
+      {
+        question: "Is Q-1 settled?",
+        recordedText: "A second warehouse arrives next quarter.",
+      },
+    ]);
+  });
+
+  it("says nothing where the question that cited it was skipped", () => {
+    // A verdict can move because a question about a different boundary changed what the
+    // case says overall. Claiming a cause there would be inventing one.
+    expect(
+      answersBehind("BR-001", [question("Q-1", ["BR-001"])], [recorded("Q-2", "Elsewhere.")]),
+    ).toEqual([]);
+  });
+
+  it("names every answer where more than one question settled the same boundary", () => {
+    const behind = answersBehind(
+      "BR-001",
+      [question("Q-1", ["BR-001"]), question("Q-2", ["BR-001"])],
+      [recorded("Q-1", "First."), recorded("Q-2", "Second.")],
+    );
+
+    expect(behind.map((item) => item.recordedText)).toEqual(["First.", "Second."]);
   });
 });

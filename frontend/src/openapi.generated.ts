@@ -11,6 +11,10 @@ export interface components {
     "event"?: "prose";
     "text": string;
   };
+    "AnsweredQuestions": {
+    "review_id": string;
+    "answers": Array<components["schemas"]["RecordedAnswer"]>;
+  };
     "ArchitectureCase": {
     "schema_version"?: 2;
     "case_id"?: string;
@@ -106,6 +110,7 @@ export interface components {
     "atlas_version_id": string;
     "reasoning_model": string;
     "prompt_identity": string;
+    "elicited_from"?: string | null;
     "report"?: components["schemas"]["BoundaryReviewReport"] | null;
     "markdown_report"?: string | null;
     "duration_seconds"?: number;
@@ -134,6 +139,7 @@ export interface components {
     "created_at": string;
     "updated_at": string;
     "case_title"?: string | null;
+    "elicited_from"?: string | null;
   };
     "BundledCase": {
     "name": string;
@@ -154,6 +160,7 @@ export interface components {
     "snapshot": components["schemas"]["ArchitectureCase"];
     "event_type": "created" | "user_update";
     "actor": string;
+    "answered"?: components["schemas"]["AnsweredQuestions"] | null;
     "created_at"?: string;
   };
     "CaseStatement": {
@@ -266,6 +273,7 @@ export interface components {
   };
     "OpenQuestion": {
     "reference": string;
+    "what_the_review_saw": string;
     "unknown": string;
     "why_it_matters": string;
     "question": string;
@@ -341,6 +349,11 @@ export interface components {
     "event"?: "failed";
     "problem": components["schemas"]["ProblemDetail"];
   };
+    "RecordedAnswer": {
+    "question_reference": string;
+    "answer_belongs_in": components["schemas"]["CaseField"];
+    "recorded_text": string;
+  };
     "RelationQuery": {
     "kind": "direct_dependencies" | "direct_dependants" | "known_callers" | "implementations" | "related_tests";
     "node_id": string;
@@ -370,6 +383,10 @@ export interface components {
     "ReviewAnswer": {
     "answer": string;
     "supporting_references"?: Array<string>;
+    "suggested_answer"?: string;
+  };
+    "ReviewAnswersRequest": {
+    "answers": Array<components["schemas"]["SubmittedAnswer"]>;
   };
     "ReviewCompleted": {
     "event"?: "completed";
@@ -382,17 +399,23 @@ export interface components {
     "case_id": string;
     "case_revision": number;
     "title": string;
+    "question_reference"?: string | null;
     "messages"?: Array<components["schemas"]["ReviewMessage"]>;
     "created_at"?: string;
   };
     "ReviewConversationCreateRequest": {
     "review_id": string;
     "title"?: string | null;
+    "question_reference"?: string | null;
   };
     "ReviewDetected": {
     "event"?: "detected";
     "total": number;
     "boundaries": Array<string>;
+  };
+    "ReviewEliciting": {
+    "event"?: "eliciting";
+    "total": number;
   };
     "ReviewFailed": {
     "event"?: "failed";
@@ -420,13 +443,14 @@ export interface components {
     "limits": string;
     "open_questions"?: Array<components["schemas"]["OpenQuestion"]>;
   };
-    "ReviewProgress": components["schemas"]["ReviewStarted"] | components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewSummarising"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewFailed"];
+    "ReviewProgress": components["schemas"]["ReviewStarted"] | components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewEliciting"] | components["schemas"]["ReviewSummarising"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewFailed"];
     "ReviewQuestionRequest": {
     "question": string;
   };
     "ReviewRequest": {
     "case_id": string;
     "repository_root": string;
+    "elicited_from"?: string | null;
   };
     "ReviewScoreResponse": {
     "example": string;
@@ -440,8 +464,9 @@ export interface components {
     "review_id": string;
     "case_id": string;
     "case_revision": number;
+    "elicited_from"?: string | null;
   };
-    "ReviewStatus": "running" | "succeeded" | "failed" | "cancelled";
+    "ReviewStatus": "running" | "awaiting_answers" | "succeeded" | "failed" | "cancelled";
     "ReviewSummarising": {
     "event"?: "summarising";
     "total": number;
@@ -496,6 +521,10 @@ export interface components {
     "end_line": number;
   };
     "StatementKind": "fact" | "derived_constraint" | "assumption" | "question" | "force";
+    "SubmittedAnswer": {
+    "question_reference": string;
+    "recorded_text": string;
+  };
     "SubsystemSummaryQuery": {
     "kind": "subsystem_summary";
     "node_id": string;
@@ -530,6 +559,23 @@ export interface operations {
     responses: {
       "201": components["schemas"]["PolicySourceRegistration"];
       "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "answer_review_questions_api_reviews__review_id__answers_post": {
+    parameters: {
+      query: never;
+      path: {
+      "review_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["ReviewAnswersRequest"];
+    responses: {
+      "201": components["schemas"]["CaseRevision"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
     };
   };
   "ask_review_question_api_review_conversations__conversation_id__messages_post": {
@@ -1110,6 +1156,9 @@ export interface paths {
   "/api/reviews/{review_id}": {
     get: operations["get_review_api_reviews__review_id__get"];
     delete: operations["delete_review_api_reviews__review_id__delete"];
+  };
+  "/api/reviews/{review_id}/answers": {
+    post: operations["answer_review_questions_api_reviews__review_id__answers_post"];
   };
   "/api/reviews/{review_id}/cancel": {
     post: operations["cancel_review_api_reviews__review_id__cancel_post"];

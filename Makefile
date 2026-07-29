@@ -70,10 +70,15 @@ eval-local:
 # so instead of guessing; these targets are where the repository makes the choice.
 # `--models-config` is a global option on the app callback, so it goes before the
 # subcommand. After it, Typer rejects the whole invocation with "No such option".
-web:
+# Both build the bundle first. The server serves its own frontend, so the two are one
+# deployment and are correct only together — and they came apart three times in one week the
+# same way: rebuild the bundle, leave the older server running, and the page then sends a
+# field that process has never heard of. Restarting fixes it; building here means there is
+# nothing to fix, and it costs about two seconds.
+web: frontend-build
 	uv run archcompass --models-config config/models.ollama.yaml web
 
-web-google:
+web-google: frontend-build
 	uv run archcompass --models-config config/models.google.yaml web
 
 # Drives the committed bundle in a real browser against a real server, with the model

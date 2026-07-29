@@ -193,7 +193,32 @@ ArchitectureCase                     RepositoryAtlas
         Compose and persist the review             [deterministic]
         assign BR-nnn references, resolve policy
         identity by position, render Markdown
+                       │
+                       ▼
+       Ask what it needs to know                   [judgement]
+        the one call that sees every verdict at
+        once, so boundaries turning on the same
+        unknown become one question
+                       │
+        ┌──────────────┴───────────────┐
+        │ nothing to ask               │ questions outstanding
+        ▼                              ▼
+   The review concludes        The run stops and waits
+                                       │
+                            you answer; your answers
+                            become a case revision
+                                       │
+                                       ▼
+                            judge every boundary again,
+                            then conclude
 ```
+
+A review that is still asking is **not** a finished review. Judged against a case that has
+not been written yet, verdicts are provisional in a way that is measured rather than
+supposed: on the bundled `warehouse-sync` example, four of five moved once the questions
+were answered. So they are stored, and they are not reported as findings until a second pass
+has judged them against your answers. If you cannot answer, you can reveal them anyway —
+labelled for what they are.
 
 One rule shapes every stage of it:
 
@@ -585,6 +610,19 @@ uv run archcompass review <case-id> --repo /path/to/repository
 The case is the part that matters. It is what tells a justified boundary from an
 unjustified one, so `expected_future_changes`, `non_goals` and `confirmed_facts` do more
 work here than anything else you write.
+
+You do not have to write it first, though. A review will run against a repository alone and
+come back asking for what would settle the verdicts it could not settle — so the case is
+something you end up with rather than something you start with. When a run stops to ask,
+answer into the fields its questions name and carry it on:
+
+```bash
+uv run archcompass case update <case-id> --from answers.yaml
+uv run archcompass review <case-id> --repo /path/to/repository --answers <review-id>
+```
+
+Both passes are kept, each pinned to the case revision it judged, so you can see exactly
+what your answer changed.
 
 Print the stored review instead of its Markdown:
 

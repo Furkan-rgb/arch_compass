@@ -12,7 +12,7 @@ from archcompass.domain.workspace import BoundaryReviewSummary
 _LISTING_COLUMNS = """
     review_id, case_id, case_revision, atlas_version_id, status,
     boundaries_detected, boundaries_reviewed, boundaries_material,
-    created_at, updated_at, case_title
+    created_at, updated_at, case_title, elicited_from
 """
 
 
@@ -36,8 +36,9 @@ class SQLiteBoundaryReviewRepository:
                 INSERT INTO boundary_reviews(
                     review_id, case_id, case_revision, atlas_version_id, status,
                     reasoning_model, boundaries_detected, boundaries_reviewed,
-                    boundaries_material, created_at, updated_at, case_title, review_json
-                ) VALUES (?, ?, ?, ?, ?, ?, NULL, 0, 0, ?, ?, NULL, ?)
+                    boundaries_material, created_at, updated_at, case_title,
+                    elicited_from, review_json
+                ) VALUES (?, ?, ?, ?, ?, ?, NULL, 0, 0, ?, ?, NULL, ?, ?)
                 """,
                 (
                     review.review_id,
@@ -48,6 +49,10 @@ class SQLiteBoundaryReviewRepository:
                     review.reasoning_model,
                     now,
                     now,
+                    # Written here rather than at completion: which run this one answers is
+                    # settled before the first model call, and a listing has to be able to
+                    # pair the two passes while the second is still going.
+                    review.elicited_from,
                     review.model_dump_json(),
                 ),
             )
@@ -303,6 +308,9 @@ class SQLiteBoundaryReviewRepository:
                 created_at=str(row["created_at"]),
                 updated_at=str(row["updated_at"]),
                 case_title=(None if row["case_title"] is None else str(row["case_title"])),
+                elicited_from=(
+                    None if row["elicited_from"] is None else str(row["elicited_from"])
+                ),
             )
             for row in rows
         ]
