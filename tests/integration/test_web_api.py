@@ -259,6 +259,63 @@ def test_the_api_walks_both_passes_of_an_elicitation(runtime: Runtime) -> None:
     ]
 
 
+def test_the_api_serves_the_code_a_finding_was_measured_from(runtime: Runtime) -> None:
+    """The route behind "show me the problematic code" (ADR 0013).
+
+    Delivery rather than search: the review already records which lines are the evidence, so
+    the request names a boundary and the workspace answers with the code at its spans. What
+    is defended here is the transport shape — that the spans resolve, that the reply says
+    where each block came from and what it contributes, and that unfolding asks for more of
+    the same lines rather than for something else.
+    """
+
+    repository = str(Path("eval/cases/speech-vendor/repository").resolve())
+
+    with TestClient(create_app(runtime)) as client:
+        started = client.post("/api/repositories/start", json={"root_path": repository})
+        assert started.status_code == 201, started.text
+        created = client.post(
+            "/api/reviews",
+            json={"case_id": started.json()["case_id"], "repository_root": repository},
+        )
+        assert created.status_code == 201, created.text
+        review = created.json()
+        reference = review["report"]["reviewed"][0]["reference"]
+
+        response = client.get(
+            f"/api/reviews/{review['review_id']}/source",
+            params={"reference": reference, "context_lines": 0},
+        )
+        assert response.status_code == 200, response.text
+        excerpts = response.json()
+
+        assert excerpts, "a review of a real repository records spans to read"
+        for excerpt in excerpts:
+            assert excerpt["reference"] == reference
+            assert excerpt["location"]["path"].endswith(".py")
+            assert excerpt["role"]
+            # Exactly one of the code and the reason there is none.
+            assert bool(excerpt["text"]) != bool(excerpt["unavailable"])
+
+        # Unfolding returns more of the same file, not a different span.
+        wider = client.get(
+            f"/api/reviews/{review['review_id']}/source",
+            params={"reference": reference, "context_lines": 4},
+        ).json()
+        assert wider[0]["location"] == excerpts[0]["location"]
+        assert len(wider[0]["text"].splitlines()) > len(excerpts[0]["text"].splitlines())
+
+        # A boundary this review does not contain is an empty answer rather than an error:
+        # asking about a finding that is not there is not a failure of the route.
+        assert (
+            client.get(
+                f"/api/reviews/{review['review_id']}/source",
+                params={"reference": "BR-999"},
+            ).json()
+            == []
+        )
+
+
 def test_a_streamed_review_that_fails_says_so_in_the_stream(
     runtime: Runtime,
     tmp_path: Path,

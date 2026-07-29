@@ -35,15 +35,6 @@ FAKE_CONFIG = """models:
     timeout_seconds: 5
     context_window_tokens: 131072
     max_output_tokens: 8192
-  embedding:
-    provider: fake
-    model: deterministic-token-hash-v1
-    base_url: http://127.0.0.1:11434
-    dimensions: 64
-    timeout_seconds: 5
-retrieval:
-  top_k: 6
-  max_sections_per_policy: 3
 """
 
 

@@ -6,16 +6,12 @@ the model and the contracts rather than a broken build.
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import pytest
 from tests.reasoning_support import candidate, case, policies
 
-from archcompass.adapters.models.google import (
-    GoogleEmbeddingProvider,
-    GoogleReasoningProvider,
-)
+from archcompass.adapters.models.google import GoogleReasoningProvider
 from archcompass.bootstrap import build_runtime
 from archcompass.configuration import AppConfig, load_config
 from archcompass.domain.case import ArchitectureCase
@@ -30,20 +26,6 @@ def live_config() -> AppConfig:
     config = load_config(Path("config/models.google.yaml").resolve())
     assert config.models.reasoning.provider == "google"
     return config
-
-
-def test_live_embedding_model_contract(live_config: AppConfig) -> None:
-    vectors = GoogleEmbeddingProvider(live_config.models.embedding).embed(
-        [
-            "Keep provider-specific capabilities behind the provider boundary.",
-            "Avoid an abstraction until credible variation exists.",
-        ]
-    )
-
-    assert len(vectors) == 2
-    for vector in vectors:
-        assert len(vector) == live_config.models.embedding.dimensions
-        assert math.isclose(math.sqrt(sum(value * value for value in vector)), 1.0, abs_tol=1e-3)
 
 
 def test_live_judgement_returns_one_bearing_per_presented_policy(

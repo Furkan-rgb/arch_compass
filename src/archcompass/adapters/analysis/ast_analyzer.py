@@ -43,6 +43,7 @@ from archcompass.domain.atlas import (
     LocalStructuralMetrics,
     MetricProfile,
     ModuleFacts,
+    NamedMention,
     NodeType,
     ObscuritySignal,
     RepositoryContentIdentity,
@@ -53,7 +54,14 @@ from archcompass.domain.errors import PathValidationError
 
 # v4 records per-module facts (constants stated, repository modules named). An atlas built
 # by v3 has none, so it is stale rather than quietly missing them, and is re-analyzed.
-PARSER_VERSION = "python-ast-3.12-v4"
+#
+# v5 gives each mention the lines it occurs on. A v4 atlas records that a module names a
+# concept and not where, which left a scattered-concept participant with no span to point at
+# — it said line 1, and line 1 of a Python file is the docstring, so the code shown as
+# evidence of a leaked name was a docstring that did not contain it. Nothing can recover the
+# positions from a stored v4 atlas, so it is stale and re-analyzed rather than read with the
+# lines missing (ADR 0002). Re-analysis is cheap and lossless: an atlas is derived.
+PARSER_VERSION = "python-ast-3.12-v5"
 IGNORED_DIRECTORIES = {
     ".git",
     ".hg",
@@ -1249,7 +1257,7 @@ class PythonAstRepositoryAnalyzer:
                 path=module.relative_path,
                 qualified_name=module.qualified_name,
                 constants=_declared_constants(module),
-                mentions=sorted(_mentioned_names(module) & owned - {module.path.stem.casefold()}),
+                mentions=_owned_mentions(module, owned),
             )
             for module in modules
         ]
@@ -1340,12 +1348,33 @@ def _value_fingerprint(value: ast.expr | None) -> str:
     return sha256(repr(literal).encode("utf-8")).hexdigest()[:16]
 
 
-def _mentioned_names(module: ParsedModule) -> set[str]:
-    """Every name this module's code and strings contain, casefolded.
+def _owned_mentions(module: ParsedModule, owned: set[str]) -> list[NamedMention]:
+    """The names this module refers to that this repository owns, and where.
+
+    Its own name is excluded: a module naming itself is not a concept that has spread.
+    """
+
+    found = _mentioned_names(module)
+    return [
+        NamedMention(name=name, lines=found[name])
+        for name in sorted(found.keys() & owned - {module.path.stem.casefold()})
+    ]
+
+
+def _mentioned_names(module: ParsedModule) -> dict[str, list[int]]:
+    """Every name this module's code and strings contain, casefolded, and where.
 
     Docstrings are skipped. Prose describing a vendor is documentation; the question a
     detector is asking is whether the *code* outside a module has to know that module
     exists, and a sentence in a docstring is not that.
+
+    The lines come from the nodes themselves, which have carried them all along. Recording
+    them is what lets a scattered-concept participant point at the import that names the
+    vendor rather than at line 1 — see `NamedMention`, which exists because it did not.
+
+    An `ast.alias` has no position of its own before Python 3.10 and is attributed to its
+    statement here regardless, because `from x import y` is the line a reader wants either
+    way: the name is on it, and the alias node's own column is not what they asked for.
     """
 
     docstrings = {
@@ -1357,25 +1386,39 @@ def _mentioned_names(module: ParsedModule) -> set[str]:
         and isinstance(node.body[0].value, ast.Constant)
         and isinstance(node.body[0].value.value, str)
     }
-    found: set[str] = set()
-    for node in ast.walk(module.tree):
-        if isinstance(node, ast.Name):
-            found.update(_name_tokens(node.id))
-        elif isinstance(node, ast.Attribute):
-            found.update(_name_tokens(node.attr))
-        elif isinstance(node, ast.alias):
-            found.update(_name_tokens(node.name.replace(".", "_")))
-            if node.asname:
-                found.update(_name_tokens(node.asname))
-        elif isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            found.update(_name_tokens(node.name))
+    found: dict[str, set[int]] = defaultdict(set)
+
+    def record(tokens: set[str], line: int | None) -> None:
+        if line is None:
+            return
+        for token in tokens:
+            found[token].add(line)
+
+    for parent in ast.walk(module.tree):
+        # Imports first, so an alias inherits the statement's line rather than being missed.
+        if isinstance(parent, (ast.Import, ast.ImportFrom)):
+            # The names, not the module they came from. `from provider.qwen import X` has
+            # always contributed `x` and not `qwen`, and widening that here would change
+            # which boundaries are detected — this change is about where a mention is, not
+            # about what counts as one.
+            for alias in parent.names:
+                record(_name_tokens(alias.name.replace(".", "_")), parent.lineno)
+                if alias.asname:
+                    record(_name_tokens(alias.asname), parent.lineno)
+            continue
+        if isinstance(parent, ast.Name):
+            record(_name_tokens(parent.id), parent.lineno)
+        elif isinstance(parent, ast.Attribute):
+            record(_name_tokens(parent.attr), parent.lineno)
+        elif isinstance(parent, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            record(_name_tokens(parent.name), parent.lineno)
         elif (
-            isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and id(node) not in docstrings
+            isinstance(parent, ast.Constant)
+            and isinstance(parent.value, str)
+            and id(parent) not in docstrings
         ):
-            found.update(_name_tokens(node.value))
-    return found
+            record(_name_tokens(parent.value), parent.lineno)
+    return {name: sorted(lines) for name, lines in found.items()}
 
 
 #: Splits a name wherever a reader would: at punctuation, at a camel-case hump, and between

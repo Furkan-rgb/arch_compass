@@ -15,6 +15,7 @@ from archcompass.domain.review import (
     CandidateVerdict,
     OpenQuestion,
     ReviewedBoundary,
+    ReviewEvidence,
     ReviewOverview,
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
@@ -110,19 +111,18 @@ class FocusedReasoningProvider(Protocol):
     def answer_review_question(
         self,
         review: BoundaryReview,
-        case: ArchitectureCase,
+        evidence: ReviewEvidence,
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
     ) -> ReviewAnswer:
         """Answer one question about a review the model is shown in full.
 
-        `case` is the revision this review pinned, whole. It travels with the review
-        everywhere the review goes, because it is half of what every verdict was reached
-        from: the judging stage weighed each boundary against these constraints, non-goals
-        and expected changes, and an explanation of a verdict that cannot see them is
-        explaining from half the evidence. The report's `problem_and_desired_outcome` is two
-        sentences of it and was all this stage used to get.
+        `evidence` is everything about this review the stage may reason from, assembled by
+        the application: the pinned case, the code at every recorded span, and the round of
+        questions and answers that produced this pass. It is one value rather than three
+        arguments because each of the three was, at some point, simply not passed — and each
+        time this stage truthfully reported that the review held no such thing.
 
         The reply marks supporting boundaries by position in `review.report.reviewed`, so
         the order must not change between the call and the result.
@@ -138,7 +138,7 @@ class FocusedReasoningProvider(Protocol):
     def discuss_open_question(
         self,
         review: BoundaryReview,
-        case: ArchitectureCase,
+        evidence: ReviewEvidence,
         question: OpenQuestion,
         history: list[ReviewMessage],
         asked: str,
@@ -146,15 +146,20 @@ class FocusedReasoningProvider(Protocol):
     ) -> ReviewAnswer:
         """Talk about one open question with the person who has to answer it.
 
-        `case` matters more here than anywhere: the reader is being asked to add something
-        to this document, so "what does it already say about that" is among the first things
-        they will ask.
+        `evidence.case` matters more here than anywhere: the reader is being asked to add
+        something to this document, so "what does it already say about that" is among the
+        first things they will ask.
 
         It is the revision the review pinned, so it holds what was written before this round
         — including answers from an earlier round — and never the answers being typed right
         now, which batch into one revision only when the reader saves (§6C.4). A stage
         reasoning from a reply they can still delete would be reasoning from something that
         is not yet their answer.
+
+        `evidence.elicitation` is empty here, and that is the same rule. This stage runs
+        while the round is being answered, so the round it would describe is the one still
+        being typed — the previous pass's questions and answers reach it only through the
+        case they were already written into.
 
         A different stage from `answer_review_question` and not a narrower call of it. That
         one explains a review that has concluded; this one runs while the review is still
@@ -203,7 +208,7 @@ class StreamingAnswerReasoner(Protocol):
     def stream_review_answer(
         self,
         review: BoundaryReview,
-        case: ArchitectureCase,
+        evidence: ReviewEvidence,
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
@@ -221,7 +226,7 @@ class StreamingAnswerReasoner(Protocol):
     def stream_open_question_discussion(
         self,
         review: BoundaryReview,
-        case: ArchitectureCase,
+        evidence: ReviewEvidence,
         question: OpenQuestion,
         history: list[ReviewMessage],
         asked: str,

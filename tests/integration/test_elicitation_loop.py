@@ -35,7 +35,7 @@ from archcompass.domain.errors import (
     PersistenceError,
 )
 from archcompass.domain.finding_detectors import detect_finding_candidates
-from archcompass.domain.review import ReviewStatus
+from archcompass.domain.review import ReviewEvidence, ReviewStatus
 
 EXAMPLE = "warehouse-sync"
 ROOT = Path(__file__).resolve().parent.parent.parent / "eval" / "cases" / EXAMPLE
@@ -734,3 +734,158 @@ def test_the_store_refuses_a_second_revision_answering_the_same_review(
             actor="a caller going around the service",
             answered=revision.answered,
         )
+
+
+def test_a_discussion_is_shown_code_only_for_the_boundaries_its_question_cites(
+    runtime: Runtime,
+) -> None:
+    """The scope that makes the stage safe to run applies to the code as well.
+
+    A question discussion sees the boundaries its question cites and no others, because the
+    verdicts a first pass withholds must not reach it. Source follows the same list: reading
+    the code behind a verdict the reader is not being shown would widen the input past the
+    thing that makes this surface safe (ADR 0013).
+    """
+
+    review_id, references = _waiting(runtime)
+    stored = runtime.review_repository.get(review_id)
+    report = stored.report
+    assert report is not None
+    question = next(
+        item for item in report.overview.open_questions if item.reference == references[0]
+    )
+    cited = set(question.supporting_references)
+    assert cited < {item.reference for item in report.reviewed}, (
+        "this assertion is vacuous unless the question cites fewer than every boundary"
+    )
+
+    scoped = [
+        excerpt
+        for reference in question.supporting_references
+        for excerpt in runtime.review_source_service.for_review(stored, reference=reference)
+    ]
+    whole = runtime.review_source_service.for_review(stored)
+
+    assert {item.reference for item in scoped} == cited
+    # And the whole-review call, which the concluded-review conversation uses, does cover
+    # every boundary — so the narrowing is the question discussion's, not the service's.
+    assert {item.reference for item in whole} == {item.reference for item in report.reviewed}
+
+
+def test_every_recorded_span_resolves_to_the_code_at_it(runtime: Runtime) -> None:
+    """The claim the whole change rests on: the review always knew where the evidence was.
+
+    Asserted against a real repository rather than a fixture, because the point is that the
+    detector's spans are usable — a span that pointed at nothing readable would make the
+    conversation's old refusal correct after all.
+    """
+
+    review_id, _ = _waiting(runtime)
+    stored = runtime.review_repository.get(review_id)
+
+    excerpts = runtime.review_source_service.for_review(stored)
+
+    assert excerpts, "a review of a real repository records spans to read"
+    for excerpt in excerpts:
+        assert excerpt.location is not None, excerpt.qualified_name
+        assert excerpt.text, f"{excerpt.qualified_name}: {excerpt.unavailable}"
+        assert not excerpt.unavailable
+
+
+def test_the_stage_is_given_the_round_that_produced_the_review_it_answers_about(
+    runtime: Runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The regression for "the review does not contain any record of previous questions".
+
+    The two halves are stored apart and both correctly: a question is advisor output pinned
+    in the pass that asked it, an answer is user-authored and belongs to the revision it
+    created (invariant 25). Nothing joined them, so a reader asking a concluded review what
+    they had answered was told no such record exists — accurate about the review in front of
+    the stage, false about the workspace holding both halves.
+
+    Walked end to end rather than asserted on the assembler, because the join runs across a
+    review, its predecessor and a case revision, and a unit test of any one of them would
+    have passed while this was broken.
+    """
+
+    case_id = _loaded(runtime)
+    first = runtime.review_service.review(case_id, repository_root=REPOSITORY)
+    report = first.report
+    assert report is not None
+    asked = report.overview.open_questions
+    assert asked, "there must be something to answer"
+
+    runtime.case_service.answer(
+        first,
+        [
+            WrittenAnswer(
+                question_reference=asked[0].reference,
+                recorded_text="A second warehouse arrives next quarter; both stay in service.",
+            )
+        ],
+        actor="operator",
+    )
+    second = runtime.review_service.review(
+        case_id, repository_root=REPOSITORY, elicited_from=first.review_id
+    )
+    conversation = runtime.review_conversation_service.create(second.review_id)
+
+    seen: list[ReviewEvidence] = []
+    original = runtime.review_conversation_service._reasoner.answer_review_question
+
+    def capture(review: object, evidence: ReviewEvidence, *rest: object) -> object:
+        seen.append(evidence)
+        return original(review, evidence, *rest)
+
+    monkeypatch.setattr(
+        runtime.review_conversation_service._reasoner,
+        "answer_review_question",
+        capture,
+    )
+    runtime.review_conversation_service.ask(
+        conversation.conversation_id, "What were the questions and answers again?"
+    )
+
+    evidence = seen[0]
+    assert evidence.answers_were_recorded
+    # Every question the first pass asked, in the order it asked them. That a skipped one is
+    # carried too is pinned where a fixture can produce two, in `test_review_answers`.
+    assert [item.question.reference for item in evidence.elicitation] == [
+        item.reference for item in asked
+    ]
+    assert evidence.elicitation[0].answer.startswith(
+        "A second warehouse arrives next quarter"
+    )
+    # The question travels whole, not just its text: the stage is shown what the review saw
+    # and which way the verdicts moved, which is what makes the answer worth reading back.
+    assert evidence.elicitation[0].question.what_the_review_saw
+    assert evidence.elicitation[0].question.why_it_matters
+
+
+def test_a_first_pass_carries_no_round_because_it_has_asked_nothing_yet(
+    runtime: Runtime,
+) -> None:
+    """A pass that asked its questions has not answered them, and must not imply it did.
+
+    Its conversation is scoped to a single open question anyway (§6C.7), so the round it
+    would describe is the one still being typed — the reader could be shown their own draft
+    answers as though they were recorded.
+    """
+
+    case_id = _loaded(runtime)
+    first = runtime.review_service.review(case_id, repository_root=REPOSITORY)
+    report = first.report
+    assert report is not None
+    reference = report.overview.open_questions[0].reference
+
+    evidence = runtime.review_conversation_service._evidence(
+        first, about_question=report.overview.open_questions[0]
+    )
+
+    assert evidence.elicitation == []
+    assert not evidence.answers_were_recorded
+    # And the scope that makes a mid-review discussion safe is unchanged.
+    assert {item.reference for item in evidence.excerpts} <= set(
+        report.overview.open_questions[0].supporting_references
+    ), reference

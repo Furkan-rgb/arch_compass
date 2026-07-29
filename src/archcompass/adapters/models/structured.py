@@ -34,12 +34,15 @@ from archcompass.domain.errors import (
 from archcompass.domain.knowledge import MethodKnowledge
 from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
+    AnsweredQuestion,
+    BoundaryExcerpt,
     BoundaryReview,
     CandidateVerdict,
     OpenQuestion,
     OverviewStatement,
     PolicyBearing,
     ReviewedBoundary,
+    ReviewEvidence,
     ReviewOverview,
     VerdictHinge,
 )
@@ -730,6 +733,81 @@ class StructuredReasoningProvider:
         )
         return _grounded_questions(proposed.open_questions, boundaries)
 
+
+    @staticmethod
+    def _elicitation_round(
+        elicitation: list[AnsweredQuestion],
+        *,
+        answers_were_recorded: bool,
+    ) -> list[dict[str, object]] | str:
+        """The round of questions and answers behind this pass, as the stage is shown it.
+
+        Both halves in one place and in the order they were asked, because the reader who
+        asks about them is asking about a round they walked, not about two records.
+
+        The three outcomes are spelled out rather than left to an absent key. An unanswered
+        question read as "not mentioned" is exactly the misreading this presentation exists
+        to prevent: a verdict that still hinges usually hinges on the question its reader
+        chose to skip, and that is a finding about the review rather than a gap in it.
+        """
+
+        if not elicitation:
+            return (
+                "This review asked nothing — it is a first pass, or the pass that asked has "
+                "since been deleted."
+            )
+        return [
+            {
+                "what_the_review_saw": item.question.what_the_review_saw,
+                "question": item.question.question,
+                "why_it_matters": item.question.why_it_matters,
+                "answer": (
+                    item.answer
+                    if item.answer
+                    else (
+                        "skipped — the reader chose not to answer this one"
+                        if answers_were_recorded
+                        else "not recorded — this case revision was edited by hand, so no "
+                        "line in it is attributable to any one question"
+                    )
+                ),
+            }
+            for item in elicitation
+        ]
+
+    @staticmethod
+    def _source_for(
+        excerpts: list[BoundaryExcerpt],
+        reference: str,
+    ) -> list[dict[str, object]]:
+        """The code recorded for one boundary, as the conversation stages are shown it.
+
+        Attached to the boundary rather than listed separately, because "which lines belong
+        to which finding" is exactly what a reader is asking when they ask to see the code,
+        and a flat list would make the stage rebuild that mapping from paths.
+
+        An excerpt that could not be read carries its reason in place of its text. Presented
+        rather than dropped: "this repository has changed since the review ran" is the
+        honest answer to "show me the code", and silently omitting it would leave the stage
+        to conclude the review has no source at all — which is the failure this exists to
+        fix.
+        """
+
+        return [
+            {
+                "where": (
+                    f"{item.location.path}:{item.location.start_line}"
+                    if item.location is not None
+                    else "not recorded"
+                ),
+                "what_it_contributes": item.role,
+                "code": item.text or None,
+                "why_there_is_no_code": item.unavailable or None,
+            }
+            for item in excerpts
+            if item.reference == reference
+        ]
+
     @staticmethod
     def _boundaries_for_reading(
         boundaries: list[ReviewedBoundary],
@@ -839,17 +917,17 @@ class StructuredReasoningProvider:
     def answer_review_question(
         self,
         review: BoundaryReview,
-        case: ArchitectureCase,
+        evidence: ReviewEvidence,
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
     ) -> ReviewAnswer:
-        return self._answer(review, case, history, question, knowledge, preview=None)
+        return self._answer(review, evidence, history, question, knowledge, preview=None)
 
     def stream_review_answer(
         self,
         review: BoundaryReview,
-        case: ArchitectureCase,
+        evidence: ReviewEvidence,
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
@@ -865,7 +943,7 @@ class StructuredReasoningProvider:
 
         return self._answer(
             review,
-            case,
+            evidence,
             history,
             question,
             knowledge,
@@ -875,7 +953,7 @@ class StructuredReasoningProvider:
     def _answer(
         self,
         review: BoundaryReview,
-        case: ArchitectureCase,
+        evidence: ReviewEvidence,
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
@@ -914,8 +992,20 @@ class StructuredReasoningProvider:
                 # weighed each boundary against these constraints, non-goals and expected
                 # changes — so an explanation that could not see them was explaining a
                 # conclusion from half its evidence.
-                "case": case.model_dump(mode="json"),
+                "case": evidence.case.model_dump(mode="json"),
                 "counts": report.headline,
+                # The round that produced this pass, both halves together. Asked "what were
+                # the questions and answers again?", this stage said the review holds no such
+                # record — true of the review it was shown and false of what the workspace
+                # keeps: the questions are pinned in the first pass for ever, the answers on
+                # the case revision this pass runs against.
+                #
+                # No `Q-n` and no `BR-nnn`, for the reason nothing else here carries one.
+                # A reader names a question by what it asked.
+                "elicitation_round": self._elicitation_round(
+                    evidence.elicitation,
+                    answers_were_recorded=evidence.answers_were_recorded,
+                ),
                 # The conclusion a reader has in front of them, so a question about it is
                 # answerable. Composed from these same verdicts by an earlier call, which is
                 # why the contract names it as the review's own reading rather than as
@@ -988,6 +1078,11 @@ class StructuredReasoningProvider:
                             for bearing in item.policy_bearings
                         ],
                         "detection_limits": item.candidate.limitations,
+                        # The lines this boundary was measured from, read from the repository
+                        # it pinned. Without them a reader asking to see the leak was told
+                        # the review "does not include the specific lines" — true of what
+                        # reached this stage, and false of what the record holds.
+                        "source": self._source_for(evidence.excerpts, item.reference),
                     }
                     for index, item in enumerate(boundaries, start=1)
                 ],
@@ -1031,20 +1126,20 @@ class StructuredReasoningProvider:
     def discuss_open_question(
         self,
         review: BoundaryReview,
-        case: ArchitectureCase,
+        evidence: ReviewEvidence,
         question: OpenQuestion,
         history: list[ReviewMessage],
         asked: str,
         knowledge: MethodKnowledge,
     ) -> ReviewAnswer:
         return self._discuss(
-            review, case, question, history, asked, knowledge, preview=None
+            review, evidence, question, history, asked, knowledge, preview=None
         )
 
     def stream_open_question_discussion(
         self,
         review: BoundaryReview,
-        case: ArchitectureCase,
+        evidence: ReviewEvidence,
         question: OpenQuestion,
         history: list[ReviewMessage],
         asked: str,
@@ -1053,7 +1148,7 @@ class StructuredReasoningProvider:
     ) -> ReviewAnswer:
         return self._discuss(
             review,
-            case,
+            evidence,
             question,
             history,
             asked,
@@ -1064,7 +1159,7 @@ class StructuredReasoningProvider:
     def _discuss(
         self,
         review: BoundaryReview,
-        case: ArchitectureCase,
+        evidence: ReviewEvidence,
         question: OpenQuestion,
         history: list[ReviewMessage],
         asked: str,
@@ -1101,7 +1196,7 @@ class StructuredReasoningProvider:
                 # end (§6C.4). So this stage cannot see a reply the reader is still free to
                 # change or delete, which is correct: an answer is not an answer until they
                 # save it.
-                "case": case.model_dump(mode="json"),
+                "case": evidence.case.model_dump(mode="json"),
                 # No conclusion and no counts. A first pass has neither — its overview is
                 # composed from known facts with the themes left empty — and a stage that
                 # asked for them would be reading a summary of the set this reader has
@@ -1144,6 +1239,7 @@ class StructuredReasoningProvider:
                             for bearing in item.policy_bearings
                         ],
                         "detection_limits": item.candidate.limitations,
+                        "source": self._source_for(evidence.excerpts, item.reference),
                         # What this verdict said it turned on, which is why this boundary is
                         # cited at all. Without it the reader can be told the verdict but not
                         # what their answer would do to it.

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 from typing import Annotated, Literal
 
 import httpx
@@ -16,7 +15,6 @@ from tests.reasoning_support import verdict_json
 from archcompass.adapters.models import google as google_adapters
 from archcompass.adapters.models.google import (
     GoogleChatTransport,
-    GoogleEmbeddingProvider,
     GoogleReasoningProvider,
     _for_gemini,
     _response_text,
@@ -26,7 +24,7 @@ from archcompass.adapters.models.google import (
 from archcompass.adapters.models.structured import (
     ProposedCandidateVerdict,
 )
-from archcompass.configuration import EmbeddingModelConfig, ReasoningModelConfig
+from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ConfigurationError, ProviderError
 from archcompass.ports.reasoning import ReasoningTask
 
@@ -36,16 +34,6 @@ _KEY_VARIABLE = "ARCHCOMPASS_TEST_GOOGLE_KEY"
 @pytest.fixture(autouse=True)
 def _api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(_KEY_VARIABLE, "test-key")
-
-
-def _embedding_config(*, dimensions: int = 3) -> EmbeddingModelConfig:
-    return EmbeddingModelConfig(
-        provider="google",
-        model="embedding-test",
-        api_key_env=_KEY_VARIABLE,
-        dimensions=dimensions,
-        timeout_seconds=5,
-    )
 
 
 def _reasoning_config() -> ReasoningModelConfig:
@@ -313,9 +301,9 @@ def test_a_rate_limit_waits_on_the_scale_of_the_window(
 ) -> None:
     """The server's `RetryInfo` is a floor, not the answer.
 
-    It reports when the next single unit of quota frees up - observed as 232ms while a
-    50-input batch still could not be served - so waiting exactly that long spends every
-    attempt inside a window already known to be closed.
+    It reports when the next single unit of quota frees up — observed as 232ms while a
+    request still could not be served — so waiting exactly that long spends every attempt
+    inside a window already known to be closed.
     """
 
     slept: list[float] = []
@@ -341,10 +329,10 @@ def test_a_rate_limit_waits_on_the_scale_of_the_window(
 
     _patch_transport(monkeypatch, send)
     monkeypatch.setattr(google_adapters.time, "sleep", slept.append)
-    provider = GoogleEmbeddingProvider(_embedding_config())
+    provider = GoogleReasoningProvider(_reasoning_config())
 
     with pytest.raises(ProviderError, match="HTTP 429"):
-        provider.embed(["one"])
+        provider.judge_finding_candidate(_case(), _candidate(), _policies(2))
 
     assert slept == [8.0, 16.0, 32.0, 64.0, 70.0]
 
@@ -378,13 +366,13 @@ def test_a_longer_named_delay_is_honoured(
                 },
                 status_code=429,
             )
-        return _raw_response({"embeddings": [{"values": [1.0, 0.0, 0.0]}]})
+        return _candidate_response(verdict_json(bearings=2))
 
     _patch_transport(monkeypatch, send)
     monkeypatch.setattr(google_adapters.time, "sleep", slept.append)
-    provider = GoogleEmbeddingProvider(_embedding_config())
+    provider = GoogleReasoningProvider(_reasoning_config())
 
-    assert provider.embed(["one"]) == [[1.0, 0.0, 0.0]]
+    assert provider.judge_finding_candidate(_case(), _candidate(), _policies(2)).rationale
     assert slept == [pytest.approx(23.5)]
 
 
@@ -414,10 +402,10 @@ def test_a_named_retry_delay_is_capped(monkeypatch: pytest.MonkeyPatch) -> None:
 
     _patch_transport(monkeypatch, send)
     monkeypatch.setattr(google_adapters.time, "sleep", slept.append)
-    provider = GoogleEmbeddingProvider(_embedding_config())
+    provider = GoogleReasoningProvider(_reasoning_config())
 
     with pytest.raises(ProviderError, match="HTTP 429"):
-        provider.embed(["one"])
+        provider.judge_finding_candidate(_case(), _candidate(), _policies(2))
 
     assert slept
     assert all(delay == google_adapters._MAX_RETRY_DELAY_SECONDS for delay in slept)
@@ -437,10 +425,10 @@ def test_a_failure_without_a_named_delay_backs_off_exponentially(
 
     _patch_transport(monkeypatch, send)
     monkeypatch.setattr(google_adapters.time, "sleep", slept.append)
-    provider = GoogleEmbeddingProvider(_embedding_config())
+    provider = GoogleReasoningProvider(_reasoning_config())
 
     with pytest.raises(ProviderError, match="HTTP 503"):
-        provider.embed(["one"])
+        provider.judge_finding_candidate(_case(), _candidate(), _policies(2))
 
     assert slept == [0.5, 1.0, 2.0, 4.0, 8.0]
 
@@ -467,62 +455,6 @@ def test_a_rejected_request_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> N
         provider.judge_finding_candidate(_case(), _candidate(), _policies(2))
 
     assert attempts == 1
-
-
-def test_embeddings_are_normalised_to_unit_length(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Gemini truncates without renormalising, and the policy index ranks by L2."""
-
-    def send(request: httpx.Request) -> httpx.Response:
-        del request
-        return _raw_response({"embeddings": [{"values": [3.0, 4.0, 0.0]}]})
-
-    _patch_transport(monkeypatch, send)
-    provider = GoogleEmbeddingProvider(_embedding_config())
-
-    [vector] = provider.embed(["one"])
-
-    assert math.isclose(math.sqrt(sum(value * value for value in vector)), 1.0)
-    assert vector == pytest.approx([0.6, 0.8, 0.0])
-
-
-def test_embedding_requests_are_chunked_to_the_batch_limit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The policy corpus is larger than one call may carry."""
-
-    batch_sizes: list[int] = []
-
-    def send(request: httpx.Request) -> httpx.Response:
-        payload = json.loads(request.content)
-        size = len(payload["requests"])
-        batch_sizes.append(size)
-        return _raw_response({"embeddings": [{"values": [1.0, 0.0, 0.0]}] * size})
-
-    _patch_transport(monkeypatch, send)
-    provider = GoogleEmbeddingProvider(_embedding_config())
-
-    vectors = provider.embed([f"chunk-{index}" for index in range(120)])
-
-    assert len(vectors) == 120
-    # Half the per-minute window, so the quota can refill between calls rather than
-    # being spent entirely by the first one.
-    assert batch_sizes == [50, 50, 20]
-
-
-def test_embedding_dimension_mismatch_is_refused(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def send(request: httpx.Request) -> httpx.Response:
-        del request
-        return _raw_response({"embeddings": [{"values": [1.0, 0.0]}]})
-
-    _patch_transport(monkeypatch, send)
-    provider = GoogleEmbeddingProvider(_embedding_config())
-
-    with pytest.raises(ProviderError, match="expected 3"):
-        provider.embed(["one"])
 
 
 def test_timeout_is_sent_to_the_sdk_in_milliseconds() -> None:

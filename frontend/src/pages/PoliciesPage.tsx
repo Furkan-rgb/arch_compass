@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpenText,
   FolderPlus,
-  RefreshCw,
   Search,
   ShieldCheck,
   Trash2,
@@ -63,11 +62,6 @@ export function PoliciesPage() {
       void queryClient.invalidateQueries({ queryKey: ["policies"] });
     },
   });
-  const rebuild = useMutation({
-    mutationFn: api.rebuildPolicies,
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["workspace"] }),
-  });
-
   const scopes = useMemo(
     () => [...new Set((policies.data || []).map((policy) => policy.scope))],
     [policies.data],
@@ -81,27 +75,15 @@ export function PoliciesPage() {
       <PageHeader
         eyebrow="Normative guidance, not automatic lint"
         title="Policy library"
+        // No rebuild action. Policies are read from their sources whenever they are asked
+        // for, so what is on this page is what the next review will be shown, and a button
+        // to bring an index up to date would be a step that changes nothing (ADR 0013).
         description="Browse authored policy documents and manage the sources in the corpus. The corpus is presented whole with every boundary judged — nothing is retrieved, so nothing can be missed."
-        action={
-          <button
-            className="button button--primary"
-            type="button"
-            disabled={rebuild.isPending}
-            onClick={() => rebuild.mutate()}
-          >
-            <RefreshCw size={16} className={rebuild.isPending ? "spin" : ""} />
-            {rebuild.isPending ? "Rebuilding…" : "Rebuild index"}
-          </button>
-        }
       />
-      {(policies.error || sources.error || addSource.error || removeSource.error || rebuild.error) && (
+      {(policies.error || sources.error || addSource.error || removeSource.error) && (
         <ErrorPanel
           error={
-            policies.error ||
-            sources.error ||
-            addSource.error ||
-            removeSource.error ||
-            rebuild.error
+            policies.error || sources.error || addSource.error || removeSource.error
           }
         />
       )}

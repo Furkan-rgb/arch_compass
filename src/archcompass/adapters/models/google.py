@@ -16,7 +16,6 @@ Ollama server:
 
 from __future__ import annotations
 
-import math
 import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import Final, cast
@@ -32,7 +31,6 @@ from archcompass.adapters.models.structured import (
     timeout_seconds,
 )
 from archcompass.configuration import (
-    EmbeddingModelConfig,
     ReasoningModelConfig,
     resolve_api_key,
 )
@@ -43,7 +41,7 @@ PROVIDER_NAME: Final = "google"
 
 #: Higher than the Ollama transport's cap because the failure being waited out is
 #: different in kind: a free-tier per-minute quota, which recovers on a clock rather
-#: than on chance. Indexing the policy corpus spends that quota in a single call.
+#: than on chance.
 _MAX_TRANSPORT_ATTEMPTS: Final = 6
 _BACKOFF_BASE_SECONDS: Final = 0.5
 #: A rate limit is waited out on a different scale from a blip. The free tier meters per
@@ -67,18 +65,6 @@ _TRANSIENT_TRANSPORT_ERRORS: Final = (
 #: attempt cap instead, which is the intended outcome: fail with the server's own
 #: message rather than block the run.
 _TRANSIENT_STATUS_CODES: Final = frozenset({408, 429, 500, 502, 503, 504})
-
-#: Requests are chunked because the policy corpus is larger than one call may carry.
-#: 50 rather than the API's own ceiling because the free tier meters `embed_content`
-#: per input rather than per call, at 100 per minute: a batch that spends the entire
-#: window guarantees the next one is rejected, while a half-window batch leaves the
-#: quota room to refill between calls.
-_MAX_EMBEDDING_BATCH: Final = 50
-
-#: One `embed` serves both indexing and querying, so the task type must be symmetric.
-#: RETRIEVAL_DOCUMENT and RETRIEVAL_QUERY are a matched asymmetric pair and would need
-#: the port to say which side it is on.
-_EMBEDDING_TASK_TYPE: Final = "SEMANTIC_SIMILARITY"
 
 _THINKING_LEVELS: Final[dict[str, types.ThinkingLevel]] = {
     "low": types.ThinkingLevel.LOW,
@@ -222,97 +208,6 @@ def _describe(error: errors.APIError) -> str:
         detail = detail[:999].rstrip() + "…"
     suffix = f": {detail}" if detail else ""
     return f"HTTP {error.code}{suffix}"
-
-
-class GoogleEmbeddingProvider:
-    def __init__(self, config: EmbeddingModelConfig) -> None:
-        self._config = config
-        self._client = _client(
-            resolve_api_key(config.api_key_env, provider=PROVIDER_NAME),
-            config.base_url,
-            config.timeout_seconds,
-        )
-
-    @property
-    def identity(self) -> tuple[str, str, int]:
-        return (self._config.provider, self._config.model, self._config.dimensions)
-
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        vectors: list[list[float]] = []
-        try:
-            for start in range(0, len(texts), _MAX_EMBEDDING_BATCH):
-                batch = texts[start : start + _MAX_EMBEDDING_BATCH]
-                response = _with_retry(
-                    lambda batch=batch: self._client.models.embed_content(  # type: ignore[misc]
-                        model=self._config.model,
-                        contents=batch,  # pyright: ignore[reportArgumentType]
-                        config=types.EmbedContentConfig(
-                            task_type=_EMBEDDING_TASK_TYPE,
-                            output_dimensionality=self._config.dimensions,
-                        ),
-                    )
-                )
-                vectors.extend(self._vectors(response, expected=len(batch)))
-            if len(vectors) != len(texts):
-                raise ValueError(
-                    f"Google AI Studio returned {len(vectors)} embeddings "
-                    f"for {len(texts)} inputs"
-                )
-            return vectors
-        except errors.APIError as error:
-            raise ProviderError(
-                f"Google AI Studio embedding request failed with {_describe(error)}"
-            ) from error
-        except (
-            httpx.HTTPError,
-            ConnectionError,
-            KeyError,
-            TypeError,
-            ValueError,
-        ) as error:
-            raise ProviderError(f"Google AI Studio embedding request failed: {error}") from error
-
-    def _vectors(
-        self,
-        response: types.EmbedContentResponse,
-        *,
-        expected: int,
-    ) -> list[list[float]]:
-        embeddings = response.embeddings or []
-        if len(embeddings) != expected:
-            raise ValueError(
-                f"Google AI Studio returned {len(embeddings)} embeddings for {expected} inputs"
-            )
-        resolved: list[list[float]] = []
-        for index, embedding in enumerate(embeddings):
-            values = list(embedding.values or [])
-            if len(values) != self._config.dimensions:
-                raise ValueError(
-                    f"Google AI Studio embedding {index} has {len(values)} dimensions; "
-                    f"expected {self._config.dimensions}"
-                )
-            if any(not math.isfinite(value) for value in values):
-                raise ValueError(
-                    f"Google AI Studio embedding {index} contains a non-finite value"
-                )
-            resolved.append(_unit(values, index=index))
-        return resolved
-
-
-def _unit(values: list[float], *, index: int) -> list[float]:
-    """Scale a vector to unit length.
-
-    Gemini truncates its native embedding to the requested dimensionality and does not
-    renormalise, so a 768-dimension vector from `gemini-embedding-001` has a norm well
-    below 1. The policy index is a sqlite-vec table queried by L2 distance, where the
-    magnitude of a vector changes its ranking; normalising here makes L2 order the same
-    as cosine order, which is what the retrieval code means by nearest.
-    """
-
-    norm = math.sqrt(sum(value * value for value in values))
-    if norm == 0.0:
-        raise ValueError(f"Google AI Studio embedding {index} is the zero vector")
-    return [value / norm for value in values]
 
 
 class GoogleChatTransport:

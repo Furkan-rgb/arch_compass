@@ -55,37 +55,33 @@ archcompass policies sources remove /path/to/policies
 archcompass policies sources list
 ```
 
-`policies rebuild --source PATH` registers each supplied source before rebuilding. Global source
-registration rejects any `repository` or `accepted_adr` document; those documents belong in the
-selected repository's local policy directory. Registration preserves each remaining policy's
-authored scope and applicability subject.
+Global source registration rejects any `repository` or `accepted_adr` document; those documents
+belong in the selected repository's local policy directory. Registration preserves each remaining
+policy's authored scope and applicability subject.
 
-Consultation preflight parses and validates all effective sources. It compares the corpus hash,
-embedding provider, model, and dimensions with the latest index. A matching index is reused; a
-missing or stale index is rebuilt before reasoning begins. An empty or invalid corpus and any
-embedding failure stop the consultation before a reasoning prompt executes. The corpus hash
-includes each policy's applicability and source identity, so byte-identical local policy files
-from different repositories cannot reuse the wrong immutable index.
+## There is no index, and no rebuild
 
-Rebuild rejects duplicate IDs, creates one content-stable chunk per section, embeds chunks, and
-stores them in a dimension-specific `sqlite-vec` table. Each rebuild creates a new immutable index
-version. Consultation embeds a structured force query, performs bounded nearest-neighbour search,
-joins back to original text, and expands the nearest-chunk window until it has exactly `top_k`
-applicable unique policies or exhausts the index. Scoped candidates are filtered against the
-consultation's user, organisation, and repository identities during that expansion. A retrieval
-without an applicability context returns only general policies; missing identity never widens
-access to scoped guidance. Ranking is deterministic under tied distances. Sections are
-deduplicated by normalized `(policy ID, section heading)`; the packaged default retains at most
-three nearest sections per policy through `retrieval.max_sections_per_policy: 3`.
-Repository/ADR/organisation/user/general scope is only a relevance tie-break after distance
-among policies that apply.
+Policies are read from their sources whenever they are asked for. There is no build step, no
+stored index, and no command to bring one up to date — a policy edited on disk is the policy the
+next review is shown.
 
-The model receives original text, IDs, scope, applicability, and strength—not vectors. Reports
-retain canonical policy evidence metadata: ID, title, scope, applicability subject, strength,
-and matched sections.
-Conflicting guidance is represented explicitly by at least two retrieved policy IDs, an
-explanation, and a reconciliation. Concern and final-report validation reject invented policy
-IDs.
+That is a deliberate removal rather than an omission (ADR 0013). A `sqlite-vec` index used to
+chunk each policy by section, embed the chunks, and return the `top_k` nearest to a query. It
+stopped being read once judgement began receiving the whole corpus in one request: 48 policies
+against an input budget near 490,000 characters, which fits several times over. What retrieval
+added at that size was a ranking that could leave the passage a reader needed out of the request,
+and a build step between editing a policy and seeing it apply.
+
+What this removes with it: the embedding model a workspace had to configure, the corpus hash and
+index version that decided whether a rebuild was needed, per-section chunking, and the
+distance-ranked, scope-tie-broken selection that produced `matched_sections` evidence.
+
+Duplicate policy IDs across effective sources are still rejected, at parse time. Applicability is
+still enforced: a repository's own policies are in reach only for a caller that names that
+repository, and scoped policies never widen to a caller with no identity.
+
+The model receives original text, IDs, scope, applicability, and strength. A verdict binds to
+policies by position in the presented list, so no policy ID is ever read back out of a reply.
 
 ## Bundled corpus provenance
 

@@ -1,5 +1,6 @@
 import type {
   AnswerProgress,
+  BoundaryExcerpt,
   ArchitectureCase,
   AtlasExploreRequest,
   AtlasQueryResult,
@@ -125,6 +126,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ case_id: caseId, repository_root: repositoryRoot }),
     }),
+  /**
+   * The code one finding was measured from, at the spans the detector recorded.
+   *
+   * Delivery rather than search: the review already says which lines are the evidence, so
+   * there is nothing here to query. `contextLines` is how much surrounding code to unfold,
+   * bounded by the workspace rather than by this call.
+   */
+  reviewSource: (reviewId: string, reference: string, contextLines = 0) =>
+    request<BoundaryExcerpt[]>(
+      `/api/reviews/${encodeURIComponent(reviewId)}/source` +
+        `?reference=${encodeURIComponent(reference)}&context_lines=${contextLines}`,
+    ),
   /**
    * Record a round of answers as one case revision that says what it answered.
    *
@@ -358,9 +371,4 @@ export const api = {
       `/api/policies/sources?source=${encodeURIComponent(source)}`,
       { method: "DELETE" },
     ),
-  rebuildPolicies: () =>
-    request<Record<string, unknown>>("/api/policies/rebuild", {
-      method: "POST",
-      body: JSON.stringify({ repository_root: null }),
-    }),
 };

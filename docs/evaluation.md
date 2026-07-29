@@ -5,9 +5,9 @@ one category must not be presented as evidence that another category passed.
 
 ## Workflow and evidence-integrity tests
 
-The mandatory automated suite uses deterministic embedding and reasoning providers. It exercises
-the real SQLite, `sqlite-vec`, policy, atlas, query, evidence-validation, report, and revision
-paths without contacting a live model.
+The mandatory automated suite uses a deterministic reasoning provider. It exercises the real
+SQLite, policy, atlas, query, evidence-validation, report, and revision paths without contacting
+a live model.
 
 V1.2 deterministic acceptance requires the suite to establish that:
 
@@ -211,9 +211,9 @@ model, one case, one moment. See [plans/quality-harness.md](plans/quality-harnes
 
 ## Optional live-model and transport evaluations
 
-Tests marked `ollama` use the models in `config/models.yaml`. They verify the live embedding
-transport contract—batch shape, dimensions, finite values, and input sensitivity—and exercise a
-complete structured consultation against the configured reasoning model.
+Tests marked `ollama` use the models in `config/models.yaml`. They exercise a complete
+structured review against the configured reasoning model, including the arity of a judgement's
+policy bearings against the corpus it was presented.
 
 The live clustering contract also uses deliberately opaque canonical force IDs and verifies that
 the provider returns an exact partition after the adapter's constrained `F1`–`Fn` reference

@@ -21,6 +21,7 @@ import { AwaitingAnswers } from "../review-awaiting";
 import { ReviewAtlas } from "../review-atlas";
 import { ReviewInProgress } from "../review-in-progress";
 import { useRun } from "../run";
+import { FindingSource } from "../finding-source";
 import { QuestionDiscussion } from "../question-discussion";
 import { OpenQuestions, type SubmittedAnswer } from "../review-questions";
 import type {
@@ -119,10 +120,12 @@ function Finding({
   item,
   policyCount,
   onShowInAtlas,
+  reviewId,
 }: {
   item: ReviewedBoundary;
   policyCount: number;
   onShowInAtlas: ((nodeId: string) => void) | null;
+  reviewId: string;
 }) {
   const bearings = item.policy_bearings || [];
   const abstraction = item.candidate.participants[0];
@@ -236,10 +239,12 @@ function Findings({
   reviewed,
   policyCount,
   onShowInAtlas,
+  reviewId,
 }: {
   reviewed: ReviewedBoundary[];
   policyCount: number;
   onShowInAtlas: ((nodeId: string) => void) | null;
+  reviewId: string;
 }) {
   const material = reviewed.filter((item) => item.material);
   const cleared = reviewed.filter((item) => !item.material);
@@ -263,6 +268,7 @@ function Findings({
               item={item}
               policyCount={policyCount}
               onShowInAtlas={onShowInAtlas}
+              reviewId={reviewId}
             />
           ))}
         </section>
@@ -283,6 +289,7 @@ function Findings({
               item={item}
               policyCount={policyCount}
               onShowInAtlas={onShowInAtlas}
+              reviewId={reviewId}
             />
           ))}
         </section>
@@ -836,6 +843,7 @@ export function ReviewDetailPage() {
             reviewed={reviewed}
             policyCount={policyCount}
             onShowInAtlas={null}
+            reviewId={reviewId}
           />
         }
       >
@@ -935,6 +943,7 @@ export function ReviewDetailPage() {
         reviewed={reviewed}
         policyCount={policyCount}
         onShowInAtlas={showInAtlas}
+        reviewId={reviewId}
       />
 
       {/* After the verdicts, not before them. The map answers "where does this sit", which
@@ -1022,6 +1031,18 @@ export function ReviewDetailPage() {
                   {message.answer ? (
                     <>
                       <AnswerProse text={message.answer.answer} />
+                      {/* The code the answer rests on, rendered from the file rather than
+                        retyped into the answer. §12.0: where the application already holds
+                        a value, a model reproducing it can only produce a second copy that
+                        disagrees — which is what "chelsine" for "chelsie" was. Marking the
+                        boundary is how the stage puts these lines on screen. */}
+                      {(message.answer.supporting_references || []).map((reference) => (
+                        <FindingSource
+                          key={reference}
+                          reviewId={reviewId}
+                          reference={reference}
+                        />
+                      ))}
                       {/* Labelled, never hidden: a reader has to be able to tell "the review
                         says this" from "the model thinks this". */}
                       {(message.answer.supporting_references || []).length > 0 ? (

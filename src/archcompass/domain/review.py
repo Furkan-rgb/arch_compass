@@ -20,9 +20,9 @@ from typing import Final, Literal, cast
 
 from pydantic import Field, computed_field, model_validator
 
-from archcompass.domain.atlas import FindingCandidate, FindingPattern
+from archcompass.domain.atlas import FindingCandidate, FindingPattern, SourceLocation
 from archcompass.domain.base import DomainModel, new_id, utc_now
-from archcompass.domain.case import CaseField
+from archcompass.domain.case import ArchitectureCase, CaseField
 from archcompass.domain.diagnostics import FailureDiagnostic
 
 
@@ -128,6 +128,42 @@ _VERDICT_LABELS: Final[dict[FindingPattern, dict[bool, str]]] = {
         False: "Named where it should be",
     },
 }
+
+
+class BoundaryExcerpt(DomainModel):
+    """One participant's recorded span, and the code at it.
+
+    Not stored on the review. The span is — every participant carries one, chosen by the
+    detector at the moment the verdict was reached — and this is that span resolved to text
+    when someone asks to see it. Storing the text instead would change a stored shape for no
+    gain, and would raise a worse question: whether the *judge* saw those lines, which is a
+    separate decision about how boundaries are judged.
+
+    So the verdict rests on structure, and the code is shown because a reader asked.
+    """
+
+    #: `BR-nnn`, so an excerpt can be attached to the finding it substantiates.
+    reference: str = Field(pattern=r"^BR-[0-9]{3}$")
+    qualified_name: str = Field(min_length=1)
+    #: The candidate's own words for why this participant is implicated — "States
+    #: BUILT_IN_VOICES at this location", "Declares the abstraction". Carried so an excerpt
+    #: says what it is evidence *of* rather than only where it came from.
+    role: str = Field(min_length=1)
+    location: SourceLocation | None = None
+    text: str = ""
+    #: Why there is no text, in one sentence, when there is none. A boundary whose code
+    #: cannot be shown is still a boundary: a proposed one has not been written, a stale
+    #: repository no longer holds the lines that were judged, and saying which is more use
+    #: than an empty panel.
+    unavailable: str = ""
+
+    @model_validator(mode="after")
+    def an_excerpt_has_text_or_says_why_not(self) -> BoundaryExcerpt:
+        if bool(self.text) == bool(self.unavailable):
+            raise ValueError(
+                "A boundary excerpt carries exactly one of its text or a reason it has none"
+            )
+        return self
 
 
 class ReviewedBoundary(DomainModel):
@@ -524,6 +560,63 @@ def first_pass_overview(
         ),
         open_questions=questions,
     )
+
+
+class AnsweredQuestion(DomainModel):
+    """One question a first pass asked, beside what the reader wrote back.
+
+    Both halves already existed and neither could be reached from the other. The question is
+    advisor output pinned in the first-pass review for ever; the answer is user-authored and
+    lives on the case revision that answering produced. Nothing joined them, so a reader who
+    asked a concluded review "what were the questions and answers again?" was told the review
+    holds no such record — true of the review it was looking at, and false of the pair.
+    """
+
+    question: OpenQuestion
+    #: What the reader wrote, or empty where they skipped it or where this revision was
+    #: authored by hand. Which of those it was is `ReviewEvidence.answers_were_recorded`,
+    #: because it is a property of the round rather than of any one question.
+    answer: str = ""
+
+
+class ReviewEvidence(DomainModel):
+    """Everything about a review that a reasoning stage is shown, assembled in one place.
+
+    A bundle rather than four parameters, and the reason is a defect that landed three times.
+    The stages' inputs were assembled at the call site, argument by argument, and each time
+    something the record already held was simply not passed: the code at every recorded span,
+    then the spans of a scattered concept, then the questions and answers of the elicitation
+    round. Every time the model correctly reported an absence, and every time the absence was
+    ours. `answer_review_question` has said "the review does not contain..." about three
+    different things it does contain.
+
+    What a value fixes that a fourth parameter would not is that "what does this stage see?"
+    becomes one answer instead of a reading of every call site. An omission is then visible
+    in one place, and testable there.
+
+    Evidence only. `MethodKnowledge` stays a separate argument because it is a different kind
+    of thing — it explains the review's vocabulary and says nothing about this repository, so
+    nothing here binds to it and an answer never cites it (§12.1). Folding the two together
+    would make that distinction a matter of which field a reader looked at.
+
+    Assembled by the application, never by a model, and never trimmed to a question: what
+    reaches a stage is decided by which stage it is, not by what was asked (§12.0).
+    """
+
+    #: The revision the review pinned, whole — not the workspace's current case. Half of what
+    #: every verdict was reached from.
+    case: ArchitectureCase
+    #: The code at each participant's recorded span, read from the repository the review
+    #: pinned. Some may carry a reason instead of text.
+    excerpts: list[BoundaryExcerpt] = Field(default_factory=list[BoundaryExcerpt])
+    #: The round that produced this review's case revision, where there was one. Empty on a
+    #: first pass, which has asked nothing yet.
+    elicitation: list[AnsweredQuestion] = Field(default_factory=list[AnsweredQuestion])
+    #: Whether the revision recorded which line answered which question. False for one
+    #: authored by hand, where the questions were still asked and no answer is attributable
+    #: to any of them — a distinction worth keeping, because "you skipped this" and "nobody
+    #: wrote down what you said" are different things to tell a reader.
+    answers_were_recorded: bool = False
 
 
 def reviewed_boundaries(

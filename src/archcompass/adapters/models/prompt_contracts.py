@@ -302,7 +302,57 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
     # was never opened. v3 governed what to cite and said nothing about what to read. The
     # conclusion is now named as an index and carries the positions it was built from, and
     # this contract says a restatement of the verdict is not an answer to "why".
-    version=4,
+    #
+    # v5 gives the stage the two things it was refusing for want of. A live conversation was
+    # asked to show the problematic code and answered that "the record only contains the
+    # names of these modules and does not include the specific lines" — true of what reached
+    # this stage and false of what the review holds, since every participant carries an exact
+    # span. Those lines now arrive as `source` on each boundary.
+    #
+    # Asked next for an example fix, and then asked again after the reader pushed back, it
+    # refused both times and cited no boundary while doing so. That was this contract working
+    # as written: "where the record does not settle what was asked, say what is missing from
+    # it" is right for a *claim about this repository* — a review of six boundaries cannot
+    # speak about a seventh — and was being applied to "show me how to carry out the
+    # consolidation you recommended", which is not a claim about the repository at all. It is
+    # craft, about a recommendation the review already made and already grounded. v5 names
+    # that as its own category, requires it to be grounded on the boundary whose
+    # recommendation it illustrates, and requires it to be labelled as an illustration rather
+    # than as something the review found.
+    #
+    # v6 separates two acts v5 had run together under "build it from `source` and not from
+    # memory". Shown the four copies of `BUILT_IN_VOICES` that a review had measured, the
+    # stage answered with the right files, the right lines and the right drift — and retyped
+    # one of the four identifiers as `BUILT_IN_EPOCHES`. The excerpt in front of it was
+    # correct; it paraphrased. Reproducing code and illustrating a change are different
+    # obligations — the first has to be exact and the second necessarily departs from what is
+    # there — and a rule that names only the source of the material governs neither. Quoting
+    # is now character-for-character, and an unrecognisable name in a quote is called what it
+    # is: a false report about the repository, worse than the refusal it replaced, because a
+    # reader cannot grep for a symbol that was never there.
+    #
+    # v7 stops asking. v6 was a patch on a design error and §12.0 had already named it: "a
+    # model that must reproduce an identifier to be understood will eventually reproduce it
+    # wrongly — not by inventing it, but by copying it imperfectly — and the failure is silent
+    # because the value looks plausible." A rule telling it to copy carefully is the one
+    # remedy that clause rules out, and the run after v6 landed returned `"chelsine"` for
+    # `"chelsie"`. So the stage no longer reproduces repository code at all: it marks the
+    # boundary, the interface renders that boundary's source from disk, and the answer says
+    # what the code shows. Reproduction moves to the side that already holds the characters.
+    #
+    # An illustrated fix stays here, and the line is now sharp rather than a matter of care.
+    # Reproducing is copying something that exists — the application's job. Illustrating is
+    # composing something that does not exist yet, which is nobody else's. A wrong name in an
+    # illustration is a bad suggestion beside the correct spelling; a wrong name in a quote is
+    # a false record of the reader's own repository.
+    #
+    # v7 also carries `elicitation_round`. Asked "what were the questions and answers again?"
+    # a concluded review answered that it holds no such record — true of the review it was
+    # shown, since `summarise_review` cannot carry questions, and false of the workspace: the
+    # questions are pinned in the first pass, the answers on the case revision this pass ran
+    # against. Third time this stage truthfully reported an absence that was ours, which is
+    # what `ReviewEvidence` exists to stop.
+    version=7,
     stage_contract=_text(
         """
         You are answering a question about a boundary review you have been shown in full.
@@ -328,6 +378,16 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
         what happened. Cite boundaries, never the conclusion, and if it reads as though it
         overstates a verdict, say so plainly rather than defending it.
 
+        `elicitation_round` is the round of questions this review grew out of, with what the
+        reader answered beside each one. It is the exchange they walked to get here, so "what
+        were the questions and answers again?" is answered from it directly — never that the
+        review holds no record of them. Where it says this review asked nothing, say that
+        instead: a first pass has not asked yet.
+
+        A question shown as skipped is worth as much as an answered one and is not a
+        reproach. It is usually why a verdict still hinges, so where one bears on what is
+        being asked, name what it would have settled rather than only noting the gap.
+
         A boundary's reasoning and its verdict can disagree — the verdict saying the shape
         should change while the reasoning argues it is earning its place, or the reverse. If
         they do, say so and give both. That contradiction is the answer to the question, and
@@ -348,11 +408,53 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
         repository out of the background alone, and never treat a policy passage as though
         the review had applied it to a boundary it did not.
 
+        Each boundary carries `source`: the lines it was measured from, read from the
+        repository this review pinned. That is the code, and it is there so that you can
+        reason about what it shows — never answer that the review does not contain it. Where
+        an entry carries `why_there_is_no_code` instead, that sentence is the answer: the
+        repository has changed since the review ran, or the boundary was never written.
+
+        **Do not reproduce those lines in your answer.** Every boundary you mark in
+        supported_by is displayed to the reader with its code beside it, from the file, so a
+        retyped copy adds nothing and can only differ from what it claims to be. Say what the
+        code shows and which boundary shows it — "all four copies state the list, and the one
+        in the planning module is missing a voice" — and let the lines that appear next to
+        your answer be the lines.
+
+        This is not caution about your accuracy. It is that the application already holds
+        every one of these characters and does not need them typed again, and anything typed
+        again is a second copy that can disagree with the first.
+
         Answer from the review and the case. Where the review settles the question, say so
         and say which boundaries settle it. Where it does not, say plainly that the review
         does not answer it rather than reasoning past the evidence — a review that examined
         six boundaries cannot speak about a seventh, and the honest answer is that it was
         never looked at.
+
+        That rule is about **claims concerning this repository**, and it is not a reason to
+        refuse to help. Showing how to carry out a recommendation this review made is not a
+        claim about the repository: the reader has been told to consolidate a constant or
+        remove an abstraction, and asking what that looks like in code is asking how to act
+        on a verdict you already hold. Do it. Write the example, from the `source` lines in
+        front of you, editing what is actually there.
+
+        Three rules on such an example, and they are what keep it honest:
+
+        - It rests on the boundary whose recommendation it illustrates, so mark that
+          boundary in supported_by. An example of consolidating a duplicated constant rests
+          on the boundary that found the duplication.
+        - Say what it is: an illustration of the recommended change. The review did not run
+          it, test it or verify it, and it must never read as though it had.
+        - Build it from `source` and not from memory. Do not invent a module, a function or
+          an import you were not shown to make an example look concrete — where the lines
+          are not in front of you, describe the shape of the change in prose instead and say
+          you are doing so.
+
+        An illustration is the one code you write, and it is not an exception to the rule
+        above. Reproducing is copying something that exists, and the application does that;
+        illustrating is composing something that does not exist yet, which nothing but you
+        can do. Keep it to the change — the lines as they would become, not the file as it
+        is — so that what you write is never mistaken for what was read.
 
         A boundary that was examined and cleared is evidence, not an absence. "That one was
         checked and found to be earning its place, because ..." is a complete answer and
@@ -372,9 +474,26 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
         holds about it: which shape the detector found and what it measured, what the case
         required, what the reasoning turned on, and what response was recommended. Restating
         the verdict is not an answer to "why" — "it was judged not to be earning its place"
-        hands the question back as a label. Where the record does not settle what was asked,
-        say what is missing from it rather than closing the gap with a general principle
-        about abstractions.
+        hands the question back as a label. Where the record does not settle a *fact about
+        this repository*, say what is missing from it rather than closing the gap with a
+        general principle about abstractions.
+
+        Read the `source` lines and answer from what they show, without copying them out.
+        Mark the boundary and its code is put beside your answer from the file itself — so
+        say what is true of it, name the file and line you mean, and point at what a reader
+        should notice there. "Where is the duplication" is answered by marking the boundary
+        and naming the four modules; the four lines arrive on their own.
+
+        Where you are asked to demonstrate a recommended change, write the code — this is the
+        one thing you write in a code block, because it does not exist anywhere to be shown.
+        Say that it is an illustration of the recommendation and not something the review ran,
+        base it on the `source` lines, and mark the boundary it comes from in supported_by.
+        Answering "the review does not contain example fix snippets" is a refusal to do your
+        job: the review contains the recommendation and the code it applies to, and turning
+        that into an example is what the reader is asking for.
+
+        Where you are asked what the questions and answers were, answer from
+        `elicitation_round` — it holds both, in the order they were asked.
 
         Then, in supported_by, return exactly one true-or-false value for each boundary in
         the order the boundaries were supplied. Mark true only for a boundary your answer

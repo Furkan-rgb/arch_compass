@@ -912,6 +912,41 @@ ask.
 This extends §9.3: opaque IDs are necessary for validation and insufficient as reasoning
 context — and they are also unsafe as model output.
 
+### Delivering evidence is not retrieval
+
+The same rule decides how a stage gets source code, and decides it against the obvious
+answer. A reader asking to see the leak is asking for lines the detector already picked:
+every finding participant records a span, so selection happened when the verdict was
+reached. The application reads those spans and puts the text in the input. A tool the model
+could call to fetch source would invert the division — the stage would be choosing its own
+evidence — and it would be solving a search problem that does not exist.
+
+"It will not fit in the context" is the reason to look for a retrieval layer, and it is
+worth checking before building one. It did fit: bounded by the detector's spans, a review's
+source is order 10–15k characters against an input budget near 490k. The same measurement
+removed policy retrieval from the judging stage (§6A) and an embedding index from the
+conversation's background. Where the evidence fits, retrieval is indirection in front of one
+concrete thing (ADR 0013).
+
+**Delivering it in does not license handing it back.** Evidence goes to a stage so that it
+can reason about what the evidence shows, and the reply says what it means — never the
+evidence again. Where a stage's answer needs a value the application already holds, the
+stage points at it and the application renders it; a model reproducing that value can only
+produce a second copy, and a second copy can disagree with the first.
+
+This was learned in the direction the third clause above predicts. The answering stage was
+given each finding's source and told to quote it back "character for character", which is
+the one remedy that clause rules out — and the run after that instruction landed returned
+`"chelsine"` where the file says `"chelsie"`. The reader sees a line attributed to their own
+repository that is not in it, and no validation can catch it, because a plausible identifier
+is exactly what a well-formed string field accepts.
+
+The distinction that survives is between *reproducing* and *composing*. An illustrated fix
+is still written by the model: it does not exist anywhere to be rendered, so nothing else
+can write it, and it is labelled as an illustration the review never ran. A wrong name there
+is a bad suggestion beside the correct spelling; a wrong name in a quotation is a false
+record of the repository.
+
 ### Field order is part of the contract
 
 A structured-output model fills a response schema in the order the schema declares, so
@@ -1000,8 +1035,8 @@ Presentation
 bootstrap.py = composition root
 ```
 
-Domain and application code must remain independent from Typer, HTTPX, SQLite,
-sqlite-vec and AST implementation details.
+Domain and application code must remain independent from Typer, HTTPX, SQLite and AST
+implementation details.
 
 ---
 
@@ -1166,7 +1201,12 @@ Contributors and coding agents must preserve these invariants.
 20. Documentation and tests must describe metric limitations honestly.
 21. Old reviews retain the exact case, atlas and policy versions they used.
 22. The application decides what to look at; the model decides what it means; nothing
-    the model writes is used as a key (§12.0).
+    the model writes is used as a key (§12.0). Nor does the model reproduce a value the
+    application already holds: where an answer needs one, it points and the application
+    renders. Composing something that does not yet exist — an illustrated fix — is the
+    model's and stays labelled as such. *A retyped copy is not a key and was permitted by
+    the first clause alone, which is how a stage came to be told to quote source "character
+    for character" and returned an identifier the repository does not contain.*
 23. `ArchitectureCase` holds user intent only; the advisor never writes into it.
 24. A review's overview may summarise its verdicts and may not revise them: no verdict
     field, and every claim names the boundaries it rests on.

@@ -20,14 +20,13 @@ export type CaseRevision = OpenAPIComponents["schemas"]["CaseRevision"];
 export type CaseSummary = OpenAPIComponents["schemas"]["CaseSummary"];
 export type CaseUpdate = OpenAPIComponents["schemas"]["CaseUpdate"];
 export type RecordedAnswer = OpenAPIComponents["schemas"]["RecordedAnswer"];
+export type BoundaryExcerpt = OpenAPIComponents["schemas"]["BoundaryExcerpt"];
 
 export interface WorkspaceSummary {
   workspace: string;
   models: {
     reasoning: { provider: string; model: string };
-    embedding: { provider: string; model: string; dimensions: number };
   };
-  policy_index: Record<string, unknown> | null;
 }
 
 export interface RepositorySummary {

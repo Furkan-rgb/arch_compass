@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import math
 import re
 from collections.abc import Callable
-from hashlib import sha256
 from typing import ClassVar
 
 from archcompass.domain.atlas import (
@@ -25,33 +23,12 @@ from archcompass.domain.review import (
     OverviewStatement,
     PolicyBearing,
     ReviewedBoundary,
+    ReviewEvidence,
     ReviewOverview,
     VerdictHinge,
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
 from archcompass.ports.reasoning import ReasoningTask, StreamingAnswerReasoner
-
-
-class DeterministicEmbeddingProvider:
-    def __init__(self, dimensions: int = 64) -> None:
-        self._dimensions = dimensions
-
-    @property
-    def identity(self) -> tuple[str, str, int]:
-        return ("fake", "deterministic-token-hash-v1", self._dimensions)
-
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        return [self._embed_one(text) for text in texts]
-
-    def _embed_one(self, text: str) -> list[float]:
-        vector = [0.0] * self._dimensions
-        tokens = re.findall(r"[a-z0-9-]+", text.casefold())
-        for token in tokens:
-            digest = sha256(token.encode("utf-8")).digest()
-            index = int.from_bytes(digest[:4], "big") % self._dimensions
-            vector[index] += 1.0 if digest[4] % 2 == 0 else -1.0
-        magnitude = math.sqrt(sum(value * value for value in vector)) or 1.0
-        return [value / magnitude for value in vector]
 
 
 class DeterministicReasoningProvider:
@@ -266,7 +243,7 @@ class DeterministicReasoningProvider:
     def stream_review_answer(
         self,
         review: BoundaryReview,
-        case: ArchitectureCase,
+        evidence: ReviewEvidence,
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
@@ -284,7 +261,7 @@ class DeterministicReasoningProvider:
         without pretending to imitate how any particular provider chunks its output.
         """
 
-        answer = self.answer_review_question(review, case, history, question, knowledge)
+        answer = self.answer_review_question(review, evidence, history, question, knowledge)
         for index, word in enumerate(answer.answer.split(" ")):
             on_prose(word if index == 0 else f" {word}")
         return answer
@@ -292,7 +269,7 @@ class DeterministicReasoningProvider:
     def answer_review_question(
         self,
         review: BoundaryReview,
-        case: ArchitectureCase,
+        evidence: ReviewEvidence,
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
@@ -318,9 +295,16 @@ class DeterministicReasoningProvider:
             if knowledge.method
             else ""
         )
+        # Counted rather than quoted, as the background already is: a test can then prove
+        # the recorded spans reached this stage without the substitute pretending to reason
+        # about the code at them.
+        shown = (
+            f" Source shown for "
+            f"{len({x.reference for x in evidence.excerpts if x.text})} boundaries."
+        )
         return ReviewAnswer(
             answer=(
-                f"{report.headline} "
+                f"{report.headline}{shown} "
                 + (
                     "The boundaries this question touches are: "
                     + "; ".join(item.candidate.summary for item in supporting)
@@ -336,7 +320,7 @@ class DeterministicReasoningProvider:
     def stream_open_question_discussion(
         self,
         review: BoundaryReview,
-        case: ArchitectureCase,
+        evidence: ReviewEvidence,
         question: OpenQuestion,
         history: list[ReviewMessage],
         asked: str,
@@ -344,7 +328,7 @@ class DeterministicReasoningProvider:
         on_prose: Callable[[str], None],
     ) -> ReviewAnswer:
         answer = self.discuss_open_question(
-            review, case, question, history, asked, knowledge
+            review, evidence, question, history, asked, knowledge
         )
         for index, word in enumerate(answer.answer.split(" ")):
             on_prose(word if index == 0 else f" {word}")
@@ -353,7 +337,7 @@ class DeterministicReasoningProvider:
     def discuss_open_question(
         self,
         review: BoundaryReview,
-        case: ArchitectureCase,
+        evidence: ReviewEvidence,
         question: OpenQuestion,
         history: list[ReviewMessage],
         asked: str,
@@ -378,13 +362,15 @@ class DeterministicReasoningProvider:
         # told anyone, so there is nothing honest to propose — which is the behaviour the
         # real contract is asked for and the one a test should be able to pin.
         settled = "sure" in asked.casefold() or "yes" in asked.casefold()
+        # Counted rather than quoted, the way background already is: a test can then prove
+        # the pinned revision reached this stage without the substitute pretending to reason
+        # about what it says.
+        stated = len(evidence.case.expected_future_changes) + len(evidence.case.assumptions)
         return ReviewAnswer(
             answer=(
                 f"About {question.unknown} "
-                # Counted rather than quoted, the way background already is: a test can then
-                # prove the pinned revision reached this stage without the substitute
-                # pretending to reason about what it says.
-                f"(case states {len(case.expected_future_changes) + len(case.assumptions)}): "
+                f"({len([x for x in evidence.excerpts if x.text])} excerpts) "
+                f"(case states {stated}): "
                 + "; ".join(item.candidate.summary for item in supporting)
                 + consulted
                 + f" (turn {len(history) + 1})"

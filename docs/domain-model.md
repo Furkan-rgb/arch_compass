@@ -32,16 +32,20 @@ version 2.
 
 ## PolicyCorpus
 
-`PolicyDocument` preserves authored metadata, applicability subject, and original Markdown.
-`PolicyChunk` represents one semantic section. `PolicyIndexVersion` fixes corpus hash, embedding
-provider/model, dimensions, and creation time. `PolicyApplicabilityContext` identifies the
-current user, organisation, and repository subjects. Retrieval fails closed for scoped policies
-whose subject does not match and returns original documents and chunks, never vectors.
+`PolicyDocument` preserves authored metadata, applicability subject, and original Markdown, and
+is what every stage is shown — whole, never chunked or ranked. `PolicyApplicabilityContext`
+identifies the current user, organisation, and repository subjects; scope resolution fails closed
+for a scoped policy whose subject does not match, and missing identity never widens access.
 `PolicySourceRegistration` records a canonical persistent workspace source.
 
-`PolicyEvidenceSummary` is report-facing evidence with policy ID, title, scope, applicability
-subject, strength, and up to three normalized matched section names. `PolicyConflict` cites at
-least two distinct policies and records both the conflict and its reconciliation.
+`PolicyChunk`, `PolicyIndexVersion` and `RetrievedPolicy` are gone with the index they described
+(ADR 0013).
+
+`PolicyEvidenceSummary` and `PolicyConflict` are gone for the same reason. Both described the
+result of ranking a corpus — which sections a query matched, how two retrieved policies were
+reconciled — and a review now records what it was shown instead: `policies_presented` names every
+policy the judging stage saw, and a `PolicyBearing` says which of them bore on one boundary and
+how.
 
 ## Concern analysis
 

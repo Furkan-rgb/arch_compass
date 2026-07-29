@@ -151,28 +151,25 @@ class ReasoningModelConfig(DomainModel):
         return self
 
 
-class EmbeddingModelConfig(DomainModel):
-    provider: str
-    model: str
-    base_url: str | None = None
-    api_key_env: str | None = None
-    dimensions: int = Field(gt=0)
-    timeout_seconds: float = Field(gt=0)
-
-
 class ModelsConfig(DomainModel):
+    """The one model a workspace configures.
+
+    An embedding model was configured here too, for a policy index that ranked the corpus
+    against a query. Nothing ranks it: every policy is presented to the judging stage in one
+    request and the conversation carries the corpus whole (ADR 0013), so the setting asked a
+    user to choose a model that decided nothing.
+
+    `extra="forbid"` is inherited and deliberate here. A workspace `models.yaml` still
+    carrying `embedding:` or `retrieval:` is refused by name rather than quietly ignored —
+    ADR 0002 — so the message says which block to delete instead of leaving a reader to
+    wonder why a setting stopped mattering.
+    """
+
     reasoning: ReasoningModelConfig
-    embedding: EmbeddingModelConfig
-
-
-class RetrievalConfig(DomainModel):
-    top_k: int = Field(default=6, ge=1, le=100)
-    max_sections_per_policy: int = Field(default=3, ge=1, le=3)
 
 
 class AppConfig(DomainModel):
     models: ModelsConfig
-    retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
 
     @property
     def identity_hash(self) -> str:

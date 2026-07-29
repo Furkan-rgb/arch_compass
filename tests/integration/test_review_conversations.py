@@ -192,7 +192,7 @@ def test_a_preview_never_becomes_the_stored_record(
         @staticmethod
         def stream_review_answer(
             _review_: object,
-            _case: object,
+            _evidence: object,
             _history: object,
             _question: object,
             _knowledge: object,
@@ -209,7 +209,7 @@ def test_a_preview_never_becomes_the_stored_record(
         @staticmethod
         def stream_open_question_discussion(
             _review_: object,
-            _case: object,
+            _evidence: object,
             _question_: object,
             _history: object,
             _asked: object,

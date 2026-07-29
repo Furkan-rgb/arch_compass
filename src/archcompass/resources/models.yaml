@@ -12,12 +12,3 @@ models:
     # here: this file is copied into a workspace whose model is not known in advance,
     # and the model's own default is likelier to suit it than either instruction.
     thinking: null
-  embedding:
-    provider: ollama
-    model: embeddinggemma
-    base_url: http://127.0.0.1:11434
-    dimensions: 768
-    timeout_seconds: 60
-retrieval:
-  top_k: 6
-  max_sections_per_policy: 3

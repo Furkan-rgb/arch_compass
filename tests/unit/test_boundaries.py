@@ -25,7 +25,6 @@ def test_core_layers_do_not_import_infrastructure_or_presentation() -> None:
         "archcompass.adapters",
         "archcompass.presentation",
         "sqlite3",
-        "sqlite_vec",
         "httpx",
         "typer",
     )
@@ -54,7 +53,6 @@ def test_cli_commands_use_application_services_only() -> None:
         "atlas_repository",
         "case_repository",
         "database",
-        "policy_store",
         "query_service",
         "report_writer",
         "run_repository",
@@ -65,7 +63,6 @@ def test_cli_commands_use_application_services_only() -> None:
     assert used_attributes.isdisjoint(forbidden_runtime_attributes)
 
     expected_service_by_command = {
-        "policies_rebuild": "policy_service",
         "policies_list": "policy_service",
         "policies_show": "policy_service",
         "policy_sources_add": "policy_service",
@@ -114,7 +111,6 @@ def test_web_routes_use_application_services_only() -> None:
         "case_repository",
         "database",
         "job_repository",
-        "policy_store",
         "query_service",
         "report_writer",
         "run_repository",
@@ -134,11 +130,18 @@ def test_web_routes_use_application_services_only() -> None:
 def test_review_answers_are_assembled_before_model_adapters() -> None:
     """The stage receives typed domain objects; it does not fetch or choose evidence.
 
-    Its parameters are the whole pinned review, the history, the question, and the
-    background passages the application already retrieved for it. Nothing it is given is a
-    handle it would have to resolve, and there is nothing left for it to retrieve — the
+    Its parameters are the whole pinned review, one assembled `ReviewEvidence`, the history,
+    the question, and the background the application already retrieved. Nothing it is given
+    is a handle it would have to resolve, and there is nothing left for it to retrieve — the
     application decides what an answer may be built from, including which background it
     sees, so a model adapter cannot become the thing that chooses its own evidence.
+
+    Pinned as `evidence` rather than as a list of the things inside it, and that is the point
+    of the shape. Three separate parameters were assembled at the call site, and three times
+    something the record already held was left out — the code at each span, then the spans of
+    a scattered concept, then the round of questions and answers — each of which this stage
+    then truthfully reported as missing from the review. A single value moves that omission
+    to one method with one test, instead of a signature that grows a parameter per lesson.
     """
 
     for path in (
@@ -157,7 +160,7 @@ def test_review_answers_are_assembled_before_model_adapters() -> None:
         assert [argument.arg for argument in methods[0].args.args] == [
             "self",
             "review",
-            "case",
+            "evidence",
             "history",
             "question",
             "knowledge",

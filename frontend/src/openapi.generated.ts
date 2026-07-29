@@ -101,6 +101,14 @@ export interface components {
     "analysis_config_hash": string;
     "created_at"?: string;
   };
+    "BoundaryExcerpt": {
+    "reference": string;
+    "qualified_name": string;
+    "role": string;
+    "location"?: components["schemas"]["SourceLocation"] | null;
+    "text"?: string;
+    "unavailable"?: string;
+  };
     "BoundaryReview": {
     "schema_version"?: 1;
     "review_id"?: string;
@@ -205,11 +213,6 @@ export interface components {
     "limit"?: number;
   };
     "EdgeType": "contains" | "imports" | "calls" | "inherits" | "implements" | "references" | "tests" | "configures";
-    "EmbeddingModelIdentity": {
-    "provider": string;
-    "model": string;
-    "dimensions": number;
-  };
     "FailureDiagnostic": {
     "code": components["schemas"]["FailureDiagnosticCode"];
     "force_handles"?: Array<string>;
@@ -306,18 +309,6 @@ export interface components {
     "body": string;
     "source_path": string;
     "content_hash": string;
-  };
-    "PolicyIndexVersion": {
-    "schema_version"?: 2;
-    "version_id"?: string;
-    "embedding_provider": string;
-    "embedding_model": string;
-    "dimensions": number;
-    "corpus_hash": string;
-    "created_at"?: string;
-  };
-    "PolicyRebuildRequest": {
-    "repository_root"?: string | null;
   };
     "PolicyScope": "general" | "user" | "organisation" | "repository" | "accepted_adr";
     "PolicySource": {
@@ -537,12 +528,10 @@ export interface components {
   };
     "WorkspaceModels": {
     "reasoning": components["schemas"]["ModelIdentity"];
-    "embedding": components["schemas"]["EmbeddingModelIdentity"];
   };
     "WorkspaceSummaryResponse": {
     "workspace": string;
     "models": components["schemas"]["WorkspaceModels"];
-    "policy_index"?: components["schemas"]["PolicyIndexVersion"] | null;
   };
   };
 }
@@ -719,6 +708,7 @@ export interface operations {
     responses: {
       "200": components["schemas"]["PolicyDocument"];
       "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
     };
   };
   "get_review_api_reviews__review_id__get": {
@@ -898,19 +888,6 @@ export interface operations {
       "404": components["schemas"]["ProblemDetail"];
     };
   };
-  "rebuild_policies_api_policies_rebuild_post": {
-    parameters: {
-      query: never;
-      path: never;
-      header: never;
-      cookie: never;
-    };
-    requestBody: components["schemas"]["PolicyRebuildRequest"];
-    responses: {
-      "200": components["schemas"]["PolicyIndexVersion"];
-      "422": components["schemas"]["ProblemDetail"];
-    };
-  };
   "remove_policy_source_api_policies_sources_delete": {
     parameters: {
       query: {
@@ -984,6 +961,25 @@ export interface operations {
     responses: {
       "200": components["schemas"]["AtlasQueryResult"];
       "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "review_source_api_reviews__review_id__source_get": {
+    parameters: {
+      query: {
+      "reference"?: string | null;
+      "context_lines"?: number;
+      };
+      path: {
+      "review_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": Array<components["schemas"]["BoundaryExcerpt"]>;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
     };
   };
   "score_review_api_reviews__review_id__score_get": {
@@ -1101,9 +1097,6 @@ export interface paths {
   "/api/policies": {
     get: operations["list_policies_api_policies_get"];
   };
-  "/api/policies/rebuild": {
-    post: operations["rebuild_policies_api_policies_rebuild_post"];
-  };
   "/api/policies/sources": {
     get: operations["list_policy_sources_api_policies_sources_get"];
     post: operations["add_policy_source_api_policies_sources_post"];
@@ -1165,6 +1158,9 @@ export interface paths {
   };
   "/api/reviews/{review_id}/score": {
     get: operations["score_review_api_reviews__review_id__score_get"];
+  };
+  "/api/reviews/{review_id}/source": {
+    get: operations["review_source_api_reviews__review_id__source_get"];
   };
   "/api/workspace": {
     get: operations["workspace_summary_api_workspace_get"];

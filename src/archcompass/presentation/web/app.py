@@ -25,6 +25,7 @@ from pydantic import (
 )
 
 from archcompass.application.cases import WrittenAnswer
+from archcompass.application.review_source import MAX_CONTEXT_LINES
 from archcompass.application.reviews import JudgedCandidate
 from archcompass.bootstrap import Runtime
 from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion, FindingCandidate
@@ -50,12 +51,8 @@ from archcompass.domain.errors import (
     ReviewStillRunningError,
     StaleAtlasError,
 )
-from archcompass.domain.policy import (
-    PolicyDocument,
-    PolicyIndexVersion,
-    PolicySourceRegistration,
-)
-from archcompass.domain.review import BoundaryReview
+from archcompass.domain.policy import PolicyDocument, PolicySourceRegistration
+from archcompass.domain.review import BoundaryExcerpt, BoundaryReview
 from archcompass.domain.review_conversation import ReviewConversation, ReviewMessage
 from archcompass.domain.workspace import (
     BoundaryReviewSummary,
@@ -368,28 +365,25 @@ class PolicySourceRequest(APIModel):
     source: str = Field(min_length=1)
 
 
-class PolicyRebuildRequest(APIModel):
-    repository_root: str | None = None
-
-
 class ModelIdentity(APIModel):
     provider: str
     model: str
 
 
-class EmbeddingModelIdentity(ModelIdentity):
-    dimensions: int
-
-
 class WorkspaceModels(APIModel):
+    """The one model a review needs.
+
+    An embedding identity was reported here too, for a policy index that no longer exists:
+    every policy is presented whole to the judging stage, so nothing is embedded and there
+    is nothing for a reader to check about a model that decided nothing (ADR 0013).
+    """
+
     reasoning: ModelIdentity
-    embedding: EmbeddingModelIdentity
 
 
 class WorkspaceSummaryResponse(APIModel):
     workspace: str
     models: WorkspaceModels
-    policy_index: PolicyIndexVersion | None = None
 
 
 class PolicySourceRemovalResponse(APIModel):
@@ -457,7 +451,6 @@ def create_app(runtime: Runtime) -> FastAPI:
 
     @app.get("/api/workspace")
     def workspace_summary() -> WorkspaceSummaryResponse:
-        policy_version = runtime.policy_service.current_version()
         return WorkspaceSummaryResponse(
             workspace=str(runtime.workspace),
             models=WorkspaceModels(
@@ -465,13 +458,7 @@ def create_app(runtime: Runtime) -> FastAPI:
                     provider=runtime.config.models.reasoning.provider,
                     model=runtime.config.models.reasoning.model,
                 ),
-                embedding=EmbeddingModelIdentity(
-                    provider=runtime.config.models.embedding.provider,
-                    model=runtime.config.models.embedding.model,
-                    dimensions=runtime.config.models.embedding.dimensions,
-                ),
             ),
-            policy_index=policy_version,
         )
 
     @app.get("/api/cases")
@@ -685,6 +672,36 @@ def create_app(runtime: Runtime) -> FastAPI:
     def get_review(review_id: str) -> BoundaryReview:
         return runtime.review_repository.get(review_id)
 
+    @app.get(
+        "/api/reviews/{review_id}/source",
+        responses=_problem_responses(404, 422),
+    )
+    def review_source(
+        review_id: str,
+        reference: Annotated[str | None, Query(pattern=r"^BR-[0-9]{3}$")] = None,
+        context_lines: Annotated[int, Query(ge=0, le=MAX_CONTEXT_LINES)] = 0,
+    ) -> list[BoundaryExcerpt]:
+        """The code this review's findings were measured from.
+
+        Delivery, not retrieval: every participant already carries the span a deterministic
+        detector chose when the verdict was reached, so there is nothing to search for and
+        nothing for a caller to select. `reference` narrows to one boundary because a page
+        asks for what it is about to draw; `context_lines` is how much surrounding code to
+        unfold, bounded by the workspace rather than by the request.
+
+        A boundary whose code cannot be shown answers with the reason instead of the text —
+        the repository has changed since the review ran, is gone, or the boundary was never
+        written. That is a 200 carrying a stated absence, not a 404: the finding exists and
+        is worth reading either way.
+        """
+
+        review = runtime.review_repository.get(review_id)
+        return runtime.review_source_service.for_review(
+            review,
+            reference=reference,
+            context_lines=context_lines,
+        )
+
     @app.post(
         "/api/reviews/{review_id}/answers",
         status_code=201,
@@ -876,29 +893,16 @@ def create_app(runtime: Runtime) -> FastAPI:
             removed=runtime.policy_service.remove_source(Path(source))
         )
 
-    @app.post("/api/policies/rebuild")
-    def rebuild_policies(request: PolicyRebuildRequest) -> PolicyIndexVersion:
-        return runtime.policy_service.rebuild(
-            repository_root=(
-                Path(request.repository_root)
-                if request.repository_root is not None
-                else None
-            )
-        )
-
-    @app.get("/api/policies/{policy_id}")
+    @app.get("/api/policies/{policy_id}", responses=_problem_responses(404))
     def get_policy(
         policy_id: str, repository_root: str | None = None
     ) -> PolicyDocument:
-        policies = runtime.policy_service.catalog(
+        return runtime.policy_service.get(
+            policy_id,
             repository_root=(
                 Path(repository_root) if repository_root is not None else None
-            )
+            ),
         )
-        for policy in policies:
-            if policy.id == policy_id:
-                return policy
-        raise PolicyNotFoundError(f"Policy {policy_id} was not found")
 
     @app.api_route(
         "/api/{api_path:path}",

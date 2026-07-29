@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from archcompass.adapters.retrieval.policy_markdown import (
+    REQUIRED_SECTIONS,
     MarkdownPolicySourceInspector,
     load_policy_sources,
     parse_policy,
@@ -15,16 +16,38 @@ from archcompass.domain.base import stable_id
 from archcompass.domain.errors import PolicyFormatError
 
 
+def _section(body: str, heading: str) -> str:
+    """The text under one `##` heading.
+
+    The parser used to hand these back as chunks, because they were the unit an embedding
+    index retrieved. Nothing retrieves, so a policy is now parsed whole and a test that
+    wants one section cuts it out here — where the cutting is the test's business rather
+    than a shape the production code carries for it.
+    """
+
+    matches = list(re.finditer(r"^##\s+(.+?)\s*$", body, flags=re.MULTILINE))
+    for ordinal, match in enumerate(matches):
+        if match.group(1).strip().casefold() != heading.casefold():
+            continue
+        end = matches[ordinal + 1].start() if ordinal + 1 < len(matches) else len(body)
+        return body[match.end() : end].strip()
+    raise AssertionError(f"no {heading} section")
+
+
 def test_general_policy_has_all_required_sections() -> None:
-    policy, chunks = parse_policy(BUNDLED_POLICY_SOURCE / "hide-implementation-details.md")
+    policy = parse_policy(BUNDLED_POLICY_SOURCE / "hide-implementation-details.md")
+
     assert policy.id == "hide-implementation-details"
-    assert len(chunks) == 9
-    assert len({chunk.chunk_id for chunk in chunks}) == 9
+    # Parsing succeeding is the assertion — the parser refuses a policy missing any
+    # required section, or carrying an empty or duplicated one — and this states what
+    # that means: all nine are there to read.
+    for heading in REQUIRED_SECTIONS:
+        assert _section(policy.body, heading)
 
 
 def test_bundled_corpus_includes_provider_boundary_and_ousterhout_guidance() -> None:
     policies = {
-        policy.id: policy for policy, _chunks in load_policy_sources([BUNDLED_POLICY_SOURCE])
+        policy.id: policy for policy in load_policy_sources([BUNDLED_POLICY_SOURCE])
     }
 
     expected_ids = {
@@ -43,7 +66,7 @@ def test_bundled_corpus_includes_provider_boundary_and_ousterhout_guidance() -> 
 
 def test_bundled_policy_relationships_and_ousterhout_provenance_are_resolved() -> None:
     loaded = load_policy_sources([BUNDLED_POLICY_SOURCE])
-    policy_ids = {policy.id for policy, _chunks in loaded}
+    policy_ids = {policy.id for policy in loaded}
     ousterhout_policy_ids = {
         "design-it-twice",
         "different-layer-different-abstraction",
@@ -54,9 +77,9 @@ def test_bundled_policy_relationships_and_ousterhout_provenance_are_resolved() -
         "pull-complexity-downward",
     }
 
-    for policy, chunks in loaded:
-        related = next(chunk for chunk in chunks if chunk.section == "Related policies")
-        referenced_ids = set(re.findall(r"`([a-z0-9-]+)`", related.text))
+    for policy in loaded:
+        related = _section(policy.body, "Related policies")
+        referenced_ids = set(re.findall(r"`([a-z0-9-]+)`", related))
         assert referenced_ids <= policy_ids
         if policy.id in ousterhout_policy_ids:
             assert any(
@@ -172,7 +195,7 @@ def test_repository_scoped_policy_derives_atlas_repository_identity_when_local(
         encoding="utf-8",
     )
 
-    policy, _ = parse_policy(path)
+    policy = parse_policy(path)
 
     assert policy.applies_to == stable_id("repo", str(repository.resolve()))
 
@@ -206,7 +229,7 @@ def test_scoped_policy_accepts_an_explicit_subject(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    policy, _ = parse_policy(path)
+    policy = parse_policy(path)
 
     assert policy.applies_to == "example-organisation"
 

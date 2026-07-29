@@ -1,43 +1,18 @@
-"""Policy indexing, retrieval, and source-registration ports."""
+"""Policy source-registration ports.
+
+No index and no retriever. Both existed to rank a corpus against a query, and nothing
+ranks it any more: the judging stage is shown every policy in one request and the
+conversation's background carries the corpus whole (master plan §6A, ADR 0013). What is
+left is the pair of things that were never about retrieval — where policies come from, and
+how a directory of Markdown becomes documents.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Protocol
 
-from archcompass.domain.policy import (
-    PolicyApplicabilityContext,
-    PolicyDocument,
-    PolicyIndexVersion,
-    PolicySourceRegistration,
-    RetrievedPolicy,
-)
-
-
-class PolicyIndex(Protocol):
-    def rebuild(self, sources: list[Path]) -> PolicyIndexVersion: ...
-
-    def ensure_current(self, sources: list[Path]) -> PolicyIndexVersion: ...
-
-    def current_version(self) -> PolicyIndexVersion | None: ...
-
-    def list_policies(self, version_id: str | None = None) -> list[PolicyDocument]: ...
-
-    def get_policy(
-        self, policy_id: str, version_id: str | None = None
-    ) -> PolicyDocument: ...
-
-
-class PolicyRetriever(Protocol):
-    def retrieve(
-        self,
-        query: str,
-        *,
-        top_k: int,
-        version_id: str | None = None,
-        max_sections_per_policy: int | None = None,
-        applicability: PolicyApplicabilityContext | None = None,
-    ) -> list[RetrievedPolicy]: ...
+from archcompass.domain.policy import PolicyDocument, PolicySourceRegistration
 
 
 class PolicySourceRepository(Protocol):

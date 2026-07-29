@@ -33,7 +33,7 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
         ReasoningTask.JUDGE_FINDING_CANDIDATE: 10,
         ReasoningTask.ELICIT_QUESTIONS: 2,
         ReasoningTask.SUMMARISE_REVIEW: 6,
-        ReasoningTask.ANSWER_REVIEW_QUESTION: 4,
+        ReasoningTask.ANSWER_REVIEW_QUESTION: 7,
         ReasoningTask.DISCUSS_OPEN_QUESTION: 1,
     }
 
@@ -278,3 +278,162 @@ def test_the_judgement_contract_will_not_read_silence_as_evidence() -> None:
     assert "leave it as it is and put what you were not told in the hinge" in contract
     # And silence must not become a blanket excuse in the other direction either.
     assert "a silent case is not a reason to clear a constant copied into four modules" in contract
+
+
+def test_the_answer_contract_shows_the_code_rather_than_reporting_it_absent() -> None:
+    """The record always held the spans; the stage was never given the lines.
+
+    Asked to show the problematic code, a live conversation answered that the review "only
+    contains the names of these modules and does not include the specific lines of code".
+    True of what reached the stage, false of what the review holds — every participant
+    carries an exact span, and those lines now arrive as `source` on each boundary.
+    """
+
+    contract = _normalized(ANSWER_REVIEW_QUESTION.stage_contract)
+    request = _normalized(ANSWER_REVIEW_QUESTION.request)
+
+    assert "each boundary carries `source`" in contract
+    assert "never answer that the review does not contain it" in contract
+    # An absence is stated rather than hidden: "this repository has changed since the review
+    # ran" is the answer, and dropping it would let the stage conclude there is no source.
+    assert "where an entry carries `why_there_is_no_code` instead" in contract
+    # The lines are there to be reasoned about, not copied out — the marking is what puts
+    # them on screen, and the rendering is the application's.
+    assert "read the `source` lines and answer from what they show" in request
+
+
+def test_the_answer_contract_separates_a_repository_claim_from_craft() -> None:
+    """The refusal rule was right, and was being applied to the wrong category.
+
+    "Where the record does not settle what was asked, say what is missing" stops a review of
+    six boundaries speaking about a seventh. Applied to "show me how to carry out the
+    consolidation you recommended" it produced three refusals in a row, because the contract
+    had no category for demonstrating a recommendation it had already made and grounded.
+    """
+
+    contract = _normalized(ANSWER_REVIEW_QUESTION.stage_contract)
+    request = _normalized(ANSWER_REVIEW_QUESTION.request)
+
+    # The original rule survives in both halves, narrowed to what it was always about.
+    assert "a review that examined six boundaries cannot speak about a seventh" in contract
+    assert "does not settle a *fact about this repository*" in request
+    # And the category it was crowding out is named.
+    assert "that rule is about **claims concerning this repository**" in contract
+    assert "is not a claim about the repository" in contract
+    assert "do it. write the example" in contract
+    assert (
+        '"the review does not contain example fix snippets" is a refusal to do your job'
+        in request
+    )
+
+
+def test_an_illustrated_fix_is_grounded_and_labelled_as_an_illustration() -> None:
+    """It may demonstrate a recommendation; it may not present one as a reviewed result."""
+
+    contract = _normalized(ANSWER_REVIEW_QUESTION.stage_contract)
+    request = _normalized(ANSWER_REVIEW_QUESTION.request)
+
+    assert "it rests on the boundary whose recommendation it illustrates" in contract
+    assert "the review did not run it, test it or verify it" in contract
+    # Permission to write code is not permission to invent a repository.
+    assert "build it from `source` and not from memory" in contract
+    assert "do not invent a module, a function or an import you were not shown" in contract
+    assert "say that it is an illustration of the recommendation" in request
+
+
+def test_the_answer_contract_never_asks_the_model_to_reproduce_the_repository() -> None:
+    """The rule §12.0 already held, applied to the place that escaped it.
+
+    An earlier version told the stage to copy the source "character for character", which is
+    the one remedy §12.0 rules out: a model that must reproduce a value to be understood will
+    eventually reproduce it wrongly, silently, and plausibly. It did — `"chelsine"` for
+    `"chelsie"` — after that instruction landed.
+
+    So reproduction moved to the side that already holds the characters, and this asserts the
+    instruction is gone rather than merely softened. Left in, a later edit could reasonably
+    read "be exact" as the rule and tighten it again.
+    """
+
+    contract = _normalized(ANSWER_REVIEW_QUESTION.stage_contract)
+    request = _normalized(ANSWER_REVIEW_QUESTION.request)
+
+    assert "**do not reproduce those lines in your answer.**" in contract
+    assert "read the `source` lines and answer from what they show, without copying" in request
+    # The reason is the division of labour, not the stage's accuracy. Phrasing it as care
+    # is what produced the instruction this replaced.
+    assert "the application already holds every one of these characters" in contract
+    # The rules that told it to copy are gone, not reworded.
+    for banned in (
+        "copy those lines character for character",
+        "transcribe them exactly",
+        "quote the `source` lines when they are what is being asked about",
+    ):
+        assert banned not in contract and banned not in request
+
+    # Composing an illustration is the one exception, and is named as a different act rather
+    # than as a licence to be less careful.
+    assert "illustrating is composing something that does not exist yet" in contract
+    assert "this is the one thing you write in a code block" in request or (
+        "the one thing you write in a code block" in request
+    )
+
+
+def test_the_answer_contract_carries_the_round_that_produced_it() -> None:
+    """Asked what the questions and answers were, a review said it holds no such record.
+
+    True of the review it was shown — `summarise_review` has no field for a question, which
+    is what ends the elicitation loop — and false of the workspace, which keeps the questions
+    on the first pass and the answers on the case revision this pass ran against.
+    """
+
+    contract = _normalized(ANSWER_REVIEW_QUESTION.stage_contract)
+    request = _normalized(ANSWER_REVIEW_QUESTION.request)
+
+    assert "`elicitation_round` is the round of questions this review grew out of" in contract
+    assert "never that the review holds no record of them" in contract
+    # A skipped question is evidence about why a verdict still hinges, not an omission to
+    # pass over — which is the reading that makes carrying skips worth anything.
+    assert "a question shown as skipped is worth as much as an answered one" in contract
+    assert "answer from `elicitation_round`" in request
+
+
+def test_no_contract_tells_a_model_to_reproduce_what_the_application_holds() -> None:
+    """Across every stage, not only the one that got it wrong.
+
+    Invariant 22's checkable sentence was "nothing the model writes is used as a key", and a
+    retyped code snippet is not a key — nothing looks it up. So the letter of the rule
+    permitted the instruction that produced a false quotation, and the prose explaining why
+    lived a section away in §12.0. This is the missing enforcement: an instruction to
+    transcribe, copy or reproduce is a defect wherever it appears, and the phrasings below
+    are the ones that were actually written before anyone noticed.
+
+    Deliberately a banned-phrase list rather than a judgement about intent. It is coarse, and
+    coarse is what makes it hold: a future edit reaching for "be exact about the source"
+    trips it and has to argue with this docstring instead of with nobody.
+    """
+
+    forbidden = (
+        "character for character",
+        "transcribe them exactly",
+        "transcribe it exactly",
+        "copy them exactly",
+        "copy it exactly",
+        "reproduce the source",
+        "reproduce these lines",
+        "quote it verbatim",
+        "verbatim copy",
+        "same identifiers, same spelling",
+    )
+
+    for task, contract in STAGE_PROMPTS.items():
+        halves = (
+            _normalized(contract.system_prompt),
+            _normalized(contract.stage_contract),
+            _normalized(contract.request),
+        )
+        for phrase in forbidden:
+            assert not any(phrase in half for half in halves), (
+                f"{task.value} instructs the model to reproduce source ({phrase!r}). "
+                "Where the application already holds the value, the stage points at it and "
+                "the interface renders it — see invariant 22 and §12.0."
+            )

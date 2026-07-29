@@ -334,7 +334,7 @@ def scattered_concept_candidates(
             (
                 module
                 for module in module_facts
-                if concept in module.mentions
+                if module.mention_of(concept) is not None
                 # Its own package is where the concept is supposed to be known: the port
                 # beside it, and the wiring that registers it, both name it on purpose.
                 and not (module.path == path or module.path.startswith(f"{package}/"))
@@ -354,18 +354,14 @@ def scattered_concept_candidates(
                     FindingParticipant(
                         node_id=owner.node_id,
                         qualified_name=owner.qualified_name,
+                        # The owner is the module itself rather than a use of the name, so
+                        # its declaration is where it begins. Every other participant points
+                        # at a line that actually contains the concept.
                         location=SourceLocation(path=owner.path, start_line=1, end_line=1),
                         role=f"Owns '{concept}' and is reachable through an abstraction.",
                     ),
                     *[
-                        FindingParticipant(
-                            node_id=module.node_id,
-                            qualified_name=module.qualified_name,
-                            location=SourceLocation(
-                                path=module.path, start_line=1, end_line=1
-                            ),
-                            role=f"Names '{concept}' from outside the package that owns it.",
-                        )
+                        _naming_participant(module, concept)
                         for module in outside
                     ],
                 ],
@@ -387,6 +383,34 @@ def scattered_concept_candidates(
             )
         )
     return candidates
+
+
+def _naming_participant(module: ModuleFacts, concept: str) -> FindingParticipant:
+    """One module that names a concept it does not own, located where it names it.
+
+    Pointed at the first mention rather than at the module, because a participant's span is
+    what gets shown when a reader asks to see the finding. This one used to say line 1 —
+    which in a Python file is the docstring, so the code delivered as evidence of a leaked
+    vendor name was five docstrings that did not contain it, and the advisor said so.
+
+    The first site and not all of them: a participant carries one span, and the count in the
+    role is what says whether it is an isolated import or a name threaded through the file.
+    """
+
+    mention = module.mention_of(concept)
+    if mention is None:  # pragma: no cover — callers filter on this
+        raise ValueError(f"{module.path} does not name {concept}")
+    elsewhere = (
+        "" if len(mention.lines) == 1 else f" Named on {len(mention.lines)} lines here."
+    )
+    return FindingParticipant(
+        node_id=module.node_id,
+        qualified_name=module.qualified_name,
+        location=SourceLocation(
+            path=module.path, start_line=mention.first, end_line=mention.first
+        ),
+        role=f"Names '{concept}' from outside the package that owns it.{elsewhere}",
+    )
 
 
 def _words(name: str) -> set[str]:

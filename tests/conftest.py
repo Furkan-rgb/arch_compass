@@ -35,15 +35,6 @@ def fake_config_text() -> str:
     timeout_seconds: 1
     context_window_tokens: 32768
     max_output_tokens: 16384
-  embedding:
-    provider: fake
-    model: deterministic-token-hash-v1
-    base_url: http://127.0.0.1:11434
-    dimensions: 64
-    timeout_seconds: 1
-retrieval:
-  top_k: 6
-  max_sections_per_policy: 3
 """
 
 
