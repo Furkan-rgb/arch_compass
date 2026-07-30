@@ -12,8 +12,6 @@ models:
     model: gemini-3.6-flash
     api_key_env: GOOGLE_API_KEY
     timeout_seconds: 360
-    fast_timeout_seconds: 90
-    deep_timeout_seconds: 360
     # Deliberately well below the model's advertised window. This number only feeds the
     # pre-flight budget check, where under-stating refuses an oversize request with an
     # explicit message and over-stating lets one through to be truncated. A judgement

@@ -61,13 +61,6 @@ ChatMessage = dict[str, str]
 ThinkLevel = bool | Literal["low", "medium", "high"] | None
 
 
-def timeout_seconds(config: ReasoningModelConfig, *, is_fast: bool) -> float:
-    """The timeout a stage runs under, given its budget class."""
-
-    configured = config.fast_timeout_seconds if is_fast else config.deep_timeout_seconds
-    return configured if configured is not None else config.timeout_seconds
-
-
 def _grounded_statements(
     proposed: list[ProposedOverviewStatement],
     boundaries: list[ReviewedBoundary],
@@ -568,7 +561,6 @@ class ChatTransport(Protocol):
         *,
         schema: Mapping[str, object],
         task: ReasoningTask,
-        is_fast: bool,
         think: ThinkLevel,
         temperature: float | None,
     ) -> str: ...
@@ -605,7 +597,6 @@ class StreamingChatTransport(Protocol):
         *,
         schema: Mapping[str, object],
         task: ReasoningTask,
-        is_fast: bool,
         think: ThinkLevel,
         temperature: float | None,
     ) -> Iterator[str]: ...
@@ -638,13 +629,6 @@ class StructuredReasoningProvider:
         task: contract.identity for task, contract in STAGE_PROMPTS.items()
     }
 
-    #: Stages whose response is a short structured decision rather than a full artifact.
-    #: Empty now: both remaining stages read a substantial input — the whole policy corpus
-    #: for a verdict, the whole review for an answer — and produce considered prose, so
-    #: neither belongs in the fast budget. The distinction is kept rather than deleted
-    #: because it is a property of a stage, and the next one added may well be fast.
-    _FAST_TASKS: ClassVar[frozenset[ReasoningTask]] = frozenset()
-
     def __init__(self, config: ReasoningModelConfig, transport: ChatTransport) -> None:
         self._config = config
         self._transport = transport
@@ -666,11 +650,6 @@ class StructuredReasoningProvider:
         """
 
         return self._config.thinking if requested is None else requested
-
-    def _timeout_for(self, task: ReasoningTask) -> float:
-        """The timeout a stage runs under, which is its class's client timeout."""
-
-        return timeout_seconds(self._config, is_fast=task in self._FAST_TASKS)
 
     def judge_finding_candidate(
         self,
@@ -1596,7 +1575,6 @@ class StructuredReasoningProvider:
                     messages,
                     schema=resolved_schema,
                     task=task,
-                    is_fast=task in self._FAST_TASKS,
                     think=think,
                     temperature=temperature,
                 ),
@@ -1606,7 +1584,6 @@ class StructuredReasoningProvider:
             messages,
             schema=resolved_schema,
             task=task,
-            is_fast=task in self._FAST_TASKS,
             think=think,
             temperature=temperature,
         )

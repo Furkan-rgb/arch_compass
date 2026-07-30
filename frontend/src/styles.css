@@ -1210,6 +1210,19 @@ small { font-size: var(--s-meta); }
 .spin { animation: compassTurn 1.4s linear infinite; }
 @keyframes compassTurn { to { transform: rotate(360deg); } }
 
+/* The run's notice arrives while the reader is somewhere else in the app, so it enters rather
+   than blinking into existence — a card that is simply there in the corner is easy to read as
+   something that was always there. One authored moment: it rises the height of its own padding
+   and settles, on the exponential ease-out this design uses for anything that arrives.
+
+   Written `from` rather than `to`, so the card's resting state is its own and the animation is
+   the only thing that ever departs from it. That is what makes the reduced-motion rule below
+   correct rather than merely quiet: with the duration collapsed to .01ms the card is at rest
+   immediately, instead of being left stranded at whatever a half-applied entrance would leave
+   as `opacity: 0`. Here because a keyframe has no utility to be written as. */
+.run-notice { animation: runNoticeIn 240ms cubic-bezier(.16, 1, .3, 1); }
+@keyframes runNoticeIn { from { opacity: 0; transform: translateY(10px); } }
+
 @media (max-width: 1120px) {
   .atlas-layout { grid-template-columns: minmax(0, 1fr) 260px; }
 }

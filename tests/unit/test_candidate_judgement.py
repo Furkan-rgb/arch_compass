@@ -54,11 +54,10 @@ class _RecordingTransport:
         *,
         schema: object,
         task: ReasoningTask,
-        is_fast: bool,
         think: object,
         temperature: float | None,
     ) -> str:
-        del is_fast, think, temperature
+        del think, temperature
         self.requests.append({"messages": messages, "schema": schema, "task": task})
         return self._replies.pop(0)
 

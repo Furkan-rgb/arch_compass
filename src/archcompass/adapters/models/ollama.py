@@ -18,7 +18,6 @@ from archcompass.adapters.models.structured import (
     StreamingChatTransport,
     StructuredReasoningProvider,
     ThinkLevel,
-    timeout_seconds,
 )
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ProviderError
@@ -112,15 +111,7 @@ class OllamaChatTransport:
         self._config = config
         if not config.base_url:
             raise ProviderError("The ollama provider requires base_url in models.yaml")
-        # The client fixes its timeout at construction, so a timeout class is a client.
-        # Two is the whole set, and building them once keeps connection reuse.
-        self._clients: dict[bool, Client] = {
-            is_fast: Client(
-                host=config.base_url,
-                timeout=timeout_seconds(config, is_fast=is_fast),
-            )
-            for is_fast in (True, False)
-        }
+        self._client = Client(host=config.base_url, timeout=config.timeout_seconds)
 
     def complete(
         self,
@@ -128,12 +119,11 @@ class OllamaChatTransport:
         *,
         schema: Mapping[str, object],
         task: ReasoningTask,
-        is_fast: bool,
         think: ThinkLevel,
         temperature: float | None,
     ) -> str:
-        del task  # The budget class is the only stage property this transport needs.
-        client = self._clients[is_fast]
+        del task
+        client = self._client
         try:
             # `format` carries the full JSON Schema, not the generic "json" flag: that
             # constrains generation to the exact shape rather than merely to valid JSON,
@@ -160,7 +150,6 @@ class OllamaChatTransport:
         *,
         schema: Mapping[str, object],
         task: ReasoningTask,
-        is_fast: bool,
         think: ThinkLevel,
         temperature: float | None,
     ) -> Iterator[str]:
@@ -178,7 +167,7 @@ class OllamaChatTransport:
 
         del task
         try:
-            for part in self._clients[is_fast].chat(
+            for part in self._client.chat(
                 model=self._config.model,
                 messages=messages,
                 format=dict(schema),

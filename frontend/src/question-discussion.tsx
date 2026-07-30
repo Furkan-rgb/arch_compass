@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
 import { api } from "./api";
+import { ErrorPanel } from "./components";
 import { AnswerProse } from "./markdown";
+import { DISCUSSION_DRAFTS, useQuestionDrafts } from "./question-drafts";
 import type { OpenQuestion, ReviewConversation } from "./types";
 
 /**
@@ -40,8 +42,19 @@ export function QuestionDiscussion({
   disabled: boolean;
 }) {
   const client = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [asked, setAsked] = useState("");
+  // Kept across a reload for the same reason the answer above it is (`question-drafts`): what
+  // is in this box is the reader's own account of what they do not understand about their own
+  // project, and it is often longer than the answer it is meant to unblock. The mechanism is
+  // the one the answers use, under its own key — a question *about* an answer is not an answer,
+  // and the two must never be read back into the same box.
+  const [drafts, setDrafts] = useQuestionDrafts(DISCUSSION_DRAFTS, reviewId);
+  const asked = drafts[question.reference] ?? "";
+  const setAsked = (text: string) =>
+    setDrafts((existing) => ({ ...existing, [question.reference]: text }));
+  // Open where there is something restored to show. A draft put back into a collapsed panel is
+  // the same loss as no draft at all: the reader sees an unanswered question and a closed
+  // affordance, and has no reason to believe their half-written question is anywhere.
+  const [open, setOpen] = useState(() => Boolean(asked));
   const [pending, setPending] = useState<{ asked: string; prose: string } | null>(null);
 
   // Every conversation this review holds, filtered to the ones about this question. Listed
@@ -153,7 +166,20 @@ export function QuestionDiscussion({
                   ) : null}
                 </div>
               ) : (
-                <p className="m-0 text-ui text-danger">{message.failure}</p>
+                // A turn the server recorded as failed. The strip rather than a red
+                // sentence, because it is the same class of thing as every other failure on
+                // this page and the reader should not have to learn a second appearance for
+                // it. No retry: this one is history, already stored against the thread, and
+                // the box below is where a new attempt is made rather than an old one
+                // rewritten.
+                <ErrorPanel
+                  error={
+                    new Error(
+                      message.failure ||
+                        "The workspace recorded no answer to this and no reason.",
+                    )
+                  }
+                />
               )}
             </li>
           ))}
@@ -170,12 +196,18 @@ export function QuestionDiscussion({
         </ol>
       ) : null}
 
+      {/* The turn that never reached the server, as against the one above it that did. What
+          was typed is still in `ask.variables` — and still in the box, which is cleared only
+          on success — so asking again is one press rather than retyping the question. */}
       {ask.isError ? (
-        <p className="mb-2 text-ui text-danger">
-          {ask.error instanceof Error
-            ? ask.error.message
-            : "That could not be asked just now."}
-        </p>
+        <div className="[&_[data-slot=error-strip]]:mt-0 [&_[data-slot=error-strip]]:mb-2">
+          <ErrorPanel
+            error={ask.error}
+            onRetry={ask.variables ? () => ask.mutate(ask.variables!) : undefined}
+            retrying={ask.isPending}
+            retryLabel="Ask again"
+          />
+        </div>
       ) : null}
 
       <div className="flex items-start gap-2">

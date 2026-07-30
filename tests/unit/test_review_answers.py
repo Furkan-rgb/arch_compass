@@ -57,11 +57,10 @@ class _RecordingTransport:
         *,
         schema: Mapping[str, object],
         task: ReasoningTask,
-        is_fast: bool,
         think: ThinkLevel,
         temperature: float | None,
     ) -> str:
-        del schema, task, is_fast, think, temperature
+        del schema, task, think, temperature
         self.messages = messages
         return self._reply
 

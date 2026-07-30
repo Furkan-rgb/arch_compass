@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Compass, Monitor, Moon, Sun } from "lucide-react";
+import { Compass, Monitor, Moon, RotateCw, Sun } from "lucide-react";
 import { Link, NavLink } from "react-router-dom";
 import { type ReactNode } from "react";
 
@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
-import { api, ApiError } from "./api";
+import { api, ApiError, UNREACHABLE_CODE } from "./api";
 import { CommandPalette } from "./command-palette";
 import { isThemePreference, useTheme, type ThemePreference } from "./theme";
 
@@ -353,10 +353,34 @@ export function Booting({ label }: { label: string }) {
  * make it. The server's own words are kept verbatim, because a validator naming the field
  * it rejected tells someone more than any paraphrase of it could.
  */
-export function ErrorPanel({ error }: { error: unknown }) {
-  // The one failure whose fix is knowable from here. `fetch` reports an unreachable server
-  // as a TypeError whose message ("Failed to fetch") names neither the cause nor the cure.
-  const unreachable = error instanceof TypeError;
+export function ErrorPanel({
+  error,
+  onRetry,
+  /** Whether the retry is in flight — the query's `isFetching`, a mutation's `isPending`. */
+  retrying,
+  /** For the failure whose repeat is not a re-read: "Ask again", "Delete it again". */
+  retryLabel = "Try again",
+}: {
+  error: unknown;
+  /**
+   * Ask for the same thing a second time, where asking again is a thing that could work.
+   *
+   * Optional, and deliberately not defaulted to a reload: most of these failures are one
+   * request of several on a page, and a panel that offered to throw the other five away
+   * would be offering the wrong recovery. A caller with nothing to re-run — a review that
+   * has been deleted, a case whose YAML the server rejected — passes nothing, and the strip
+   * stays what it was, which is the honest answer where there is no second attempt.
+   */
+  onRetry?: () => void;
+  retrying?: boolean;
+  retryLabel?: string;
+}) {
+  // The one failure whose fix is knowable from here, in its two shapes: `fetch` rejecting
+  // because nothing accepted the connection, and `api` having found the reply was not this
+  // API's at all. Both arrive as a sentence about the workspace; only this knows the cure.
+  const unreachable =
+    error instanceof TypeError ||
+    (error instanceof ApiError && error.code === UNREACHABLE_CODE);
   const what = unreachable
     ? "The workspace didn’t answer."
     : error instanceof ApiError || error instanceof Error
@@ -376,6 +400,26 @@ export function ErrorPanel({ error }: { error: unknown }) {
         <span className="text-ink-2">
           Check that <code>archcompass web</code> is still running, then try again.
         </span>
+      ) : null}
+      {onRetry ? (
+        // In the strip's own hue and at the strip's own size: this is the alert's action,
+        // and an accent link inside it would read as a way out of the page rather than as
+        // a second attempt at the thing that failed. A 32px control here would double the
+        // height of a strip whose whole content is one sentence — the design has a quieter
+        // register for exactly this, and the discussion opener already uses it.
+        <button
+          type="button"
+          data-slot="error-retry"
+          className="inline-flex cursor-pointer items-center gap-1 self-center border-0 bg-transparent p-0 font-[550] text-danger underline-offset-2 not-disabled:hover:underline disabled:cursor-default disabled:text-ink-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          disabled={retrying}
+          // The label is the busy state, as it is on every other control in this app: a
+          // spinner beside a word that had not changed would say the same thing twice.
+          aria-busy={retrying || undefined}
+          onClick={onRetry}
+        >
+          <RotateCw size={12} aria-hidden />
+          {retrying ? "Trying…" : retryLabel}
+        </button>
       ) : null}
     </p>
   );

@@ -28,7 +28,6 @@ from archcompass.adapters.models.structured import (
     ChatMessage,
     StructuredReasoningProvider,
     ThinkLevel,
-    timeout_seconds,
 )
 from archcompass.configuration import (
     ReasoningModelConfig,
@@ -218,16 +217,7 @@ class GoogleChatTransport:
     def __init__(self, config: ReasoningModelConfig) -> None:
         self._config = config
         api_key = resolve_api_key(config.api_key_env, provider=PROVIDER_NAME)
-        # One client per timeout class, matching the Ollama transport: the timeout is
-        # fixed when the client is built, and two classes are the whole set.
-        self._clients: dict[bool, genai.Client] = {
-            is_fast: _client(
-                api_key,
-                config.base_url,
-                timeout_seconds(config, is_fast=is_fast),
-            )
-            for is_fast in (True, False)
-        }
+        self._client = _client(api_key, config.base_url, config.timeout_seconds)
 
     def complete(
         self,
@@ -235,7 +225,6 @@ class GoogleChatTransport:
         *,
         schema: Mapping[str, object],
         task: ReasoningTask,
-        is_fast: bool,
         think: ThinkLevel,
         temperature: float | None,
     ) -> str:
@@ -252,7 +241,7 @@ class GoogleChatTransport:
             temperature=temperature,
             thinking_config=_thinking_config(think),
         )
-        client = self._clients[is_fast]
+        client = self._client
         try:
             response = _with_retry(
                 lambda: client.models.generate_content(

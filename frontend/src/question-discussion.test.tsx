@@ -55,7 +55,7 @@ function thread(suggested: string): ReviewConversation {
 function renderDiscussion(conversations: ReviewConversation[]) {
   const onAdopt = vi.fn();
   vi.spyOn(api, "reviewConversations").mockResolvedValue(conversations);
-  render(
+  const view = render(
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
     >
@@ -67,10 +67,13 @@ function renderDiscussion(conversations: ReviewConversation[]) {
       />
     </QueryClientProvider>,
   );
-  return onAdopt;
+  return Object.assign(onAdopt, { unmount: view.unmount });
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  window.localStorage.clear();
+});
 
 describe("QuestionDiscussion", () => {
   it("stays closed until asked for, and says why someone would open it", () => {
@@ -134,5 +137,43 @@ describe("QuestionDiscussion", () => {
     await waitFor(() =>
       expect(created).toHaveBeenCalledWith("rev-1", undefined, "Q-1"),
     );
+  });
+
+  it("puts back a question that was half written when the page went away", async () => {
+    const first = renderDiscussion([]);
+    fireEvent.click(screen.getByRole("button", { name: /Not sure what this is asking/ }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Does the warehouse in the ledger mean the same thing here?" },
+    });
+    first.unmount();
+
+    renderDiscussion([]);
+
+    // Open, not merely restored. A draft put back behind a closed affordance is the same loss
+    // as no draft at all: the reader sees an unanswered question and no sign of their own.
+    const box = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    expect(box.value).toBe("Does the warehouse in the ledger mean the same thing here?");
+  });
+
+  it("forgets it once it has been asked", async () => {
+    vi.spyOn(api, "createReviewConversation").mockResolvedValue(thread(""));
+    const [only] = thread("").messages ?? [];
+    vi.spyOn(api, "streamReviewQuestion").mockResolvedValue(only as never);
+    const first = renderDiscussion([]);
+
+    fireEvent.click(screen.getByRole("button", { name: /Not sure what this is asking/ }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "What does this mean?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() =>
+      expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(""),
+    );
+    first.unmount();
+
+    // The thread is the record of what was asked. A draft that survived it would offer the
+    // reader the same question again, under a reply that already answers it.
+    renderDiscussion([]);
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 });

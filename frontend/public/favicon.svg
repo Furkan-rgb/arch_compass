@@ -1,0 +1,27 @@
+<!--
+  The mark, at the one size a tab gives it.
+
+  A compass, drawn rather than lettered. The header wears the product's initials on an accent
+  chip, and that chip is the right mark at 26px and the wrong one at 16: two letters at tab size
+  are a smudge, and the fallback — the platform's own sans, whatever it happens to be — is the
+  one face this design does not choose. So the tab gets the instrument the product is named for,
+  in one stroke weight, and the wordmark stays where it can be read.
+
+  Ink rather than accent, and that is what makes the attention variant possible. This palette
+  spends the accent on interaction and nothing else — the two verdict hues are spoken for, and a
+  badge in either of them would be claiming a judgement about the reader's code that a finished
+  run has not made. Leaving the standing mark in ink leaves the accent free to mean exactly
+  "there is something here for you", which is all the dot ever says.
+
+  Both themes, from the icon itself: a browser paints the tab strip in the system theme, not in
+  whatever `data-theme` this workspace is stamped with, so the media query is the only thing that
+  can be right here. The two values are `--ink` from styles.css, day and night.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <style>
+    :root { --mark: #1d1b18; }
+    @media (prefers-color-scheme: dark) { :root { --mark: #e9ecf2; } }
+  </style>
+  <circle cx="16" cy="16" r="12.5" fill="none" stroke="var(--mark)" stroke-width="2.5" />
+  <path d="M21.7 10.3 18.1 18.1 10.3 21.7 13.9 13.9Z" fill="var(--mark)" />
+</svg>

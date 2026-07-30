@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import { api } from "../api";
+import { ApiError, api } from "../api";
 import { AskPanel } from "../ask-panel";
 import {
   ErrorPanel,
@@ -436,6 +436,76 @@ function Unfinished({ review }: { review: BoundaryReview }) {
 }
 
 /**
+ * The page with its subject missing: deleted, or unreadable.
+ *
+ * It exists because a review can go while someone is reading it — deleting one from the
+ * reviews list in another tab is the ordinary way that happens — and what this page did then
+ * was put a red strip on an empty canvas, with no header, no column and no link anywhere. A
+ * reader who had followed a link into a review they no longer had was left with the back
+ * button as the only way on.
+ *
+ * The two cases are told apart because their recoveries are opposites. A 404 is settled: the
+ * record is gone, asking again asks for the same nothing, and the only useful thing left to
+ * offer is the list it came out of. Anything else might be the network, so it gets the second
+ * attempt and keeps the reader where they are.
+ *
+ * Neither is dressed up. The server's own words stay in the strip; the sentence under it says
+ * what is known and nothing more — in particular it does not claim the review "may have been
+ * deleted" when the reason is a timeout, or promise anything about getting it back.
+ */
+export function ReviewUnavailable({
+  reviewId,
+  error,
+  onRetry,
+  retrying,
+}: {
+  reviewId: string;
+  error: unknown;
+  onRetry?: () => void;
+  retrying?: boolean;
+}) {
+  const gone = error instanceof ApiError && error.status === 404;
+  return (
+    <div data-slot="review-page" className={cn(page, "pb-6")}>
+      <PageHeader
+        title={gone ? "This review is no longer here" : "This review could not be read"}
+        parent={{ to: "/reviews", label: "Reviews" }}
+      />
+      <div className={cn(sheet, "grid max-w-[76ch] gap-3.5")}>
+        {/* Nothing to retry on a review that has been deleted: the request would succeed at
+            fetching the same absence, and a control that cannot change its own outcome is
+            worse than no control. */}
+        <ErrorPanel
+          error={error}
+          onRetry={gone ? undefined : onRetry}
+          retrying={retrying}
+          retryLabel="Read it again"
+        />
+        <p className={unfinishedNote}>
+          {gone ? (
+            <>
+              Reviews are deleted from the reviews list, and deleting one is permanent — it
+              may have gone from another tab while this page was open. Nothing else was
+              affected: the case it judged and the atlas it ran against are both untouched,
+              and every other review is where it was.
+            </>
+          ) : (
+            <>
+              Nothing has been changed by this — reading a review only reads. If it keeps
+              failing, the review may still be readable from the list.
+            </>
+          )}
+        </p>
+        <p className={unfinishedNote}>
+          <Link to="/reviews">All reviews</Link> · <Link to="/">Start a review</Link> ·{" "}
+          <code>{shortId(reviewId)}</code>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
  * The way into the question panel, and the one place the `ask` rule is enforced.
  *
  * Blocked states keep the button on screen rather than dropping it. A reader who never sees
@@ -657,8 +727,32 @@ export function ReviewDetailPage() {
     return () => window.removeEventListener("hashchange", jump);
   }, [references]);
 
-  if (review.isLoading) return <Loading label="Reading the review…" />;
-  if (review.isError) return <ErrorPanel error={review.error} />;
+  // Both of these are the page, drawn with its subject missing — not something rendered
+  // instead of it. A bare strip on the canvas had no header, no column and no width, so the
+  // whole layout snapped into place around the reader the moment the review landed.
+  if (review.isLoading) {
+    return (
+      <div data-slot="review-page" className={cn(page, "pb-6")}>
+        {/* The id, because it is the whole of what is known about this review before it has
+            been read — and because it is also the fallback the loaded page falls back to,
+            so a review without a title does not rename its own header on arrival. */}
+        <PageHeader title={shortId(reviewId)} parent={{ to: "/reviews", label: "Reviews" }} />
+        <div className={sheet}>
+          <Loading label="Reading the review…" rows={3} />
+        </div>
+      </div>
+    );
+  }
+  if (review.isError) {
+    return (
+      <ReviewUnavailable
+        reviewId={reviewId}
+        error={review.error}
+        onRetry={() => void review.refetch()}
+        retrying={review.isFetching}
+      />
+    );
+  }
 
   const status = review.data?.status;
   // The row exists from the moment the run starts, so this page has to be able to show a
@@ -678,7 +772,15 @@ export function ReviewDetailPage() {
    */
   const showAsking = asking && ask(status) === null;
   if (!running && !report) {
-    return <ErrorPanel error={new Error("This review did not produce a report.")} />;
+    // The same dead end as a missing review and fixed the same way: a review that succeeded
+    // without a report is unreadable, re-reading it will not produce one, and the reader
+    // still needs somewhere to go.
+    return (
+      <ReviewUnavailable
+        reviewId={reviewId}
+        error={new Error("This review did not produce a report.")}
+      />
+    );
   }
 
   const summary = siblings.data?.find((item) => item.review_id === reviewId);
@@ -773,12 +875,17 @@ export function ReviewDetailPage() {
 
   const questions = (
     <OpenQuestions
+      reviewId={reviewId}
       questions={openQuestions}
       nextRevision={caseRevision === undefined ? null : caseRevision + 1}
       pending={answer.isPending}
       disabled={!repositoryRoot}
       error={answer.error}
-      onSubmit={(answers) => answer.mutate(answers)}
+      // `mutateAsync` rather than `mutate`, so the surface hears that the workspace took the
+      // answers rather than inferring it: it drops its drafts on that promise, and by the time
+      // this mutation settles the run it started has usually navigated the reader away.
+      // The rejection is handled there and the failure is rendered from `answer.error`.
+      onSubmit={(answers) => answer.mutateAsync(answers)}
       renderCitations={(citations) => <Citations references={citations} />}
       renderDiscussion={(question, adopt) => (
         <QuestionDiscussion

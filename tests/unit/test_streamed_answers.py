@@ -51,11 +51,10 @@ class _StreamingTransport:
         *,
         schema: Mapping[str, object],
         task: ReasoningTask,
-        is_fast: bool,
         think: ThinkLevel,
         temperature: float | None,
     ) -> str:
-        del messages, schema, task, is_fast, think, temperature
+        del messages, schema, task, think, temperature
         self.completed += 1
         return "".join(self._replies.pop(0))
 
@@ -65,11 +64,10 @@ class _StreamingTransport:
         *,
         schema: Mapping[str, object],
         task: ReasoningTask,
-        is_fast: bool,
         think: ThinkLevel,
         temperature: float | None,
     ) -> Iterator[str]:
-        del messages, schema, task, is_fast, think, temperature
+        del messages, schema, task, think, temperature
         self.streamed += 1
         yield from self._replies.pop(0)
 
@@ -89,11 +87,10 @@ class _CompleteOnlyTransport:
         *,
         schema: Mapping[str, object],
         task: ReasoningTask,
-        is_fast: bool,
         think: ThinkLevel,
         temperature: float | None,
     ) -> str:
-        del messages, schema, task, is_fast, think, temperature
+        del messages, schema, task, think, temperature
         self.completed += 1
         return self._reply
 

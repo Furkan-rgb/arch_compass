@@ -9,13 +9,16 @@
  */
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+import { ApiError } from "../api";
 import {
   AskAction,
   Overview,
+  ReviewUnavailable,
   answersBehind,
   findingForNode,
   verdictChanges,
@@ -397,5 +400,54 @@ describe("findingForNode", () => {
     // send the reader to a row about something else.
     expect(findingForNode("adapters.Report", reviewed)).toBeNull();
     expect(findingForNode("clock", [])).toBeNull();
+  });
+});
+
+/**
+ * A review can go while someone is reading it — deleting one from the reviews list in another
+ * tab is the ordinary way that happens — and what this page did then was a red strip on an
+ * empty canvas with no link anywhere on it. The reader was left with the back button.
+ *
+ * The two cases are asserted separately because their recoveries are opposites: a deleted
+ * review is settled and must not offer a retry that can only fetch the same absence, while
+ * anything else might be the network and must.
+ */
+describe("ReviewUnavailable", () => {
+  const shown = (error: unknown, onRetry?: () => void) =>
+    render(
+      <MemoryRouter initialEntries={["/reviews/rev-1"]}>
+        <ReviewUnavailable reviewId="rev-1" error={error} onRetry={onRetry} />
+      </MemoryRouter>,
+    );
+
+  it("routes a deleted review back to the list instead of stranding the reader", () => {
+    shown(new ApiError("No review with that id.", 404, "not_found"), () => {});
+
+    // The header states the record's name, which for a page whose record has gone is the
+    // fact that it has gone. It is a breadcrumb rather than a heading — see `PageHeader`.
+    expect(screen.getByText("This review is no longer here")).toBeVisible();
+    // Two ways on: the breadcrumb the header carries, and the link in the sentence below it.
+    const back = screen.getAllByRole("link", { name: /reviews/i });
+    expect(back.length).toBeGreaterThanOrEqual(2);
+    for (const link of back) expect(link).toHaveAttribute("href", "/reviews");
+    // The server's own words are still the strip, honestly framed and not paraphrased.
+    expect(screen.getByRole("alert")).toHaveTextContent("No review with that id.");
+  });
+
+  it("offers no retry for a review that has been deleted", () => {
+    // Asking again asks for the same nothing. A control that cannot change its own outcome
+    // is worse than no control.
+    shown(new ApiError("No review with that id.", 404, "not_found"), () => {});
+
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("offers the read again where the failure might not be settled", () => {
+    const onRetry = vi.fn();
+    shown(new ApiError("The workspace could not read that review.", 500), onRetry);
+
+    expect(screen.getByText("This review could not be read")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Read it again" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 });

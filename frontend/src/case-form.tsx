@@ -1,4 +1,5 @@
 import { Trash2, X } from "lucide-react";
+import { useEffect } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -217,6 +218,7 @@ export function CaseForm({
   note,
   onSubmit,
   onClose,
+  onDirtyChange,
 }: {
   heading: string;
   initial: ArchitectureCase | undefined;
@@ -228,12 +230,28 @@ export function CaseForm({
   note?: React.ReactNode;
   onSubmit: (values: CaseFormValues) => void;
   onClose: () => void;
+  /**
+   * Told whenever this form starts or stops holding writing that is not in a revision yet.
+   *
+   * The form is the only thing that can answer that question — what counts as written is what
+   * differs from the case it opened on, which is `useForm`'s own comparison against the
+   * defaults it took at mount, and nothing outside can see it. What the answer is *for* is the
+   * layer this form floats in: it decides whether a dismissal is a decision to throw prose
+   * away, and it cannot decide that from the outside either.
+   */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const form = useForm<CaseFormValues>({ defaultValues: caseFormValues(initial) });
   /* Removal is what a field array is needed for here. The answers themselves are ordinary
      registered inputs; taking a pair out of the case is not, and a list rebuilt on every
      keystroke would take the cursor with it. */
   const clarifications = useFieldArray({ control: form.control, name: "clarifications" });
+
+  /* Read here rather than inside a handler, because reading it in the body is what subscribes
+     this component to it: `formState` is a proxy, and a field it is never asked for during a
+     render is a field it never re-renders for. */
+  const dirty = form.formState.isDirty;
+  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
 
   return (
     <section className={caseSurface} aria-label={heading}>

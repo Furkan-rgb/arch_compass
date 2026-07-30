@@ -459,18 +459,12 @@ def test_a_rejected_request_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_timeout_is_sent_to_the_sdk_in_milliseconds() -> None:
     transport = GoogleChatTransport(
-        _reasoning_config().model_copy(
-            update={"fast_timeout_seconds": 12.0, "deep_timeout_seconds": 34.0}
-        )
+        _reasoning_config().model_copy(update={"timeout_seconds": 34.0})
     )
 
-    options = {
-        is_fast: client._api_client._http_options  # pyright: ignore[reportPrivateUsage]
-        for is_fast, client in transport._clients.items()  # pyright: ignore[reportPrivateUsage]
-    }
+    options = transport._client._api_client._http_options  # pyright: ignore[reportPrivateUsage]
 
-    assert options[True].timeout == 12_000
-    assert options[False].timeout == 34_000
+    assert options.timeout == 34_000
 
 
 def test_model_identity_names_the_provider_and_model() -> None:

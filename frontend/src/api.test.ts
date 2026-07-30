@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, api } from "./api";
+import { ApiError, api, UNREACHABLE_CODE, UNREACHABLE_MESSAGE } from "./api";
 
 /** A response whose body arrives in exactly the chunks given, lines or not. */
 function streamed(chunks: string[], ok = true, status = 200): Response {
@@ -136,5 +136,121 @@ describe("streamReviewQuestion", () => {
     await expect(
       api.streamReviewQuestion("conv-gone", "Formatter?", () => {}),
     ).rejects.toMatchObject({ status: 404, code: "not_found" });
+  });
+});
+
+/** A response carrying whatever body is given, JSON or not, as a real one would. */
+function replied(body: string, { ok = true, status = 200 } = {}): Response {
+  return {
+    ok,
+    status,
+    statusText: ok ? "OK" : "Internal Server Error",
+    json: async () => JSON.parse(body) as unknown,
+    text: async () => body,
+  } as unknown as Response;
+}
+
+const INDEX_HTML = '<!doctype html>\n<html lang="en">\n  <head><title>Arch Compass</title>';
+
+/**
+ * What the reader is shown when `archcompass web` is not running.
+ *
+ * The bug this covers reached the screen intact: with the API down, the request falls through
+ * to whatever is still serving the page, that answers any path with `index.html`, and the
+ * client reported `Unexpected token '<', "<!doctype "... is not valid JSON` — a sentence about
+ * a parser, naming neither what failed nor what to do. The line these tests hold is that the
+ * translation happens only where there is nothing to translate away: a server that answered in
+ * its own words keeps every one of them.
+ */
+describe("an unreachable workspace", () => {
+  it("reads a page of HTML as the workspace not being there", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => replied(INDEX_HTML)));
+
+    await expect(api.workspace()).rejects.toMatchObject({
+      code: UNREACHABLE_CODE,
+      message: UNREACHABLE_MESSAGE,
+    });
+    // Not the parser's complaint, under any wording.
+    await expect(api.workspace()).rejects.not.toThrow(/JSON/);
+  });
+
+  it("reads a refused connection the same way", async () => {
+    // What `fetch` does when nothing accepted the connection at all.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+
+    const failure = await api.reviews().catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ApiError);
+    expect(failure).toMatchObject({ code: UNREACHABLE_CODE, message: UNREACHABLE_MESSAGE });
+    // The original is kept as the cause: it is what a bug report needs and what no reader does.
+    expect((failure as ApiError).cause).toBeInstanceOf(TypeError);
+  });
+
+  it("reads an HTML error page as the workspace not being there, keeping its status", async () => {
+    // A proxy in front of a stopped server answers 502 with its own page, not a ProblemDetail.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => replied("<html>502 Bad Gateway</html>", { ok: false, status: 502 })),
+    );
+
+    await expect(api.policies()).rejects.toMatchObject({
+      code: UNREACHABLE_CODE,
+      status: 502,
+    });
+  });
+
+  it("passes a real refusal through verbatim", async () => {
+    // The whole point of the change is that this one is untouched. A validator naming the
+    // field it rejected tells the reader more than any sentence written here could.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        replied(
+          JSON.stringify({
+            code: "invalid_case",
+            message: "case.title must not be empty",
+          }),
+          { ok: false, status: 422 },
+        ),
+      ),
+    );
+
+    await expect(api.cases()).rejects.toMatchObject({
+      code: "invalid_case",
+      message: "case.title must not be empty",
+      status: 422,
+    });
+  });
+
+  it("passes a real refusal through verbatim on the routes that do not use `request`", async () => {
+    // `deleteReview` and `importCase` read their own responses — a 204 has no body to parse,
+    // and a case document is YAML going out. Both still have to report the server's own words.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        replied(
+          JSON.stringify({ code: "review_running", message: "that review is still running" }),
+          { ok: false, status: 409 },
+        ),
+      ),
+    );
+
+    await expect(api.deleteReview("rev-1")).rejects.toMatchObject({
+      code: "review_running",
+      message: "that review is still running",
+    });
+    await expect(api.importCase("title: x")).rejects.toMatchObject({
+      message: "that review is still running",
+    });
+  });
+
+  it("reads a 204 as the success it is", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 204 }) as Response));
+
+    await expect(api.deleteReview("rev-1")).resolves.toBeUndefined();
   });
 });

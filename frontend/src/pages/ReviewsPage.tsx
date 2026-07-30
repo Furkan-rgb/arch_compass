@@ -375,11 +375,37 @@ export function ReviewsPage() {
           />
         </div>
       ) : null}
-      {reviews.isError ? <ErrorPanel error={reviews.error} /> : null}
+      {reviews.isError ? (
+        <ErrorPanel
+          error={reviews.error}
+          onRetry={() => void reviews.refetch()}
+          retrying={reviews.isFetching}
+        />
+      ) : null}
       {/* The server's own words. Cancelling a review that has just finished, or deleting
-          one still running, are both refusals worth reading rather than paraphrasing. */}
-      {cancel.isError ? <ErrorPanel error={cancel.error} /> : null}
-      {remove.isError ? <ErrorPanel error={remove.error} /> : null}
+          one still running, are both refusals worth reading rather than paraphrasing.
+          Each offers its own second attempt on the review it already named — the mutation
+          still holds the id it was called with, so nothing has to be threaded back here. */}
+      {cancel.isError ? (
+        <ErrorPanel
+          error={cancel.error}
+          onRetry={
+            cancel.variables ? () => cancel.mutate(cancel.variables!) : undefined
+          }
+          retrying={cancel.isPending}
+          retryLabel="Cancel it again"
+        />
+      ) : null}
+      {remove.isError ? (
+        <ErrorPanel
+          error={remove.error}
+          onRetry={
+            remove.variables ? () => remove.mutate(remove.variables!) : undefined
+          }
+          retrying={remove.isPending}
+          retryLabel="Delete it again"
+        />
+      ) : null}
       {reviews.data && reviews.data.length === 0 ? (
         <EmptyState
           title="No reviews yet"

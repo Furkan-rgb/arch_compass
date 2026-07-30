@@ -317,7 +317,11 @@ export function ReviewAtlas({
     [traced],
   );
 
-  const failed = context.error || explorations.find((query) => query.error)?.error;
+  // The neighbourhood read and the explorations the reader asked for are separate requests
+  // against the same atlas, so the one that failed is the one re-run — re-running the whole
+  // set would redraw a map the reader is already looking at to fix one missing path.
+  const failedQuery = context.error ? context : explorations.find((query) => query.error);
+  const failed = failedQuery?.error;
   const loading = context.isLoading || explorations.some((query) => query.isLoading);
 
   return (
@@ -334,7 +338,13 @@ export function ReviewAtlas({
         examined. Selecting one shows its verdict beside the map; the arrows are what the
         parser found, not what the model said.
       </p>
-      {failed ? <ErrorPanel error={failed} /> : null}
+      {failed ? (
+        <ErrorPanel
+          error={failed}
+          onRetry={() => void failedQuery?.refetch()}
+          retrying={failedQuery?.isFetching}
+        />
+      ) : null}
       <RepositoryAtlas
         title={`${repositoryRoot.split("/").at(-1)} atlas`}
         description="Nodes carry this review's verdicts; everything else is the parser's own evidence."

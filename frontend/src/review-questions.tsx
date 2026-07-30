@@ -3,7 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-import { Group } from "./components";
+import { ErrorPanel, Group } from "./components";
+import {
+  ANSWER_DRAFTS,
+  draftsAreKept,
+  dropDrafts,
+  useQuestionDrafts,
+} from "./question-drafts";
 import type { OpenQuestion } from "./types";
 
 /* One step of the walk. A square the size of a control, holding a number that has to line
@@ -55,6 +61,13 @@ const stepCurrent =
  *
  * It sits after the verdicts, never before them. A review that opens by asking for a better
  * case has put its price ahead of its value, which is the tax elicitation exists to remove.
+ *
+ * What is typed here is drafted to the browser as it is written (`question-drafts`), because
+ * this is the one screen in the product where the reader supplies more than a click and the
+ * work is theirs alone: a reload, a second tab, a citation followed and come back from used to
+ * end with five empty boxes. There is deliberately no prompt on the way out, either — the
+ * answers are still here when the reader returns, so a dialog asking them to confirm leaving
+ * would be charging them for a loss that no longer happens.
  */
 
 type CaseField = OpenQuestion["answer_belongs_in"];
@@ -75,6 +88,7 @@ const FIELD_LABEL: Record<CaseField, string> = {
 };
 
 export function OpenQuestions({
+  reviewId,
   questions,
   nextRevision,
   pending,
@@ -84,13 +98,25 @@ export function OpenQuestions({
   renderCitations,
   renderDiscussion,
 }: {
+  /** The review these questions belong to, and the review its drafts are stored under. */
+  reviewId: string;
   questions: OpenQuestion[];
   nextRevision: number | null;
   pending: boolean;
   /** True when the loop cannot be walked — the repository is no longer indexed. */
   disabled: boolean;
   error: unknown;
-  onSubmit: (answers: SubmittedAnswer[]) => void;
+  /**
+   * Record the answers. Resolves once the workspace has them, which is the moment the drafts
+   * below stop being the only copy and are dropped.
+   *
+   * Deliberately a promise rather than a call whose outcome is inferred from `pending` falling
+   * back to false: recording answers starts the second pass, and that navigates the reader to
+   * the new review — so the render where the mutation settles frequently never arrives at this
+   * component. A rejection leaves every draft where it is, because a save that failed is the
+   * case the reader most needs their words back for.
+   */
+  onSubmit: (answers: SubmittedAnswer[]) => Promise<unknown>;
   renderCitations: (references: string[]) => React.ReactNode;
   /**
    * The per-question discussion, supplied rather than built here so this component stays
@@ -106,7 +132,14 @@ export function OpenQuestions({
   // second — what they made of the line composed from their answer — and holding the two apart
   // was the whole cost of composing: an edit had to stick against recomposition, an adopted
   // suggestion had to clear it, and the box that saved was not the box they typed into.
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  //
+  // It is state that survives the page now. Every route into it is unchanged — this still
+  // writes nothing the reader did not type — but a browser that is closed on a half-answered
+  // review opens on the same half-answered review.
+  const [answers, setAnswers] = useQuestionDrafts(ANSWER_DRAFTS, reviewId);
+  // Asked once, on the way in: whether a draft is genuinely being kept is a property of the
+  // browser, and it decides whether this screen may say so.
+  const [kept] = useState(draftsAreKept);
   const answered = questions.filter((item) => (answers[item.reference] ?? "").trim());
 
   // Grouped by the force each answer carries, for the preview only. What is submitted is a
@@ -157,10 +190,18 @@ export function OpenQuestions({
     // nothing written down, so naming a gap in a case reads as the reader's omission when
     // it is the advisor asking for what would settle its own verdicts.
     <Group label="What it needs to know">
+      {/* The second sentence is conditional because it is a promise. In a browser that
+          refuses storage there is no draft, and telling a reader their work is safe while it
+          is not would be this page inventing a fact about their own machine — so the sentence
+          is printed by the mechanism that keeps it, or not at all. It is also the reason
+          leaving this page asks nothing: there is nothing to confirm the loss of. */}
       <p className="mb-3 max-w-[82ch] text-ui leading-[1.6] text-ink-2">
         The verdicts above rest on these. Answer what you know and leave the rest — the
         review carries on against what you write, and a verdict that turned on one of these
         can come out the other way.
+        {kept
+          ? " Nothing is recorded until you carry on, and what you write is kept in this browser until then — so you can go and check, or come back tomorrow."
+          : null}
       </p>
 
       {/* One question at a time, with every step reachable from this row. Numbered rather
@@ -359,10 +400,15 @@ export function OpenQuestions({
         </p>
       ) : null}
 
+      {/* The one error surface this app has, rather than a coloured sentence that happened
+          to be written here: an answer the server refused is refused for a reason it names,
+          and the strip is what carries the server's own words everywhere else.
+
+          No retry on it. The button directly below is the retry — it is still enabled, it
+          still holds every answer that failed to save, and a second "Try again" a line above
+          it would be the same press wearing a different word. */}
       {error ? (
-        <p className="mt-3 text-ui text-danger">
-          {error instanceof Error ? error.message : "The answer could not be saved."}
-        </p>
+        <ErrorPanel error={error} />
       ) : null}
 
       {/* Only on the last step. Submitting is the one thing here that cannot be revisited,
@@ -379,11 +425,24 @@ export function OpenQuestions({
             : undefined
         }
         onClick={() => {
-          onSubmit(
-            answered.map((item) => ({
-              question_reference: item.reference,
-              recorded_text: (answers[item.reference] ?? "").trim(),
-            })),
+          const recording = answered.map((item) => ({
+            question_reference: item.reference,
+            recorded_text: (answers[item.reference] ?? "").trim(),
+          }));
+          onSubmit(recording).then(
+            // Stored, so the draft has done its job and is dropped from the browser. Only the
+            // drafts, though: the boxes keep what is in them while the second pass starts, and
+            // blanking them under the reader would read as their words being thrown away at
+            // the exact moment they were accepted.
+            () =>
+              dropDrafts(
+                ANSWER_DRAFTS,
+                reviewId,
+                recording.map((pair) => pair.question_reference),
+              ),
+            // The failure is already on screen, from the `error` this component is given. What
+            // it must not also do is forget the answers it failed to save.
+            () => undefined,
           );
         }}
       >

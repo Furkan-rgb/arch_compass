@@ -116,11 +116,6 @@ class ReasoningModelConfig(DomainModel):
     #: Names the environment variable holding this provider's API key - never the key.
     api_key_env: str | None = None
     timeout_seconds: float = Field(gt=0)
-    #: Applied to short, low-token stages; falls back to `timeout_seconds` when unset,
-    #: so a workspace configuration written before this existed behaves as it did.
-    fast_timeout_seconds: float | None = Field(default=None, gt=0)
-    #: Applied to stages that produce a full structured artifact.
-    deep_timeout_seconds: float | None = Field(default=None, gt=0)
     context_window_tokens: int = Field(default=32768, ge=512)
     max_output_tokens: int = Field(default=16384, ge=512, le=32768)
     #: Characters per token used to estimate a request against the context window.

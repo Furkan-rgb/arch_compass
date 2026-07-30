@@ -1,6 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useRef, useState } from "react";
+import { describe, expect, it, vi } from "vitest";
 
 import { CaseForm } from "./case-form";
+import { CaseLayer } from "./pages/HomePage";
 import type { ArchitectureCase } from "./types";
 
 const CASE = {
@@ -106,5 +109,103 @@ describe("CaseForm and the answers already recorded", () => {
     const { container } = render(form({ initial: CASE }));
 
     expect(container.querySelector("[data-slot='case-clarifications']")).toBeNull();
+  });
+});
+
+/**
+ * The layer this form floats on, and what it takes to dismiss it.
+ *
+ * A case is eleven fields of prose, written once, with nothing anywhere to undo throwing it
+ * away. The backdrop has always refused a stray click on exactly that argument — and Escape,
+ * the other dismissal nobody means, closed it outright and in silence. So the two are one rule
+ * now, and it is checked here as it is composed: the form is the only thing that knows whether
+ * anything has been written, and the layer is the only thing that can refuse.
+ *
+ * The rule is about protecting writing, not about trapping the reader. A surface nobody has
+ * typed into still closes on Escape, and the close button beside the heading still discards on
+ * purpose — which is what makes refusing a reflex honest rather than obstructive.
+ */
+function layer(dirtyable = true) {
+  const onClose = vi.fn();
+
+  /* The wiring as the start screen has it: the form reports what it holds, the page keeps the
+     answer, and the layer refuses on it. Reproduced rather than mocked, because the seam
+     between those three is where the hole was. */
+  function Harness() {
+    const [unsaved, setUnsaved] = useState(false);
+    const opener = useRef<HTMLElement | null>(null);
+    return (
+      <CaseLayer
+        label="Write a case"
+        opener={opener}
+        unsaved={unsaved}
+        onClose={onClose}
+      >
+        <CaseForm
+          heading="Write a case"
+          initial={undefined}
+          submitLabel="Create the case"
+          pendingLabel="Creating…"
+          pending={false}
+          error={null}
+          onSubmit={() => undefined}
+          onClose={onClose}
+          onDirtyChange={dirtyable ? setUnsaved : undefined}
+        />
+      </CaseLayer>
+    );
+  }
+
+  render(<Harness />);
+  return onClose;
+}
+
+const escape = () => fireEvent.keyDown(document, { key: "Escape" });
+
+describe("The layer a case is written on", () => {
+  it("closes on Escape while there is nothing written to lose", () => {
+    const onClose = layer();
+
+    escape();
+
+    // Untouched, so Escape is only ever what a reader expects it to be. Refusing here would
+    // make the guard a trap and teach nobody anything about what it is protecting.
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let Escape throw away what has been written", () => {
+    const onClose = layer();
+
+    fireEvent.change(screen.getByLabelText(/Name for this case/), {
+      target: { value: "Task scheduler boundary review" },
+    });
+    escape();
+
+    // The same refusal the backdrop has always made, for the same reason: a keypress by
+    // reflex is not a decision to discard prose, and there is nothing that would bring it back.
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("still offers the way out that is a decision", () => {
+    const onClose = layer();
+
+    fireEvent.change(screen.getByLabelText(/Name for this case/), {
+      target: { value: "Task scheduler boundary review" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Close write a case/i }));
+
+    // Named, aimed at, and pressed. The guard refuses the reflexes and never the intention.
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes on Escape over a surface that cannot say whether it holds anything", () => {
+    // The stored case being read, and the YAML editor, report nothing — there is no unsaved
+    // revision behind a case someone is only looking at. A layer with no such report keeps the
+    // primitive's own behaviour rather than becoming impossible to dismiss.
+    const onClose = layer(false);
+
+    escape();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

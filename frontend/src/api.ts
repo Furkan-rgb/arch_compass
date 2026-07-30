@@ -27,13 +27,77 @@ export class ApiError extends Error {
     message: string,
     public readonly status: number,
     public readonly code = "request_failed",
+    /** The failure this one was translated from, where it was translated from one. */
+    cause?: unknown,
   ) {
-    super(message);
+    super(message, cause === undefined ? undefined : { cause });
   }
 }
 
+/**
+ * The code every "nothing on the other end answered as this API" failure carries.
+ *
+ * Exported because `ErrorPanel` is what turns it into a cure on screen, and matching on a
+ * code is the only way to do that without matching on the prose — which would break the
+ * moment either half was reworded.
+ */
+export const UNREACHABLE_CODE = "workspace_unreachable";
+
+/**
+ * What the reader is told when the workspace is not there.
+ *
+ * The same sentence `ErrorPanel` already wrote for a `fetch` that never connected, because
+ * these are one situation with two shapes. The other shape is the one that used to reach the
+ * screen raw: with `archcompass web` stopped, the request falls through to whatever is still
+ * serving the page, that returns `index.html` for any path it does not know, and the client
+ * reported the result as `Unexpected token '<', "<!doctype "... is not valid JSON` — a
+ * sentence about a parser, addressed to nobody, naming neither the cause nor the fix.
+ */
+export const UNREACHABLE_MESSAGE = "The workspace didn’t answer.";
+
+/**
+ * Every request in this module goes through here, so the translation happens once.
+ *
+ * `fetch` rejects with a `TypeError` when the connection itself fails, which is the case
+ * where nothing was serving anything. `status` is kept where there was a response, because a
+ * proxy's 502 is still a fact worth carrying even when its body was an HTML page.
+ */
+function unreachable(cause: unknown, status = 0): ApiError {
+  return new ApiError(UNREACHABLE_MESSAGE, status, UNREACHABLE_CODE, cause);
+}
+
+async function send(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(path, init);
+  } catch (cause) {
+    throw unreachable(cause);
+  }
+}
+
+/**
+ * The body, or the admission that whatever sent it is not this API.
+ *
+ * A JSON body is the contract on every route — a result on the way out, a `ProblemDetail` on
+ * the way back — so a body that will not parse is not a server error to be reported, it is
+ * evidence that the reply came from something else. Real refusals still arrive as JSON and
+ * are read below, verbatim, exactly as they were.
+ */
+async function readJson<T>(response: Response): Promise<T> {
+  try {
+    return (await response.json()) as T;
+  } catch (cause) {
+    throw unreachable(cause, response.status);
+  }
+}
+
+/** The server's own words for a refusal, kept as it wrote them. */
+async function refusal(response: Response, fallback: string): Promise<ApiError> {
+  const detail = await readJson<Partial<ProblemDetail>>(response);
+  return new ApiError(detail.message || fallback, response.status, detail.code);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const response = await send(path, {
     ...init,
     headers: {
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
@@ -41,19 +105,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!response.ok) {
-    let detail: Partial<ProblemDetail> = {};
-    try {
-      detail = (await response.json()) as typeof detail;
-    } catch {
-      detail = { message: response.statusText };
-    }
-    throw new ApiError(
-      detail.message || "Arch Compass could not complete the request.",
-      response.status,
-      detail.code,
-    );
+    throw await refusal(response, "Arch Compass could not complete the request.");
   }
-  return (await response.json()) as T;
+  return await readJson<T>(response);
 }
 
 /**
@@ -68,23 +122,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 async function streamLines<Line>(
   path: string,
   body: unknown,
-  refusal: string,
+  refusalMessage: string,
   onLine: (line: Line) => void,
 ): Promise<void> {
-  const response = await fetch(path, {
+  const response = await send(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!response.ok || !response.body) {
     // A failure before the stream opens is still a ProblemDetail, as on every route.
-    let detail: Partial<ProblemDetail> = {};
-    try {
-      detail = (await response.json()) as typeof detail;
-    } catch {
-      detail = { message: response.statusText };
-    }
-    throw new ApiError(detail.message || refusal, response.status, detail.code);
+    throw await refusal(response, refusalMessage);
   }
 
   const reader = response.body.getReader();
@@ -168,21 +216,11 @@ export const api = {
   // Not `request`: a 204 has no body to parse, and reading one as JSON would throw on the
   // one response that means it worked.
   deleteReview: async (reviewId: string): Promise<void> => {
-    const response = await fetch(`/api/reviews/${encodeURIComponent(reviewId)}`, {
+    const response = await send(`/api/reviews/${encodeURIComponent(reviewId)}`, {
       method: "DELETE",
     });
     if (response.ok) return;
-    let detail: Partial<ProblemDetail> = {};
-    try {
-      detail = (await response.json()) as typeof detail;
-    } catch {
-      detail = { message: response.statusText };
-    }
-    throw new ApiError(
-      detail.message || "Arch Compass could not delete that review.",
-      response.status,
-      detail.code,
-    );
+    throw await refusal(response, "Arch Compass could not delete that review.");
   },
 
   /**
@@ -309,16 +347,13 @@ export const api = {
   // Not `request`: the body is YAML rather than JSON, and the route's media type is part
   // of how it tells a case document from a case object.
   importCase: async (source: string) => {
-    const response = await fetch("/api/cases/import-yaml", {
+    const response = await send("/api/cases/import-yaml", {
       method: "POST",
       headers: { "Content-Type": "text/yaml" },
       body: source,
     });
-    if (!response.ok) {
-      const detail = (await response.json()) as Partial<ProblemDetail>;
-      throw new ApiError(detail.message || "Invalid case YAML.", response.status, detail.code);
-    }
-    return (await response.json()) as CaseRevision;
+    if (!response.ok) throw await refusal(response, "Invalid case YAML.");
+    return await readJson<CaseRevision>(response);
   },
   updateCase: (caseId: string, value: CaseUpdate) =>
     request<CaseRevision>(`/api/cases/${caseId}`, {

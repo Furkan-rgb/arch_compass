@@ -226,11 +226,22 @@ export function CaseView({
   snapshot,
   loading,
   error,
+  onRetry,
+  retrying,
   onClose,
 }: {
   snapshot: ArchitectureCase | undefined;
   loading: boolean;
   error: unknown;
+  /**
+   * Read the stored revision again.
+   *
+   * This one is worth wiring where the editor's is not: nothing on this surface asks for
+   * anything, so a failed read leaves a panel with a strip in it and no way to try again
+   * short of closing the layer and finding the case in the rail a second time.
+   */
+  onRetry?: () => void;
+  retrying?: boolean;
   onClose: () => void;
 }) {
   return (
@@ -242,7 +253,14 @@ export function CaseView({
         </Button>
       </div>
       {loading ? <Loading label="Reading the case…" /> : null}
-      {error ? <ErrorPanel error={error} /> : null}
+      {error ? (
+        <ErrorPanel
+          error={error}
+          onRetry={onRetry}
+          retrying={retrying}
+          retryLabel="Read it again"
+        />
+      ) : null}
       {snapshot ? (
         // Styled by a rule rather than by utilities: see `[data-slot="case-yaml"]`.
         <pre data-slot="case-yaml">{caseToYaml(snapshot)}</pre>

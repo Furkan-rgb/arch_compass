@@ -41,14 +41,20 @@ type Editor =
  *
  * Deliberately not dismissed by a click on the backdrop. Everywhere else in this app that is
  * the courteous behaviour, but here the thing behind the click is half-written prose, and a
- * stray click is not a decision to throw it away. The close button and Escape are.
+ * stray click is not a decision to throw it away. The close button is.
  *
- * A vendored dialog now, which is where those three decisions ended up being cheapest to
- * keep: Escape is the primitive's own behaviour, focus lands on the close button because that
- * is the first thing in the surface below, and refusing the backdrop is one prevented event
- * rather than the absence of a handler. It carries no title of its own — the surface inside
- * writes the heading, and saying it twice would have a screen reader read the same words on
- * the way in.
+ * Escape was, and should not have been. It is the same dismissal by reflex as the backdrop —
+ * pressed to dismiss a suggestion, to leave a field, to make something go away — and it was
+ * throwing away a case someone had spent ten minutes writing, in silence, with nothing to
+ * undo it. So it is refused on exactly the terms the backdrop is refused on: while `unsaved`
+ * says there is writing here that is not in a revision yet, neither one closes this, and the
+ * close button beside the heading stays the way out. On a surface nobody has typed into there
+ * is nothing to protect, and Escape keeps doing what a reader expects of it.
+ *
+ * A vendored dialog now, which is where those decisions ended up being cheapest to keep: two
+ * prevented events and focus that lands on the close button because that is the first thing in
+ * the surface below. It carries no title of its own — the surface inside writes the heading,
+ * and saying it twice would have a screen reader read the same words on the way in.
  *
  * The one thing the primitive cannot do here is give the focus back. A modal dialog returns
  * it to its own `DialogTrigger`, and there is none: this layer is rendered from state by any
@@ -56,14 +62,22 @@ type Editor =
  * because putting the reader back exactly where they were is the whole promise of a surface
  * that floats over a step rather than replacing it.
  */
-function CaseLayer({
+export function CaseLayer({
   label,
   opener,
+  unsaved,
   onClose,
   children,
 }: {
   label: string;
   opener: React.RefObject<HTMLElement | null>;
+  /**
+   * True while the surface inside holds writing that has not been saved as a revision.
+   *
+   * Absent on the surfaces where the question cannot arise — a stored case being read has
+   * nothing to lose, and a dismissal of it is only ever a dismissal.
+   */
+  unsaved?: boolean;
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -84,6 +98,12 @@ function CaseLayer({
         overlayClassName="items-start px-[var(--gutter)] py-6"
         className="max-w-[880px] gap-0 p-0"
         onInteractOutside={(event) => event.preventDefault()}
+        // The one hole the backdrop's refusal left. Refused on the same terms and in the same
+        // way — the keypress simply does not dismiss — so there is one rule here rather than a
+        // second, differently-shaped guard for the same prose.
+        onEscapeKeyDown={(event) => {
+          if (unsaved) event.preventDefault();
+        }}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           opener.current?.focus();
@@ -136,16 +156,27 @@ export function HomePage() {
   // Read at the click rather than at the layer's mount: the revise layer re-mounts when the
   // stored case arrives, and by then focus is already inside it.
   const opener = useRef<HTMLElement | null>(null);
+  // Whether the open surface holds writing that is not in a revision yet. Held here rather
+  // than in the layer because the form is the only thing that can tell, and the layer is not
+  // its parent: this page renders both, and passing the answer between them is what lets the
+  // layer refuse a dismissal without knowing what a case field is.
+  const [unsaved, setUnsaved] = useState(false);
   const openEditor = useCallback((next: Editor) => {
     opener.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Every surface opens with nothing written in it. Reset here as well as on the way out,
+    // because a form that was closed while dirty unmounts without ever reporting otherwise.
+    setUnsaved(false);
     setEditor(next);
   }, []);
   // One stable closure for all four surfaces below. It used to carry more weight than that:
   // the hand-rolled focus trap re-ran — and re-grabbed focus — whenever this handler changed
   // identity, so a fresh closure each render pulled the caret out of the field being typed
   // into on every keystroke. The vendored dialog does not, and this stays anyway.
-  const closeEditor = useCallback(() => setEditor(null), []);
+  const closeEditor = useCallback(() => {
+    setUnsaved(false);
+    setEditor(null);
+  }, []);
 
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const cases = useQuery({ queryKey: ["cases"], queryFn: api.cases });
@@ -290,7 +321,11 @@ export function HomePage() {
   // stop together. Reported once, above both columns, rather than as the same sentence three
   // times over. Failures of the *actions* below stay where the action was asked for: those
   // are genuinely separate, and which one refused is the whole content of the message.
-  const reading = repositories.error || cases.error || examples.error;
+  // The second attempt is the one that failed, not all three: when they stop together the
+  // first re-read is enough to prove the server is back, and re-running the two that were
+  // fine would only make the strip slower to leave.
+  const readFailure = [repositories, cases, examples].find((query) => query.error);
+  const reading = readFailure?.error;
 
   const ready = isReady(selection);
   const busy =
@@ -354,12 +389,25 @@ export function HomePage() {
         </div>
         {reading ? (
           <div className={readError}>
-            <ErrorPanel error={reading} />
+            <ErrorPanel
+              error={reading}
+              onRetry={() => void readFailure?.refetch()}
+              retrying={readFailure?.isFetching}
+            />
           </div>
         ) : null}
         {loadExample.isError ? (
           <div className={readError}>
-            <ErrorPanel error={loadExample.error} />
+            <ErrorPanel
+              error={loadExample.error}
+              onRetry={
+                loadExample.variables
+                  ? () => loadExample.mutate(loadExample.variables!)
+                  : undefined
+              }
+              retrying={loadExample.isPending}
+              retryLabel="Load it again"
+            />
           </div>
         ) : null}
 
@@ -430,7 +478,16 @@ export function HomePage() {
             <p className={note}>
               The workspace must not sit inside the project being analysed.
             </p>
-            {index.isError ? <ErrorPanel error={index.error} /> : null}
+            {index.isError ? (
+              <ErrorPanel
+                error={index.error}
+                onRetry={
+                  index.variables ? () => index.mutate(index.variables!) : undefined
+                }
+                retrying={index.isPending}
+                retryLabel="Index it again"
+              />
+            ) : null}
           </div>
 
           {/* The rule between the two columns lives on the second of them, and turns to run
@@ -587,7 +644,12 @@ export function HomePage() {
       ) : null}
 
       {editor?.mode === "form" ? (
-        <CaseLayer opener={opener} label="Write a case" onClose={closeEditor}>
+        <CaseLayer
+          opener={opener}
+          label="Write a case"
+          unsaved={unsaved}
+          onClose={closeEditor}
+        >
           <CaseForm
             heading="Write a case"
             initial={undefined}
@@ -597,6 +659,7 @@ export function HomePage() {
             error={write.error}
             onSubmit={(values) => write.mutate(values)}
             onClose={closeEditor}
+            onDirtyChange={setUnsaved}
           />
         </CaseLayer>
       ) : null}
@@ -610,6 +673,7 @@ export function HomePage() {
           key={`${editor.caseId}:${viewed.data?.revision ?? "loading"}`}
           opener={opener}
           label="Revise this case"
+          unsaved={unsaved}
           onClose={closeEditor}
         >
           <CaseForm
@@ -622,6 +686,7 @@ export function HomePage() {
             error={viewed.error || revise.error}
             onSubmit={(values) => revise.mutate(values)}
             onClose={closeEditor}
+            onDirtyChange={setUnsaved}
             note={
               <p
                 data-slot="case-warning"
@@ -651,6 +716,8 @@ export function HomePage() {
             snapshot={viewed.data?.snapshot}
             loading={viewed.isLoading}
             error={viewed.error}
+            onRetry={() => void viewed.refetch()}
+            retrying={viewed.isFetching}
             onClose={closeEditor}
           />
         </CaseLayer>

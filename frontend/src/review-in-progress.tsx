@@ -194,7 +194,18 @@ export function RunLog({
             </p>
           </div>
         ) : null}
-        {cancel.isError ? <ErrorPanel error={cancel.error} /> : null}
+        {/* The cancel button above is disabled only while the request is in flight, so a
+            refused cancel leaves it pressable — but it is the one control in a row of prose
+            and the strip is where the reader is looking, so the second attempt is offered
+            here too rather than making them find their way back up to it. */}
+        {cancel.isError ? (
+          <ErrorPanel
+            error={cancel.error}
+            onRetry={() => cancel.mutate()}
+            retrying={cancel.isPending}
+            retryLabel="Cancel it again"
+          />
+        ) : null}
       </div>
 
       <div className={cn(sheet, "mb-0")}>

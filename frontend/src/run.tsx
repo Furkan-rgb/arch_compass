@@ -11,7 +11,23 @@ import {
 import { useNavigate } from "react-router-dom";
 
 import { api } from "./api";
+import { RunSignals, type RunPhase, type SettledPhase } from "./run-notice";
 import { applyProgress, type RunState } from "./run-progress";
+
+/**
+ * How a finished stream is read as one of the three ways a run ends.
+ *
+ * The status is the server's word for it and this is the only place it is translated, so the
+ * signals never have to know the wire's vocabulary. `succeeded` and `awaiting_answers` are the
+ * two outcomes a run can reach on its own; anything else — cancelled, or a status this build
+ * has not heard of — reached no verdicts, which is what `failed` means here and is a claim the
+ * notice can make honestly whatever the exact reason was.
+ */
+function settledAs(status: string | undefined): SettledPhase {
+  if (status === "awaiting_answers") return "holding";
+  if (status === "succeeded") return "concluded";
+  return "failed";
+}
 
 /**
  * The running review, held above the page that started it.
@@ -55,6 +71,15 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState<RunState>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  /**
+   * How the last run ended, kept after it has ended.
+   *
+   * Not on `RunHandle`, because no page asks: the pages watch a review's own record, which
+   * outlives this browser's memory of having produced it. This exists for the signals below,
+   * whose entire subject is the transition — and a transition needs the state on both sides of
+   * it to still be here one render later.
+   */
+  const [settled, setSettled] = useState<SettledPhase | null>(null);
   // Guards a second start while one is in flight. State would be a render behind, and two
   // streams would both write into one progress, which is a plausible double-click away.
   const inFlight = useRef(false);
@@ -66,6 +91,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       setReviewId(null);
       setProgress(null);
       setError(null);
+      setSettled(null);
       setRunning(true);
       api
         .streamReview(
@@ -88,8 +114,14 @@ export function RunProvider({ children }: { children: ReactNode }) {
             client.invalidateQueries({ queryKey: ["reviews"] }),
             client.invalidateQueries({ queryKey: ["review", review.review_id] }),
           ]);
+          // After the invalidations, so a reader the notice sends to the page finds the
+          // record it is about rather than the stale one this run has just superseded.
+          setSettled(settledAs(review.status));
         })
-        .catch((failure: unknown) => setError(failure))
+        .catch((failure: unknown) => {
+          setError(failure);
+          setSettled("failed");
+        })
         .finally(() => {
           inFlight.current = false;
           setRunning(false);
@@ -111,7 +143,20 @@ export function RunProvider({ children }: { children: ReactNode }) {
     [error, progress, reviewId, running, start],
   );
 
-  return <RunContext.Provider value={value}>{children}</RunContext.Provider>;
+  // `running` wins over the last outcome, so a second run started from the review page puts
+  // the tab back to "Reviewing…" rather than leaving the previous run's word up while a new
+  // one is in flight. `start` clears the outcome anyway; this makes the ordering irrelevant.
+  const phase: RunPhase | null = running ? "running" : settled;
+
+  return (
+    <RunContext.Provider value={value}>
+      {/* Beside the routes rather than inside one, for the same reason the run itself is held
+          here: the moments worth reporting are exactly the ones where the reader is not on the
+          page that would otherwise report them. */}
+      <RunSignals phase={phase} reviewId={reviewId} />
+      {children}
+    </RunContext.Provider>
+  );
 }
 
 export function useRun(): RunHandle {

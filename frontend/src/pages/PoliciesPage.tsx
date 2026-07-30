@@ -138,19 +138,58 @@ export function PoliciesPage() {
     return filterPolicies(policies.data || [], search, scope);
   }, [policies.data, scope, search]);
 
+  /** The first of the four that failed, and the second attempt that belongs to it. */
+  const failure = policies.error
+    ? {
+        error: policies.error,
+        retry: () => void policies.refetch(),
+        retrying: policies.isFetching,
+        retryLabel: undefined,
+      }
+    : sources.error
+      ? {
+          error: sources.error,
+          retry: () => void sources.refetch(),
+          retrying: sources.isFetching,
+          retryLabel: undefined,
+        }
+      : addSource.error
+        ? {
+            error: addSource.error,
+            retry: addSource.variables
+              ? () => addSource.mutate(addSource.variables!)
+              : undefined,
+            retrying: addSource.isPending,
+            retryLabel: "Add it again",
+          }
+        : removeSource.error
+          ? {
+              error: removeSource.error,
+              retry: removeSource.variables
+                ? () => removeSource.mutate(removeSource.variables!)
+                : undefined,
+              retrying: removeSource.isPending,
+              retryLabel: "Remove it again",
+            }
+          : null;
+
   return (
     <div className={page}>
       {/* No rebuild action. Policies are read from their sources whenever they are asked
           for, so what is on this page is what the next review will be shown, and a button
           to bring an index up to date would be a step that changes nothing (ADR 0013). */}
       <PageHeader title="Policies" />
-      {(policies.error || sources.error || addSource.error || removeSource.error) && (
+      {/* One strip for four requests, and the retry belongs to whichever of them failed —
+          re-reading the corpus after a source failed to attach would report success at
+          having done the wrong thing. The order is the order they are tried in above. */}
+      {failure ? (
         <ErrorPanel
-          error={
-            policies.error || sources.error || addSource.error || removeSource.error
-          }
+          error={failure.error}
+          onRetry={failure.retry}
+          retrying={failure.retrying}
+          retryLabel={failure.retryLabel}
         />
-      )}
+      ) : null}
 
       {/* One row above the sheet: what to look for, which slice, and how many are left. On a
           phone it becomes a stack, where each control is a row rather than a share of one. */}

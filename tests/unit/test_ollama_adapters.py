@@ -265,7 +265,6 @@ def test_a_streamed_reply_arrives_in_fragments_under_the_same_schema(
             [{"role": "user", "content": "Formatter?"}],
             schema={"type": "object", "properties": {"answer": {"type": "string"}}},
             task=ReasoningTask.ANSWER_REVIEW_QUESTION,
-            is_fast=False,
             think=None,
             temperature=None,
         )
@@ -287,14 +286,3 @@ def test_the_transport_declares_the_streaming_capability() -> None:
     assert isinstance(
         ollama_adapters.OllamaChatTransport(_reasoning_config()), StreamingChatTransport
     )
-
-
-def test_every_reasoning_task_has_a_declared_timeout_class() -> None:
-    """A task absent from the timeout map would fall back silently to the wrong budget."""
-
-    provider = OllamaReasoningProvider(
-        _reasoning_config(fast_timeout_seconds=5, deep_timeout_seconds=90)
-    )
-
-    for task in ReasoningTask:
-        assert provider._timeout_for(task) in {5, 90}

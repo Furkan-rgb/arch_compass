@@ -191,11 +191,10 @@ def test_the_configured_thinking_switch_reaches_the_transport() -> None:
             *,
             schema: object,
             task: ReasoningTask,
-            is_fast: bool,
             think: object,
             temperature: float | None,
         ) -> str:
-            del messages, schema, task, is_fast, temperature
+            del messages, schema, task, temperature
             self.thinks.append(think)
             # Invalid on purpose: it forces the repair round, which must think alike.
             return "{}"

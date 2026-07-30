@@ -561,7 +561,15 @@ export function AskPanel({
 
         {ask.isError ? (
           <div className="px-3 [&_[data-slot=error-strip]]:mt-0 [&_[data-slot=error-strip]]:mb-2">
-            <ErrorPanel error={ask.error} />
+            {/* The question is still in `ask.variables` after the turn failed, so asking
+                again is one press rather than retyping what was already typed. The box
+                below was cleared only on success, so the two never disagree. */}
+            <ErrorPanel
+              error={ask.error}
+              onRetry={ask.variables ? () => ask.mutate(ask.variables!) : undefined}
+              retrying={ask.isPending}
+              retryLabel="Ask again"
+            />
           </div>
         ) : null}
 

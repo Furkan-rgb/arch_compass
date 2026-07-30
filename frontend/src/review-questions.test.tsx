@@ -14,9 +14,10 @@
  * those two rather than about a join.
  */
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ANSWER_DRAFTS, draftKey, saveDrafts, storedDrafts } from "./question-drafts";
 import { OpenQuestions } from "./review-questions";
 import type { OpenQuestion } from "./types";
 
@@ -41,10 +42,13 @@ const CONSTANTS: OpenQuestion = {
   supporting_references: ["BR-003"],
 };
 
+afterEach(() => window.localStorage.clear());
+
 function renderQuestions(overrides: Partial<Parameters<typeof OpenQuestions>[0]> = {}) {
-  const onSubmit = vi.fn();
+  const onSubmit = vi.fn().mockResolvedValue(undefined);
   const view = render(
     <OpenQuestions
+      reviewId="rev-1"
       questions={[VENDOR, CONSTANTS]}
       nextRevision={2}
       pending={false}
@@ -55,7 +59,7 @@ function renderQuestions(overrides: Partial<Parameters<typeof OpenQuestions>[0]>
       {...overrides}
     />,
   );
-  return Object.assign(onSubmit, { container: view.container });
+  return Object.assign(onSubmit, { container: view.container, unmount: view.unmount });
 }
 
 /** The answer box for whichever question is on screen. One is shown at a time. */
@@ -230,5 +234,150 @@ describe("OpenQuestions", () => {
     // Still there to be retried or edited, on the step where saving failed.
     goTo(1);
     expect(answerBox().value).toBe("A second warehouse arrives.");
+  });
+});
+
+/**
+ * The answers, against the things that used to destroy them.
+ *
+ * An answer here is the highest-effort input in the product — a sentence about the reader's own
+ * project that nothing else in the workspace knows — and it lived in component state alone, so
+ * a reload, a second tab or a citation followed and come back from ended in five empty boxes.
+ * Every test below is one of those ordinary movements, and none of them may cost a word.
+ *
+ * Nothing here weakens invariant 25. A draft is only ever what the reader typed, and it is put
+ * back into the same box facing the same preview: what saves is still the answer they can see.
+ */
+describe("OpenQuestions and what has been typed but not yet saved", () => {
+  it("puts back what was being written when the page went away", () => {
+    const first = renderQuestions();
+    fireEvent.change(answerBox(), { target: { value: "A second warehouse arrives." } });
+    first.unmount();
+
+    // The same review, opened again — a reload, a tab restored, a step come back to.
+    renderQuestions();
+
+    expect(answerBox().value).toBe("A second warehouse arrives.");
+  });
+
+  it("shows a restored answer as an answer, not as a box that happens to have text in it", () => {
+    saveDrafts(ANSWER_DRAFTS, "rev-1", { "Q-2": "They are the same fact." });
+
+    renderQuestions();
+
+    // The row of steps and the count are how a reader sees where they got to, so a draft that
+    // came back has to be visible from the first screen rather than found by walking the row.
+    expect(screen.getByText("1 of 2 answered")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /^Question 2 of 2, answered/ }),
+    ).toBeTruthy();
+  });
+
+  it("keeps a draft under the review it was written for", () => {
+    const view = render(
+      <OpenQuestions
+        reviewId="rev-1"
+        questions={[VENDOR, CONSTANTS]}
+        nextRevision={2}
+        pending={false}
+        disabled={false}
+        error={null}
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+        renderCitations={() => null}
+      />,
+    );
+    fireEvent.change(answerBox(), { target: { value: "A second warehouse arrives." } });
+
+    // The reader's own page swaps one review for another under this component — that is what
+    // starting a second pass does — and an answer about the first review must not be shown
+    // against the second's questions, nor saved under its key.
+    view.rerender(
+      <OpenQuestions
+        reviewId="rev-2"
+        questions={[VENDOR, CONSTANTS]}
+        nextRevision={2}
+        pending={false}
+        disabled={false}
+        error={null}
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+        renderCitations={() => null}
+      />,
+    );
+
+    expect(answerBox().value).toBe("");
+    expect(storedDrafts(ANSWER_DRAFTS, "rev-2")).toEqual({});
+    expect(storedDrafts(ANSWER_DRAFTS, "rev-1")).toEqual({
+      "Q-1": "A second warehouse arrives.",
+    });
+  });
+
+  it("forgets a draft once the workspace has recorded the answer", async () => {
+    renderQuestions();
+
+    fireEvent.change(answerBox(), { target: { value: "A second warehouse arrives." } });
+    goToReview();
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+    // Recorded is recorded: the case holds the pair now, and a draft that outlived it would
+    // come back as an unsaved answer to a question that has already been answered.
+    await waitFor(() =>
+      expect(window.localStorage.getItem(draftKey(ANSWER_DRAFTS, "rev-1"))).toBeNull(),
+    );
+    // The box keeps it while the second pass starts, though. Emptying it under the reader at
+    // the moment their answer was accepted would read as it being thrown away.
+    goTo(1);
+    expect(answerBox().value).toBe("A second warehouse arrives.");
+  });
+
+  it("keeps every draft when the workspace refuses the answers", async () => {
+    const onSubmit = vi.fn().mockRejectedValue(new Error("The workspace refused it."));
+    renderQuestions({ onSubmit });
+
+    fireEvent.change(answerBox(), { target: { value: "A second warehouse arrives." } });
+    goToReview();
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    // A save that failed is the case a reader most needs their words back for, so the failure
+    // path is the one that must not clear anything.
+    expect(storedDrafts(ANSWER_DRAFTS, "rev-1")).toEqual({
+      "Q-1": "A second warehouse arrives.",
+    });
+  });
+
+  it("says the work is kept, where it is", () => {
+    renderQuestions();
+
+    // The reader has no way to know a box will still hold their sentence tomorrow, and it is
+    // the reason they may leave this page at all — which is also why nothing here interrupts
+    // them on the way out.
+    expect(screen.getByText(/what you write is kept in this browser/)).toBeTruthy();
+  });
+
+  it("promises nothing where the browser will not keep it", () => {
+    // A private window that refuses to store. The feature degrades to what this page did
+    // before drafts existed; the sentence must degrade with it rather than tell the reader
+    // their answers are safe on a machine that is about to lose them.
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("The operation is insecure.");
+    });
+
+    renderQuestions();
+
+    expect(screen.queryByText(/kept in this browser/)).toBeNull();
+    expect(screen.getByText(/The verdicts above rest on these/)).toBeTruthy();
+    vi.restoreAllMocks();
+  });
+
+  it("remembers only what has actually been written", () => {
+    const view = renderQuestions();
+
+    fireEvent.change(answerBox(), { target: { value: "A second warehouse arrives." } });
+    fireEvent.change(answerBox(), { target: { value: "" } });
+    view.unmount();
+
+    // A question opened and left blank is a question skipped, which is a normal way to use
+    // this — and it leaves nothing behind to be restored or cleaned up.
+    expect(window.localStorage.getItem(draftKey(ANSWER_DRAFTS, "rev-1"))).toBeNull();
   });
 });
