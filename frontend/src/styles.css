@@ -131,6 +131,11 @@ small { font-size: var(--s-meta); }
   --sunken: #f1efeb;
   --rule: rgb(29 27 24 / 7%);
   --rule-soft: rgb(29 27 24 / 5%);
+  /* The one lit row in the palette. By day it is the well, exactly — a highlight inside a
+     white sheet is that sheet's own sunken tone and nothing new. By night the well is 4%
+     white, which under a floating panel's shadow is not enough to find with the arrow keys,
+     so the highlight is the only place that steps to 6%. */
+  --palette-hover: var(--sunken);
 
   /* Three weights of ink, and no fourth. The third is as light as it may be and still be
      read: it lands on the canvas, on a card and in the well of a table header, and the
@@ -274,6 +279,7 @@ small { font-size: var(--s-meta); }
   --chrome-active-ink: #cdd9ff;
   --surface: #12151b;
   --sunken: rgb(255 255 255 / 4%);
+  --palette-hover: rgb(255 255 255 / 6%);
   --rule: rgb(255 255 255 / 7%);
   --rule-soft: rgb(255 255 255 / 5%);
   --ink: #e9ecf2;
@@ -420,6 +426,7 @@ small { font-size: var(--s-meta); }
   --color-chrome-active-ink: var(--chrome-active-ink);
   --color-surface: var(--surface);
   --color-sunken: var(--sunken);
+  --color-palette-hover: var(--palette-hover);
   --color-rule: var(--rule);
   --color-rule-soft: var(--rule-soft);
 

@@ -283,9 +283,14 @@ class OpenQuestion(DomainModel):
     #: what it read is the part they cannot supply for themselves.
     what_the_review_saw: str = Field(min_length=1)
     #: The circumstance the case does not state, in one line and phrased to stand as the
-    #: subject of a sentence — the workspace composes the recorded case entry by joining
-    #: this to the user's answer, so that the answer still means something read alone
-    #: (§6C.4). It is not a restatement of the question; it is what the question is about.
+    #: subject of a sentence. It is not a restatement of the question; it is what the question
+    #: is about, which is why it can title a discussion of that question and why a reader
+    #: recognises the same subject coming back across two passes.
+    #:
+    #: It used to be half of the recorded case entry: the workspace joined it to the user's
+    #: answer so that the answer still meant something read on its own. The case holds the
+    #: question-and-answer pair now (§6C.4), so the subject arrives with the question rather than
+    #: being welded onto the reply, and nothing composes anything.
     unknown: str = Field(min_length=1)
     #: Which way the cited verdicts move under each answer, so a reader can tell a question
     #: worth answering from one that changes nothing.

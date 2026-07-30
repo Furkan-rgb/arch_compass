@@ -110,7 +110,16 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
     # durability makes everything contingent and distinguishes nothing — and it hinged on
     # whether two constants are one fact, which is the question this stage exists to answer.
     # Both look like diligence and are refusals to decide.
-    version=10,
+    #
+    # v11 adds `clarifications` to the fields this stage must read before it hinges, and says
+    # what the answers in them weigh. Until now an answered question reached this stage as a
+    # line composed by the browser and appended to one of the five lists — the question's
+    # subject joined to the reply with a dash — because the case had no shape for the pair. It
+    # now holds the pair, which makes the check for "did they already tell me this?" a check
+    # against questions rather than against a paraphrase of them, and it is the check that
+    # ends the loop: a stage that cannot see a recorded answer hinges again on the fact it
+    # settles, and the reader is asked what they have already replied to.
+    version=11,
     stage_contract=_text(
         """
         A structural detector found one pattern in this repository and reported what it
@@ -195,13 +204,26 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
         external contract is fixed, or whether a decision has been settled.
 
         Before you claim the case is silent, go and look. Read
-        expected_future_changes, confirmed_facts, technical_constraints, non_goals and
-        assumptions for the fact you are about to ask for. If any of them states it, there
-        is no hinge: the case answered you, and asking again puts a question to the reader
-        that they already wrote down. This is the mistake to avoid above all others here —
-        a run once rested a verdict on "whether a second vendor is actually being
-        introduced" against a case whose expected_future_changes began "a second vendor is
-        under contract".
+        expected_future_changes, confirmed_facts, technical_constraints, non_goals,
+        assumptions and clarifications for the fact you are about to ask for. If any of them
+        states it, there is no hinge: the case answered you, and asking again puts a question
+        to the reader that they already wrote down. This is the mistake to avoid above all
+        others here — a run once rested a verdict on "whether a second vendor is actually
+        being introduced" against a case whose expected_future_changes began "a second vendor
+        is under contract".
+
+        clarifications is where an earlier round of this same asking was recorded, as pairs:
+        the question a review put to the reader, and their answer to it. Read them before you
+        hinge on anything, and read them as answers. A question already answered there must
+        not be asked a second time — that is what brings this loop to an end, and asking again
+        tells a reader who has already replied that their reply went nowhere.
+
+        An answer in a clarification carries the same force as an entry in the field its
+        bears_on names. An answer bearing on technical_constraints binds the design exactly as
+        a listed constraint does; one bearing on non_goals rules its subject out; one bearing
+        on expected_future_changes states that the change is coming. It is not a softer kind of
+        evidence for being phrased as a reply — it is the reader telling you about their own
+        project, which is the most authoritative thing in the input.
 
         A partial answer in the case is still an answer. If the case says a change is
         coming and does not say when, the change is coming; if it rules something out as a
@@ -529,7 +551,13 @@ ELICIT_QUESTIONS: Final = PromptContract(
     # hinged — the judging stage's own if_confirmed and if_denied, written by the one stage
     # that held the evidence. v2 adds what_the_review_saw for the observation and points
     # why_it_matters at those two branches instead of at the shape of the loop.
-    version=2,
+    #
+    # v3 follows the case gaining a clarifications list. An answer used to reach the case as a
+    # line the browser composed — the unknown joined to the reply — which is why v2's request
+    # explained `unknown` as the subject of that line. The pair is stored whole now, so
+    # `answer_belongs_in` names the force an answer carries rather than a list it is filed in,
+    # and this stage is told to read the answers already recorded instead of re-asking them.
+    version=3,
     stage_contract=_text(
         """
         Every boundary in one repository has now been judged separately, and you are shown
@@ -545,6 +573,13 @@ ELICIT_QUESTIONS: Final = PromptContract(
         The case in front of you will often say almost nothing. That is the ordinary
         situation rather than a defect — most people arrive with a repository and no written
         case, and getting them a case worth judging against is exactly what you are for.
+
+        Where it has a clarifications list, that is an earlier round of this asking: each entry
+        is a question a review put to the reader and the answer they gave it. Read them, and do
+        not ask again what one of them already answers. A reader who is handed back a question
+        they have replied to learns that replying achieves nothing, and each answer there
+        carries the same force as an entry in the field its bears_on names — an answer bearing
+        on non_goals rules its subject out as firmly as the non_goals list does.
 
         You are not re-judging anything, and you are not summarising. Each verdict was
         reached with that boundary's own evidence in front of it, and you are seeing a
@@ -593,9 +628,10 @@ ELICIT_QUESTIONS: Final = PromptContract(
 
         Then the unknown: the circumstance the case does not settle, in a single line,
         phrased so it could be the subject of a sentence — "whether a second speech vendor is
-        coming", "whether the storage engine is intended to vary". The workspace joins this
-        to the reader's answer to compose the line that enters their case, so it has to read
-        as a thing rather than as a request.
+        coming", "whether the storage engine is intended to vary". It is what the question is
+        about, named as a thing rather than as a request, and it is how the workspace titles a
+        discussion of this question and how a reader recognises the same subject coming back
+        across two reviews.
 
         Do not restate the question here. A reader who has just read the question learns
         nothing from hearing it again with the question mark removed, and it costs them a
@@ -619,11 +655,17 @@ ELICIT_QUESTIONS: Final = PromptContract(
         Do not answer your own question, and do not assume an answer while writing it. The
         point is to ask.
 
-        Last, set answer_belongs_in to the part of the case the answer would go into:
-        expected_future_changes for a change that is coming, confirmed_facts for something
-        settled and known, technical_constraints for something the design is bound by,
-        non_goals for something deliberately ruled out, assumptions for something being
+        Last, set answer_belongs_in to the force the answer would carry. The answer is
+        recorded in the case as a question-and-answer pair — your question, verbatim, beside what
+        the reader wrote — and this field says which part of the case that pair speaks with the
+        weight of: expected_future_changes for a change that is coming, confirmed_facts for
+        something settled and known, technical_constraints for something the design is bound
+        by, non_goals for something deliberately ruled out, assumptions for something being
         taken on trust.
+
+        So choose it by asking what a later pass should do with the answer, not where a
+        sentence should be filed. Nothing is moved anywhere: the pair stays whole, and this is
+        how the next judgement knows whether it has been handed a constraint or an assumption.
 
         Every question carries one supported_by flag per boundary, in the order the
         boundaries appear above. Mark true for every boundary the answer would settle. A
@@ -657,13 +699,27 @@ SUMMARISE_REVIEW: Final = PromptContract(
     # enforces it in the grammar. A verdict that still hinges — because a question was
     # skipped — says so on the boundary itself, where it is a caveat on a finding rather than
     # another gate in front of one.
-    version=6,
+    #
+    # v7 says what the answers in the case weigh. This stage always runs on a case that has
+    # just been answered, and the answers now arrive as question-and-answer pairs in
+    # `clarifications` rather than as lines appended to the five deciding lists — so a stage
+    # not told what a pair is would read the material that moved every verdict it is
+    # summarising as an exchange beside the case instead of as part of it.
+    version=7,
     stage_contract=_text(
         """
         Every boundary in one repository has now been judged separately, and you are shown
         all of those verdicts together with the case they were judged against. Your job is
         the one thing none of those separate calls could do: say what they amount to when
         read as a set.
+
+        That case will usually carry a clarifications list, because this pass runs after a
+        round of questions was answered. Each entry is a question the earlier pass asked and
+        the reader's own answer to it, and an answer weighs exactly as much as an entry in the
+        field its bears_on names — an answer bearing on technical_constraints binds the design
+        like a listed constraint, one bearing on non_goals rules its subject out. Those answers
+        are why the verdicts came out as they did, so treat them as part of what the case
+        states rather than as commentary beside it.
 
         You are not re-judging anything. Each verdict was reached with that boundary's own
         evidence in front of it, and you are seeing a summary of that reasoning rather than

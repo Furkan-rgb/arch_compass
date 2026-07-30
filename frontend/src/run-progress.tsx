@@ -37,6 +37,14 @@ export type RunState = {
   /** The first pass's last call: composing what it needs to ask. */
   eliciting: boolean;
   summarising: boolean;
+  /**
+   * The run reached a conclusion. Every stage it has is over, and none of them is still
+   * running — which is a different statement from `summarising`, whose whole meaning is that
+   * the last call is in flight. Without it the closing stage had no way to end: the call that
+   * concludes is the last thing the run reports, so a stage waiting for that call to *stop*
+   * being in flight waits for ever.
+   */
+  concluded: boolean;
 } | null;
 
 /** Fold one stream line into the run's state; anything else leaves it as it was. */
@@ -49,6 +57,7 @@ export function applyProgress(current: RunState, event: ReviewProgress): RunStat
       judged: 0,
       eliciting: false,
       summarising: false,
+      concluded: false,
     };
   }
   if (event.event === "judged" && current) {
@@ -64,6 +73,17 @@ export function applyProgress(current: RunState, event: ReviewProgress): RunStat
   if (event.event === "summarising" && current) {
     return { ...current, judged: event.total, summarising: true };
   }
+  if (event.event === "completed" && current) {
+    // The line the run signs off with. It carries the review rather than a count, so the
+    // counters are closed here from what detection already said: a run that reached its
+    // conclusion judged everything it detected, whatever the last `judged` line happened to
+    // number. `summarising` goes back to false because that call has returned.
+    return { ...current, judged: current.total, summarising: false, concluded: true };
+  }
+  // `failed` is deliberately not folded in. The stream's failure line makes the request
+  // reject, so the run's holder drops this state entirely and the review's own status — not
+  // this flow — is what the page then draws: a review that never reached a judgement gets the
+  // unfinished view rather than a flow with a stage frozen mid-spin.
   return current;
 }
 
@@ -165,6 +185,7 @@ export function RunProgress({
   const judged = progress?.judged ?? 0;
   const eliciting = progress?.eliciting ?? false;
   const summarising = progress?.summarising ?? false;
+  const concluded = progress?.concluded ?? false;
   const second = pass === 2;
   const judging: StageState = second
     ? "done"
@@ -308,16 +329,22 @@ export function RunProgress({
             )
           }
         />
+        {/* Done once the run says it concluded, for the same reason the asking stage above is
+            done once there is a number of questions: this stage *is* the last call, so it
+            cannot report itself finished — only the run's sign-off can, and a stage that
+            waited for `summarising` to clear would spin for as long as the page was open. */}
         <Stage
-          state={second && summarising ? "active" : "waiting"}
+          state={second ? (concluded ? "done" : summarising ? "active" : "waiting") : "waiting"}
           title="Read the verdicts as a set"
           detail="One last call: what they amount to together. This is the pass that concludes."
         />
       </ol>
 
       {/* The meter is for a run that is still counting. Once every verdict has landed and
-          the questions are known, a full bar is a claim about progress nothing is making. */}
-      {detected && total > 0 && (judged < total || awaiting === null) ? (
+          the questions are known, a full bar is a claim about progress nothing is making. And
+          a concluded run makes none by definition — which the counts alone do not say on a
+          second pass, because nothing ever asks it for a number of questions. */}
+      {detected && total > 0 && !concluded && (judged < total || awaiting === null) ? (
         <>
           <div
             className="h-1.5 overflow-hidden rounded-pill bg-sunken"
@@ -350,7 +377,7 @@ export function RunProgress({
           >
             {progress!.boundaries.map((name, index) => {
               const verdict = progress!.verdicts[index];
-              const current = index === judged && !summarising && !eliciting;
+              const current = index === judged && !summarising && !eliciting && !concluded;
               return (
                 <li
                   key={`${name}-${index}`}

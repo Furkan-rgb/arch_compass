@@ -7,6 +7,7 @@ from dataclasses import replace
 from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
 from archcompass.adapters.models.prompt_contracts import (
     ANSWER_REVIEW_QUESTION,
+    ELICIT_QUESTIONS,
     JUDGE_FINDING_CANDIDATE,
     STAGE_PROMPTS,
     SUMMARISE_REVIEW,
@@ -30,9 +31,9 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
     """The enum and the registry must not drift; a gap surfaces as a runtime KeyError."""
 
     expected_versions = {
-        ReasoningTask.JUDGE_FINDING_CANDIDATE: 10,
-        ReasoningTask.ELICIT_QUESTIONS: 2,
-        ReasoningTask.SUMMARISE_REVIEW: 6,
+        ReasoningTask.JUDGE_FINDING_CANDIDATE: 11,
+        ReasoningTask.ELICIT_QUESTIONS: 3,
+        ReasoningTask.SUMMARISE_REVIEW: 7,
         ReasoningTask.ANSWER_REVIEW_QUESTION: 7,
         ReasoningTask.DISCUSS_OPEN_QUESTION: 1,
     }
@@ -235,11 +236,70 @@ def test_the_judgement_contract_makes_the_stage_read_the_case_before_asking() ->
 
     assert "before you claim the case is silent, go and look" in contract
     # The fields it must actually look in, so "the case" is not left as an abstraction.
-    for field in ("expected_future_changes", "confirmed_facts", "non_goals"):
+    for field in ("expected_future_changes", "confirmed_facts", "non_goals", "clarifications"):
         assert field in contract
     assert "the case answered you" in contract
     assert "a partial answer in the case is still an answer" in contract
     assert "a hinge on every boundary is the same as a hinge on none" in contract
+
+
+def test_the_judgement_contract_reads_the_answers_already_given() -> None:
+    """What terminates the loop, asserted where the rule actually lives.
+
+    A hinge becomes a question, so a stage that cannot recognise an answer it has already been
+    given hinges on the same fact for ever and the reader is handed back a question they have
+    replied to. The answers arrive as `clarifications` — the question a review asked beside what
+    the reader wrote — and this is the one place the check against them can be made.
+    """
+
+    contract = _normalized(JUDGE_FINDING_CANDIDATE.stage_contract)
+
+    assert "clarifications is where an earlier round of this same asking was recorded" in contract
+    assert "must not be asked a second time" in contract
+    assert "that is what brings this loop to an end" in contract
+    # And an answer is not a weaker sort of evidence for being phrased as a reply: the force
+    # is the field its bears_on names, or the pair says less than the line it replaced did.
+    assert "carries the same force as an entry in the field its bears_on names" in contract
+    assert "binds the design exactly as a listed constraint does" in contract
+
+
+def test_the_elicitation_request_asks_for_a_force_rather_than_a_destination() -> None:
+    """`answer_belongs_in` stopped naming a list the moment the pair became the record.
+
+    The answer used to be composed into one of five lists, so the field really was a
+    destination. It is not moved anywhere now — the question and the answer stay together —
+    and what the field decides is how a later judgement weighs the pair. A stage still told it
+    is filing a sentence would pick by where the words look tidiest rather than by what the
+    answer does.
+    """
+
+    request = _normalized(ELICIT_QUESTIONS.request)
+    contract = _normalized(ELICIT_QUESTIONS.stage_contract)
+
+    assert "set answer_belongs_in to the force the answer would carry" in request
+    assert "recorded in the case as a question-and-answer pair" in request
+    assert "nothing is moved anywhere" in request
+    # The `unknown` is no longer half of a composed line, and the request must not still say
+    # it is: a stage told to write a subject for a join writes for a join that never happens.
+    assert "joins this to the reader's answer" not in request
+    # And the stage that asks is told not to ask twice.
+    assert "do not ask again what one of them already answers" in contract
+
+
+def test_the_summary_contract_reads_a_clarification_as_part_of_the_case() -> None:
+    """This stage only ever runs on an answered case, so the answers are its material.
+
+    They reach it as pairs in `clarifications` rather than as lines appended to the five
+    deciding lists. A stage not told what a pair is would read the sentences that moved every
+    verdict it is summarising as an exchange printed beside the case instead of as what the
+    case now says.
+    """
+
+    contract = _normalized(SUMMARISE_REVIEW.stage_contract)
+
+    assert "that case will usually carry a clarifications list" in contract
+    assert "weighs exactly as much as an entry in the field its bears_on names" in contract
+    assert "part of what the case states rather than as commentary beside it" in contract
 
 
 def test_the_judgement_contract_names_the_two_ways_a_stage_hedges() -> None:

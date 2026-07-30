@@ -1,12 +1,12 @@
-import { X } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { Trash2, X } from "lucide-react";
+import { useFieldArray, useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 import { ErrorPanel, Loading } from "./components";
-import type { ArchitectureCase, CaseUpdate } from "./types";
+import type { ArchitectureCase, CaseUpdate, Clarification } from "./types";
 
 /* The surface a case is written on, shared by the form and the YAML editor: one padded grid
    inside the layer that floats it, with a head that puts the way out beside the title. */
@@ -46,6 +46,16 @@ export interface CaseFormValues {
   quality_attributes: string;
   functional_requirements: string;
   actors_and_workflows: string;
+  /**
+   * The questions a review asked and the answers given to them, as pairs.
+   *
+   * The one field here that is not a textarea of lines, because a pair cannot be a line: half
+   * of it is the advisor's words and half of it is the reader's, and a format that ran them
+   * together would lose which was which. Kept as objects so the question travels untouched —
+   * the form offers no way to edit it, and a case that claimed a review asked something it
+   * never did would be a fabricated record of an exchange.
+   */
+  clarifications: Clarification[];
 }
 
 const EMPTY: CaseFormValues = {
@@ -60,6 +70,7 @@ const EMPTY: CaseFormValues = {
   quality_attributes: "",
   functional_requirements: "",
   actors_and_workflows: "",
+  clarifications: [],
 };
 
 function lines(value: string): string[] {
@@ -86,6 +97,7 @@ export function caseFormValues(snapshot: ArchitectureCase | undefined): CaseForm
     quality_attributes: (snapshot.quality_attributes || []).join("\n"),
     functional_requirements: (snapshot.functional_requirements || []).join("\n"),
     actors_and_workflows: (snapshot.actors_and_workflows || []).join("\n"),
+    clarifications: (snapshot.clarifications || []).map((item) => ({ ...item })),
   };
 }
 
@@ -114,6 +126,13 @@ export function casePayload(values: CaseFormValues): ArchitectureCase & CaseUpda
     quality_attributes: lines(values.quality_attributes),
     functional_requirements: lines(values.functional_requirements),
     actors_and_workflows: lines(values.actors_and_workflows),
+    // Answers trimmed, and a pair whose answer has been emptied is dropped rather than sent.
+    // Blank is how someone deletes one by clearing the box instead of pressing the button, and
+    // the server would refuse it anyway: a question sitting in the case with nothing answering
+    // it reads to every later pass as a statement about this project.
+    clarifications: values.clarifications
+      .map((item) => ({ ...item, answer: item.answer.trim() }))
+      .filter((item) => item.answer),
   };
 }
 
@@ -211,6 +230,10 @@ export function CaseForm({
   onClose: () => void;
 }) {
   const form = useForm<CaseFormValues>({ defaultValues: caseFormValues(initial) });
+  /* Removal is what a field array is needed for here. The answers themselves are ordinary
+     registered inputs; taking a pair out of the case is not, and a list rebuilt on every
+     keystroke would take the cursor with it. */
+  const clarifications = useFieldArray({ control: form.control, name: "clarifications" });
 
   return (
     <section className={caseSurface} aria-label={heading}>
@@ -295,6 +318,56 @@ export function CaseForm({
               <Textarea className={caseArea} rows={4} {...form.register("confirmed_facts")} />
             </Field>
           </div>
+
+          {/* Only where a review has actually asked something. An empty section here would
+              invite someone to write their own questions, and these are not theirs to write:
+              a pair exists because a verdict turned on something the case did not say. */}
+          {clarifications.fields.length > 0 ? (
+            <div data-slot="case-clarifications" className={group}>
+              <h4 className={groupTitle}>What a review asked, and what you answered</h4>
+              <p className="m-0 -mt-1 max-w-[86ch] text-ui leading-[1.6] text-ink-2">
+                These came from answering a review's questions. The question is the review's
+                wording and is kept as it was asked; the answer is yours, so change it if it no
+                longer says what you meant, or remove the pair if it should not be weighed at
+                all.
+              </p>
+              {clarifications.fields.map((entry, index) => (
+                <div
+                  key={entry.id}
+                  data-slot="clarification"
+                  className="grid grid-cols-[1fr_auto] items-start gap-x-3 gap-y-1"
+                >
+                  {/* Muted and attributed, because the whole point of keeping the pair is that
+                      a reader can tell which half they wrote. There is no box around it: it is
+                      not theirs to edit. */}
+                  <span className="text-ui leading-[1.5] text-ink-3">
+                    Asked: {entry.question}
+                  </span>
+                  <Button
+                    type="button"
+                    size="icon"
+                    className="row-span-2"
+                    onClick={() => clarifications.remove(index)}
+                    aria-label={`Remove the answer to "${entry.question}"`}
+                  >
+                    <Trash2 size={15} aria-hidden />
+                  </Button>
+                  <Textarea
+                    className={cn(caseArea, "col-start-1")}
+                    rows={2}
+                    aria-label={`Your answer to "${entry.question}"`}
+                    {...form.register(`clarifications.${index}.answer` as const)}
+                  />
+                  {/* The force this answer carries, shown rather than offered. It was read
+                      from the review's own report when the answer was recorded, and letting it
+                      be changed here would let a case decide how its own evidence is weighed. */}
+                  <span className="col-start-1 text-meta text-ink-3">
+                    Weighed as <code className="text-meta">{entry.bears_on}</code>
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           {/* Collapsed by default: real context, but a form that opens as eleven empty boxes
               reads as work rather than as questions. */}

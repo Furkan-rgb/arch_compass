@@ -45,6 +45,11 @@ export function progressFromSummary(
     eliciting: total > 0 && summary.boundaries_reviewed >= total && !summary.elicited_from,
     summarising:
       total > 0 && summary.boundaries_reviewed >= total && Boolean(summary.elicited_from),
+    // Read off the status rather than the counts, which cannot tell a run still in its last
+    // call from one that finished it. `succeeded` is the only status that means concluded: a
+    // held run has judged everything too and is emphatically not over, and the aftermaths
+    // (failed, cancelled) never reach this flow at all — that page draws them as unfinished.
+    concluded: summary.status === "succeeded",
   };
 }
 
@@ -93,7 +98,7 @@ export function runCrawl(
     }));
   }
   if (!progress) return [];
-  const settled = progress.eliciting || progress.summarising;
+  const settled = progress.eliciting || progress.summarising || progress.concluded;
   return Array.from({ length: progress.total }, (_, index) => ({
     position: index + 1,
     label: progress.boundaries[index] ?? null,

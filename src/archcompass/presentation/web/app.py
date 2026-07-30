@@ -143,12 +143,16 @@ class ReviewRequest(APIModel):
 
 
 class SubmittedAnswer(APIModel):
-    """One answer: which question it settles, and the line the reader saw before saving.
+    """One answer: which question it settles, and what the reader typed before saving.
 
-    No destination field. Where an answer belongs is the question's property, read from the
-    review by the server — a client that could name it could route an answer into a list its
-    question never mentioned, and nothing afterwards could tell that apart from a question
-    that did.
+    No question and no destination. Both are the question's own properties, read from the
+    review by the server — a client that could send the question could put words in a review's
+    mouth, and one that could name the field could give an answer a weight its question never
+    asked for, with nothing afterwards able to tell either apart from a question that did.
+
+    `recorded_text` is the answer verbatim. It used to be a line the browser composed by
+    joining the question's subject to the reply, because the case had nowhere to keep the pair;
+    the case keeps pairs now (ADR 0014), so this is the reader's words and nothing else.
     """
 
     question_reference: str = Field(pattern=r"^Q-[0-9]+$")

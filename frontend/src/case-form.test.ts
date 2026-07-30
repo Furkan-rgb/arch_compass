@@ -15,6 +15,14 @@ const STORED = {
   quality_attributes: [],
   functional_requirements: [],
   actors_and_workflows: [],
+  clarifications: [
+    {
+      id: "clar_1",
+      question: "Is a second label format actually planned?",
+      answer: "No, and none is planned.",
+      bears_on: "non_goals",
+    },
+  ],
 } as unknown as ArchitectureCase;
 
 describe("caseFormValues", () => {
@@ -30,6 +38,21 @@ describe("caseFormValues", () => {
 
   it("is empty for a case that does not exist yet", () => {
     expect(caseFormValues(undefined).title).toBe("");
+    expect(caseFormValues(undefined).clarifications).toEqual([]);
+  });
+
+  it("keeps a clarification as a pair rather than flattening it to a line", () => {
+    // The one field here that is not a textarea of lines. Half of a pair is the advisor's
+    // words and half is the reader's, and a format that ran them together would lose which
+    // was which — which is the failure the pair replaced.
+    expect(caseFormValues(STORED).clarifications).toEqual([
+      {
+        id: "clar_1",
+        question: "Is a second label format actually planned?",
+        answer: "No, and none is planned.",
+        bears_on: "non_goals",
+      },
+    ]);
   });
 });
 
@@ -59,5 +82,43 @@ describe("casePayload", () => {
 
     expect(payload.non_goals).toEqual([]);
     expect(Object.keys(payload)).toContain("non_goals");
+  });
+
+  it("carries a clarification through with the question untouched", () => {
+    const payload = casePayload(caseFormValues(STORED));
+
+    // The question is the review's wording. A case that claimed a review asked something it
+    // never did would be a fabricated record of an exchange, so nothing in this form can
+    // reach that half — and the force it carries was read from the review's own report, not
+    // chosen here.
+    expect(payload.clarifications).toEqual(STORED.clarifications);
+  });
+
+  it("drops a pair whose answer has been emptied", () => {
+    // Clearing the box is how someone withdraws an answer without hunting for the button.
+    // A question left in the case with nothing answering it reads to every later pass as a
+    // statement about this project, so it is not sent.
+    const values = caseFormValues(STORED);
+    const payload = casePayload({
+      ...values,
+      clarifications: values.clarifications.map((item) => ({ ...item, answer: "  " })),
+    });
+
+    expect(payload.clarifications).toEqual([]);
+  });
+
+  it("trims the answer without touching the question", () => {
+    const values = caseFormValues(STORED);
+    const payload = casePayload({
+      ...values,
+      clarifications: values.clarifications.map((item) => ({
+        ...item,
+        answer: "  Reworded, and still mine.  ",
+      })),
+    });
+
+    expect(payload.clarifications).toEqual([
+      { ...values.clarifications[0], answer: "Reworded, and still mine." },
+    ]);
   });
 });

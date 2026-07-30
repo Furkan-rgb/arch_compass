@@ -33,6 +33,7 @@ export interface components {
     "assumptions"?: Array<components["schemas"]["CaseStatement"]>;
     "unresolved_questions"?: Array<components["schemas"]["CaseStatement"]>;
     "design_forces"?: Array<components["schemas"]["CaseStatement"]>;
+    "clarifications"?: Array<components["schemas"]["Clarification"]>;
     "repository"?: components["schemas"]["RepositoryReference"] | null;
     "policy_applicability"?: components["schemas"]["PolicyApplicabilityContext"];
     "referenced_policy_ids"?: Array<string>;
@@ -202,12 +203,19 @@ export interface components {
     "assumptions"?: Array<components["schemas"]["CaseStatement"]> | null;
     "unresolved_questions"?: Array<components["schemas"]["CaseStatement"]> | null;
     "design_forces"?: Array<components["schemas"]["CaseStatement"]> | null;
+    "clarifications"?: Array<components["schemas"]["Clarification"]> | null;
     "repository"?: components["schemas"]["RepositoryReference"] | null;
     "policy_applicability"?: components["schemas"]["PolicyApplicabilityContext"] | null;
     "referenced_policy_ids"?: Array<string> | null;
     "candidate_alternatives"?: Array<components["schemas"]["CaseAlternative"]> | null;
     "reversal_conditions"?: Array<string> | null;
     "revisit_triggers"?: Array<string> | null;
+  };
+    "Clarification": {
+    "id"?: string;
+    "question": string;
+    "answer": string;
+    "bears_on": components["schemas"]["CaseField"];
   };
     "CyclesQuery": {
     "kind": "cyclic_components";

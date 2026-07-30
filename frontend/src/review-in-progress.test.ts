@@ -29,6 +29,7 @@ describe("progressFromSummary", () => {
       judged: 2,
       eliciting: false,
       summarising: false,
+      concluded: false,
     });
   });
 
@@ -52,6 +53,18 @@ describe("progressFromSummary", () => {
     expect(second?.summarising).toBe(true);
     expect(second?.eliciting).toBe(false);
   });
+
+  it("takes the run being over from the status, which is the only thing that says so", () => {
+    // The counts cannot tell a run still inside its last call from one that finished it, and
+    // a held run has judged everything too without being over.
+    expect(
+      progressFromSummary(running({ boundaries_reviewed: 6, status: "succeeded" }))?.concluded,
+    ).toBe(true);
+    expect(
+      progressFromSummary(running({ boundaries_reviewed: 6, status: "awaiting_answers" }))
+        ?.concluded,
+    ).toBe(false);
+  });
 });
 
 describe("watchedProgress", () => {
@@ -62,6 +75,7 @@ describe("watchedProgress", () => {
     judged: 1,
     eliciting: false,
     summarising: false,
+    concluded: false,
   };
 
   it("prefers the stream, which is the only source that knows the boundary names", () => {
@@ -117,6 +131,7 @@ describe("runCrawl", () => {
         judged: 1,
         eliciting: false,
         summarising: false,
+        concluded: false,
       },
       [],
     );
@@ -136,6 +151,7 @@ describe("runCrawl", () => {
         judged: 1,
         eliciting: true,
         summarising: false,
+        concluded: false,
       },
       [],
     );

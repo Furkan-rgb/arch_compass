@@ -334,10 +334,11 @@ def test_a_question_resolves_to_the_boundaries_that_occupied_its_slots() -> None
 def test_a_question_carries_what_was_seen_and_a_subject_for_the_answer() -> None:
     """The two fields v2 separated, which v1 had collapsed into one restatement.
 
-    `what_the_review_saw` is the evidence a reader cannot supply for themselves, and
-    `unknown` is a subject rather than a description because the workspace joins it to the
-    reader's answer to compose the line that enters their case (§6C.4). A question whose
-    unknown is its own question with the question mark removed can do neither job.
+    `what_the_review_saw` is the evidence a reader cannot supply for themselves, and `unknown`
+    is what the question is about rather than a description of it — which is what lets it title
+    a discussion of the question and lets a reader recognise the same subject coming back
+    across two passes. A question whose unknown is its own question with the question mark
+    removed can do neither job.
     """
 
     provider, _ = _provider(

@@ -11,6 +11,7 @@ const detected: RunState = {
   judged: 0,
   eliciting: false,
   summarising: false,
+  concluded: false,
 };
 
 const judged: RunState = {
@@ -114,6 +115,7 @@ describe("RunProgress", () => {
           judged: 0,
           eliciting: false,
           summarising: false,
+          concluded: false,
         }}
       />,
     );
@@ -182,6 +184,34 @@ describe("RunProgress across the two passes", () => {
     // A run that asked nothing is a finding: every verdict stood on what the case said.
     expect(screen.getByRole("status")).toHaveTextContent("Nothing to ask");
     expect(screen.getByRole("status")).not.toHaveTextContent("waiting on you");
+  });
+
+  it("closes the last stage on the run's sign-off, which is the only line that can", () => {
+    // The stage *is* the concluding call, so it cannot report its own end: waiting for
+    // `summarising` to clear left a finished review spinning for as long as the page was open.
+    const state = applyProgress(
+      { ...judged, summarising: true },
+      {
+        event: "completed",
+        review: {
+          status: "succeeded",
+          case_id: "case_a",
+          case_revision: 2,
+          atlas_version_id: "atlas_1",
+          reasoning_model: "qwen3",
+          prompt_identity: "p1",
+        },
+      },
+    );
+    expect(state).toMatchObject({ concluded: true, summarising: false, judged: 3 });
+
+    render(<RunProgress progress={state} pass={2} awaiting={0} />);
+
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("Read the verdicts as a set");
+    expect(status.querySelector(".spin")).toBeNull();
+    // A full bar over a run making no more progress is a claim about progress.
+    expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
   it("draws the first pass as history once the second one is running", () => {

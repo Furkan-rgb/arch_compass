@@ -50,6 +50,43 @@ class CaseStatement(DomainModel):
     source: str | None = None
 
 
+class Clarification(DomainModel):
+    """One question a review asked, and the answer the user gave it, kept as a pair.
+
+    The answer used to be composed into a line and appended to one of the five fields
+    `CaseField` names — the question's subject joined to the reply with a dash, so that the
+    reply still meant something read alone. That composition was a workaround for the pair
+    not being representable. It cost twice: the questions surface showed the reader an answer
+    that restated the question they were looking at, and the re-judging stages, which see the
+    case and nothing else, were given the join rather than the question — so the one piece of
+    context that made the answer legible was the one thing they could not read.
+
+    Kept as a pair, both halves say who wrote them. `question` is advisor-authored and
+    labelled as such wherever it is shown; `answer` is the user's words and theirs alone,
+    which is what invariant 25 and §6C.4 are about. A pair is also why the join no longer has
+    to be guessed at: nothing has to infer the subject of "not for now, no", because the
+    question it answers is beside it.
+
+    `bears_on` is the force the answer carries, read from the review's own report rather than
+    accepted from whoever submitted the answer (§12.0 — the application decides). A judging
+    stage weighs a clarification bearing on `technical_constraints` exactly as it weighs an
+    entry in that list, which is what keeps this a widening of the case rather than a second,
+    weaker place for the same facts to live.
+    """
+
+    id: str = Field(default_factory=lambda: new_id("clar"))
+    #: The review's question, verbatim. Advisor-authored, so it is never edited into the
+    #: user's voice: a reader has to be able to tell which half they wrote.
+    question: str = Field(min_length=1)
+    #: The user's answer, as they typed it. Never composed, never rephrased, never pre-filled
+    #: — the whole of what enters the case from a round of answering (invariant 25).
+    answer: str = Field(min_length=1)
+    #: Which of the five deciding fields this answer carries the force of. Not a destination
+    #: any more, because the pair is not moved anywhere: it says how the answer should be
+    #: weighed, which is what the destination was ever standing in for.
+    bears_on: CaseField
+
+
 class RepositoryReference(DomainModel):
     root_path: str = Field(min_length=1)
     atlas_version_id: str | None = None
@@ -90,6 +127,16 @@ class ArchitectureCase(DomainModel):
     assumptions: list[CaseStatement] = Field(default_factory=list[CaseStatement])
     unresolved_questions: list[CaseStatement] = Field(default_factory=list[CaseStatement])
     design_forces: list[CaseStatement] = Field(default_factory=list[CaseStatement])
+    #: What a review asked and what the user answered, in pairs (§6C.4). Its own field rather
+    #: than five composed lines, because the question is the context that makes the answer
+    #: legible and the second pass sees the case alone — a line that had to carry its own
+    #: subject was the only way an answer could survive the trip, and it survived it badly.
+    #:
+    #: Additive, so `schema_version` stays at 2 for the reason the comment on
+    #: `problem_statement` gives: a field with a default breaks no stored document, and every
+    #: case already in a workspace validates unchanged with this list empty. ADR-0002 governs
+    #: narrowing, which this is not.
+    clarifications: list[Clarification] = Field(default_factory=list[Clarification])
     repository: RepositoryReference | None = None
     policy_applicability: PolicyApplicabilityContext = Field(
         default_factory=PolicyApplicabilityContext
@@ -150,6 +197,11 @@ class CaseUpdate(DomainModel):
     assumptions: list[CaseStatement] | None = None
     unresolved_questions: list[CaseStatement] | None = None
     design_forces: list[CaseStatement] | None = None
+    #: Editable and removable like every other list here. A reader who wants to withdraw an
+    #: answer, or reword one, does it the way they revise anything else in their case — and a
+    #: request that leaves the key out keeps what is there, which is what lets the case form
+    #: submit without knowing about the round that produced these.
+    clarifications: list[Clarification] | None = None
     repository: RepositoryReference | None = None
     policy_applicability: PolicyApplicabilityContext | None = None
     referenced_policy_ids: list[str] | None = None
@@ -184,21 +236,27 @@ class CaseUpdate(DomainModel):
 
 
 class RecordedAnswer(DomainModel):
-    """One question this revision answered, and the line that answered it.
+    """One question this revision answered, and the answer the user gave it.
 
-    `recorded_text` rather than a pointer into the snapshot. Only `confirmed_facts` and
-    `assumptions` carry statement identity; the other three destinations are lists of bare
-    strings with nothing to point at. Storing the text is also the more honest record: this
-    is provenance about one immutable revision, so what was written at that revision is a
-    fact and cannot rot. A later revision may reword the line without making this wrong.
+    `recorded_text` rather than a pointer at the `Clarification` this revision wrote. The
+    snapshot's clarifications carry identity and could be pointed at, but this is provenance
+    about one immutable revision: what was answered at that revision is a fact and cannot
+    rot, while a later revision may reword the answer or delete the pair outright without
+    making this record wrong. A pointer would go stale in exactly that case, which is the one
+    the provenance exists for.
+
+    It is the raw answer, the same words the pair holds — not a line composed from the
+    question and the reply, which is what this field carried while the case had no way to
+    represent the pair.
     """
 
     #: `Q-n`, resolved by the application against the review's own report. A reference that
     #: review never asked is refused rather than stored (§12.0).
     question_reference: str = Field(pattern=r"^Q-[0-9]+$")
-    #: Which list the line joined, so it can be found in the snapshot without scanning five.
-    #: Read from the question rather than from the request: the destination is the question's
-    #: property, not the answering client's opinion.
+    #: Which of the five deciding fields the answer bears on, read from the question rather
+    #: than from the request: it is the question's property, not the answering client's
+    #: opinion. Kept here as well as on the pair so the round can be read off the revision
+    #: without resolving anything against the snapshot.
     answer_belongs_in: CaseField
     recorded_text: str = Field(min_length=1)
 

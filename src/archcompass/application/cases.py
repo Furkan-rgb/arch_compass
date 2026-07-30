@@ -10,33 +10,30 @@ from archcompass.domain.base import DomainModel, utc_now
 from archcompass.domain.case import (
     AnsweredQuestions,
     ArchitectureCase,
-    CaseField,
     CaseRevision,
     CaseUpdate,
+    Clarification,
     RecordedAnswer,
     RepositoryReference,
-    StatementKind,
 )
 from archcompass.domain.errors import CaseValidationError
 from archcompass.domain.review import BoundaryReview
 from archcompass.domain.workspace import CaseSummary
 from archcompass.ports.repositories import CaseRepository
 
-#: The two answer destinations whose entries are statements rather than plain lines. Which
-#: kind a statement carries is decided by the list it joins, so it is set from this rather
-#: than asked for — the same rule the case form and the questions surface already follow.
-_STATEMENT_KINDS: dict[CaseField, StatementKind] = {
-    CaseField.CONFIRMED_FACTS: StatementKind.FACT,
-    CaseField.ASSUMPTIONS: StatementKind.ASSUMPTION,
-}
-
 
 class WrittenAnswer(DomainModel):
-    """One answer as the reader submitted it: which question, and the line they saw.
+    """One answer as the reader submitted it: which question, and what they typed.
 
-    Carries no destination. Where an answer belongs is the question's property and is read
-    from the review, so a client cannot route an answer into a field its question never
-    named (§12.0 — the application decides what to look at).
+    Carries no question and no destination. Both are the question's own properties and are
+    read from the review, so a client cannot pair an answer with a question the review never
+    asked, nor give it a force its question never named (§12.0 — the application decides what
+    to look at). What the client is authoritative about is the one thing only the reader
+    could supply, which is the answer.
+
+    `recorded_text` is the answer verbatim. It used to be a line the browser composed by
+    joining the question's subject to the reply, because the case had nowhere to put the pair;
+    the case has somewhere now, so the reader types an answer and nothing else.
     """
 
     question_reference: str = Field(pattern=r"^Q-[0-9]+$")
@@ -131,14 +128,18 @@ class CaseService:
         construction: a caller that forgot to send it produced a revision that had silently
         lost the link to the question it came from, and nothing could tell afterwards.
 
-        The client sends the reference and the final text and nothing else. Which case field
-        an answer joins is the question's own property, so it is read from the review's
-        report rather than accepted from the request — a client that could choose the
-        destination could route an answer into a field the question never named, and there
-        would be no way to tell that from a question that named it.
+        The client sends the reference and the answer and nothing else. The question half of
+        each pair is taken from the review's own report, verbatim, and so is the force the
+        answer carries — a client that could supply either could pair an answer with a
+        question nobody asked, or give it a weight its question never named, and there would
+        be no way afterwards to tell that from a question that did.
 
-        The text is the client's because it has to be: the reader edits the composed line
-        before saving, and that edited line is the one that must be recorded (§6C.4).
+        Both halves are kept together as a `Clarification` rather than composed into a line in
+        one of the five deciding lists. The composition existed because the case had no shape
+        for a pair, and it was paid for twice: the reader was shown an answer that restated
+        the question above it, and the stages that re-judge the case saw the join instead of
+        the question, so the context that made the answer readable was the one thing they
+        could not read.
         """
 
         report = review.report
@@ -149,7 +150,7 @@ class CaseService:
             raise CaseValidationError("Answering records at least one answer")
 
         answers: list[RecordedAnswer] = []
-        grouped: dict[CaseField, list[str]] = {}
+        recorded: list[Clarification] = []
         for item in written:
             question = asked.get(item.question_reference)
             if question is None:
@@ -171,11 +172,21 @@ class CaseService:
                     recorded_text=text,
                 )
             )
-            grouped.setdefault(question.answer_belongs_in, []).append(text)
+            # The question's text, never its `Q-n`. A reference code is this application's own
+            # identifier and means nothing to a stage reading the case months later, which is
+            # the whole of §12.0's rule about them; the provenance above is where the code
+            # belongs, because that record is about this review.
+            recorded.append(
+                Clarification(
+                    question=question.question,
+                    answer=text,
+                    bears_on=question.answer_belongs_in,
+                )
+            )
 
         current = self._repository.get(review.case_id, review.case_revision)
         return self._repository.append(
-            self._with_answers(current.snapshot, grouped),
+            self._with_answers(current.snapshot, recorded),
             expected_revision=current.revision,
             event_type="user_update",
             actor=actor,
@@ -185,25 +196,23 @@ class CaseService:
     @staticmethod
     def _with_answers(
         snapshot: ArchitectureCase,
-        grouped: dict[CaseField, list[str]],
+        recorded: list[Clarification],
     ) -> ArchitectureCase:
-        """The case with each answer appended to the list its question named.
+        """The case with this round's pairs added to the clarifications it already held.
 
-        Appended, never replaced, and only to the fields that were answered. A reader who
-        answers one of five questions must not have their other four lists rewritten, which
+        Appended, never replaced, and nothing else on the case is touched. A reader who
+        answers one of five questions must not have the rest of their case rewritten, which
         is what submitting the whole case form does and the reason answering does not go
-        through it.
+        through it. Earlier rounds stay where they are: a case accumulates the exchanges that
+        built it, and the pair from the first round is still the reason a verdict came out the
+        way it did in the second.
         """
 
         case_data = snapshot.model_dump()
-        for field, texts in grouped.items():
-            existing = list(case_data.get(field.value) or [])
-            # The kind is fixed by which list a statement joins, so it is set here rather
-            # than asked for — the domain rejects a statement whose kind does not match.
-            kind = _STATEMENT_KINDS.get(field)
-            case_data[field.value] = existing + [
-                {"text": text, "kind": kind.value} if kind else text for text in texts
-            ]
+        case_data["clarifications"] = [
+            *(case_data.get("clarifications") or []),
+            *(item.model_dump() for item in recorded),
+        ]
         case_data["updated_at"] = utc_now()
         return ArchitectureCase.model_validate(case_data)
 

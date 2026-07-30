@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { api } from "../api";
@@ -19,6 +20,7 @@ import {
   sheet,
   shortId,
 } from "../components";
+import { ask } from "../review-capabilities";
 import { HeldVerdicts, HoldBanner, contingentCount } from "../review-awaiting";
 import { ReviewAtlas } from "../review-atlas";
 import { RunLog, watchedProgress } from "../review-in-progress";
@@ -39,6 +41,7 @@ import type {
   RecordedAnswer,
   ReviewOverview,
   ReviewScore,
+  ReviewStatus,
   ReviewedBoundary,
 } from "../types";
 
@@ -237,7 +240,8 @@ function WhatChanged({
                     inventing one.
 
                     Indented under the row it explains and given the full width of it,
-                    because the whole point is that this is the sentence the reader wrote. */}
+                    because the whole point is that this is the sentence the reader wrote —
+                    their words, under the question that drew them out. */}
                 {behind.length > 0 ? (
                   <ul className="mt-[2px] mb-1 grid w-full list-none gap-1 border-l-2 border-accent-rule pl-3">
                     {behind.map((answer) => (
@@ -320,7 +324,11 @@ function Score({ score }: { score: ReviewScore }) {
  * The answers that produced this pass, beside the questions they answered.
  *
  * Read off the case revision this review is pinned to rather than recomposed: the workspace
- * recorded which question each line answered, which is what makes the join possible at all.
+ * recorded which question each answer answered, which is what makes the join possible at all.
+ *
+ * The answer prints as the reader typed it. It used to be a line composed from the question
+ * and the reply, so this section showed the question and then most of it again underneath —
+ * the case now keeps the pair, and what is quoted here is a person's own sentence.
  */
 function AnsweredHistory({
   questions,
@@ -409,6 +417,58 @@ function Unfinished({ review }: { review: BoundaryReview }) {
   );
 }
 
+/**
+ * The way into the question panel, and the one place the `ask` rule is enforced.
+ *
+ * Blocked states keep the button on screen rather than dropping it. A reader who never sees
+ * the affordance never learns the review can be asked about at all, and this page is where
+ * they would learn it — so it stays, greyed, with the reason on it.
+ */
+export function AskAction({
+  status,
+  expanded,
+  onToggle,
+}: {
+  status: ReviewStatus | undefined;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const refusal = ask(status);
+  const button = (
+    <Button
+      type="button"
+      variant="primary"
+      aria-expanded={refusal ? undefined : expanded}
+      disabled={refusal !== null}
+      onClick={refusal ? undefined : onToggle}
+    >
+      <MessageCircleQuestion size={14} aria-hidden /> Ask about this review
+    </Button>
+  );
+  if (!refusal) return button;
+  return (
+    <Tooltip>
+      {/* The span is load-bearing: a disabled button dispatches no pointer events, so the
+          trigger has to be something above it that does. It takes the tab stop the button
+          gave up, so the reason reaches a reader arriving by keyboard too. */}
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          className={cn(
+            "inline-flex rounded-control",
+            // The ring the button can no longer draw for itself, on the element that now
+            // holds its tab stop. Same 2px of accent every focusable thing here draws.
+            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+          )}
+        >
+          {button}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{refusal}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 type TabId = "findings" | "questions" | "runlog" | "atlas";
 
 /** A run's length, in the units a reader counts model calls in. */
@@ -451,6 +511,9 @@ export function ReviewDetailPage() {
     setVisited(["findings"]);
     setOpenRow(null);
     setAtlasNodeId(null);
+    // A panel is about one review, so it does not follow the reader to the next one —
+    // answering a held review navigates straight from that pass to the one it starts.
+    setAsking(false);
   }
   const run = useRun();
 
@@ -524,8 +587,9 @@ export function ReviewDetailPage() {
     indexedAtlas?.root_path || pinnedCase.data?.snapshot?.repository?.root_path || null;
 
   // Answering, in one call. The workspace resolves each `Q-n` against this review's own
-  // report, composes the revision and records what it answered in the same transaction —
-  // which is what makes the link from a case line back to its question impossible to lose.
+  // report, pairs the answer with the question it asked, and records what it answered in the
+  // same transaction — which is what makes the link from a case entry back to its question
+  // impossible to lose.
   //
   // The new run then names this review as the one it answers, and that is what makes it a
   // second pass: it judges against the answered case and concludes rather than asking again.
@@ -586,6 +650,15 @@ export function ReviewDetailPage() {
   }
   const running = status === "running";
   const holding = status === "awaiting_answers";
+  /**
+   * The panel obeys the same rule its button does, so there is one answer and not two.
+   *
+   * Enforcing it on the button alone would leave the panel open over a review that has since
+   * stopped being askable — the reader is carried from a concluded pass to the running one it
+   * started without this component unmounting. Deriving `open` instead of closing it in an
+   * effect means the panel is never briefly open against a review that refuses it.
+   */
+  const showAsking = asking && ask(status) === null;
   if (!running && !report) {
     return <ErrorPanel error={new Error("This review did not produce a report.")} />;
   }
@@ -791,21 +864,18 @@ export function ReviewDetailPage() {
     <div
       data-slot="review-page"
       // `page--asking` is a rule rather than a utility, and stays one: see its comment.
-      className={cn(page, "pb-6", asking && "page--asking")}
+      className={cn(page, "pb-6", showAsking && "page--asking")}
     >
       <PageHeader
         title={title}
         parent={{ to: "/reviews", label: "Reviews" }}
         meta={<Badge variant="accent">case rev {caseRevision}</Badge>}
         action={
-          <Button
-            type="button"
-            variant="primary"
-            aria-expanded={asking}
-            onClick={() => setAsking((value) => !value)}
-          >
-            <MessageCircleQuestion size={14} aria-hidden /> Ask about this review
-          </Button>
+          <AskAction
+            status={status}
+            expanded={showAsking}
+            onToggle={() => setAsking((value) => !value)}
+          />
         }
       />
 
@@ -847,7 +917,7 @@ export function ReviewDetailPage() {
         {tabs.map((item) => panel(item.id))}
       </Tabs>
 
-      <AskPanel reviewId={reviewId} open={asking} onClose={() => setAsking(false)} />
+      <AskPanel reviewId={reviewId} open={showAsking} onClose={() => setAsking(false)} />
     </div>
   );
 }

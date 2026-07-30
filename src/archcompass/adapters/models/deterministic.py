@@ -87,12 +87,22 @@ class DeterministicReasoningProvider:
         # always produced a hinge — or never did — would make every assertion about
         # elicitation vacuous, so this turns on a field the test can set either way.
         #
+        # An answer already recorded counts, exactly as the real contract requires: a
+        # clarification bearing on expected_future_changes carries the force of an entry in
+        # that list, so a reader who has been asked about the future and replied is not asked
+        # again. That is what closes the loop, and reading only the list would leave the
+        # substitute hinging for ever on questions it had already had answered — which is the
+        # failure a fixture is least likely to be caught doing.
+        #
         # Restricted to indirection, because that is the only one of the three shapes where
         # a coming change is the question. Whether two modules state one fact or two is
         # settled by what the copies mean, and no amount of future variation changes it. The
         # substitute obeys the rule its own contract states here — a hinge on every boundary
         # is a hinge on none — so an offline run does not read as an advisor hedging
         # everything it says.
+        told_about_the_future = bool(case.expected_future_changes) or any(
+            item.bears_on is CaseField.EXPECTED_FUTURE_CHANGES for item in case.clarifications
+        )
         hinge = (
             VerdictHinge(
                 unknown=(
@@ -108,7 +118,7 @@ class DeterministicReasoningProvider:
                 ),
             )
             if candidate.pattern is FindingPattern.SOLE_IMPLEMENTATION
-            and not case.expected_future_changes
+            and not told_about_the_future
             else None
         )
         return CandidateVerdict(

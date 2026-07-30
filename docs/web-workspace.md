@@ -42,6 +42,13 @@ questions. List fields are one entry per line rather than rows of inputs: the en
 sentences a person writes, edits and pastes in batches, and per-item chrome makes all three
 harder.
 
+The one exception is **the answers a review's questions produced** (ADR 0014), which appear as
+their own section when the case holds any. Each is a pair, so it cannot be a line: the question
+is printed as the review asked it and is not editable, and the answer sits in a box beside it
+with a button to remove the pair outright. A reader has to be able to tell which half is theirs
+before they can sensibly change either, and a form that let the question be edited would let a
+case claim a review asked something it never did.
+
 Every field in those two groups carries **two examples, one that decides something and one
 that does not** — "billing moves to a second provider in Q4, the contract is signed" beside
 "we might need to support other providers one day". Both, never only the good one: each of

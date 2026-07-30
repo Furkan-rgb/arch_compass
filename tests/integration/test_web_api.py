@@ -199,8 +199,8 @@ def test_the_api_walks_both_passes_of_an_elicitation(runtime: Runtime) -> None:
         assert "waiting on answers" in conversation.json()["message"]
 
         # The answer, through the route that cannot lose what it answered. The client sends
-        # the reference and the line the reader saw, and nothing that decides where it goes:
-        # the workspace reads the destination from the question itself.
+        # the reference and the answer the reader typed, and nothing else: the workspace pairs
+        # it with the question from its own report and reads the force from there.
         assert questions[0]["answer_belongs_in"] == "expected_future_changes"
         answered = client.post(
             f"/api/reviews/{first_review['review_id']}/answers",
@@ -227,6 +227,21 @@ def test_the_api_walks_both_passes_of_an_elicitation(runtime: Runtime) -> None:
             questions[0]["reference"]
         ]
         assert recorded[0]["answer_belongs_in"] == "expected_future_changes"
+
+        # And the case now carries the pair, over the wire, both halves attributed: the
+        # review's question verbatim and the reader's own answer. Nothing was appended to the
+        # five deciding lists, because the answer is not filed anywhere — it is weighed.
+        assert revision["snapshot"]["clarifications"] == [
+            {
+                "id": revision["snapshot"]["clarifications"][0]["id"],
+                "question": questions[0]["question"],
+                "answer": (
+                    "A second warehouse is under contract and arrives next quarter."
+                ),
+                "bears_on": "expected_future_changes",
+            }
+        ]
+        assert revision["snapshot"]["expected_future_changes"] == []
 
         # A reference this review never asked is refused rather than recorded.
         refused = client.post(

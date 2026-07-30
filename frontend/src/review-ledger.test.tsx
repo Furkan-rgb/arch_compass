@@ -198,6 +198,7 @@ describe("JudgingLedger", () => {
           judged: 1,
           eliciting: false,
           summarising: false,
+          concluded: false,
         }}
       />,
     );
@@ -221,6 +222,7 @@ describe("JudgingLedger", () => {
           judged: 1,
           eliciting: false,
           summarising: false,
+          concluded: false,
         }}
       />,
     );

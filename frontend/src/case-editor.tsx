@@ -19,6 +19,12 @@ import type { ArchitectureCase } from "./types";
  * Only syntax is checked here. What a case must contain is the domain's rule, and a second
  * copy of it in the browser would drift from the first (master plan §12.0: the application
  * decides, and here the server is the application).
+ *
+ * `clarifications` needs nothing special from this editor and gets nothing: a case that holds
+ * question-and-answer pairs dumps them like every other list, so reading one shows the exchange
+ * that shaped it and editing one can reword an answer or remove a pair outright. The skeleton
+ * below does not offer the field, because nobody writes their own pair — a pair exists because
+ * a review asked and the reader replied.
  */
 export const CASE_SKELETON = `# An ArchitectureCase says what this software has to do, so that a boundary can be
 # judged against something rather than against taste.

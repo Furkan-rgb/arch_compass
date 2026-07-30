@@ -28,7 +28,12 @@ from archcompass.application.cases import WrittenAnswer
 from archcompass.application.review_rendering import render_review
 from archcompass.application.reviews import UNSTATED_CASE
 from archcompass.bootstrap import Runtime
-from archcompass.domain.case import ArchitectureCase, CaseField, CaseUpdate
+from archcompass.domain.case import (
+    ArchitectureCase,
+    CaseField,
+    CaseUpdate,
+    Clarification,
+)
 from archcompass.domain.errors import (
     CaseRevisionConflictError,
     CaseValidationError,
@@ -614,7 +619,7 @@ def test_a_discussion_is_given_the_case_the_review_pinned(runtime: Runtime) -> N
 
 
 def test_answering_records_which_questions_it_answered(runtime: Runtime) -> None:
-    """The arrow from a case line back to the question that produced it (§6C.4).
+    """The arrow from a case entry back to the question that produced it (§6C.4).
 
     Everything either side of an answer was already kept — the questions in the review that
     asked them, the case as an append-only history — and this is the join. Without it a
@@ -630,13 +635,14 @@ def test_answering_records_which_questions_it_answered(runtime: Runtime) -> None
     question = next(
         item for item in report.overview.open_questions if item.reference == answered_reference
     )
+    before = runtime.case_repository.get(stored.case_id, stored.case_revision).snapshot
 
     revision = runtime.case_service.answer(
         stored,
         [
             WrittenAnswer(
                 question_reference=answered_reference,
-                recorded_text="Whether a second warehouse is coming — no, and none is planned.",
+                recorded_text="No, and none is planned.",
             )
         ],
     )
@@ -646,13 +652,79 @@ def test_answering_records_which_questions_it_answered(runtime: Runtime) -> None
     assert revision.answered.review_id == review_id
     recorded = revision.answered.answers
     assert [item.question_reference for item in recorded] == [answered_reference]
-    # The destination comes from the question, not from the request — the caller never named
-    # one, so a client cannot route an answer into a list its question did not mention.
+    # The force comes from the question, not from the request — the caller never named one,
+    # so a client cannot give an answer a weight its question did not ask for.
     assert recorded[0].answer_belongs_in is question.answer_belongs_in
-    # And the line is in the case, in that list.
-    entries = getattr(revision.snapshot, question.answer_belongs_in.value)
-    written = [item if isinstance(item, str) else item.text for item in entries]
-    assert "Whether a second warehouse is coming — no, and none is planned." in written
+    # The provenance carries the answer as typed, not a line composed from the question.
+    assert recorded[0].recorded_text == "No, and none is planned."
+    # And the pair is in the case, whole: the review's question verbatim beside the reader's
+    # own words. Nothing was appended to the five deciding lists, because the answer is not a
+    # sentence filed away — it is a reply, and the question is what makes it legible to the
+    # pass that reads the case and nothing else.
+    pairs = revision.snapshot.clarifications
+    assert [(item.question, item.answer, item.bears_on) for item in pairs] == [
+        (question.question, "No, and none is planned.", question.answer_belongs_in)
+    ]
+    for field in CaseField:
+        assert getattr(revision.snapshot, field.value) == getattr(before, field.value), field
+
+
+def test_answering_leaves_earlier_rounds_where_they_are(runtime: Runtime) -> None:
+    """A case accumulates the exchanges that built it, one round at a time.
+
+    Two rounds against one review is refused, so this walks two reviews — which is also the
+    shape a real second round has. The first round's pair has to survive it: it is still the
+    reason a verdict came out the way it did in the pass that ran against it, and a round that
+    replaced rather than appended would erase the record of why.
+    """
+
+    case_id = _loaded(runtime)
+    first = runtime.review_service.review(case_id, repository_root=REPOSITORY)
+    report = first.report
+    assert report is not None
+    asked = report.overview.open_questions
+    assert asked, "there must be something to answer"
+
+    runtime.case_service.answer(
+        first,
+        [
+            WrittenAnswer(
+                question_reference=asked[0].reference,
+                recorded_text="A second warehouse arrives next quarter.",
+            )
+        ],
+    )
+    second = runtime.review_service.review(
+        case_id, repository_root=REPOSITORY, elicited_from=first.review_id
+    )
+    later = second.report
+    assert later is not None
+
+    # The second pass never asks, so there is nothing more to answer through the review. The
+    # case is revised by hand instead, which is the other way a clarification can be added and
+    # the one the case form uses.
+    revised = runtime.case_service.update(
+        case_id,
+        CaseUpdate(
+            clarifications=[
+                *runtime.case_repository.get(case_id).snapshot.clarifications,
+                Clarification(
+                    question="Is the batch size one fact or two?",
+                    answer="One fact, copied by hand.",
+                    bears_on=CaseField.CONFIRMED_FACTS,
+                ),
+            ]
+        ),
+        actor="operator",
+    )
+
+    assert [item.answer for item in revised.snapshot.clarifications] == [
+        "A second warehouse arrives next quarter.",
+        "One fact, copied by hand.",
+    ]
+    # A hand-authored revision records no answers, which is still the only thing telling the
+    # two apart — even now that both write to the same field.
+    assert revised.answered is None
 
 
 def test_a_reference_the_review_never_asked_is_refused_when_answering(
@@ -671,6 +743,80 @@ def test_a_reference_the_review_never_asked_is_refused_when_answering(
 
     # And nothing was written: a refused round leaves no revision behind.
     assert runtime.case_repository.get(stored.case_id).revision == stored.case_revision
+
+
+def test_an_answer_of_nothing_is_refused_rather_than_recorded(runtime: Runtime) -> None:
+    """Skipping is normal; a pair whose answer says nothing is not a skip, it is noise.
+
+    Absence is how a skipped question is recorded, so an entry that arrives blank is a client
+    submitting a question the reader walked past — and storing it would put the review's own
+    question into the case with nothing answering it, which every later pass would read as a
+    fact about this project.
+    """
+
+    review_id, references = _waiting(runtime)
+    stored = runtime.review_repository.get(review_id)
+
+    with pytest.raises(CaseValidationError, match="is blank"):
+        runtime.case_service.answer(
+            stored,
+            [WrittenAnswer(question_reference=references[0], recorded_text="   ")],
+        )
+
+    assert runtime.case_repository.get(stored.case_id).revision == stored.case_revision
+    assert runtime.case_repository.get(stored.case_id).snapshot.clarifications == []
+
+
+def test_a_case_holding_pairs_reads_back_exactly_as_it_was_written(
+    runtime: Runtime,
+) -> None:
+    """The pair is stored, so it has to survive the store — both halves and the force.
+
+    Asserted through the repository rather than on the model, because a case is the one record
+    nothing can regenerate: it is what someone typed, and a field that serialised but did not
+    validate on the way back would be discovered by a reader losing their own answers.
+    """
+
+    review_id, references = _waiting(runtime)
+    stored = runtime.review_repository.get(review_id)
+    written = runtime.case_service.answer(
+        stored,
+        [
+            WrittenAnswer(
+                question_reference=references[0],
+                recorded_text="A second warehouse arrives next quarter.",
+            )
+        ],
+    )
+
+    read_back = runtime.case_repository.get(stored.case_id, written.revision)
+
+    assert read_back.snapshot.clarifications == written.snapshot.clarifications
+    pair = read_back.snapshot.clarifications[0]
+    assert pair.id.startswith("clar_")
+    assert pair.bears_on in set(CaseField)
+    # And the history holds it too, so the pass pinned to this revision still sees it.
+    assert runtime.case_service.history(stored.case_id)[-1].snapshot.clarifications == [pair]
+
+
+def test_a_case_stored_before_pairs_existed_still_validates(runtime: Runtime) -> None:
+    """The widening half, which is why `schema_version` stays at 2 (ADR-0002).
+
+    Every case already in a workspace was written without this field. ADR-0002 governs
+    *narrowing* — a schema that has stopped accepting what it used to — and asks for the record
+    to be produced again, which a case cannot be because nobody can re-type it. A field with a
+    default accepts those documents unchanged, so there is nothing to migrate and nothing to
+    re-run.
+    """
+
+    del runtime
+    document = ArchitectureCase(title="Written before pairs existed").model_dump()
+    document.pop("clarifications")
+
+    restored = ArchitectureCase.model_validate(document)
+
+    assert restored.schema_version == 2
+    assert restored.clarifications == []
 
 
 def test_a_hand_edited_revision_records_no_answers(runtime: Runtime) -> None:

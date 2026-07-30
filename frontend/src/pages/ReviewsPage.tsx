@@ -11,6 +11,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Ledger,
   LedgerBar,
@@ -36,6 +37,7 @@ import {
   page,
   shortId,
 } from "../components";
+import { deletion } from "../review-capabilities";
 import type { BoundaryReviewSummary } from "../types";
 
 /** True while any listed review is still being produced. */
@@ -139,6 +141,10 @@ function RowActions({
 }) {
   const [confirming, setConfirming] = useState(false);
   const running = review.status === "running";
+  // The same rules module the ask button reads, so the menu refuses exactly what the server
+  // refuses. Deleting used to be offered on a running row and answered with a 409 the reader
+  // had done nothing to earn.
+  const refusal = deletion(review.status);
 
   return (
     <span data-slot="row-actions" className="flex items-center gap-1 pr-2">
@@ -171,7 +177,24 @@ function RowActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent data-slot="row-menu">
-          {confirming ? (
+          {refusal ? (
+            <Tooltip>
+              {/* The span is load-bearing, as on the ask button: a disabled item takes no
+                  pointer events, so the reason has to hang off something above it that does.
+                  It takes no tab stop, unlike that button's wrapper — the menu owns focus
+                  while it is open and Radix skips disabled items on the arrow keys, so there
+                  is no stop here to inherit. A reader on the keyboard meets the row's own
+                  Cancel button instead, which is what the sentence sends them to. */}
+              <TooltipTrigger asChild>
+                <span className="block">
+                  <DropdownMenuItem variant="destructive" disabled>
+                    <Trash2 size={14} aria-hidden /> Delete
+                  </DropdownMenuItem>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{refusal}</TooltipContent>
+            </Tooltip>
+          ) : confirming ? (
             <>
               {/* Confirmed in place rather than by a browser dialog: the row being deleted
                   stays visible behind the question, which is the one detail that makes the

@@ -905,6 +905,12 @@ class StructuredReasoningProvider:
         )
         # No `open_questions`. This stage runs only on a second pass and its schema has no
         # field for one, which is what stops the elicitation loop from reopening itself.
+        #
+        # The other half of that termination is a stage away, in the judging contract: a second
+        # pass hinges again unless it can see that the reader already answered, and it sees
+        # that in the case's `clarifications` — the questions and answers of the first round,
+        # kept as pairs. This schema makes re-asking unrepresentable; that list is what makes
+        # re-hinging unnecessary.
         return ReviewOverview(
             situation=proposed.situation.strip(),
             themes=_grounded_statements(proposed.themes, boundaries),

@@ -30,21 +30,28 @@ const stepCurrent =
  * part of the same act of correcting the record — six revisions for six sentences would make
  * the history unreadable and re-run the review five times more than anyone wanted.
  *
- * What is recorded is the answer joined to the circumstance it settles, not the answer
- * alone. A reply is written against a question that is on screen and reads perfectly there;
- * the case keeps only the reply, and nothing downstream ever sees the question again. "They
- * shouldn't rely on it" entered `assumptions` from a live run and its "it" refers to nothing
- * — not for the second pass, which judges against the case snapshot alone, and not for a
- * person reading their own case a month later. §6C.4 allows exactly this repair: pre-filling
- * from the question is permitted, saving something the user has not seen is not. So the
- * joined line is composed here, shown in the preview, and editable there before it saves.
+ * What is recorded is the pair: the question as the review asked it, and the answer as the
+ * reader wrote it. This used to be one composed line — the question's subject welded to the
+ * reply with a dash — because the case had five lists of sentences and nowhere to keep a pair.
+ * The line existed for a real reason: a case entry is read with no question beside it, so "they
+ * shouldn't rely on it" entered `assumptions` from a live run with its "it" referring to
+ * nothing. Composing fixed that and paid for it twice. The reader was shown an answer that
+ * restated the question directly above it, and the stages that re-judge the case were handed
+ * the join instead of the question — so the one piece of context that made the reply legible
+ * was the one thing they could never read.
  *
- * What leaves here is the reference and the line, and nothing that decides where it goes.
- * This used to compose the whole `CaseUpdate` — reading the pinned snapshot, appending to the
- * right lists, setting statement kinds — and then patch the case. The server does that now,
- * resolving each `Q-n` against the review's own report, because provenance a client composes
- * is provenance a client can omit: a revision written that way had silently lost the link to
- * the question that produced it. So this component no longer needs the case at all.
+ * The case holds the pair now, which means nothing here composes anything. The reader types
+ * their answer, sees it beside the question it answers, and that is what saves. Both halves
+ * stay attributed: the question is shown as the review's, muted and labelled as such, and the
+ * answer is theirs and editable to the last moment.
+ *
+ * What leaves here is the reference and the answer, and nothing that decides how it is
+ * weighed. This used to compose the whole `CaseUpdate` — reading the pinned snapshot,
+ * appending to the right lists, setting statement kinds — and then patch the case. The server
+ * does that now, resolving each `Q-n` against the review's own report, because provenance a
+ * client composes is provenance a client can omit: a revision written that way had silently
+ * lost the link to the question that produced it. So this component no longer needs the case
+ * at all, and no longer needs to know what a case field is for.
  *
  * It sits after the verdicts, never before them. A review that opens by asking for a better
  * case has put its price ahead of its value, which is the tax elicitation exists to remove.
@@ -52,13 +59,13 @@ const stepCurrent =
 
 type CaseField = OpenQuestion["answer_belongs_in"];
 
-/** One answer on its way to the workspace: which question, and the line the reader saw. */
+/** One answer on its way to the workspace: which question, and what the reader typed. */
 export type SubmittedAnswer = {
   question_reference: string;
   recorded_text: string;
 };
 
-/** Which case list an answer joins, and how it reads once it is in there. */
+/** The force an answer carries once it is in the case, said in the reader's terms. */
 const FIELD_LABEL: Record<CaseField, string> = {
   expected_future_changes: "a change you expect",
   confirmed_facts: "something you know to be settled",
@@ -66,31 +73,6 @@ const FIELD_LABEL: Record<CaseField, string> = {
   non_goals: "something deliberately ruled out",
   assumptions: "something being taken on trust",
 };
-
-/**
- * The answer joined to the circumstance it settles, as one line that stands on its own.
- *
- * A case entry is read with no question beside it — by the second pass, which judges against
- * the case snapshot and nothing else, by every later review, and by whoever opens the case
- * editor. So the subject has to be in the sentence. `unknown` is the review's own statement
- * of the circumstance the case does not settle ("whether a second sink implementation is
- * intended"), which makes it the one phrase already written to be the subject of this line.
- *
- * Deterministic, and no model is asked. Text a model wrote into a case unseen is what
- * invariant 25 exists to prevent, and a rephrasing call would be exactly that with a nicer
- * result. This composes; the reader edits. Grammar is left alone rather than guessed at —
- * lowercasing the answer's first word would damage `SQLite` and `BUILT_IN_VOICES`, which is
- * worse than a capital letter after a dash, and the box in the preview is right there.
- */
-export function composeCaseLine(question: OpenQuestion, answer: string): string {
-  const written = answer.trim();
-  if (!written) return "";
-  const subject = question.unknown.trim().replace(/[.?;:,\s]+$/, "");
-  if (!subject) return written;
-  const opening = subject.charAt(0).toUpperCase() + subject.slice(1);
-  const joined = `${opening} — ${written}`;
-  return /[.!?]$/.test(joined) ? joined : `${joined}.`;
-}
 
 export function OpenQuestions({
   questions,
@@ -120,24 +102,15 @@ export function OpenQuestions({
     adopt: (text: string) => void,
   ) => React.ReactNode;
 }) {
+  // One piece of state, because there is one thing the reader writes. There used to be a
+  // second — what they made of the line composed from their answer — and holding the two apart
+  // was the whole cost of composing: an edit had to stick against recomposition, an adopted
+  // suggestion had to clear it, and the box that saved was not the box they typed into.
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  // What the reader typed, and separately what they made of the line composed from it. An
-  // edit sticks rather than being recomposed on the next keystroke — the line is theirs once
-  // they touch it — which is why the two are held apart instead of one being derived.
-  const [edits, setEdits] = useState<Record<string, string>>({});
   const answered = questions.filter((item) => (answers[item.reference] ?? "").trim());
 
-  const lineFor = (question: OpenQuestion): string => {
-    const written = (answers[question.reference] ?? "").trim();
-    if (!written) return "";
-    return edits[question.reference] ?? composeCaseLine(question, written);
-  };
-
-  const lines = Object.fromEntries(
-    questions.map((item) => [item.reference, lineFor(item)]),
-  );
-  // Grouped by destination for the preview only. What is submitted is a flat list keyed by
-  // question, because which list an answer joins is the question's property and the server
+  // Grouped by the force each answer carries, for the preview only. What is submitted is a
+  // flat list keyed by question, because that force is the question's property and the server
   // reads it from the review rather than taking this component's word for it.
   const previewGroups = answered.reduce<Partial<Record<CaseField, OpenQuestion[]>>>(
     (groups, item) => ({
@@ -243,8 +216,8 @@ export function OpenQuestions({
           </p>
           {/* What was seen, not the question with its question mark removed. `unknown` is
               no longer shown as prose: it said the same thing as the line above it and
-              spent a reader's attention to do it. It is still carried, and it is what the
-              recorded case line is composed from — a subject, not a description. */}
+              spent a reader's attention to do it. It is still carried — it names what the
+              question is about, which is what titles a discussion of it. */}
           <p className="mb-2 max-w-[78ch] text-body leading-[1.65] text-ink-2">
             {current.what_the_review_saw}
           </p>
@@ -279,10 +252,6 @@ export function OpenQuestions({
               type it and move on without reading past an invitation to discuss it first. */}
           {renderDiscussion?.(current, (text) => {
             setAnswers((existing) => ({ ...existing, [current.reference]: text }));
-            // A suggestion adopted after the composed line was edited would otherwise be
-            // invisible — the old edit would still be what saves. The reader changed their
-            // answer, so the line composed from it is the one to show them again.
-            setEdits(({ [current.reference]: _replaced, ...rest }) => rest);
           })}
         </div>
       ) : null}
@@ -304,11 +273,17 @@ export function OpenQuestions({
         </Button>
       </div>
 
-      {/* Shown before it is saved, never after, and editable here rather than read-only.
-          Pre-filling from a question is allowed and saving without the user seeing what
-          enters their case is not, so the diff is what makes the button honest — and once
-          the line being saved is composed rather than typed verbatim, showing it is not
-          enough on its own. The reader has to be able to correct it. */}
+      {/* Shown before it is saved, never after, and still editable here rather than
+          read-only. Saving without the user seeing what enters their case is what §6C.4
+          forbids, so this is what makes the button honest — and it is where someone who
+          answered five questions in five separate screens reads back what they said as one
+          thing.
+
+          It shows the pair, because the pair is what is recorded. The question is the
+          review's and is printed as it was asked; the answer is the reader's and stays in a
+          box until the moment it saves. Nothing here restates the question in the reader's
+          own words any more: that was the composed line, and it was the same sentence twice
+          on one screen. */}
       {at === reviewStep && answered.length > 0 ? (
         <div
           data-slot="answer-preview"
@@ -319,9 +294,9 @@ export function OpenQuestions({
             revision {nextRevision ?? "?"} of the case, adding:
           </p>
           <p className="mb-2 max-w-[76ch] text-ui leading-[1.55] text-ink-3">
-            Each line joins your answer to what it settles, so it still means something read
-            on its own — in the case editor, and to the next pass, which sees the case and
-            not these questions. Edit any of them.
+            Each answer is recorded beside the question it answers, so the next pass reads
+            both — it sees the case and not this page. The question is the review's words;
+            the answer is yours, and you can still change it here.
           </p>
           <ul className="m-0 pl-4 text-ui leading-[1.6] text-ink-2 [&_code]:text-meta [&_code]:text-accent-ink">
             {(Object.entries(previewGroups) as [CaseField, OpenQuestion[]][]).map(
@@ -330,9 +305,9 @@ export function OpenQuestions({
                   <code>{field}</code>
                   <ul className="mt-[3px] mb-2 list-none pl-3">
                     {items.map((item) => (
-                      // Laid out as "+ <box>" so it keeps reading as a diff: what is
-                      // changing is still one line being added to one list, and it should
-                      // not start looking like a form.
+                      // Laid out as "+ <question over box>" so it keeps reading as a diff:
+                      // what is changing is one exchange being added to the case, and it
+                      // should not start looking like a form.
                       <li
                         key={item.reference}
                         className="mb-2 grid grid-cols-[auto_1fr] items-start gap-x-2 gap-y-1"
@@ -340,31 +315,26 @@ export function OpenQuestions({
                         <span aria-hidden className="pt-1 font-semibold text-accent-ink">
                           +
                         </span>
+                        {/* Muted and attributed, because a reader has to be able to tell
+                            which half of the pair is theirs. Nothing they type can reach
+                            this line (invariant 25 read the other way round: the advisor's
+                            question is not edited into the user's voice either). */}
+                        <span className="text-meta leading-[1.5] text-ink-3">
+                          Asked: {item.question}
+                        </span>
                         <Textarea
                           rows={2}
-                          className="min-h-0 px-2 py-1"
-                          aria-label={`What ${item.reference} adds to ${field}`}
+                          className="col-start-2 min-h-0 px-2 py-1"
+                          aria-label={`Your answer to ${item.reference}`}
                           disabled={disabled || pending}
-                          value={lines[item.reference] ?? ""}
+                          value={answers[item.reference] ?? ""}
                           onChange={(event) =>
-                            setEdits((current) => ({
+                            setAnswers((current) => ({
                               ...current,
                               [item.reference]: event.target.value,
                             }))
                           }
                         />
-                        {edits[item.reference] !== undefined ? (
-                          <button
-                            type="button"
-                            className="col-start-2 cursor-pointer justify-self-start border-0 bg-transparent p-0 text-meta text-ink-3 underline not-disabled:hover:text-ink-2"
-                            disabled={disabled || pending}
-                            onClick={() =>
-                              setEdits(({ [item.reference]: _dropped, ...rest }) => rest)
-                            }
-                          >
-                            Reset to suggested
-                          </button>
-                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -412,7 +382,7 @@ export function OpenQuestions({
           onSubmit(
             answered.map((item) => ({
               question_reference: item.reference,
-              recorded_text: lines[item.reference] ?? "",
+              recorded_text: (answers[item.reference] ?? "").trim(),
             })),
           );
         }}

@@ -5,12 +5,19 @@
  * user supplies the answer, and only the answer enters the case — as a revision they have
  * seen before it saves. Nothing here may pre-fill an answer, save an unseen one, or touch a
  * part of the case nobody wrote in.
+ *
+ * The pair is what makes that checkable rather than merely stated. While an answer was
+ * composed into a line before saving, the thing recorded was neither half: it was this
+ * component's sentence, built from the advisor's subject and the user's reply, and a test
+ * could only assert that the composition was the one intended. Now the question is the
+ * review's words and the answer is the reader's, and each assertion below is about one of
+ * those two rather than about a join.
  */
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { OpenQuestions, composeCaseLine } from "./review-questions";
+import { OpenQuestions } from "./review-questions";
 import type { OpenQuestion } from "./types";
 
 const VENDOR: OpenQuestion = {
@@ -65,35 +72,6 @@ function goToReview() {
   fireEvent.click(screen.getByRole("button", { name: "Review" }));
 }
 
-describe("composeCaseLine", () => {
-  it("carries the subject into the line, so the answer still means something alone", () => {
-    // The failure this exists to stop: "They shouldn't rely on it" recorded into the case,
-    // where nothing downstream ever sees the question and "it" refers to nothing.
-    expect(composeCaseLine(VENDOR, "They shouldn't rely on it")).toBe(
-      "Whether a second warehouse is coming — They shouldn't rely on it.",
-    );
-  });
-
-  it("leaves the answer's own spelling alone", () => {
-    // Lowercasing to fix the mid-sentence capital would damage the identifiers people
-    // actually write here. A stray capital is the cheaper mistake, and the box is editable.
-    expect(composeCaseLine(CONSTANTS, "SQLite is the permanent choice")).toContain(
-      "— SQLite is the permanent choice.",
-    );
-  });
-
-  it("does not double a terminator the answer already has", () => {
-    expect(composeCaseLine(VENDOR, "No, and none is planned.")).toBe(
-      "Whether a second warehouse is coming — No, and none is planned.",
-    );
-    expect(composeCaseLine(VENDOR, "Is it? Nobody has said.")).toMatch(/said\.$/);
-  });
-
-  it("has nothing to compose from an unanswered question", () => {
-    expect(composeCaseLine(VENDOR, "   ")).toBe("");
-  });
-});
-
 describe("OpenQuestions", () => {
   it("asks one question at a time, with what was seen and which verdicts move", () => {
     renderQuestions();
@@ -147,7 +125,7 @@ describe("OpenQuestions", () => {
     expect(screen.getByRole("button", { name: /Continue/ })).toBeTruthy();
   });
 
-  it("shows what will enter the case before it saves", () => {
+  it("shows the pair that will enter the case before it saves", () => {
     const submit = renderQuestions();
     const container = submit.container;
 
@@ -163,23 +141,30 @@ describe("OpenQuestions", () => {
     expect(preview).not.toBeNull();
     expect(preview?.textContent).toContain("1 of 2 answered");
     expect(preview?.textContent).toContain("expected_future_changes");
-    // The composed line, not the raw reply: what is shown has to be what will be saved.
+    // Both halves, each attributed. The question is the review's and is printed as it was
+    // asked; the answer is the reader's and is exactly what they typed — no line composed
+    // from the two, which is what used to show them the question twice on one screen.
+    expect(preview?.textContent).toContain("Asked: Is a second warehouse actually planned?");
     expect(
-      (screen.getByLabelText("What Q-1 adds to expected_future_changes") as HTMLTextAreaElement)
-        .value,
-    ).toBe("Whether a second warehouse is coming — A second warehouse arrives next quarter.");
-    // And only that list: an unanswered question puts nothing in front of the reader.
+      (screen.getByLabelText("Your answer to Q-1") as HTMLTextAreaElement).value,
+    ).toBe("A second warehouse arrives next quarter.");
+    // Nothing restates the question in the reader's voice, which is what the composed line did.
+    expect(preview?.textContent).not.toContain("Whether a second warehouse is coming —");
+    // And only the field this question bears on: an unanswered question puts nothing in
+    // front of the reader.
     expect(preview?.textContent).not.toContain("assumptions");
   });
 
-  it("saves the line the reader edited, not the one that was composed", () => {
+  it("saves the answer as typed, and edits in the preview are the same answer", () => {
     const onSubmit = renderQuestions();
 
     fireEvent.change(answerBox(), {
       target: { value: "A second warehouse arrives." },
     });
     goToReview();
-    fireEvent.change(screen.getByLabelText("What Q-1 adds to expected_future_changes"), {
+    // One box, one value. The preview edits the answer itself rather than a line derived
+    // from it, so there is no second copy that could be the one that saves.
+    fireEvent.change(screen.getByLabelText("Your answer to Q-1"), {
       target: { value: "A second warehouse opens in Utrecht next quarter." },
     });
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
@@ -190,25 +175,9 @@ describe("OpenQuestions", () => {
         recorded_text: "A second warehouse opens in Utrecht next quarter.",
       },
     ]);
-  });
-
-  it("puts the suggested line back when an edit is abandoned", () => {
-    renderQuestions();
-
-    fireEvent.change(answerBox(), {
-      target: { value: "A second warehouse arrives." },
-    });
-    goToReview();
-    const composed = screen.getByLabelText(
-      "What Q-1 adds to expected_future_changes",
-    ) as HTMLTextAreaElement;
-    fireEvent.change(composed, { target: { value: "Something else entirely." } });
-    fireEvent.click(screen.getByRole("button", { name: "Reset to suggested" }));
-
-    expect(
-      (screen.getByLabelText("What Q-1 adds to expected_future_changes") as HTMLTextAreaElement)
-        .value,
-    ).toBe("Whether a second warehouse is coming — A second warehouse arrives.");
+    // And the question box shows it too, because it is the same answer.
+    goTo(1);
+    expect(answerBox().value).toBe("A second warehouse opens in Utrecht next quarter.");
   });
 
   it("batches several answers into one revision", () => {
@@ -225,18 +194,13 @@ describe("OpenQuestions", () => {
     // One submission carrying both answers, not one each: answering what you know in one
     // sitting is a single act of correcting the record, and it becomes one revision.
     //
-    // Keyed by question and carrying no destination. Which list an answer joins is the
-    // question's property, read from the review by the workspace — a client that could name
-    // it could route an answer into a list its question never mentioned.
+    // The reference and the answer, and nothing else. The question half of each pair is taken
+    // from the review's own report by the workspace, and so is the force the answer carries —
+    // a client that could supply either could put words in a review's mouth, or give an answer
+    // a weight its question never asked for.
     expect(onSubmit.mock.calls[0][0]).toEqual([
-      {
-        question_reference: "Q-1",
-        recorded_text: "Whether a second warehouse is coming — A second warehouse arrives.",
-      },
-      {
-        question_reference: "Q-2",
-        recorded_text: "Whether the two batch sizes are one fact — They are the same fact.",
-      },
+      { question_reference: "Q-1", recorded_text: "A second warehouse arrives." },
+      { question_reference: "Q-2", recorded_text: "They are the same fact." },
     ]);
   });
 

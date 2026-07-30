@@ -534,7 +534,7 @@ The rule that keeps invariant 23 intact under all of this:
 
 A revision **records** which review and which questions it answers, as an `answered` block
 carrying the review, and per answer its `Q-n`, the case field the question named, and the
-line the reader saw. That is provenance, not write-back: the removed `origin_run_id` (ADR
+answer the reader wrote. That is provenance, not write-back: the removed `origin_run_id` (ADR
 0007) marked revisions *authored by a run*, where this marks a revision the user authored
 and says what prompted it. The substance of the answer is the user's, including when the
 user's whole contribution is confirming a phrasing the question suggested.
@@ -547,9 +547,11 @@ one answering revision, and the store says so.
 
 Answering is therefore its own operation — `POST /api/reviews/{id}/answers` — and not a case
 patch the client composes. The workspace resolves each `Q-n` against that review's own
-report and reads the destination from the question, so a client cannot route an answer into
-a list its question never named, and cannot produce a revision that has silently lost the
-link back to what prompted it. `PATCH /api/cases/{id}` remains, for editing a case by hand.
+report, takes the question's text and the field it named from there, and writes the two as a
+pair — so a client cannot put words in a review's mouth, cannot give an answer a weight its
+question never asked for, and cannot produce a revision that has silently lost the link back
+to what prompted it. `PATCH /api/cases/{id}` remains, for editing a case by hand, which is
+also how a pair is later reworded or withdrawn.
 
 What this buys is attribution. A question names the boundaries it would settle and the
 revision names the questions it answered, so a verdict that moved between passes can be
@@ -638,14 +640,24 @@ which abstractions, what the code does today, what the case says about it now �
 the field a reader is shown under the question. It exists because `unknown` was being
 written as the question with its question mark removed, so the second line taught nobody
 anything. `unknown` survives as a *subject*, one line, phrased to stand as the subject of a
-sentence, because that is what the recorded answer is composed from.
+sentence, because it is what the question is about — which is what titles a discussion of that
+question and lets a reader recognise the same subject coming back across two passes.
 
-**An answer is recorded joined to what it settles.** The case is read with no question
-beside it — by the second pass, which judges against the snapshot alone, and by whoever
+**An answer is recorded beside the question it answers.** The case is read with no question
+in front of it — by the second pass, which judges against the snapshot alone, and by whoever
 opens the case editor later. `"They shouldn't rely on it"` was recorded verbatim from a live
-run and its "it" refers to nothing. So the workspace composes `unknown` and the answer into
-one line, shows it, and lets the reader edit it before it saves. That is §6C.4 exactly:
+run and its "it" refers to nothing. So the answer is stored as a **pair**: the review's
+question, verbatim, and the user's own words, in `case.clarifications` (ADR 0014). The pair is
+shown before it saves and the answer stays editable there, which is §6C.4 exactly —
 pre-filling from the question is allowed, saving something unseen is not.
+
+The pair replaced a composed line — `unknown` welded to the reply with a dash — which solved
+the same problem and cost twice: the reader was shown a paraphrase of the question directly
+under the question, and the re-judging stages, which see the case and nothing else, were handed
+the join instead of the question. `answer_belongs_in` therefore names a *force* rather than a
+destination: nothing is filed anywhere, and an answer bearing on `technical_constraints` binds
+the design exactly as a listed constraint does. That is also what ends the loop — a judging
+stage reads the pairs before it hinges, so a question already answered is not asked again.
 
 The alternative — threading the questions into the judging stage alongside the case — is
 refused. A review pins a case revision, an atlas version and a policy set, and those inputs

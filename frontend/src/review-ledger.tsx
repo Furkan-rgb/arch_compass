@@ -552,7 +552,7 @@ export function JudgingLedger({ progress }: { progress: RunState }) {
   const total = progress?.total ?? 0;
   const named = progress?.boundaries ?? [];
   const judged = progress?.judged ?? 0;
-  const settled = progress?.eliciting || progress?.summarising;
+  const settled = progress?.eliciting || progress?.summarising || progress?.concluded;
 
   return (
     <section className={ledgerSheet} aria-label="Boundaries examined">

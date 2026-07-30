@@ -8,12 +8,19 @@
  * code block would be worse than waiting.
  */
 
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
-import { Overview, answersBehind, verdictChanges } from "./ReviewDetailPage";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+import { AskAction, Overview, answersBehind, verdictChanges } from "./ReviewDetailPage";
 import { AnswerProse } from "../markdown";
-import type { OpenQuestion, RecordedAnswer, ReviewedBoundary } from "../types";
+import type {
+  OpenQuestion,
+  RecordedAnswer,
+  ReviewStatus,
+  ReviewedBoundary,
+} from "../types";
 
 describe("AnswerProse", () => {
   it("renders a fenced block as code, keeping its line breaks", () => {
@@ -99,6 +106,84 @@ describe("AnswerProse", () => {
 
     expect(container.querySelector("img")).toBeNull();
     expect(screen.getByText(/onerror/)).toBeTruthy();
+  });
+});
+
+/**
+ * The way into the question panel, which is only open on a review that can answer.
+ *
+ * The rule is the backend's and this only mirrors it: `ReviewConversationService._load`
+ * admits `succeeded` and refuses everything else for a conversation about a whole review.
+ * A looser gate here would put the reader in front of a 404 they did nothing to earn; a
+ * stricter one would hide a surface the workspace would have served.
+ *
+ * The button stays on screen in every refused state. Dropping it would mean a reader who
+ * only ever opens running or held reviews never learns the feature exists.
+ */
+describe("AskAction", () => {
+  const openFor = (status: ReviewStatus) => {
+    const toggle = vi.fn();
+    // Scoped to its own container rather than the document, so a case that mounts the
+    // control more than once still asks about the one it just rendered.
+    const { container } = render(
+      <TooltipProvider>
+        <AskAction status={status} expanded={false} onToggle={toggle} />
+      </TooltipProvider>,
+    );
+    return {
+      toggle,
+      button: within(container).getByRole("button", { name: /Ask about this review/ }),
+    };
+  };
+
+  it("refuses a running review, and says it is the run and not a fault", async () => {
+    const { toggle, button } = openFor("running");
+
+    expect(button).toHaveProperty("disabled", true);
+    fireEvent.click(button);
+    expect(toggle).not.toHaveBeenCalled();
+
+    // A disabled button dispatches no pointer events, so the reason hangs off the span
+    // above it. Hovering that is the whole reason the wrapper exists.
+    fireEvent.focus(button.parentElement!);
+    await waitFor(() =>
+      expect(screen.getByText(/still running — ask once the verdicts are in/)).toBeTruthy(),
+    );
+  });
+
+  it("refuses a held review, and points at the questions rather than only saying no", async () => {
+    // Held is refused for a different reason than running: the report exists, and its
+    // verdicts are the ones the run said it could not settle. A conversation about one of
+    // those open questions is a different request and stays allowed, so the copy sends the
+    // reader there instead of leaving them with a dead control.
+    const { toggle, button } = openFor("awaiting_answers");
+
+    expect(button).toHaveProperty("disabled", true);
+    fireEvent.click(button);
+    expect(toggle).not.toHaveBeenCalled();
+
+    fireEvent.focus(button.parentElement!);
+    await waitFor(() => expect(screen.getByText(/Answer the open questions/)).toBeTruthy());
+  });
+
+  it("opens on a review that concluded, with nothing in the way", () => {
+    const { toggle, button } = openFor("succeeded");
+
+    expect(button).toHaveProperty("disabled", false);
+    // No tooltip wrapper on the happy path: the button is its own affordance, and the
+    // browser test reaches it by role and name.
+    expect(button.parentElement?.tagName).not.toBe("SPAN");
+    fireEvent.click(button);
+    expect(toggle).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a review that reached no verdicts at all", () => {
+    // Failed and cancelled reach the `Unfinished` page before this renders, so this is
+    // about the helper being total rather than about a screen anyone sees.
+    for (const status of ["failed", "cancelled"] as ReviewStatus[]) {
+      const { button } = openFor(status);
+      expect(button).toHaveProperty("disabled", true);
+    }
   });
 });
 
@@ -205,6 +290,10 @@ describe("verdictChanges", () => {
  * and the answered revision names the questions it answered — so this reads a record rather
  * than inferring a cause. It is the reason that record was worth storing: without it a
  * second pass can say four verdicts moved and cannot say which sentence moved any of them.
+ *
+ * `recorded_text` is the answer as the reader typed it. While answers were composed into case
+ * lines it was that composition, so this section printed the question and then most of it
+ * again underneath; the pair is stored now, and what is quoted is a person's own reply.
  */
 describe("answersBehind", () => {
   const question = (reference: string, cites: string[]): OpenQuestion => ({

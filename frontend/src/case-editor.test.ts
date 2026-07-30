@@ -34,6 +34,14 @@ describe("caseToYaml", () => {
     confirmed_facts: [
       { id: "stmt_1", text: "SQLite is fixed.", kind: "fact", source: null },
     ],
+    clarifications: [
+      {
+        id: "clar_1",
+        question: "Is a second database actually planned?",
+        answer: "No. SQLite is the permanent choice.",
+        bears_on: "non_goals",
+      },
+    ],
     repository: { root_path: "/repos/scheduler", atlas_version_id: null },
     policy_applicability: { user: null, organisation: null, repository: null },
   } as unknown as ArchitectureCase;
@@ -57,5 +65,20 @@ describe("caseToYaml", () => {
     expect(parsed.confirmed_facts).toEqual([{ text: "SQLite is fixed.", kind: "fact" }]);
     expect(parsed.repository).toEqual({ root_path: "/repos/scheduler" });
     expect(checkYamlSyntax(caseToYaml(stored))).toBeNull();
+  });
+
+  it("carries a question and its answer through as a pair", () => {
+    // The editor needs nothing special for these and is given nothing: a pair dumps like any
+    // other list entry, so reading a case shows the exchange that shaped it and editing one
+    // can reword an answer or delete a pair outright.
+    const parsed = load(caseToYaml(stored)) as Record<string, unknown>;
+
+    expect(parsed.clarifications).toEqual([
+      {
+        question: "Is a second database actually planned?",
+        answer: "No. SQLite is the permanent choice.",
+        bears_on: "non_goals",
+      },
+    ]);
   });
 });
