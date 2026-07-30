@@ -34,6 +34,18 @@ def _section(body: str, heading: str) -> str:
     raise AssertionError(f"no {heading} section")
 
 
+def _policy_text(front_matter: str) -> str:
+    """A whole policy file with the front matter a test wants over a valid body.
+
+    The other fixtures below start from a bundled policy and rewrite one of its lines, which
+    is the right shape when the subject is a section or a path. Front matter is the subject
+    here, so these carry their own rather than editing a file the corpus owns.
+    """
+
+    sections = "".join(f"## {heading.title()}\nText.\n\n" for heading in sorted(REQUIRED_SECTIONS))
+    return f"---\n{front_matter}\n---\n{sections}"
+
+
 def test_general_policy_has_all_required_sections() -> None:
     policy = parse_policy(BUNDLED_POLICY_SOURCE / "hide-implementation-details.md")
 
@@ -88,6 +100,65 @@ def test_bundled_policy_relationships_and_ousterhout_provenance_are_resolved() -
             )
 
 
+def test_authored_description_is_parsed_and_stripped(tmp_path: Path) -> None:
+    path = tmp_path / "described.md"
+    path.write_text(
+        _policy_text(
+            "id: described\n"
+            "title: Described\n"
+            "description: '  Keep the rule where its consequences land.  '\n"
+            "scope: general\n"
+            "strength: guidance\n"
+            "tags: [described]\n"
+            "source: {author: Test, inspiration: []}"
+        ),
+        encoding="utf-8",
+    )
+
+    assert parse_policy(path).description == "Keep the rule where its consequences land."
+
+
+def test_policy_without_a_description_parses_with_none(tmp_path: Path) -> None:
+    path = tmp_path / "undescribed.md"
+    path.write_text(
+        _policy_text(
+            "id: undescribed\n"
+            "title: Undescribed\n"
+            "scope: general\n"
+            "strength: guidance\n"
+            "tags: [undescribed]\n"
+            "source: {author: Test, inspiration: []}"
+        ),
+        encoding="utf-8",
+    )
+
+    assert parse_policy(path).description is None
+
+
+@pytest.mark.parametrize(
+    "description",
+    ["'   '", "[a, list, not, a, sentence]"],
+    ids=["blank", "not-a-string"],
+)
+def test_unusable_policy_description_is_rejected(tmp_path: Path, description: str) -> None:
+    path = tmp_path / "unusable.md"
+    path.write_text(
+        _policy_text(
+            "id: unusable\n"
+            "title: Unusable\n"
+            f"description: {description}\n"
+            "scope: general\n"
+            "strength: guidance\n"
+            "tags: [unusable]\n"
+            "source: {author: Test, inspiration: []}"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PolicyFormatError, match="Invalid front matter"):
+        parse_policy(path)
+
+
 def test_incomplete_policy_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "bad.md"
     path.write_text(
@@ -123,17 +194,18 @@ def test_duplicate_policy_sections_are_rejected_case_insensitively(
 
 
 def test_empty_required_policy_section_is_rejected(tmp_path: Path) -> None:
-    source = BUNDLED_POLICY_SOURCE / "hide-implementation-details.md"
-    text = source.read_text(encoding="utf-8")
+    # The heading is there and the body under it is not. An empty section is the subject, so
+    # the policy carries its own body rather than blanking a line the bundled corpus owns.
+    text = _policy_text(
+        "id: empty\n"
+        "title: Empty\n"
+        "scope: general\n"
+        "strength: guidance\n"
+        "tags: [empty]\n"
+        "source: {author: Test, inspiration: []}"
+    ).replace("## Intent\nText.\n", "## Intent\n", 1)
     path = tmp_path / "empty.md"
-    path.write_text(
-        text.replace(
-            "## Intent\nPrevent callers from depending on decisions that belong to another module.",
-            "## Intent\n",
-            1,
-        ),
-        encoding="utf-8",
-    )
+    path.write_text(text, encoding="utf-8")
 
     with pytest.raises(PolicyFormatError, match="empty required sections: intent"):
         parse_policy(path)

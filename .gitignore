@@ -22,3 +22,6 @@ frontend/*.tsbuildinfo
 # Local agent orientation, kept out of the repository.
 .agents/
 .claude/
+
+*.log
+*.impeccable/*

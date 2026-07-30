@@ -52,6 +52,7 @@ class PolicyDocument(DomainModel):
     schema_version: Literal[2] = 2
     id: str
     title: str
+    description: str | None = None
     scope: PolicyScope
     applies_to: str | None = None
     strength: PolicyStrength
@@ -60,6 +61,16 @@ class PolicyDocument(DomainModel):
     body: str
     source_path: str
     content_hash: str
+
+    @field_validator("description")
+    @classmethod
+    def normalize_description(cls, description: str | None) -> str | None:
+        if description is None:
+            return None
+        normalized = description.strip()
+        if not normalized:
+            raise ValueError("Policy description must be nonempty when present")
+        return normalized
 
     @field_validator("applies_to")
     @classmethod

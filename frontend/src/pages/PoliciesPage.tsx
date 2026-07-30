@@ -39,18 +39,20 @@ export function filterPolicies(
     (policy) =>
       (scope === "all" || policy.scope === scope) &&
       (!term ||
-        `${policy.id} ${policy.title} ${policy.tags.join(" ")} ${policy.body} ${policy.applies_to || ""}`
+        `${policy.id} ${policy.title} ${policy.description || ""} ${policy.tags.join(" ")} ${policy.body} ${policy.applies_to || ""}`
           .toLocaleLowerCase()
           .includes(term)),
   );
 }
 
 /**
- * The first sentence of what a policy actually asks for.
+ * The row précis for a policy that has no authored `description`.
  *
- * A policy body opens with a `## …` section whose heading restates the title; the line
- * under it is the rule in the author's own words. That line is the only part of the body
- * a table row has room for, and it is the part that distinguishes one row from the next.
+ * Bundled policies each carry one, so this is the fallback for policies from sources outside
+ * this product, where the field may be absent. A policy body opens with a `## …` section whose
+ * heading restates the title; the line under it is the rule in the author's own words. That
+ * line is the only part of the body a table row has room for, and it is the part that
+ * distinguishes one row from the next.
  */
 function policyPrecis(body: string): string {
   const first = body.split("##")[1]?.replace(/^[^\n]+\n/, "").trim() || "";
@@ -289,7 +291,7 @@ export function PoliciesPage() {
                       {policy.title}
                     </button>
                     <p className="m-0 mt-0.5 max-w-[62ch] leading-[1.5] text-ink-2">
-                      {policyPrecis(policy.body)}
+                      {policy.description || policyPrecis(policy.body)}
                     </p>
                     <code className={cellCode}>{policy.id}</code>
                   </TableCell>

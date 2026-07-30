@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from archcompass.domain.policy import (
     PolicyApplicabilityContext,
     PolicyDocument,
@@ -15,10 +18,11 @@ from archcompass.domain.policy import (
 # test about the corpus is which policies apply to whom.
 
 
-def _policy() -> PolicyDocument:
+def _policy(description: str | None = None) -> PolicyDocument:
     return PolicyDocument(
         id="policy-a",
         title="Policy A",
+        description=description,
         scope=PolicyScope.ORGANISATION,
         applies_to="example-organisation",
         strength=PolicyStrength.PREFERRED,
@@ -48,6 +52,19 @@ def test_legacy_scoped_policy_json_without_applies_to_still_loads_safely() -> No
 
     assert policy.applies_to is None
     assert not policy.applies_in(PolicyApplicabilityContext(organisation="example-organisation"))
+
+
+def test_policy_description_is_optional_and_stripped_when_present() -> None:
+    assert _policy().description is None
+    assert _policy(description="  What the rule asks for.  ").description == (
+        "What the rule asks for."
+    )
+
+
+@pytest.mark.parametrize("description", ["", "   \n  "])
+def test_blank_policy_description_is_rejected(description: str) -> None:
+    with pytest.raises(ValidationError, match="nonempty"):
+        _policy(description=description)
 
 
 def test_policy_applicability_matches_only_its_scoped_subject() -> None:

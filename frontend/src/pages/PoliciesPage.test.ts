@@ -8,6 +8,9 @@ const policies: Policy[] = [
   {
     id: "POL-OWN-001",
     title: "Keep capability knowledge with its owner",
+    description:
+      "Discovering what a provider can do is the provider's own business. Spread across "
+      + "callers, every new provider becomes an edit in each of them.",
     scope: "general",
     applies_to: null,
     strength: "preferred",
@@ -37,6 +40,18 @@ describe("policy catalog filtering", () => {
       policies[0],
     ]);
     expect(filterPolicies(policies, "abstraction", "all")).toEqual([policies[1]]);
+  });
+
+  it("matches the authored description, and policies without one still match", () => {
+    expect(filterPolicies(policies, "the provider's own business", "all")).toEqual([
+      policies[0],
+    ]);
+    // The second fixture carries no description at all — what external policy sources look
+    // like — and is still reachable by everything else it does carry.
+    expect(policies[1].description).toBeUndefined();
+    expect(filterPolicies(policies, "credible independent variation", "all")).toEqual([
+      policies[1],
+    ]);
   });
 
   it("combines search with scope", () => {

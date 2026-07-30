@@ -76,6 +76,7 @@ def parse_policy(path: Path) -> PolicyDocument:
         policy = PolicyDocument(
             id=metadata["id"],
             title=metadata["title"],
+            description=metadata.get("description"),
             scope=scope,
             applies_to=_resolve_applicability(
                 path=path,

@@ -5,6 +5,9 @@ Each policy is one Markdown file with YAML front matter:
 ```yaml
 id: hide-implementation-details
 title: Hide implementation details behind the owning boundary
+description: >-
+  A module's callers should depend on what it promises, not on how it keeps that promise.
+  Leaked internals turn every later change to them into a change to everyone who reads them.
 scope: general
 strength: guidance
 tags: [information-hiding, dependencies]
@@ -15,6 +18,11 @@ source:
 
 Supported scopes are `general`, `user`, `organisation`, `repository`, and `accepted_adr`.
 Strength is `guidance`, `preferred`, or `required`.
+
+`description` is optional: one to three standalone sentences stating the rule and why it
+matters, readable without the body around it. It is what the policy catalogue shows as each
+row's précis, and every bundled policy carries one. A description that is present must be
+nonempty.
 
 `general` policies apply everywhere and must omit `applies_to`. `user` and `organisation`
 policies require an explicit, nonempty subject:
@@ -67,8 +75,9 @@ next review is shown.
 
 That is a deliberate removal rather than an omission (ADR 0013). A `sqlite-vec` index used to
 chunk each policy by section, embed the chunks, and return the `top_k` nearest to a query. It
-stopped being read once judgement began receiving the whole corpus in one request: 48 policies
-against an input budget near 490,000 characters, which fits several times over. What retrieval
+stopped being read once judgement began receiving the whole corpus in one request: the corpus
+then stood at 48 policies against an input budget near 490,000 characters, which fits several
+times over. What retrieval
 added at that size was a ranking that could leave the passage a reader needed out of the request,
 and a build step between editing a policy and seeing it apply.
 

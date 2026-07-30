@@ -152,6 +152,8 @@ export interface FailureDiagnostic {
 export interface Policy {
   id: string;
   title: string;
+  /** The authored précis. Optional: policies from outside sources may not carry one. */
+  description?: string | null;
   scope: string;
   applies_to: string | null;
   strength: string;
