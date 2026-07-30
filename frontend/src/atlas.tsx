@@ -14,6 +14,8 @@ import {
   Scan,
   Search,
 } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
 import {
   type FormEvent,
   useEffect,
@@ -25,7 +27,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
-import { Badge } from "./components";
+import { humanizeLabel } from "./components";
 import type {
   AtlasExploreOperation,
   AtlasMetricNature,
@@ -67,6 +69,14 @@ export interface AtlasNodeView {
   evidenceCount?: number;
   signalCount?: number;
   signals?: AtlasSignal[];
+  /**
+   * Whether a review judged this node, and so whether `onOpenFinding` has somewhere to go.
+   *
+   * On the node rather than in a set beside the graph: the caller that knows a node was judged
+   * is the one that built the node, and a second collection to keep in step with the first is
+   * a way for the map to offer a link to a finding that is not there.
+   */
+  hasFinding?: boolean;
 }
 
 export interface AtlasEdgeView {
@@ -88,6 +98,20 @@ export interface RepositoryAtlasProps {
   onSelectNode: (nodeId: string | null) => void;
   loading?: boolean;
   emptyMessage?: string;
+  /**
+   * The lens the map opens on. `structure` for a repository, because containment is how a
+   * codebase is read; a caller whose graph is nearly all dependency edges says so, rather
+   * than opening on a lens that draws almost none of it.
+   */
+  initialLens?: AtlasLens;
+  /**
+   * What this caller calls each node state, where its own vocabulary is the one the reader
+   * has already been given. Only the legend is renamed: the states themselves are the map's,
+   * and a caller that could redefine them would be drawing a different map.
+   */
+  legendLabels?: Partial<Record<AtlasNodeState, string>>;
+  /** Where the selected node's finding is written, for a node that carries one. */
+  onOpenFinding?: (nodeId: string) => void;
   onExploreNode?: (
     nodeId: string,
     operation: Exclude<
@@ -107,7 +131,40 @@ export interface RepositoryAtlasProps {
   highlightedEdgeIds?: string[];
 }
 
-type AtlasLens = "structure" | "dependencies" | "risk";
+export type AtlasLens = "structure" | "dependencies" | "risk";
+
+/**
+ * The map's own name for each state, and the icon that stands for it wherever it is drawn.
+ *
+ * One table read by the legend and by the detail panel, so a state cannot be labelled in the
+ * toolbar and left out of the panel — which is what happened to `cleared`, drawn on the canvas
+ * and named nowhere. A caller may rename what these say through `legendLabels`; it may not add
+ * a state, because the canvas draws these five and no others.
+ */
+const STATE_ICON: Record<AtlasNodeState, typeof CircleDot> = {
+  normal: CircleDot,
+  hotspot: AlertTriangle,
+  contained: CheckCircle2,
+  cleared: CheckCircle2,
+  inference: Layers3,
+};
+
+const STATE_LABEL: Record<AtlasNodeState, string> = {
+  normal: "Normal",
+  hotspot: "Hotspot",
+  contained: "Contained",
+  cleared: "Cleared",
+  inference: "Advisor inference",
+};
+
+/* Read in this order wherever the states are listed, coarsest first. */
+const STATE_ORDER: AtlasNodeState[] = [
+  "normal",
+  "hotspot",
+  "contained",
+  "cleared",
+  "inference",
+];
 
 const NODE_WIDTH = 190;
 const NODE_HEIGHT = 78;
@@ -934,6 +991,9 @@ export function RepositoryAtlas({
   onSelectNode,
   loading = false,
   emptyMessage = "No bounded atlas nodes are available yet.",
+  initialLens = "structure",
+  legendLabels,
+  onOpenFinding,
   onExploreNode,
   onExploreAtlas,
   onSearch,
@@ -943,7 +1003,7 @@ export function RepositoryAtlas({
   highlightedNodeIds = [],
   highlightedEdgeIds = [],
 }: RepositoryAtlasProps) {
-  const [lens, setLens] = useState<AtlasLens>("structure");
+  const [lens, setLens] = useState<AtlasLens>(initialLens);
   const [searchValue, setSearchValue] = useState("");
   const [hiddenEdgeKinds, setHiddenEdgeKinds] = useState<Set<string>>(new Set());
   const [hideTests, setHideTests] = useState(false);
@@ -955,6 +1015,21 @@ export function RepositoryAtlas({
     () => [...new Set(edges.map((edge) => edge.kind))].sort(),
     [edges],
   );
+  /**
+   * The states this graph actually contains, in this caller's words for them.
+   *
+   * Only the ones present: a key naming five states over a map that draws two sends the reader
+   * looking for the other three. Off the whole graph rather than the visible one, so switching
+   * lens does not rewrite the key beside the canvas as well as the canvas.
+   */
+  const legend = useMemo(() => {
+    const present = new Set(nodes.map((node) => node.state));
+    return STATE_ORDER.filter((state) => present.has(state)).map((state) => ({
+      state,
+      label: legendLabels?.[state] ?? STATE_LABEL[state],
+      Icon: STATE_ICON[state],
+    }));
+  }, [legendLabels, nodes]);
   const visibleGraph = useMemo(() => {
     const nodeAllowed = (node: AtlasNodeView) => {
       if (node.id === selected?.id) return true;
@@ -1395,7 +1470,7 @@ export function RepositoryAtlas({
           <h2 id="atlas-heading">{title}</h2>
           {description && <p>{description}</p>}
         </div>
-        <Badge tone={mode === "repository" ? "teal" : "neutral"}>
+        <Badge variant={mode === "repository" ? "accent" : "neutral"}>
           {mode === "repository" ? `${nodes.length} surfaced nodes` : "Greenfield canvas"}
         </Badge>
       </div>
@@ -1420,7 +1495,7 @@ export function RepositoryAtlas({
               aria-pressed={lens === value}
               onClick={() => setLens(value)}
             >
-              {value}
+              {humanizeLabel(value)}
             </button>
           ))}
         </div>
@@ -1464,10 +1539,11 @@ export function RepositoryAtlas({
 
       <div className="atlas-toolbar">
         <div className="atlas-legend" aria-label="Atlas legend">
-          <span><CircleDot size={13} /> Normal</span>
-          <span><AlertTriangle size={13} /> Hotspot</span>
-          <span><CheckCircle2 size={13} /> Contained</span>
-          {mode === "greenfield" && <span><Layers3 size={13} /> Advisor inference</span>}
+          {legend.map(({ state, label, Icon }) => (
+            <span key={state} className={`atlas-legend__key atlas-legend__key--${state}`}>
+              <Icon size={13} /> {label}
+            </span>
+          ))}
         </div>
         {availableEdgeKinds.length > 0 && (
           <div className="atlas-edge-filters" aria-label="Relationship filters">
@@ -1480,7 +1556,7 @@ export function RepositoryAtlas({
                 onClick={() => toggleEdgeKind(kind)}
               >
                 <i className={`atlas-edge-swatch atlas-edge-swatch--${edgeKindClass(kind)}`} />
-                {kind}
+                {humanizeLabel(kind)}
               </button>
             ))}
           </div>
@@ -1679,11 +1755,13 @@ export function RepositoryAtlas({
                     <text className="atlas-node__meta" x="18" y="59">
                       {truncate(node.kind.replaceAll("_", " "), 20)}
                     </text>
-                    {(node.evidenceCount || node.signalCount) && (
+                    {/* A ternary rather than `&&`: a node carrying no signal has a count of
+                        zero, and `0 &&` renders the zero as the node's own caption. */}
+                    {node.signalCount || node.evidenceCount ? (
                       <text className="atlas-node__metric" x={NODE_WIDTH - 16} y="59" textAnchor="end">
                         {node.signalCount ? `${node.signalCount} signals` : `${node.evidenceCount} refs`}
                       </text>
-                    )}
+                    ) : null}
                   </g>
                 );
               })}
@@ -1762,6 +1840,7 @@ export function RepositoryAtlas({
           edges={edges}
           nodes={nodes}
           onSelectNode={onSelectNode}
+          onOpenFinding={onOpenFinding}
           onExploreNode={onExploreNode}
           pathStartNodeId={pathStartNodeId}
           onSetPathStart={onSetPathStart}
@@ -1807,6 +1886,7 @@ function AtlasDetailPanel({
   edges,
   nodes,
   onSelectNode,
+  onOpenFinding,
   onExploreNode,
   pathStartNodeId,
   onSetPathStart,
@@ -1817,6 +1897,7 @@ function AtlasDetailPanel({
   edges: AtlasEdgeView[];
   nodes: AtlasNodeView[];
   onSelectNode: (nodeId: string) => void;
+  onOpenFinding?: RepositoryAtlasProps["onOpenFinding"];
   onExploreNode?: RepositoryAtlasProps["onExploreNode"];
   pathStartNodeId?: string | null;
   onSetPathStart?: (nodeId: string) => void;
@@ -1836,14 +1917,7 @@ function AtlasDetailPanel({
   const outgoing = relationships.filter((edge) => edge.sourceId === node.id);
   const incoming = relationships.filter((edge) => edge.targetId === node.id);
   const byId = new Map(nodes.map((item) => [item.id, item]));
-  const StateIcon =
-    node.state === "hotspot"
-      ? AlertTriangle
-      : node.state === "contained" || node.state === "cleared"
-        ? CheckCircle2
-        : node.state === "inference"
-          ? Layers3
-          : CircleDot;
+  const StateIcon = STATE_ICON[node.state];
 
   return (
     <aside className="atlas-detail" aria-live="polite">
@@ -1856,16 +1930,28 @@ function AtlasDetailPanel({
       </div>
       <code className="mono-path">{node.path}</code>
       <div className="atlas-detail__tags">
-        <Badge tone={node.state === "hotspot" ? "warning" : "neutral"}>{node.kind}</Badge>
+        <Badge variant={node.state === "hotspot" ? "material" : "neutral"}>{node.kind}</Badge>
         <Badge
-          tone={
-            node.state === "contained" || node.state === "cleared" ? "success" : "neutral"
+          variant={
+            node.state === "contained" || node.state === "cleared" ? "cleared" : "neutral"
           }
         >
           {node.state}
         </Badge>
       </div>
       {node.description && <p>{node.description}</p>}
+      {/* The other half of the link a finding already offers into the map. A reader who
+          arrived here from the ledger can get back to the reasoning, and one who found the
+          node on the canvas can reach the verdict that was written about it — the question and
+          its answer in one reading (workspace-design §4). Only where a review judged this
+          node: the map draws plenty that no finding is about. */}
+      {onOpenFinding && node.hasFinding && (
+        <div className="atlas-detail__section atlas-detail__finding">
+          <button type="button" onClick={() => onOpenFinding(node.id)}>
+            Go to finding
+          </button>
+        </div>
+      )}
       {node.signals && node.signals.length > 0 && (
         <div className="atlas-detail__section">
           <strong><AlertTriangle size={13} /> Structural signals</strong>

@@ -21,6 +21,13 @@ class CaseNotFoundError(ArchCompassError):
     pass
 
 
+class CaseValidationError(ArchCompassError):
+    """A case cannot be written as asked — a reference that does not resolve, a blank answer.
+
+    Distinct from `CaseNotFoundError`: the case is there and the request is wrong about it.
+    """
+
+
 class CaseRevisionConflictError(ArchCompassError):
     pass
 

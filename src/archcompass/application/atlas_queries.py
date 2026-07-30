@@ -14,6 +14,7 @@ from archcompass.domain.atlas import (
     NodeDetailsQuery,
     RelationQuery,
     RepositorySummaryQuery,
+    ReviewContextQuery,
     SearchNodesQuery,
     ShortestPathQuery,
     SignalsQuery,
@@ -46,6 +47,21 @@ class AtlasService:
         return self._execute_latest(
             repository,
             NodeDetailsQuery(kind="node_details", node_id=node_id),
+        )
+
+    def review_context(
+        self, repository: Path, node_ids: list[str], *, limit: int = 25
+    ) -> AtlasQueryResult:
+        """Everything a map of these nodes needs, in one round trip.
+
+        `inspect` answers about one node and returns that node, which leaves a caller drawing
+        a map with edges whose other end it was never told about. This is the same request
+        made about a whole set, with the neighbours included.
+        """
+
+        return self._execute_latest(
+            repository,
+            ReviewContextQuery(kind="review_context", node_ids=node_ids, limit=limit),
         )
 
     def hotspots(self, repository: Path, metric: str) -> AtlasQueryResult:

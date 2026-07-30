@@ -73,13 +73,19 @@ PR review and an agent consultation all begin thin.
 - The judgement response contract gains the hinge field; its versioned prompt contract
   is revised, and the deterministic providers gain hinge fixtures so `make check` covers
   the path without a model.
-- The overview response gains open questions. `BoundaryReviewReport.schema_version`
-  becomes 3, `open_questions` required. Under ADR 0002 there are no shims: stored
-  version-2 reviews no longer parse, are reported through `UnreadableStoredRecordError`,
-  and must be re-run.
-- The review page and the CLI gain the question surfaces: questions rendered beside the
-  boundaries they cite, an answer composing a case revision the user confirms before it
-  is saved.
+- The overview response gains open questions, and `BoundaryReviewReport.schema_version`
+  becomes 3. Under ADR 0002 there are no shims: a stored version-2 review fails
+  validation on the pinned version, is reported through `UnreadableStoredRecordError`
+  with its remedy, and must be re-run. `open_questions` itself defaults to empty, because
+  a review with nothing open is the good outcome rather than a missing field.
+- The review page renders the questions at the foot of the conclusion — after the
+  verdicts, never before them, so the tool's value arrives ahead of its request — and
+  each boundary that carried a hinge prints it beside its own detection limits. The CLI
+  needs no new command: `reviews show` renders the same report.
+- The answer path is the revise-and-review loop that already exists (§16). A question
+  offers to open the case editor at the review's pinned revision; what enters the case is
+  the revision the user authors and confirms, which is invariant 25 rather than a
+  convention.
 - A case revision may record which review and question it answers. This is not
   `origin_run_id` returning: that field (removed by ADR 0007) marked revisions authored
   by a run, where this pointer marks a revision the user authored and records what

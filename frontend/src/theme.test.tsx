@@ -57,11 +57,15 @@ describe("theme preference", () => {
     },
   );
 
+  // The control is a toggle group in single mode now, so it announces itself the way a
+  // setting with three values should: a radio group, with exactly one item checked. The
+  // assertions moved onto role="radio"/aria-checked for that reason and for no other — the
+  // accessible names, and which one is on, are unchanged.
   it("defaults to system and follows operating-system changes", () => {
     render(<ThemeControl />);
 
-    expect(screen.getByRole("button", { name: "Use system theme" })).toHaveAttribute(
-      "aria-pressed",
+    expect(screen.getByRole("radio", { name: "Use system theme" })).toHaveAttribute(
+      "aria-checked",
       "true",
     );
     expect(document.documentElement).toHaveAttribute("data-theme", "light");
@@ -72,7 +76,7 @@ describe("theme preference", () => {
 
   it("persists an explicit preference and ignores system changes", () => {
     render(<ThemeControl />);
-    fireEvent.click(screen.getByRole("button", { name: "Use light theme" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Use light theme" }));
 
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
     expect(document.documentElement).toHaveAttribute("data-theme", "light");
@@ -85,8 +89,8 @@ describe("theme preference", () => {
     window.localStorage.setItem(THEME_STORAGE_KEY, "dark");
     render(<ThemeControl />);
 
-    expect(screen.getByRole("button", { name: "Use dark theme" })).toHaveAttribute(
-      "aria-pressed",
+    expect(screen.getByRole("radio", { name: "Use dark theme" })).toHaveAttribute(
+      "aria-checked",
       "true",
     );
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");

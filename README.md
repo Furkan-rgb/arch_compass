@@ -193,7 +193,32 @@ ArchitectureCase                     RepositoryAtlas
         Compose and persist the review             [deterministic]
         assign BR-nnn references, resolve policy
         identity by position, render Markdown
+                       │
+                       ▼
+       Ask what it needs to know                   [judgement]
+        the one call that sees every verdict at
+        once, so boundaries turning on the same
+        unknown become one question
+                       │
+        ┌──────────────┴───────────────┐
+        │ nothing to ask               │ questions outstanding
+        ▼                              ▼
+   The review concludes        The run stops and waits
+                                       │
+                            you answer; your answers
+                            become a case revision
+                                       │
+                                       ▼
+                            judge every boundary again,
+                            then conclude
 ```
+
+A review that is still asking is **not** a finished review. Judged against a case that has
+not been written yet, verdicts are provisional in a way that is measured rather than
+supposed: on the bundled `warehouse-sync` example, four of five moved once the questions
+were answered. So they are stored, and they are not reported as findings until a second pass
+has judged them against your answers. If you cannot answer, you can reveal them anyway —
+labelled for what they are.
 
 One rule shapes every stage of it:
 
@@ -311,9 +336,10 @@ The model never sees a policy identifier and never writes one. Identity is attac
 afterwards from the position, so a mistyped or recalled-from-memory ID has no route into a
 report.
 
-Embeddings and `sqlite-vec` remain built and are unused on this path. They become relevant
-again only if the corpus outgrows one request — and that will be a deliberate change
-rather than an inherited one.
+There is no embedding model, no index and no retrieval step. The corpus is about 45,000
+characters against an input budget near 490,000, so it fits several times over and ranking
+only added a way to lose the passage that mattered (ADR 0013). If the corpus ever outgrows
+one request, retrieval comes back as a deliberate change rather than an inherited one.
 
 ---
 
@@ -458,13 +484,12 @@ window (`num_ctx`), including input and generated output.
 `max_output_tokens` separately caps generated output.
 
 The checked-in `config/models.ollama.yaml` expects `gemma4:26b`; the packaged fallback
-copied into a new workspace expects `gemma4:12b`. Pull the model named by the configuration you use, plus the
-embedding model:
+copied into a new workspace expects `gemma4:12b`. Pull the model named by the configuration
+you use — a review needs one model and no other:
 
 ```bash
 ollama pull gemma4:26b
 # Or, for the packaged fallback: ollama pull gemma4:12b
-ollama pull embeddinggemma
 ```
 
 Models are not downloaded automatically.
@@ -495,11 +520,6 @@ Two things differ from Ollama and are worth knowing:
 - The free tier returns HTTP 429 once a quota is spent. Per-minute quotas clear on
   retry with backoff; a per-day quota exhausts the retry cap and fails the run.
 
-Changing the embedding model needs no policy rebuild. A review presents the whole policy
-corpus with every boundary rather than retrieving from it, so nothing on that path
-embeds anything; the provider is still constructed at startup so a bad key fails
-immediately rather than part-way through a run.
-
 ---
 
 ## Installation
@@ -514,11 +534,8 @@ uv sync --locked
 uv run archcompass init
 ```
 
-Build the policy index:
-
-```bash
-uv run archcompass policies rebuild
-```
+The bundled policy corpus is ready to use — policies are read from their sources whenever
+they are asked for, so there is nothing to build.
 
 State is stored locally under:
 
@@ -585,6 +602,19 @@ uv run archcompass review <case-id> --repo /path/to/repository
 The case is the part that matters. It is what tells a justified boundary from an
 unjustified one, so `expected_future_changes`, `non_goals` and `confirmed_facts` do more
 work here than anything else you write.
+
+You do not have to write it first, though. A review will run against a repository alone and
+come back asking for what would settle the verdicts it could not settle — so the case is
+something you end up with rather than something you start with. When a run stops to ask,
+answer into the fields its questions name and carry it on:
+
+```bash
+uv run archcompass case update <case-id> --from answers.yaml
+uv run archcompass review <case-id> --repo /path/to/repository --answers <review-id>
+```
+
+Both passes are kept, each pinned to the case revision it judged, so you can see exactly
+what your answer changed.
 
 Print the stored review instead of its Markdown:
 
@@ -654,14 +684,14 @@ The main responsibilities are:
   `atlas_freshness`, `policies`.
 - `adapters/persistence/` — SQLite storage and migrations.
 - `adapters/analysis/` — AST analysis, graph metrics and deterministic queries.
-- `adapters/retrieval/` — policy parsing, embeddings and `sqlite-vec`.
+- `adapters/retrieval/` — policy parsing and the bundled method primer.
 - `adapters/models/` — the provider-neutral reasoning stages (`structured.py`), the
   Ollama and Google transports that carry them, and deterministic test providers.
 - `presentation/cli/` — command-line input and output.
 - `presentation/web/` — the local FastAPI adapter and the React workspace bundle.
 - `bootstrap.py` — the composition root and only location that selects concrete adapters.
 
-The domain and application layers do not depend on Typer, HTTPX, SQLite, `sqlite-vec` or AST implementation details.
+The domain and application layers do not depend on Typer, HTTPX, SQLite or AST implementation details.
 
 ---
 

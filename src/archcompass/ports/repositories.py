@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 from archcompass.domain.atlas import Atlas
-from archcompass.domain.case import ArchitectureCase, CaseRevision
+from archcompass.domain.case import AnsweredQuestions, ArchitectureCase, CaseRevision
 from archcompass.domain.review import BoundaryReview
 from archcompass.domain.review_conversation import ReviewConversation
 from archcompass.domain.workspace import (
@@ -28,6 +28,7 @@ class CaseRepository(Protocol):
         expected_revision: int,
         event_type: str,
         actor: str,
+        answered: AnsweredQuestions | None = None,
     ) -> CaseRevision: ...
 
     def history(self, case_id: str) -> list[CaseRevision]: ...

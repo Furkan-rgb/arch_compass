@@ -5,9 +5,9 @@ one category must not be presented as evidence that another category passed.
 
 ## Workflow and evidence-integrity tests
 
-The mandatory automated suite uses deterministic embedding and reasoning providers. It exercises
-the real SQLite, `sqlite-vec`, policy, atlas, query, evidence-validation, report, and revision
-paths without contacting a live model.
+The mandatory automated suite uses a deterministic reasoning provider. It exercises the real
+SQLite, policy, atlas, query, evidence-validation, report, and revision paths without contacting
+a live model.
 
 V1.2 deterministic acceptance requires the suite to establish that:
 
@@ -105,6 +105,84 @@ four modules, with a copy that has already drifted out of step. Nothing scores t
 it is *repetition without ownership* (master plan §8A.3), the half of the detector catalogue
 that is not built — and it is there so the fixture is ready the day it is.
 
+### Keeping stock in step with the warehouse — `warehouse-sync`
+
+*Did the advisor notice what the case does not say?* This example grades elicitation
+(master plan §6C) rather than verdicts, and it is the only one whose case is deliberately
+incomplete. It is detailed about how the service is bound and silent about exactly one
+thing — whether a second warehouse is coming. Two of its five boundaries turn on that
+silence, and the answer moves them in *opposite* directions: a second warehouse justifies
+the feed port and condemns the vendor name that leaked into the operator's digest. The
+other three are decidable from what the case already states.
+
+A run that hinges all five has learned to hedge and tells a reader nothing about where to
+look. A run that hinges none has spent the silence without noticing it. Both are failures,
+and separating them from an advisor is what this example is for.
+
+It grades through `elicitation.yaml`, not `expected.yaml`, and ships no verdict key at all.
+Two of its verdicts are contingent by construction, so a scored answer for them would settle
+in a key the exact question the case refuses to settle. What can be graded without doing
+that is where the silence was noticed, plus one count: the two hinged boundaries rest on one
+fact, so a run that consolidates asks once.
+
+`tests/integration/test_elicitation_loop.py` holds the offline half — that the questions
+reach the report grounded and numbered, that they render, and that answering one produces a
+second review with nothing left open. It also asserts the fixture's own premise, so an
+example edited to read better cannot quietly stop measuring anything.
+
+Recorded so a later change has something to beat, on `gemma4:26b`, one run per
+configuration:
+
+| judge prompt | hinged | correct | asked (1 is right) |
+| --- | --- | --- | --- |
+| v8 | 5 of 5 | 2/5 | 5 |
+| v9 | 4 of 5 | 3/5 | 3 |
+
+v9 named two ways a stage hedges after it has read the case. One landed: hinging on whether
+a *stated* constraint is permanent stopped. The other did not — both duplicated-constant
+boundaries still hand back "are these one fact or two", which is the question the stage
+exists to answer. Read these as one run each and not as a measurement of the difference:
+the direction matches what v9 targeted, but nothing here separates a real gain from
+run-to-run variance.
+
+#### The same repository with no case at all
+
+`--no-case` throws the example's case away and reviews its repository alone, which is what
+a first-time user gets by pointing at their own code. Neither key applies — both were
+written for the case as authored — so this reports rather than scores, and two opposite
+failures are what it is watching for.
+
+**Condemning everything.** An unwritten case justifies no boundary, and read as evidence
+that means every boundary is unjustified. Measured before it was allowed: a thin
+`speech-vendor` run condemned `AudioSink`, `SpeechProvider` and `BookStore`, three
+boundaries the written case justifies. That is §3.1's failure shipped as the first thing a
+new user sees, and judge prompt v10 exists to prevent it.
+
+**Clearing everything.** The mirror image. One `warehouse-sync` run with no case condemned
+**0 of 5** and hinged **2 of 5**, and this was written up as v10 having overshot into
+clearing everything. That claim was not supported: a second run of the identical
+repository, model and prompt gave **2 condemned and 4 hinged**. What the pair actually
+shows is run-to-run variance large enough to swamp the effect, so no conclusion about v10's
+direction can be drawn from either. It is recorded here as a failure mode worth watching
+for — a review that clears everything on the strength of a case nobody wrote reads as
+approval nobody earned, which is what §3.1 says about a problems-only report from the other
+side — and not as something measured.
+
+The tension behind it is real and worth stating rather than tuning away: v9 says a hinge on
+every boundary is worthless, and v10 says silence is an unknown. Both are right for the case
+they were written against, and an empty case is where they pull hardest — nearly every
+verdict genuinely does turn on something unstated, so *hinging widely and condemning little*
+is the honest shape there, with the questions consolidating those hinges into a few.
+
+That variance is also the strongest argument for the two-pass flow (ADR 0010): a no-case
+pass is unstable enough that its verdicts should not be reported as findings at all. On this
+same example, answering the questions moved **four of five** verdicts.
+
+One failure survives every version from v8 to v10: both duplicated-constant boundaries hand
+back "are these one fact or two" rather than deciding it, with the evidence in the code in
+front of them. Three prompt revisions have not moved it, which points at a capability limit
+on `gemma4:26b` for that discrimination rather than at wording.
+
 These are architectural-quality benchmarks only when a real reasoning model's output is
 assessed against them. Running the deterministic double over the same fixtures is an integrity
 test and nothing more. Automated structural assertions such as valid citations are necessary,
@@ -133,9 +211,9 @@ model, one case, one moment. See [plans/quality-harness.md](plans/quality-harnes
 
 ## Optional live-model and transport evaluations
 
-Tests marked `ollama` use the models in `config/models.yaml`. They verify the live embedding
-transport contract—batch shape, dimensions, finite values, and input sensitivity—and exercise a
-complete structured consultation against the configured reasoning model.
+Tests marked `ollama` use the models in `config/models.yaml`. They exercise a complete
+structured review against the configured reasoning model, including the arity of a judgement's
+policy bearings against the corpus it was presented.
 
 The live clustering contract also uses deliberately opaque canonical force IDs and verifies that
 the provider returns an exact partition after the adapter's constrained `F1`–`Fn` reference

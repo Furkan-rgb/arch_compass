@@ -32,7 +32,16 @@ export interface RunHandle {
   progress: RunState;
   running: boolean;
   error: unknown;
-  start: (caseId: string, repositoryRoot: string) => void;
+  /**
+   * Start a run. `elicitedFrom` names the first pass this one answers, which is what makes
+   * it a second pass: it judges against the answered case and concludes rather than asking
+   * again. Omitted for every review that was not reached by answering.
+   */
+  start: (
+    caseId: string,
+    repositoryRoot: string,
+    elicitedFrom?: string | null,
+  ) => void;
   /** True when this browser holds the live stream for that review. */
   watching: (reviewId: string) => boolean;
 }
@@ -51,7 +60,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const inFlight = useRef(false);
 
   const start = useCallback(
-    (caseId: string, repositoryRoot: string) => {
+    (caseId: string, repositoryRoot: string, elicitedFrom?: string | null) => {
       if (inFlight.current) return;
       inFlight.current = true;
       setReviewId(null);
@@ -59,16 +68,21 @@ export function RunProvider({ children }: { children: ReactNode }) {
       setError(null);
       setRunning(true);
       api
-        .streamReview(caseId, repositoryRoot, (event) => {
-          if (event.event === "started") {
-            // The first line, and the only one that matters to navigation: from here the
-            // review exists and can be opened, reloaded or cancelled from anywhere.
-            setReviewId(event.review_id);
-            navigate(`/reviews/${event.review_id}`);
-            return;
-          }
-          setProgress((current) => applyProgress(current, event));
-        })
+        .streamReview(
+          caseId,
+          repositoryRoot,
+          (event) => {
+            if (event.event === "started") {
+              // The first line, and the only one that matters to navigation: from here the
+              // review exists and can be opened, reloaded or cancelled from anywhere.
+              setReviewId(event.review_id);
+              navigate(`/reviews/${event.review_id}`);
+              return;
+            }
+            setProgress((current) => applyProgress(current, event));
+          },
+          elicitedFrom,
+        )
         .then(async (review) => {
           await Promise.all([
             client.invalidateQueries({ queryKey: ["reviews"] }),

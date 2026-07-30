@@ -25,13 +25,22 @@ from collections.abc import Callable
 from pathlib import Path
 
 from archcompass.application.policies import PolicyService
+from archcompass.application.review_source import ReviewSourceService
+from archcompass.domain.case import AnsweredQuestions
 from archcompass.domain.errors import (
+    ArchCompassError,
     ConversationNotFoundError,
     ConversationValidationError,
     ProviderError,
 )
 from archcompass.domain.knowledge import MethodKnowledge
-from archcompass.domain.review import BoundaryReview, ReviewStatus
+from archcompass.domain.review import (
+    AnsweredQuestion,
+    BoundaryReview,
+    OpenQuestion,
+    ReviewEvidence,
+    ReviewStatus,
+)
 from archcompass.domain.review_conversation import (
     MAX_QUESTION_CHARACTERS,
     ReviewAnswer,
@@ -55,6 +64,7 @@ class ReviewConversationService:
         conversations: ReviewConversationRepository,
         reasoner: FocusedReasoningProvider,
         policies: PolicyService,
+        source: ReviewSourceService,
         method_primer: str,
     ) -> None:
         self._reviews = reviews
@@ -62,24 +72,59 @@ class ReviewConversationService:
         self._conversations = conversations
         self._reasoner = reasoner
         self._policies = policies
+        self._source = source
         self._method_primer = method_primer
 
-    def create(self, review_id: str, *, title: str | None = None) -> ReviewConversation:
-        review = self._load(review_id)
+    def create(
+        self,
+        review_id: str,
+        *,
+        title: str | None = None,
+        question_reference: str | None = None,
+    ) -> ReviewConversation:
+        review = self._load(review_id, about_question=question_reference)
         report = review.report
         assert report is not None  # guaranteed by _load
         # Reading the pinned revision is the check that it still exists, not decoration:
         # a conversation that opens against a case revision the workspace no longer holds
         # would answer from a review whose grounds cannot be shown.
         self._cases.get(review.case_id, review.case_revision)
+        question = (
+            None if question_reference is None else self._question(review, question_reference)
+        )
         chosen = (title or "").strip()
+        default = (
+            f"{report.case_title} — review questions"
+            if question is None
+            else f"{question.reference}: {question.question}"
+        )
         return self._conversations.create(
             ReviewConversation(
                 review_id=review.review_id,
                 case_id=review.case_id,
                 case_revision=review.case_revision,
-                title=chosen or f"{report.case_title} — review questions",
+                title=chosen or default,
+                question_reference=None if question is None else question.reference,
             )
+        )
+
+    @staticmethod
+    def _question(review: BoundaryReview, reference: str) -> OpenQuestion:
+        """The open question a conversation names, or a refusal naming what exists.
+
+        Resolved from the review's own report rather than trusted from the request, which
+        is the same rule every other reference obeys (§12.0): `Q-n` is an identifier the
+        application assigned, so the application is what turns it back into a question.
+        """
+
+        report = review.report
+        questions = [] if report is None else report.overview.open_questions
+        for question in questions:
+            if question.reference == reference:
+                return question
+        known = ", ".join(item.reference for item in questions) or "none"
+        raise ConversationNotFoundError(
+            f"Review {review.review_id} asked no question {reference} (it asked: {known})"
         )
 
     def show(self, conversation_id: str) -> ReviewConversation:
@@ -114,9 +159,11 @@ class ReviewConversationService:
                 f"A review question must contain at most {MAX_QUESTION_CHARACTERS} characters"
             )
         conversation = self._conversations.get(conversation_id)
-        review = self._load(conversation.review_id)
+        review = self._load(
+            conversation.review_id, about_question=conversation.question_reference
+        )
         try:
-            answer = self._answer(review, conversation.messages, text, on_prose)
+            answer = self._answer(review, conversation, text, on_prose)
         except ProviderError as error:
             # The failed turn is appended rather than dropped. A question that produced
             # nothing is part of the history a reader needs to make sense of what follows,
@@ -141,7 +188,7 @@ class ReviewConversationService:
     def _answer(
         self,
         review: BoundaryReview,
-        history: list[ReviewMessage],
+        conversation: ReviewConversation,
         question: str,
         on_prose: Callable[[str], None] | None,
     ) -> ReviewAnswer:
@@ -151,14 +198,132 @@ class ReviewConversationService:
         pointed at a provider whose transport cannot stream answers the question anyway,
         after the last token instead of during, and nothing above here has to know which
         happened. Both calls return the same validated answer.
+
+        Which stage answers is decided by the conversation's pin, not by the review's
+        status. A question-scoped conversation about a review that has since concluded still
+        goes to the discussion stage: it was opened about one question, it is titled with
+        that question, and answering its later turns from the whole review would silently
+        change what the thread is about halfway down.
         """
 
         background = self._background(review)
+        if conversation.question_reference is not None:
+            about = self._question(review, conversation.question_reference)
+            evidence = self._evidence(review, about_question=about)
+            if on_prose is not None and isinstance(self._reasoner, StreamingAnswerReasoner):
+                return self._reasoner.stream_open_question_discussion(
+                    review,
+                    evidence,
+                    about,
+                    conversation.messages,
+                    question,
+                    background,
+                    on_prose,
+                )
+            return self._reasoner.discuss_open_question(
+                review, evidence, about, conversation.messages, question, background
+            )
+        evidence = self._evidence(review, about_question=None)
         if on_prose is not None and isinstance(self._reasoner, StreamingAnswerReasoner):
             return self._reasoner.stream_review_answer(
-                review, history, question, background, on_prose
+                review, evidence, conversation.messages, question, background, on_prose
             )
-        return self._reasoner.answer_review_question(review, history, question, background)
+        return self._reasoner.answer_review_question(
+            review, evidence, conversation.messages, question, background
+        )
+
+    def _evidence(
+        self,
+        review: BoundaryReview,
+        *,
+        about_question: OpenQuestion | None,
+    ) -> ReviewEvidence:
+        """Everything this review's record holds that the stage about to run may see.
+
+        One place, because the three things assembled here were each once left out of a call
+        and each time the stage said the review contained no such thing. An omission is a
+        line missing from this method now, rather than an argument missing from one of four
+        call sites.
+
+        What varies by stage is scope and nothing else. A question-scoped discussion reads
+        only the boundaries that question cites and is told nothing of the round it is part
+        of; a concluded review shows everything, because everything is already on the page.
+        """
+
+        # The exact revision this review ran against, not the workspace's current case. A
+        # conversation is pinned to the review and through it to that revision, so a case
+        # edited since must not change what an old review is explained from.
+        revision = self._cases.get(review.case_id, review.case_revision)
+        if about_question is not None:
+            # Only the boundaries this question cites, matching what the stage is shown of
+            # the review itself: reading source for verdicts it is not allowed to see would
+            # widen the input past the scope that makes it safe to run while waiting.
+            return ReviewEvidence(
+                case=revision.snapshot,
+                excerpts=[
+                    excerpt
+                    for reference in about_question.supporting_references
+                    for excerpt in self._source.for_review(review, reference=reference)
+                ],
+            )
+        # Every boundary, because a concluded review shows every boundary. The code follows
+        # whatever the stage is already allowed to reason about.
+        elicitation, recorded = self._elicitation(review, revision.answered)
+        return ReviewEvidence(
+            case=revision.snapshot,
+            excerpts=self._source.for_review(review),
+            elicitation=elicitation,
+            answers_were_recorded=recorded,
+        )
+
+    def _elicitation(
+        self,
+        review: BoundaryReview,
+        answered: AnsweredQuestions | None,
+    ) -> tuple[list[AnsweredQuestion], bool]:
+        """The round that produced this review, joined back together.
+
+        The two halves are stored apart on purpose and neither is the wrong place. A question
+        is advisor output and belongs to the review that asked it; an answer is user-authored
+        and belongs to the case revision it created (invariant 25). What was missing was only
+        the join, and it is a lookup rather than a stored link: `elicited_from` names the pass
+        that asked, and the revision this pass pinned records what it answered.
+
+        A first pass has asked nothing yet and gets an empty round. So does a pass whose
+        predecessor has since been deleted — the questions are genuinely unavailable then,
+        and inventing the shape of a round from the answers alone would be describing
+        questions nobody can read.
+
+        Skipped questions are carried with an empty answer rather than dropped. "You were
+        asked this and chose not to say" is a fact about the round, and a verdict that still
+        hinges is often hinging on exactly that.
+        """
+
+        if review.elicited_from is None:
+            return [], False
+        try:
+            asked = self._reviews.get(review.elicited_from)
+        except ArchCompassError:
+            return [], False
+        report = asked.report
+        if report is None:
+            return [], False
+        # Answers only count for the pass they were written against. A revision carrying
+        # some other review's round would mean a case edited between the two passes, and
+        # pairing across that would attribute text to a question it never answered.
+        written: dict[str, str] = {}
+        recorded = answered is not None and answered.review_id == asked.review_id
+        if answered is not None and recorded:
+            written = {
+                item.question_reference: item.recorded_text for item in answered.answers
+            }
+        return [
+            AnsweredQuestion(
+                question=question,
+                answer=written.get(question.reference, ""),
+            )
+            for question in report.overview.open_questions
+        ], recorded
 
     def _background(self, review: BoundaryReview) -> MethodKnowledge:
         """What the advisor knows about its own method, whole.
@@ -195,9 +360,27 @@ class ReviewConversationService:
         root = snapshot.repository.root_path if snapshot.repository else None
         return Path(root) if root else None
 
-    def _load(self, review_id: str) -> BoundaryReview:
+    def _load(self, review_id: str, *, about_question: str | None = None) -> BoundaryReview:
         review = self._reviews.get(review_id)
-        if review.status is not ReviewStatus.SUCCEEDED or review.report is None:
+        # A review still waiting on answers is refused a conversation about itself, and for
+        # a stronger reason than a failed one is. It has verdicts and a report, so a question
+        # about it would be answerable — but those verdicts are the ones the run itself said
+        # it could not settle, and answering questions about them would hand a reader the
+        # provisional set through a side door the page deliberately withholds it through.
+        #
+        # A conversation about one of its open questions is a different thing and is allowed
+        # (§6C.7). It is shown only the boundaries that question cites, so there is no held
+        # set in the input to leak — and refusing it would mean telling a reader who does not
+        # understand the question that they must answer it before they may ask about it,
+        # which is §6C.5's adoption tax in its purest form.
+        if review.status is ReviewStatus.AWAITING_ANSWERS and about_question is None:
+            raise ConversationNotFoundError(
+                f"Review {review_id} is still waiting on answers, so its verdicts are not "
+                "settled enough to discuss as a whole. Ask about one of its open questions, "
+                "or answer them and ask the review that follows."
+            )
+        settled = {ReviewStatus.SUCCEEDED, ReviewStatus.AWAITING_ANSWERS}
+        if review.status not in settled or review.report is None:
             raise ConversationNotFoundError(
                 f"Review {review_id} did not succeed, so it has nothing to discuss"
             )

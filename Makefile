@@ -2,10 +2,10 @@
 
 sync:
 	uv sync --locked
-	cd frontend && npm ci
+	cd frontend && pnpm install --frozen-lockfile
 
 frontend-sync:
-	cd frontend && npm ci
+	cd frontend && pnpm install --frozen-lockfile
 
 api-types:
 	uv run python scripts/generate_openapi_types.py
@@ -23,10 +23,10 @@ test:
 	uv run pytest
 
 frontend-check: api-types-check
-	cd frontend && npm run check
+	cd frontend && pnpm run check
 
 frontend-build:
-	cd frontend && npm run build
+	cd frontend && pnpm run build
 
 # The built bundle is committed so the workspace serves without a Node toolchain.
 # This fails when it no longer matches frontend/, which is otherwise invisible until
@@ -68,11 +68,18 @@ eval-local:
 # This repository is also a workspace, and it keeps a configuration per provider rather
 # than one unnamed `models.yaml`. Two of them is not a default, so `archcompass web` says
 # so instead of guessing; these targets are where the repository makes the choice.
-web:
-	uv run archcompass web --models-config config/models.ollama.yaml
+# `--models-config` is a global option on the app callback, so it goes before the
+# subcommand. After it, Typer rejects the whole invocation with "No such option".
+# Both build the bundle first. The server serves its own frontend, so the two are one
+# deployment and are correct only together — and they came apart three times in one week the
+# same way: rebuild the bundle, leave the older server running, and the page then sends a
+# field that process has never heard of. Restarting fixes it; building here means there is
+# nothing to fix, and it costs about two seconds.
+web: frontend-build
+	uv run archcompass --models-config config/models.ollama.yaml web
 
-web-google:
-	uv run archcompass web --models-config config/models.google.yaml
+web-google: frontend-build
+	uv run archcompass --models-config config/models.google.yaml web
 
 # Drives the committed bundle in a real browser against a real server, with the model
 # substituted. Outside `check` because it needs Playwright's chromium downloaded.

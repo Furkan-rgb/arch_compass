@@ -1,8 +1,8 @@
 # Persistence model
 
 SQLite is private to persistence and retrieval adapters. Connections enable foreign keys, WAL,
-and a busy timeout; `sqlite-vec` is loaded only for vector operations. Numbered SQL migrations are
-embedded in the package and applied explicitly during initialization. Each migration file and
+and a busy timeout. Numbered SQL migrations are embedded in the package and applied explicitly
+during initialization. Each migration file and
 its migration-ledger insert commit atomically; a failing later statement cannot leave an earlier
 schema or data change applied.
 
@@ -12,10 +12,10 @@ schema or data change applied.
 - `case_revisions`: immutable complete snapshots keyed by case and revision.
 - `atlas_versions`: immutable repository evidence identity.
 - `atlas_nodes`, `atlas_edges`, `atlas_metrics`, `atlas_signals`: evidence owned by one version.
-- `policy_index_versions`: immutable corpus/model/dimension identity.
-- `policies`, `policy_chunks`: original validated policy data by index version.
-- `policy_vector_rows`: stable relational mapping to dimension-specific `vec0` rows.
-- `policy_source_registrations`: canonical persistent workspace policy-source paths.
+- `policy_source_registrations`: canonical persistent workspace policy-source paths. The only
+  policy state the workspace keeps — the documents themselves are read from their sources when
+  asked for. Migration 020 dropped `policy_index_versions`, `policies`, `policy_chunks` and
+  `policy_vector_rows` with the index (ADR 0013).
 - `consultation_runs`: immutable successful or failed execution and report record.
 - `consultation_jobs`: mutable local queue status linked to a fixed case revision and run ID.
 - `consultation_progress_events`: append-only, ordered structured milestones for one job.

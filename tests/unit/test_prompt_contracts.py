@@ -7,6 +7,7 @@ from dataclasses import replace
 from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
 from archcompass.adapters.models.prompt_contracts import (
     ANSWER_REVIEW_QUESTION,
+    ELICIT_QUESTIONS,
     JUDGE_FINDING_CANDIDATE,
     STAGE_PROMPTS,
     SUMMARISE_REVIEW,
@@ -30,9 +31,11 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
     """The enum and the registry must not drift; a gap surfaces as a runtime KeyError."""
 
     expected_versions = {
-        ReasoningTask.JUDGE_FINDING_CANDIDATE: 5,
-        ReasoningTask.SUMMARISE_REVIEW: 4,
-        ReasoningTask.ANSWER_REVIEW_QUESTION: 4,
+        ReasoningTask.JUDGE_FINDING_CANDIDATE: 11,
+        ReasoningTask.ELICIT_QUESTIONS: 3,
+        ReasoningTask.SUMMARISE_REVIEW: 7,
+        ReasoningTask.ANSWER_REVIEW_QUESTION: 7,
+        ReasoningTask.DISCUSS_OPEN_QUESTION: 1,
     }
 
     assert set(STAGE_PROMPTS) == set(ReasoningTask)
@@ -190,3 +193,307 @@ def test_the_substitute_names_the_same_prompts_as_the_real_registry() -> None:
 
     for task in ReasoningTask:
         assert substitute.prompt_identity(task)
+
+
+def test_the_judgement_request_makes_an_unnameable_hinge_the_other_answer() -> None:
+    """A half-filled hinge is not a weaker hinge, and the contract has to say so.
+
+    A live `gemma4:26b` run set `turns_on_this_unknown` and left the three fields blank,
+    twice, through the repair round. The adapter drops such a hinge rather than raising;
+    this is the half of the fix that stops it being produced.
+    """
+
+    request = _normalized(JUDGE_FINDING_CANDIDATE.request)
+
+    assert "if you cannot name the unknown" in request
+    assert "then the answer is stands_either_way" in request
+    assert "say nothing was open rather than that something was, unnamed" in request
+
+
+def test_the_judgement_request_keeps_the_hinge_inside_the_argument() -> None:
+    """Field order is the reasoning order, and a hinge is part of what the verdict rests on."""
+
+    request = _normalized(JUDGE_FINDING_CANDIDATE.request)
+
+    assert request.index("first, in rationale") < request.index("then fill in hinge")
+    assert request.index("then fill in hinge") < request.index("only then set verdict")
+    # The unknown must be the reader's to settle, not the repository's or nobody's.
+    assert "whether requirements might change" in request
+    assert "asking them to do the detector's job" in request
+
+
+def test_the_judgement_contract_makes_the_stage_read_the_case_before_asking() -> None:
+    """Saying what a hinge is for was not enough to stop it hinging everything.
+
+    A live `gemma4:26b` run hinged 8 of 8 on the *complete* `speech-vendor` case, one
+    verdict resting on "whether a second speech vendor is actually being introduced" against
+    a case whose expected_future_changes opens by saying one is under contract. The check
+    against the case is now a step with an order and a named failure rather than a property
+    the stage was expected to infer from what a hinge is for.
+    """
+
+    contract = _normalized(JUDGE_FINDING_CANDIDATE.stage_contract)
+
+    assert "before you claim the case is silent, go and look" in contract
+    # The fields it must actually look in, so "the case" is not left as an abstraction.
+    for field in ("expected_future_changes", "confirmed_facts", "non_goals", "clarifications"):
+        assert field in contract
+    assert "the case answered you" in contract
+    assert "a partial answer in the case is still an answer" in contract
+    assert "a hinge on every boundary is the same as a hinge on none" in contract
+
+
+def test_the_judgement_contract_reads_the_answers_already_given() -> None:
+    """What terminates the loop, asserted where the rule actually lives.
+
+    A hinge becomes a question, so a stage that cannot recognise an answer it has already been
+    given hinges on the same fact for ever and the reader is handed back a question they have
+    replied to. The answers arrive as `clarifications` — the question a review asked beside what
+    the reader wrote — and this is the one place the check against them can be made.
+    """
+
+    contract = _normalized(JUDGE_FINDING_CANDIDATE.stage_contract)
+
+    assert "clarifications is where an earlier round of this same asking was recorded" in contract
+    assert "must not be asked a second time" in contract
+    assert "that is what brings this loop to an end" in contract
+    # And an answer is not a weaker sort of evidence for being phrased as a reply: the force
+    # is the field its bears_on names, or the pair says less than the line it replaced did.
+    assert "carries the same force as an entry in the field its bears_on names" in contract
+    assert "binds the design exactly as a listed constraint does" in contract
+
+
+def test_the_elicitation_request_asks_for_a_force_rather_than_a_destination() -> None:
+    """`answer_belongs_in` stopped naming a list the moment the pair became the record.
+
+    The answer used to be composed into one of five lists, so the field really was a
+    destination. It is not moved anywhere now — the question and the answer stay together —
+    and what the field decides is how a later judgement weighs the pair. A stage still told it
+    is filing a sentence would pick by where the words look tidiest rather than by what the
+    answer does.
+    """
+
+    request = _normalized(ELICIT_QUESTIONS.request)
+    contract = _normalized(ELICIT_QUESTIONS.stage_contract)
+
+    assert "set answer_belongs_in to the force the answer would carry" in request
+    assert "recorded in the case as a question-and-answer pair" in request
+    assert "nothing is moved anywhere" in request
+    # The `unknown` is no longer half of a composed line, and the request must not still say
+    # it is: a stage told to write a subject for a join writes for a join that never happens.
+    assert "joins this to the reader's answer" not in request
+    # And the stage that asks is told not to ask twice.
+    assert "do not ask again what one of them already answers" in contract
+
+
+def test_the_summary_contract_reads_a_clarification_as_part_of_the_case() -> None:
+    """This stage only ever runs on an answered case, so the answers are its material.
+
+    They reach it as pairs in `clarifications` rather than as lines appended to the five
+    deciding lists. A stage not told what a pair is would read the sentences that moved every
+    verdict it is summarising as an exchange printed beside the case instead of as what the
+    case now says.
+    """
+
+    contract = _normalized(SUMMARISE_REVIEW.stage_contract)
+
+    assert "that case will usually carry a clarifications list" in contract
+    assert "weighs exactly as much as an entry in the field its bears_on names" in contract
+    assert "part of what the case states rather than as commentary beside it" in contract
+
+
+def test_the_judgement_contract_names_the_two_ways_a_stage_hedges() -> None:
+    """Both measured on `warehouse-sync`, which hinged 5 of 5 where 2 was right.
+
+    They are the failures that survive the "go and look" check of v8: the stage reads the
+    case, finds the fact, and hinges on whether it will *stay* true — which can be asked of
+    every fact in every case and separates nothing — or hinges on the very question it was
+    asked to decide, which the reader cannot answer because it was never theirs.
+    """
+
+    contract = _normalized(JUDGE_FINDING_CANDIDATE.stage_contract)
+
+    assert "look like diligence here and are refusals to decide" in contract
+    assert "whether a stated fact will stay true" in contract
+    assert "judge the case as it stands" in contract
+    assert "the question you were asked" in contract
+    assert "it is the verdict left unmade" in contract
+
+
+def test_the_judgement_contract_will_not_read_silence_as_evidence() -> None:
+    """A case may now say nothing at all, and that must not condemn everything.
+
+    Measured before it was allowed: told nothing about the future, a run condemned three
+    boundaries the written case justifies, because nothing in the case justified them. Read
+    that way an unwritten case is evidence against every boundary at once, and the advisor
+    becomes the abstraction destroyer §3.1 exists to correct — on the first run a new user
+    sees. The rule was already in the shared contract; this applies it where the verdict is
+    actually made.
+    """
+
+    contract = _normalized(JUDGE_FINDING_CANDIDATE.stage_contract)
+
+    assert "a case may say nothing at all" in contract
+    assert "absence of evidence is not evidence of absence" in contract
+    assert "leave it as it is and put what you were not told in the hinge" in contract
+    # And silence must not become a blanket excuse in the other direction either.
+    assert "a silent case is not a reason to clear a constant copied into four modules" in contract
+
+
+def test_the_answer_contract_shows_the_code_rather_than_reporting_it_absent() -> None:
+    """The record always held the spans; the stage was never given the lines.
+
+    Asked to show the problematic code, a live conversation answered that the review "only
+    contains the names of these modules and does not include the specific lines of code".
+    True of what reached the stage, false of what the review holds — every participant
+    carries an exact span, and those lines now arrive as `source` on each boundary.
+    """
+
+    contract = _normalized(ANSWER_REVIEW_QUESTION.stage_contract)
+    request = _normalized(ANSWER_REVIEW_QUESTION.request)
+
+    assert "each boundary carries `source`" in contract
+    assert "never answer that the review does not contain it" in contract
+    # An absence is stated rather than hidden: "this repository has changed since the review
+    # ran" is the answer, and dropping it would let the stage conclude there is no source.
+    assert "where an entry carries `why_there_is_no_code` instead" in contract
+    # The lines are there to be reasoned about, not copied out — the marking is what puts
+    # them on screen, and the rendering is the application's.
+    assert "read the `source` lines and answer from what they show" in request
+
+
+def test_the_answer_contract_separates_a_repository_claim_from_craft() -> None:
+    """The refusal rule was right, and was being applied to the wrong category.
+
+    "Where the record does not settle what was asked, say what is missing" stops a review of
+    six boundaries speaking about a seventh. Applied to "show me how to carry out the
+    consolidation you recommended" it produced three refusals in a row, because the contract
+    had no category for demonstrating a recommendation it had already made and grounded.
+    """
+
+    contract = _normalized(ANSWER_REVIEW_QUESTION.stage_contract)
+    request = _normalized(ANSWER_REVIEW_QUESTION.request)
+
+    # The original rule survives in both halves, narrowed to what it was always about.
+    assert "a review that examined six boundaries cannot speak about a seventh" in contract
+    assert "does not settle a *fact about this repository*" in request
+    # And the category it was crowding out is named.
+    assert "that rule is about **claims concerning this repository**" in contract
+    assert "is not a claim about the repository" in contract
+    assert "do it. write the example" in contract
+    assert (
+        '"the review does not contain example fix snippets" is a refusal to do your job'
+        in request
+    )
+
+
+def test_an_illustrated_fix_is_grounded_and_labelled_as_an_illustration() -> None:
+    """It may demonstrate a recommendation; it may not present one as a reviewed result."""
+
+    contract = _normalized(ANSWER_REVIEW_QUESTION.stage_contract)
+    request = _normalized(ANSWER_REVIEW_QUESTION.request)
+
+    assert "it rests on the boundary whose recommendation it illustrates" in contract
+    assert "the review did not run it, test it or verify it" in contract
+    # Permission to write code is not permission to invent a repository.
+    assert "build it from `source` and not from memory" in contract
+    assert "do not invent a module, a function or an import you were not shown" in contract
+    assert "say that it is an illustration of the recommendation" in request
+
+
+def test_the_answer_contract_never_asks_the_model_to_reproduce_the_repository() -> None:
+    """The rule §12.0 already held, applied to the place that escaped it.
+
+    An earlier version told the stage to copy the source "character for character", which is
+    the one remedy §12.0 rules out: a model that must reproduce a value to be understood will
+    eventually reproduce it wrongly, silently, and plausibly. It did — `"chelsine"` for
+    `"chelsie"` — after that instruction landed.
+
+    So reproduction moved to the side that already holds the characters, and this asserts the
+    instruction is gone rather than merely softened. Left in, a later edit could reasonably
+    read "be exact" as the rule and tighten it again.
+    """
+
+    contract = _normalized(ANSWER_REVIEW_QUESTION.stage_contract)
+    request = _normalized(ANSWER_REVIEW_QUESTION.request)
+
+    assert "**do not reproduce those lines in your answer.**" in contract
+    assert "read the `source` lines and answer from what they show, without copying" in request
+    # The reason is the division of labour, not the stage's accuracy. Phrasing it as care
+    # is what produced the instruction this replaced.
+    assert "the application already holds every one of these characters" in contract
+    # The rules that told it to copy are gone, not reworded.
+    for banned in (
+        "copy those lines character for character",
+        "transcribe them exactly",
+        "quote the `source` lines when they are what is being asked about",
+    ):
+        assert banned not in contract and banned not in request
+
+    # Composing an illustration is the one exception, and is named as a different act rather
+    # than as a licence to be less careful.
+    assert "illustrating is composing something that does not exist yet" in contract
+    assert "this is the one thing you write in a code block" in request or (
+        "the one thing you write in a code block" in request
+    )
+
+
+def test_the_answer_contract_carries_the_round_that_produced_it() -> None:
+    """Asked what the questions and answers were, a review said it holds no such record.
+
+    True of the review it was shown — `summarise_review` has no field for a question, which
+    is what ends the elicitation loop — and false of the workspace, which keeps the questions
+    on the first pass and the answers on the case revision this pass ran against.
+    """
+
+    contract = _normalized(ANSWER_REVIEW_QUESTION.stage_contract)
+    request = _normalized(ANSWER_REVIEW_QUESTION.request)
+
+    assert "`elicitation_round` is the round of questions this review grew out of" in contract
+    assert "never that the review holds no record of them" in contract
+    # A skipped question is evidence about why a verdict still hinges, not an omission to
+    # pass over — which is the reading that makes carrying skips worth anything.
+    assert "a question shown as skipped is worth as much as an answered one" in contract
+    assert "answer from `elicitation_round`" in request
+
+
+def test_no_contract_tells_a_model_to_reproduce_what_the_application_holds() -> None:
+    """Across every stage, not only the one that got it wrong.
+
+    Invariant 22's checkable sentence was "nothing the model writes is used as a key", and a
+    retyped code snippet is not a key — nothing looks it up. So the letter of the rule
+    permitted the instruction that produced a false quotation, and the prose explaining why
+    lived a section away in §12.0. This is the missing enforcement: an instruction to
+    transcribe, copy or reproduce is a defect wherever it appears, and the phrasings below
+    are the ones that were actually written before anyone noticed.
+
+    Deliberately a banned-phrase list rather than a judgement about intent. It is coarse, and
+    coarse is what makes it hold: a future edit reaching for "be exact about the source"
+    trips it and has to argue with this docstring instead of with nobody.
+    """
+
+    forbidden = (
+        "character for character",
+        "transcribe them exactly",
+        "transcribe it exactly",
+        "copy them exactly",
+        "copy it exactly",
+        "reproduce the source",
+        "reproduce these lines",
+        "quote it verbatim",
+        "verbatim copy",
+        "same identifiers, same spelling",
+    )
+
+    for task, contract in STAGE_PROMPTS.items():
+        halves = (
+            _normalized(contract.system_prompt),
+            _normalized(contract.stage_contract),
+            _normalized(contract.request),
+        )
+        for phrase in forbidden:
+            assert not any(phrase in half for half in halves), (
+                f"{task.value} instructs the model to reproduce source ({phrase!r}). "
+                "Where the application already holds the value, the stage points at it and "
+                "the interface renders it — see invariant 22 and §12.0."
+            )

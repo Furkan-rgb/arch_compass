@@ -19,28 +19,15 @@ import pytest
 from tests.reasoning_support import candidate, case, policies, verdict_json
 
 from archcompass.adapters.models import ollama as ollama_adapters
-from archcompass.adapters.models.ollama import (
-    OllamaEmbeddingProvider,
-    OllamaReasoningProvider,
-)
+from archcompass.adapters.models.ollama import OllamaReasoningProvider
 from archcompass.adapters.models.structured import StreamingChatTransport
-from archcompass.configuration import EmbeddingModelConfig, ReasoningModelConfig
+from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import (
     ModelOutputValidationError,
     PromptBudgetExceededError,
     ProviderError,
 )
 from archcompass.ports.reasoning import ReasoningTask
-
-
-def _embedding_config(*, dimensions: int = 3) -> EmbeddingModelConfig:
-    return EmbeddingModelConfig(
-        provider="ollama",
-        model="embedding-test",
-        base_url="http://ollama.test/",
-        dimensions=dimensions,
-        timeout_seconds=5,
-    )
 
 
 def _reasoning_config(**overrides: object) -> ReasoningModelConfig:
@@ -77,22 +64,6 @@ def _patch_transport(
 
 def _judge(provider: OllamaReasoningProvider, *, count: int = 2) -> object:
     return provider.judge_finding_candidate(case(), candidate(), policies(count))
-
-
-def test_embedding_provider_sends_batch_and_validates_response(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-
-    def post(url: str, **kwargs: object) -> httpx.Response:
-        captured.update(url=url, **kwargs)
-        return _http_response({"embeddings": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]})
-
-    _patch_transport(monkeypatch, post)
-
-    vectors = OllamaEmbeddingProvider(_embedding_config()).embed(["first", "second"])
-
-    assert vectors == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
 
 
 def test_a_reasoning_request_carries_the_narrowed_schema(

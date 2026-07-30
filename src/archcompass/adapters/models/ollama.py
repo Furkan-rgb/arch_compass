@@ -6,14 +6,12 @@ what shape its answer must take are decided in `structured`, above this boundary
 
 from __future__ import annotations
 
-import math
 import time
 from collections.abc import Callable, Iterator, Mapping
 from typing import Final
 
 import httpx
 from ollama import Client, ResponseError
-from pydantic import BaseModel
 
 from archcompass.adapters.models.structured import (
     ChatMessage,
@@ -22,7 +20,7 @@ from archcompass.adapters.models.structured import (
     ThinkLevel,
     timeout_seconds,
 )
-from archcompass.configuration import EmbeddingModelConfig, ReasoningModelConfig
+from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ProviderError
 from archcompass.ports.reasoning import ReasoningTask
 
@@ -103,51 +101,6 @@ def _as_provider_error(error: Exception) -> ProviderError:
             f"Ollama reasoning request failed with HTTP {error.status_code}{suffix}"
         )
     return ProviderError(f"Ollama reasoning request failed: {error}")
-
-
-class EmbeddingResponse(BaseModel):
-    embeddings: list[list[float]]
-
-
-class OllamaEmbeddingProvider:
-    def __init__(self, config: EmbeddingModelConfig) -> None:
-        self._config = config
-        self._client = Client(host=config.base_url, timeout=config.timeout_seconds)
-
-    @property
-    def identity(self) -> tuple[str, str, int]:
-        return (self._config.provider, self._config.model, self._config.dimensions)
-
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        try:
-            response = _with_retry(
-                lambda: self._client.embed(model=self._config.model, input=texts)
-            )
-            payload = EmbeddingResponse(
-                embeddings=[list(vector) for vector in response.embeddings]
-            )
-            if len(payload.embeddings) != len(texts):
-                raise ValueError(
-                    f"Ollama returned {len(payload.embeddings)} embeddings for {len(texts)} inputs"
-                )
-            for index, vector in enumerate(payload.embeddings):
-                if len(vector) != self._config.dimensions:
-                    raise ValueError(
-                        f"Ollama embedding {index} has {len(vector)} dimensions; "
-                        f"expected {self._config.dimensions}"
-                    )
-                if any(not math.isfinite(value) for value in vector):
-                    raise ValueError(f"Ollama embedding {index} contains a non-finite value")
-            return payload.embeddings
-        except (
-            httpx.HTTPError,
-            ResponseError,
-            ConnectionError,
-            KeyError,
-            TypeError,
-            ValueError,
-        ) as error:
-            raise ProviderError(f"Ollama embedding request failed: {error}") from error
 
 
 class OllamaChatTransport:

@@ -1,33 +1,37 @@
-"""Application service for workspace policy sources and immutable policy indexes."""
+"""Where the policy corpus comes from, and what is in it.
+
+One truth about what policies exist, and it is the Markdown on disk. There used to be two:
+this service could answer from a built SQLite index or from the sources themselves, and the
+web read one while the CLI read the other — so the same workspace could report a different
+corpus depending on which you asked. The index existed for retrieval, retrieval is gone
+(ADR 0013), and what it left behind was a second answer to a question with one.
+
+Reading the sources on every call is affordable and is the point: the corpus is about 45,000
+characters, and a policy edited on disk is in the next review without a rebuild step
+standing between the two.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from archcompass.domain.errors import PolicyFormatError
+from archcompass.domain.errors import PolicyFormatError, PolicyNotFoundError
 from archcompass.domain.policy import (
     PolicyDocument,
-    PolicyIndexVersion,
     PolicyScope,
     PolicySourceRegistration,
 )
-from archcompass.ports.policies import (
-    PolicyIndex,
-    PolicySourceInspector,
-    PolicySourceRepository,
-)
+from archcompass.ports.policies import PolicySourceInspector, PolicySourceRepository
 
 
 class PolicyService:
     def __init__(
         self,
         *,
-        index: PolicyIndex,
         source_repository: PolicySourceRepository,
         source_inspector: PolicySourceInspector,
         bundled_sources: tuple[Path, ...],
     ) -> None:
-        self._index = index
         self._source_repository = source_repository
         self._source_inspector = source_inspector
         self._bundled_sources = tuple(
@@ -62,40 +66,33 @@ class PolicyService:
     def list_sources(self) -> list[PolicySourceRegistration]:
         return self._source_repository.list()
 
-    def rebuild(
-        self,
-        *,
-        sources: list[Path] | None = None,
-        repository_root: Path | None = None,
-    ) -> PolicyIndexVersion:
-        for source in sources or []:
-            self.add_source(source)
-        return self._index.rebuild(self.effective_sources(repository_root=repository_root))
-
-    def ensure_current(
-        self, *, repository_root: Path | None = None
-    ) -> PolicyIndexVersion:
-        return self._index.ensure_current(
-            self.effective_sources(repository_root=repository_root)
-        )
-
-    def list_policies(self, version_id: str | None = None) -> list[PolicyDocument]:
-        return self._index.list_policies(version_id)
-
     def catalog(
         self, *, repository_root: Path | None = None
     ) -> list[PolicyDocument]:
+        """Every policy in reach, read from its source.
+
+        `repository_root` adds that repository's own `.archcompass/policies` to the
+        sources, which is how a project's local policies reach a review of it and nothing
+        else.
+        """
+
         return self._source_inspector.load_documents(
             self.effective_sources(repository_root=repository_root)
         )
 
-    def current_version(self) -> PolicyIndexVersion | None:
-        return self._index.current_version()
-
-    def get_policy(
-        self, policy_id: str, version_id: str | None = None
+    def get(
+        self, policy_id: str, *, repository_root: Path | None = None
     ) -> PolicyDocument:
-        return self._index.get_policy(policy_id, version_id)
+        """One policy by id, resolved through the same catalog every stage is shown.
+
+        Looked up here rather than in a route or a command, so "which policies exist" has
+        one answer and "show me this one" cannot disagree with it.
+        """
+
+        for policy in self.catalog(repository_root=repository_root):
+            if policy.id == policy_id:
+                return policy
+        raise PolicyNotFoundError(f"Policy {policy_id} was not found")
 
     def effective_sources(self, *, repository_root: Path | None = None) -> list[Path]:
         registered = [

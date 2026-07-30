@@ -41,9 +41,16 @@ def _boundary(item: ReviewedBoundary) -> list[str]:
         lines += [
             f"- **{bearing.policy_title}** — {bearing.how}" for bearing in item.policy_bearings
         ]
-    # Stated on every boundary rather than once at the end. A reader deciding whether to
-    # act on this specific verdict needs to know what the method could not see, at the
-    # point of deciding.
+    # Both stated on every boundary rather than once at the end, and both for the same
+    # reason: a reader deciding whether to act on this verdict needs to know what it rested
+    # on at the point of deciding. The two are different halves — what the method could not
+    # see, and what the case did not say — and only the second is one they can fix.
+    if item.hinge is not None:
+        lines += [
+            "",
+            f"*This verdict turns on an open question.* {item.hinge.unknown} "
+            f"If so: {item.hinge.if_confirmed} If not: {item.hinge.if_denied}",
+        ]
     lines += ["", f"*Detection limits.* {item.candidate.limitations}"]
     return lines
 
@@ -74,7 +81,89 @@ def _overview(overview: ReviewOverview) -> list[str]:
     return lines
 
 
-def render_report(report: BoundaryReviewReport) -> str:
+def _question_section(overview: ReviewOverview) -> list[str]:
+    """What the advisor is asking for, and where each answer lands.
+
+    Only a first pass ever has these: the summarising stage has no field for a question, so
+    the second pass cannot open a fresh round. Named for what the advisor is asking rather
+    than for a gap in a document — a review may run with nothing written down at all, and
+    "what the case does not say" would describe a hole in something that was never written.
+    """
+
+    if not overview.open_questions:
+        return []
+    lines = ["", "## What it needs to know", ""]
+    lines.append(
+        "Each of these would settle a verdict this run could not settle on its own. An "
+        "answer becomes a revision of the case, and the boundaries are then judged again "
+        "against it — which is the mechanism working rather than the advisor changing its "
+        "mind."
+    )
+    for question in overview.open_questions:
+        lines += [
+            "",
+            f"**{question.reference}. {question.question}**",
+            "",
+            # The observation first and as prose, not as another labelled bullet. It is the
+            # part a reader cannot supply for themselves, and burying it in a list beside
+            # two shorter items is how it gets skipped for the two shorter items.
+            question.what_the_review_saw,
+            "",
+            f"- *What is unstated:* {question.unknown}",
+            f"- *Why it matters:* {question.why_it_matters} "
+            f"({', '.join(question.supporting_references)})",
+            f"- *An answer belongs in:* `{question.answer_belongs_in.value}`",
+        ]
+    return lines
+
+
+def _questions(report: BoundaryReviewReport) -> list[str]:
+    """A first pass that is still asking: the questions, and no findings.
+
+    Deliberately not a shorter version of the same document. Every boundary here has been
+    judged, and printing those verdicts under "what should change" would present as findings
+    a set that four-fifths of moved on the bundled example once its questions were answered
+    (ADR 0010). What is honest to print is the count, the questions, and where the verdicts
+    are — which is the same thing the page shows.
+    """
+
+    reviewed = len(report.reviewed)
+    subject = "boundary" if reviewed == 1 else "boundaries"
+    hinged = sum(1 for item in report.reviewed if item.hinge is not None)
+    lines = [
+        f"# Boundary review — {report.case_title}",
+        "",
+        (
+            f"**This review is waiting on answers.** {reviewed} {subject} were judged "
+            f"against what the case says so far, and {hinged} of those verdicts rested on "
+            "something the case does not state. The verdicts are held rather than reported: "
+            "answering below carries the review on, and the second pass is the one that "
+            "concludes."
+        ),
+        "",
+        "## Case",
+        "",
+        report.problem_and_desired_outcome,
+    ]
+    lines += _question_section(report.overview)
+    lines += ["", f"*What this pass could not see.* {report.overview.limits}"]
+    lines += [
+        "",
+        "## Coverage",
+        "",
+        (
+            f"{len(report.policies_presented)} policies were presented in full with every "
+            f"boundary, and all {reviewed} {subject} were judged. Nothing was skipped; the "
+            "verdicts are withheld because they are provisional, not because they are "
+            "missing."
+        ),
+    ]
+    return lines
+
+
+def render_report(report: BoundaryReviewReport, *, awaiting_answers: bool = False) -> str:
+    if awaiting_answers:
+        return "\n".join(_questions(report))
     lines = [
         f"# Boundary review — {report.case_title}",
         "",
@@ -119,4 +208,4 @@ def render_review(review: BoundaryReview) -> str:
     if review.report is None:
         reasons = "\n".join(f"- {item}" for item in review.sanitized_errors)
         return f"# Boundary review failed\n\n{reasons or '- No reason was recorded.'}"
-    return render_report(review.report)
+    return render_report(review.report, awaiting_answers=review.awaiting_answers)

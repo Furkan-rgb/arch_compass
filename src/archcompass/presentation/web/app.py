@@ -24,6 +24,8 @@ from pydantic import (
     model_validator,
 )
 
+from archcompass.application.cases import WrittenAnswer
+from archcompass.application.review_source import MAX_CONTEXT_LINES
 from archcompass.application.reviews import JudgedCandidate
 from archcompass.bootstrap import Runtime
 from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion, FindingCandidate
@@ -33,6 +35,7 @@ from archcompass.domain.errors import (
     AtlasNotFoundError,
     CaseNotFoundError,
     CaseRevisionConflictError,
+    CaseValidationError,
     ConversationNotFoundError,
     ConversationRetrievalError,
     ConversationRevisionConflictError,
@@ -48,12 +51,8 @@ from archcompass.domain.errors import (
     ReviewStillRunningError,
     StaleAtlasError,
 )
-from archcompass.domain.policy import (
-    PolicyDocument,
-    PolicyIndexVersion,
-    PolicySourceRegistration,
-)
-from archcompass.domain.review import BoundaryReview
+from archcompass.domain.policy import PolicyDocument, PolicySourceRegistration
+from archcompass.domain.review import BoundaryExcerpt, BoundaryReview
 from archcompass.domain.review_conversation import ReviewConversation, ReviewMessage
 from archcompass.domain.workspace import (
     BoundaryReviewSummary,
@@ -133,14 +132,59 @@ class AtlasExploreRequest(APIModel):
         return self
 
 
+class ReviewContextRequest(APIModel):
+    """The nodes a map is being drawn around, asked for together.
+
+    Together rather than one at a time because a node's edges are only drawable once its
+    neighbours are known, and a client that asked per node would be told about edges whose
+    other end it never received.
+    """
+
+    root_path: str = Field(min_length=1)
+    node_ids: list[str] = Field(min_length=1, max_length=40)
+    limit: int = Field(default=25, ge=1, le=100)
+
+
 class ReviewRequest(APIModel):
     case_id: str = Field(min_length=1)
     repository_root: str = Field(min_length=1)
+    #: The first pass whose questions produced this case revision, where this run is the
+    #: second pass of an elicitation. Absent for every review that was not reached by
+    #: answering, which is the ordinary start. Supplying it is what stops the run asking
+    #: again: a second pass concludes rather than eliciting, and the loop terminates.
+    elicited_from: str | None = Field(default=None, min_length=1)
+
+
+class SubmittedAnswer(APIModel):
+    """One answer: which question it settles, and what the reader typed before saving.
+
+    No question and no destination. Both are the question's own properties, read from the
+    review by the server — a client that could send the question could put words in a review's
+    mouth, and one that could name the field could give an answer a weight its question never
+    asked for, with nothing afterwards able to tell either apart from a question that did.
+
+    `recorded_text` is the answer verbatim. It used to be a line the browser composed by
+    joining the question's subject to the reply, because the case had nowhere to keep the pair;
+    the case keeps pairs now (ADR 0014), so this is the reader's words and nothing else.
+    """
+
+    question_reference: str = Field(pattern=r"^Q-[0-9]+$")
+    recorded_text: str = Field(min_length=1, max_length=4000)
+
+
+class ReviewAnswersRequest(APIModel):
+    #: Only the questions that were answered. Skipping is normal and is recorded as absence,
+    #: so a blank entry is refused rather than stored as an answer nobody gave.
+    answers: list[SubmittedAnswer] = Field(min_length=1)
 
 
 class ReviewConversationCreateRequest(APIModel):
     review_id: str = Field(min_length=1)
     title: str | None = Field(default=None, min_length=1)
+    #: `Q-n` to talk about one open question rather than the review as a whole (§6C.7).
+    #: The only form of conversation a review still waiting on answers will open, and
+    #: resolved against that review's own report — a reference it did not ask is refused.
+    question_reference: str | None = Field(default=None, pattern=r"^Q-[0-9]+$")
 
 
 class ReviewQuestionRequest(APIModel):
@@ -246,6 +290,10 @@ class ReviewStarted(APIModel):
     review_id: str
     case_id: str
     case_revision: int
+    #: Which pass this is, echoed back so a watcher can draw the run's stages without
+    #: having to remember what it asked for. A client that reloaded onto a stream it did
+    #: not start has no other way to know.
+    elicited_from: str | None = None
 
 
 class ReviewDetected(APIModel):
@@ -268,6 +316,18 @@ class ReviewJudged(APIModel):
     total: int
     abstraction: str
     material: bool
+
+
+class ReviewEliciting(APIModel):
+    """Every boundary is judged; the first pass is composing what it needs to ask.
+
+    Distinct from `summarising` because it is a different call with a different outcome: one
+    ends in a conclusion, the other may end in a run that stops and waits for a person.
+    Exactly one of the two arrives in any run.
+    """
+
+    event: Literal["eliciting"] = "eliciting"
+    total: int
 
 
 class ReviewSummarising(APIModel):
@@ -295,6 +355,7 @@ ReviewProgressLine = Annotated[
     ReviewStarted
     | ReviewDetected
     | ReviewJudged
+    | ReviewEliciting
     | ReviewSummarising
     | ReviewCompleted
     | ReviewFailed,
@@ -321,28 +382,25 @@ class PolicySourceRequest(APIModel):
     source: str = Field(min_length=1)
 
 
-class PolicyRebuildRequest(APIModel):
-    repository_root: str | None = None
-
-
 class ModelIdentity(APIModel):
     provider: str
     model: str
 
 
-class EmbeddingModelIdentity(ModelIdentity):
-    dimensions: int
-
-
 class WorkspaceModels(APIModel):
+    """The one model a review needs.
+
+    An embedding identity was reported here too, for a policy index that no longer exists:
+    every policy is presented whole to the judging stage, so nothing is embedded and there
+    is nothing for a reader to check about a model that decided nothing (ADR 0013).
+    """
+
     reasoning: ModelIdentity
-    embedding: EmbeddingModelIdentity
 
 
 class WorkspaceSummaryResponse(APIModel):
     workspace: str
     models: WorkspaceModels
-    policy_index: PolicyIndexVersion | None = None
 
 
 class PolicySourceRemovalResponse(APIModel):
@@ -394,18 +452,22 @@ def create_app(runtime: Runtime) -> FastAPI:
             + str(detail["msg"])
             for detail in error.errors()
         ]
+        # The fields are in the message, not only beside it. "The request did not match the
+        # API contract" is true of every possible cause and points at none of them; a reader
+        # who saw `body.elicited_from: Extra inputs are not permitted` would have known in one
+        # glance that their page and their server disagreed about what a review request is.
+        detail = f" ({'; '.join(fields)})" if fields else ""
         return JSONResponse(
             status_code=422,
             content=ProblemDetail(
                 code="validation_error",
-                message="The request did not match the API contract.",
+                message=f"The request did not match the API contract{detail}.",
                 field_errors=fields,
             ).model_dump(mode="json"),
     )
 
     @app.get("/api/workspace")
     def workspace_summary() -> WorkspaceSummaryResponse:
-        policy_version = runtime.policy_service.current_version()
         return WorkspaceSummaryResponse(
             workspace=str(runtime.workspace),
             models=WorkspaceModels(
@@ -413,13 +475,7 @@ def create_app(runtime: Runtime) -> FastAPI:
                     provider=runtime.config.models.reasoning.provider,
                     model=runtime.config.models.reasoning.model,
                 ),
-                embedding=EmbeddingModelIdentity(
-                    provider=runtime.config.models.embedding.provider,
-                    model=runtime.config.models.embedding.model,
-                    dimensions=runtime.config.models.embedding.dimensions,
-                ),
             ),
-            policy_index=policy_version,
         )
 
     @app.get("/api/cases")
@@ -464,6 +520,24 @@ def create_app(runtime: Runtime) -> FastAPI:
     def index_repository(request: RepositoryPathRequest) -> AtlasVersion:
         return runtime.repository_service.index(Path(request.root_path))
 
+    @app.post(
+        "/api/repositories/start",
+        status_code=201,
+        responses=_problem_responses(404, 422),
+    )
+    def start_from_repository(request: RepositoryPathRequest) -> CaseRevision:
+        """Index a repository and open a case about it, with nothing written in it yet.
+
+        The whole of the first step for someone who has not authored a case. Both halves
+        happen here so the flow either produces something reviewable or fails outright,
+        rather than leaving a case pointing at an atlas that was never built — the same
+        ordering, and the same reason, as loading a bundled example.
+        """
+
+        root = Path(request.root_path)
+        runtime.repository_service.index(root)
+        return runtime.case_service.start_from_repository(root)
+
     @app.get("/api/repositories/summary")
     def repository_summary(root_path: str) -> AtlasQueryResult:
         return runtime.atlas_service.summary(Path(root_path))
@@ -478,6 +552,20 @@ def create_app(runtime: Runtime) -> FastAPI:
     @app.get("/api/repositories/inspect")
     def repository_inspect(root_path: str, node_id: str) -> AtlasQueryResult:
         return runtime.atlas_service.inspect(Path(root_path), node_id)
+
+    @app.post("/api/repositories/review-context")
+    def repository_review_context(request: ReviewContextRequest) -> AtlasQueryResult:
+        """The subgraph around a review's boundaries, for the map that opens beside it.
+
+        Ids the atlas no longer holds are skipped rather than refused — the result names the
+        ones it found, so a map drawn from a rebuilt atlas is short a node rather than absent.
+        """
+
+        return runtime.atlas_service.review_context(
+            Path(request.root_path),
+            request.node_ids,
+            limit=request.limit,
+        )
 
     @app.post("/api/repositories/explore")
     def repository_explore(request: AtlasExploreRequest) -> AtlasQueryResult:
@@ -568,6 +656,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         return runtime.review_service.review(
             request.case_id,
             repository_root=Path(request.repository_root),
+            elicited_from=request.elicited_from,
         )
 
     @app.post(
@@ -613,6 +702,69 @@ def create_app(runtime: Runtime) -> FastAPI:
     )
     def get_review(review_id: str) -> BoundaryReview:
         return runtime.review_repository.get(review_id)
+
+    @app.get(
+        "/api/reviews/{review_id}/source",
+        responses=_problem_responses(404, 422),
+    )
+    def review_source(
+        review_id: str,
+        reference: Annotated[str | None, Query(pattern=r"^BR-[0-9]{3}$")] = None,
+        context_lines: Annotated[int, Query(ge=0, le=MAX_CONTEXT_LINES)] = 0,
+    ) -> list[BoundaryExcerpt]:
+        """The code this review's findings were measured from.
+
+        Delivery, not retrieval: every participant already carries the span a deterministic
+        detector chose when the verdict was reached, so there is nothing to search for and
+        nothing for a caller to select. `reference` narrows to one boundary because a page
+        asks for what it is about to draw; `context_lines` is how much surrounding code to
+        unfold, bounded by the workspace rather than by the request.
+
+        A boundary whose code cannot be shown answers with the reason instead of the text —
+        the repository has changed since the review ran, is gone, or the boundary was never
+        written. That is a 200 carrying a stated absence, not a 404: the finding exists and
+        is worth reading either way.
+        """
+
+        review = runtime.review_repository.get(review_id)
+        return runtime.review_source_service.for_review(
+            review,
+            reference=reference,
+            context_lines=context_lines,
+        )
+
+    @app.post(
+        "/api/reviews/{review_id}/answers",
+        status_code=201,
+        responses=_problem_responses(404, 409, 422),
+    )
+    def answer_review_questions(
+        review_id: str,
+        request: ReviewAnswersRequest,
+    ) -> CaseRevision:
+        """Record a round of answers as one case revision that says what it answered.
+
+        Its own route rather than a `PATCH /api/cases/{id}` the browser composes, because
+        provenance written that way is optional by construction: a client that forgot it
+        produced a revision which had silently lost the link back to the question. Here the
+        link cannot be omitted — it is the thing the route exists to write.
+
+        The server resolves each `Q-n` against this review's own report and reads the
+        destination field from the question. A client sends the reference and the line the
+        reader saw, and nothing that decides where it goes (§12.0).
+        """
+
+        review = runtime.review_repository.get(review_id)
+        return runtime.case_service.answer(
+            review,
+            [
+                WrittenAnswer(
+                    question_reference=item.question_reference,
+                    recorded_text=item.recorded_text,
+                )
+                for item in request.answers
+            ],
+        )
 
     @app.post(
         "/api/reviews/{review_id}/cancel",
@@ -691,6 +843,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         return runtime.review_conversation_service.create(
             request.review_id,
             title=request.title,
+            question_reference=request.question_reference,
         )
 
     @app.get(
@@ -771,29 +924,16 @@ def create_app(runtime: Runtime) -> FastAPI:
             removed=runtime.policy_service.remove_source(Path(source))
         )
 
-    @app.post("/api/policies/rebuild")
-    def rebuild_policies(request: PolicyRebuildRequest) -> PolicyIndexVersion:
-        return runtime.policy_service.rebuild(
-            repository_root=(
-                Path(request.repository_root)
-                if request.repository_root is not None
-                else None
-            )
-        )
-
-    @app.get("/api/policies/{policy_id}")
+    @app.get("/api/policies/{policy_id}", responses=_problem_responses(404))
     def get_policy(
         policy_id: str, repository_root: str | None = None
     ) -> PolicyDocument:
-        policies = runtime.policy_service.catalog(
+        return runtime.policy_service.get(
+            policy_id,
             repository_root=(
                 Path(repository_root) if repository_root is not None else None
-            )
+            ),
         )
-        for policy in policies:
-            if policy.id == policy_id:
-                return policy
-        raise PolicyNotFoundError(f"Policy {policy_id} was not found")
 
     @app.api_route(
         "/api/{api_path:path}",
@@ -813,10 +953,10 @@ def create_app(runtime: Runtime) -> FastAPI:
     def spa(path: str) -> FileResponse | JSONResponse:
         candidate = (STATIC_DIR / path).resolve()
         if path and candidate.is_file() and candidate.is_relative_to(STATIC_DIR.resolve()):
-            return FileResponse(candidate)
+            return FileResponse(candidate, headers=_static_cache_headers(candidate))
         index = STATIC_DIR / "index.html"
         if index.is_file():
-            return FileResponse(index)
+            return FileResponse(index, headers=_static_cache_headers(index))
         return JSONResponse(
             status_code=503,
             content=ProblemDetail(
@@ -826,6 +966,23 @@ def create_app(runtime: Runtime) -> FastAPI:
         )
 
     return app
+
+
+def _static_cache_headers(served: Path) -> dict[str, str]:
+    """
+    How long a browser may keep a built file.
+
+    The build gives every asset a content hash and empties the output directory, so an
+    asset's name changes the moment its bytes do and the old name stops existing. That
+    makes the assets safe to keep forever — and makes `index.html`, which is the only
+    file that knows the current names, the one file that must never be kept: a stale copy
+    asks for hashed names that were deleted by the build, so the app half-loads from a
+    cache the user cannot see and a plain reload does not clear.
+    """
+
+    if served.parent.name == "assets":
+        return {"cache-control": "public, max-age=31536000, immutable"}
+    return {"cache-control": "no-cache"}
 
 
 def _abstraction_name(candidate: FindingCandidate) -> str:
@@ -855,6 +1012,7 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
         event: ReviewStarted
         | ReviewDetected
         | ReviewJudged
+        | ReviewEliciting
         | ReviewSummarising
         | ReviewCompleted
         | ReviewFailed,
@@ -867,6 +1025,7 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
                 review_id=review.review_id,
                 case_id=review.case_id,
                 case_revision=review.case_revision,
+                elicited_from=review.elicited_from,
             )
         )
 
@@ -897,9 +1056,11 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
             review = runtime.review_service.review(
                 request.case_id,
                 repository_root=Path(request.repository_root),
+                elicited_from=request.elicited_from,
                 on_started=report_start,
                 on_detected=report_detection,
                 on_verdict=report_verdict,
+                on_eliciting=lambda: emit(ReviewEliciting(total=detected)),
                 on_summarising=lambda: emit(ReviewSummarising(total=detected)),
             )
         except ArchCompassError as error:
@@ -1034,6 +1195,7 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
     if isinstance(
         error,
         (
+            CaseValidationError,
             PathValidationError,
             PolicyFormatError,
             ModelOutputValidationError,

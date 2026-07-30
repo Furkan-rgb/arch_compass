@@ -145,6 +145,241 @@ def test_a_streamed_review_counts_its_boundaries_before_judging_them(
     assert client.get(f"/api/reviews/{review_id}").status_code == 200
 
 
+def test_the_api_walks_both_passes_of_an_elicitation(runtime: Runtime) -> None:
+    """The whole flow over HTTP, exactly as the browser walks it.
+
+    Point at a repository with no case written, get every boundary judged, get back the
+    questions, answer them into the case, and carry on. What is defended is that the halt is
+    real at the transport level — the first pass reports `awaiting_answers` and the client
+    cannot mistake it for a result — and that naming it on the second request is what turns
+    the second run into one that concludes instead of asking again.
+    """
+
+    repository = str(Path("eval/cases/warehouse-sync/repository").resolve())
+
+    with TestClient(create_app(runtime)) as client:
+        started = client.post("/api/repositories/start", json={"root_path": repository})
+        assert started.status_code == 201, started.text
+        case_id = started.json()["case_id"]
+        # Nothing written: the entry for someone who has a repository and no case.
+        assert started.json()["snapshot"]["problem_statement"] == ""
+
+        first = client.post(
+            "/api/reviews",
+            json={"case_id": case_id, "repository_root": repository},
+        )
+        assert first.status_code == 201, first.text
+        first_review = first.json()
+
+        assert first_review["status"] == "awaiting_answers"
+        assert first_review["elicited_from"] is None
+        questions = first_review["report"]["overview"]["open_questions"]
+        assert questions, "a repository with no case must come back asking"
+        # Judged in full, and the verdicts are kept — they are what the questions were built
+        # from, and the citations below would point at nothing otherwise.
+        reviewed = first_review["report"]["reviewed"]
+        assert len(reviewed) == 5
+        known = {item["reference"] for item in reviewed}
+        for question in questions:
+            assert set(question["supporting_references"]) <= known
+
+        # The listing says the same thing, which is the point of the status: a run holding
+        # for answers must not sit among the finished ones reporting a verdict split.
+        listed = {item["review_id"]: item for item in client.get("/api/reviews").json()}
+        assert listed[first_review["review_id"]]["status"] == "awaiting_answers"
+
+        # It is refused as a subject for questions, too. Its verdicts are exactly the ones
+        # the run said it could not settle, so discussing them would hand back through a
+        # side door the set the page deliberately withholds.
+        conversation = client.post(
+            "/api/review-conversations",
+            json={"review_id": first_review["review_id"]},
+        )
+        assert conversation.status_code == 404
+        assert "waiting on answers" in conversation.json()["message"]
+
+        # The answer, through the route that cannot lose what it answered. The client sends
+        # the reference and the answer the reader typed, and nothing else: the workspace pairs
+        # it with the question from its own report and reads the force from there.
+        assert questions[0]["answer_belongs_in"] == "expected_future_changes"
+        answered = client.post(
+            f"/api/reviews/{first_review['review_id']}/answers",
+            json={
+                "answers": [
+                    {
+                        "question_reference": questions[0]["reference"],
+                        "recorded_text": (
+                            "A second warehouse is under contract and arrives next quarter."
+                        ),
+                    }
+                ]
+            },
+        )
+        assert answered.status_code == 201, answered.text
+        revision = answered.json()
+        assert revision["revision"] == 2
+
+        # The arrow back: this revision says which review it answered and with what, so a
+        # verdict that moves below can be attributed to the sentence that moved it (§6C.4).
+        assert revision["answered"]["review_id"] == first_review["review_id"]
+        recorded = revision["answered"]["answers"]
+        assert [item["question_reference"] for item in recorded] == [
+            questions[0]["reference"]
+        ]
+        assert recorded[0]["answer_belongs_in"] == "expected_future_changes"
+
+        # And the case now carries the pair, over the wire, both halves attributed: the
+        # review's question verbatim and the reader's own answer. Nothing was appended to the
+        # five deciding lists, because the answer is not filed anywhere — it is weighed.
+        assert revision["snapshot"]["clarifications"] == [
+            {
+                "id": revision["snapshot"]["clarifications"][0]["id"],
+                "question": questions[0]["question"],
+                "answer": (
+                    "A second warehouse is under contract and arrives next quarter."
+                ),
+                "bears_on": "expected_future_changes",
+            }
+        ]
+        assert revision["snapshot"]["expected_future_changes"] == []
+
+        # A reference this review never asked is refused rather than recorded.
+        refused = client.post(
+            f"/api/reviews/{first_review['review_id']}/answers",
+            json={"answers": [{"question_reference": "Q-99", "recorded_text": "Nothing."}]},
+        )
+        assert refused.status_code == 422
+        assert "asked no question Q-99" in refused.json()["message"]
+
+        second = client.post(
+            "/api/reviews",
+            json={
+                "case_id": case_id,
+                "repository_root": repository,
+                "elicited_from": first_review["review_id"],
+            },
+        )
+        assert second.status_code == 201, second.text
+        second_review = second.json()
+
+    # The second pass concludes and does not ask again.
+    assert second_review["status"] == "succeeded"
+    assert second_review["elicited_from"] == first_review["review_id"]
+    assert second_review["report"]["overview"]["open_questions"] == []
+    assert second_review["case_revision"] == 2
+    # Same repository, same atlas — so a verdict that moved is attributable to the answer.
+    assert second_review["atlas_version_id"] == first_review["atlas_version_id"]
+    assert [item["reference"] for item in second_review["report"]["reviewed"]] == [
+        item["reference"] for item in reviewed
+    ]
+
+
+def test_the_api_serves_the_code_a_finding_was_measured_from(runtime: Runtime) -> None:
+    """The route behind "show me the problematic code" (ADR 0013).
+
+    Delivery rather than search: the review already records which lines are the evidence, so
+    the request names a boundary and the workspace answers with the code at its spans. What
+    is defended here is the transport shape — that the spans resolve, that the reply says
+    where each block came from and what it contributes, and that unfolding asks for more of
+    the same lines rather than for something else.
+    """
+
+    repository = str(Path("eval/cases/speech-vendor/repository").resolve())
+
+    with TestClient(create_app(runtime)) as client:
+        started = client.post("/api/repositories/start", json={"root_path": repository})
+        assert started.status_code == 201, started.text
+        created = client.post(
+            "/api/reviews",
+            json={"case_id": started.json()["case_id"], "repository_root": repository},
+        )
+        assert created.status_code == 201, created.text
+        review = created.json()
+        reference = review["report"]["reviewed"][0]["reference"]
+
+        response = client.get(
+            f"/api/reviews/{review['review_id']}/source",
+            params={"reference": reference, "context_lines": 0},
+        )
+        assert response.status_code == 200, response.text
+        excerpts = response.json()
+
+        assert excerpts, "a review of a real repository records spans to read"
+        for excerpt in excerpts:
+            assert excerpt["reference"] == reference
+            assert excerpt["location"]["path"].endswith(".py")
+            assert excerpt["role"]
+            # Exactly one of the code and the reason there is none.
+            assert bool(excerpt["text"]) != bool(excerpt["unavailable"])
+
+        # Unfolding returns more of the same file, not a different span.
+        wider = client.get(
+            f"/api/reviews/{review['review_id']}/source",
+            params={"reference": reference, "context_lines": 4},
+        ).json()
+        assert wider[0]["location"] == excerpts[0]["location"]
+        assert len(wider[0]["text"].splitlines()) > len(excerpts[0]["text"].splitlines())
+
+        # A boundary this review does not contain is an empty answer rather than an error:
+        # asking about a finding that is not there is not a failure of the route.
+        assert (
+            client.get(
+                f"/api/reviews/{review['review_id']}/source",
+                params={"reference": "BR-999"},
+            ).json()
+            == []
+        )
+
+
+def test_the_api_answers_a_whole_map_in_one_request(runtime: Runtime) -> None:
+    """The route behind the atlas tab opening with context rather than isolated boxes.
+
+    Asked one node at a time — `/inspect`, which is what the workspace did before — each
+    answer is the node alone, so every edge out of it names a neighbour the client was never
+    given and has to be dropped. Defended here is that one request carries both ends of every
+    edge it reports, and that an id the atlas no longer holds is skipped rather than refused.
+    """
+
+    repository = str(Path("eval/cases/speech-vendor/repository").resolve())
+
+    with TestClient(create_app(runtime)) as client:
+        indexed = client.post("/api/repositories/index", json={"root_path": repository})
+        assert indexed.status_code == 201, indexed.text
+        summary = client.get("/api/repositories/summary", params={"root_path": repository})
+        anchors = summary.json()["node_ids"][:3]
+        assert len(anchors) == 3
+
+        response = client.post(
+            "/api/repositories/review-context",
+            json={"root_path": repository, "node_ids": [*anchors, "node_departed"]},
+        )
+
+        assert response.status_code == 200, response.text
+        context = response.json()
+        # The stale id is absent from what was found, and did not take the others with it.
+        assert context["node_ids"] == anchors
+        assert "3 of 4 requested nodes found" in context["summary"]
+        returned = {item["node_id"] for item in context["node_summaries"]}
+        assert set(anchors) <= returned
+        assert len(returned) > len(anchors), "neighbours are what makes this a map"
+        # Every reported edge is drawable: both endpoints came back in the same answer.
+        for edge in context["relationships"]:
+            assert edge["source_id"] in returned
+            assert edge["target_id"] in returned
+        assert all(value["node_id"] in returned for value in context["metric_values"])
+        assert all(signal["node_id"] in returned for signal in context["signals"])
+
+        # Ids that are all stale are an empty map with a sentence, not a 4xx the tab would
+        # have to render as a failure.
+        empty = client.post(
+            "/api/repositories/review-context",
+            json={"root_path": repository, "node_ids": ["node_departed"]},
+        )
+        assert empty.status_code == 200, empty.text
+        assert empty.json()["node_summaries"] == []
+        assert "None of the 1 requested nodes" in empty.json()["summary"]
+
+
 def test_a_streamed_review_that_fails_says_so_in_the_stream(
     runtime: Runtime,
     tmp_path: Path,
@@ -326,6 +561,23 @@ def test_a_review_of_unscored_code_reports_no_score_rather_than_a_made_up_one(
         assert scored.json() is None
 
 
+def test_a_validation_failure_says_which_field_was_wrong(runtime: Runtime) -> None:
+    """The message a reader sees has to point at something.
+
+    "The request did not match the API contract" is true of every possible cause and points at
+    none of them. The field is what makes the difference between an error and a diagnosis.
+    """
+
+    with TestClient(create_app(runtime)) as client:
+        refused = client.post("/api/reviews", json={"case_id": "c"})
+
+    assert refused.status_code == 422
+    problem = refused.json()
+    assert problem["field_errors"]
+    for field in problem["field_errors"]:
+        assert field in problem["message"]
+
+
 def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> None:
     """The generated TypeScript client is derived from this; a gap here is a silent any."""
 
@@ -344,6 +596,7 @@ def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> N
         "/api/review-conversations/{conversation_id}/messages/stream",
         "/api/reviews/{review_id}/score",
         "/api/repositories/explore",
+        "/api/repositories/review-context",
     ):
         assert route in paths, route
 

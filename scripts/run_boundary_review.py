@@ -32,7 +32,7 @@ import json
 import sys
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TextIO
 
@@ -56,6 +56,12 @@ class Example:
     #: Present only where the example ships an answer key. Without one a run can be read
     #: but not graded, which is reported as unscored rather than counted as a pass.
     expected: Path | None
+    #: Present only where the example grades elicitation: which verdicts should say they
+    #: rest on something the case withholds, and how many questions those should merge into.
+    #: A separate file from `expected.yaml` on purpose — an example may grade where the
+    #: silence was noticed without asserting a verdict for a boundary that genuinely turns
+    #: on it, which is the whole shape of `warehouse-sync`.
+    elicitation: Path | None
 
     @property
     def answers(self) -> dict[str, dict[str, str | bool]]:
@@ -63,6 +69,26 @@ class Example:
             return {}
         document = yaml.safe_load(self.expected.read_text(encoding="utf-8"))
         return {item["abstraction"]: item for item in document["boundaries"]}
+
+    @property
+    def hinge_key(self) -> tuple[dict[str, bool], int | None]:
+        """Which abstractions should carry a hinge, and how many questions they merge into.
+
+        Returns an empty mapping where the example does not grade elicitation, so a caller
+        can tell "no expectation" from "expected none".
+        """
+
+        if self.elicitation is None:
+            return {}, None
+        document = yaml.safe_load(self.elicitation.read_text(encoding="utf-8"))
+        expected = {
+            str(item["abstraction"]): True for item in document.get("hinged", []) or []
+        }
+        expected.update(
+            {str(item["abstraction"]): False for item in document.get("not_hinged", []) or []}
+        )
+        questions = document.get("questions")
+        return expected, None if questions is None else int(questions)
 
 
 @dataclass
@@ -77,10 +103,24 @@ class Outcome:
     unknown: list[str]
     seconds: float
     review_id: str
+    #: How many boundaries carried a hinge, always. Reported even where nothing grades it,
+    #: because "every verdict rests on something" is the failure mode worth seeing at a
+    #: glance and it does not need a key to be visible.
+    hinged: int = 0
+    questions: int = 0
+    #: Populated only where the example ships `elicitation.yaml`.
+    hinge_scored: int = 0
+    hinge_correct: int = 0
+    hinge_wrong: list[str] = field(default_factory=list)
+    expected_questions: int | None = None
 
     @property
     def graded(self) -> bool:
         return self.scored > 0
+
+    @property
+    def hinge_graded(self) -> bool:
+        return self.hinge_scored > 0
 
     @property
     def passed(self) -> bool:
@@ -102,24 +142,45 @@ def brownfield_examples() -> list[Example]:
         if not case.is_file() or not repository.is_dir():
             continue
         expected = directory / "expected.yaml"
+        elicitation = directory / "elicitation.yaml"
         found.append(
             Example(
                 name=directory.name,
                 case=case,
                 repository=repository.resolve(),
                 expected=expected if expected.is_file() else None,
+                elicitation=elicitation if elicitation.is_file() else None,
             )
         )
     return found
 
 
-def run_example(runtime: Runtime, example: Example, sink: TextIO | None) -> Outcome:
+def run_example(
+    runtime: Runtime,
+    example: Example,
+    sink: TextIO | None,
+    *,
+    no_case: bool = False,
+) -> Outcome:
     answers = example.answers
+    hinge_key, expected_questions = example.hinge_key
     runtime.repository_service.index(example.repository)
-    case = ArchitectureCase.model_validate(
-        yaml.safe_load(example.case.read_text(encoding="utf-8"))
-    )
-    revision = runtime.case_repository.create(case, actor="evaluation")
+    if no_case:
+        # The example's repository with its case thrown away — what a first-time user gets
+        # by pointing at their own code (master plan §6C.1). Two failures live here and pull
+        # opposite ways: condemning every boundary because an unwritten case justified none
+        # of them, and clearing every boundary without flagging what was never stated, which
+        # reads as approval nobody earned. Neither the verdict key nor the hinge key applies
+        # — both were written for the case as authored — so this run reports rather than
+        # scores, and the numbers to watch are how many were condemned and how many hinged.
+        answers = {}
+        hinge_key, expected_questions = {}, None
+        revision = runtime.case_service.start_from_repository(example.repository)
+    else:
+        case = ArchitectureCase.model_validate(
+            yaml.safe_load(example.case.read_text(encoding="utf-8"))
+        )
+        revision = runtime.case_repository.create(case, actor="evaluation")
 
     correct = 0
     unknown: list[str] = []
@@ -144,11 +205,25 @@ def run_example(runtime: Runtime, example: Example, sink: TextIO | None) -> Outc
         want = "—" if key is None else ("material" if key["material"] else "not material")
         elapsed = time.monotonic() - started
         started = time.monotonic()
+        # A second mark for elicitation, in its own column. Kept apart from the verdict's
+        # because they are different questions about the same boundary — a verdict can be
+        # right while resting on an unknown that was never named, and a run that scores well
+        # on one and badly on the other is the thing worth seeing.
+        hinge = item.verdict.hinge
+        wanted_hinge = hinge_key.get(name)
+        if wanted_hinge is None:
+            hinge_mark = "?" if hinge else " "
+        elif wanted_hinge == (hinge is not None):
+            hinge_mark = "✓"
+        else:
+            hinge_mark = "✗"
         print(
             f"  {mark} [{position}/{total}] {name:<32} "
-            f"said {said:<13} expected {want:<13} {elapsed:.0f}s",
+            f"said {said:<13} expected {want:<13} {elapsed:.0f}s  hinge {hinge_mark}",
             flush=True,
         )
+        if hinge is not None:
+            print(f"        turns on: {hinge.unknown}", flush=True)
         if sink is not None:
             sink.write(
                 json.dumps(
@@ -165,14 +240,20 @@ def run_example(runtime: Runtime, example: Example, sink: TextIO | None) -> Outc
             )
             sink.flush()
 
+    # A first pass, deliberately. This harness measures what one pass reaches from one case,
+    # which is exactly the thing the two-pass flow holds back from the reader — a run that
+    # stops to ask is the outcome under measurement, not a failure to complete.
     review = runtime.review_service.review(
         revision.case_id,
         repository_root=example.repository,
         on_verdict=report,
+        on_eliciting=lambda: print("  … composing what it needs to know", flush=True),
         on_summarising=lambda: print("  … reading the verdicts as a set", flush=True),
     )
     report_body = review.report
     assert report_body is not None
+    if review.awaiting_answers:
+        print("\n  This pass is waiting on answers; its verdicts are provisional.")
 
     overview = report_body.overview
     print(f"\n  {overview.situation}")
@@ -185,6 +266,32 @@ def run_example(runtime: Runtime, example: Example, sink: TextIO | None) -> Outc
         )
     print(f"  {overview.limits}")
 
+    hinged = [item for item in report_body.reviewed if item.hinge]
+    if overview.open_questions:
+        print(f"\n  What the case does not say ({len(hinged)} verdicts rest on something):")
+        for question in overview.open_questions:
+            print(f"    {question.reference}. {question.question}")
+            print(
+                f"        settles {', '.join(question.supporting_references)} "
+                f"· an answer belongs in {question.answer_belongs_in.value}"
+            )
+    elif hinged:
+        # Worth saying out loud: hinges were recorded and none became a question, which is
+        # a consolidation failure rather than a quiet success.
+        print(f"\n  {len(hinged)} verdicts rest on something, and nothing was asked.")
+
+    hinge_correct = 0
+    hinge_wrong: list[str] = []
+    for item in report_body.reviewed:
+        name = item.candidate.participants[0].qualified_name
+        wanted = hinge_key.get(name)
+        if wanted is None:
+            continue
+        if wanted == (item.hinge is not None):
+            hinge_correct += 1
+        else:
+            hinge_wrong.append(f"{name} ({'expected a hinge' if wanted else 'should not hinge'})")
+
     return Outcome(
         example=example.name,
         boundaries=len(report_body.reviewed),
@@ -194,22 +301,62 @@ def run_example(runtime: Runtime, example: Example, sink: TextIO | None) -> Outc
         unknown=unknown,
         seconds=time.monotonic() - total_started,
         review_id=review.review_id,
+        hinged=len(hinged),
+        questions=len(overview.open_questions),
+        hinge_scored=sum(
+            1
+            for item in report_body.reviewed
+            if item.candidate.participants[0].qualified_name in hinge_key
+        ),
+        hinge_correct=hinge_correct,
+        hinge_wrong=hinge_wrong,
+        expected_questions=expected_questions,
     )
 
 
 def print_table(outcomes: list[Outcome]) -> None:
-    print(f"\n{'example':<28} {'boundaries':>10} {'material':>9} {'score':>9}  time")
+    print(
+        f"\n{'example':<28} {'boundaries':>10} {'material':>9} {'score':>9} "
+        f"{'hinged':>7} {'asked':>6} {'hinge':>9}  time"
+    )
     for outcome in outcomes:
         score = f"{outcome.correct}/{outcome.scored}" if outcome.graded else "unscored"
+        hinge = (
+            f"{outcome.hinge_correct}/{outcome.hinge_scored}"
+            if outcome.hinge_graded
+            else "—"
+        )
         print(
             f"{outcome.example:<28} {outcome.boundaries:>10} {outcome.material:>9} "
-            f"{score:>9}  {outcome.seconds:.0f}s"
+            f"{score:>9} {outcome.hinged:>7} {outcome.questions:>6} {hinge:>9}  "
+            f"{outcome.seconds:.0f}s"
         )
     graded = [outcome for outcome in outcomes if outcome.graded]
     if graded:
         correct = sum(outcome.correct for outcome in graded)
         scored = sum(outcome.scored for outcome in graded)
         print(f"\n{correct}/{scored} correct across {len(graded)} scored example(s)")
+    hinge_graded = [outcome for outcome in outcomes if outcome.hinge_graded]
+    if hinge_graded:
+        correct = sum(outcome.hinge_correct for outcome in hinge_graded)
+        scored = sum(outcome.hinge_scored for outcome in hinge_graded)
+        print(
+            f"{correct}/{scored} boundaries hinged where they should across "
+            f"{len(hinge_graded)} example(s)"
+        )
+    for outcome in outcomes:
+        for wrong in outcome.hinge_wrong:
+            print(f"HINGE WRONG in {outcome.example}: {wrong}")
+        if outcome.expected_questions is not None and (
+            outcome.questions != outcome.expected_questions
+        ):
+            # A count rather than a wording, because what is being graded is whether the
+            # overview merged hinges that rest on one fact — asking twice about the same
+            # thing is the failure, and no phrasing check is needed to see it.
+            print(
+                f"QUESTIONS in {outcome.example}: asked {outcome.questions}, "
+                f"expected {outcome.expected_questions}"
+            )
     for outcome in outcomes:
         if outcome.unknown:
             # Never silently exclude: an abstraction the key does not cover is a fixture
@@ -243,6 +390,15 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--no-case",
+        action="store_true",
+        help=(
+            "Throw the example's case away and review its repository alone, as a first-time "
+            "user does. Reports rather than scores: neither key applies to a case nobody "
+            "wrote."
+        ),
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=None,
@@ -269,7 +425,7 @@ def main() -> int:
             for example in examples:
                 marker = "" if example.expected else "  (no answer key)"
                 print(f"\n{example.name}{marker}", flush=True)
-                outcomes.append(run_example(runtime, example, sink))
+                outcomes.append(run_example(runtime, example, sink, no_case=arguments.no_case))
     finally:
         if sink is not None:
             sink.close()

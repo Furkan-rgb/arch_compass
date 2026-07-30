@@ -19,7 +19,7 @@ import pytest
 from archcompass.adapters.persistence.case_repository import SQLiteCaseRepository
 from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.domain.case import ArchitectureCase
-from archcompass.domain.errors import UnreadableStoredRecordError
+from archcompass.domain.errors import PersistenceError, UnreadableStoredRecordError
 
 ADVISOR_FIELDS = ("advisor_design_forces", "current_recommendation", "confidence")
 
@@ -245,6 +245,117 @@ def test_a_migration_number_is_never_reused(tmp_path: Path) -> None:
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
     assert "atlas_module_facts" in tables
+
+
+def _workspace_with_a_reviewed_case(path: Path) -> None:
+    """A revision with both of the things that point at one: a review and a conversation.
+
+    The rows are hand-written rather than produced through the repositories because what is
+    under test is the schema move, not the documents — every JSON column here is a stub, and
+    a migration that needs to read them would be a different test.
+    """
+
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(
+            "INSERT INTO cases(case_id, current_revision, created_at, updated_at)"
+            " VALUES ('case-1', 1, '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')"
+        )
+        connection.execute(
+            "INSERT INTO case_revisions(case_id, revision, event_type, actor, created_at,"
+            " snapshot_json) VALUES ('case-1', 1, 'user_update', 'user',"
+            " '2026-01-01T00:00:00+00:00', '{}')"
+        )
+        connection.execute(
+            "INSERT INTO atlas_versions(version_id, repository_identity, root_path,"
+            " git_commit_sha, content_fingerprint, parser_version, analysis_config_hash,"
+            " created_at) VALUES ('atlas-1', 'repo', '/repo', NULL, 'fingerprint', '1', '1',"
+            " '2026-01-01T00:00:00+00:00')"
+        )
+        connection.execute(
+            "INSERT INTO boundary_reviews(review_id, case_id, case_revision, atlas_version_id,"
+            " status, reasoning_model, boundaries_detected, boundaries_reviewed,"
+            " boundaries_material, created_at, updated_at, case_title, review_json)"
+            " VALUES ('review-1', 'case-1', 1, 'atlas-1', 'succeeded', 'model', 1, 1, 1,"
+            " '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00', 'Title', '{}')"
+        )
+        connection.execute(
+            "INSERT INTO review_conversations(conversation_id, review_id, case_id,"
+            " case_revision, title, message_count, created_at, updated_at, conversation_json)"
+            " VALUES ('conversation-1', 'review-1', 'case-1', 1, 'Title', 1,"
+            " '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00', '{}')"
+        )
+        connection.commit()
+
+
+def test_a_migration_applies_to_a_workspace_that_has_data(tmp_path: Path) -> None:
+    """The regression for a migration that passed every test and died on a real workspace.
+
+    Migration 019 rebuilds `case_revisions`, which reviews and conversations both point at.
+    `DROP TABLE` under `foreign_keys = ON` performs an implicit `DELETE` first, so dropping a
+    parent fails the instant any child row exists — and every migration test until this one
+    ran against a database with no rows in it, where a parent and a leaf are the same shape.
+    The first workspace with reviews in it could not open at all.
+
+    Replaying from the retired number covers both hazards at once: the migrations must be
+    idempotent, *and* they must survive meeting data.
+    """
+
+    path = tmp_path / "archcompass.db"
+    SQLiteDatabase(path).initialize()
+    _workspace_with_a_reviewed_case(path)
+
+    with sqlite3.connect(path) as connection:
+        retired = 15
+        connection.execute("DELETE FROM schema_migrations WHERE version >= ?", (retired,))
+        connection.execute(
+            "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (retired, "2026-01-01T00:00:00+00:00"),
+        )
+        connection.commit()
+
+    SQLiteDatabase(path).initialize()
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT count(*) FROM case_revisions").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM boundary_reviews").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM review_conversations").fetchone()[0] == 1
+        # Nothing was orphaned on the way through, which a rebuild that renamed a new table
+        # into place without carrying the rows would not manage.
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_a_migration_that_orphans_rows_is_refused(tmp_path: Path) -> None:
+    """The price of switching enforcement off for the length of a migration.
+
+    Suspending foreign keys is what makes rebuilding a parent table possible, and it would
+    also let a careless migration strand every row that referenced what it removed. The check
+    inside the transaction is what keeps that from being a silent trade, so it is asserted
+    with a migration that really does strand one.
+    """
+
+    path = tmp_path / "archcompass.db"
+    database = SQLiteDatabase(path)
+    database.initialize()
+    _workspace_with_a_reviewed_case(path)
+
+    with database.connect() as connection:
+        with pytest.raises(PersistenceError, match="no parent"):
+            SQLiteDatabase._apply_migration(
+                connection,
+                version=999,
+                script="DELETE FROM case_revisions;",
+            )
+        # Rolled back whole: the revision is still there, and the version was never recorded.
+        assert connection.execute("SELECT count(*) FROM case_revisions").fetchone()[0] == 1
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM schema_migrations WHERE version = 999"
+            ).fetchone()[0]
+            == 0
+        )
+        # And enforcement is back on for whatever uses this connection next.
+        assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
 
 
 def test_sqlite_supports_the_json_functions_the_migration_needs() -> None:

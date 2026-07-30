@@ -12,11 +12,8 @@ from archcompass.adapters.analysis import (
     SafeSourceReader,
 )
 from archcompass.adapters.models import (
-    DeterministicEmbeddingProvider,
     DeterministicReasoningProvider,
-    GoogleEmbeddingProvider,
     GoogleReasoningProvider,
-    OllamaEmbeddingProvider,
     OllamaReasoningProvider,
 )
 from archcompass.adapters.persistence import (
@@ -29,7 +26,6 @@ from archcompass.adapters.persistence import (
 )
 from archcompass.adapters.retrieval import (
     MarkdownPolicySourceInspector,
-    SQLitePolicyStore,
     load_method_primer,
 )
 from archcompass.application.atlas_freshness import AtlasFreshnessService
@@ -39,6 +35,7 @@ from archcompass.application.cases import CaseService
 from archcompass.application.policies import PolicyService
 from archcompass.application.repository_index import RepositoryIndexService
 from archcompass.application.review_conversations import ReviewConversationService
+from archcompass.application.review_source import ReviewSourceService
 from archcompass.application.reviews import ReviewService
 from archcompass.application.safety import (
     validate_workspace_repository_separation,
@@ -52,8 +49,6 @@ from archcompass.configuration import (
 )
 from archcompass.domain.errors import ConfigurationError
 from archcompass.ports.atlas import AtlasQueryService, RepositoryAnalyzer
-from archcompass.ports.models import EmbeddingProvider
-from archcompass.ports.policies import PolicyIndex
 from archcompass.ports.reasoning import FocusedReasoningProvider
 from archcompass.ports.repositories import (
     AtlasRepository,
@@ -81,10 +76,10 @@ class Runtime:
     atlas_repository: AtlasRepository
     review_repository: BoundaryReviewRepository
     review_conversation_service: ReviewConversationService
+    review_source_service: ReviewSourceService
     bundled_case_service: BundledCaseService
     analyzer: RepositoryAnalyzer
     query_service: AtlasQueryService
-    policy_store: PolicyIndex
     policy_sources: tuple[Path, ...]
     case_service: CaseService
     policy_service: PolicyService
@@ -122,7 +117,6 @@ def build_runtime(
     )
     if initialize:
         database.initialize()
-    embeddings = _embedding_provider(config)
     reasoning = _reasoning_provider(config)
     cases = SQLiteCaseRepository(database)
     atlases = SQLiteAtlasRepository(database)
@@ -132,11 +126,6 @@ def build_runtime(
     freshness = AtlasFreshnessService(analyzer)
     source_reader = SafeSourceReader()
     queries = DeterministicAtlasQueryService(source_reader, freshness)
-    policies = SQLitePolicyStore(
-        database,
-        embeddings,
-        max_sections_per_policy=config.retrieval.max_sections_per_policy,
-    )
     configured_policy_sources = tuple(
         source.expanduser().resolve(strict=False)
         for source in (
@@ -146,7 +135,6 @@ def build_runtime(
         )
     )
     policy_service = PolicyService(
-        index=policies,
         source_repository=SQLitePolicySourceRepository(database),
         source_inspector=MarkdownPolicySourceInspector(),
         bundled_sources=configured_policy_sources,
@@ -167,12 +155,18 @@ def build_runtime(
         repositories=repository_service,
         atlases=atlases,
     )
+    review_source_service = ReviewSourceService(
+        atlases=atlases,
+        source_reader=source_reader,
+        freshness=freshness,
+    )
     review_conversation_service = ReviewConversationService(
         reviews=reviews,
         cases=cases,
         conversations=review_conversations,
         reasoner=reasoning,
         policies=policy_service,
+        source=review_source_service,
         method_primer=load_method_primer(),
     )
     review_service = ReviewService(
@@ -182,6 +176,7 @@ def build_runtime(
         freshness=freshness,
         policies=policy_service,
         reasoner=reasoning,
+        source=review_source_service,
     )
     return Runtime(
         workspace=canonical_workspace,
@@ -191,10 +186,10 @@ def build_runtime(
         atlas_repository=atlases,
         review_repository=reviews,
         review_conversation_service=review_conversation_service,
+        review_source_service=review_source_service,
         bundled_case_service=bundled_case_service,
         analyzer=analyzer,
         query_service=queries,
-        policy_store=policies,
         policy_sources=configured_policy_sources,
         case_service=case_service,
         policy_service=policy_service,
@@ -233,17 +228,6 @@ def initialize_workspace(
         models_config=config_path,
     )
     return WorkspaceInitialization(runtime=runtime, created_paths=tuple(created))
-
-
-def _embedding_provider(config: AppConfig) -> EmbeddingProvider:
-    model = config.models.embedding
-    if model.provider == "ollama":
-        return OllamaEmbeddingProvider(model)
-    if model.provider == "google":
-        return GoogleEmbeddingProvider(model)
-    if model.provider == "fake":
-        return DeterministicEmbeddingProvider(model.dimensions)
-    raise ConfigurationError(f"Unsupported embedding provider: {model.provider}")
 
 
 def _reasoning_provider(config: AppConfig) -> FocusedReasoningProvider:

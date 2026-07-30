@@ -1,23 +1,30 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Search, Trash2, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { LedgerBar, LedgerCount, LedgerFoot } from "@/components/ledger";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
-  BookOpenText,
-  FolderPlus,
-  RefreshCw,
-  Search,
-  ShieldCheck,
-  Trash2,
-  X,
-} from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
 
 import { api } from "../api";
-import {
-  Badge,
-  ErrorPanel,
-  Loading,
-  PageHeader,
-  useDialogFocus,
-} from "../components";
+import { EmptyLine, ErrorPanel, humanizeLabel, Loading, PageHeader, page, sheet } from "../components";
 import { Markdown } from "../markdown";
 import { policyApplicabilityLabel } from "../policy-applicability";
 import type { Policy } from "../types";
@@ -38,16 +45,76 @@ export function filterPolicies(
   );
 }
 
+/**
+ * The first sentence of what a policy actually asks for.
+ *
+ * A policy body opens with a `## …` section whose heading restates the title; the line
+ * under it is the rule in the author's own words. That line is the only part of the body
+ * a table row has room for, and it is the part that distinguishes one row from the next.
+ */
+function policyPrecis(body: string): string {
+  const first = body.split("##")[1]?.replace(/^[^\n]+\n/, "").trim() || "";
+  const line = first.split("\n\n")[0].replaceAll("\n", " ").trim();
+  return line.length > 150 ? `${line.slice(0, 150).trimEnd()}…` : line;
+}
+
+/**
+ * A source path as a table cell: the file, and the directory holding it.
+ *
+ * These are absolute paths on someone's disk, and printed whole they spent half the table
+ * on the half of the path that is identical in every row. The end is the part that differs.
+ * Nothing is hidden: the full path is the cell's tooltip and the drawer prints it entire.
+ */
+function sourceLabel(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : path;
+}
+
+/* A path or an identifier in a cell of its own: this product's material, in the face it is
+   stored in, on its own line and never wrapped. */
+const cellCode = "block text-micro whitespace-nowrap text-ink-3";
+/* A fact about the record beside it: an uppercase micro label over a value in the face values
+   are stored in. The same pair the review's verdict band draws, down to the ellipsis — a value
+   here is a word or two, and one that wrapped would make the row of them uneven. */
+const factLabel = "text-micro tracking-[.05em] uppercase text-ink-3";
+const factValue =
+  "mt-0.5 overflow-hidden font-mono text-meta tabular-nums text-ellipsis whitespace-nowrap text-ink-2";
+
 export function PoliciesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [scope, setScope] = useState("all");
-  const [selected, setSelected] = useState<Policy | null>(null);
-  const [source, setSource] = useState("");
-  const closePolicy = useCallback(() => setSelected(null), []);
-  const policyDialogRef = useDialogFocus(closePolicy, selected !== null);
   const policies = useQuery({ queryKey: ["policies"], queryFn: api.policies });
+  /**
+   * Which policy is open, kept in the URL rather than in a `useState`.
+   *
+   * It was local state, which was right while the only way in was clicking a row of this
+   * table. The palette can now send a reader straight to a policy by name from anywhere in
+   * the app, and a destination that no address can describe is not a destination. As a side
+   * effect a policy under discussion is now a link someone can paste.
+   *
+   * Replaced rather than pushed: the parameter says what is open, and reading four policies
+   * in a row should not put four steps between the reader and where they came from.
+   */
+  const [params, setParams] = useSearchParams();
+  const selectedId = params.get("policy");
+  const selected = useMemo(
+    () => (policies.data || []).find((policy) => policy.id === selectedId) || null,
+    [policies.data, selectedId],
+  );
+  const setSelected = (policy: Policy | null) => {
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (policy) next.set("policy", policy.id);
+        else next.delete("policy");
+        return next;
+      },
+      { replace: true },
+    );
+  };
   const sources = useQuery({ queryKey: ["policy-sources"], queryFn: api.policySources });
+  const [source, setSource] = useState("");
   const addSource = useMutation({
     mutationFn: api.addPolicySource,
     onSuccess: () => {
@@ -63,11 +130,6 @@ export function PoliciesPage() {
       void queryClient.invalidateQueries({ queryKey: ["policies"] });
     },
   });
-  const rebuild = useMutation({
-    mutationFn: api.rebuildPolicies,
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["workspace"] }),
-  });
-
   const scopes = useMemo(
     () => [...new Set((policies.data || []).map((policy) => policy.scope))],
     [policies.data],
@@ -77,160 +139,280 @@ export function PoliciesPage() {
   }, [policies.data, scope, search]);
 
   return (
-    <div className="page">
-      <PageHeader
-        eyebrow="Normative guidance, not automatic lint"
-        title="Policy library"
-        description="Browse authored policy documents and manage the sources in the corpus. The corpus is presented whole with every boundary judged — nothing is retrieved, so nothing can be missed."
-        action={
-          <button
-            className="button button--primary"
-            type="button"
-            disabled={rebuild.isPending}
-            onClick={() => rebuild.mutate()}
-          >
-            <RefreshCw size={16} className={rebuild.isPending ? "spin" : ""} />
-            {rebuild.isPending ? "Rebuilding…" : "Rebuild index"}
-          </button>
-        }
-      />
-      {(policies.error || sources.error || addSource.error || removeSource.error || rebuild.error) && (
+    <div className={page}>
+      {/* No rebuild action. Policies are read from their sources whenever they are asked
+          for, so what is on this page is what the next review will be shown, and a button
+          to bring an index up to date would be a step that changes nothing (ADR 0013). */}
+      <PageHeader title="Policies" />
+      {(policies.error || sources.error || addSource.error || removeSource.error) && (
         <ErrorPanel
           error={
-            policies.error ||
-            sources.error ||
-            addSource.error ||
-            removeSource.error ||
-            rebuild.error
+            policies.error || sources.error || addSource.error || removeSource.error
           }
         />
       )}
 
-      <section className="policy-toolbar">
-        <label className="search-field">
-          <Search size={17} />
+      {/* One row above the sheet: what to look for, which slice, and how many are left. On a
+          phone it becomes a stack, where each control is a row rather than a share of one. */}
+      <div className="mb-[var(--gap-lg)] flex flex-wrap items-center gap-2.5 max-[620px]:flex-col max-[620px]:items-stretch">
+        <label className="relative flex flex-[1_1_240px] items-center max-[620px]:flex-[0_0_30px]">
+          <Search
+            size={14}
+            aria-hidden
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-3"
+          />
           <span className="sr-only">Search policies</span>
-          <input
+          {/* The icon sits inside the field's own box, so the text starts after it. */}
+          <Input
+            className="pr-3 pl-[34px] text-meta"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search intent, tags, or guidance…"
           />
         </label>
-        <div className="segmented" aria-label="Filter by policy scope">
-          <button className={scope === "all" ? "active" : ""} onClick={() => setScope("all")}>All</button>
+        <ToggleGroup
+          type="single"
+          value={scope}
+          // A group in single mode clears itself when the current item is pressed again.
+          // "No filter" is what `all` already says, so the empty value is the one answer
+          // this control refuses.
+          onValueChange={(value) => {
+            if (value) setScope(value);
+          }}
+          // Full width on a phone, where the row it sits in has nothing else on it and a
+          // filter floating at max-content reads as unfinished.
+          className="overflow-x-auto max-[620px]:w-full"
+          aria-label="Filter by policy scope"
+        >
+          <ToggleGroupItem value="all">All</ToggleGroupItem>
           {scopes.map((item) => (
-            <button key={item} className={scope === item ? "active" : ""} onClick={() => setScope(item)}>
-              {item}
-            </button>
+            <ToggleGroupItem key={item} value={item}>
+              {humanizeLabel(item)}
+            </ToggleGroupItem>
           ))}
-        </div>
-        <span className="result-count">{filtered.length} policies</span>
-      </section>
+        </ToggleGroup>
+        {/* Mono with tabular figures, because it changes as you type and a number that
+            reflows its own width while being read is worse than no number. */}
+        <span className="font-mono text-meta tabular-nums whitespace-nowrap text-ink-3">
+          {filtered.length} {filtered.length === 1 ? "policy" : "policies"} ·{" "}
+          {sources.data?.length || 0} added{" "}
+          {sources.data?.length === 1 ? "source" : "sources"}
+        </span>
+      </div>
 
-      {policies.isLoading ? (
-        <Loading label="Reading authored policies…" />
-      ) : (
-        <div className="policy-grid">
-          {filtered.map((policy) => (
-            <button type="button" className="policy-card" key={policy.id} onClick={() => setSelected(policy)}>
-              <div>
-                <span className="policy-card__icon"><ShieldCheck size={18} /></span>
-                <Badge tone={policy.strength === "required" ? "warning" : "neutral"}>
-                  {policy.strength}
-                </Badge>
-              </div>
-              <h2>{policy.title}</h2>
-              <p>{policy.body.split("##")[1]?.replace(/^[^\n]+\n/, "").trim().slice(0, 180)}…</p>
-              <footer>
-                <code>{policy.id}</code>
-                <span title={policy.applies_to || undefined}>
-                  {policyApplicabilityLabel(policy.scope, policy.applies_to)}
-                </span>
-              </footer>
-            </button>
-          ))}
-        </div>
-      )}
+      {/* A table, because these are rows of one shape being compared: what the rule is,
+          what it bears on, how hard it binds, and where it was authored. The card wall
+          this replaced gave every policy a 255px tile and let four of them fill a screen,
+          so a corpus of twenty-seven could not be read as a corpus at all. Only facts the
+          policy file actually carries are columns — a citation count is not one of them,
+          because nothing counts citations.
 
-      <section className="panel source-panel">
-        <div className="section-heading">
-          <div>
-            <span className="eyebrow">Workspace configuration</span>
-            <h2>Additional policy sources</h2>
-            <p>Files remain authored outside Arch Compass; source registration is persistent.</p>
+          The sheet is the scroller, so the scrollbar sits at its foot rather than between
+          the last row and the sentence about the corpus. */}
+      <div className={cn(sheet, "overflow-x-auto")}>
+        {policies.isLoading ? (
+          <div className="min-w-0">
+            <Loading label="Reading authored policies…" rows={6} />
           </div>
-        </div>
-        <div className="source-add">
-          <FolderPlus size={20} />
-          <label>
-            <span>Policy file or directory</span>
-            <input
+        ) : (
+          <Table
+            data-slot="policy-table"
+            containerClassName="overflow-visible"
+            // What makes the sheet scroll sideways rather than let the columns squeeze:
+            // without it a narrow screen breaks a source path one character per line.
+            className="min-w-[720px]"
+          >
+            <TableHeader>
+              <TableRow>
+                <TableHead>Policy</TableHead>
+                <TableHead>Applies to</TableHead>
+                <TableHead>Strength</TableHead>
+                <TableHead>Source</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((policy) => (
+                <TableRow
+                  key={policy.id}
+                  className="cursor-pointer hover:bg-sunken"
+                  onClick={() => setSelected(policy)}
+                >
+                  <TableCell className="min-w-[24ch]">
+                    {/* The row is clickable for the pointer; the title is the control, so
+                        the keyboard reaches every policy without the row pretending to be
+                        a button it cannot announce itself as. */}
+                    <button
+                      type="button"
+                      data-slot="policy-open"
+                      className="cursor-pointer border-0 bg-transparent p-0 text-left text-ui font-[650] tracking-[-.01em] text-ink hover:text-accent-ink"
+                      onClick={() => setSelected(policy)}
+                    >
+                      {policy.title}
+                    </button>
+                    <p className="m-0 mt-0.5 max-w-[62ch] leading-[1.5] text-ink-2">
+                      {policyPrecis(policy.body)}
+                    </p>
+                    <code className={cellCode}>{policy.id}</code>
+                  </TableCell>
+                  <TableCell title={policy.applies_to || undefined}>
+                    {policyApplicabilityLabel(policy.scope, policy.applies_to)}
+                  </TableCell>
+                  <TableCell>
+                    {policy.strength === "required" ? (
+                      <Badge variant="material">required</Badge>
+                    ) : (
+                      <span className="text-ink-3">{policy.strength}</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <code className={cellCode} title={policy.source_path}>
+                      {sourceLabel(policy.source_path)}
+                    </code>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!filtered.length ? (
+                <TableRow>
+                  <TableCell colSpan={4}>
+                    <EmptyLine className="my-1">
+                      Nothing matches that. Clear the search, or add the file these rules
+                      live in below.
+                    </EmptyLine>
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        )}
+        <LedgerFoot>
+          The corpus is presented whole to every boundary judged — nothing is retrieved, so
+          nothing can be missed.
+        </LedgerFoot>
+      </div>
+
+      <section className={sheet}>
+        <LedgerBar>
+          <strong>Additional policy sources</strong>
+          <LedgerCount>files stay authored outside Arch Compass</LedgerCount>
+        </LedgerBar>
+        <div className="flex flex-wrap items-center gap-2.5 p-[var(--card-pad)]">
+          <label className="min-w-0 flex-[1_1_260px]">
+            <span className="sr-only">Policy file or directory</span>
+            <Input
               value={source}
               onChange={(event) => setSource(event.target.value)}
               placeholder="/absolute/path/to/team-policies"
             />
           </label>
-          <button
-            className="button button--secondary"
+          <Button
             disabled={!source.trim() || addSource.isPending}
             onClick={() => addSource.mutate(source.trim())}
           >
-            Add source
-          </button>
+            {addSource.isPending ? "Adding…" : "Add source"}
+          </Button>
         </div>
-        <div className="source-list">
+        <ul className="m-0 grid list-none px-[22px] pb-5">
           {sources.data?.map((item) => (
-            <div key={item.canonical_path}>
-              <BookOpenText size={17} />
-              <code>{item.canonical_path}</code>
-              <button
+            <li key={item.canonical_path} className={sourceRow}>
+              <code className="overflow-hidden text-meta text-ellipsis whitespace-nowrap text-ink-2">
+                {item.canonical_path}
+              </code>
+              <Button
                 type="button"
-                className="icon-button"
+                size="icon"
                 aria-label={`Remove ${item.canonical_path}`}
                 onClick={() => removeSource.mutate(item.canonical_path)}
               >
-                <Trash2 size={16} />
-              </button>
-            </div>
+                <Trash2 size={14} aria-hidden />
+              </Button>
+            </li>
           ))}
-          {!sources.data?.length && <p className="muted">Only the bundled Arch Compass corpus is active.</p>}
-        </div>
+          {!sources.data?.length ? (
+            // Capped at reading width, because this one is a sentence rather than a path.
+            <li className={cn(sourceRow, "max-w-[76ch] text-meta leading-[1.5] text-ink-3")}>
+              Only the bundled Arch Compass corpus is active. Registering a path here is
+              persistent, and the files stay yours.
+            </li>
+          ) : null}
+        </ul>
       </section>
 
-      {selected && (
-        <div className="drawer-backdrop" role="presentation" onMouseDown={closePolicy}>
-          <aside
-            ref={policyDialogRef}
-            className="policy-drawer"
-            role="dialog"
-            aria-modal="true"
+      {/* A policy is a document, so it opens as one: full height at the right, at reading
+          width, with the corpus it came from still visible beside it. Modal, unlike the
+          review's question panel — this is a thing to read rather than a thing to ask about
+          what is behind it, so the page behind is genuinely out of reach. */}
+      <Sheet
+        open={selected !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelected(null);
+        }}
+      >
+        {selected ? (
+          <SheetContent
+            data-slot="policy-drawer"
+            // Its own close button, in the head beside the title, rather than the drawer's
+            // floating one: the head is already a row with the title on one side of it.
+            showCloseButton={false}
             aria-labelledby="policy-title"
-            onMouseDown={(event) => event.stopPropagation()}
           >
-            <button className="drawer-close" type="button" aria-label="Close policy" onClick={closePolicy}>
-              <X size={20} />
-            </button>
-            <Badge tone="teal">{selected.scope}</Badge>
-            <h2 id="policy-title">{selected.title}</h2>
-            <code>{selected.id}</code>
-            <div className="policy-meta">
-              <span>Strength <strong>{selected.strength}</strong></span>
-              <span>Author <strong>{selected.source.author}</strong></span>
-              <span>Tags <strong>{selected.tags.join(", ")}</strong></span>
-              <span>
-                Applies to
-                <strong>
+            <SheetHeader>
+              <div>
+                <SheetTitle id="policy-title" className="mb-0.5">
+                  {selected.title}
+                </SheetTitle>
+                <code className="text-micro text-ink-3">{selected.id}</code>
+              </div>
+              <Button
+                size="icon"
+                type="button"
+                className="flex-none"
+                aria-label="Close policy"
+                onClick={() => setSelected(null)}
+              >
+                <X size={14} aria-hidden />
+              </Button>
+            </SheetHeader>
+            {/* What this policy is, as facts rather than prose: a well of its own, holding
+                the row of facts sized by what is in them rather than by a track — a policy
+                with four tags and one with none are the same shape of statement, and equal
+                columns would give the empty one as much of the drawer as the full one.
+                Pushed to the far end, which is where a row of facts sits everywhere in this
+                design, until the drawer is too narrow to have a far end. */}
+            <dl className="ml-auto flex flex-wrap gap-x-[26px] gap-y-1 rounded-control border border-rule bg-sunken px-3.5 py-2.5 max-[860px]:ml-0">
+              <div className="min-w-0">
+                <dt className={factLabel}>Strength</dt>
+                <dd className={factValue}>{selected.strength}</dd>
+              </div>
+              <div className="min-w-0">
+                <dt className={factLabel}>Author</dt>
+                <dd className={factValue}>{selected.source.author}</dd>
+              </div>
+              <div className="min-w-0">
+                <dt className={factLabel}>Applies to</dt>
+                <dd className={factValue}>
                   {policyApplicabilityLabel(selected.scope, selected.applies_to)}
-                </strong>
-              </span>
-            </div>
-            <div className="markdown policy-markdown">
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className={factLabel}>Tags</dt>
+                <dd className={factValue}>{selected.tags.join(", ") || "—"}</dd>
+              </div>
+            </dl>
+            <div className="markdown border-t border-rule-soft pt-1">
               <Markdown>{selected.body}</Markdown>
             </div>
-            <footer><code>{selected.source_path}</code></footer>
-          </aside>
-        </div>
-      )}
+            <p className="m-0 border-t border-rule-soft pt-3 text-micro text-ink-3 [overflow-wrap:anywhere]">
+              <code>{selected.source_path}</code>
+            </p>
+          </SheetContent>
+        ) : null}
+      </Sheet>
     </div>
   );
 }
+
+/* Every row of the source list: the path, and the one thing that can be done to it. The line
+   that says there are none is the same row — including its dividing rule, so the section reads
+   as a list with one entry in it rather than as a paragraph with a border. */
+const sourceRow =
+  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-rule-soft py-2";

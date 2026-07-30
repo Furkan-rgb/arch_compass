@@ -24,6 +24,7 @@ from archcompass.domain.atlas import (
     NodeType,
     RelationQuery,
     RepositorySummaryQuery,
+    ReviewContextQuery,
     SearchNodesQuery,
     ShortestPathQuery,
     SignalsQuery,
@@ -129,6 +130,53 @@ class DeterministicAtlasQueryService:
                 ),
                 test_ids=self._test_ids(atlas, {query.node_id}, nodes),
                 signals=[signal for signal in atlas.signals if signal.node_id == query.node_id],
+            )
+        if isinstance(query, ReviewContextQuery):
+            # Tolerant lookup, unlike every other branch: the ids come from a stored review
+            # and the atlas may have been rebuilt since it ran, so a renamed file must cost
+            # the reader that one node rather than the whole map.
+            requested_ids = list(dict.fromkeys(query.node_ids))
+            found = [node_id for node_id in requested_ids if node_id in nodes]
+            included = {node_id: nodes[node_id] for node_id in found}
+            for node_id in found:
+                touching = sorted(
+                    [*edges_by_source[node_id], *edges_by_target[node_id]],
+                    key=lambda edge: edge.edge_id,
+                )
+                admitted = 0
+                for edge in touching:
+                    if admitted == query.limit:
+                        break
+                    neighbour = edge.target_id if edge.source_id == node_id else edge.source_id
+                    if neighbour in included or neighbour not in nodes:
+                        continue
+                    included[neighbour] = nodes[neighbour]
+                    admitted += 1
+            included_ids = set(included)
+            profiles = {profile.node_id: profile for profile in atlas.metrics}
+            return AtlasQueryResult(
+                query=query,
+                node_ids=found,
+                summary=(
+                    f"None of the {len(requested_ids)} requested nodes are in this atlas"
+                    if not found
+                    else (
+                        f"{len(found)} of {len(requested_ids)} requested nodes found; "
+                        f"{len(included)} nodes in context"
+                    )
+                ),
+                node_summaries=self._summaries(list(included.values())),
+                metric_values=[
+                    value
+                    for node_id in included
+                    if (profile := profiles.get(node_id)) is not None
+                    for value in self._profile_values(profile)
+                ],
+                relationships=self._relationships_within(atlas, included_ids),
+                test_ids=self._test_ids(atlas, included_ids, nodes),
+                signals=[
+                    signal for signal in atlas.signals if signal.node_id in included_ids
+                ],
             )
         if isinstance(query, RelationQuery):
             self._require_node(query.node_id, nodes)

@@ -167,35 +167,34 @@ def web(
     )
 
 
-@policies_app.command("rebuild")
-def policies_rebuild(
-    context: typer.Context,
-    source: Annotated[
-        list[Path] | None,
-        typer.Option("--source", help="Additional policy file or directory."),
-    ] = None,
-    repo: Annotated[
-        Path | None,
-        typer.Option("--repo", help="Load <repo>/.archcompass/policies."),
-    ] = None,
-) -> None:
-    runtime = _state(context).runtime
-    version = runtime.policy_service.rebuild(
-        sources=source,
-        repository_root=repo,
-    )
-    typer.echo(version.model_dump_json(indent=2))
+# No `rebuild`. Policies are read from their sources whenever they are asked for, so there
+# is no index to bring up to date and a command to do it would be a step that changes
+# nothing (ADR 0013). Editing a policy on disk is enough.
 
 
 @policies_app.command("list")
-def policies_list(context: typer.Context) -> None:
-    for policy in _state(context).runtime.policy_service.list_policies():
+def policies_list(
+    context: typer.Context,
+    repo: Annotated[
+        Path | None,
+        typer.Option("--repo", help="Also read <repo>/.archcompass/policies."),
+    ] = None,
+) -> None:
+    catalog = _state(context).runtime.policy_service.catalog(repository_root=repo)
+    for policy in catalog:
         typer.echo(f"{policy.id}\t{policy.scope}\t{policy.strength}\t{policy.title}")
 
 
 @policies_app.command("show")
-def policies_show(context: typer.Context, policy_id: str) -> None:
-    policy = _state(context).runtime.policy_service.get_policy(policy_id)
+def policies_show(
+    context: typer.Context,
+    policy_id: str,
+    repo: Annotated[
+        Path | None,
+        typer.Option("--repo", help="Also read <repo>/.archcompass/policies."),
+    ] = None,
+) -> None:
+    policy = _state(context).runtime.policy_service.get(policy_id, repository_root=repo)
     typer.echo(policy.model_dump_json(indent=2))
 
 
@@ -310,6 +309,16 @@ def review(
         Path,
         typer.Option("--repo", help="Repository whose indexed atlas should be reviewed."),
     ],
+    answers: Annotated[
+        str | None,
+        typer.Option(
+            "--answers",
+            help=(
+                "The review this run answers. Judges and concludes without asking again, "
+                "against the case revision your answers created."
+            ),
+        ),
+    ] = None,
     as_json: Annotated[
         bool, typer.Option("--json", help="Print the stored review instead of its Markdown.")
     ] = False,
@@ -320,8 +329,19 @@ def review(
     stored = state.runtime_for_repository(repo).review_service.review(
         case_id,
         repository_root=repo,
+        elicited_from=answers,
     )
     typer.echo(stored.model_dump_json(indent=2) if as_json else render_review(stored))
+    # A run that stopped to ask has to say what closes it, or the questions read as a report
+    # that happens to end in a list. The two steps are the same ones the page walks: the
+    # answer becomes a revision of the case, then the boundaries are judged again against it.
+    if stored.awaiting_answers and not as_json:
+        typer.echo(
+            f"\nThis review is waiting on answers. Write each into the field its question "
+            f"names, apply them with `archcompass case update {case_id} --from answers.yaml`, "
+            f"then carry the review on with `archcompass review {case_id} --repo {repo} "
+            f"--answers {stored.review_id}`."
+        )
 
 
 @reviews_app.command("show")

@@ -1,0 +1,9 @@
+# pnpm's settings file. There is one package here and no workspace to describe — this file
+# exists because pnpm 10+ reads its settings from here rather than from package.json.
+#
+# pnpm refuses to run a dependency's install script unless it is named, which is the right
+# default and one deliberate exception: esbuild's script is what puts the platform binary
+# where Vite looks for it, so without this every install stops on an approval prompt and
+# every `pnpm run build` stops with it.
+allowBuilds:
+  esbuild: true

@@ -11,12 +11,16 @@ export interface components {
     "event"?: "prose";
     "text": string;
   };
+    "AnsweredQuestions": {
+    "review_id": string;
+    "answers": Array<components["schemas"]["RecordedAnswer"]>;
+  };
     "ArchitectureCase": {
     "schema_version"?: 2;
     "case_id"?: string;
     "title": string;
-    "problem_statement": string;
-    "desired_outcome": string;
+    "problem_statement"?: string;
+    "desired_outcome"?: string;
     "actors_and_workflows"?: Array<string>;
     "functional_requirements"?: Array<string>;
     "quality_attributes"?: Array<string>;
@@ -29,6 +33,7 @@ export interface components {
     "assumptions"?: Array<components["schemas"]["CaseStatement"]>;
     "unresolved_questions"?: Array<components["schemas"]["CaseStatement"]>;
     "design_forces"?: Array<components["schemas"]["CaseStatement"]>;
+    "clarifications"?: Array<components["schemas"]["Clarification"]>;
     "repository"?: components["schemas"]["RepositoryReference"] | null;
     "policy_applicability"?: components["schemas"]["PolicyApplicabilityContext"];
     "referenced_policy_ids"?: Array<string>;
@@ -76,7 +81,7 @@ export interface components {
     "is_public"?: boolean | null;
   };
     "AtlasQueryResult": {
-    "query": components["schemas"]["RepositorySummaryQuery"] | components["schemas"]["SubsystemSummaryQuery"] | components["schemas"]["NodeDetailsQuery"] | components["schemas"]["RelationQuery"] | components["schemas"]["NeighbourhoodQuery"] | components["schemas"]["ShortestPathQuery"] | components["schemas"]["CyclesQuery"] | components["schemas"]["SignalsQuery"] | components["schemas"]["HotspotsQuery"] | components["schemas"]["SearchNodesQuery"] | components["schemas"]["SourceExcerptQuery"];
+    "query": components["schemas"]["RepositorySummaryQuery"] | components["schemas"]["SubsystemSummaryQuery"] | components["schemas"]["NodeDetailsQuery"] | components["schemas"]["RelationQuery"] | components["schemas"]["NeighbourhoodQuery"] | components["schemas"]["ShortestPathQuery"] | components["schemas"]["CyclesQuery"] | components["schemas"]["SignalsQuery"] | components["schemas"]["HotspotsQuery"] | components["schemas"]["SearchNodesQuery"] | components["schemas"]["SourceExcerptQuery"] | components["schemas"]["ReviewContextQuery"];
     "node_ids"?: Array<string>;
     "summary"?: string;
     "node_summaries"?: Array<components["schemas"]["AtlasNodeSummary"]>;
@@ -97,6 +102,14 @@ export interface components {
     "analysis_config_hash": string;
     "created_at"?: string;
   };
+    "BoundaryExcerpt": {
+    "reference": string;
+    "qualified_name": string;
+    "role": string;
+    "location"?: components["schemas"]["SourceLocation"] | null;
+    "text"?: string;
+    "unavailable"?: string;
+  };
     "BoundaryReview": {
     "schema_version"?: 1;
     "review_id"?: string;
@@ -106,6 +119,7 @@ export interface components {
     "atlas_version_id": string;
     "reasoning_model": string;
     "prompt_identity": string;
+    "elicited_from"?: string | null;
     "report"?: components["schemas"]["BoundaryReviewReport"] | null;
     "markdown_report"?: string | null;
     "duration_seconds"?: number;
@@ -114,13 +128,14 @@ export interface components {
     "created_at"?: string;
   };
     "BoundaryReviewReport": {
-    "schema_version"?: 2;
+    "schema_version"?: 3;
     "report_id"?: string;
     "case_title": string;
     "problem_and_desired_outcome": string;
     "reviewed"?: Array<components["schemas"]["ReviewedBoundary"]>;
     "overview": components["schemas"]["ReviewOverview"];
     "policies_presented"?: Array<string>;
+    "excerpts"?: Array<components["schemas"]["BoundaryExcerpt"]>;
   };
     "BoundaryReviewSummary": {
     "review_id": string;
@@ -134,6 +149,7 @@ export interface components {
     "created_at": string;
     "updated_at": string;
     "case_title"?: string | null;
+    "elicited_from"?: string | null;
   };
     "BundledCase": {
     "name": string;
@@ -147,12 +163,14 @@ export interface components {
     "title": string;
     "summary": string;
   };
+    "CaseField": "expected_future_changes" | "confirmed_facts" | "technical_constraints" | "non_goals" | "assumptions";
     "CaseRevision": {
     "case_id": string;
     "revision": number;
     "snapshot": components["schemas"]["ArchitectureCase"];
     "event_type": "created" | "user_update";
     "actor": string;
+    "answered"?: components["schemas"]["AnsweredQuestions"] | null;
     "created_at"?: string;
   };
     "CaseStatement": {
@@ -185,6 +203,7 @@ export interface components {
     "assumptions"?: Array<components["schemas"]["CaseStatement"]> | null;
     "unresolved_questions"?: Array<components["schemas"]["CaseStatement"]> | null;
     "design_forces"?: Array<components["schemas"]["CaseStatement"]> | null;
+    "clarifications"?: Array<components["schemas"]["Clarification"]> | null;
     "repository"?: components["schemas"]["RepositoryReference"] | null;
     "policy_applicability"?: components["schemas"]["PolicyApplicabilityContext"] | null;
     "referenced_policy_ids"?: Array<string> | null;
@@ -192,16 +211,17 @@ export interface components {
     "reversal_conditions"?: Array<string> | null;
     "revisit_triggers"?: Array<string> | null;
   };
+    "Clarification": {
+    "id"?: string;
+    "question": string;
+    "answer": string;
+    "bears_on": components["schemas"]["CaseField"];
+  };
     "CyclesQuery": {
     "kind": "cyclic_components";
     "limit"?: number;
   };
     "EdgeType": "contains" | "imports" | "calls" | "inherits" | "implements" | "references" | "tests" | "configures";
-    "EmbeddingModelIdentity": {
-    "provider": string;
-    "model": string;
-    "dimensions": number;
-  };
     "FailureDiagnostic": {
     "code": components["schemas"]["FailureDiagnosticCode"];
     "force_handles"?: Array<string>;
@@ -263,6 +283,15 @@ export interface components {
     "definition"?: string;
     "limitations"?: string;
   };
+    "OpenQuestion": {
+    "reference": string;
+    "what_the_review_saw": string;
+    "unknown": string;
+    "why_it_matters": string;
+    "question": string;
+    "answer_belongs_in": components["schemas"]["CaseField"];
+    "supporting_references": Array<string>;
+  };
     "OverviewStatement": {
     "text": string;
     "supporting_references": Array<string>;
@@ -289,18 +318,6 @@ export interface components {
     "body": string;
     "source_path": string;
     "content_hash": string;
-  };
-    "PolicyIndexVersion": {
-    "schema_version"?: 2;
-    "version_id"?: string;
-    "embedding_provider": string;
-    "embedding_model": string;
-    "dimensions": number;
-    "corpus_hash": string;
-    "created_at"?: string;
-  };
-    "PolicyRebuildRequest": {
-    "repository_root"?: string | null;
   };
     "PolicyScope": "general" | "user" | "organisation" | "repository" | "accepted_adr";
     "PolicySource": {
@@ -332,6 +349,11 @@ export interface components {
     "event"?: "failed";
     "problem": components["schemas"]["ProblemDetail"];
   };
+    "RecordedAnswer": {
+    "question_reference": string;
+    "answer_belongs_in": components["schemas"]["CaseField"];
+    "recorded_text": string;
+  };
     "RelationQuery": {
     "kind": "direct_dependencies" | "direct_dependants" | "known_callers" | "implementations" | "related_tests";
     "node_id": string;
@@ -361,10 +383,24 @@ export interface components {
     "ReviewAnswer": {
     "answer": string;
     "supporting_references"?: Array<string>;
+    "suggested_answer"?: string;
+  };
+    "ReviewAnswersRequest": {
+    "answers": Array<components["schemas"]["SubmittedAnswer"]>;
   };
     "ReviewCompleted": {
     "event"?: "completed";
     "review": components["schemas"]["BoundaryReview"];
+  };
+    "ReviewContextQuery": {
+    "kind": "review_context";
+    "node_ids": Array<string>;
+    "limit"?: number;
+  };
+    "ReviewContextRequest": {
+    "root_path": string;
+    "node_ids": Array<string>;
+    "limit"?: number;
   };
     "ReviewConversation": {
     "schema_version"?: 1;
@@ -373,17 +409,23 @@ export interface components {
     "case_id": string;
     "case_revision": number;
     "title": string;
+    "question_reference"?: string | null;
     "messages"?: Array<components["schemas"]["ReviewMessage"]>;
     "created_at"?: string;
   };
     "ReviewConversationCreateRequest": {
     "review_id": string;
     "title"?: string | null;
+    "question_reference"?: string | null;
   };
     "ReviewDetected": {
     "event"?: "detected";
     "total": number;
     "boundaries": Array<string>;
+  };
+    "ReviewEliciting": {
+    "event"?: "eliciting";
+    "total": number;
   };
     "ReviewFailed": {
     "event"?: "failed";
@@ -409,14 +451,16 @@ export interface components {
     "themes"?: Array<components["schemas"]["OverviewStatement"]>;
     "recommended_sequence"?: Array<components["schemas"]["OverviewStatement"]>;
     "limits": string;
+    "open_questions"?: Array<components["schemas"]["OpenQuestion"]>;
   };
-    "ReviewProgress": components["schemas"]["ReviewStarted"] | components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewSummarising"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewFailed"];
+    "ReviewProgress": components["schemas"]["ReviewStarted"] | components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewEliciting"] | components["schemas"]["ReviewSummarising"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewFailed"];
     "ReviewQuestionRequest": {
     "question": string;
   };
     "ReviewRequest": {
     "case_id": string;
     "repository_root": string;
+    "elicited_from"?: string | null;
   };
     "ReviewScoreResponse": {
     "example": string;
@@ -430,8 +474,9 @@ export interface components {
     "review_id": string;
     "case_id": string;
     "case_revision": number;
+    "elicited_from"?: string | null;
   };
-    "ReviewStatus": "running" | "succeeded" | "failed" | "cancelled";
+    "ReviewStatus": "running" | "awaiting_answers" | "succeeded" | "failed" | "cancelled";
     "ReviewSummarising": {
     "event"?: "summarising";
     "total": number;
@@ -442,6 +487,7 @@ export interface components {
     "material": boolean;
     "rationale": string;
     "policy_bearings"?: Array<components["schemas"]["PolicyBearing"]>;
+    "hinge"?: components["schemas"]["VerdictHinge"] | null;
     "recommended_response"?: string;
     "verdict_label": string;
   };
@@ -485,19 +531,26 @@ export interface components {
     "end_line": number;
   };
     "StatementKind": "fact" | "derived_constraint" | "assumption" | "question" | "force";
+    "SubmittedAnswer": {
+    "question_reference": string;
+    "recorded_text": string;
+  };
     "SubsystemSummaryQuery": {
     "kind": "subsystem_summary";
     "node_id": string;
     "limit"?: number;
   };
+    "VerdictHinge": {
+    "unknown": string;
+    "if_confirmed": string;
+    "if_denied": string;
+  };
     "WorkspaceModels": {
     "reasoning": components["schemas"]["ModelIdentity"];
-    "embedding": components["schemas"]["EmbeddingModelIdentity"];
   };
     "WorkspaceSummaryResponse": {
     "workspace": string;
     "models": components["schemas"]["WorkspaceModels"];
-    "policy_index"?: components["schemas"]["PolicyIndexVersion"] | null;
   };
   };
 }
@@ -514,6 +567,23 @@ export interface operations {
     responses: {
       "201": components["schemas"]["PolicySourceRegistration"];
       "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "answer_review_questions_api_reviews__review_id__answers_post": {
+    parameters: {
+      query: never;
+      path: {
+      "review_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["ReviewAnswersRequest"];
+    responses: {
+      "201": components["schemas"]["CaseRevision"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
     };
   };
   "ask_review_question_api_review_conversations__conversation_id__messages_post": {
@@ -657,6 +727,7 @@ export interface operations {
     responses: {
       "200": components["schemas"]["PolicyDocument"];
       "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
     };
   };
   "get_review_api_reviews__review_id__get": {
@@ -836,19 +907,6 @@ export interface operations {
       "404": components["schemas"]["ProblemDetail"];
     };
   };
-  "rebuild_policies_api_policies_rebuild_post": {
-    parameters: {
-      query: never;
-      path: never;
-      header: never;
-      cookie: never;
-    };
-    requestBody: components["schemas"]["PolicyRebuildRequest"];
-    responses: {
-      "200": components["schemas"]["PolicyIndexVersion"];
-      "422": components["schemas"]["ProblemDetail"];
-    };
-  };
   "remove_policy_source_api_policies_sources_delete": {
     parameters: {
       query: {
@@ -909,6 +967,19 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "repository_review_context_api_repositories_review_context_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["ReviewContextRequest"];
+    responses: {
+      "200": components["schemas"]["AtlasQueryResult"];
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
   "repository_summary_api_repositories_summary_get": {
     parameters: {
       query: {
@@ -924,6 +995,25 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "review_source_api_reviews__review_id__source_get": {
+    parameters: {
+      query: {
+      "reference"?: string | null;
+      "context_lines"?: number;
+      };
+      path: {
+      "review_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": Array<components["schemas"]["BoundaryExcerpt"]>;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
   "score_review_api_reviews__review_id__score_get": {
     parameters: {
       query: never;
@@ -936,6 +1026,20 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": components["schemas"]["ReviewScoreResponse"] | null;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "start_from_repository_api_repositories_start_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["RepositoryPathRequest"];
+    responses: {
+      "201": components["schemas"]["CaseRevision"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
     };
@@ -1025,9 +1129,6 @@ export interface paths {
   "/api/policies": {
     get: operations["list_policies_api_policies_get"];
   };
-  "/api/policies/rebuild": {
-    post: operations["rebuild_policies_api_policies_rebuild_post"];
-  };
   "/api/policies/sources": {
     get: operations["list_policy_sources_api_policies_sources_get"];
     post: operations["add_policy_source_api_policies_sources_post"];
@@ -1050,6 +1151,12 @@ export interface paths {
   };
   "/api/repositories/inspect": {
     get: operations["repository_inspect_api_repositories_inspect_get"];
+  };
+  "/api/repositories/review-context": {
+    post: operations["repository_review_context_api_repositories_review_context_post"];
+  };
+  "/api/repositories/start": {
+    post: operations["start_from_repository_api_repositories_start_post"];
   };
   "/api/repositories/summary": {
     get: operations["repository_summary_api_repositories_summary_get"];
@@ -1078,11 +1185,17 @@ export interface paths {
     get: operations["get_review_api_reviews__review_id__get"];
     delete: operations["delete_review_api_reviews__review_id__delete"];
   };
+  "/api/reviews/{review_id}/answers": {
+    post: operations["answer_review_questions_api_reviews__review_id__answers_post"];
+  };
   "/api/reviews/{review_id}/cancel": {
     post: operations["cancel_review_api_reviews__review_id__cancel_post"];
   };
   "/api/reviews/{review_id}/score": {
     get: operations["score_review_api_reviews__review_id__score_get"];
+  };
+  "/api/reviews/{review_id}/source": {
+    get: operations["review_source_api_reviews__review_id__source_get"];
   };
   "/api/workspace": {
     get: operations["workspace_summary_api_workspace_get"];

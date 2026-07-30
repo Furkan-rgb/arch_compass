@@ -129,12 +129,16 @@ def _reply(
     *bearings: tuple[bool, str],
     material: bool = False,
     response: str = "",
+    hinge: dict[str, str] | None = None,
 ) -> str:
     return json.dumps(
         {
             "verdict": "should_change" if material else "leave_as_is",
             "rationale": "The boundary is the process edge this case names.",
             "policy_bearings": [{"bears_on": flag, "how": how} for flag, how in bearings],
+            # The ordinary answer, so a test about policy binding does not have to say
+            # anything about elicitation to be a well-formed reply.
+            "hinge": hinge or {"dependence": "stands_either_way"},
             "recommended_response": response,
         }
     )

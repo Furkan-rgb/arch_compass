@@ -303,7 +303,13 @@ def test_the_overview_has_no_field_in_which_to_restate_a_verdict() -> None:
 
     fields = set(ReviewOverview.model_fields)
 
-    assert fields == {"situation", "themes", "recommended_sequence", "limits"}
+    assert fields == {
+        "situation",
+        "themes",
+        "recommended_sequence",
+        "limits",
+        "open_questions",
+    }
     assert not {"material", "verdict", "confidence"} & fields
 
 

@@ -235,3 +235,77 @@ def test_every_candidate_states_what_its_method_could_not_see(tmp_path: Path) ->
         for measurement in candidate.measurements:
             assert measurement.limitations.strip()
             assert measurement.definition.strip()
+
+
+def test_a_leaked_name_is_located_where_it_leaks_not_at_the_top_of_the_file(
+    tmp_path: Path,
+) -> None:
+    """The regression for evidence that did not contain the thing it was evidence of.
+
+    A scattered concept's participants are whole modules, so the detector had no declaration
+    span to give them and wrote line 1. Line 1 of a Python file is the docstring, and the
+    excerpt service resolves a span to the text at it — so a reader asking to see a vendor
+    name that had leaked into five modules was shown five docstrings, none of which named it.
+    The advisor said it could not show the leak, and it was right.
+
+    Every mention now carries its line, so the participant points at one that really names
+    the concept, and the count says whether it is an isolated import or threaded through.
+    """
+
+    root = tmp_path / "repo"
+    atlas = _atlas(
+        root,
+        {
+            "provider/__init__.py": "",
+            "provider/speech.py": PORT,
+            "provider/qwen.py": ADAPTER,
+            "web/__init__.py": "",
+            # The name appears twice and never on line 1, which is a docstring that does not
+            # contain it — the exact shape that produced the empty evidence.
+            "web/pages.py": (
+                '"""The page a listener lands on."""\n'
+                "\n"
+                "HEADING = 'Welcome'\n"
+                "\n"
+                "TITLE = 'Narrated with Qwen3-TTS'\n"
+                "FOOTER = 'Powered by Qwen'\n"
+            ),
+        },
+    )
+
+    found = _of(atlas, FindingPattern.SCATTERED_CONCEPT)
+    leaked = next(
+        item for item in found[0].participants if item.qualified_name.endswith("web.pages")
+    )
+    assert leaked.location is not None
+
+    lines = (root / "web/pages.py").read_text(encoding="utf-8").splitlines()
+    named = lines[leaked.location.start_line - 1]
+    assert "Qwen" in named, f"the located line does not name the concept: {named!r}"
+    # The first site, so a reader lands on the leak rather than in the middle of the file.
+    assert leaked.location.start_line == 5
+    # And the count is carried, because one import and a name threaded through a request
+    # path are different findings that a single span cannot tell apart.
+    assert "Named on 2 lines here." in leaked.role
+
+
+def test_a_name_used_once_says_nothing_about_a_count(tmp_path: Path) -> None:
+    """"Named on 1 lines here" would be noise, and reads as though it were measured."""
+
+    atlas = _atlas(
+        tmp_path / "repo",
+        {
+            "provider/__init__.py": "",
+            "provider/speech.py": PORT,
+            "provider/qwen.py": ADAPTER,
+            "web/__init__.py": "",
+            "web/pages.py": "TITLE = 'Narrated with Qwen3-TTS'\n",
+        },
+    )
+
+    found = _of(atlas, FindingPattern.SCATTERED_CONCEPT)
+    leaked = next(
+        item for item in found[0].participants if item.qualified_name.endswith("web.pages")
+    )
+
+    assert leaked.role == "Names 'qwen' from outside the package that owns it."

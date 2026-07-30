@@ -60,20 +60,58 @@ class SQLiteDatabase:
         version: int,
         script: str,
     ) -> None:
-        """Apply one migration and its version marker in one SQLite transaction."""
+        """Apply one migration and its version marker in one SQLite transaction.
+
+        Foreign keys are enforced everywhere else and are off for exactly the length of a
+        migration, which is SQLite's own recipe for rebuilding a table and the only way to
+        rebuild one that anything points at. A rebuild drops the old table, and `DROP TABLE`
+        under `foreign_keys = ON` runs an implicit `DELETE` first: dropping a *parent* is
+        therefore an instant `FOREIGN KEY constraint failed` for every child row, before the
+        replacement it is about to be renamed into place can exist. That is not hypothetical.
+        Migration 019 rebuilds `case_revisions`, which six tables reference, and it died on
+        the first workspace that had reviews in it while passing every test, because the
+        tests migrated empty databases.
+
+        `PRAGMA defer_foreign_keys` looks like the in-transaction answer and is not: the drop
+        registers a violation per orphaned row, and restoring the table does not decrement
+        that counter, so the failure simply moves to the commit. The pragma has to be off,
+        and it only takes effect outside a transaction — hence the toggle out here rather
+        than a line at the top of a migration script, where it would be silently ignored.
+
+        Suspending enforcement means a migration could leave orphans behind, so it is paid
+        for rather than merely accepted: `foreign_key_check` runs inside the transaction, and
+        anything it finds rolls the migration back. That is a stronger guarantee than the
+        per-statement enforcement it replaces, which never checked the rows a migration did
+        not itself touch.
+        """
         statements = SQLiteDatabase._migration_statements(script)
-        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("PRAGMA foreign_keys = OFF")
         try:
-            for statement in statements:
-                connection.execute(statement)
-            connection.execute(
-                "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
-                (version, datetime.now(UTC).isoformat()),
-            )
-        except (sqlite3.Error, ValueError):
-            connection.rollback()
-            raise
-        connection.commit()
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                for statement in statements:
+                    connection.execute(statement)
+                connection.execute(
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+                    (version, datetime.now(UTC).isoformat()),
+                )
+                orphaned = connection.execute("PRAGMA foreign_key_check").fetchall()
+                if orphaned:
+                    # Name the first one. A migration that orphans rows is a bug in the
+                    # migration, and the table and rowid are what locates it.
+                    table, rowid, parent, _ = orphaned[0]
+                    raise PersistenceError(
+                        f"Migration {version} left {len(orphaned)} row(s) with no parent: "
+                        f"{table} rowid {rowid} references missing {parent}"
+                    )
+            except (sqlite3.Error, ValueError, PersistenceError):
+                connection.rollback()
+                raise
+            connection.commit()
+        finally:
+            # Restored on the way out however this ended, so a failed migration cannot leave
+            # the connection handed back to the application with enforcement switched off.
+            connection.execute("PRAGMA foreign_keys = ON")
 
     @staticmethod
     def _migration_statements(script: str) -> list[str]:
@@ -92,7 +130,7 @@ class SQLiteDatabase:
         return statements
 
     @contextmanager
-    def connect(self, *, load_vectors: bool = False) -> Generator[sqlite3.Connection]:
+    def connect(self) -> Generator[sqlite3.Connection]:
         self.path = self._validated_path()
         connection: sqlite3.Connection | None = None
         try:
@@ -101,12 +139,6 @@ class SQLiteDatabase:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA busy_timeout = 5000")
             connection.execute("PRAGMA journal_mode = WAL")
-            if load_vectors:
-                import sqlite_vec
-
-                connection.enable_load_extension(True)
-                sqlite_vec.load(connection)
-                connection.enable_load_extension(False)
             yield connection
         except sqlite3.Error as error:
             if connection is not None:

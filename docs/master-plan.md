@@ -472,12 +472,16 @@ in judgement because judgement is the only stage that knows what it lacked about
 boundary: the candidate says what detection could not see, the hinge says what the case
 did not say.
 
-**The overview consolidates hinges into questions.** The overview call already reads the
-whole set and already owes the reader "what the review could not see"; elicitation gives
-that debt a payable form. Its response gains a list of open questions. Consolidation is
-why this is set-level work: four boundaries turning on whether a second vendor is coming
-are one question, not four — asked four times it is noise, asked once with four
-boundaries cited it is the most important sentence in the report.
+**A set-level call consolidates hinges into questions.** Consolidation is why this is
+set-level work: four boundaries turning on whether a second vendor is coming are one
+question, not four — asked four times it is noise, asked once with four boundaries cited
+it is the most important sentence in the report.
+
+That call is its own stage, `elicit_questions`, and not a widened overview. It was the
+overview's tail until measurement moved it (§6C.6): a first pass usually runs against a
+case that says nothing, so the conclusion half of that reply was being composed out of
+silence and then discarded by the second pass. Splitting them also gives the summarising
+stage no field in which to ask, which is what makes the loop terminate — see §6C.6.
 
 Each question carries, in this order:
 
@@ -488,9 +492,11 @@ Each question carries, in this order:
    A question the user cannot settle — *"will requirements change?"* — is not a
    question; it is the model returning its own uncertainty to sender.
 4. **Where the answer belongs** — one of the case's own fields, chosen from a closed
-   enum: `expected_future_changes`, `confirmed_facts`, `constraints`, `non_goals`,
-   `assumptions`. The model picks a slot from a bounded set; it never names a field
-   freely.
+   enum: `expected_future_changes`, `confirmed_facts`, `technical_constraints`,
+   `non_goals`, `assumptions`. The model picks a slot from a bounded set; it never names
+   a field freely. Five of the case's fields rather than all of them: these are the ones
+   that decide whether a boundary is earning its place, and offering a destination that
+   cannot flip a verdict would only give a wrong answer somewhere to go.
 
 ## 6C.3 Binding discipline
 
@@ -526,11 +532,31 @@ The rule that keeps invariant 23 intact under all of this:
 > **The advisor supplies the question. The user supplies the answer. Only the answer
 > enters the case, and only as a revision the user has seen.**
 
-A revision may record which review and question it answers. That is provenance, not
-write-back: the removed `origin_run_id` (ADR 0007) marked revisions *authored by a run*,
-where this pointer marks a revision the user authored and says what prompted it. The
-substance of the answer is the user's, including when the user's whole contribution is
-confirming a phrasing the question suggested.
+A revision **records** which review and which questions it answers, as an `answered` block
+carrying the review, and per answer its `Q-n`, the case field the question named, and the
+answer the reader wrote. That is provenance, not write-back: the removed `origin_run_id` (ADR
+0007) marked revisions *authored by a run*, where this marks a revision the user authored
+and says what prompted it. The substance of the answer is the user's, including when the
+user's whole contribution is confirming a phrasing the question suggested.
+
+Its absence is load-bearing: a revision with no block was authored by hand, which is the
+only thing that tells the two apart. Skipped questions are absent rather than flagged — what
+was skipped is the review's questions minus the ones recorded, and a stored flag would be a
+second copy of a fact that can be computed. One review is asked once, so it maps to at most
+one answering revision, and the store says so.
+
+Answering is therefore its own operation — `POST /api/reviews/{id}/answers` — and not a case
+patch the client composes. The workspace resolves each `Q-n` against that review's own
+report, takes the question's text and the field it named from there, and writes the two as a
+pair — so a client cannot put words in a review's mouth, cannot give an answer a weight its
+question never asked for, and cannot produce a revision that has silently lost the link back
+to what prompted it. `PATCH /api/cases/{id}` remains, for editing a case by hand, which is
+also how a pair is later reworded or withdrawn.
+
+What this buys is attribution. A question names the boundaries it would settle and the
+revision names the questions it answered, so a verdict that moved between passes can be
+traced to the sentence that moved it — which is the whole claim of §6C.6 made checkable
+rather than asserted.
 
 A verdict that flips after an answer is the mechanism working, not churn: the earlier
 review recorded the hinge, the revision settled it, the new review records what it
@@ -540,8 +566,10 @@ nothing needs reconciling.
 ## 6C.5 What elicitation may not become
 
 - **Not an intake interview.** The first review runs on whatever case exists, including
-  a nearly empty one. Value first, questions after. A wizard that must be completed
-  before the first run rebuilds the adoption tax with better upholstery.
+  a nearly empty one, and it runs *before* anything is asked. Investigate, then ask. A
+  wizard that must be completed before the first run rebuilds the adoption tax with
+  better upholstery. What a first pass may withhold is its *verdicts* (§6C.6); what it
+  may never do is refuse to look until the reader has filled something in.
 - **Not a structure oracle.** A question the atlas could answer — how many
   implementations, who depends on this — is a detector or query gap, not a case gap, and
   must not be asked of the user.
@@ -552,6 +580,107 @@ nothing needs reconciling.
 - **Not self-answering.** The model never proposes the answer inside the question, and
   the application never promotes an unanswered question into an assumption. An
   unanswered question remains open in the review that asked it.
+
+## 6C.6 A pass that is still asking is not a finished review
+
+§6C shipped as "value first, questions after": one review, its verdicts reported, and the
+questions appended to the conclusion. Measurement overturned the premise. On the bundled
+`warehouse-sync` example, judged with no case and then re-judged against answers to its own
+questions, **four of five verdicts moved.** The "value" the questions were placed after was
+mostly wrong, and it was displayed in the same confident vocabulary a settled verdict wears.
+
+Two further observations rule out the obvious softer fix. The one verdict that carried no
+hinge moved anyway, and one that did carry a hinge held — so the hinge does not mark which
+verdicts are safe to show, and "reveal the un-hinged ones" is not a sound refinement. And
+because a first-pass review was stored as `succeeded`, it read as finished in every listing
+for ever, whether or not anyone ever answered.
+
+So a review is **two passes across two records**, and the reader walks one journey:
+
+1. Sweep the atlas. 2. Judge every boundary. 3. Ask what it needs to know.
+4. *The reader answers.* 5. Their answers become a case revision.
+6. Judge every boundary again. 7. Read the verdicts as a set.
+
+Both records are immutable and each pins its own case revision, which is why this cannot be
+one record: pass 2 judges a different case. The second names the first in `elicited_from`,
+which is what makes it a second pass — and is stored rather than inferred, because revising a
+case by hand also produces a newer review and must not be mistaken for answering.
+
+The rules this introduces:
+
+- **A pass with questions outstanding reports `awaiting_answers`, never `succeeded`.** Its
+  verdicts are stored — they are what the questions were built from — but nothing presents
+  them as findings. That status is terminal: nobody is obliged to answer, and a record
+  saying "still waiting" is the truthful account of a question nobody came back to.
+- **A pass with nothing to ask concludes immediately.** The flow is conditional, not always
+  two passes: a case someone actually wrote usually settles its own verdicts, and asking is
+  the exception rather than the toll.
+- **The second pass cannot ask.** The summarising contract has no field for a question, so
+  termination is enforced by the grammar rather than by prose a model may or may not follow.
+  A verdict that still hinges — because a question was skipped — is reported as a finding
+  with its contingency stated, which is a caveat rather than another gate.
+- **There is always a way past.** The waiting page can reveal its provisional verdicts,
+  under what the measurement actually says about them. Revealing resolves nothing and the
+  record still says nobody answered. Withholding unconditionally would rebuild the adoption
+  tax in a new shape — *answer my questions or you get nothing* — for the reader most likely
+  to be unable to answer, which is someone looking at unfamiliar code.
+
+The cost is honest and named: roughly double the model calls, 2N+2 against N+1. Re-judging
+only the hinged boundaries would halve that and is refused, because the boundary that moved
+without a hinge is the reason it cannot be trusted to.
+
+## 6C.7 Asking about the question
+
+A question the reader cannot make sense of stops the loop as completely as one they cannot
+answer, and it fails in a worse way: they do not know that is what happened. Three things
+follow, and the first two are repairs to what §6C.2 was already producing.
+
+**A question carries what the review saw.** `what_the_review_saw` states the observation —
+which abstractions, what the code does today, what the case says about it now — and it is
+the field a reader is shown under the question. It exists because `unknown` was being
+written as the question with its question mark removed, so the second line taught nobody
+anything. `unknown` survives as a *subject*, one line, phrased to stand as the subject of a
+sentence, because it is what the question is about — which is what titles a discussion of that
+question and lets a reader recognise the same subject coming back across two passes.
+
+**An answer is recorded beside the question it answers.** The case is read with no question
+in front of it — by the second pass, which judges against the snapshot alone, and by whoever
+opens the case editor later. `"They shouldn't rely on it"` was recorded verbatim from a live
+run and its "it" refers to nothing. So the answer is stored as a **pair**: the review's
+question, verbatim, and the user's own words, in `case.clarifications` (ADR 0014). The pair is
+shown before it saves and the answer stays editable there, which is §6C.4 exactly —
+pre-filling from the question is allowed, saving something unseen is not.
+
+The pair replaced a composed line — `unknown` welded to the reply with a dash — which solved
+the same problem and cost twice: the reader was shown a paraphrase of the question directly
+under the question, and the re-judging stages, which see the case and nothing else, were handed
+the join instead of the question. `answer_belongs_in` therefore names a *force* rather than a
+destination: nothing is filed anywhere, and an answer bearing on `technical_constraints` binds
+the design exactly as a listed constraint does. That is also what ends the loop — a judging
+stage reads the pairs before it hinges, so a question already answered is not asked again.
+
+The alternative — threading the questions into the judging stage alongside the case — is
+refused. A review pins a case revision, an atlas version and a policy set, and those inputs
+determine its verdicts. A judge that also read the *asking review's* record would make two
+reviews of the same revision reach different conclusions depending on which one elicited
+them, and a verdict would no longer be reproducible from what it says it ran against.
+
+**A reader may discuss one question while the review is still waiting.** Not the review — a
+conversation about that is still refused at `awaiting_answers`, because its verdicts are the
+ones being withheld. A conversation pinned to `(review, Q-n)` is shown that question, the
+boundaries it cites *and no others*, the case, and the method background. The held set is
+not in the input, so there is nothing there to leak, and the narrower scope is what makes
+the surface safe rather than a promise the stage is asked to keep.
+
+It may help the reader reach an answer, and may offer a phrasing in `suggested_answer` —
+which exists only in that stage's reply schema, so a conversation about a concluded review
+cannot propose a case entry however it is prompted. What the suggestion does is fill the
+answer box when the reader presses a button. It then walks the same preview as anything
+typed by hand. §6C.5's *not self-answering* is unchanged and now has a sharper edge: the
+model may not treat an answer as given, and the application never promotes a suggestion into
+an answer. Invariant 25 holds across all of it — the advisor supplies the question, the user
+supplies the answer, including where their whole contribution is confirming a phrasing they
+were shown.
 
 ---
 
@@ -795,6 +924,41 @@ ask.
 This extends §9.3: opaque IDs are necessary for validation and insufficient as reasoning
 context — and they are also unsafe as model output.
 
+### Delivering evidence is not retrieval
+
+The same rule decides how a stage gets source code, and decides it against the obvious
+answer. A reader asking to see the leak is asking for lines the detector already picked:
+every finding participant records a span, so selection happened when the verdict was
+reached. The application reads those spans and puts the text in the input. A tool the model
+could call to fetch source would invert the division — the stage would be choosing its own
+evidence — and it would be solving a search problem that does not exist.
+
+"It will not fit in the context" is the reason to look for a retrieval layer, and it is
+worth checking before building one. It did fit: bounded by the detector's spans, a review's
+source is order 10–15k characters against an input budget near 490k. The same measurement
+removed policy retrieval from the judging stage (§6A) and an embedding index from the
+conversation's background. Where the evidence fits, retrieval is indirection in front of one
+concrete thing (ADR 0013).
+
+**Delivering it in does not license handing it back.** Evidence goes to a stage so that it
+can reason about what the evidence shows, and the reply says what it means — never the
+evidence again. Where a stage's answer needs a value the application already holds, the
+stage points at it and the application renders it; a model reproducing that value can only
+produce a second copy, and a second copy can disagree with the first.
+
+This was learned in the direction the third clause above predicts. The answering stage was
+given each finding's source and told to quote it back "character for character", which is
+the one remedy that clause rules out — and the run after that instruction landed returned
+`"chelsine"` where the file says `"chelsie"`. The reader sees a line attributed to their own
+repository that is not in it, and no validation can catch it, because a plausible identifier
+is exactly what a well-formed string field accepts.
+
+The distinction that survives is between *reproducing* and *composing*. An illustrated fix
+is still written by the model: it does not exist anywhere to be rendered, so nothing else
+can write it, and it is labelled as an illustration the review never ran. A wrong name there
+is a bad suggestion beside the correct spelling; a wrong name in a quotation is a false
+record of the repository.
+
 ### Field order is part of the contract
 
 A structured-output model fills a response schema in the order the schema declares, so
@@ -883,8 +1047,8 @@ Presentation
 bootstrap.py = composition root
 ```
 
-Domain and application code must remain independent from Typer, HTTPX, SQLite,
-sqlite-vec and AST implementation details.
+Domain and application code must remain independent from Typer, HTTPX, SQLite and AST
+implementation details.
 
 ---
 
@@ -1049,12 +1213,19 @@ Contributors and coding agents must preserve these invariants.
 20. Documentation and tests must describe metric limitations honestly.
 21. Old reviews retain the exact case, atlas and policy versions they used.
 22. The application decides what to look at; the model decides what it means; nothing
-    the model writes is used as a key (§12.0).
+    the model writes is used as a key (§12.0). Nor does the model reproduce a value the
+    application already holds: where an answer needs one, it points and the application
+    renders. Composing something that does not yet exist — an illustrated fix — is the
+    model's and stays labelled as such. *A retyped copy is not a key and was permitted by
+    the first clause alone, which is how a stage came to be told to quote source "character
+    for character" and returned an identifier the repository does not contain.*
 23. `ArchitectureCase` holds user intent only; the advisor never writes into it.
 24. A review's overview may summarise its verdicts and may not revise them: no verdict
     field, and every claim names the boundaries it rests on.
 25. Elicited questions are advisor output and live in the review; an answer enters the
     case only as a user-authored revision the user has seen before it is saved (§6C).
+    A phrasing may be suggested — by the question, or by a discussion of it — and becomes
+    an answer only when the user adopts it (§6C.7).
 
 ---
 

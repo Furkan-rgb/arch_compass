@@ -185,6 +185,70 @@ def test_a_review_says_what_its_verdicts_amount_to(runtime: Runtime) -> None:
     assert statements[0].supporting_references[0] in markdown
 
 
+def test_a_thin_case_is_reviewed_and_asked_about(runtime: Runtime) -> None:
+    """Elicitation end to end (§6C): value first, then the questions that would sharpen it.
+
+    The case here states no expected future change, which is what a first case written by
+    someone evaluating the tool actually looks like. The run must still produce a full
+    review — every boundary judged, cleared ones kept — and come back asking for what would
+    settle the verdicts that turned on the silence.
+
+    What is defended is the binding rather than the wording: every question names boundaries
+    of this review, assigned by the application, and lands in a field the case really has.
+    """
+
+    atlas = runtime.analyzer.analyze(FIXTURE)
+    runtime.atlas_repository.save(atlas)
+    thin = _case(FIXTURE).model_copy(update={"expected_future_changes": []})
+    case_id = runtime.case_repository.create(thin, actor="test").case_id
+
+    review = runtime.review_service.review(case_id, repository_root=FIXTURE)
+
+    report = review.report
+    assert report is not None
+    assert report.reviewed, "a thin case must still get a full review"
+    questions = report.overview.open_questions
+    assert questions, "verdicts that turned on the silence must be asked about"
+
+    known = {item.reference for item in report.reviewed}
+    case_fields = set(ArchitectureCase.model_fields)
+    for question in questions:
+        assert question.supporting_references
+        assert set(question.supporting_references) <= known
+        # The destination has to be somewhere an answer can actually go, or the answer
+        # path has nowhere to put it.
+        assert question.answer_belongs_in.value in case_fields
+
+    assert [item.reference for item in questions] == [
+        f"Q-{position}" for position in range(1, len(questions) + 1)
+    ]
+    # Consolidated rather than repeated: several boundaries turning on one silence are one
+    # question, which is the whole reason this is composed over the set.
+    assert len(questions) < len(report.reviewed)
+
+    markdown = render_review(review)
+    assert "What it needs to know" in markdown
+    assert questions[0].question in markdown
+
+
+def test_a_case_that_answers_the_question_is_not_asked_it_again(runtime: Runtime) -> None:
+    """The loop closes: an answered case produces a review with nothing left open.
+
+    This is the mechanism elicitation exists for, run twice against the same repository —
+    the only difference is what the case says, which is the difference the whole product
+    turns on.
+    """
+
+    case_id = _indexed_case(runtime)
+
+    review = runtime.review_service.review(case_id, repository_root=FIXTURE)
+
+    report = review.report
+    assert report is not None
+    assert report.overview.open_questions == []
+    assert not any(item.hinge for item in report.reviewed)
+
+
 def test_a_summarising_step_is_reported_before_it_runs(runtime: Runtime) -> None:
     """A caller has to be able to say what the run is doing after the last verdict."""
 

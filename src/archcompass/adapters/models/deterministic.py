@@ -2,64 +2,47 @@
 
 from __future__ import annotations
 
-import math
 import re
 from collections.abc import Callable
-from hashlib import sha256
 from typing import ClassVar
 
 from archcompass.domain.atlas import (
     FindingCandidate,
+    FindingPattern,
 )
 from archcompass.domain.case import (
     ArchitectureCase,
+    CaseField,
 )
 from archcompass.domain.knowledge import MethodKnowledge
 from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
     BoundaryReview,
     CandidateVerdict,
+    OpenQuestion,
     OverviewStatement,
     PolicyBearing,
     ReviewedBoundary,
+    ReviewEvidence,
     ReviewOverview,
+    VerdictHinge,
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
 from archcompass.ports.reasoning import ReasoningTask, StreamingAnswerReasoner
 
 
-class DeterministicEmbeddingProvider:
-    def __init__(self, dimensions: int = 64) -> None:
-        self._dimensions = dimensions
-
-    @property
-    def identity(self) -> tuple[str, str, int]:
-        return ("fake", "deterministic-token-hash-v1", self._dimensions)
-
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        return [self._embed_one(text) for text in texts]
-
-    def _embed_one(self, text: str) -> list[float]:
-        vector = [0.0] * self._dimensions
-        tokens = re.findall(r"[a-z0-9-]+", text.casefold())
-        for token in tokens:
-            digest = sha256(token.encode("utf-8")).digest()
-            index = int.from_bytes(digest[:4], "big") % self._dimensions
-            vector[index] += 1.0 if digest[4] % 2 == 0 else -1.0
-        magnitude = math.sqrt(sum(value * value for value in vector)) or 1.0
-        return [value / magnitude for value in vector]
-
-
 class DeterministicReasoningProvider:
     _PROMPTS: ClassVar[dict[ReasoningTask, str]] = {
-        ReasoningTask.JUDGE_FINDING_CANDIDATE: "judge-finding-candidate:v3",
-        ReasoningTask.SUMMARISE_REVIEW: "summarise-review:v2",
+        ReasoningTask.JUDGE_FINDING_CANDIDATE: "judge-finding-candidate:v4",
+        ReasoningTask.ELICIT_QUESTIONS: "elicit-questions:v1",
+        ReasoningTask.SUMMARISE_REVIEW: "summarise-review:v3",
         ReasoningTask.ANSWER_REVIEW_QUESTION: "answer-review-question:v1",
+        ReasoningTask.DISCUSS_OPEN_QUESTION: "discuss-open-question:v1",
     }
 
     @property
     def model_identity(self) -> str:
-        return "fake:deterministic-architecture-v3"
+        return "fake:deterministic-architecture-v4"
 
     def prompt_identity(self, task: ReasoningTask) -> str:
         return self._PROMPTS[task]
@@ -70,7 +53,6 @@ class DeterministicReasoningProvider:
         candidate: FindingCandidate,
         policies: list[PolicyDocument],
     ) -> CandidateVerdict:
-        del case
         # The one call a substitute can make from the measurements alone: indirection
         # that nothing depends on is in front of nothing. Every other candidate is
         # reported as fine, which is both the honest default here and the answer a real
@@ -100,9 +82,49 @@ class DeterministicReasoningProvider:
             for policy in policies
             if any(word in " ".join([policy.title, *policy.tags]).lower() for word in words)
         ]
+        # Derived from the case, which is what a hinge is about: a verdict reached without
+        # being told what is coming rests on the assumption that nothing is. A fixture that
+        # always produced a hinge — or never did — would make every assertion about
+        # elicitation vacuous, so this turns on a field the test can set either way.
+        #
+        # An answer already recorded counts, exactly as the real contract requires: a
+        # clarification bearing on expected_future_changes carries the force of an entry in
+        # that list, so a reader who has been asked about the future and replied is not asked
+        # again. That is what closes the loop, and reading only the list would leave the
+        # substitute hinging for ever on questions it had already had answered — which is the
+        # failure a fixture is least likely to be caught doing.
+        #
+        # Restricted to indirection, because that is the only one of the three shapes where
+        # a coming change is the question. Whether two modules state one fact or two is
+        # settled by what the copies mean, and no amount of future variation changes it. The
+        # substitute obeys the rule its own contract states here — a hinge on every boundary
+        # is a hinge on none — so an offline run does not read as an advisor hedging
+        # everything it says.
+        told_about_the_future = bool(case.expected_future_changes) or any(
+            item.bears_on is CaseField.EXPECTED_FUTURE_CHANGES for item in case.clarifications
+        )
+        hinge = (
+            VerdictHinge(
+                unknown=(
+                    "The case names no expected future change, so nothing states whether "
+                    "the variation this boundary would absorb is coming."
+                ),
+                if_confirmed=(
+                    "The boundary stands in front of a change that is actually coming and "
+                    "should stay as it is."
+                ),
+                if_denied=(
+                    "Nothing arrives for the boundary to absorb, and it should be removed."
+                ),
+            )
+            if candidate.pattern is FindingPattern.SOLE_IMPLEMENTATION
+            and not told_about_the_future
+            else None
+        )
         return CandidateVerdict(
             candidate_id=candidate.candidate_id,
             material=material,
+            hinge=hinge,
             rationale=(
                 (
                     "Nothing in this snapshot depends on the abstraction, so the boundary "
@@ -123,6 +145,51 @@ class DeterministicReasoningProvider:
                 else ""
             ),
         )
+
+    def elicit_questions(
+        self,
+        case: ArchitectureCase,
+        boundaries: list[ReviewedBoundary],
+    ) -> list[OpenQuestion]:
+        # Consolidated the way the real stage is asked to consolidate: boundaries naming the
+        # same unknown become one question citing all of them. Grouping by the unknown's own
+        # text is cruder than a model reading them for sense, but it is the same operation,
+        # so a test that asserts one question over four boundaries is asserting the
+        # behaviour rather than a fixture's shape.
+        by_unknown: dict[str, list[ReviewedBoundary]] = {}
+        for item in boundaries:
+            if item.hinge is not None:
+                by_unknown.setdefault(item.hinge.unknown, []).append(item)
+        return [
+            OpenQuestion(
+                reference=f"Q-{position}",
+                # Composed from the boundaries themselves rather than from a fixed sentence,
+                # so a test that asserts the observation names what was examined is asserting
+                # that the field carries evidence at all.
+                what_the_review_saw=(
+                    "Examined "
+                    + ", ".join(item.candidate.summary for item in sharing)
+                    + ". The case does not settle this either way."
+                ),
+                unknown=unknown,
+                # One sentence per distinct consequence, not one per boundary. Boundaries
+                # that move the same way say so once: repeating an identical clause six
+                # times is how a consolidated question reads as though nothing was merged.
+                why_it_matters=(
+                    f"{len(sharing)} of {len(boundaries)} verdicts move on this. "
+                    + " ".join(
+                        dict.fromkeys(item.hinge.if_denied for item in sharing if item.hinge)
+                    )
+                ),
+                question=(
+                    "Is any of that variation actually coming, or is the current shape "
+                    "what this repository will keep?"
+                ),
+                answer_belongs_in=CaseField.EXPECTED_FUTURE_CHANGES,
+                supporting_references=[item.reference for item in sharing],
+            )
+            for position, (unknown, sharing) in enumerate(by_unknown.items(), start=1)
+        ]
 
     def summarise_review(
         self,
@@ -162,6 +229,9 @@ class DeterministicReasoningProvider:
         for item in boundaries:
             if item.candidate.limitations and item.candidate.limitations not in stated:
                 stated.append(item.candidate.limitations)
+        # No questions. The real stage's schema has no field for one — asking belongs to the
+        # first pass, and this runs only on the second — so a substitute that produced them
+        # here would let a test pass against a shape the provider cannot return.
         return ReviewOverview(
             situation=(
                 f"{case.title}. {case.problem_statement}"
@@ -183,6 +253,7 @@ class DeterministicReasoningProvider:
     def stream_review_answer(
         self,
         review: BoundaryReview,
+        evidence: ReviewEvidence,
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
@@ -200,7 +271,7 @@ class DeterministicReasoningProvider:
         without pretending to imitate how any particular provider chunks its output.
         """
 
-        answer = self.answer_review_question(review, history, question, knowledge)
+        answer = self.answer_review_question(review, evidence, history, question, knowledge)
         for index, word in enumerate(answer.answer.split(" ")):
             on_prose(word if index == 0 else f" {word}")
         return answer
@@ -208,6 +279,7 @@ class DeterministicReasoningProvider:
     def answer_review_question(
         self,
         review: BoundaryReview,
+        evidence: ReviewEvidence,
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
@@ -233,9 +305,16 @@ class DeterministicReasoningProvider:
             if knowledge.method
             else ""
         )
+        # Counted rather than quoted, as the background already is: a test can then prove
+        # the recorded spans reached this stage without the substitute pretending to reason
+        # about the code at them.
+        shown = (
+            f" Source shown for "
+            f"{len({x.reference for x in evidence.excerpts if x.text})} boundaries."
+        )
         return ReviewAnswer(
             answer=(
-                f"{report.headline} "
+                f"{report.headline}{shown} "
                 + (
                     "The boundaries this question touches are: "
                     + "; ".join(item.candidate.summary for item in supporting)
@@ -246,6 +325,68 @@ class DeterministicReasoningProvider:
                 + f" (turn {len(history) + 1})"
             ),
             supporting_references=[item.reference for item in supporting],
+        )
+
+    def stream_open_question_discussion(
+        self,
+        review: BoundaryReview,
+        evidence: ReviewEvidence,
+        question: OpenQuestion,
+        history: list[ReviewMessage],
+        asked: str,
+        knowledge: MethodKnowledge,
+        on_prose: Callable[[str], None],
+    ) -> ReviewAnswer:
+        answer = self.discuss_open_question(
+            review, evidence, question, history, asked, knowledge
+        )
+        for index, word in enumerate(answer.answer.split(" ")):
+            on_prose(word if index == 0 else f" {word}")
+        return answer
+
+    def discuss_open_question(
+        self,
+        review: BoundaryReview,
+        evidence: ReviewEvidence,
+        question: OpenQuestion,
+        history: list[ReviewMessage],
+        asked: str,
+        knowledge: MethodKnowledge,
+    ) -> ReviewAnswer:
+        report = review.report
+        if report is None:
+            raise ValueError("A review without a report cannot be discussed")
+        # The cited boundaries and no others, which is the property worth substituting for.
+        # A test asserting that an uncited verdict never reaches this stage is asserting the
+        # rule that lets the stage run at all while a first pass withholds its verdicts.
+        cited = set(question.supporting_references)
+        supporting = [item for item in report.reviewed if item.reference in cited]
+        consulted = (
+            f" Background consulted: the method primer and {len(knowledge.policies)} "
+            "policies, whole."
+            if knowledge.method
+            else ""
+        )
+        # Suggested only once the reader has said something, and derived from what they
+        # said rather than from a fixture. Before the first turn there is nothing they have
+        # told anyone, so there is nothing honest to propose — which is the behaviour the
+        # real contract is asked for and the one a test should be able to pin.
+        settled = "sure" in asked.casefold() or "yes" in asked.casefold()
+        # Counted rather than quoted, the way background already is: a test can then prove
+        # the pinned revision reached this stage without the substitute pretending to reason
+        # about what it says.
+        stated = len(evidence.case.expected_future_changes) + len(evidence.case.assumptions)
+        return ReviewAnswer(
+            answer=(
+                f"About {question.unknown} "
+                f"({len([x for x in evidence.excerpts if x.text])} excerpts) "
+                f"(case states {stated}): "
+                + "; ".join(item.candidate.summary for item in supporting)
+                + consulted
+                + f" (turn {len(history) + 1})"
+            ),
+            supporting_references=[item.reference for item in supporting],
+            suggested_answer=asked.strip() if settled else "",
         )
 
 

@@ -1,27 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowRight,
-  Boxes,
-  CircleCheck,
-  ClipboardList,
-  Eye,
-  FileCode2,
-  FilePlus2,
-  FileSearch,
-  FlaskConical,
-  PencilLine,
-  Play,
-  Plus,
-} from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowRight, FlaskConical, Play } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 import { api } from "../api";
 import { CaseEditor, CaseView } from "../case-editor";
 import { CaseForm, casePayload, type CaseFormValues } from "../case-form";
-import { Badge, ErrorPanel, Loading, PageHeader } from "../components";
+import { EmptyLine, ErrorPanel, Loading, PageHeader, page, sheet } from "../components";
 import { latestPerRepository } from "../repositories";
 import { useRun } from "../run";
+import {
+  applyRepositoryHint as hintRepository,
+  chooseCase as pickCase,
+  isReady,
+  runIntent,
+  type StartSelection,
+} from "../start-selection";
 import type { BundledCase, CaseRevision, CaseSummary } from "../types";
 
 /** Which case surface is open, if any: writing a new one, or reading a stored one. */
@@ -32,12 +31,121 @@ type Editor =
   | { mode: "view"; caseId: string }
   | null;
 
+/**
+ * The floating layer a case is written on.
+ *
+ * A case is prose — eleven fields of it — and rendering that inline pushed the two pickers
+ * and the run bar off the screen the moment anyone opened it, so the step you were in the
+ * middle of disappeared while you did a different one. It floats instead: the start screen
+ * stays behind it, unmoved, and closing puts the reader back exactly where they were.
+ *
+ * Deliberately not dismissed by a click on the backdrop. Everywhere else in this app that is
+ * the courteous behaviour, but here the thing behind the click is half-written prose, and a
+ * stray click is not a decision to throw it away. The close button and Escape are.
+ *
+ * A vendored dialog now, which is where those three decisions ended up being cheapest to
+ * keep: Escape is the primitive's own behaviour, focus lands on the close button because that
+ * is the first thing in the surface below, and refusing the backdrop is one prevented event
+ * rather than the absence of a handler. It carries no title of its own — the surface inside
+ * writes the heading, and saying it twice would have a screen reader read the same words on
+ * the way in.
+ *
+ * The one thing the primitive cannot do here is give the focus back. A modal dialog returns
+ * it to its own `DialogTrigger`, and there is none: this layer is rendered from state by any
+ * of four buttons. So the control that opened it is remembered by the page and handed back,
+ * because putting the reader back exactly where they were is the whole promise of a surface
+ * that floats over a step rather than replacing it.
+ */
+function CaseLayer({
+  label,
+  opener,
+  onClose,
+  children,
+}: {
+  label: string;
+  opener: React.RefObject<HTMLElement | null>;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogContent
+        data-slot="case-layer"
+        aria-label={label}
+        // The surface inside has its own way out, in its own head, beside its own heading.
+        showCloseButton={false}
+        // Not centred: a case is taller than the window, and a form that starts halfway down
+        // a scroller opens on its own middle.
+        overlayClassName="items-start px-[var(--gutter)] py-6"
+        className="max-w-[880px] gap-0 p-0"
+        onInteractOutside={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          opener.current?.focus();
+        }}
+      >
+        {children}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* A short list of things to pick from, at the density of a list rather than of a card wall:
+   name, one fact about it, and the path or sentence that tells two of them apart.
+   `aria-pressed` is the whole state — a case can be un-picked. */
+const pick = "m-0 grid max-h-[232px] list-none gap-0.5 overflow-y-auto p-0";
+const pickButton = cn(
+  "grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-0.5",
+  "rounded-control border border-transparent bg-sunken px-2.5 py-2 text-left",
+  "hover:border-rule",
+  "aria-pressed:border-accent-rule aria-pressed:bg-accent-soft",
+);
+/* Not a `small`: the one surviving line of the old preflight sets that element's size
+   unlayered, which no utility can outrank, and this line is 11px. */
+const pickName = "min-w-0 overflow-hidden text-meta font-[650] text-ellipsis whitespace-nowrap";
+const pickWhere = "col-span-full overflow-hidden font-mono text-micro text-ellipsis whitespace-nowrap text-ink-3";
+/* A path is this product's material and wears the mono face; a problem statement is a
+   sentence someone wrote, and setting prose in mono makes it look like a value. */
+const pickProse = "col-span-full overflow-hidden text-meta text-ellipsis whitespace-nowrap text-ink-3";
+/* An example is a pill rather than a button: it fills both rails at once, which is a thing
+   to take rather than an action to perform. */
+const examplePill = cn(
+  "inline-flex h-[26px] cursor-pointer items-center gap-2 rounded-pill border border-rule",
+  "bg-surface px-3 text-meta whitespace-nowrap text-ink",
+  "not-disabled:hover:border-accent-rule not-disabled:hover:bg-accent-soft",
+  "disabled:cursor-not-allowed disabled:opacity-55",
+);
+const startColumn = "grid min-w-0 content-start gap-2.5 px-[22px] pt-4 pb-5";
+const startHead = "flex items-baseline gap-2";
+const hint = "m-0 text-meta leading-[1.5] text-ink-2";
+const note = "m-0 text-meta leading-[1.5] text-ink-3";
+/* A read that failed is reported once, above both columns, inside the sheet's own gutter. */
+const readError = "px-[22px] [&_[data-slot=error-strip]]:mt-3 [&_[data-slot=error-strip]]:mb-0";
+
 export function HomePage() {
   const client = useQueryClient();
   const [repositoryRoot, setRepositoryRoot] = useState<string | null>(null);
   const [caseId, setCaseId] = useState<string | null>(null);
   const [path, setPath] = useState("");
   const [editor, setEditor] = useState<Editor>(null);
+  // Read at the click rather than at the layer's mount: the revise layer re-mounts when the
+  // stored case arrives, and by then focus is already inside it.
+  const opener = useRef<HTMLElement | null>(null);
+  const openEditor = useCallback((next: Editor) => {
+    opener.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setEditor(next);
+  }, []);
+  // One stable closure for all four surfaces below. It used to carry more weight than that:
+  // the hand-rolled focus trap re-ran — and re-grabbed focus — whenever this handler changed
+  // identity, so a fresh closure each render pulled the caret out of the field being typed
+  // into on every keystroke. The vendored dialog does not, and this stays anyway.
+  const closeEditor = useCallback(() => setEditor(null), []);
 
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const cases = useQuery({ queryKey: ["cases"], queryFn: api.cases });
@@ -57,6 +165,10 @@ export function HomePage() {
     [repositories.data],
   );
   const chosenCase = (cases.data || []).find((item) => item.case_id === caseId) || null;
+  const indexedRoots = useMemo(
+    () => indexed.map((repository) => repository.root_path),
+    [indexed],
+  );
 
   /**
    * A single indexed repository is not a choice to make. The atlas is substrate (master
@@ -99,10 +211,44 @@ export function HomePage() {
   // verdict, because the stream announces the review's identity before the first model call.
   const run = useRun();
 
+  // Index, open an empty case about it, and go straight to the review — the whole first
+  // step for someone who has not written a case (master plan §6C.1). The questions the run
+  // comes back with are how the case gets written, so requiring one first would put the
+  // price ahead of the value.
+  const reviewRepository = useMutation({
+    mutationFn: async (root: string) => {
+      const revision = await api.startFromRepository(root);
+      if (!revision.case_id) {
+        throw new Error("The workspace returned a case without an identifier.");
+      }
+      return { caseId: revision.case_id, root };
+    },
+    onSuccess: async (started) => {
+      setPath("");
+      setCaseId(started.caseId);
+      setRepositoryRoot(started.root);
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["cases"] }),
+        client.invalidateQueries({ queryKey: ["repositories"] }),
+      ]);
+      run.start(started.caseId, started.root);
+    },
+  });
+
   const created = async (revision: CaseRevision) => {
     setEditor(null);
-    setCaseId(revision.case_id);
-    applyRepositoryHint(revision.snapshot?.repository?.root_path);
+    // One selection, derived in one step, exactly as choosing a case from the list is.
+    // Setting the case and then applying the repository hint separately did not survive
+    // batching: the hint writes the whole selection back, and the one it was computed from
+    // still had the previous case in it — so a case authored here was created, listed, and
+    // silently left unchosen, with the run bar still offering a run on the code alone.
+    apply(
+      hintRepository(
+        { ...selection, caseId: revision.case_id },
+        revision.snapshot?.repository?.root_path,
+        indexedRoots,
+      ),
+    );
     await client.invalidateQueries({ queryKey: ["cases"] });
   };
 
@@ -125,298 +271,263 @@ export function HomePage() {
     onSuccess: created,
   });
 
-  /**
-   * A case that names an indexed repository fills the other rail too. The case already
-   * answers the question the repository rail asks, and making the user answer it again
-   * would be asking them to repeat themselves. An unindexed path is offered rather than
-   * selected: indexing is a real action with its own failure modes.
-   */
-  function applyRepositoryHint(root: string | null | undefined) {
-    if (!root) return;
-    if (indexed.some((repository) => repository.root_path === root)) {
-      setRepositoryRoot(root);
-    } else if (!path.trim()) {
-      setPath(root);
-    }
+  // Which rail a choice fills, what it leaves alone, and what Run then does all live in
+  // `start-selection`, where they are checkable without rendering anything. This component
+  // holds the state and applies the result; it decides none of the rules.
+  const selection: StartSelection = { repositoryRoot, caseId, path };
+
+  function apply(next: StartSelection) {
+    setRepositoryRoot(next.repositoryRoot);
+    setCaseId(next.caseId);
+    setPath(next.path);
   }
 
   const chooseCase = (item: CaseSummary) => {
-    setCaseId(item.case_id);
-    applyRepositoryHint(item.repository_root);
+    apply(pickCase(selection, item, indexedRoots));
   };
 
-  const ready = Boolean(repositoryRoot && caseId);
-  const busy = run.running || loadExample.isPending || index.isPending;
+  // The three lists this screen reads come from one server, so when it stops answering they
+  // stop together. Reported once, above both columns, rather than as the same sentence three
+  // times over. Failures of the *actions* below stay where the action was asked for: those
+  // are genuinely separate, and which one refused is the whole content of the message.
+  const reading = repositories.error || cases.error || examples.error;
+
+  const ready = isReady(selection);
+  const busy =
+    run.running || loadExample.isPending || index.isPending || reviewRepository.isPending;
 
   return (
-    <div className="page">
+    <div className={page}>
       <PageHeader
-        eyebrow="Local architecture workspace"
-        title="Review a repository against a case."
-        description="Every boundary the detector finds, judged one model call at a time against what this software actually has to do."
+        title="Start a review"
+        meta={
+          <Badge>
+            {indexed.length} indexed · {cases.data?.length || 0}{" "}
+            {cases.data?.length === 1 ? "case" : "cases"}
+          </Badge>
+        }
       />
 
-      <section className="panel">
-        <h2 className="panel__title">Start a review</h2>
-        <p className="panel__hint">
-          Two inputs, in either order: the repository to examine, and the case that says
-          what it has to do. The case is what separates a boundary that earns its place
-          from one that does not.
-        </p>
-
-        {examples.isLoading ? <Loading label="Finding examples…" /> : null}
-        {examples.isError ? <ErrorPanel error={examples.error} /> : null}
-        {examples.data?.length ? (
-          <div className="example-strip">
-            <span>Bundled examples fill both rails</span>
-            {examples.data.map((example) => (
-              <button
-                key={example.name}
-                type="button"
-                disabled={busy}
-                onClick={() => loadExample.mutate(example)}
-                title={example.problem_statement}
-              >
-                <FileSearch size={15} aria-hidden />
-                <span>{example.title}</span>
-                {example.has_expected_answers ? (
-                  <Badge tone="teal">
-                    <FlaskConical size={13} aria-hidden /> scored
-                  </Badge>
-                ) : null}
-              </button>
-            ))}
+      {/* One sheet, not a panel of panels. The two inputs are the same kind of thing —
+          pick one from a short list — and giving each its own bordered box said they were
+          two separate errands rather than two halves of one. */}
+      <section className={cn(sheet, "grid")} aria-label="Start a review">
+        {/* Both rails at once, which is what makes an example an example: a repository
+            already parsed and a case already written, so the first run is a real one. */}
+        <div
+          data-slot="examples"
+          className="flex flex-wrap items-center gap-2.5 border-b border-rule-soft px-[22px] py-4"
+        >
+          <span className="text-micro font-[650] tracking-[.08em] uppercase text-ink-3">
+            Examples fill both rails
+          </span>
+          {examples.isLoading ? (
+            // One row, at the width of a pill rather than of a table row.
+            <Loading
+              label="Finding examples…"
+              rows={1}
+              className="p-0 [&>[data-slot=skeleton-row]]:w-[200px]"
+            />
+          ) : null}
+          {examples.data?.map((example) => (
+            <button
+              key={example.name}
+              type="button"
+              className={examplePill}
+              disabled={busy}
+              onClick={() => loadExample.mutate(example)}
+              title={example.problem_statement}
+            >
+              <span>{example.title}</span>
+              {example.has_expected_answers ? (
+                <Badge variant="accent" className="px-1.5 py-0">
+                  <FlaskConical size={11} aria-hidden /> scored
+                </Badge>
+              ) : null}
+            </button>
+          ))}
+          {loadExample.isPending ? (
+            <span className="text-meta text-accent-ink">
+              Indexing its repository and creating its case…
+            </span>
+          ) : null}
+        </div>
+        {reading ? (
+          <div className={readError}>
+            <ErrorPanel error={reading} />
           </div>
         ) : null}
-        {loadExample.isPending ? (
-          <p className="panel__notice">
-            Loading the example: indexing its repository and creating its case.
-          </p>
+        {loadExample.isError ? (
+          <div className={readError}>
+            <ErrorPanel error={loadExample.error} />
+          </div>
         ) : null}
-        {loadExample.isError ? <ErrorPanel error={loadExample.error} /> : null}
 
-        <div className="rails">
-          <div className={`rail ${repositoryRoot ? "rail--filled" : ""}`}>
-            <div className="rail__head">
-              <span className="rail__step">A</span>
-              <h3>Repository</h3>
-              {repositoryRoot ? (
-                <CircleCheck className="rail__done" size={17} aria-label="Chosen" />
-              ) : null}
+        {/* Side by side and equal, because neither input depends on the other — a wizard
+            would impose an order the flow does not have. They stack once the pair is
+            narrower than two columns of prose, and the rule between them turns to run
+            across. */}
+        <div className="grid grid-cols-2 max-[1050px]:grid-cols-1">
+          <div data-slot="start-column" className={startColumn}>
+            <div className={startHead}>
+              <h3 className="m-0 text-ui font-[650]">Repository</h3>
             </div>
-            <p className="rail__hint">
+            <p className={hint}>
               Python is parsed without being imported or modified. Indexing the same path
               again is cheap; freshness is checked before every review.
             </p>
 
-            {repositories.isLoading ? <Loading label="Reading indexed repositories…" /> : null}
-            {repositories.isError ? <ErrorPanel error={repositories.error} /> : null}
+            {repositories.isLoading ? (
+              <Loading label="Reading indexed repositories…" rows={2} />
+            ) : null}
             {indexed.length ? (
-              <div className="repository-list">
+              <ul data-slot="pick" className={pick}>
                 {indexed.map((repository) => (
-                  <button
-                    type="button"
-                    key={repository.version_id}
-                    aria-pressed={repositoryRoot === repository.root_path}
-                    onClick={() => setRepositoryRoot(repository.root_path)}
-                    className={`repository-card ${
-                      repositoryRoot === repository.root_path ? "repository-card--active" : ""
-                    }`}
-                  >
-                    <span className="repo-glyph">
-                      <Boxes size={17} aria-hidden />
-                    </span>
-                    <span>
-                      <strong>{repository.root_path.split("/").at(-1)}</strong>
-                      <small>{repository.root_path}</small>
-                    </span>
-                    <Badge tone="neutral">{repository.node_count} nodes</Badge>
-                  </button>
+                  <li key={repository.version_id}>
+                    <button
+                      type="button"
+                      className={pickButton}
+                      aria-pressed={repositoryRoot === repository.root_path}
+                      onClick={() => setRepositoryRoot(repository.root_path)}
+                    >
+                      <b className={pickName}>
+                        {repository.root_path.split("/").at(-1)}
+                      </b>
+                      <Badge className="self-center">
+                        {repository.node_count} nodes
+                      </Badge>
+                      <span className={pickWhere}>{repository.root_path}</span>
+                    </button>
+                  </li>
                 ))}
-              </div>
-            ) : (
-              <p className="rail__empty">
-                Nothing indexed yet. Point at a local Python project below, or load an
+              </ul>
+            ) : repositories.isLoading || repositories.isError ? null : (
+              // Only when the list genuinely arrived empty. A list that failed to arrive is
+              // not an empty one, and saying "nothing indexed yet" over a failed read is
+              // this page telling the reader something it does not know.
+              <EmptyLine>
+                Nothing indexed yet — point at a local Python project below, or load an
                 example above.
-              </p>
+              </EmptyLine>
             )}
 
-            <label className="rail__field">
-              <span>Index a new path</span>
-              <input
+            <div className="flex gap-2">
+              <Input
+                className="min-w-0 flex-1 text-meta placeholder:font-mono"
                 value={path}
                 onChange={(event) => setPath(event.target.value)}
                 placeholder="/absolute/path/to/python-project"
                 aria-label="Local repository path"
               />
-            </label>
-            <button
-              type="button"
-              className="button button--secondary"
-              disabled={!path.trim() || busy}
-              onClick={() => index.mutate(path.trim())}
-            >
-              <Plus size={15} aria-hidden />
-              {index.isPending ? "Indexing…" : "Index this path"}
-            </button>
-            <p className="rail__note">
+              <Button
+                type="button"
+                disabled={!path.trim() || busy}
+                onClick={() => index.mutate(path.trim())}
+              >
+                {index.isPending ? "Indexing…" : "Index"}
+              </Button>
+            </div>
+            <p className={note}>
               The workspace must not sit inside the project being analysed.
             </p>
             {index.isError ? <ErrorPanel error={index.error} /> : null}
           </div>
 
-          <div className={`rail ${caseId ? "rail--filled" : ""}`}>
-            <div className="rail__head">
-              <span className="rail__step">B</span>
-              <h3>Case</h3>
-              {caseId ? (
-                <CircleCheck className="rail__done" size={17} aria-label="Chosen" />
-              ) : null}
+          {/* The rule between the two columns lives on the second of them, and turns to run
+              across it once they stack. */}
+          <div
+            data-slot="start-column"
+            className={cn(
+              startColumn,
+              "border-l border-rule-soft max-[1050px]:border-t max-[1050px]:border-l-0",
+            )}
+          >
+            <div className={startHead}>
+              <h3 className="m-0 text-ui font-[650]">Case</h3>
+              <Badge className="ml-auto">optional</Badge>
             </div>
-            <p className="rail__hint">
-              Requirements, constraints and expected future changes for one decision. Each
-              case revision is immutable, and a review pins the exact revision it used.
+            {/* Optional, and saying so is the point. A case is what separates a boundary
+                that earns its place from one that does not, and it is also the reason
+                nobody got as far as a first verdict — so the review runs without one and
+                asks for what it lacked instead (master plan §6C.1). */}
+            <p className={hint}>
+              Skip this and the review runs on the repository alone, then asks what it could
+              not weigh — your answers become the case. Pick or write one here only if you
+              already know what this software has to do.
             </p>
 
-            {cases.isLoading ? <Loading label="Reading cases…" /> : null}
-            {cases.isError ? <ErrorPanel error={cases.error} /> : null}
+            {cases.isLoading ? <Loading label="Reading cases…" rows={2} /> : null}
             {cases.data?.length ? (
-              <div className="repository-list">
+              // The second line here is a sentence, not a path, so it is not set in the
+              // mono face — that face carries this product's material: names, refs, paths.
+              <ul data-slot="pick" data-prose="true" className={pick}>
                 {cases.data.map((item) => (
-                  <button
-                    type="button"
-                    key={item.case_id}
-                    aria-pressed={caseId === item.case_id}
-                    onClick={() => chooseCase(item)}
-                    className={`repository-card ${
-                      caseId === item.case_id ? "repository-card--active" : ""
-                    }`}
-                  >
-                    <span className="repo-glyph">
-                      <FileSearch size={17} aria-hidden />
-                    </span>
-                    <span>
-                      <strong>{item.title}</strong>
-                      <small>{item.problem_statement}</small>
-                    </span>
-                    <Badge tone="neutral">rev {item.revision}</Badge>
-                  </button>
+                  <li key={item.case_id}>
+                    <button
+                      type="button"
+                      className={pickButton}
+                      aria-pressed={caseId === item.case_id}
+                      onClick={() => chooseCase(item)}
+                    >
+                      <b className={pickName}>{item.title}</b>
+                      <Badge className="self-center">rev {item.revision}</Badge>
+                      <span className={pickProse}>{item.problem_statement}</span>
+                    </button>
+                  </li>
                 ))}
-              </div>
-            ) : (
-              <p className="rail__empty">
-                No cases yet. Write one below, or load a bundled example above to see what
+              </ul>
+            ) : cases.isLoading || cases.isError ? null : (
+              <EmptyLine>
+                No cases yet — write one below, or load a bundled example above to see what
                 a filled-in case looks like.
-              </p>
+              </EmptyLine>
             )}
 
-            <div className="rail__actions">
-              <button
+            <div className="flex flex-wrap gap-2">
+              <Button
                 type="button"
-                className="button button--secondary"
-                onClick={() => setEditor({ mode: "form" })}
+                onClick={() => openEditor({ mode: "form" })}
               >
-                <FilePlus2 size={15} aria-hidden /> New case
-              </button>
+                New case
+              </Button>
               {caseId ? (
                 <>
-                  <button
+                  <Button
                     type="button"
-                    className="button button--secondary"
-                    onClick={() => setEditor({ mode: "revise", caseId })}
+                    onClick={() => openEditor({ mode: "revise", caseId })}
                   >
-                    <PencilLine size={15} aria-hidden /> Revise this case
-                  </button>
-                  <button
+                    Revise
+                  </Button>
+                  <Button
                     type="button"
-                    className="button button--quiet"
-                    onClick={() => setEditor({ mode: "view", caseId })}
+                    onClick={() => openEditor({ mode: "view", caseId })}
                   >
-                    <Eye size={15} aria-hidden /> View
-                  </button>
+                    View
+                  </Button>
                 </>
               ) : null}
               {/* The escape hatch stays: a case someone already has as YAML, or a field the
                   form does not ask for, goes in this way. */}
-              <button
+              <Button
                 type="button"
-                className="button button--quiet"
-                onClick={() => setEditor({ mode: "yaml" })}
+                onClick={() => openEditor({ mode: "yaml" })}
               >
-                <FileCode2 size={15} aria-hidden /> Paste YAML
-              </button>
+                Paste YAML
+              </Button>
             </div>
           </div>
         </div>
 
-        {/* Full width rather than inside the rail: a case is prose, and half a rail is not
-            enough of a line to write it on. */}
-        {editor?.mode === "form" ? (
-          <CaseForm
-            heading="Write a case"
-            initial={undefined}
-            submitLabel="Create the case"
-            pendingLabel="Creating…"
-            pending={write.isPending}
-            error={write.error}
-            onSubmit={(values) => write.mutate(values)}
-            onClose={() => setEditor(null)}
-          />
-        ) : null}
-        {editor?.mode === "revise" ? (
-          <CaseForm
-            // Keyed by revision so the form re-mounts with the loaded case as its defaults
-            // rather than holding the empty values it was first built with.
-            key={`${editor.caseId}:${viewed.data?.revision ?? "loading"}`}
-            heading="Revise this case"
-            initial={viewed.data?.snapshot}
-            submitLabel="Save as a new revision"
-            pendingLabel="Saving…"
-            pending={revise.isPending}
-            loading={viewed.isLoading}
-            error={viewed.error || revise.error}
-            onSubmit={(values) => revise.mutate(values)}
-            onClose={() => setEditor(null)}
-            note={
-              <p className="case-editor__warning">
-                <strong>Earlier reviews are not affected.</strong> This writes revision{" "}
-                {(viewed.data?.revision ?? 0) + 1}; every review that has already run stays
-                pinned to the revision it judged.
-              </p>
-            }
-          />
-        ) : null}
-        {editor?.mode === "yaml" ? (
-          <CaseEditor
-            pending={create.isPending}
-            error={create.error}
-            onCreate={(source) => create.mutate(source)}
-            onClose={() => setEditor(null)}
-          />
-        ) : null}
-        {editor?.mode === "view" ? (
-          <CaseView
-            snapshot={viewed.data?.snapshot}
-            loading={viewed.isLoading}
-            error={viewed.error}
-            onClose={() => setEditor(null)}
-          />
-        ) : null}
-
-        <div className="start__run">
-          <button
-            type="button"
-            className="button button--primary"
-            disabled={!ready || busy}
-            onClick={() =>
-              repositoryRoot && caseId && run.start(caseId, repositoryRoot)
-            }
-          >
-            <Play size={16} aria-hidden />
-            {run.running ? "Starting…" : "Run review"}
-          </button>
-          <p>
-            {ready ? (
+        {/* Pinned to the foot of the sheet and never scrolled away from: the one control
+            that commits anything, beside the sentence saying exactly what it will do. */}
+        <div
+          data-slot="commit"
+          className="flex flex-wrap items-center gap-x-4 gap-y-2.5 rounded-b-panel border-t border-rule bg-sunken px-[22px] py-4"
+        >
+          <p className="m-0 flex-[1_1_32ch] text-meta leading-[1.5] text-ink-2 [&_strong]:font-[650] [&_strong]:text-ink">
+            {!ready ? (
+              <>Choose or index a repository to run. A case is optional.</>
+            ) : caseId ? (
               <>
                 Judging every boundary in{" "}
                 <strong>{repositoryRoot?.split("/").at(-1)}</strong> against{" "}
@@ -425,26 +536,124 @@ export function HomePage() {
               </>
             ) : (
               <>
-                Fill both rails to run: {repositoryRoot ? "a case" : "a repository"} is
-                still missing.
+                Judging every boundary in{" "}
+                <strong>{repositoryRoot?.split("/").at(-1)}</strong> on the code alone, with
+                no case written. The review will ask what it could not weigh, and your
+                answers become the case.
               </>
             )}
           </p>
+          <Button
+            type="button"
+            variant="primary"
+            disabled={!ready || busy}
+            onClick={() => {
+              // One run, two ways in, decided in one place rather than re-derived here: a
+              // chosen case is reviewed against, and no case opens an empty one about this
+              // repository first.
+              const intent = runIntent(selection);
+              if (intent === null) return;
+              if (intent.kind === "against-case") {
+                run.start(intent.caseId, intent.repositoryRoot);
+              } else {
+                reviewRepository.mutate(intent.repositoryRoot);
+              }
+            }}
+          >
+            <Play size={15} aria-hidden />
+            {busy ? "Starting…" : "Run review"}
+          </Button>
+          {/* A failure before the stream opens never reaches the review's page, because
+              there is no review to reach. It is reported where the run was asked for. */}
+          {run.error || reviewRepository.error ? (
+            <div className="flex-[1_1_100%] [&_[data-slot=error-strip]]:my-0">
+              <ErrorPanel error={run.error || reviewRepository.error} />
+            </div>
+          ) : null}
         </div>
-        {/* A failure before the stream opens never reaches the review's page, because there
-            is no review to reach. It is reported where the run was asked for. */}
-        {run.error ? <ErrorPanel error={run.error} /> : null}
       </section>
 
       {/* A pointer, not a listing. Past reviews are a standing record with its own place in
           the navigation; what belongs here is the way back to them after a run, in one
           line that cannot grow. */}
       {reviews.data?.length ? (
-        <Link className="text-link home__record" to="/reviews">
-          <ClipboardList size={15} aria-hidden />
+        <Link
+          className="mt-1 inline-flex items-center gap-1 text-meta text-accent-ink hover:underline"
+          to="/reviews"
+        >
           {reviews.data.length} {reviews.data.length === 1 ? "review" : "reviews"} in this
-          workspace <ArrowRight size={14} aria-hidden />
+          workspace <ArrowRight size={13} aria-hidden />
         </Link>
+      ) : null}
+
+      {editor?.mode === "form" ? (
+        <CaseLayer opener={opener} label="Write a case" onClose={closeEditor}>
+          <CaseForm
+            heading="Write a case"
+            initial={undefined}
+            submitLabel="Create the case"
+            pendingLabel="Creating…"
+            pending={write.isPending}
+            error={write.error}
+            onSubmit={(values) => write.mutate(values)}
+            onClose={closeEditor}
+          />
+        </CaseLayer>
+      ) : null}
+      {editor?.mode === "revise" ? (
+        // Keyed by revision so the form re-mounts with the loaded case as its defaults
+        // rather than holding the empty values it was first built with. The key sits on the
+        // layer rather than on the form so that the re-mount takes the focus trap with it —
+        // keyed on the form alone, the element focus was resting on is replaced underneath
+        // it and the dialog stops hearing Escape.
+        <CaseLayer
+          key={`${editor.caseId}:${viewed.data?.revision ?? "loading"}`}
+          opener={opener}
+          label="Revise this case"
+          onClose={closeEditor}
+        >
+          <CaseForm
+            heading="Revise this case"
+            initial={viewed.data?.snapshot}
+            submitLabel="Save as a new revision"
+            pendingLabel="Saving…"
+            pending={revise.isPending}
+            loading={viewed.isLoading}
+            error={viewed.error || revise.error}
+            onSubmit={(values) => revise.mutate(values)}
+            onClose={closeEditor}
+            note={
+              <p
+                data-slot="case-warning"
+                className="m-0 border-l-[3px] border-l-material bg-material-soft p-3 text-body leading-[1.55] text-ink [&>strong]:block"
+              >
+                <strong>Earlier reviews are not affected.</strong> This writes revision{" "}
+                {(viewed.data?.revision ?? 0) + 1}; every review that has already run stays
+                pinned to the revision it judged.
+              </p>
+            }
+          />
+        </CaseLayer>
+      ) : null}
+      {editor?.mode === "yaml" ? (
+        <CaseLayer opener={opener} label="Paste a case as YAML" onClose={closeEditor}>
+          <CaseEditor
+            pending={create.isPending}
+            error={create.error}
+            onCreate={(source) => create.mutate(source)}
+            onClose={closeEditor}
+          />
+        </CaseLayer>
+      ) : null}
+      {editor?.mode === "view" ? (
+        <CaseLayer opener={opener} label="The case, as stored" onClose={closeEditor}>
+          <CaseView
+            snapshot={viewed.data?.snapshot}
+            loading={viewed.isLoading}
+            error={viewed.error}
+            onClose={closeEditor}
+          />
+        </CaseLayer>
       ) : null}
     </div>
   );

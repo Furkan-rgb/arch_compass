@@ -98,7 +98,8 @@ def test_cli_commands_cover_local_workflow(tmp_path: Path, fake_config_text: str
     (workspace / "config" / "models.yaml").write_text(fake_config_text, encoding="utf-8")
     common = ["--workspace", str(workspace)]
 
-    assert runner.invoke(app, [*common, "policies", "rebuild"]).exit_code == 0
+    # No rebuild step before listing. Policies are read from their sources when asked for,
+    # so the bundled corpus is there from the first command.
     listed = runner.invoke(app, [*common, "policies", "list"])
     assert listed.exit_code == 0
     assert "hide-implementation-details" in listed.output
@@ -175,9 +176,9 @@ def test_cli_policy_source_registry_is_persistent(
     )
     common = ["--workspace", str(workspace)]
 
-    rebuilt = runner.invoke(
+    registered = runner.invoke(
         app,
-        [*common, "policies", "rebuild", "--source", str(source)],
+        [*common, "policies", "sources", "add", str(source)],
     )
     listed_sources = runner.invoke(
         app,
@@ -196,7 +197,7 @@ def test_cli_policy_source_registry_is_persistent(
         [*common, "policies", "sources", "list"],
     )
 
-    assert rebuilt.exit_code == 0, rebuilt.output
+    assert registered.exit_code == 0, registered.output
     assert listed_sources.exit_code == 0, listed_sources.output
     assert str(source.resolve()) in listed_sources.output
     assert shown.exit_code == 0, shown.output

@@ -8,10 +8,25 @@
  * code block would be worse than waiting.
  */
 
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
-import { AnswerProse } from "./ReviewDetailPage";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+import {
+  AskAction,
+  Overview,
+  answersBehind,
+  findingForNode,
+  verdictChanges,
+} from "./ReviewDetailPage";
+import { AnswerProse } from "../markdown";
+import type {
+  OpenQuestion,
+  RecordedAnswer,
+  ReviewStatus,
+  ReviewedBoundary,
+} from "../types";
 
 describe("AnswerProse", () => {
   it("renders a fenced block as code, keeping its line breaks", () => {
@@ -97,5 +112,290 @@ describe("AnswerProse", () => {
 
     expect(container.querySelector("img")).toBeNull();
     expect(screen.getByText(/onerror/)).toBeTruthy();
+  });
+});
+
+/**
+ * The way into the question panel, which is only open on a review that can answer.
+ *
+ * The rule is the backend's and this only mirrors it: `ReviewConversationService._load`
+ * admits `succeeded` and refuses everything else for a conversation about a whole review.
+ * A looser gate here would put the reader in front of a 404 they did nothing to earn; a
+ * stricter one would hide a surface the workspace would have served.
+ *
+ * The button stays on screen in every refused state. Dropping it would mean a reader who
+ * only ever opens running or held reviews never learns the feature exists.
+ */
+describe("AskAction", () => {
+  const openFor = (status: ReviewStatus) => {
+    const toggle = vi.fn();
+    // Scoped to its own container rather than the document, so a case that mounts the
+    // control more than once still asks about the one it just rendered.
+    const { container } = render(
+      <TooltipProvider>
+        <AskAction status={status} expanded={false} onToggle={toggle} />
+      </TooltipProvider>,
+    );
+    return {
+      toggle,
+      button: within(container).getByRole("button", { name: /Ask about this review/ }),
+    };
+  };
+
+  it("refuses a running review, and says it is the run and not a fault", async () => {
+    const { toggle, button } = openFor("running");
+
+    expect(button).toHaveProperty("disabled", true);
+    fireEvent.click(button);
+    expect(toggle).not.toHaveBeenCalled();
+
+    // A disabled button dispatches no pointer events, so the reason hangs off the span
+    // above it. Hovering that is the whole reason the wrapper exists.
+    fireEvent.focus(button.parentElement!);
+    await waitFor(() =>
+      expect(screen.getByText(/still running — ask once the verdicts are in/)).toBeTruthy(),
+    );
+  });
+
+  it("refuses a held review, and points at the questions rather than only saying no", async () => {
+    // Held is refused for a different reason than running: the report exists, and its
+    // verdicts are the ones the run said it could not settle. A conversation about one of
+    // those open questions is a different request and stays allowed, so the copy sends the
+    // reader there instead of leaving them with a dead control.
+    const { toggle, button } = openFor("awaiting_answers");
+
+    expect(button).toHaveProperty("disabled", true);
+    fireEvent.click(button);
+    expect(toggle).not.toHaveBeenCalled();
+
+    fireEvent.focus(button.parentElement!);
+    await waitFor(() => expect(screen.getByText(/Answer the open questions/)).toBeTruthy());
+  });
+
+  it("opens on a review that concluded, with nothing in the way", () => {
+    const { toggle, button } = openFor("succeeded");
+
+    expect(button).toHaveProperty("disabled", false);
+    // No tooltip wrapper on the happy path: the button is its own affordance, and the
+    // browser test reaches it by role and name.
+    expect(button.parentElement?.tagName).not.toBe("SPAN");
+    fireEvent.click(button);
+    expect(toggle).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a review that reached no verdicts at all", () => {
+    // Failed and cancelled reach the `Unfinished` page before this renders, so this is
+    // about the helper being total rather than about a screen anyone sees.
+    for (const status of ["failed", "cancelled"] as ReviewStatus[]) {
+      const { button } = openFor(status);
+      expect(button).toHaveProperty("disabled", true);
+    }
+  });
+});
+
+/**
+ * The conclusion is a conclusion, and asks for nothing.
+ *
+ * It used to carry the questions too, on the reasoning that a review should show its value
+ * before naming its price. Measurement overturned that: on the bundled example four of five
+ * first-pass verdicts moved once the questions were answered, so the "value" the questions
+ * were placed after was mostly wrong. Asking now happens on its own surface, before any
+ * conclusion exists — and a review that has concluded has, by construction, nothing to ask.
+ */
+describe("Overview", () => {
+  const base = {
+    situation: "One operator, one server.",
+    themes: [],
+    recommended_sequence: [],
+    limits: "A static count cannot see runtime registration.",
+  };
+
+  it("renders the bottom line and what the review could not see", () => {
+    render(<Overview overview={base} />);
+
+    expect(screen.getByText("One operator, one server.")).toBeTruthy();
+    expect(screen.getByText(/static count cannot see runtime registration/)).toBeTruthy();
+  });
+
+  it("has no answer surface, because a concluded review is not still asking", () => {
+    // Structural rather than cosmetic: the summarising stage has no field for a question,
+    // so a conclusion carrying one could only have come from somewhere it should not.
+    render(<Overview overview={base} />);
+
+    expect(screen.queryByText("What it needs to know")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+});
+
+/**
+ * What the reader's own answers changed, read off the two stored passes.
+ *
+ * The one place the product's central claim is checkable rather than asserted — and it costs
+ * no model call, because both passes are stored and the only difference between them is what
+ * the case says. Matching by reference is safe because detection is deterministic: the same
+ * atlas gives the same boundary the same `BR-nnn` in both passes.
+ */
+describe("verdictChanges", () => {
+  const boundary = (reference: string, name: string, material: boolean): ReviewedBoundary => ({
+    reference,
+    candidate: {
+      pattern: "sole_implementation",
+      summary: `package.${name} is implemented only by package.${name}Adapter.`,
+      participants: [
+        {
+          node_id: name.toLowerCase(),
+          qualified_name: `package.${name}`,
+          role: "Declares the abstraction.",
+        },
+      ],
+      limitations: "A static count cannot see runtime registration.",
+    },
+    material,
+    rationale: "Argued from the case.",
+    verdict_label: material ? "Not earning its place" : "Earning its place",
+  });
+
+  it("reports only the verdicts that actually moved, and which way", () => {
+    const before = [
+      boundary("BR-001", "Feed", true),
+      boundary("BR-002", "Ledger", false),
+      boundary("BR-003", "Digest", false),
+    ];
+    const after = [
+      boundary("BR-001", "Feed", false),
+      boundary("BR-002", "Ledger", false),
+      boundary("BR-003", "Digest", true),
+    ];
+
+    expect(verdictChanges(before, after)).toEqual([
+      { reference: "BR-001", title: "package.Feed", from: true, to: false },
+      { reference: "BR-003", title: "package.Digest", from: false, to: true },
+    ]);
+  });
+
+  it("reports no change as no change rather than as nothing to say", () => {
+    const same = [boundary("BR-001", "Feed", false)];
+
+    // A round that moved nothing is a result: those verdicts never rested on what the
+    // reader was asked about. The caller says so; this returns the empty list honestly.
+    expect(verdictChanges(same, same)).toEqual([]);
+  });
+
+  it("ignores a boundary the earlier pass never judged", () => {
+    // Cannot happen while the atlas is pinned, and is still not guessed at: a boundary with
+    // nothing to compare against has not "changed", and claiming it had would be inventing
+    // a movement out of an absence.
+    expect(verdictChanges([], [boundary("BR-001", "Feed", true)])).toEqual([]);
+  });
+});
+
+/**
+ * Which of the reader's own sentences moved a verdict.
+ *
+ * The join exists on both sides already — a question names the boundaries it would settle,
+ * and the answered revision names the questions it answered — so this reads a record rather
+ * than inferring a cause. It is the reason that record was worth storing: without it a
+ * second pass can say four verdicts moved and cannot say which sentence moved any of them.
+ *
+ * `recorded_text` is the answer as the reader typed it. While answers were composed into case
+ * lines it was that composition, so this section printed the question and then most of it
+ * again underneath; the pair is stored now, and what is quoted is a person's own reply.
+ */
+describe("answersBehind", () => {
+  const question = (reference: string, cites: string[]): OpenQuestion => ({
+    reference,
+    what_the_review_saw: "Two modules wrap one supplier.",
+    unknown: `whether ${reference} matters`,
+    why_it_matters: "A verdict moves.",
+    question: `Is ${reference} settled?`,
+    answer_belongs_in: "expected_future_changes",
+    supporting_references: cites,
+  });
+
+  const recorded = (reference: string, text: string): RecordedAnswer => ({
+    question_reference: reference,
+    answer_belongs_in: "expected_future_changes",
+    recorded_text: text,
+  });
+
+  it("names the answer to a question that cited the boundary", () => {
+    const behind = answersBehind(
+      "BR-001",
+      [question("Q-1", ["BR-001", "BR-005"]), question("Q-2", ["BR-003"])],
+      [recorded("Q-1", "A second warehouse arrives next quarter.")],
+    );
+
+    expect(behind).toEqual([
+      {
+        question: "Is Q-1 settled?",
+        recordedText: "A second warehouse arrives next quarter.",
+      },
+    ]);
+  });
+
+  it("says nothing where the question that cited it was skipped", () => {
+    // A verdict can move because a question about a different boundary changed what the
+    // case says overall. Claiming a cause there would be inventing one.
+    expect(
+      answersBehind("BR-001", [question("Q-1", ["BR-001"])], [recorded("Q-2", "Elsewhere.")]),
+    ).toEqual([]);
+  });
+
+  it("names every answer where more than one question settled the same boundary", () => {
+    const behind = answersBehind(
+      "BR-001",
+      [question("Q-1", ["BR-001"]), question("Q-2", ["BR-001"])],
+      [recorded("Q-1", "First."), recorded("Q-2", "Second.")],
+    );
+
+    expect(behind.map((item) => item.recordedText)).toEqual(["First.", "Second."]);
+  });
+});
+
+/**
+ * The map's way back to the finding, which is the other half of a link the ledger already had.
+ *
+ * A finding could show its boundary on the map and the map could not name the finding, so a
+ * reader who followed the first link had nothing to follow home. The reference is what the
+ * ledger files a row under, so resolving to it is all the callback needs: the row's DOM id is
+ * that reference, and the tab it lives in is force-mounted.
+ */
+describe("findingForNode", () => {
+  const reviewed = [
+    {
+      reference: "BR-001",
+      material: true,
+      candidate: {
+        participants: [
+          { node_id: "clock", qualified_name: "ports.Clock" },
+          { node_id: "system_clock", qualified_name: "adapters.SystemClock" },
+        ],
+      },
+    },
+    {
+      reference: "BR-002",
+      material: false,
+      candidate: {
+        participants: [{ node_id: "store", qualified_name: "ports.Store" }],
+      },
+    },
+  ] as unknown as ReviewedBoundary[];
+
+  it("names the finding a judged boundary belongs to", () => {
+    expect(findingForNode("clock", reviewed)).toBe("BR-001");
+    expect(findingForNode("store", reviewed)).toBe("BR-002");
+  });
+
+  it("names it from the implementation behind it too", () => {
+    // Both participants are drawn, and a reader who selected either is asking about the same
+    // finding — the boundary and the single class behind it are its two halves.
+    expect(findingForNode("system_clock", reviewed)).toBe("BR-001");
+  });
+
+  it("names nothing for the neighbourhood, which no finding is about", () => {
+    // Most of the map is what reaches these boundaries. Answering with a reference there would
+    // send the reader to a row about something else.
+    expect(findingForNode("adapters.Report", reviewed)).toBeNull();
+    expect(findingForNode("clock", [])).toBeNull();
   });
 });

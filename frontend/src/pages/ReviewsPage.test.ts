@@ -62,4 +62,11 @@ describe("anyRunning", () => {
     ).toBe(true);
     expect(anyRunning([])).toBe(false);
   });
+
+  it("does not poll for a review that is waiting on a person", () => {
+    // Nothing is executing. The row moves when someone answers, and answering produces a
+    // *different* review — so polling this one would ask a question with no answer coming,
+    // for as long as the page is open.
+    expect(anyRunning([review({ status: "awaiting_answers" })])).toBe(false);
+  });
 });

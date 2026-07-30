@@ -4,6 +4,7 @@ export type ProblemDetail = OpenAPIComponents["schemas"]["ProblemDetail"];
 export type BoundaryReview = OpenAPIComponents["schemas"]["BoundaryReview"];
 export type BoundaryReviewReport = OpenAPIComponents["schemas"]["BoundaryReviewReport"];
 export type BoundaryReviewSummary = OpenAPIComponents["schemas"]["BoundaryReviewSummary"];
+export type ReviewStatus = OpenAPIComponents["schemas"]["ReviewStatus"];
 export type ReviewedBoundary = OpenAPIComponents["schemas"]["ReviewedBoundary"];
 export type ReviewConversation = OpenAPIComponents["schemas"]["ReviewConversation"];
 export type ReviewMessage = OpenAPIComponents["schemas"]["ReviewMessage"];
@@ -13,19 +14,21 @@ export type ReviewProgress = OpenAPIComponents["schemas"]["ReviewProgress"];
 export type AnswerProgress = OpenAPIComponents["schemas"]["AnswerProgress"];
 export type ReviewOverview = OpenAPIComponents["schemas"]["ReviewOverview"];
 export type OverviewStatement = OpenAPIComponents["schemas"]["OverviewStatement"];
+export type OpenQuestion = OpenAPIComponents["schemas"]["OpenQuestion"];
 export type ArchitectureCase = OpenAPIComponents["schemas"]["ArchitectureCase"];
 export type AtlasVersion = OpenAPIComponents["schemas"]["AtlasVersion"];
 export type CaseRevision = OpenAPIComponents["schemas"]["CaseRevision"];
 export type CaseSummary = OpenAPIComponents["schemas"]["CaseSummary"];
 export type CaseUpdate = OpenAPIComponents["schemas"]["CaseUpdate"];
+export type Clarification = OpenAPIComponents["schemas"]["Clarification"];
+export type RecordedAnswer = OpenAPIComponents["schemas"]["RecordedAnswer"];
+export type BoundaryExcerpt = OpenAPIComponents["schemas"]["BoundaryExcerpt"];
 
 export interface WorkspaceSummary {
   workspace: string;
   models: {
     reasoning: { provider: string; model: string };
-    embedding: { provider: string; model: string; dimensions: number };
   };
-  policy_index: Record<string, unknown> | null;
 }
 
 export interface RepositorySummary {

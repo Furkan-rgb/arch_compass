@@ -1,269 +1,336 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  ArrowRight,
-  ChevronDown,
-  CircleCheck,
-  CornerDownLeft,
-  FlaskConical,
-  MessageCircleQuestion,
-  Network,
-  PencilLine,
-  Plus,
-  TriangleAlert,
-  X,
-} from "lucide-react";
+import { ArrowRight, CircleCheck, FlaskConical, MessageCircleQuestion, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 import { api } from "../api";
-import { CaseForm, casePayload, type CaseFormValues } from "../case-form";
-import { Markdown } from "../markdown";
-import { ErrorPanel, Loading, formatDate, shortId } from "../components";
+import { AskPanel } from "../ask-panel";
+import {
+  ErrorPanel,
+  Group,
+  Loading,
+  PageHeader,
+  formatDate,
+  page,
+  sheet,
+  shortId,
+} from "../components";
+import { ask } from "../review-capabilities";
+import { HeldVerdicts, HoldBanner, contingentCount } from "../review-awaiting";
 import { ReviewAtlas } from "../review-atlas";
-import { ReviewInProgress } from "../review-in-progress";
+import { RunLog, watchedProgress } from "../review-in-progress";
+import {
+  Cite,
+  Citations,
+  FindingsLedger,
+  JudgingLedger,
+  VerdictBand,
+  type BandFact,
+} from "../review-ledger";
 import { useRun } from "../run";
+import { QuestionDiscussion } from "../question-discussion";
+import { OpenQuestions, type SubmittedAnswer } from "../review-questions";
 import type {
   BoundaryReview,
+  OpenQuestion,
+  RecordedAnswer,
   ReviewOverview,
   ReviewScore,
+  ReviewStatus,
   ReviewedBoundary,
 } from "../types";
 
 /**
- * One boundary, as a block within a section rather than a card inside a card.
- *
- * The verdict is carried by a left rail rather than by a border and a background, so a
- * cleared boundary reads with the same weight as a material one. It is the record that the
- * advisor looked, and demoting it would make the page identical whether every boundary was
- * examined and cleared or none ever was.
- */
-/**
- * The boundaries a claim rests on, as links into the findings themselves.
- *
- * The single most useful move on this page: a reader who doubts a theme is one click from
- * the verdicts it was built from. `:target` highlights the finding on arrival, so the jump
- * is visible without any script deciding what "selected" means.
- */
-/**
- * An answer as the model wrote it: prose, with code shown as code.
- *
- * The same renderer the Policies page uses, so a fenced block, a table or a bulleted list
- * reads the same wherever it appears. It also matters more here than there — an answer about
- * a boundary routinely shows the two-line change it is describing, and a diff rendered as one
- * run-on paragraph is worse than no example at all.
- *
- * Safe to call on a partial answer. An unclosed fence is treated as a code block running to
- * the end of what has arrived, which is exactly right for a block still being written; it is
- * highlighted from the first line rather than turning colour once the answer finishes.
- */
-export function AnswerProse({ text }: { text: string }) {
-  return (
-    <div className="markdown dock__a">
-      <Markdown>{text}</Markdown>
-    </div>
-  );
-}
-
-function Citations({ references }: { references: string[] }) {
-  return (
-    <span className="cites">
-      {references.map((reference) => (
-        <a key={reference} className="cite" href={`#${reference}`}>
-          {reference}
-        </a>
-      ))}
-    </span>
-  );
-}
-
-/**
- * What the verdicts amount to, read as a set — the first thing on the page.
+ * What the verdicts amount to, read as a set.
  *
  * Leads with the bottom line — the situation, what came out wrong, and what to do — because
  * a reader who gets no further than the first sentence should still know where they stand.
  * Closes with the limits, because a reader who has just been told what to do is exactly who
  * needs to know what was not examined.
+ *
+ * Below the ledger rather than above it. It is the one thing none of the separate calls
+ * could produce, and it is also the thing a reader checks *after* seeing which boundaries it
+ * is talking about — the citations lead back up into the rows.
  */
-function Overview({ overview }: { overview: ReviewOverview }) {
+export function Overview({ overview }: { overview: ReviewOverview }) {
   const themes = overview.themes || [];
   const sequence = overview.recommended_sequence || [];
   return (
-    // "Conclusion", not "Findings": the findings are the boundaries below, each with its
-    // own verdict. This is the one thing none of those separate calls could produce — what
-    // they amount to read as a set.
-    <section className="overview" aria-label="Conclusion">
-      <h2 className="overview__title">Conclusion</h2>
-      <p className="overview__lead">{overview.situation}</p>
+    // "Conclusion", not "Findings": the findings are the boundaries above, each with its own
+    // verdict. This is what they amount to read as a set.
+    <section data-slot="overview" className={cn(sheet, "p-[var(--card-pad)]")} aria-label="Conclusion">
+      <h2 className="m-0 mb-3 text-micro font-[650] tracking-[.09em] uppercase text-accent-ink">
+        Conclusion
+      </h2>
+      <p data-slot="overview-lead" className="m-0 max-w-[74ch] text-body leading-reading">
+        {overview.situation}
+      </p>
 
       {themes.length > 0 ? (
-        <div className="overview__group">
-          <h3>Across the boundaries</h3>
-          <ul className="overview__list">
+        <Group label="Across the boundaries">
+          <ul className={overviewList}>
             {themes.map((statement) => (
-              <li key={statement.text}>
-                <span>{statement.text}</span>
+              <li key={statement.text} className={cn(overviewClaim, overviewBullet)}>
+                <span className="min-w-0">{statement.text}</span>
                 <Citations references={statement.supporting_references || []} />
               </li>
             ))}
           </ul>
-        </div>
+        </Group>
       ) : null}
 
       {sequence.length > 0 ? (
-        <div className="overview__group">
-          <h3>Recommended actions, in order</h3>
-          <ol className="overview__list overview__list--ordered">
+        <Group label="Recommended actions, in order">
+          <ol className={cn(overviewList, "[counter-reset:step]")}>
             {sequence.map((statement) => (
-              <li key={statement.text}>
-                <span>{statement.text}</span>
+              <li key={statement.text} className={cn(overviewClaim, overviewStep)}>
+                <span className="min-w-0">{statement.text}</span>
                 <Citations references={statement.supporting_references || []} />
               </li>
             ))}
           </ol>
-        </div>
+        </Group>
       ) : null}
 
       {/* Kept even when there is nothing else: "no theme ran across these boundaries" is a
           result, and a reader still has to know what the method could not see. */}
-      <p className="overview__limits">
+      <p
+        data-slot="overview-limits"
+        className="m-0 mt-4 max-w-[82ch] border-t border-rule-soft pt-3 text-ui leading-[1.6] text-ink-2"
+      >
         <strong>What this review could not see.</strong> {overview.limits}
       </p>
     </section>
   );
 }
 
-function Finding({
-  item,
-  policyCount,
-  onShowInAtlas,
+/* A claim the conclusion draws, with the boundaries it rests on beside it.
+   The marker is a pseudo-element rather than a list bullet or a rendered span, because the
+   claim and its citations are one wrapping line of flex items and a marker in that flow
+   would be a fourth one — it has to sit outside the text it marks. */
+const overviewList = "m-0 grid max-w-[82ch] list-none gap-3 p-0";
+const overviewClaim =
+  "relative flex flex-wrap items-baseline gap-x-2 gap-y-1 text-body leading-[1.55] before:absolute before:left-[2px]";
+const overviewBullet = "pl-4 before:font-bold before:text-primary before:content-['·']";
+/* Numbered, because the recommended order is the whole of what that list adds: a dot would
+   give the reader nothing to refer to when they come back to the third one. */
+const overviewStep =
+  "pl-6 [counter-increment:step] before:text-ui before:tabular-nums before:text-accent-ink before:content-[counter(step)_'.']";
+
+/**
+ * What the reader's answers actually changed, read off the two passes.
+ *
+ * The single most persuasive thing this flow can show, and it costs no model call: both
+ * reviews are stored, both judged the same atlas, and the only difference between them is
+ * what the case says. A verdict that moved is therefore attributable to the answer and to
+ * nothing else — which is the claim elicitation makes, put in front of the person who just
+ * did the work.
+ *
+ * Matched by reference, which is safe precisely because detection is deterministic: the same
+ * atlas gives the same boundary the same `BR-nnn` in both passes.
+ */
+export function verdictChanges(
+  before: ReviewedBoundary[],
+  after: ReviewedBoundary[],
+): { reference: string; title: string; from: boolean; to: boolean }[] {
+  const previous = new Map(before.map((item) => [item.reference, item]));
+  return after.flatMap((item) => {
+    const earlier = previous.get(item.reference);
+    if (!earlier || earlier.material === item.material) return [];
+    return [
+      {
+        reference: item.reference,
+        title: item.candidate.participants[0]?.qualified_name ?? item.candidate.summary,
+        from: earlier.material,
+        to: item.material,
+      },
+    ];
+  });
+}
+
+/**
+ * Which of the reader's answers a boundary's verdict rested on.
+ *
+ * A question names the boundaries it would settle, and the revision names the questions it
+ * answered, so the join is already recorded on both sides and nothing here has to guess. It
+ * is the reason the provenance was worth storing: without it a second pass can say four
+ * verdicts moved, and cannot say which sentence moved any one of them.
+ *
+ * A changed verdict may have several answers behind it and may have none — a boundary can
+ * move because a question about a *different* boundary changed what the case says overall.
+ * Both are reported as what they are rather than forced into a single cause.
+ */
+export function answersBehind(
+  reference: string,
+  questions: OpenQuestion[],
+  answered: RecordedAnswer[],
+): { question: string; recordedText: string }[] {
+  const recorded = new Map(answered.map((item) => [item.question_reference, item]));
+  return questions.flatMap((question) => {
+    if (!(question.supporting_references || []).includes(reference)) return [];
+    const answer = recorded.get(question.reference);
+    if (!answer) return [];
+    return [{ question: question.question, recordedText: answer.recorded_text }];
+  });
+}
+
+/**
+ * Which finding a node on the map belongs to, by the reference the ledger files it under.
+ *
+ * Both participants, because both are on the map: the boundary carries the verdict and the
+ * implementation behind it is drawn beside it, and a reader who selected either of them is
+ * asking about the same finding. `null` for every other node the atlas returned — most of the
+ * map is the neighbourhood, which no finding is about.
+ */
+export function findingForNode(
+  nodeId: string,
+  reviewed: ReviewedBoundary[],
+): string | null {
+  const found = reviewed.find((item) =>
+    item.candidate.participants.some((participant) => participant.node_id === nodeId),
+  );
+  return found?.reference ?? null;
+}
+
+function WhatChanged({
+  changes,
+  total,
+  questions,
+  answered,
 }: {
-  item: ReviewedBoundary;
-  policyCount: number;
-  onShowInAtlas: ((nodeId: string) => void) | null;
+  changes: ReturnType<typeof verdictChanges>;
+  total: number;
+  /** The questions the first pass asked, where that pass has loaded. */
+  questions: OpenQuestion[];
+  /** What the answered revision recorded. Empty for a revision authored by hand. */
+  answered: RecordedAnswer[];
 }) {
-  const bearings = item.policy_bearings || [];
-  const abstraction = item.candidate.participants[0];
-  const implementation = item.candidate.participants[1];
   return (
-    <article
-      id={item.reference}
-      className={`finding finding--${item.material ? "material" : "cleared"}`}
-    >
-      <header className="finding__head">
-        <code className="finding__ref">{item.reference}</code>
-        <h3 className="finding__title">{abstraction?.qualified_name}</h3>
-        {/* The verdict in words, not only as a coloured rail: a reader scanning for "what
-            was the answer" should not have to learn a colour convention first. The wording
-            comes from the review rather than from here, because it depends on which shape
-            was judged — "not earning its place" is right for indirection that hides nothing
-            and wrong for a constant copied into four modules. */}
-        <span className={`verdict verdict--${item.material ? "material" : "cleared"}`}>
-          {item.verdict_label}
+    // Ruled down its accent side: what the reader's own answers did is a result about this
+    // page, not one more panel on it.
+    <section className={cn(sheet, "border-l-[3px] border-l-primary p-[var(--card-pad)]")}>
+      <p className="m-0 flex items-start gap-2 text-body leading-reading">
+        <ArrowRight size={15} aria-hidden className="mt-1 flex-none text-accent-ink" />
+        <span>
+          {changes.length === 0 ? (
+            <>
+              <strong>Your answers changed no verdict.</strong> All {total} came out the
+              same way against the answered case — which is a result, not a wasted round: it
+              means those verdicts never rested on what you were asked about.
+            </>
+          ) : (
+            <>
+              <strong>
+                {changes.length} of {total}{" "}
+                {changes.length === 1 ? "verdict" : "verdicts"} changed
+              </strong>{" "}
+              because of what you answered. Same repository, same atlas, same model — the
+              only difference between the two passes is what the case now says.
+            </>
+          )}
         </span>
-      </header>
+      </p>
+      {changes.length > 0 ? (
+        <ul className="m-0 mt-3 grid list-none gap-2 p-0">
+          {changes.map((item) => {
+            const behind = answersBehind(item.reference, questions, answered);
+            return (
+              <li
+                key={item.reference}
+                className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-ui"
+              >
+                <Cite reference={item.reference} />
+                <code className="text-meta text-ink-2">{item.title}</code>
+                <span className="text-ui text-ink-2">
+                  {item.from ? "should change" : "earning its place"} →{" "}
+                  <strong className="text-ink">
+                    {item.to ? "should change" : "earning its place"}
+                  </strong>
+                </span>
+                {/* The sentence that did it, where one can be named. Absent rather than
+                    guessed at: a verdict can move because a question about another boundary
+                    changed what the case says overall, and claiming a cause there would be
+                    inventing one.
 
-      {implementation ? (
-        <p className="finding__where">
-          Implemented only by <code>{implementation.qualified_name}</code>
-          {implementation.location ? (
-            <span className="finding__at">
-              {implementation.location.path}:{implementation.location.start_line}
-            </span>
-          ) : null}
-        </p>
-      ) : null}
-
-      <p className="finding__reasoning">{item.rationale}</p>
-
-      {item.recommended_response ? (
-        <p className="finding__action">
-          <strong>Recommendation.</strong> {item.recommended_response}
-        </p>
-      ) : null}
-
-      {bearings.length > 0 ? (
-        // Open, not collapsed. The substantiation is the reason to believe the verdict, and
-        // a reader should not have to go looking for it. The denominator is named on
-        // purpose: every policy was presented to every boundary, so one that does not
-        // appear here was considered and found not to apply — a different statement from
-        // never having been shown.
-        <div className="finding__policies">
-          <p className="finding__policies-head">
-            {bearings.length} of {policyCount} policies bear on this boundary
-          </p>
-          {/* A card each, three across, each only as tall as its own sentence. As a
-              bulleted list the policy's name and the sentence explaining how it bears ran
-              together into one paragraph, and a reader could not tell where one policy
-              stopped and the next began. */}
-          <ul className="bearings">
-            {bearings.map((bearing) => (
-              <li key={bearing.policy_id} className="bearing">
-                <strong className="bearing__title">{bearing.policy_title}</strong>
-                <span className="bearing__how">{bearing.how}</span>
+                    Indented under the row it explains and given the full width of it,
+                    because the whole point is that this is the sentence the reader wrote —
+                    their words, under the question that drew them out. */}
+                {behind.length > 0 ? (
+                  <ul className="mt-[2px] mb-1 grid w-full list-none gap-1 border-l-2 border-accent-rule pl-3">
+                    {behind.map((answer) => (
+                      <li key={answer.question} className="grid gap-0.5 text-ui">
+                        <span className="text-ink-3">{answer.question}</span>
+                        <span className="text-ink-2">{answer.recordedText}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
               </li>
-            ))}
-          </ul>
-        </div>
-      ) : (
-        <p className="finding__policies finding__policies--none">
-          None of the {policyCount} policies presented bore on this boundary.
-        </p>
-      )}
-
-      <p className="finding__limits">{item.candidate.limitations}</p>
-
-      {/* The map this finding raises a question about is further down the same page, so
-          this moves the reader to it rather than opening a second place to be. Leaving the
-          review to answer "where does this sit" lost the review; the question and its
-          answer belong in one reading (workspace-design §4). Absent when the atlas is no
-          longer indexed and there is nothing below to scroll to. */}
-      {onShowInAtlas && abstraction?.node_id ? (
-        <button
-          type="button"
-          className="finding__atlas"
-          onClick={() => onShowInAtlas(abstraction.node_id)}
-        >
-          <Network size={14} aria-hidden /> Show {item.reference} in the atlas
-        </button>
+            );
+          })}
+        </ul>
       ) : null}
-    </article>
+    </section>
   );
 }
 
+/* One graded boundary. The verdict family is the row's own surface rather than a mark beside
+   it: what a reader wants from a score is how many came out right, before reading any of
+   them. Below 720px the reason it was wrong takes the whole row — there is no second column
+   left to hold it. */
+const scoreRow =
+  "grid grid-cols-[auto_auto_1fr] items-baseline gap-2 rounded-control px-3.5 py-2.5 text-ui max-[720px]:grid-cols-[auto_1fr]";
+
 function Score({ score }: { score: ReviewScore }) {
   return (
-    <section className="scorebar">
-      <p className="scorebar__head">
+    <section data-slot="score" className={cn(sheet, "p-[var(--card-pad)]")}>
+      <p className="m-0 mb-3 flex items-baseline gap-2 text-body text-ink-2">
         <FlaskConical size={15} aria-hidden />
-        <strong>
+        <strong className="font-display text-head font-[650] tabular-nums text-ink">
           {score.correct}/{score.total}
         </strong>
         <span>
           correct against the answers <code>{score.example}</code> ships
         </span>
       </p>
-      <ul className="scorebar__rows">
+      <ul className="m-0 grid list-none gap-1 p-0">
         {score.boundaries.map((item) => (
-          <li key={item.reference} className={item.correct ? "is-ok" : "is-bad"}>
+          <li
+            key={item.reference}
+            className={cn(
+              scoreRow,
+              item.correct
+                ? "bg-cleared-soft text-cleared"
+                : "bg-material-soft text-material",
+            )}
+          >
             {item.correct ? (
               <CircleCheck size={13} aria-hidden />
             ) : (
               <X size={13} aria-hidden />
             )}
             <code>{item.reference}</code>
-            <span className="scorebar__said">
+            <span className="justify-self-start max-[720px]:col-span-full">
               {item.actual ? "should change" : "fine as it is"}
               {item.correct
                 ? ""
                 : ` — expected ${item.expected ? "should change" : "fine as it is"}`}
             </span>
-            {item.correct ? null : <span className="scorebar__why">{item.because}</span>}
+            {item.correct ? null : (
+              <span className="col-[2/-1] mt-[3px] leading-[1.5] opacity-85 max-[720px]:col-span-full">
+                {item.because}
+              </span>
+            )}
           </li>
         ))}
       </ul>
       {score.unscored.length > 0 ? (
-        <p className="scorebar__gap">
+        <p className="m-0 mt-3 text-ui text-material">
           Not scored, absent from the answer key: {score.unscored.join(", ")}
         </p>
       ) : null}
@@ -272,36 +339,83 @@ function Score({ score }: { score: ReviewScore }) {
 }
 
 /**
+ * The answers that produced this pass, beside the questions they answered.
+ *
+ * Read off the case revision this review is pinned to rather than recomposed: the workspace
+ * recorded which question each answer answered, which is what makes the join possible at all.
+ *
+ * The answer prints as the reader typed it. It used to be a line composed from the question
+ * and the reply, so this section showed the question and then most of it again underneath —
+ * the case now keeps the pair, and what is quoted here is a person's own sentence.
+ */
+function AnsweredHistory({
+  questions,
+  answered,
+  revision,
+}: {
+  questions: OpenQuestion[];
+  answered: RecordedAnswer[];
+  revision: number | undefined;
+}) {
+  const asked = new Map(questions.map((item) => [item.reference, item]));
+  return (
+    <section className={cn(sheet, "p-[var(--card-pad)]")} aria-label="Answers already recorded">
+      <p className="mb-2 text-ui text-ink-2">
+        {answered.length} {answered.length === 1 ? "answer" : "answers"} became case revision{" "}
+        {revision ?? "?"}, which is what this pass judged against.
+      </p>
+      <ol className="m-0 grid list-none gap-3 p-0">
+        {answered.map((item) => (
+          // Ruled down the side rather than bulleted: each of these is a quotation of the
+          // reader's own sentence, under the question it was given for.
+          <li
+            key={item.question_reference}
+            className="grid gap-0.5 border-l-2 border-accent-rule pl-3"
+          >
+            <code className="text-micro tracking-[.07em] text-ink-3">
+              {item.question_reference}
+            </code>
+            <span className="text-ui leading-[1.5] text-ink-3">
+              {asked.get(item.question_reference)?.question ?? "The question it answered."}
+            </span>
+            <span className="text-ui leading-[1.55] text-ink">{item.recorded_text}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+const unfinishedNote = "m-0 text-body leading-[1.6] text-ink-2";
+
+/**
  * A review that ended without a judgement: cancelled, or failed.
  *
  * Not an error page. The row exists from the moment the run starts, so this is what a review
  * page looks like when the run ended and no subject ever will exist. A run still going is a
- * different thing entirely and has its own component; this one is the aftermath.
+ * different thing entirely and has its own state; this one is the aftermath.
  */
 function Unfinished({ review }: { review: BoundaryReview }) {
   const cancelled = review.status === "cancelled";
   return (
-    <div className="page page--review">
-      <header className="review-head">
-        <span className="eyebrow">Boundary review</span>
-        <h1>{cancelled ? "This review was cancelled" : "This review did not finish"}</h1>
-        <p className="review-head__meta">
-          Case <code>{shortId(review.case_id)}</code> · revision {review.case_revision} ·
-          started {formatDate(review.created_at)}
-        </p>
-      </header>
-      <div className="unfinished">
+    <div data-slot="review-page" className={cn(page, "pb-6")}>
+      <PageHeader
+        title={cancelled ? "This review was cancelled" : "This review did not finish"}
+        parent={{ to: "/reviews", label: "Reviews" }}
+        meta={<Badge>case rev {review.case_revision}</Badge>}
+      />
+      <div className={cn(sheet, "grid max-w-[76ch] gap-3.5")}>
         {/* Cancelling records no reason, because there is none to record beyond the choice
             itself. Only what ArchCompass wrote for a person to read reaches this list; an
             unexpected failure is recorded without its text. */}
         {cancelled ? (
-          <p className="unfinished__note">
+          <p className={unfinishedNote}>
             It stopped after the boundary it was judging at the time. The verdicts it had
             already reached were not kept: a review is every boundary or none, and half of
             one would read as a complete answer.
           </p>
         ) : (
-          <ul className="unfinished__errors">
+          <ul className="m-0 grid gap-2 rounded-panel border border-danger-rule bg-danger-soft py-4 pr-4 pl-8 text-body leading-[1.55] text-danger">
             {(review.sanitized_errors || []).map((message) => (
               <li key={message}>{message}</li>
             ))}
@@ -310,9 +424,10 @@ function Unfinished({ review }: { review: BoundaryReview }) {
             ) : null}
           </ul>
         )}
-        <p className="unfinished__note">
+        <p className={unfinishedNote}>
           Nothing was written to the case or the atlas. A review is derived from both, so
-          running it again is the whole of the fix. <Link to="/">Start a review</Link> ·{" "}
+          running it again is the whole of the fix. Started {formatDate(review.created_at)} ·
+          case <code>{shortId(review.case_id)}</code> · <Link to="/">Start a review</Link> ·{" "}
           <Link to="/reviews">All reviews</Link>
         </p>
       </div>
@@ -320,31 +435,104 @@ function Unfinished({ review }: { review: BoundaryReview }) {
   );
 }
 
+/**
+ * The way into the question panel, and the one place the `ask` rule is enforced.
+ *
+ * Blocked states keep the button on screen rather than dropping it. A reader who never sees
+ * the affordance never learns the review can be asked about at all, and this page is where
+ * they would learn it — so it stays, greyed, with the reason on it.
+ */
+export function AskAction({
+  status,
+  expanded,
+  onToggle,
+}: {
+  status: ReviewStatus | undefined;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const refusal = ask(status);
+  const button = (
+    <Button
+      type="button"
+      variant="primary"
+      aria-expanded={refusal ? undefined : expanded}
+      disabled={refusal !== null}
+      onClick={refusal ? undefined : onToggle}
+    >
+      <MessageCircleQuestion size={14} aria-hidden /> Ask about this review
+    </Button>
+  );
+  if (!refusal) return button;
+  return (
+    <Tooltip>
+      {/* The span is load-bearing: a disabled button dispatches no pointer events, so the
+          trigger has to be something above it that does. It takes the tab stop the button
+          gave up, so the reason reaches a reader arriving by keyboard too. */}
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          className={cn(
+            "inline-flex rounded-control",
+            // The ring the button can no longer draw for itself, on the element that now
+            // holds its tab stop. Same 2px of accent every focusable thing here draws.
+            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+          )}
+        >
+          {button}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{refusal}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+type TabId = "findings" | "questions" | "runlog" | "atlas";
+
+/** A run's length, in the units a reader counts model calls in. */
+function formatDuration(seconds: number | undefined): string | null {
+  if (!seconds || seconds <= 0) return null;
+  // A run that took less than a second still took some time, and "0s" reads as a bug.
+  if (seconds < 1) return "<1s";
+  const whole = Math.round(seconds);
+  if (whole < 60) return `${whole}s`;
+  return `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, "0")}s`;
+}
+
 export function ReviewDetailPage() {
   const { reviewId = "" } = useParams();
   const client = useQueryClient();
-  const [question, setQuestion] = useState("");
-  const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<TabId>("findings");
   /**
-   * The question being answered right now, and the prose that has arrived for it.
-   *
-   * Held apart from the thread's messages on purpose: those are the record, and this is text
-   * on its way to being validated. Nothing here is grounded — citations come from flags that
-   * do not exist until the whole reply has arrived — so it is labelled as still being written
-   * rather than shown as an answer the review supports.
+   * Which tabs have been opened. A panel is mounted on first visit and kept mounted after,
+   * so the atlas does not re-inspect every boundary each time the reader comes back to it —
+   * and does not inspect any of them on a visit that never opens the map.
    */
-  const [pending, setPending] = useState<{
-    question: string;
-    prose: string;
-  } | null>(null);
-  const dockRef = useRef<HTMLDivElement>(null);
-  const slotRef = useRef<HTMLDivElement>(null);
-  const contentEnd = useRef<HTMLDivElement>(null);
-  const [revising, setRevising] = useState(false);
-  // The map is one section of this page, so which node it shows is the page's state: a
-  // finding above can ask for its own boundary, and the two must not each hold an answer.
+  const [visited, setVisited] = useState<TabId[]>(["findings"]);
+  const [openRow, setOpenRow] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  // The map is one tab of this page, so which node it shows is the page's state: a finding
+  // can ask for its own boundary, and the two must not each hold an answer.
   const [atlasNodeId, setAtlasNodeId] = useState<string | null>(null);
-  const atlasRef = useRef<HTMLElement>(null);
+  /**
+   * Which review these all belong to.
+   *
+   * The route keeps this component mounted when the reader moves from one review to
+   * another — answering navigates from a first pass to the second it started — so without
+   * this the new review opens on whichever tab the old one was left on, with a row expanded
+   * that its ledger does not contain.
+   */
+  const [shown, setShown] = useState(reviewId);
+  if (shown !== reviewId) {
+    setShown(reviewId);
+    setTab("findings");
+    setVisited(["findings"]);
+    setOpenRow(null);
+    setAtlasNodeId(null);
+    // A panel is about one review, so it does not follow the reader to the next one —
+    // answering a held review navigates straight from that pass to the one it starts.
+    setAsking(false);
+  }
   const run = useRun();
 
   const review = useQuery({
@@ -359,101 +547,29 @@ export function ReviewDetailPage() {
   const score = useQuery({
     queryKey: ["review-score", reviewId],
     queryFn: () => api.reviewScore(reviewId),
-    // Only once there is a judgement to grade. The page is now open while the review is
-    // still being produced, and a score asked for then answers "no score" truthfully — an
-    // answer that would then be cached over the real one.
+    // Only once there is a judgement to grade. The page is open while the review is still
+    // being produced, and a score asked for then answers "no score" truthfully — an answer
+    // that would then be cached over the real one.
     enabled: Boolean(reviewId) && review.data?.status === "succeeded",
   });
-  const conversations = useQuery({
-    queryKey: ["review-conversations", reviewId],
-    queryFn: () => api.reviewConversations(reviewId),
-    enabled: Boolean(reviewId),
-  });
-
-  /**
-   * How tall the dock may be: its reserved slot while there is page left to read, and up to
-   * the whole screen once the reader has reached the end of it.
-   *
-   * How far from the end the reader is comes from two element positions and never from
-   * `scrollHeight`. With a sticky element on the page those disagree: Chromium reports a
-   * scroll height a couple of hundred pixels larger than the furthest the page will actually
-   * scroll, so a page scrolled fully to the bottom looks like it still has some way to go and
-   * the dock never expands at all. `marker` sits in the flow just above the slot, so its
-   * distance from the viewport's bottom edge is a fact about the content and is exact.
-   *
-   * That the slot reserves a fixed space is what makes the measurement stable. In the flow the
-   * dock's own height moved the end of the page, so the answer to "am I at the end" changed as
-   * a result of acting on it — the loop that made the dock feel stuck between its two sizes.
-   * Nothing here can change what it measures.
-   *
-   * The two thresholds are hysteresis, and they are the second half of the robustness: forty
-   * pixels from the end to expand, a hundred and sixty to collapse again. The gap is what stops
-   * the boundary being a knife edge — a trackpad settling short of the end, or the atlas
-   * finishing its layout and moving things by a few pixels, would otherwise leave the dock
-   * flipping between its two sizes. The entry threshold is deliberately forgiving: there is
-   * nothing below the dock to cover, so being near the end is as good as being at it.
-   *
-   * Written straight onto the node rather than held in state. Scroll-driven styling routed
-   * through React re-renders the page on every frame of a scroll, and what it computes is a
-   * presentational value nothing else reads.
-   */
-  const status = review.data?.status;
-  useEffect(() => {
-    if (!dockRef.current) return;
-    let frame = 0;
-    let expanded = false;
-    const measure = () => {
-      frame = 0;
-      const dock = dockRef.current;
-      const marker = contentEnd.current;
-      const slot = slotRef.current;
-      if (!dock || !marker || !slot) return;
-      // At the very end of the page the marker sits exactly one slot's height above the
-      // bottom of the screen, because the slot is the last thing in the flow. Anything more
-      // than that is page still to come.
-      const fromEnd =
-        marker.getBoundingClientRect().top +
-        slot.getBoundingClientRect().height -
-        window.innerHeight;
-      expanded = fromEnd <= (expanded ? 160 : 40);
-      dock.style.setProperty("--dock-max", expanded ? "100vh" : "20vh");
-    };
-    // Coalesced to one measurement per frame: scroll fires far more often than the screen is
-    // painted, and each measurement reads layout.
-    const schedule = () => {
-      frame ||= requestAnimationFrame(measure);
-    };
-    measure();
-    window.addEventListener("scroll", schedule, { passive: true });
-    window.addEventListener("resize", schedule);
-    // The page changes height without anyone scrolling — the atlas finishes loading, an answer
-    // arrives — and where the end of it is moves with that.
-    const resized = new ResizeObserver(schedule);
-    resized.observe(document.body);
-    return () => {
-      if (frame) cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", schedule);
-      window.removeEventListener("resize", schedule);
-      resized.disconnect();
-    };
-  }, [status]);
 
   const caseId = review.data?.case_id;
   const caseRevision = review.data?.case_revision;
   const atlasVersionId = review.data?.atlas_version_id;
 
   /**
-   * Every review of this case, so this one can point at its neighbours. Derived from the
-   * listing rather than stored on the review: a link recorded at creation time would be a
-   * second copy of the same fact, and the earlier review would have to be edited to hold
-   * it — which reviews do not permit.
+   * The listing entry for this review, which is where a running review's counts live — the
+   * review document has no room for how far it has got.
+   *
+   * It also used to feed links to the neighbouring reviews of this case. Those are gone:
+   * they navigated by case revision, and following one to a first pass landed the reader on
+   * the in-progress screen, which is not where that review is. Moving between the passes of
+   * a case is worth having and will be built as its own thing rather than as two arrows.
    */
   const siblings = useQuery({
     queryKey: ["reviews", caseId],
     queryFn: () => api.reviews(caseId),
     enabled: Boolean(caseId),
-    // The listing is also where a running review's counts live — the review document has
-    // no room for how far it has got — so it follows the run while there is one.
     refetchInterval: () => (review.data?.status === "running" ? 2000 : false),
   });
 
@@ -464,468 +580,382 @@ export function ReviewDetailPage() {
     enabled: Boolean(caseId && caseRevision),
   });
 
+  /**
+   * The first pass this review answers, where there is one.
+   *
+   * Fetched rather than derived, because what it is needed for is the verdicts themselves —
+   * the listing carries counts, and "which verdicts moved" is a comparison per boundary. Only
+   * on a second pass, so an ordinary review makes no extra request.
+   */
+  const elicitedFrom = review.data?.elicited_from ?? null;
+  const earlierPass = useQuery({
+    queryKey: ["review", elicitedFrom],
+    queryFn: () => api.review(elicitedFrom!),
+    enabled: Boolean(elicitedFrom),
+  });
+
   // The atlas the review pinned answers where the repository is; a review carries the
   // version, and the listing is what turns a version into a path.
   const repositories = useQuery({
     queryKey: ["repositories"],
     queryFn: api.repositories,
   });
+  const indexedAtlas = repositories.data?.find((item) => item.version_id === atlasVersionId);
   const repositoryRoot =
-    repositories.data?.find((item) => item.version_id === atlasVersionId)?.root_path ||
-    pinnedCase.data?.snapshot?.repository?.root_path ||
-    null;
+    indexedAtlas?.root_path || pinnedCase.data?.snapshot?.repository?.root_path || null;
 
-  /**
-   * Which thread is being read. Threads are durable and there may be many, so the newest is
-   * shown by default and the rest stay reachable. `"new"` means the next question starts a
-   * thread: an empty conversation is a record that then has to be explained in a listing, so
-   * one is created when there is finally something to put in it.
-   */
-  const threads = conversations.data || [];
-  const [threadId, setThreadId] = useState<string | "new" | null>(null);
-  const conversation =
-    threadId === "new"
-      ? undefined
-      : threads.find((item) => item.conversation_id === threadId) || threads[0];
-  const messages = conversation?.messages || [];
-
-  /**
-   * Keep the newest exchange in view inside the history's own scroller.
-   *
-   * The list runs oldest to newest and the window onto it is now small, so without this a new
-   * answer lands below the fold of that window and the reader is left looking at a question
-   * they asked three turns ago. It follows the arriving prose too, so a streamed answer stays
-   * visible as it is written rather than growing downwards out of sight.
-   */
-  const historyRef = useRef<HTMLOListElement>(null);
-  useEffect(() => {
-    const list = historyRef.current;
-    if (list) list.scrollTop = list.scrollHeight;
-  }, [messages.length, pending?.prose, open]);
-
-  // The listing is newest first, so the review before this one in it is the newer one.
-  const ordered = siblings.data || [];
-  const position = ordered.findIndex((item) => item.review_id === reviewId);
-  const newer = position > 0 ? ordered[position - 1] : null;
-  const earlier = position >= 0 ? ordered[position + 1] || null : null;
-
-  const revise = useMutation({
-    mutationFn: async (values: CaseFormValues) => {
+  // Answering, in one call. The workspace resolves each `Q-n` against this review's own
+  // report, pairs the answer with the question it asked, and records what it answered in the
+  // same transaction — which is what makes the link from a case entry back to its question
+  // impossible to lose.
+  //
+  // The new run then names this review as the one it answers, and that is what makes it a
+  // second pass: it judges against the answered case and concludes rather than asking again.
+  const answer = useMutation({
+    mutationFn: async (answers: SubmittedAnswer[]) => {
       if (!caseId || !repositoryRoot) {
         throw new Error("This review's case and repository could not both be resolved.");
       }
-      // Two steps, deliberately in this order and never in place: a new immutable case
-      // revision, then a new review of it. This review is not touched by either.
-      await api.updateCase(caseId, casePayload(values));
-      // Handed to the run, which takes the reader to the new review as soon as it has an
-      // identity — the same path the start step takes, so there is one place a run is
-      // watched however it was started.
-      run.start(caseId, repositoryRoot);
+      await api.answerReview(reviewId, answers);
+      run.start(caseId, repositoryRoot, reviewId);
     },
     onSuccess: async () => {
-      setRevising(false);
       await client.invalidateQueries({ queryKey: ["cases"] });
     },
   });
 
-  const ask = useMutation({
-    mutationFn: async (text: string) => {
-      // Created on first use rather than alongside the review: a conversation with no
-      // questions in it is an empty record that then has to be explained in a listing.
-      const target = conversation ?? (await api.createReviewConversation(reviewId));
-      if (!target.conversation_id) {
-        throw new Error("The workspace returned a conversation without an identifier.");
-      }
-      // Streamed, so the answer reads as it is written. `pending` is only ever what the
-      // fragments have built — never the record — and is dropped the moment the appended
-      // message arrives, which is what a re-read of this thread will show.
-      setPending({ question: text, prose: "" });
-      const message = await api.streamReviewQuestion(
-        target.conversation_id,
-        text,
-        (fragment) =>
-          setPending((current) =>
-            current ? { ...current, prose: current.prose + fragment } : current,
-          ),
+  const report = review.data?.report ?? null;
+  const reviewed = report?.reviewed || [];
+  const references = reviewed.map((item) => item.reference).join(" ");
+
+  /**
+   * A citation opens the row it names, in the tab that holds it.
+   *
+   * `hashchange` rather than the router's location: an anchor pointing at the same document
+   * never reaches the router, so a citation clicked in the conclusion would otherwise scroll
+   * to a collapsed row and show nothing. Selecting first and scrolling second, so the
+   * reasoning is already open when the row arrives rather than unfolding under the reader.
+   */
+  const openTab = (id: TabId) => {
+    setTab(id);
+    setVisited((current) => (current.includes(id) ? current : [...current, id]));
+  };
+  const openTabRef = useRef(openTab);
+  openTabRef.current = openTab;
+  useEffect(() => {
+    const jump = () => {
+      const wanted = decodeURIComponent(window.location.hash.slice(1));
+      if (!wanted || !references.split(" ").includes(wanted)) return;
+      openTabRef.current("findings");
+      setOpenRow(wanted);
+      requestAnimationFrame(() =>
+        document.getElementById(wanted)?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
-      return { message, target };
-    },
-    onSuccess: async ({ target }) => {
-      setQuestion("");
-      setOpen(true);
-      // A question asked into a new thread lands in that thread, not back in the newest.
-      setThreadId(target.conversation_id || null);
-      await client.invalidateQueries({
-        queryKey: ["review-conversations", reviewId],
-      });
-      // Cleared after the history has been refetched, so the answer never blinks out of
-      // existence between the preview going and the stored message arriving.
-      setPending(null);
-    },
-    // A failed turn is appended as a failure, so the history below is where it shows. The
-    // half-written prose goes: it was on its way to being checked and did not pass.
-    onError: () => setPending(null),
-  });
+    };
+    jump();
+    window.addEventListener("hashchange", jump);
+    return () => window.removeEventListener("hashchange", jump);
+  }, [references]);
 
   if (review.isLoading) return <Loading label="Reading the review…" />;
   if (review.isError) return <ErrorPanel error={review.error} />;
 
+  const status = review.data?.status;
   // The row exists from the moment the run starts, so this page has to be able to show a
-  // review that is not finished — and a run in progress is one component, used here and
-  // nowhere else, whether this tab is the one producing it or not.
-  if (review.data?.status === "running") {
-    return (
-      <ReviewInProgress
-        review={review.data}
-        summary={siblings.data?.find((item) => item.review_id === reviewId)}
-        live={run.watching(reviewId) ? run.progress : undefined}
-        watching={run.watching(reviewId)}
-        title={pinnedCase.data?.snapshot?.title || null}
-      />
-    );
-  }
-  if (review.data && review.data.status !== "succeeded") {
+  // review that never reached a judgement. Both of those are aftermaths, not errors.
+  if (review.data && status !== "running" && status !== "succeeded" && status !== "awaiting_answers") {
     return <Unfinished review={review.data} />;
   }
-  const report = review.data?.report;
-  if (!report) {
+  const running = status === "running";
+  const holding = status === "awaiting_answers";
+  /**
+   * The panel obeys the same rule its button does, so there is one answer and not two.
+   *
+   * Enforcing it on the button alone would leave the panel open over a review that has since
+   * stopped being askable — the reader is carried from a concluded pass to the running one it
+   * started without this component unmounting. Deriving `open` instead of closing it in an
+   * effect means the panel is never briefly open against a review that refuses it.
+   */
+  const showAsking = asking && ask(status) === null;
+  if (!running && !report) {
     return <ErrorPanel error={new Error("This review did not produce a report.")} />;
   }
 
-  const reviewed = report.reviewed || [];
-  const policyCount = (report.policies_presented || []).length;
-  const material = reviewed.filter((item) => item.material);
-  const cleared = reviewed.filter((item) => !item.material);
+  const summary = siblings.data?.find((item) => item.review_id === reviewId);
+  const live = run.watching(reviewId) ? run.progress : undefined;
+  const progress = watchedProgress(live, summary);
+  const policyCount = (report?.policies_presented || []).length;
+  const material = reviewed.filter((item) => item.material).length;
+  const cleared = reviewed.length - material;
+  const openQuestions = report?.overview.open_questions || [];
+  const answered = pinnedCase.data?.answered?.answers || [];
+  const askedEarlier = earlierPass.data?.report?.overview?.open_questions || [];
+  const title = report?.case_title || pinnedCase.data?.snapshot?.title || shortId(reviewId);
 
-  // Only when there is a map below to be shown in. Selecting first and scrolling second so
-  // the node is already the selected one when the section arrives, rather than settling
-  // into place and then changing under the reader.
-  const showInAtlas =
-    repositoryRoot && reviewed.length > 0
-      ? (nodeId: string) => {
-          setAtlasNodeId(nodeId);
-          atlasRef.current?.scrollIntoView({
-            behavior: "smooth",
-            block: "start",
-          });
-        }
-      : null;
+  // Both passes are stored, both judged the same atlas, and the only difference between them
+  // is what the case says — so a verdict that moved is attributable to the answer and to
+  // nothing else. Absent until the earlier pass has loaded, and absent entirely on a review
+  // nobody was asked anything for.
+  const judgedBefore = earlierPass.data?.report?.reviewed;
+
+  // Only when there is a map to be shown in. Selecting first and switching second so the
+  // node is already the selected one when the map arrives, rather than settling into place
+  // and then changing under the reader.
+  const hasAtlas = Boolean(repositoryRoot) && reviewed.length > 0;
+  const showInAtlas = hasAtlas
+    ? (nodeId: string) => {
+        setAtlasNodeId(nodeId);
+        openTab("atlas");
+      }
+    : null;
+  /**
+   * The same journey back: a node on the map to the finding written about it.
+   *
+   * Opening the row before switching tabs, for the same reason the citations do — the reasoning
+   * is already unfolded when the reader arrives rather than unfolding under them. The panels
+   * are force-mounted, so the row is in the document either way and one frame is only what the
+   * tab switch needs before the scroll can land on it.
+   */
+  const openFinding = (nodeId: string) => {
+    const reference = findingForNode(nodeId, reviewed);
+    if (!reference) return;
+    setOpenRow(reference);
+    openTab("findings");
+    requestAnimationFrame(() =>
+      document
+        .getElementById(reference)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    );
+  };
+
+  // How many verdicts this page can actually see. A tab watching the run's own record has
+  // the counts and not the verdicts, and a band reporting 0 and 0 there would be answering a
+  // question nobody can answer yet.
+  const knownVerdicts = running
+    ? (progress?.verdicts.filter((item) => item !== null).length ?? 0)
+    : reviewed.length;
+
+  const facts: BandFact[] = [
+    {
+      label: "Atlas",
+      value: `${shortId(atlasVersionId || "—")}${indexedAtlas ? " · indexed" : ""}`,
+      title: atlasVersionId,
+    },
+    ...(report ? [{ label: "Policies", value: `${policyCount} weighed` }] : []),
+    {
+      label: "Model",
+      value: review.data?.reasoning_model ?? "—",
+      title: review.data?.prompt_identity,
+    },
+  ];
+  if (running) {
+    facts.push({
+      label: "Judged",
+      value: `${progress?.judged ?? 0} / ${progress?.total ?? 0}`,
+    });
+  } else if (holding) {
+    // What the run could not settle for itself, which is what makes the questions worth
+    // answering — and the only thing it says about verdicts it is withholding.
+    facts.push({
+      label: "Rests on the unstated",
+      value: `${contingentCount(reviewed)} of ${reviewed.length} verdicts`,
+    });
+    facts.push({ label: "Judged", value: `${reviewed.length} · holding` });
+  } else {
+    const seconds = formatDuration(review.data?.duration_seconds);
+    facts.push({
+      label: "Finished",
+      value: `${formatDate(summary?.updated_at || review.data?.created_at)}${
+        seconds ? ` · ${seconds}` : ""
+      }`,
+    });
+  }
+
+  const questions = (
+    <OpenQuestions
+      questions={openQuestions}
+      nextRevision={caseRevision === undefined ? null : caseRevision + 1}
+      pending={answer.isPending}
+      disabled={!repositoryRoot}
+      error={answer.error}
+      onSubmit={(answers) => answer.mutate(answers)}
+      renderCitations={(citations) => <Citations references={citations} />}
+      renderDiscussion={(question, adopt) => (
+        <QuestionDiscussion
+          reviewId={reviewId}
+          question={question}
+          onAdopt={adopt}
+          disabled={!repositoryRoot}
+        />
+      )}
+    />
+  );
+
+  const ledger = (
+    <FindingsLedger
+      reviewed={reviewed}
+      policyCount={policyCount}
+      reviewId={reviewId}
+      open={openRow}
+      onOpen={setOpenRow}
+      onShowInAtlas={showInAtlas}
+    />
+  );
+
+  const tabs: { id: TabId; label: string; count?: number }[] = [
+    { id: "findings", label: "Findings", count: reviewed.length || undefined },
+    ...(holding || answered.length > 0
+      ? [
+          {
+            id: "questions" as TabId,
+            label: holding ? "Open questions" : "Questions",
+            count: holding ? openQuestions.length : answered.length,
+          },
+        ]
+      : []),
+    { id: "runlog", label: "Run log" },
+    ...(hasAtlas ? [{ id: "atlas" as TabId, label: "Atlas" }] : []),
+  ];
+  // A tab that stops existing — the atlas, once its repository is gone — must not leave the
+  // page showing nothing.
+  const current = tabs.some((item) => item.id === tab) ? tab : "findings";
+
+  /**
+   * A section's contents, mounted on first visit and kept after.
+   *
+   * `forceMount` with the hidden state supplied here rather than the tab strip's own: Radix
+   * takes an inactive panel out of the DOM, which would re-inspect every boundary each time
+   * the reader came back to the map and lose wherever they had explored to. Gating on
+   * `visited` is the other half — a reading that never opens the map makes no atlas query
+   * at all.
+   */
+  const panel = (id: TabId) => {
+    if (!visited.includes(id)) return null;
+    return (
+      <TabsContent key={id} value={id} forceMount hidden={current !== id}>
+        {id === "findings" ? (
+          <>
+            {/* First, and only on a second pass: what the reader's own answers changed.
+                They did the work a moment ago, and this is the one place the product's
+                claim is checkable rather than asserted. */}
+            {judgedBefore ? (
+              <WhatChanged
+                changes={verdictChanges(judgedBefore, reviewed)}
+                total={reviewed.length}
+                questions={askedEarlier}
+                answered={answered}
+              />
+            ) : null}
+            {running ? (
+              <JudgingLedger progress={progress} />
+            ) : holding ? (
+              <HeldVerdicts reviewed={reviewed} findings={ledger} />
+            ) : (
+              ledger
+            )}
+            {/* No questions here any more. A concluded review has none to ask — the
+                summarising stage has no field for one, which is what stops the loop
+                reopening — so the conclusion is the conclusion, and asking happens on its
+                own surface before this page exists. */}
+            {report && !running && !holding ? <Overview overview={report.overview} /> : null}
+            {score.data ? <Score score={score.data} /> : null}
+          </>
+        ) : null}
+        {id === "questions" ? (
+          <>
+            {holding ? <div className={cn(sheet, "max-w-[96ch] p-[var(--card-pad)]")}>{questions}</div> : null}
+            {answered.length > 0 ? (
+              <AnsweredHistory
+                questions={askedEarlier}
+                answered={answered}
+                revision={caseRevision}
+              />
+            ) : null}
+          </>
+        ) : null}
+        {id === "runlog" && review.data ? (
+          <RunLog
+            review={review.data}
+            progress={progress}
+            reviewed={reviewed}
+            watching={run.watching(reviewId)}
+            pass={review.data.elicited_from ? 2 : 1}
+            awaiting={holding ? openQuestions.length : running ? null : 0}
+            answersRecorded={answered.length > 0 ? caseRevision : null}
+            withVerdicts={!holding}
+          />
+        ) : null}
+        {id === "atlas" && repositoryRoot ? (
+          <ReviewAtlas
+            repositoryRoot={repositoryRoot}
+            boundaries={reviewed}
+            selectedNodeId={atlasNodeId}
+            onSelectNode={setAtlasNodeId}
+            onOpenFinding={openFinding}
+          />
+        ) : null}
+      </TabsContent>
+    );
+  };
 
   return (
-    <div className="page page--review">
-      <header className="review-head">
-        <span className="eyebrow">Boundary review</span>
-        <h1>{report.case_title}</h1>
-        <p className="review-head__meta">
-          <strong>{reviewed.length}</strong> boundaries examined ·{" "}
-          <strong>{policyCount}</strong> policies presented to each ·{" "}
-          <strong>{material.length}</strong> should change,{" "}
-          <strong>{cleared.length}</strong> left as they are
-        </p>
-        {/* What this review is pinned to. Already in the record; printed rather than
-            implied, because "which case revision said so" is the first question a second
-            reading asks. */}
-        <dl className="provenance">
-          <div>
-            <dt>Case revision</dt>
-            <dd>
-              {pinnedCase.data?.snapshot?.title || report.case_title} · rev{" "}
-              {review.data?.case_revision}
-            </dd>
-          </div>
-          <div>
-            <dt>Atlas version</dt>
-            <dd title={atlasVersionId}>{shortId(atlasVersionId || "—")}</dd>
-          </div>
-          <div>
-            <dt>Policies presented</dt>
-            <dd>{policyCount}, whole corpus, to every boundary</dd>
-          </div>
-          <div>
-            <dt>Model</dt>
-            <dd title={review.data?.prompt_identity}>{review.data?.reasoning_model}</dd>
-          </div>
-          <div>
-            <dt>Reviewed</dt>
-            <dd>{formatDate(review.data?.created_at)}</dd>
-          </div>
-        </dl>
+    <div
+      data-slot="review-page"
+      // `page--asking` is a rule rather than a utility, and stays one: see its comment.
+      className={cn(page, "pb-6", showAsking && "page--asking")}
+    >
+      <PageHeader
+        title={title}
+        parent={{ to: "/reviews", label: "Reviews" }}
+        meta={<Badge variant="accent">case rev {caseRevision}</Badge>}
+        action={
+          <AskAction
+            status={status}
+            expanded={showAsking}
+            onToggle={() => setAsking((value) => !value)}
+          />
+        }
+      />
 
-        <div className="review-head__actions">
-          <button
-            type="button"
-            className="button button--primary"
-            disabled={revise.isPending || !repositoryRoot}
-            title={
-              repositoryRoot
-                ? undefined
-                : "The repository this review ran against is no longer indexed."
-            }
-            onClick={() => setRevising((value) => !value)}
-          >
-            <PencilLine size={15} aria-hidden /> Revise case &amp; review again
-          </button>
-          {ordered.length > 1 ? (
-            <nav className="review-siblings" aria-label="Other reviews of this case">
-              {earlier ? (
-                <Link to={`/reviews/${earlier.review_id}`}>
-                  <ArrowLeft size={14} aria-hidden /> Earlier review · case rev{" "}
-                  {earlier.case_revision}
-                </Link>
-              ) : null}
-              <span>
-                {position + 1} of {ordered.length} reviews of this case
-              </span>
-              {newer ? (
-                <Link to={`/reviews/${newer.review_id}`}>
-                  Newer review · case rev {newer.case_revision}{" "}
-                  <ArrowRight size={14} aria-hidden />
-                </Link>
-              ) : null}
-            </nav>
-          ) : null}
-        </div>
-      </header>
-
-      {revising ? (
-        <CaseForm
-          // Keyed by what has actually loaded, not by what was asked for: the review knows
-          // its case and revision immediately, so keying on those alone would hold the key
-          // steady while the answers were still arriving and mount the form empty.
-          key={`${caseId}:${pinnedCase.data?.revision ?? "loading"}`}
-          heading="Revise the case, then review again"
-          initial={pinnedCase.data?.snapshot}
-          submitLabel="Create revision &amp; review again"
-          pendingLabel="Reviewing…"
-          pending={revise.isPending}
-          loading={pinnedCase.isLoading}
-          error={pinnedCase.error || revise.error}
-          onSubmit={(values) => revise.mutate(values)}
-          onClose={() => setRevising(false)}
-          note={
-            <p className="case-editor__warning">
-              <strong>This does not change the review you are reading.</strong> Submitting
-              creates revision {(caseRevision ?? 0) + 1} of the case and runs a new review
-              against the same atlas, so only the case has changed. Both reviews stay, and
-              each links to the other.
-            </p>
-          }
+      {holding ? (
+        <HoldBanner
+          questionCount={openQuestions.length}
+          nextRevision={caseRevision === undefined ? null : caseRevision + 1}
+          onAnswer={() => openTab("questions")}
         />
       ) : null}
 
-      <Overview overview={report.overview} />
+      <VerdictBand
+        material={
+          running ? (progress?.verdicts.filter((item) => item === true).length ?? 0) : material
+        }
+        cleared={
+          running ? (progress?.verdicts.filter((item) => item === false).length ?? 0) : cleared
+        }
+        judged={running ? (progress?.judged ?? 0) : reviewed.length}
+        total={running ? (progress?.total ?? 0) : reviewed.length}
+        mode={holding || knownVerdicts === 0 ? "counted" : running ? "live" : "settled"}
+        countLabel={running ? `of ${progress?.total ?? 0} judged` : "boundaries judged"}
+        facts={facts}
+      />
 
-      {score.data ? <Score score={score.data} /> : null}
-
-      <p className="boundaries-note">
-        Every boundary examined is below, cleared ones included. <code>BR-001</code> and the
-        rest are references ArchCompass assigns in detection order — the citations above
-        lead to them, and citing one in a question makes the answer cite it back.
-      </p>
-
-      {material.length > 0 ? (
-        <section className="group">
-          <h2 className="group__title">
-            <TriangleAlert size={16} aria-hidden /> What should change
-            <span className="group__count">{material.length}</span>
-          </h2>
-          {/* Shape-neutral, because these are grouped by verdict and the group can hold
-              both directions of the catalogue at once: indirection that hides nothing, and
-              knowledge with no owner. Each finding names its own shape on its own badge. */}
-          <p className="group__hint">
-            Each of these was found to cost more than it earns under this case.
-          </p>
-          {material.map((item) => (
-            <Finding
-              key={item.reference}
-              item={item}
-              policyCount={policyCount}
-              onShowInAtlas={showInAtlas}
-            />
+      {/* Sections of one record, not destinations. Arrow keys move between them because a
+          tablist that only answers to clicks is a row of buttons wearing the wrong role —
+          which the primitive now handles, along with the roving tab stop through the strip. */}
+      <Tabs value={current} onValueChange={(value) => openTab(value as TabId)}>
+        <TabsList aria-label="Review sections">
+          {tabs.map((item) => (
+            <TabsTrigger key={item.id} value={item.id}>
+              {item.label}
+              {item.count === undefined ? null : <i>{item.count}</i>}
+            </TabsTrigger>
           ))}
-        </section>
-      ) : null}
+        </TabsList>
 
-      {cleared.length > 0 ? (
-        <section className="group">
-          <h2 className="group__title">
-            <CircleCheck size={16} aria-hidden /> Examined and left alone
-            <span className="group__count">{cleared.length}</span>
-          </h2>
-          <p className="group__hint">
-            The advisor examined each of these and concluded it should stay as it is.
-          </p>
-          {cleared.map((item) => (
-            <Finding
-              key={item.reference}
-              item={item}
-              policyCount={policyCount}
-              onShowInAtlas={showInAtlas}
-            />
-          ))}
-        </section>
-      ) : null}
+        {tabs.map((item) => panel(item.id))}
+      </Tabs>
 
-      {/* After the verdicts, not before them. The map answers "where does this sit", which
-          is a question a reader has only once they know what was decided; above the
-          findings it would push every verdict below the fold to make room for context
-          nobody had asked for yet. */}
-      {repositoryRoot && reviewed.length > 0 ? (
-        <ReviewAtlas
-          repositoryRoot={repositoryRoot}
-          boundaries={reviewed}
-          selectedNodeId={atlasNodeId}
-          onSelectNode={setAtlasNodeId}
-          sectionRef={atlasRef}
-        />
-      ) : null}
-
-      {/*
-        The slot is what sits in the page — a fixed 20vh, sticky to the bottom of the viewport
-        while there is page left below it, settling into its own place at the end. The dock is
-        positioned inside it and may be taller than it, which is what keeps the document's
-        height independent of the conversation's length. See `.dock-slot` and the effect above.
-      */}
-      <div ref={contentEnd} className="dock__anchor" aria-hidden />
-      <div ref={slotRef} className="dock-slot">
-        <div ref={dockRef} className={`dock ${open ? "dock--open" : ""}`}>
-          {messages.length > 0 ? (
-            <button
-              type="button"
-              className="dock__toggle"
-              aria-expanded={open}
-              onClick={() => setOpen((value) => !value)}
-            >
-              <MessageCircleQuestion size={15} aria-hidden />
-              {messages.length} {messages.length === 1 ? "question" : "questions"} asked
-              <ChevronDown size={15} aria-hidden className="dock__chevron" />
-            </button>
-          ) : null}
-
-          {/* Threads are durable, so they are worth returning to. Each is labelled by its
-            first question rather than by its title: every thread on one review would
-            otherwise carry the same generated name. */}
-          {threads.length > 0 || threadId === "new" ? (
-            <div className="dock__threads" role="group" aria-label="Question threads">
-              {/* Oldest first, though the listing arrives newest first: a thread should not
-                move along the row every time another one is started. The newest is still
-                what opens by default — that is the one you came back to. */}
-              {[...threads].reverse().map((thread) => (
-                <button
-                  key={thread.conversation_id}
-                  type="button"
-                  aria-pressed={conversation?.conversation_id === thread.conversation_id}
-                  className={
-                    conversation?.conversation_id === thread.conversation_id
-                      ? "is-active"
-                      : ""
-                  }
-                  onClick={() => {
-                    setThreadId(thread.conversation_id || null);
-                    setOpen(true);
-                  }}
-                  title={thread.messages?.[0]?.question || thread.title}
-                >
-                  <span>{thread.messages?.[0]?.question || thread.title}</span>
-                </button>
-              ))}
-              <button
-                type="button"
-                aria-pressed={threadId === "new"}
-                className={threadId === "new" ? "is-active" : ""}
-                onClick={() => {
-                  setThreadId("new");
-                  setOpen(false);
-                }}
-              >
-                <Plus size={13} aria-hidden /> New thread
-              </button>
-            </div>
-          ) : null}
-
-          {open || pending ? (
-            <ol className="dock__history" ref={historyRef}>
-              {messages.map((message) => (
-                <li key={message.message_id}>
-                  <p className="dock__q">{message.question}</p>
-                  {message.answer ? (
-                    <>
-                      <AnswerProse text={message.answer.answer} />
-                      {/* Labelled, never hidden: a reader has to be able to tell "the review
-                        says this" from "the model thinks this". */}
-                      {(message.answer.supporting_references || []).length > 0 ? (
-                        <p className="dock__grounding">
-                          Grounded on{" "}
-                          {(message.answer.supporting_references || []).join(", ")}
-                        </p>
-                      ) : (
-                        <p className="dock__grounding dock__grounding--none">
-                          Not grounded on any reviewed boundary
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <p className="dock__failed">{message.failure}</p>
-                  )}
-                </li>
-              ))}
-              {/* The turn in flight. `aria-live` so the answer is read as it arrives rather
-                than announced once at the end; `aria-busy` so a screen reader is told this
-                is unfinished, which is the same thing the caption below says in text. */}
-              {pending ? (
-                <li className="dock__pending" aria-live="polite" aria-busy="true">
-                  <p className="dock__q">{pending.question}</p>
-                  {pending.prose ? (
-                    <>
-                      <AnswerProse text={pending.prose} />
-                      {/* Not "not grounded" — nothing is settled yet, and a grounding line
-                        here would be a claim about an answer that is still being written. */}
-                      <p className="dock__grounding dock__grounding--pending">
-                        Still being written
-                      </p>
-                    </>
-                  ) : (
-                    <p className="dock__grounding dock__grounding--pending">Thinking…</p>
-                  )}
-                </li>
-              ) : null}
-            </ol>
-          ) : null}
-
-          <form
-            className="dock__form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (question.trim()) ask.mutate(question.trim());
-            }}
-          >
-            <input
-              type="text"
-              className="dock__input"
-              placeholder="Ask about this review…"
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-              onFocus={() => messages.length > 0 && setOpen(true)}
-              disabled={ask.isPending}
-              aria-label="Question about this review"
-            />
-            <button
-              type="submit"
-              className="button button--primary"
-              disabled={ask.isPending || !question.trim()}
-            >
-              {ask.isPending ? (
-                "Thinking…"
-              ) : (
-                <>
-                  Ask <CornerDownLeft size={14} aria-hidden />
-                </>
-              )}
-            </button>
-          </form>
-          {ask.isError ? <ErrorPanel error={ask.error} /> : null}
-        </div>
-      </div>
+      <AskPanel reviewId={reviewId} open={showAsking} onClose={() => setAsking(false)} />
     </div>
   );
 }

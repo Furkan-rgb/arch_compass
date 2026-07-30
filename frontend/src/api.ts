@@ -1,5 +1,6 @@
 import type {
   AnswerProgress,
+  BoundaryExcerpt,
   ArchitectureCase,
   AtlasExploreRequest,
   AtlasQueryResult,
@@ -126,6 +127,36 @@ export const api = {
       body: JSON.stringify({ case_id: caseId, repository_root: repositoryRoot }),
     }),
   /**
+   * The code one finding was measured from, at the spans the detector recorded.
+   *
+   * Delivery rather than search: the review already says which lines are the evidence, so
+   * there is nothing here to query. `contextLines` is how much surrounding code to unfold,
+   * bounded by the workspace rather than by this call.
+   */
+  reviewSource: (reviewId: string, reference: string, contextLines = 0) =>
+    request<BoundaryExcerpt[]>(
+      `/api/reviews/${encodeURIComponent(reviewId)}/source` +
+        `?reference=${encodeURIComponent(reference)}&context_lines=${contextLines}`,
+    ),
+  /**
+   * Record a round of answers as one case revision that says what it answered.
+   *
+   * One call, not a case patch composed here. The server resolves each `Q-n` against the
+   * review's own report and reads the destination field from the question, so a client
+   * cannot route an answer into a list its question never named — and cannot produce a
+   * revision that has lost the link back to what prompted it.
+   *
+   * Only answered questions are sent. Skipping is normal and is recorded as absence.
+   */
+  answerReview: (
+    reviewId: string,
+    answers: { question_reference: string; recorded_text: string }[],
+  ) =>
+    request<CaseRevision>(`/api/reviews/${encodeURIComponent(reviewId)}/answers`, {
+      method: "POST",
+      body: JSON.stringify({ answers }),
+    }),
+  /**
    * Ask a running review to stop. Returns when the record says cancelled, which is before
    * the work has actually stopped: the run reads that record between model calls, so a
    * local model can take a few more minutes to notice.
@@ -166,11 +197,17 @@ export const api = {
     caseId: string,
     repositoryRoot: string,
     onProgress: (event: ReviewProgress) => void,
+    /** The review this run answers, where it is the second pass of an elicitation. */
+    elicitedFrom?: string | null,
   ): Promise<BoundaryReview> => {
     let review: BoundaryReview | null = null;
     await streamLines<ReviewProgress>(
       "/api/reviews/stream",
-      { case_id: caseId, repository_root: repositoryRoot },
+      {
+        case_id: caseId,
+        repository_root: repositoryRoot,
+        elicited_from: elicitedFrom ?? null,
+      },
       "Arch Compass could not start the review.",
       (event) => {
         onProgress(event);
@@ -198,10 +235,23 @@ export const api = {
     request<ReviewConversation>(
       `/api/review-conversations/${encodeURIComponent(conversationId)}`,
     ),
-  createReviewConversation: (reviewId: string, title?: string): Promise<ReviewConversation> =>
+  createReviewConversation: (
+    reviewId: string,
+    title?: string,
+    /**
+     * `Q-n` to talk about one open question instead of the review as a whole. The only
+     * conversation a review still waiting on answers will open: it is shown the boundaries
+     * that question cites and none of the verdicts the page is withholding.
+     */
+    questionReference?: string,
+  ): Promise<ReviewConversation> =>
     request<ReviewConversation>("/api/review-conversations", {
       method: "POST",
-      body: JSON.stringify({ review_id: reviewId, ...(title ? { title } : {}) }),
+      body: JSON.stringify({
+        review_id: reviewId,
+        ...(title ? { title } : {}),
+        ...(questionReference ? { question_reference: questionReference } : {}),
+      }),
     }),
   askReviewQuestion: (conversationId: string, question: string) =>
     request<ReviewMessage>(
@@ -284,6 +334,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ root_path: rootPath }),
     }),
+  // Indexes and opens a case about the repository in one step, with nothing written in it.
+  // The entry for someone who has not authored a case and should not have to: the review
+  // runs on the code alone and asks for what it lacked (master plan §6C.1).
+  startFromRepository: (rootPath: string) =>
+    request<CaseRevision>("/api/repositories/start", {
+      method: "POST",
+      body: JSON.stringify({ root_path: rootPath }),
+    }),
   repositorySummary: (rootPath: string) =>
     request<AtlasQueryResult>(
       `/api/repositories/summary?root_path=${encodeURIComponent(rootPath)}`,
@@ -296,6 +354,26 @@ export const api = {
     request<AtlasQueryResult>(
       `/api/repositories/inspect?root_path=${encodeURIComponent(rootPath)}&node_id=${encodeURIComponent(nodeId)}`,
     ),
+  /**
+   * The neighbourhood of one review's boundaries, in a single call.
+   *
+   * One request rather than one inspection per boundary. A review examines a handful of them
+   * and their neighbourhoods overlap heavily — the same package, the same imports, the same
+   * edges returned once per finding — so asking per node paid for the overlap and gave the
+   * page as many loading states as there were boundaries.
+   *
+   * An id the atlas no longer holds is skipped rather than refused, which is what lets a
+   * review of a since-reindexed repository still draw the boundaries that survived.
+   */
+  reviewContext: (rootPath: string, nodeIds: string[], limit?: number) =>
+    request<AtlasQueryResult>("/api/repositories/review-context", {
+      method: "POST",
+      body: JSON.stringify({
+        root_path: rootPath,
+        node_ids: nodeIds,
+        ...(limit === undefined ? {} : { limit }),
+      }),
+    }),
   repositoryExplore: (value: AtlasExploreRequest) =>
     request<AtlasQueryResult>("/api/repositories/explore", {
       method: "POST",
@@ -313,9 +391,4 @@ export const api = {
       `/api/policies/sources?source=${encodeURIComponent(source)}`,
       { method: "DELETE" },
     ),
-  rebuildPolicies: () =>
-    request<Record<string, unknown>>("/api/policies/rebuild", {
-      method: "POST",
-      body: JSON.stringify({ repository_root: null }),
-    }),
 };

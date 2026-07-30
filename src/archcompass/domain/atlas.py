@@ -152,6 +152,28 @@ class ObscuritySignal(DomainModel):
     limitations: str = ""
 
 
+class NamedMention(DomainModel):
+    """One name this module refers to, and where it refers to it.
+
+    The lines were not recorded before, and their absence reached a reader. A scattered
+    concept's participants are whole modules, so the detector had no span to give them and
+    wrote line 1 — which in a Python file is the docstring. Asked to show a vendor name that
+    had leaked into five modules, the advisor was handed five docstrings, none containing it,
+    and correctly said it could not show the leak. The evidence was never taken down.
+
+    Every line, not just the first: "named once in an import" and "named in eleven places
+    through the request path" are different findings, and a count is what tells them apart.
+    """
+
+    name: str = Field(min_length=1)
+    #: Ascending, deduplicated, and never empty — a mention with no site is not a mention.
+    lines: list[int] = Field(min_length=1)
+
+    @property
+    def first(self) -> int:
+        return self.lines[0]
+
+
 class DefinedConstant(DomainModel):
     """One module-level constant, and enough of its value to compare two of them.
 
@@ -180,9 +202,15 @@ class ModuleFacts(DomainModel):
     qualified_name: str = Field(min_length=1)
     constants: list[DefinedConstant] = Field(default_factory=list[DefinedConstant])
     #: Modules of *this* repository whose name this module's text mentions, in an
-    #: identifier or a string literal. Bounded to names the repository actually owns, so
-    #: this is a small set rather than a copy of the file's vocabulary.
-    mentions: list[str] = Field(default_factory=list[str])
+    #: identifier or a string literal, each with the lines it appears on. Bounded to names
+    #: the repository actually owns, so this is a small set rather than a copy of the
+    #: file's vocabulary.
+    mentions: list[NamedMention] = Field(default_factory=list[NamedMention])
+
+    def mention_of(self, name: str) -> NamedMention | None:
+        """Where this module names `name`, or nothing if it does not."""
+
+        return next((item for item in self.mentions if item.name == name), None)
 
 
 class FindingPattern(StrEnum):
@@ -366,6 +394,29 @@ class SourceExcerptQuery(DomainModel):
     max_lines: int = Field(default=80, ge=1, le=200)
 
 
+class ReviewContextQuery(DomainModel):
+    """The union neighbourhood around several nodes at once, asked for in one question.
+
+    A reader opening a review's map wants the boundaries it reports and enough around them
+    to see what they touch. Asked one node at a time — the only way this language offered
+    before — the answer to each is the node alone, so every edge leading out of it names a
+    neighbour the asker was never given and has to be discarded. What arrives is a set of
+    unconnected boxes, which is the opposite of what a map is for.
+
+    Missing ids are not an error here. The nodes come from a review of an atlas that may
+    since have been rebuilt, and a reader whose file was renamed should see the rest of the
+    map rather than a failure; `node_ids` on the result reports which ones were found, so
+    the absence stays visible instead of being smoothed over.
+    """
+
+    kind: Literal["review_context"]
+    node_ids: list[str] = Field(min_length=1, max_length=40)
+    #: Neighbours per requested node, not in total — the bound has to hold per anchor, or a
+    #: single densely connected boundary would consume the whole budget and leave the others
+    #: as the isolated boxes this query exists to avoid.
+    limit: int = Field(default=25, ge=1, le=100)
+
+
 AtlasQuery = Annotated[
     RepositorySummaryQuery
     | SubsystemSummaryQuery
@@ -377,7 +428,8 @@ AtlasQuery = Annotated[
     | SignalsQuery
     | HotspotsQuery
     | SearchNodesQuery
-    | SourceExcerptQuery,
+    | SourceExcerptQuery
+    | ReviewContextQuery,
     Field(discriminator="kind"),
 ]
 

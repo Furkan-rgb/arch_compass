@@ -14,15 +14,15 @@ flowchart LR
     PRESENTATION --> APP[Application services]
     APP --> DOMAIN[Domain models]
     APP --> PORTS[Ports]
-    ADAPTERS[SQLite / AST / sqlite-vec / Ollama / Google adapters] --> PORTS
+    ADAPTERS[SQLite / AST / Ollama / Google adapters] --> PORTS
     ADAPTERS --> DOMAIN
     BOOT --> APP
     BOOT --> ADAPTERS
 ```
 
-The domain, application, and port packages do not import Typer, HTTPX, SQLite,
-`sqlite-vec`, or adapter implementations. Structural tests enforce this boundary and ensure CLI
-commands use application services instead of concrete repositories, analyzers, or stores.
+The domain, application, and port packages do not import Typer, HTTPX, SQLite, or adapter
+implementations. Structural tests enforce this boundary and ensure CLI commands use application
+services instead of concrete repositories, analyzers, or stores.
 
 ## Responsibilities
 
@@ -122,6 +122,10 @@ test embedder — and it missed the primer's own "what the detector cannot see" 
 asked exactly that. The corpus is about 45,000 characters against an input budget near
 490,000, so it fits several times over and ranking only introduced a way to lose the passage
 that mattered. Retrieval earns its complexity when the evidence does not fit; here it does.
+
+The same measurement removed the policy index outright (ADR 0013). Nothing embeds, nothing
+ranks, and no workspace configures an embedding model: policies are read from their sources
+whenever they are asked for.
 
 A corpus that cannot be read is not a conversation failure: background degrades to the
 bundled primer alone and the question is still answered, rather than taking a working

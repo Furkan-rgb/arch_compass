@@ -37,6 +37,17 @@ class ReviewAnswer(DomainModel):
     #: `BR-nnn` references, resolved by the application from positional flags. Never
     #: parsed out of model text.
     supporting_references: list[str] = Field(default_factory=list[str])
+    #: A phrasing the reader could adopt as their answer to the open question under
+    #: discussion, and empty everywhere else. Only the question-discussion stage has a field
+    #: for it in its reply schema, so a conversation about a finished review structurally
+    #: cannot produce one — the same way `summarise_review` cannot ask a question (§6C.6).
+    #:
+    #: Nothing is done with it. It is offered beside a button the reader presses, and what
+    #: it fills is the answer box, editable, still requiring the whole preview-and-save walk
+    #: before any of it reaches the case. §6C.4 is explicit that this is allowed: the
+    #: substance of the answer is the user's, including where their whole contribution is
+    #: confirming a phrasing that was suggested to them.
+    suggested_answer: str = ""
 
     @property
     def grounded(self) -> bool:
@@ -69,7 +80,16 @@ class ReviewMessage(DomainModel):
 
 
 class ReviewConversation(DomainModel):
-    """A conversation pinned to one review, and through it to one case revision."""
+    """A conversation pinned to one review, and through it to one case revision.
+
+    Optionally pinned one level finer, to a single open question that review asked. That
+    narrower pin is what makes a conversation possible at all while the review is still
+    waiting on answers: the reader is being asked something and may not know what it means,
+    and telling them to answer it before they may discuss it is the tax elicitation exists
+    to remove (§6C.5). What the narrower pin buys is that the discussion is shown only the
+    boundaries that question cites — so the withheld verdicts stay withheld, which is the
+    reason a review-wide conversation is still refused at that status.
+    """
 
     schema_version: Literal[1] = 1
     conversation_id: str = Field(default_factory=lambda: new_id("rconv"))
@@ -77,6 +97,10 @@ class ReviewConversation(DomainModel):
     case_id: str = Field(min_length=1)
     case_revision: int = Field(ge=1)
     title: str = Field(min_length=1)
+    #: `Q-n` where this conversation is about one open question, absent where it is about
+    #: the review as a whole. Assigned by the application from the review's own report; a
+    #: reference no question in that report carries is refused rather than stored.
+    question_reference: str | None = Field(default=None, pattern=r"^Q-[0-9]+$")
     messages: list[ReviewMessage] = Field(default_factory=list[ReviewMessage])
     created_at: datetime = Field(default_factory=utc_now)
 

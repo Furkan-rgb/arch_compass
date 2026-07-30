@@ -1,4 +1,10 @@
-"""Strict Markdown policy parser and section-aware chunker."""
+"""Strict Markdown policy parser.
+
+Sections are still walked, and every rule about them still holds — the nine required
+headings must be present, distinct and non-empty. What they are no longer turned into is
+chunks: nothing ranks a policy against a query any more, so a section is a thing to validate
+rather than a unit to retrieve (ADR 0013). A policy reaches every stage whole.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +18,6 @@ from pydantic import ValidationError
 from archcompass.domain.base import stable_id
 from archcompass.domain.errors import PolicyFormatError
 from archcompass.domain.policy import (
-    PolicyChunk,
     PolicyDocument,
     PolicyScope,
     PolicySource,
@@ -53,10 +58,10 @@ class MarkdownPolicySourceInspector:
         return canonical
 
     def load_documents(self, sources: list[Path]) -> list[PolicyDocument]:
-        return [policy for policy, _chunks in load_policy_sources(sources)]
+        return load_policy_sources(sources)
 
 
-def parse_policy(path: Path) -> tuple[PolicyDocument, list[PolicyChunk]]:
+def parse_policy(path: Path) -> PolicyDocument:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as error:
@@ -87,7 +92,6 @@ def parse_policy(path: Path) -> tuple[PolicyDocument, list[PolicyChunk]]:
     except (ValueError, KeyError, TypeError, yaml.YAMLError, ValidationError) as error:
         raise PolicyFormatError(f"Invalid front matter in {path}: {error}") from error
 
-    chunks: list[PolicyChunk] = []
     matches = list(re.finditer(r"^##\s+(.+?)\s*$", policy.body, flags=re.MULTILINE))
     sections: dict[str, str] = {}
     for ordinal, match in enumerate(matches):
@@ -99,21 +103,7 @@ def parse_policy(path: Path) -> tuple[PolicyDocument, list[PolicyChunk]]:
             )
         start = match.end()
         end = matches[ordinal + 1].start() if ordinal + 1 < len(matches) else len(policy.body)
-        section_text = policy.body[start:end].strip()
-        sections[normalized_heading] = section_text
-        content_hash = sha256(section_text.encode("utf-8")).hexdigest()
-        chunks.append(
-            PolicyChunk(
-                chunk_id=stable_id(
-                    "pchunk", policy.id, normalized_heading, str(ordinal), content_hash
-                ),
-                policy_id=policy.id,
-                section=heading,
-                ordinal=ordinal,
-                text=section_text,
-                content_hash=content_hash,
-            )
-        )
+        sections[normalized_heading] = policy.body[start:end].strip()
     missing = REQUIRED_SECTIONS - sections.keys()
     if missing:
         raise PolicyFormatError(f"Policy {path} is missing sections: {', '.join(sorted(missing))}")
@@ -122,7 +112,7 @@ def parse_policy(path: Path) -> tuple[PolicyDocument, list[PolicyChunk]]:
         raise PolicyFormatError(
             f"Policy {path} has empty required sections: {', '.join(empty)}"
         )
-    return policy, chunks
+    return policy
 
 
 def _resolve_applicability(
@@ -159,8 +149,8 @@ def _repository_root_for_local_policy(path: Path) -> Path | None:
     return None
 
 
-def load_policy_sources(sources: list[Path]) -> list[tuple[PolicyDocument, list[PolicyChunk]]]:
-    parsed: list[tuple[PolicyDocument, list[PolicyChunk]]] = []
+def load_policy_sources(sources: list[Path]) -> list[PolicyDocument]:
+    parsed: list[PolicyDocument] = []
     seen: dict[str, Path] = {}
     canonical_sources: dict[Path, None] = {}
     for source in sources:
@@ -173,14 +163,14 @@ def load_policy_sources(sources: list[Path]) -> list[tuple[PolicyDocument, list[
         if not source.exists():
             continue
         for path in _policy_paths(source):
-            policy, chunks = parse_policy(path)
+            policy = parse_policy(path)
             if policy.id in seen:
                 raise PolicyFormatError(
                     f"Duplicate policy ID {policy.id} in {seen[policy.id]} and {path}"
                 )
             seen[policy.id] = path
-            parsed.append((policy, chunks))
-    return sorted(parsed, key=lambda item: item[0].id)
+            parsed.append(policy)
+    return sorted(parsed, key=lambda item: item.id)
 
 
 def _policy_paths(source: Path) -> list[Path]:

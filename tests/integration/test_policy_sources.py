@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from archcompass.adapters.models.deterministic import DeterministicEmbeddingProvider
 from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.adapters.persistence.policy_source_repository import (
     SQLitePolicySourceRepository,
@@ -12,7 +11,6 @@ from archcompass.adapters.persistence.policy_source_repository import (
 from archcompass.adapters.retrieval.policy_markdown import (
     MarkdownPolicySourceInspector,
 )
-from archcompass.adapters.retrieval.policy_store import SQLitePolicyStore
 from archcompass.application.policies import PolicyService
 from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
 from archcompass.domain.base import stable_id
@@ -46,10 +44,6 @@ def _write_policy(
 
 def _service(database: SQLiteDatabase) -> PolicyService:
     return PolicyService(
-        index=SQLitePolicyStore(
-            database,
-            DeterministicEmbeddingProvider(32),
-        ),
         source_repository=SQLitePolicySourceRepository(database),
         source_inspector=MarkdownPolicySourceInspector(),
         bundled_sources=(BUNDLED_POLICY_SOURCE,),
@@ -59,6 +53,13 @@ def _service(database: SQLiteDatabase) -> PolicyService:
 def test_policy_sources_are_persistent_and_repository_sources_are_local(
     tmp_path: Path,
 ) -> None:
+    """Registration is what persists; the documents are read from disk each time.
+
+    There is no index to build and no version to pin a lookup to. What the workspace
+    remembers is which directories to read, so a policy edited after registration is the
+    policy the next review sees.
+    """
+
     database = SQLiteDatabase(tmp_path / "workspace" / "archcompass.db")
     database.initialize()
     workspace_source = tmp_path / "workspace-policies"
@@ -70,15 +71,13 @@ def test_policy_sources_are_persistent_and_repository_sources_are_local(
     )
     service = _service(database)
 
-    first = service.rebuild(sources=[workspace_source])
+    service.add_source(workspace_source)
 
     registrations = SQLitePolicySourceRepository(database).list()
     assert [item.canonical_path for item in registrations] == [
         str(workspace_source.resolve())
     ]
-    organisation_policy = service.get_policy(
-        "organisation-policy", first.version_id
-    )
+    organisation_policy = service.get("organisation-policy")
     assert organisation_policy.scope == PolicyScope.ORGANISATION
     assert organisation_policy.applies_to == "example-organisation"
 
@@ -89,15 +88,19 @@ def test_policy_sources_are_persistent_and_repository_sources_are_local(
         scope="repository",
     )
     second_service = _service(SQLiteDatabase(database.path))
-    second = second_service.rebuild(repository_root=repository)
 
-    repository_policy = second_service.get_policy(
-        "repository-policy", second.version_id
+    # A repository's own policies are in reach only for a caller that names the repository,
+    # which is how they stay local to the review that is about it.
+    repository_policy = second_service.get(
+        "repository-policy", repository_root=repository
     )
     assert repository_policy.scope == PolicyScope.REPOSITORY
     assert repository_policy.applies_to == stable_id(
         "repo",
         str(repository.resolve()),
+    )
+    assert {policy.id for policy in second_service.catalog()}.isdisjoint(
+        {"repository-policy"}
     )
     assert [item.canonical_path for item in second_service.list_sources()] == [
         str(workspace_source.resolve())

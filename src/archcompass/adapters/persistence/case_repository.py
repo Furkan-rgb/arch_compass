@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import cast
 
 from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.adapters.persistence.stored_records import decode_stored_json
-from archcompass.domain.case import ArchitectureCase, CaseRevision
+from archcompass.domain.case import AnsweredQuestions, ArchitectureCase, CaseRevision
 from archcompass.domain.errors import CaseNotFoundError, CaseRevisionConflictError
 from archcompass.domain.workspace import CaseSummary
 
@@ -48,7 +49,7 @@ class SQLiteCaseRepository:
             if revision is None:
                 row = connection.execute(
                     """
-                    SELECT revision, event_type, actor, created_at, snapshot_json
+                    SELECT revision, event_type, actor, created_at, snapshot_json, answered_json
                     FROM case_revisions
                     WHERE case_id = ?
                     ORDER BY revision DESC LIMIT 1
@@ -58,7 +59,7 @@ class SQLiteCaseRepository:
             else:
                 row = connection.execute(
                     """
-                    SELECT revision, event_type, actor, created_at, snapshot_json
+                    SELECT revision, event_type, actor, created_at, snapshot_json, answered_json
                     FROM case_revisions WHERE case_id = ? AND revision = ?
                     """,
                     (case_id, revision),
@@ -75,6 +76,7 @@ class SQLiteCaseRepository:
         expected_revision: int,
         event_type: str,
         actor: str,
+        answered: AnsweredQuestions | None = None,
     ) -> CaseRevision:
         next_revision = expected_revision + 1
         snapshot = case.model_copy(update={"revision": next_revision})
@@ -84,6 +86,7 @@ class SQLiteCaseRepository:
             snapshot=snapshot,
             event_type=event_type,  # type: ignore[arg-type]
             actor=actor,
+            answered=answered,
         )
         with self._database.connect() as connection:
             cursor = connection.execute(
@@ -106,7 +109,7 @@ class SQLiteCaseRepository:
         with self._database.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT revision, event_type, actor, created_at, snapshot_json
+                SELECT revision, event_type, actor, created_at, snapshot_json, answered_json
                 FROM case_revisions WHERE case_id = ? ORDER BY revision
                 """,
                 (case_id,),
@@ -156,8 +159,9 @@ class SQLiteCaseRepository:
         connection.execute(  # type: ignore[attr-defined]
             """
             INSERT INTO case_revisions(
-                case_id, revision, event_type, actor, created_at, snapshot_json
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                case_id, revision, event_type, actor, created_at, snapshot_json,
+                answered_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 revision.case_id,
@@ -166,6 +170,12 @@ class SQLiteCaseRepository:
                 revision.actor,
                 revision.created_at.isoformat(),
                 revision.snapshot.model_dump_json(),
+                # NULL rather than an empty object for a hand-authored revision. Its absence
+                # is what tells a hand edit from an answered round, and the unique index over
+                # `$.review_id` relies on NULLs being distinct.
+                None
+                if revision.answered is None
+                else revision.answered.model_dump_json(),
             ),
         )
 
@@ -180,11 +190,22 @@ class SQLiteCaseRepository:
             description=f"Revision {row['revision']} of this case",  # type: ignore[index]
             remedy=CASE_REMEDY,
         )
+        stored = cast(str | None, row["answered_json"])  # type: ignore[index]
         return CaseRevision(
             case_id=case_id,
             revision=int(row["revision"]),  # type: ignore[index]
             snapshot=snapshot,
             event_type=row["event_type"],  # type: ignore[index]
             actor=row["actor"],  # type: ignore[index]
+            answered=(
+                None
+                if stored is None
+                else decode_stored_json(
+                    AnsweredQuestions,
+                    stored,
+                    description=f"What revision {row['revision']} of this case answered",  # type: ignore[index]
+                    remedy=CASE_REMEDY,
+                )
+            ),
             created_at=datetime.fromisoformat(row["created_at"]),  # type: ignore[index]
         )

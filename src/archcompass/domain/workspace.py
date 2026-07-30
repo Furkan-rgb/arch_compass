@@ -38,6 +38,10 @@ class BoundaryReviewSummary(DomainModel):
     #: What the review judged, so a listing can be read without opening every row. Absent
     #: on a review that failed before composing a report, which has no title to carry.
     case_title: str | None = None
+    #: The first pass this one answers, where this is a second pass. A listing uses it to
+    #: pair the two rather than guessing from adjacency, and the waiting page uses it in
+    #: reverse to ask whether anyone has carried on from it yet.
+    elicited_from: str | None = None
 
 
 class RepositorySummary(DomainModel):

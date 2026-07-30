@@ -15,12 +15,3 @@ models:
     context_window_tokens: 131072
     max_output_tokens: 16384
     thinking: null
-  embedding:
-    provider: ollama
-    model: embeddinggemma
-    base_url: http://127.0.0.1:11434
-    dimensions: 768
-    timeout_seconds: 60
-retrieval:
-  top_k: 6
-  max_sections_per_policy: 3
