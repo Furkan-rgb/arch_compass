@@ -11,10 +11,16 @@ distinction is §12.0: the application decides what to look at and the model dec
 means. A tool a model could call to fetch source would invert it and let the stage choose
 its own evidence, which is the thing `tests/unit/test_boundaries.py` asserts against.
 
-Nothing is stored. The spans are in the review; the text is read from the repository when
-someone asks to see it. Storing snippets would change a stored shape for no gain and would
-raise a separate question — whether the *judge* saw those lines — which belongs to a
-decision about how boundaries are judged rather than to how they are read.
+The text is read once, when the review completes, and pinned on the review with everything
+else the run depended on. Reading it live instead was the earlier design and it did not
+survive contact with a repository being worked on: one comment appended to a file no finding
+cited took a six-boundary review from sixteen excerpts to none, because freshness is a single
+repository-wide fingerprint. A review is supposed to be readable for as long as it is kept.
+
+So this module does two things that look alike and are not. `for_boundaries` reads the
+repository — the one place text is produced, used when the review completes and when a reader
+asks to unfold surrounding lines. `for_review` serves what the review already holds, and
+reads only when it holds nothing, which is a review stored before excerpts were pinned.
 """
 
 from __future__ import annotations
@@ -66,15 +72,20 @@ class ReviewSourceService:
     ) -> list[BoundaryExcerpt]:
         """Every located participant of this review, or of one boundary of it.
 
-        Reference-scoped by default at the caller's choice, so a page asks for what it is
-        about to draw rather than for the whole repository's worth of spans.
+        What the review holds, which is the code as it was when the verdicts were reached.
+        That is what a reader of a review wants and what the answering stage must be shown:
+        the alternative — re-reading a repository that has since moved on — answers "this has
+        changed, so there is nothing to show" about lines the record contains.
 
-        A boundary whose code cannot be shown still returns an excerpt, carrying the reason
-        instead of the text. Three ways that happens and they are not the same: the
-        repository has moved on since the review ran, so the lines judged are not the lines
-        there now; the repository is gone; or the boundary was never written, which is what a
-        greenfield candidate is (§4.1). A reader is better served by which of those it was
-        than by an empty panel.
+        Reference-scoped at the caller's choice, so a page asks for what it is about to draw.
+
+        `context_lines` is the one thing the stored copy cannot serve, because surrounding
+        code was never recorded. That is a read against the repository as it is now, and it
+        is allowed to fail: unfolding more is browsing, not evidence, so a repository that
+        has changed simply keeps the lines that were judged rather than losing them too.
+
+        A review stored before excerpts were pinned holds none, and falls through to a live
+        read exactly as it did before — including the reasons a span cannot be shown.
         """
 
         report = review.report
@@ -89,10 +100,73 @@ class ReviewSourceService:
             return []
 
         context = max(0, min(context_lines, MAX_CONTEXT_LINES))
+        if report.excerpts and not context:
+            references = {item.reference for item in wanted}
+            return [
+                excerpt
+                for excerpt in report.excerpts
+                if excerpt.reference in references
+            ]
+        if report.excerpts:
+            # Unfolding was asked for. Read it now, and fall back to the pinned copy where
+            # the repository can no longer answer — an excerpt that could not grow is a
+            # better result than one that disappeared.
+            expanded = self._read_boundaries(review, wanted, context)
+            return [
+                stored if not live.text and stored is not None else live
+                for live, stored in zip(
+                    expanded, self._pinned_for(report.excerpts, expanded), strict=True
+                )
+            ]
+        return self._read_boundaries(review, wanted, context)
+
+    def for_boundaries(
+        self,
+        boundaries: list[ReviewedBoundary],
+        *,
+        root: Path,
+        context_lines: int = 0,
+    ) -> list[BoundaryExcerpt]:
+        """Read the code at these boundaries' spans from a repository already known fresh.
+
+        The completing run's entry point, and the only one that does not start from a stored
+        review — there is not one yet. Freshness is the caller's: `ReviewService` checked it
+        before the first model call and nothing has been indexed since, so a second check
+        here would ask a question already answered.
+        """
+
+        context = max(0, min(context_lines, MAX_CONTEXT_LINES))
+        return [
+            excerpt
+            for boundary in boundaries
+            for excerpt in self._for_boundary(boundary, root, "", context)
+        ]
+
+    @staticmethod
+    def _pinned_for(
+        stored: list[BoundaryExcerpt],
+        live: list[BoundaryExcerpt],
+    ) -> list[BoundaryExcerpt | None]:
+        """Line the pinned copies up with a live read, by reference and qualified name.
+
+        Both lists come from the same boundaries in the same order, so this is a lookup
+        rather than a match: a participant is identified by which boundary it belongs to and
+        what it is called, and neither can change after the review is stored.
+        """
+
+        by_participant = {(item.reference, item.qualified_name): item for item in stored}
+        return [by_participant.get((item.reference, item.qualified_name)) for item in live]
+
+    def _read_boundaries(
+        self,
+        review: BoundaryReview,
+        boundaries: list[ReviewedBoundary],
+        context: int,
+    ) -> list[BoundaryExcerpt]:
         root, refusal = self._readable_root(review)
         return [
             excerpt
-            for boundary in wanted
+            for boundary in boundaries
             for excerpt in self._for_boundary(boundary, root, refusal, context)
         ]
 

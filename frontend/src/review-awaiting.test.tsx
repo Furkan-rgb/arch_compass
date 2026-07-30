@@ -1,5 +1,5 @@
 /**
- * The surface that replaces the results screen while questions are open.
+ * The surface a review shows while it is holding for answers.
  *
  * What is defended here is a product decision, not a layout: verdicts exist and are stored,
  * and this page does not present them as findings. That was measured rather than assumed —
@@ -14,11 +14,10 @@
  */
 
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { AwaitingAnswers, contingentCount } from "./review-awaiting";
-import type { BoundaryReview, ReviewedBoundary } from "./types";
+import { HeldVerdicts, HoldBanner, contingentCount } from "./review-awaiting";
+import type { ReviewedBoundary } from "./types";
 
 function boundary(reference: string, name: string, hinged: boolean): ReviewedBoundary {
   return {
@@ -54,63 +53,43 @@ const REVIEWED = [
   boundary("BR-003", "Digest", true),
 ];
 
-const REVIEW = {
-  review_id: "rev_1",
-  status: "awaiting_answers",
-  case_id: "case_a",
-  case_revision: 1,
-  atlas_version_id: "atlas_1",
-  reasoning_model: "ollama:gemma4:26b",
-  prompt_identity: "judge-finding-candidate:v10:abc123456789",
-  created_at: "2026-07-27T10:00:00Z",
-  report: { case_title: "Keeping stock in step with the warehouse" },
-} as unknown as BoundaryReview;
-
-function renderAwaiting(questionCount = 2) {
-  return render(
-    <MemoryRouter>
-      <AwaitingAnswers
-        review={REVIEW}
-        questionCount={questionCount}
-        reviewed={REVIEWED}
-        policyCount={7}
-        findings={<p>the held verdicts</p>}
-      >
-        <p>the questions</p>
-      </AwaitingAnswers>
-    </MemoryRouter>,
-  );
-}
-
 describe("contingentCount", () => {
   it("counts the verdicts that said outright they turn on something unstated", () => {
     expect(contingentCount(REVIEWED)).toBe(2);
   });
 });
 
-describe("AwaitingAnswers", () => {
-  it("leads with the questions and withholds the verdicts", () => {
-    renderAwaiting();
+describe("HoldBanner", () => {
+  it("leads with the one thing left to do, and says where the answers go", () => {
+    // A held review has exactly one next step. The banner is above everything the review
+    // has to say because holding is the review's state, not one of its sections.
+    const onAnswer = vi.fn();
+    render(<HoldBanner questionCount={2} nextRevision={3} onAnswer={onAnswer} />);
 
-    expect(screen.getByText("the questions")).toBeTruthy();
+    expect(screen.getByRole("status")).toHaveTextContent("2 questions need answers");
+    expect(screen.getByRole("status")).toHaveTextContent("case revision 3");
+
+    fireEvent.click(screen.getByRole("button", { name: "Answer 2 questions" }));
+    expect(onAnswer).toHaveBeenCalledOnce();
+  });
+
+  it("counts one question without pluralising it", () => {
+    render(<HoldBanner questionCount={1} nextRevision={2} onAnswer={vi.fn()} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("One question needs an answer");
+  });
+});
+
+describe("HeldVerdicts", () => {
+  it("withholds the verdicts until they are asked for", () => {
+    render(<HeldVerdicts reviewed={REVIEWED} findings={<p>the held verdicts</p>} />);
+
     expect(screen.queryByText("the held verdicts")).toBeNull();
   });
 
-  it("says what was done, so the questions are worth answering", () => {
-    // The counterweight to withholding. A page that asked for information while saying
-    // nothing about what it had found would charge the reader before showing them anything,
-    // which is the tax this whole mechanism exists to remove.
-    renderAwaiting();
-
-    const head = screen.getByText(/boundaries judged/);
-    expect(head.textContent).toContain("3");
-    expect(head.textContent).toContain("7");
-    expect(head.textContent).toContain("2");
-  });
-
-  it("reveals the verdicts on request, under a warning about what they are", () => {
+  it("reveals them on request, under a warning about what they are", () => {
     // Not hidden, because someone who cannot answer has to be able to get something.
-    renderAwaiting();
+    render(<HeldVerdicts reviewed={REVIEWED} findings={<p>the held verdicts</p>} />);
 
     fireEvent.click(screen.getByRole("button", { name: /provisional verdicts/ }));
 
@@ -119,15 +98,5 @@ describe("AwaitingAnswers", () => {
     // The measurement, not an adjective: a reader deciding whether to act on these is owed
     // the actual rate at which they moved.
     expect(screen.getByText(/four of five verdicts came out differently/)).toBeTruthy();
-  });
-
-  it("keeps the run's own stages on screen, still holding", () => {
-    renderAwaiting(1);
-
-    // The journey is not over, and drawing it as finished would present a review as
-    // complete while it is still waiting on a person.
-    const status = screen.getByRole("status");
-    expect(status).toHaveTextContent("1 question is waiting on you");
-    expect(status).toHaveTextContent("Judge each boundary again");
   });
 });

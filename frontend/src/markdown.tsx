@@ -37,8 +37,8 @@ const rehypePrism = rehypePrismGenerator(refractor);
 /**
  * Markdown as this workspace renders it, in one place.
  *
- * Used by both surfaces that show markdown — a policy's body and an answer in the question
- * dock — because the decisions here are the same for both and are not the kind that should be
+ * Used by both surfaces that show markdown — a policy's body and an answer in the ask
+ * panel — because the decisions here are the same for both and are not the kind that should be
  * made twice: which plugins run, which languages are coloured, and what happens to HTML.
  *
  * Raw HTML is escaped rather than rendered. `rehype-raw` is deliberately not installed, so
@@ -77,7 +77,7 @@ export function Markdown({ children }: { children: string }) {
  */
 export function AnswerProse({ text }: { text: string }) {
   return (
-    <div className="markdown dock__a">
+    <div className="markdown answer-prose">
       <Markdown>{text}</Markdown>
     </div>
   );

@@ -18,6 +18,7 @@ cannot be asserted offline.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -790,6 +791,144 @@ def test_every_recorded_span_resolves_to_the_code_at_it(runtime: Runtime) -> Non
         assert excerpt.location is not None, excerpt.qualified_name
         assert excerpt.text, f"{excerpt.qualified_name}: {excerpt.unavailable}"
         assert not excerpt.unavailable
+
+
+def test_the_code_is_pinned_on_the_review_rather_than_reread(runtime: Runtime) -> None:
+    """A review carries its evidence, so it can still be read after the repository moves on.
+
+    This was a live read, on the reasoning that the span was pinned and the text could always
+    be recovered from it. It could not: freshness is a single repository-wide fingerprint, so
+    a comment appended to a file no finding cites took every excerpt in a review to a caption.
+    That is the moment a review is most read — someone has started acting on it.
+    """
+
+    review_id, _ = _waiting(runtime)
+    report = runtime.review_repository.get(review_id).report
+    assert report is not None
+
+    assert report.excerpts, "a completing review reads its spans and keeps them"
+    assert {item.reference for item in report.excerpts} == {
+        item.reference for item in report.reviewed
+    }
+    assert all(item.text for item in report.excerpts)
+
+
+def test_pinned_code_outlives_an_unrelated_change_to_the_repository(
+    runtime: Runtime,
+    tmp_path: Path,
+) -> None:
+    """The regression, against a copy so the edit is real rather than simulated.
+
+    The file edited is cited by no finding, which is the point: the lines that were judged
+    are untouched, and re-reading refused to show them anyway because the fingerprint covers
+    the whole repository.
+    """
+
+    repository = tmp_path / "repository"
+    shutil.copytree(REPOSITORY, repository)
+    runtime.repository_service.index(repository)
+    case_id = runtime.case_service.start_from_repository(repository).case_id
+    review = runtime.review_service.review(case_id, repository_root=repository)
+    stored = runtime.review_repository.get(review.review_id)
+    report = stored.report
+    assert report is not None
+
+    cited = {
+        participant.location.path
+        for boundary in report.reviewed
+        for participant in boundary.candidate.participants
+        if participant.location is not None
+    }
+    untouched = next(
+        path
+        for path in sorted(repository.rglob("*.py"))
+        if str(path.relative_to(repository)) not in cited
+    )
+    untouched.write_text(
+        untouched.read_text(encoding="utf-8") + "\n# edited after the review ran\n",
+        encoding="utf-8",
+    )
+
+    # Non-vacuous by construction: the same review with its pinned copy removed is the old
+    # behaviour, and it must refuse. Without this the test would pass on a repository the
+    # edit happened not to make stale, asserting nothing.
+    without_pinned = stored.model_copy(
+        update={"report": report.model_copy(update={"excerpts": []})}
+    )
+    rereading = runtime.review_source_service.for_review(without_pinned)
+    assert not any(item.text for item in rereading), (
+        "the edit must make the atlas stale, or this test asserts nothing"
+    )
+    assert "changed since the review ran" in rereading[0].unavailable
+
+    served = runtime.review_source_service.for_review(stored)
+
+    assert served, "the review still answers with its evidence"
+    assert all(item.text for item in served), (
+        "an edit elsewhere in the repository must not take the judged lines away"
+    )
+
+
+def test_a_review_stored_before_excerpts_were_pinned_still_reads_its_code(
+    runtime: Runtime,
+) -> None:
+    """The widening half: an older review holds none and falls back to reading the repository.
+
+    This is why the field is optional with a default rather than a schema bump. A narrowed
+    schema is re-run under ADR 0002; making every stored review unreadable to add a field
+    whose absence has an obvious meaning would be paying that price for nothing.
+    """
+
+    review_id, _ = _waiting(runtime)
+    stored = runtime.review_repository.get(review_id)
+    assert stored.report is not None
+    older = stored.model_copy(
+        update={"report": stored.report.model_copy(update={"excerpts": []})}
+    )
+
+    served = runtime.review_source_service.for_review(older)
+
+    assert served, "a review without pinned excerpts still resolves its spans"
+    assert all(item.text for item in served)
+
+
+def test_unfolding_more_lines_reads_now_and_keeps_what_was_judged(
+    runtime: Runtime,
+    tmp_path: Path,
+) -> None:
+    """Context is browsing, not evidence, so it may fail without costing the evidence.
+
+    Surrounding lines were never recorded, so they can only come from the repository as it is
+    now. When it has moved on the request keeps the pinned span rather than losing it — an
+    excerpt that could not grow beats one that disappeared.
+    """
+
+    repository = tmp_path / "repository"
+    shutil.copytree(REPOSITORY, repository)
+    runtime.repository_service.index(repository)
+    case_id = runtime.case_service.start_from_repository(repository).case_id
+    review = runtime.review_service.review(case_id, repository_root=repository)
+    stored = runtime.review_repository.get(review.review_id)
+    reference = stored.report.reviewed[0].reference if stored.report else "BR-001"
+
+    pinned = runtime.review_source_service.for_review(stored, reference=reference)
+    grown = runtime.review_source_service.for_review(
+        stored, reference=reference, context_lines=6
+    )
+    assert len(grown[0].text.splitlines()) > len(pinned[0].text.splitlines()), (
+        "a fresh repository can still be unfolded"
+    )
+
+    (repository / "main.py").write_text(
+        (repository / "main.py").read_text(encoding="utf-8") + "\n# moved on\n",
+        encoding="utf-8",
+    )
+    after = runtime.review_source_service.for_review(
+        stored, reference=reference, context_lines=6
+    )
+
+    assert all(item.text for item in after), "the judged lines survive a failed unfold"
+    assert [item.text for item in after] == [item.text for item in pinned]
 
 
 def test_the_stage_is_given_the_round_that_produced_the_review_it_answers_about(

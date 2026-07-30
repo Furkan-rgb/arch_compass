@@ -88,27 +88,53 @@ model decides what it means, and `tests/unit/test_boundaries.py` asserts it for 
 so that *"a model adapter cannot become the thing that chooses its own evidence"*. Selection
 was already performed by the detector. This is delivery.
 
-### Read from disk, not stored on the candidate
+### Pinned on the review, read once when it completes
 
-Storing snippets would change a stored shape, so ADR 0002 would make every existing review
-unreadable — and it invites a worse question: whether the *judge* saw those lines. If not,
-the review carries evidence its verdict never used; if so, that is a change to how
-boundaries are judged and belongs in its own decision. The split stays: the verdict rests on
-structure, and the code is shown because a reader asked.
+**Amended.** This originally read from disk on every request and stored nothing, on two
+grounds: that storing would make every existing review unreadable under ADR 0002, and that it
+invites a worse question — whether the *judge* saw those lines.
+
+The first ground was wrong about the mechanism. ADR 0002 refuses a shim for a *narrowed*
+schema; an optional field with a default **widens**, and a review stored without it parses
+unchanged and falls through to a live read. `elicited_from` was added exactly this way.
+
+The second ground is real and survives, as a naming problem rather than a storage one. These
+are the lines a deterministic detector measured, not the judge's input — judgement is
+structural, over the atlas. The field says so where it is defined. Note also that the excerpts
+already *are* model input at the answering stage, so storing them changes what is durable, not
+who sees them.
+
+What settled it was measuring the live read against a repository being worked on. Freshness is
+a single repository-wide fingerprint, so appending one comment to a file no finding cites took
+a six-boundary review from sixteen excerpts to none. Three consequences, in the order they
+matter:
+
+- A concluded review asked "show me the code" a week later answers with the refusal this ADR
+  exists to eliminate — not because the record lacks the lines, but because someone edited
+  something else. The fix undid itself on first contact with normal work.
+- `BoundaryReview` is documented as pinned to the exact inputs that produced it. Case revision,
+  atlas version, model identity and prompt identity are all pinned; the code was the one input
+  that quietly expired.
+- It costs about 4,000 characters against a 46,000-character stored review.
+
+So the report carries `excerpts`, read once at completion when freshness has just been checked
+and nothing has been re-indexed. `context_lines` is the exception and still reads live, because
+surrounding code was never recorded: unfolding is browsing rather than evidence, so a
+repository that has moved on keeps the pinned span instead of losing it.
 
 ## Consequences
 
-- The repository must still be present and unchanged. `AtlasFreshnessService` already checks
-  it, and a stale repository **captions** rather than blocks: an excerpt carries
-  *"this repository has changed since the review ran"* in place of its text. Showing the
-  lines as though they were reviewed would be the false answer; showing nothing would let
-  the stage conclude the review has no source at all, which is the defect being fixed.
+- A review keeps answering with its evidence for as long as it is kept, whatever happens to
+  the repository afterwards. The freshness caption still exists and now applies only where it
+  is the honest answer: a review stored before excerpts were pinned, which reads live and
+  carries *"this repository has changed since the review ran"* in place of its text.
 - Absence is a stated outcome in three shapes and none is an error: a stale or missing
   repository, a node with no span, and a boundary that was never written — which is what a
   greenfield candidate is (§4.1) and the reason `location` is optional at all.
 - The reasoning port gains `excerpts` on four methods. Third signature change to these this
   cycle; if a fourth is wanted, bundle `(case, excerpts)` into a `ReviewEvidence` value
-  rather than adding another positional parameter.
+  rather than adding another positional parameter. *(A fourth was wanted, and `ReviewEvidence`
+  is that value.)*
 - Budget: five to eight boundaries at two to four spans each, a handful of lines per span —
   order 10–15k characters against an input budget near 490k, and bounded by the detector
   rather than by anything a model asks for.

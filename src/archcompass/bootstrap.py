@@ -176,6 +176,7 @@ def build_runtime(
         freshness=freshness,
         policies=policy_service,
         reasoner=reasoning,
+        source=review_source_service,
     )
     return Runtime(
         workspace=canonical_workspace,

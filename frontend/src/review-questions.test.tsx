@@ -159,7 +159,7 @@ describe("OpenQuestions", () => {
     // Scoped to the preview, because the field name also labels the box it was typed into
     // — and it is the preview that has to carry it. The diff is what makes the button
     // honest: saving without the user seeing what enters their case is what §6C.4 forbids.
-    const preview = container.querySelector(".questions__preview");
+    const preview = container.querySelector("[data-slot='answer-preview']");
     expect(preview).not.toBeNull();
     expect(preview?.textContent).toContain("1 of 2 answered");
     expect(preview?.textContent).toContain("expected_future_changes");

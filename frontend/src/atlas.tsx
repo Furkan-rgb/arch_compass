@@ -14,6 +14,8 @@ import {
   Scan,
   Search,
 } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
 import {
   type FormEvent,
   useEffect,
@@ -25,7 +27,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
-import { Badge } from "./components";
+import { humanizeLabel } from "./components";
 import type {
   AtlasExploreOperation,
   AtlasMetricNature,
@@ -1395,7 +1397,7 @@ export function RepositoryAtlas({
           <h2 id="atlas-heading">{title}</h2>
           {description && <p>{description}</p>}
         </div>
-        <Badge tone={mode === "repository" ? "teal" : "neutral"}>
+        <Badge variant={mode === "repository" ? "accent" : "neutral"}>
           {mode === "repository" ? `${nodes.length} surfaced nodes` : "Greenfield canvas"}
         </Badge>
       </div>
@@ -1420,7 +1422,7 @@ export function RepositoryAtlas({
               aria-pressed={lens === value}
               onClick={() => setLens(value)}
             >
-              {value}
+              {humanizeLabel(value)}
             </button>
           ))}
         </div>
@@ -1480,7 +1482,7 @@ export function RepositoryAtlas({
                 onClick={() => toggleEdgeKind(kind)}
               >
                 <i className={`atlas-edge-swatch atlas-edge-swatch--${edgeKindClass(kind)}`} />
-                {kind}
+                {humanizeLabel(kind)}
               </button>
             ))}
           </div>
@@ -1856,10 +1858,10 @@ function AtlasDetailPanel({
       </div>
       <code className="mono-path">{node.path}</code>
       <div className="atlas-detail__tags">
-        <Badge tone={node.state === "hotspot" ? "warning" : "neutral"}>{node.kind}</Badge>
+        <Badge variant={node.state === "hotspot" ? "material" : "neutral"}>{node.kind}</Badge>
         <Badge
-          tone={
-            node.state === "contained" || node.state === "cleared" ? "success" : "neutral"
+          variant={
+            node.state === "contained" || node.state === "cleared" ? "cleared" : "neutral"
           }
         >
           {node.state}

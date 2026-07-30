@@ -1,5 +1,8 @@
+import { cva } from "class-variance-authority";
 import { Check, CircleCheck, CircleDot, Loader, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
+
+import { cn } from "@/lib/utils";
 
 import type { ReviewProgress } from "./types";
 
@@ -66,6 +69,29 @@ export function applyProgress(current: RunState, event: ReviewProgress): RunStat
 
 type StageState = "waiting" | "active" | "done";
 
+/*
+  A stage says where it has got in two places and nowhere else: the marker beside it, and the
+  weight of its own name. Filled with the accent while it is happening, the cleared verdict's
+  own green once it is, and a quiet outline before its turn comes.
+
+  Three complete sets rather than a base and two overrides, so which colour lands never rests
+  on the order a generated stylesheet happens to emit two utilities in.
+*/
+const stageMarker = cva("grid size-5 place-items-center rounded-full border", {
+  variants: {
+    state: {
+      waiting: "border-rule bg-surface text-ink-3",
+      active: "border-primary bg-primary text-on-accent",
+      done: "border-cleared-rule bg-cleared-soft text-cleared",
+    },
+  },
+});
+const stageTitle = cva("text-meta font-[650]", {
+  variants: {
+    state: { waiting: "text-ink-3", active: "text-ink", done: "text-ink-2" },
+  },
+});
+
 function Stage({
   state,
   title,
@@ -76,8 +102,8 @@ function Stage({
   detail: ReactNode;
 }) {
   return (
-    <li className={`run-flow__stage run-flow__stage--${state}`}>
-      <span className="run-flow__marker" aria-hidden>
+    <li data-slot="run-stage" className="grid grid-cols-[auto_1fr] items-start gap-3">
+      <span className={stageMarker({ state })} aria-hidden>
         {state === "done" ? (
           <Check size={13} />
         ) : state === "active" ? (
@@ -86,9 +112,12 @@ function Stage({
           <CircleDot size={13} />
         )}
       </span>
-      <span className="run-flow__stage-body">
-        <strong>{title}</strong>
-        <small>{detail}</small>
+      <span className="grid min-w-0 gap-0.5">
+        <strong className={stageTitle({ state })}>{title}</strong>
+        {/* A span rather than the `small` this was: the one line of hand-written element CSS
+            this workspace keeps gives every `<small>` the 12px step, it is unlayered, and no
+            utility can outrank that. A stage's detail is the smallest step below it. */}
+        <span className="text-micro leading-[1.5] text-ink-3">{detail}</span>
       </span>
     </li>
   );
@@ -120,6 +149,7 @@ export function RunProgress({
   awaiting = null,
   pass = 1,
   answersRecorded = null,
+  showBoundaries = true,
 }: {
   progress: RunState;
   heading?: ReactNode;
@@ -127,6 +157,8 @@ export function RunProgress({
   pass?: RunPass;
   /** The case revision the answers created, once they have been recorded. */
   answersRecorded?: number | null;
+  /** False where the caller draws the boundaries itself, as the review's run log does. */
+  showBoundaries?: boolean;
 }) {
   const detected = progress !== null;
   const total = progress?.total ?? 0;
@@ -156,9 +188,16 @@ export function RunProgress({
   const firstPassTotal = second ? null : total;
 
   return (
-    <div className="run-flow" role="status" aria-live="polite">
-      {heading ? <p className="run-flow__heading">{heading}</p> : null}
-      <ol className="run-flow__stages">
+    <div data-slot="run-flow" className="grid gap-3" role="status" aria-live="polite">
+      {heading ? (
+        <p
+          data-slot="run-heading"
+          className="m-0 max-w-[84ch] text-meta leading-[1.55] text-ink-2"
+        >
+          {heading}
+        </p>
+      ) : null}
+      <ol className="m-0 grid list-none gap-2 p-0">
         <Stage
           state={second || detected ? "done" : "active"}
           title="Sweep the atlas"
@@ -197,8 +236,11 @@ export function RunProgress({
             conclusion — there is usually no case to draw one from — so what happens here is
             only the merging: this is the only point that sees every hinge at once, where
             several boundaries turning on one fact become one question rather than several. */}
+        {/* Done the moment there is a number of questions to report, whatever that number
+            is: `awaiting` is written by the call this stage *is*, so knowing it means the
+            call returned. Without this a concluded run left this stage spinning for ever. */}
         <Stage
-          state={second ? "done" : eliciting ? "active" : "waiting"}
+          state={second ? "done" : awaiting !== null ? "done" : eliciting ? "active" : "waiting"}
           title="Ask what it needs to know"
           detail={
             second
@@ -273,38 +315,51 @@ export function RunProgress({
         />
       </ol>
 
-      {detected && total > 0 ? (
+      {/* The meter is for a run that is still counting. Once every verdict has landed and
+          the questions are known, a full bar is a claim about progress nothing is making. */}
+      {detected && total > 0 && (judged < total || awaiting === null) ? (
         <>
           <div
-            className="run-progress__bar"
+            className="h-1.5 overflow-hidden rounded-pill bg-sunken"
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={total}
             aria-valuenow={judged}
           >
-            <span style={{ width: `${(judged / total) * 100}%` }} />
+            <span
+              className="block h-full rounded-pill bg-primary transition-[width] duration-250 ease-[ease]"
+              style={{ width: `${(judged / total) * 100}%` }}
+            />
           </div>
           {/* Named, not counted. A reader watching their own repository be judged wants to
               know which boundary is under the model right now, and a verdict that has
               already landed is worth seeing before the page it belongs to exists.
               The names come from the stream, so a watcher reading the run's stored record
               instead has the counts and says so rather than inventing labels for them. */}
-          {progress!.boundaries.length === 0 ? (
-            <p className="run-flow__nameless">
+          {showBoundaries && progress!.boundaries.length === 0 ? (
+            <p className="m-0 text-ui leading-[1.5] text-ink-2">
               Which boundary is under the model right now is in the stream this run is
               writing, not in its record, so it is not shown here.
             </p>
           ) : null}
-          <ul className="run-flow__boundaries">
+          {/* Scrolls rather than growing: a repository with sixty boundaries would otherwise
+              push everything else on the page out from under the reader. */}
+          <ul
+            className="m-0 grid max-h-[260px] list-none gap-0.5 overflow-y-auto p-0"
+            hidden={!showBoundaries}
+          >
             {progress!.boundaries.map((name, index) => {
               const verdict = progress!.verdicts[index];
               const current = index === judged && !summarising && !eliciting;
               return (
                 <li
                   key={`${name}-${index}`}
-                  className={`run-flow__boundary ${
-                    current ? "run-flow__boundary--current" : ""
-                  }`}
+                  className={cn(
+                    "grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-control px-2 py-1 text-ui",
+                    // The one under the model right now is lifted onto a surface of its own:
+                    // it is what a reader watching their code be judged is looking for.
+                    current ? "bg-surface text-ink" : "text-ink-2",
+                  )}
                 >
                   {verdict === null ? (
                     current ? (
@@ -317,8 +372,10 @@ export function RunProgress({
                   ) : (
                     <CircleCheck size={12} aria-hidden />
                   )}
-                  <code>{name}</code>
-                  <span className="run-flow__boundary-verdict">
+                  <code className="min-w-0 overflow-hidden text-ui text-ellipsis whitespace-nowrap">
+                    {name}
+                  </code>
+                  <span className="text-meta whitespace-nowrap">
                     {verdict === null
                       ? current
                         ? "judging…"

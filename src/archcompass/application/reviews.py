@@ -19,6 +19,7 @@ from time import monotonic
 
 from archcompass.application.policies import PolicyService
 from archcompass.application.review_rendering import render_report
+from archcompass.application.review_source import ReviewSourceService
 from archcompass.domain.atlas import Atlas, FindingCandidate
 from archcompass.domain.case import ArchitectureCase, CaseRevision
 from archcompass.domain.errors import (
@@ -84,6 +85,7 @@ class ReviewService:
         freshness: AtlasFreshnessChecker,
         policies: PolicyService,
         reasoner: FocusedReasoningProvider,
+        source: ReviewSourceService,
     ) -> None:
         self._cases = cases
         self._atlases = atlases
@@ -91,6 +93,7 @@ class ReviewService:
         self._freshness = freshness
         self._policies = policies
         self._reasoner = reasoner
+        self._source = source
 
     def review(
         self,
@@ -241,6 +244,12 @@ class ReviewService:
             reviewed=boundaries,
             overview=overview,
             policies_presented=[policy.id for policy in policies],
+            # Read here, at the one moment the repository is known to be exactly what was
+            # judged: freshness was checked before the first model call and nothing has been
+            # re-indexed since. Pinning it costs about 4,000 characters and buys a review
+            # that can still show its evidence after someone starts acting on it — the
+            # alternative expired on the first unrelated edit (ADR 0013).
+            excerpts=self._source.for_boundaries(boundaries, root=repository_root),
         )
         review = running.model_copy(
             update={

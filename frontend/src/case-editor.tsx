@@ -1,7 +1,10 @@
 import { dump, load } from "js-yaml";
 import { X } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 
+import { caseActions, caseHead, caseNote, caseSurface } from "./case-form";
 import { ErrorPanel, Loading } from "./components";
 import type { ArchitectureCase } from "./types";
 
@@ -140,7 +143,7 @@ function YamlForm({
 
   return (
     <form
-      className="case-editor__form"
+      className="grid gap-3"
       onSubmit={(event) => {
         event.preventDefault();
         const problem = checkYamlSyntax(source);
@@ -148,22 +151,27 @@ function YamlForm({
         if (!problem) onSubmit(source);
       }}
     >
-      <textarea
-        className="case-editor__source"
+      {/* One field, as tall as a case is long, and wrapped nowhere: this is YAML, where a
+          wrapped line reads as a line at a different indent. */}
+      <Textarea
+        className="m-0 min-h-[420px] overflow-auto px-4 py-3 font-mono text-ui leading-[1.6] whitespace-pre [tab-size:2]"
         value={source}
         spellCheck={false}
         aria-label="Case YAML"
         onChange={(event) => setSource(event.target.value)}
       />
       {syntax ? (
-        <p className="case-editor__problem" role="alert">
+        <p
+          className="m-0 rounded-control border border-danger-rule bg-danger-soft p-3 text-body leading-[1.5] text-danger [&>strong]:block"
+          role="alert"
+        >
           <strong>That is not valid YAML.</strong> {syntax}
         </p>
       ) : null}
-      <div className="case-editor__actions">
-        <button type="submit" className="button button--primary" disabled={pending}>
+      <div className={caseActions}>
+        <Button type="submit" variant="primary" disabled={pending}>
           {pending ? pendingLabel : submitLabel}
-        </button>
+        </Button>
         {children}
       </div>
     </form>
@@ -182,12 +190,12 @@ export function CaseEditor({
   error: unknown;
 }) {
   return (
-    <section className="case-editor" aria-label="Write a case">
-      <div className="case-editor__head">
-        <h3>Write a case</h3>
-        <button type="button" className="icon-button" onClick={onClose} aria-label="Close the editor">
+    <section className={caseSurface} aria-label="Write a case">
+      <div className={caseHead}>
+        <h3 className="m-0 text-sub">Write a case</h3>
+        <Button type="button" size="icon" onClick={onClose} aria-label="Close the editor">
           <X size={16} aria-hidden />
-        </button>
+        </Button>
       </div>
       {/* The server's own message, verbatim: it names the field and what it needed, and
           paraphrasing it here would tell the user less than the validator knows. */}
@@ -199,7 +207,7 @@ export function CaseEditor({
         pending={pending}
         onSubmit={onCreate}
       >
-        <p>
+        <p className={caseNote}>
           Created as revision 1, then selected in the case rail. Revisions are immutable: a
           later change adds one rather than editing this one.
         </p>
@@ -220,21 +228,20 @@ export function CaseView({
   onClose: () => void;
 }) {
   return (
-    <div className="case-editor">
-      <div className="case-editor__head">
-        <h3>{snapshot?.title || "Case"}</h3>
-        <button type="button" className="icon-button" onClick={onClose} aria-label="Close the case">
+    <div className={caseSurface}>
+      <div className={caseHead}>
+        <h3 className="m-0 text-sub">{snapshot?.title || "Case"}</h3>
+        <Button type="button" size="icon" onClick={onClose} aria-label="Close the case">
           <X size={16} aria-hidden />
-        </button>
+        </Button>
       </div>
       {loading ? <Loading label="Reading the case…" /> : null}
       {error ? <ErrorPanel error={error} /> : null}
       {snapshot ? (
-        <pre className="case-editor__source case-editor__source--read">
-          {caseToYaml(snapshot)}
-        </pre>
+        // Styled by a rule rather than by utilities: see `[data-slot="case-yaml"]`.
+        <pre data-slot="case-yaml">{caseToYaml(snapshot)}</pre>
       ) : null}
-      <p className="case-editor__note">
+      <p className={caseNote}>
         Revision {snapshot?.revision ?? "?"}, exactly as a review would pin it.
       </p>
     </div>

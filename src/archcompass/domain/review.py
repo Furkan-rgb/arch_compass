@@ -133,13 +133,24 @@ _VERDICT_LABELS: Final[dict[FindingPattern, dict[bool, str]]] = {
 class BoundaryExcerpt(DomainModel):
     """One participant's recorded span, and the code at it.
 
-    Not stored on the review. The span is — every participant carries one, chosen by the
-    detector at the moment the verdict was reached — and this is that span resolved to text
-    when someone asks to see it. Storing the text instead would change a stored shape for no
-    gain, and would raise a worse question: whether the *judge* saw those lines, which is a
-    separate decision about how boundaries are judged.
+    Stored on the review, and that is a reversal worth stating. It was read live from the
+    repository instead, on the grounds that the span was already pinned and the text could
+    always be recovered from it. That holds only while the repository still says what it said,
+    and measurement is what settled it: appending one comment to a file no finding cites took
+    a six-boundary review from sixteen excerpts to none. The evidence expired the moment
+    someone started acting on the findings, which is exactly when a review is read.
 
-    So the verdict rests on structure, and the code is shown because a reader asked.
+    Three things follow from storing it. A review is pinned to the exact inputs that produced
+    it — case revision, atlas version, model and prompt identity — and the code was the one
+    input that quietly expired; now it does not. A concluded review can still be discussed
+    with its code in hand, rather than answering "the review does not include the specific
+    lines" a week later because of an unrelated edit (ADR 0013). And it costs about 4,000
+    characters against a 46,000-character stored review.
+
+    What it is not is what the *judge* read. Judgement is structural, over the atlas: these
+    are the lines a deterministic detector measured, recorded so a reader — and the stage
+    answering that reader — can see what a verdict is about. The verdict still rests on
+    structure; the code is here because someone will ask.
     """
 
     #: `BR-nnn`, so an excerpt can be attached to the finding it substantiates.
@@ -340,6 +351,19 @@ class BoundaryReviewReport(DomainModel):
     #: Which policies the advisor was shown, so a reader can tell a policy that did not
     #: apply from one that was never presented.
     policies_presented: list[str] = Field(default_factory=list[str])
+    #: The code at every participant's recorded span, read once when the review completed and
+    #: pinned here with everything else the run depended on.
+    #:
+    #: Optional with a default, which is the whole reason it can be added at all. ADR 0002
+    #: refuses a shim for a *narrowed* schema — a review that no longer parses is re-run —
+    #: and this widens: a review stored before this field existed reads back with none, and
+    #: falls through to a live read exactly as it did. `elicited_from` was added the same
+    #: way and for the same reason.
+    #:
+    #: Empty therefore means two different things, and neither needs distinguishing here: a
+    #: review stored before this existed, or one whose repository could not be read when it
+    #: finished. Both are answered the same way — by trying the repository now.
+    excerpts: list[BoundaryExcerpt] = Field(default_factory=list[BoundaryExcerpt])
 
     @model_validator(mode="after")
     def require_unique_references(self) -> BoundaryReviewReport:

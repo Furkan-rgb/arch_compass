@@ -3,5 +3,12 @@
   "references": [
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.node.json" }
-  ]
+  ],
+  // Duplicated from tsconfig.app.json, where the compiler reads it from. Tools that resolve
+  // the `@/` alias by loading the root tsconfig do not follow project references, so without
+  // this `npx shadcn add` writes a vendored component into a literal `@/` directory instead
+  // of into src/components/ui.
+  "compilerOptions": {
+    "paths": { "@/*": ["./src/*"] }
+  }
 }

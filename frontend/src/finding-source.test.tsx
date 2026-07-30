@@ -66,7 +66,7 @@ describe("FindingSource", () => {
       await screen.findByText("This repository has changed since the review ran."),
     ).toBeTruthy();
     // No empty code block standing in for the absence.
-    expect(document.querySelector(".finding__source pre")).toBeNull();
+    expect(document.querySelector("[data-slot='source-excerpt'] pre")).toBeNull();
   });
 
   it("asks for the recorded span first, and for surrounding lines only on request", async () => {
@@ -90,7 +90,9 @@ describe("FindingSource", () => {
     );
     vi.spyOn(api, "reviewSource").mockResolvedValue([]);
 
-    await waitFor(() => expect(container.querySelector(".finding__source")).toBeNull());
+    await waitFor(() =>
+      expect(container.querySelector("[data-slot='source-excerpt']")).toBeNull(),
+    );
   });
 });
 

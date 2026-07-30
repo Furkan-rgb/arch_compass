@@ -1,6 +1,8 @@
 import { MessagesSquare, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 
 import { api } from "./api";
 import { AnswerProse } from "./markdown";
@@ -87,9 +89,11 @@ export function QuestionDiscussion({
 
   if (!open) {
     return (
+      // Closed by default, and the affordance names the reason someone would open it: not
+      // knowing what is being asked is the ordinary case, not a failure to admit.
       <button
         type="button"
-        className="discussion__open"
+        className="mt-2 inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-ui text-accent-ink not-disabled:hover:underline disabled:cursor-default disabled:text-ink-3"
         disabled={disabled}
         onClick={() => setOpen(true)}
       >
@@ -102,56 +106,63 @@ export function QuestionDiscussion({
   }
 
   return (
-    <div className="discussion">
-      <p className="discussion__lead">
+    // Set apart from the card it sits in rather than floated into a panel of its own: it is
+    // part of answering this question, and a reader who opens it has not navigated anywhere.
+    <div className="mt-3 border-t border-dashed border-accent-rule pt-3">
+      <p className="mb-2 max-w-[76ch] text-ui leading-[1.55] text-ink-3">
         Ask about this question — what it means, why it is being asked, what the code
         actually does. It can help you work out an answer; it cannot give one for you, and
         nothing said here reaches your case until you write it above and save it.
       </p>
 
       {messages.length > 0 || pending ? (
-        <ol className="discussion__turns">
+        <ol className="m-0 mb-3 grid list-none gap-3 p-0">
           {messages.map((message) => (
-            <li key={message.message_id} className="discussion__turn">
-              <p className="discussion__asked">{message.question}</p>
+            <li key={message.message_id} className="grid gap-1">
+              <p className={askedBubble}>{message.question}</p>
               {message.answer ? (
-                <div className="discussion__replied">
+                <div data-slot="discussion-reply" className={reply}>
                   <AnswerProse text={message.answer.answer} />
                   {message.answer.suggested_answer ? (
-                    <div className="discussion__suggestion">
-                      <p>
+                    // Marked out as an offer rather than as a result, because that is
+                    // exactly what it is: nothing has been recorded, and pressing the
+                    // button only fills the box above.
+                    <div className="mt-2 grid gap-2 rounded-panel border border-accent-rule bg-accent-soft px-3 py-2">
+                      <p className="m-0 flex items-start gap-2 text-ui leading-[1.6] text-ink-2 [&>svg]:mt-[3px] [&>svg]:flex-none [&>svg]:text-accent-ink">
                         <Sparkles size={13} aria-hidden />
                         <span>
                           From what you have said, your answer might be:{" "}
-                          <em>{message.answer.suggested_answer}</em>
+                          <em className="font-semibold not-italic text-ink">
+                            {message.answer.suggested_answer}
+                          </em>
                         </span>
                       </p>
                       {/* The reader's click is what makes this theirs. It fills the box
                           above rather than saving anything, and §6C.4 is explicit that the
                           substance is still the user's where their whole contribution is
                           confirming a phrasing that was suggested to them. */}
-                      <button
+                      <Button
                         type="button"
-                        className="button discussion__adopt"
+                        className="justify-self-start text-ui"
                         disabled={disabled}
                         onClick={() => onAdopt(message.answer?.suggested_answer ?? "")}
                       >
                         Use this as my answer
-                      </button>
+                      </Button>
                     </div>
                   ) : null}
                 </div>
               ) : (
-                <p className="discussion__failed">{message.failure}</p>
+                <p className="m-0 text-ui text-danger">{message.failure}</p>
               )}
             </li>
           ))}
           {pending ? (
-            <li className="discussion__turn">
-              <p className="discussion__asked">{pending.asked}</p>
+            <li className="grid gap-1">
+              <p className={askedBubble}>{pending.asked}</p>
               {/* Prose on its way to being checked, so it is never given a suggestion or a
                   citation — both exist only once the whole reply has been validated. */}
-              <div className="discussion__replied" aria-live="polite">
+              <div data-slot="discussion-reply" className={reply} aria-live="polite">
                 {pending.prose ? <AnswerProse text={pending.prose} /> : <span>Thinking…</span>}
               </div>
             </li>
@@ -160,30 +171,41 @@ export function QuestionDiscussion({
       ) : null}
 
       {ask.isError ? (
-        <p className="discussion__error">
+        <p className="mb-2 text-ui text-danger">
           {ask.error instanceof Error
             ? ask.error.message
             : "That could not be asked just now."}
         </p>
       ) : null}
 
-      <div className="discussion__compose">
-        <textarea
+      <div className="flex items-start gap-2">
+        {/* Two lines, not the field's usual three: this box sits under a thread the reader
+            is reading, and a taller one would push it further off the screen for every
+            question asked. */}
+        <Textarea
           rows={2}
+          className="min-h-0 flex-1"
           value={asked}
           disabled={disabled || ask.isPending}
           placeholder="What does this question mean for my project?"
           onChange={(event) => setAsked(event.target.value)}
         />
-        <button
+        <Button
           type="button"
-          className="button"
+          className="text-ui"
           disabled={disabled || ask.isPending || !asked.trim()}
           onClick={() => ask.mutate(asked.trim())}
         >
           {ask.isPending ? "Asking…" : "Ask"}
-        </button>
+        </Button>
       </div>
     </div>
   );
 }
+
+/* The reader's question and the advisor's reply, as a pair. The question is a bubble with
+   the corner nearest its own side squared off; the reply is plain prose at reading width,
+   because it is the thing being read rather than a message in a chat. */
+const askedBubble =
+  "m-0 max-w-[62ch] justify-self-start rounded-panel rounded-bl-control bg-sunken px-3 py-2 text-ui leading-[1.55] text-ink";
+const reply = "max-w-[76ch] text-body leading-[1.65] text-ink-2";

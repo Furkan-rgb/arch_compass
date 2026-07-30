@@ -134,6 +134,7 @@ export interface components {
     "reviewed"?: Array<components["schemas"]["ReviewedBoundary"]>;
     "overview": components["schemas"]["ReviewOverview"];
     "policies_presented"?: Array<string>;
+    "excerpts"?: Array<components["schemas"]["BoundaryExcerpt"]>;
   };
     "BoundaryReviewSummary": {
     "review_id": string;

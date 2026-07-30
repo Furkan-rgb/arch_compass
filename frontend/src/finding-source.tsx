@@ -48,10 +48,14 @@ export function FindingSource({
   if (excerpts.isLoading || rows.length === 0) return null;
 
   return (
-    <div className="finding__source">
-      <p className="finding__source-head">
+    <div data-slot="source-excerpt" className="mt-4 border-t border-dashed border-rule pt-3">
+      <p className="m-0 mb-2 flex flex-wrap items-baseline gap-2 text-meta font-semibold tracking-[.04em] text-ink-3 uppercase">
         The code this was measured from
-        <button type="button" onClick={() => setExpanded((value) => !value)}>
+        <button
+          type="button"
+          className="ml-auto inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-meta font-medium tracking-normal text-accent-ink normal-case hover:underline"
+          onClick={() => setExpanded((value) => !value)}
+        >
           {expanded ? (
             <>
               <ChevronUp size={13} aria-hidden /> Just the lines
@@ -63,10 +67,15 @@ export function FindingSource({
           )}
         </button>
       </p>
-      <ul>
+      {/* Bounded tracks, for the same reason the ask panel's log needs them: an excerpt is
+          as wide as the widest line in the file, and an `auto` track sizes itself to that —
+          which widens whatever holds it instead of letting the `pre` below scroll on its
+          own. Wide in a finding's reasoning, where the column is wide; out through the edge
+          in the ask panel, where the drawer is a fraction of the window. */}
+      <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] gap-3 p-0">
         {rows.map((row) => (
           <li key={`${row.qualified_name}-${row.location?.path ?? "none"}`}>
-            <p className="finding__source-at">
+            <p className="m-0 mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-meta [&_code]:text-meta [&_code]:text-ink-2 [&_em]:text-meta [&_em]:not-italic [&_em]:text-ink-3 [&_span]:text-meta [&_span]:text-ink-3">
               <code>{row.qualified_name}</code>
               {row.location ? (
                 <span>
@@ -82,7 +91,9 @@ export function FindingSource({
                 <code>{row.text}</code>
               </pre>
             ) : (
-              <p className="finding__source-missing">{row.unavailable}</p>
+              <p className="m-0 rounded-control border border-dashed border-rule px-3 py-2 text-ui leading-[1.55] text-ink-3">
+                {row.unavailable}
+              </p>
             )}
           </li>
         ))}

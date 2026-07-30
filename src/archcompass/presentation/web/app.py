@@ -922,10 +922,10 @@ def create_app(runtime: Runtime) -> FastAPI:
     def spa(path: str) -> FileResponse | JSONResponse:
         candidate = (STATIC_DIR / path).resolve()
         if path and candidate.is_file() and candidate.is_relative_to(STATIC_DIR.resolve()):
-            return FileResponse(candidate)
+            return FileResponse(candidate, headers=_static_cache_headers(candidate))
         index = STATIC_DIR / "index.html"
         if index.is_file():
-            return FileResponse(index)
+            return FileResponse(index, headers=_static_cache_headers(index))
         return JSONResponse(
             status_code=503,
             content=ProblemDetail(
@@ -935,6 +935,23 @@ def create_app(runtime: Runtime) -> FastAPI:
         )
 
     return app
+
+
+def _static_cache_headers(served: Path) -> dict[str, str]:
+    """
+    How long a browser may keep a built file.
+
+    The build gives every asset a content hash and empties the output directory, so an
+    asset's name changes the moment its bytes do and the old name stops existing. That
+    makes the assets safe to keep forever — and makes `index.html`, which is the only
+    file that knows the current names, the one file that must never be kept: a stale copy
+    asks for hashed names that were deleted by the build, so the app half-loads from a
+    cache the user cannot see and a plain reload does not clear.
+    """
+
+    if served.parent.name == "assets":
+        return {"cache-control": "public, max-age=31536000, immutable"}
+    return {"cache-control": "no-cache"}
 
 
 def _abstraction_name(candidate: FindingCandidate) -> str:

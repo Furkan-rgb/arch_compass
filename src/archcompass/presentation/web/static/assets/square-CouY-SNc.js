@@ -1,1 +1,0 @@
-import{c as e}from"./index-mLjhKWa6.js";const s=[["path",{d:"M7.9 20A9 9 0 1 0 4 16.1L2 22Z",key:"vv11sd"}],["path",{d:"M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3",key:"1u773s"}],["path",{d:"M12 17h.01",key:"p32p05"}]],c=e("message-circle-question-mark",s);const t=[["rect",{width:"18",height:"18",x:"3",y:"3",rx:"2",key:"afitv7"}]],o=e("square",t);export{c as M,o as S};

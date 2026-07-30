@@ -1,5 +1,7 @@
 import { useMutation, useQueries } from "@tanstack/react-query";
-import { useMemo, useState, type Ref } from "react";
+import { useMemo, useState } from "react";
+
+import { cn } from "@/lib/utils";
 
 import { api } from "./api";
 import { RepositoryAtlas, type AtlasEdgeView, type AtlasNodeView } from "./atlas";
@@ -19,6 +21,12 @@ import type { AtlasQueryResult, ReviewedBoundary } from "./types";
  * "never looked at" is the whole value of an exhaustive sweep, and a map that erased it
  * would undo what the review is for.
  */
+
+/* One swatch of the legend, in the two verdict hues the map draws a judged node in and the
+   sunken well it draws every other node in. Named by the verdict rather than by the atlas's
+   own node tokens, which are aliases of exactly these: a legend that named the alias would
+   go on agreeing with itself while drifting from the thing it labels. */
+const legendKey = "size-[11px] rounded-control border border-ink-3";
 
 /** Every node of an inspection, keyed so repeated appearances collapse into one. */
 function collectNodes(results: AtlasQueryResult[]) {
@@ -104,13 +112,11 @@ export function ReviewAtlas({
   boundaries,
   selectedNodeId,
   onSelectNode,
-  sectionRef,
 }: {
   repositoryRoot: string;
   boundaries: ReviewedBoundary[];
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string | null) => void;
-  sectionRef?: Ref<HTMLElement>;
 }) {
   const [explored, setExplored] = useState<AtlasQueryResult[]>([]);
 
@@ -153,18 +159,23 @@ export function ReviewAtlas({
   const loading = inspections.some((query) => query.isLoading) || explore.isPending;
 
   return (
-    <section className="review-atlas" aria-label="Where these boundaries sit" ref={sectionRef}>
-      <h2 className="group__title">Where these boundaries sit</h2>
-      <p className="group__hint">
+    <section
+      data-slot="review-atlas"
+      className="mb-10"
+      aria-label="Where these boundaries sit"
+    >
+      <h2 className="m-0 mb-1 flex items-center gap-2 border-b border-rule pb-3 text-sub tracking-[-.01em]">
+        Where these boundaries sit
+      </h2>
+      <p className="m-0 text-body text-ink-2">
         The same atlas the review was judged against, drawn around the boundaries it
         examined. Selecting one shows its verdict beside the map; the arrows are what the
         parser found, not what the model said.
       </p>
-      <p className="review-atlas__legend">
-        <span className="review-atlas__key review-atlas__key--material" /> should change
-        <span className="review-atlas__key review-atlas__key--cleared" /> left as it is
-        <span className="review-atlas__key review-atlas__key--normal" /> not a boundary the
-        detector surfaces
+      <p className="m-0 mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-ui text-ink-2">
+        <span className={cn(legendKey, "border-material bg-material-soft")} /> should change
+        <span className={cn(legendKey, "border-cleared bg-cleared-soft")} /> left as it is
+        <span className={cn(legendKey, "bg-sunken")} /> not a boundary the detector surfaces
       </p>
       {failed ? <ErrorPanel error={failed} /> : null}
       {explore.isError ? <ErrorPanel error={explore.error} /> : null}

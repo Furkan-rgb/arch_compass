@@ -1,10 +1,8 @@
 import { Eye, TriangleAlert } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 
-import { formatDate, shortId } from "./components";
-import { RunProgress } from "./run-progress";
-import type { BoundaryReview, ReviewedBoundary } from "./types";
+import type { ReviewedBoundary } from "./types";
 
 /**
  * A review that judged everything and is now waiting on a person.
@@ -14,13 +12,14 @@ import type { BoundaryReview, ReviewedBoundary } from "./types";
  * they are not yet findings. Measured on the bundled `warehouse-sync` example, four of five
  * first-pass verdicts moved once the questions below were answered, so a page that led with
  * them would be leading with conclusions more likely wrong than right, in the same confident
- * badges a settled verdict wears.
+ * marks a settled verdict wears.
  *
- * What it does show is the shape of what was done — how many boundaries, how many verdicts
- * rested on something unstated — because that is what makes the questions worth answering.
- * A page that asked for information while saying nothing about what it had found would be
- * charging the reader before showing them anything, which is the adoption tax elicitation
- * exists to remove.
+ * What the page still shows is the shape of what was done — how many boundaries, how many
+ * verdicts rested on something unstated — because that is what makes the questions worth
+ * answering. A page that asked for information while saying nothing about what it had found
+ * would be charging the reader before showing them anything, which is the adoption tax
+ * elicitation exists to remove. That is the verdict band's job now, and it prints how far the
+ * run got rather than how it went.
  *
  * And there is a way past it. Someone reviewing unfamiliar code may genuinely not know
  * whether a second vendor is coming, and "answer my questions or you get nothing" is the
@@ -34,120 +33,101 @@ export function contingentCount(reviewed: ReviewedBoundary[]): number {
   return reviewed.filter((item) => item.hinge).length;
 }
 
-export function AwaitingAnswers({
-  review,
+/**
+ * The hold itself, above everything the review has to say.
+ *
+ * A banner rather than a tab, because holding is the review's state and not one of its
+ * sections: a reader who arrives at a held review has exactly one thing to do, and the
+ * button that does it is on the banner.
+ */
+export function HoldBanner({
   questionCount,
+  nextRevision,
+  onAnswer,
+}: {
+  questionCount: number;
+  /** The revision the answers will become, where the case is known. */
+  nextRevision: number | null;
+  onAnswer: () => void;
+}) {
+  return (
+    // Ruled down its left edge in the revision hue, the same mark a verdict that should
+    // change wears: this is the review saying it cannot finish, not a note about it.
+    <div
+      className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-control border border-material-rule border-l-[3px] border-l-material bg-material-soft px-4 py-2"
+      role="status"
+    >
+      <b className="text-ui text-material">Holding</b>
+      <p className="m-0 flex-[1_1_32ch] text-meta leading-[1.5] text-ink-2">
+        {questionCount === 1
+          ? "One question needs an answer — it could not"
+          : `${questionCount} questions need answers — they could not`}{" "}
+        be weighed from the code alone. The run resumes the moment{" "}
+        {questionCount === 1 ? "it is" : "they are"} answered, and your answers become
+        {nextRevision === null ? " the next revision" : ` case revision ${nextRevision}`} of
+        the case.
+      </p>
+      <Button type="button" variant="primary" onClick={onAnswer}>
+        {questionCount === 1 ? "Answer 1 question" : `Answer ${questionCount} questions`}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * The verdicts a held review has reached, behind the reveal that says what they are.
+ *
+ * Last, small, and honest about what it costs. Not hidden — someone who cannot answer has to
+ * be able to get something — but not offered as an equal path either, because on the example
+ * this flow was measured against four of five of these moved once the questions were
+ * answered.
+ */
+export function HeldVerdicts({
   reviewed,
-  policyCount,
-  children,
   findings,
 }: {
-  review: BoundaryReview;
-  questionCount: number;
   reviewed: ReviewedBoundary[];
-  policyCount: number;
-  /** The questions surface, supplied rather than built here. */
-  children: ReactNode;
-  /** The held verdicts, rendered only once the reader has asked to see them. */
+  /** The ledger, rendered only once the reader has asked to see it. */
   findings: ReactNode;
 }) {
   const [revealed, setRevealed] = useState(false);
-  const contingent = contingentCount(reviewed);
-  const reviewId = review.review_id ?? "";
 
   return (
-    <div className="page page--review">
-      <header className="review-head">
-        <span className="eyebrow">Boundary review · waiting on you</span>
-        <h1>{review.report?.case_title}</h1>
-        <p className="review-head__meta">
-          <strong>{reviewed.length}</strong> boundaries judged ·{" "}
-          <strong>{policyCount}</strong> policies presented to each ·{" "}
-          <strong>{contingent}</strong>{" "}
-          {contingent === 1 ? "verdict rests" : "verdicts rest"} on something the case does
-          not say
-        </p>
-        <dl className="provenance">
-          <div>
-            <dt>Case revision</dt>
-            <dd>rev {review.case_revision}</dd>
-          </div>
-          <div>
-            <dt>Atlas version</dt>
-            <dd title={review.atlas_version_id}>{shortId(review.atlas_version_id)}</dd>
-          </div>
-          <div>
-            <dt>Model</dt>
-            <dd title={review.prompt_identity}>{review.reasoning_model}</dd>
-          </div>
-          <div>
-            <dt>Judged</dt>
-            <dd>{formatDate(review.created_at)}</dd>
-          </div>
-        </dl>
-      </header>
-
-      {/* The run's own steps, still on screen, because the journey is not over. Every other
-          stage ends because the application ended it; this one is waiting on a person, and
-          it stays waiting across a reload because it is read from the stored status rather
-          than from anything this page remembers. */}
-      <RunProgress
-        progress={{
-          total: reviewed.length,
-          boundaries: [],
-          verdicts: reviewed.map((item) => item.material),
-          judged: reviewed.length,
-          eliciting: false,
-          summarising: false,
-        }}
-        awaiting={questionCount}
-        heading={
-          <>
-            Every boundary has been judged. Before those verdicts are worth reporting, the
-            review needs to know{" "}
-            {questionCount === 1 ? "one thing" : `${questionCount} things`} the case does not
-            say — answering carries it on, and the second pass is the one that concludes.
-          </>
-        }
-      />
-
-      {children}
-
-      {/* Last, small, and honest about what it costs. Not hidden — someone who cannot answer
-          has to be able to get something — but not offered as an equal path either, because
-          on this example four of five of these moved once the questions were answered. */}
-      <section className="held">
-        {revealed ? (
-          <>
-            <p className="held__warning">
-              <TriangleAlert size={15} aria-hidden />
-              <span>
-                <strong>These verdicts are provisional.</strong> They were reached against a
-                case that does not yet say what the questions above ask about. On the example
-                this flow was measured against, four of five verdicts came out differently
-                once those questions were answered — and the one that did not move was not
-                predictable in advance. Read them as what the review currently supposes, not
-                as what it concludes.
-              </span>
-            </p>
-            {findings}
-          </>
-        ) : (
-          <button
+    <section className="mb-3 grid gap-3">
+      {revealed ? (
+        <>
+          <p className="m-0 flex items-start gap-2 rounded-panel border border-material-rule bg-material-soft px-4 py-3 text-body leading-[1.65] text-ink-2 [&>svg]:mt-[3px] [&>svg]:flex-none">
+            <TriangleAlert size={15} aria-hidden />
+            <span className="max-w-[92ch]">
+              <strong>These verdicts are provisional.</strong> They were reached against a
+              case that does not yet say what the questions ask about. On the example this
+              flow was measured against, four of five verdicts came out differently once
+              those questions were answered — and the one that did not move was not
+              predictable in advance. Read them as what the review currently supposes, not as
+              what it concludes.
+            </span>
+          </p>
+          {findings}
+        </>
+      ) : (
+        <>
+          {/* A plain control, not a primary one: it has to be available — someone reviewing
+              unfamiliar code may genuinely not be able to answer — without reading as the
+              equal alternative to answering, which the measurements say it is not. */}
+          <Button
             type="button"
-            className="button held__reveal"
+            className="justify-self-start text-ink-2"
             onClick={() => setRevealed(true)}
           >
             <Eye size={15} aria-hidden /> Show the {reviewed.length} provisional verdicts
             anyway
-          </button>
-        )}
-        <p className="held__note">
-          Nothing here is lost by waiting. This review is kept exactly as it stands, whether
-          or not anyone answers — <code>{shortId(reviewId)}</code> ·{" "}
-          <Link to="/reviews">All reviews</Link>
-        </p>
-      </section>
-    </div>
+          </Button>
+          <p className="m-0 max-w-[82ch] text-ui leading-[1.6] text-ink-3">
+            Nothing here is lost by waiting. This review is kept exactly as it stands whether
+            or not anyone answers, and the second pass is a review of its own beside it.
+          </p>
+        </>
+      )}
+    </section>
   );
 }

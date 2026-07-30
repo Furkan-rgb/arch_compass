@@ -112,19 +112,34 @@ They are wired to one atlas query and to nothing else. This spec wires them to f
 
 ## Where the text comes from
 
-**Read from disk at request time, freshness-checked.** Not stored on the candidate.
+**Superseded while building. Read once when the review completes, and pinned on the report.**
+This section planned a live read at request time; ADR 0013 records why that was reversed and
+what replaced it. Kept here rather than deleted, because both objections below were sound and
+only one of them was fatal.
 
-- Storing snippets would change a stored shape, so ADR 0002 makes every existing review
-  unreadable and re-run.
-- It invites a worse question: did the *judge* see those lines? If not, the review carries
-  evidence its verdict never used. If so, that is a much larger change to how boundaries are
-  judged and to the prompt budget, and it belongs in its own decision.
-- The split stays clean: the verdict rests on structure, and the code is shown because a
-  reader asked for it.
+- *"Storing changes a stored shape, so ADR 0002 makes every existing review unreadable."*
+  Wrong about the mechanism. ADR 0002 refuses a shim for a **narrowed** schema; an optional
+  field with a default widens, and a review stored without it parses and falls back to a live
+  read. `elicited_from` was added the same way.
+- *"Did the judge see those lines?"* Still the right question, and the answer is no —
+  judgement is structural, over the atlas. That makes it a naming problem, settled where the
+  field is defined. The excerpts are already model input at the answering stage regardless.
+- What decided it: a live read expires. Freshness is one repository-wide fingerprint, so
+  appending a comment to a file no finding cites took a six-boundary review from sixteen
+  excerpts to none — at exactly the point someone starts acting on the findings.
 
-The cost is that the repository must still be present and unchanged. That is already
-checked, and a stale repository degrades to a stated absence — *"this file has changed since
-this review ran"* — rather than to a snippet from lines that now hold something else.
+The split still stays clean: the verdict rests on structure, and the code is recorded because
+a reader will ask for it.
+
+The repository is read at completion, when freshness has just been checked and nothing has
+been re-indexed since — so the text is the text that was judged, by construction. Afterwards
+the repository may change freely without costing the review its evidence. The stated absence
+still exists for the two cases that are genuinely absent: a participant with no recorded span,
+and a review stored before excerpts were pinned, which reads live and says so.
+
+`context_lines` is the one thing that still reads at request time, because surrounding code
+was never recorded. That read is allowed to fail — unfolding is browsing rather than evidence
+— and it falls back to the pinned span rather than losing it.
 
 ## Surfaces
 

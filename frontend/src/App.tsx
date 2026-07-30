@@ -1,7 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
-import { Loading, Shell } from "./components";
+import { Booting, Shell } from "./components";
 import { RunProvider } from "./run";
 
 const HomePage = lazy(() =>
@@ -25,7 +25,9 @@ export function App() {
     // that started it, and the page that watches it is a different one.
     <RunProvider>
       <Shell>
-        <Suspense fallback={<Loading label="Opening field notes…" />}>
+        {/* The only wait with no shape to draw: which page is arriving is not yet known,
+            so there are no rows to reserve and the turning compass has nothing to displace. */}
+        <Suspense fallback={<Booting label="Opening field notes…" />}>
           <Routes>
             <Route path="/" element={<HomePage />} />
             {/* Past reviews are a standing record, like the policy corpus, so they keep
