@@ -81,7 +81,7 @@ export interface components {
     "is_public"?: boolean | null;
   };
     "AtlasQueryResult": {
-    "query": components["schemas"]["RepositorySummaryQuery"] | components["schemas"]["SubsystemSummaryQuery"] | components["schemas"]["NodeDetailsQuery"] | components["schemas"]["RelationQuery"] | components["schemas"]["NeighbourhoodQuery"] | components["schemas"]["ShortestPathQuery"] | components["schemas"]["CyclesQuery"] | components["schemas"]["SignalsQuery"] | components["schemas"]["HotspotsQuery"] | components["schemas"]["SearchNodesQuery"] | components["schemas"]["SourceExcerptQuery"];
+    "query": components["schemas"]["RepositorySummaryQuery"] | components["schemas"]["SubsystemSummaryQuery"] | components["schemas"]["NodeDetailsQuery"] | components["schemas"]["RelationQuery"] | components["schemas"]["NeighbourhoodQuery"] | components["schemas"]["ShortestPathQuery"] | components["schemas"]["CyclesQuery"] | components["schemas"]["SignalsQuery"] | components["schemas"]["HotspotsQuery"] | components["schemas"]["SearchNodesQuery"] | components["schemas"]["SourceExcerptQuery"] | components["schemas"]["ReviewContextQuery"];
     "node_ids"?: Array<string>;
     "summary"?: string;
     "node_summaries"?: Array<components["schemas"]["AtlasNodeSummary"]>;
@@ -391,6 +391,16 @@ export interface components {
     "ReviewCompleted": {
     "event"?: "completed";
     "review": components["schemas"]["BoundaryReview"];
+  };
+    "ReviewContextQuery": {
+    "kind": "review_context";
+    "node_ids": Array<string>;
+    "limit"?: number;
+  };
+    "ReviewContextRequest": {
+    "root_path": string;
+    "node_ids": Array<string>;
+    "limit"?: number;
   };
     "ReviewConversation": {
     "schema_version"?: 1;
@@ -957,6 +967,19 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "repository_review_context_api_repositories_review_context_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["ReviewContextRequest"];
+    responses: {
+      "200": components["schemas"]["AtlasQueryResult"];
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
   "repository_summary_api_repositories_summary_get": {
     parameters: {
       query: {
@@ -1128,6 +1151,9 @@ export interface paths {
   };
   "/api/repositories/inspect": {
     get: operations["repository_inspect_api_repositories_inspect_get"];
+  };
+  "/api/repositories/review-context": {
+    post: operations["repository_review_context_api_repositories_review_context_post"];
   };
   "/api/repositories/start": {
     post: operations["start_from_repository_api_repositories_start_post"];

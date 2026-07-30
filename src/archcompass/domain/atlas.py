@@ -394,6 +394,29 @@ class SourceExcerptQuery(DomainModel):
     max_lines: int = Field(default=80, ge=1, le=200)
 
 
+class ReviewContextQuery(DomainModel):
+    """The union neighbourhood around several nodes at once, asked for in one question.
+
+    A reader opening a review's map wants the boundaries it reports and enough around them
+    to see what they touch. Asked one node at a time — the only way this language offered
+    before — the answer to each is the node alone, so every edge leading out of it names a
+    neighbour the asker was never given and has to be discarded. What arrives is a set of
+    unconnected boxes, which is the opposite of what a map is for.
+
+    Missing ids are not an error here. The nodes come from a review of an atlas that may
+    since have been rebuilt, and a reader whose file was renamed should see the rest of the
+    map rather than a failure; `node_ids` on the result reports which ones were found, so
+    the absence stays visible instead of being smoothed over.
+    """
+
+    kind: Literal["review_context"]
+    node_ids: list[str] = Field(min_length=1, max_length=40)
+    #: Neighbours per requested node, not in total — the bound has to hold per anchor, or a
+    #: single densely connected boundary would consume the whole budget and leave the others
+    #: as the isolated boxes this query exists to avoid.
+    limit: int = Field(default=25, ge=1, le=100)
+
+
 AtlasQuery = Annotated[
     RepositorySummaryQuery
     | SubsystemSummaryQuery
@@ -405,7 +428,8 @@ AtlasQuery = Annotated[
     | SignalsQuery
     | HotspotsQuery
     | SearchNodesQuery
-    | SourceExcerptQuery,
+    | SourceExcerptQuery
+    | ReviewContextQuery,
     Field(discriminator="kind"),
 ]
 

@@ -114,8 +114,20 @@ small { font-size: var(--s-meta); }
   /* The ask panel's width, named because two rules have to agree on it: the drawer takes
      exactly this, and the column beneath gives back exactly this. It was 360px, which read
      grounded answers through a slot — and every grounded answer carries an excerpt of the
-     reader's own code. */
-  --ask-panel-width: clamp(400px, 32vw, 560px);
+     reader's own code.
+
+     Two tokens rather than one, and the indirection is load-bearing. The reader can drag the
+     panel's left edge, and what the drag writes is `--ask-panel-width-user` on the root
+     element — never this one. An inline custom property outranks every rule in this sheet
+     including a media query, so a width chosen on a desktop would follow the reader onto a
+     narrow window and leave the drawer stuck at 480px with the page still padded for it. With
+     the choice held in its own token, the narrow-window rule below keeps assigning
+     `--ask-panel-width` directly and wins whatever the reader dragged.
+
+     The fallback is the default, written here rather than in the drag: with nothing set the
+     panel is responsive again, so resetting restores `clamp()` rather than freezing whatever
+     that clamp happened to compute to on the day. */
+  --ask-panel-width: var(--ask-panel-width-user, clamp(400px, 32vw, 560px));
 
   /* ── Porcelain: the day material ─────────────────────────────────────────── */
 
@@ -826,9 +838,13 @@ small { font-size: var(--s-meta); }
   font-size: var(--s-ui);
 }
 .atlas-legend { display: flex; flex-wrap: wrap; gap: 12px; }
-.atlas-legend > span { display: inline-flex; gap: 4px; align-items: center; }
-.atlas-legend > span:nth-child(2) svg { color: var(--atlas-node-hotspot); }
-.atlas-legend > span:nth-child(3) svg { color: var(--atlas-node-contained); }
+.atlas-legend__key { display: inline-flex; gap: 4px; align-items: center; }
+/* Each key coloured by the state it names rather than by its position in the row: the legend
+   lists only the states the graph contains, so what sits third depends on the map. */
+.atlas-legend__key--hotspot svg { color: var(--atlas-node-hotspot); }
+.atlas-legend__key--contained svg { color: var(--atlas-node-contained); }
+.atlas-legend__key--cleared svg { color: var(--cleared); }
+.atlas-legend__key--inference svg { color: var(--atlas-node-inference); }
 .atlas-toolbar__hint { margin-left: auto; color: var(--ink-3); }
 .atlas-edge-filters {
   display: flex;
@@ -1139,6 +1155,7 @@ small { font-size: var(--s-meta); }
   gap: 4px;
 }
 .atlas-detail__actions > div button,
+.atlas-detail__finding > button,
 .atlas-detail__path > button {
   min-height: 38px;
   padding: 8px 8px;
@@ -1260,15 +1277,22 @@ small { font-size: var(--s-meta); }
 [data-slot="discussion-reply"] .answer-prose { font-size: var(--s-ui); line-height: var(--leading-reading); }
 
 /* The drawer floats, but on a wide screen it must not float over the ledger it is
-   about: the column gives back exactly the width the drawer takes, from the one
+   about: the viewport gives back exactly the width the drawer takes, from the one
    measurement both of them read.
 
-   The one page modifier that is still a class. It has to beat the page column's own
-   padding, and unlayered is the only placement where that is true whatever order
-   Tailwind happens to emit `pr-*` and `px-*` in — a rule this page's whole layout
-   depends on should not rest on the sort order of a generated sheet. */
+   On <main> rather than the page column, because the column centres itself with auto
+   margins against whatever holds it. Padding the column carved the drawer's whole width
+   out of the content even when the drawer hung over the column's own dead margin, and
+   left the column centred as if the drawer were not there — a narrow ledger pushed left
+   with empty space on both sides. Reserved where the centring happens, `mx-auto` and
+   `min(1400px, 100%)` resolve against what the drawer leaves, the gutters stay
+   symmetric, and the content only narrows when the room genuinely runs out.
+
+   The one page modifier that is still a class, found from here with :has() so the
+   toggle can stay on the page that owns the drawer. Unlayered, as every rule this
+   page's whole layout depends on is. */
 @media (min-width: 1120px) {
-  .page--asking { padding-right: calc(var(--ask-panel-width) + var(--gutter)); }
+  main:has(.page--asking) { padding-right: var(--ask-panel-width); }
 }
 
 /* ── Reviews as a standing record ─────────────────────────────────────────────
@@ -1289,8 +1313,14 @@ small { font-size: var(--s-meta); }
 @media (max-width: 860px) {
   /* Too narrow to hold a ledger beside it, so the drawer stops pretending to be beside one
      and becomes the page. Moved on the token rather than on the drawer, because the drawer's
-     own width is written with an attribute selector that no plain utility can outrank. */
+     own width is written with an attribute selector that no plain utility can outrank.
+
+     This assigns `--ask-panel-width` directly, which is what lets it beat a width the reader
+     dragged: that choice lives in `--ask-panel-width-user`, and nothing here reads it. The
+     handle is hidden at the same measurement — it would resize nothing, and a control that
+     does nothing is worse than one that is not offered. */
   :root { --ask-panel-width: 100%; }
+  [data-slot="ask-resize"] { display: none; }
 }
 
 /* The excerpt's own box: light, ruled, and as tall as the recorded span — not the dark
@@ -1298,4 +1328,52 @@ small { font-size: var(--s-meta); }
    utilities for exactly that reason: an unlayered element rule outranks every utility
    whatever its specificity, so this is the one part of the excerpt that cannot move. */
 [data-slot="source-excerpt"] pre { min-width: 0; overflow-x: auto; margin: 0; padding: 8px 12px; border: 1px solid var(--rule); border-radius: var(--r-control); background: var(--sunken, var(--surface)); }
+
+/*
+  The same syntax colours, moved onto paper.
+
+  The excerpt is highlighted now — from the file's own extension, since the path is recorded —
+  and it is the one code in this product that does not sit on `--code-bg`. The standing palette
+  is chosen against that dark ground and measured 1.3:1 to 2.3:1 on this light box: pale green
+  strings on near-white is not muted highlighting, it is code the reader cannot read. So the box
+  keeps the look the rule above gives it and the palette comes to meet it.
+
+  Derived from the standing palette rather than picked again, because "one palette" is the rule
+  worth keeping — each colour is its own hue mixed down towards the code ground until it carries
+  on paper (4.9:1 to 6.8:1). Comments go to `--ink-3` instead of a mix: on this ground they must
+  read *quieter* than the code around them, which is exactly what that token already is, and a
+  darkened `--code-dim` would have come out as the strongest ink in the box.
+
+  Light theme only, through `var(--excerpt-*, var(--code-*))`. By night `--sunken` is a wash over
+  a dark surface, so the box is a dark code ground like every other and the standing palette is
+  already right — the fallback is what says so, and it says it in one place rather than in a
+  second themed block.
+*/
+:root:not([data-theme="dark"]) [data-slot="source-excerpt"] pre {
+  --excerpt-dim: var(--ink-3);
+  --excerpt-keyword: color-mix(in srgb, var(--code-keyword) 40%, var(--code-bg));
+  --excerpt-string: color-mix(in srgb, var(--code-string) 40%, var(--code-bg));
+  --excerpt-number: color-mix(in srgb, var(--code-number) 40%, var(--code-bg));
+  --excerpt-function: color-mix(in srgb, var(--code-function) 40%, var(--code-bg));
+  --excerpt-builtin: color-mix(in srgb, var(--code-builtin) 40%, var(--code-bg));
+  --excerpt-decorator: color-mix(in srgb, var(--code-decorator) 40%, var(--code-bg));
+  --excerpt-property: color-mix(in srgb, var(--code-property) 40%, var(--code-bg));
+  --excerpt-operator: color-mix(in srgb, var(--code-operator) 40%, var(--code-bg));
+  --excerpt-added: color-mix(in srgb, var(--code-added) 40%, var(--code-bg));
+  --excerpt-removed: color-mix(in srgb, var(--code-removed) 40%, var(--code-bg));
+}
+
+/* Grouped exactly as the standing token rules are, so the two can be read side by side and a
+   token that gains a colour there is visibly missing one here. */
+[data-slot="source-excerpt"] .token.comment, [data-slot="source-excerpt"] .token.prolog, [data-slot="source-excerpt"] .token.doctype, [data-slot="source-excerpt"] .token.cdata { color: var(--excerpt-dim, var(--code-dim)); }
+[data-slot="source-excerpt"] .token.keyword, [data-slot="source-excerpt"] .token.boolean, [data-slot="source-excerpt"] .token.selector, [data-slot="source-excerpt"] .token.important { color: var(--excerpt-keyword, var(--code-keyword)); }
+[data-slot="source-excerpt"] .token.string, [data-slot="source-excerpt"] .token.char, [data-slot="source-excerpt"] .token.attr-value, [data-slot="source-excerpt"] .token.regex { color: var(--excerpt-string, var(--code-string)); }
+[data-slot="source-excerpt"] .token.number, [data-slot="source-excerpt"] .token.symbol, [data-slot="source-excerpt"] .token.constant { color: var(--excerpt-number, var(--code-number)); }
+[data-slot="source-excerpt"] .token.function, [data-slot="source-excerpt"] .token.class-name { color: var(--excerpt-function, var(--code-function)); }
+[data-slot="source-excerpt"] .token.builtin { color: var(--excerpt-builtin, var(--code-builtin)); }
+[data-slot="source-excerpt"] .token.decorator, [data-slot="source-excerpt"] .token.annotation, [data-slot="source-excerpt"] .token.tag { color: var(--excerpt-decorator, var(--code-decorator)); }
+[data-slot="source-excerpt"] .token.property, [data-slot="source-excerpt"] .token.attr-name, [data-slot="source-excerpt"] .token.variable { color: var(--excerpt-property, var(--code-property)); }
+[data-slot="source-excerpt"] .token.operator, [data-slot="source-excerpt"] .token.punctuation { color: var(--excerpt-operator, var(--code-operator)); }
+[data-slot="source-excerpt"] .token.inserted { color: var(--excerpt-added, var(--code-added)); }
+[data-slot="source-excerpt"] .token.deleted { color: var(--excerpt-removed, var(--code-removed)); }
 [data-slot="source-excerpt"] pre code { display: block; color: var(--ink); font-size: var(--s-ui); line-height: 1.55; white-space: pre; tab-size: 4; }

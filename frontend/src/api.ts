@@ -354,6 +354,26 @@ export const api = {
     request<AtlasQueryResult>(
       `/api/repositories/inspect?root_path=${encodeURIComponent(rootPath)}&node_id=${encodeURIComponent(nodeId)}`,
     ),
+  /**
+   * The neighbourhood of one review's boundaries, in a single call.
+   *
+   * One request rather than one inspection per boundary. A review examines a handful of them
+   * and their neighbourhoods overlap heavily — the same package, the same imports, the same
+   * edges returned once per finding — so asking per node paid for the overlap and gave the
+   * page as many loading states as there were boundaries.
+   *
+   * An id the atlas no longer holds is skipped rather than refused, which is what lets a
+   * review of a since-reindexed repository still draw the boundaries that survived.
+   */
+  reviewContext: (rootPath: string, nodeIds: string[], limit?: number) =>
+    request<AtlasQueryResult>("/api/repositories/review-context", {
+      method: "POST",
+      body: JSON.stringify({
+        root_path: rootPath,
+        node_ids: nodeIds,
+        ...(limit === undefined ? {} : { limit }),
+      }),
+    }),
   repositoryExplore: (value: AtlasExploreRequest) =>
     request<AtlasQueryResult>("/api/repositories/explore", {
       method: "POST",

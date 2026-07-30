@@ -6,6 +6,11 @@
  * was missing was showing them. These check that the lines appear, that they are labelled
  * with where they came from, and that a span which cannot be read says why rather than
  * leaving an empty panel.
+ *
+ * The lines are asserted through the `pre`'s own text rather than with `findByText`. They are
+ * syntax-coloured now — from the file's extension, since the path is recorded — so a line is a
+ * run of token spans and no single element holds the whole of it. What matters is unchanged and
+ * is arguably now stated better: every character of the reader's file is on screen, in order.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -34,6 +39,16 @@ const UNREADABLE: BoundaryExcerpt = {
   unavailable: "This repository has changed since the review ran.",
 };
 
+/** The excerpt's code as one string, reassembled from however many tokens it was drawn in. */
+async function excerptText(): Promise<string> {
+  const block = await waitFor(() => {
+    const found = document.querySelector("[data-slot='source-excerpt'] pre");
+    if (!found) throw new Error("no excerpt yet");
+    return found;
+  });
+  return block.textContent ?? "";
+}
+
 function renderSource(rows: BoundaryExcerpt[]) {
   const fetched = vi.spyOn(api, "reviewSource").mockResolvedValue(rows);
   render(
@@ -52,11 +67,35 @@ describe("FindingSource", () => {
   it("shows the lines, where they are, and what they contribute", async () => {
     renderSource([READABLE]);
 
-    expect(
-      await screen.findByText(/BUILT_IN_VOICES = \["serena", "ryan", "chelsie", "ethan"\]/),
-    ).toBeTruthy();
+    expect(await excerptText()).toBe(READABLE.text);
     expect(screen.getByText("preflight/voices.py:9")).toBeTruthy();
     expect(screen.getByText("States BUILT_IN_VOICES at this location.")).toBeTruthy();
+  });
+
+  it("colours the lines from the file's extension, not from the code itself", async () => {
+    // `.py` is what the repository calls this file, so the grammar is a fact rather than a
+    // guess about a fragment — which is why the excerpt may be coloured where a fenced block
+    // that named no language may not.
+    renderSource([READABLE]);
+    await excerptText();
+
+    const strings = [
+      ...document.querySelectorAll("[data-slot='source-excerpt'] .token.string"),
+    ].map((node) => node.textContent);
+    expect(strings).toEqual(['"serena"', '"ryan"', '"chelsie"', '"ethan"']);
+  });
+
+  it("leaves an excerpt from a file it carries no grammar for plain", async () => {
+    renderSource([
+      {
+        ...READABLE,
+        location: { path: "lib/voices.rb", start_line: 9, end_line: 9 },
+        text: 'BUILT_IN_VOICES = ["serena"]',
+      },
+    ]);
+
+    expect(await excerptText()).toBe('BUILT_IN_VOICES = ["serena"]');
+    expect(document.querySelector("[data-slot='source-excerpt'] .token")).toBeNull();
   });
 
   it("says why a span could not be read rather than showing nothing", async () => {
@@ -71,7 +110,7 @@ describe("FindingSource", () => {
 
   it("asks for the recorded span first, and for surrounding lines only on request", async () => {
     const fetched = renderSource([READABLE]);
-    await screen.findByText(/9 \| BUILT_IN_VOICES/);
+    expect(await excerptText()).toContain("9 | BUILT_IN_VOICES");
 
     // Open by default and unpadded: the substantiation is not hidden, and the span is small
     // by construction because the detector picks declarations.
@@ -127,7 +166,8 @@ describe("the code beside a conversation answer", () => {
     // that retyped it is exactly the failure mode this replaces.
     renderSource([READABLE]);
 
-    expect(await screen.findByText(/"chelsie"/)).toBeTruthy();
-    expect(screen.queryByText(/chelsine/)).toBeNull();
+    const shown = await excerptText();
+    expect(shown).toContain('"chelsie"');
+    expect(shown).not.toContain("chelsine");
   });
 });

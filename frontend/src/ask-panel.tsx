@@ -1,12 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CornerDownLeft, Plus, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 import { api } from "./api";
+import {
+  applyAskPanelWidth,
+  askPanelIsResizable,
+  askPanelWidthFromPointer,
+  clampAskPanelWidth,
+  maxAskPanelWidth,
+  MIN_ASK_PANEL_WIDTH,
+  saveAskPanelWidth,
+  storedAskPanelWidth,
+} from "./ask-panel-width";
 import { ErrorPanel } from "./components";
 import { FindingSource } from "./finding-source";
 import { AnswerProse } from "./markdown";
@@ -42,6 +58,175 @@ const threadPill = cn(
   "aria-pressed:border-accent-rule aria-pressed:bg-accent-soft aria-pressed:text-accent-ink",
 );
 
+/* The grab strip on the panel's left edge.
+   Six pixels wide and paints nothing until it is pointed at: the edge is already drawn by the
+   drawer's own border, and a second visible rule there would read as a divider inside the panel
+   rather than as its boundary. Wider than it looks by way of `before`, because a 6px target is
+   a fair mouse target and a poor one for anybody whose hand is not steady.
+   `inset-y-0` and `-left-px` so it straddles the border rather than sitting inside the padding,
+   which is where a reader's cursor actually goes looking for it. */
+const resizeHandle = cn(
+  "absolute inset-y-0 -left-px z-10 w-1.5 cursor-col-resize touch-none border-0 bg-transparent p-0",
+  "before:absolute before:inset-y-0 before:-left-1 before:-right-1 before:content-['']",
+  "after:absolute after:inset-y-0 after:left-0 after:w-px after:bg-transparent after:content-['']",
+  "hover:after:bg-accent-rule focus-visible:after:bg-accent-ink",
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+);
+
+/** How far one arrow press moves the edge, and how far one with a modifier held moves it. */
+const KEYBOARD_STEP = 16;
+const KEYBOARD_LEAP = 96;
+
+/**
+ * The drag that sets the panel's width, and the reader's stored preference for it.
+ *
+ * Written as a hook beside the panel rather than in `ask-panel-width.ts` because it is all
+ * effect: the arithmetic, the storage and the decision about which custom property to write are
+ * pure and live there, tested without a pointer. What is left here is the two things only a
+ * component can do — hold the pointer capture and keep a rendered value in step with it.
+ *
+ * The width is applied to `document.documentElement`, not to the panel. Two rules read the token
+ * and the second one is the padding `<main>` reserves for the drawer, so a width set on the
+ * panel would widen the drawer over the ledger it is supposed to sit beside. That the page
+ * moves with the drag is not a side effect; it is the reason the token exists.
+ */
+function useAskPanelWidth(enabled: boolean) {
+  /** The settled width, held only so the handle can report it to a screen reader. */
+  const [width, setWidth] = useState<number | null>(null);
+  const dragging = useRef<number | null>(null);
+  /** Where the edge is mid-drag, in a ref because a re-render per frame is what it avoids. */
+  const live = useRef<number | null>(null);
+
+  // Restored once, on mount, before anything is measured. Writing it here rather than in a
+  // layout effect on the panel means the room is already reserved for the drawer on the first
+  // paint of a review whose reader has asked before.
+  useEffect(() => {
+    const saved = storedAskPanelWidth(window.localStorage);
+    if (saved === null) return;
+    const fitted = clampAskPanelWidth(saved, window.innerWidth);
+    applyAskPanelWidth(document.documentElement, fitted);
+    setWidth(fitted);
+  }, []);
+
+  /**
+   * A window narrower than the panel's own minimum is a window the reader has resized under a
+   * width they chose earlier. The choice is kept in storage and only the applied value is
+   * refitted, so widening the window again gives back what they picked rather than the ceiling
+   * it was clipped to.
+   */
+  useEffect(() => {
+    const refit = () => {
+      setWidth((current) => {
+        if (current === null) return null;
+        const fitted = clampAskPanelWidth(current, window.innerWidth);
+        applyAskPanelWidth(document.documentElement, fitted);
+        return fitted;
+      });
+    };
+    window.addEventListener("resize", refit);
+    return () => window.removeEventListener("resize", refit);
+  }, []);
+
+  /**
+   * The width, applied and remembered. Everything except a drag in progress goes through here.
+   *
+   * A drag does not, and the split is the whole of why `live` exists below: this writes storage
+   * and sets React state, and a pointer that fires sixty times a second would mean sixty
+   * synchronous `localStorage` writes and sixty re-renders of a conversation — to move an edge
+   * that a single custom property already moves on its own.
+   */
+  const set = useCallback((next: number) => {
+    applyAskPanelWidth(document.documentElement, next);
+    saveAskPanelWidth(window.localStorage, next);
+    setWidth(next);
+  }, []);
+
+  /** Back to the responsive default, and the stored preference goes with it. */
+  const reset = useCallback(() => {
+    applyAskPanelWidth(document.documentElement, null);
+    saveAskPanelWidth(window.localStorage, null);
+    setWidth(null);
+  }, []);
+
+  const begin = (event: ReactPointerEvent<HTMLElement>) => {
+    if (!enabled || event.button !== 0) return;
+    // The handle keeps the pointer for the whole gesture, so the drag survives the cursor
+    // leaving the strip — which it does immediately, because the strip is what is moving.
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    dragging.current = event.pointerId;
+    // Suppressed for the length of the drag only. Without it the gesture selects the
+    // conversation behind the handle, and the reader ends a resize with half a thread
+    // highlighted; a permanent `select-none` on the panel would cost them copying an answer.
+    document.body.style.userSelect = "none";
+    event.preventDefault();
+  };
+
+  /**
+   * Every frame of the drag writes the custom property and nothing else.
+   *
+   * That property is all the movement needs: the drawer's width and the room `<main>` reserves
+   * for it both read the token it feeds, so the browser reflows both from one declaration without React
+   * being involved. State and storage wait for the gesture to finish — the value a screen reader
+   * is told and the value kept for next time are both about where the edge came to rest, not
+   * about where it passed through.
+   */
+  const move = (event: ReactPointerEvent<HTMLElement>) => {
+    if (dragging.current !== event.pointerId) return;
+    const next = askPanelWidthFromPointer(event.clientX, window.innerWidth);
+    live.current = next;
+    applyAskPanelWidth(document.documentElement, next);
+  };
+
+  const end = (event: ReactPointerEvent<HTMLElement>) => {
+    if (dragging.current !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    dragging.current = null;
+    document.body.style.removeProperty("user-select");
+    // A press with no movement is not a resize, so it stores nothing — which is what keeps a
+    // double-click on the handle a reset rather than a reset immediately overwritten by the
+    // width the second press happened to land on.
+    if (live.current !== null) set(live.current);
+    live.current = null;
+  };
+
+  /**
+   * The same resize from the keyboard, because a drag is not an interaction everyone has.
+   *
+   * Left widens and right narrows: the handle is the thing with focus, so the arrow that matches
+   * where *it* travels is the one that will not surprise anybody, even though the panel grows in
+   * the opposite direction. Shift takes bigger steps and Home and End go to the two limits.
+   *
+   * Escape is deliberately not bound. It closes the panel, which is the drawer's own behaviour
+   * and the one thing a reader can be sure of anywhere inside it; a handle that swallowed it to
+   * mean "undo my resize" would make the key mean two things a few pixels apart.
+   *
+   * Where nothing has been chosen yet the first press starts from what the panel currently
+   * measures, read off the element the handle is positioned against — which is the panel, since
+   * the handle is absolute inside it. The alternative is parsing the computed token, and what
+   * `getComputedStyle` hands back for a custom property is the unresolved `var(…, clamp(…))`
+   * rather than a length.
+   */
+  const key = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (!enabled) return;
+    const panel = event.currentTarget.offsetParent;
+    const measured = panel instanceof HTMLElement ? panel.offsetWidth : MIN_ASK_PANEL_WIDTH;
+    const from = width ?? clampAskPanelWidth(measured, window.innerWidth);
+    const step = event.shiftKey ? KEYBOARD_LEAP : KEYBOARD_STEP;
+    const moves: Record<string, number> = {
+      ArrowLeft: from + step,
+      ArrowRight: from - step,
+      Home: maxAskPanelWidth(window.innerWidth),
+      End: MIN_ASK_PANEL_WIDTH,
+    };
+    const next = moves[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    set(clampAskPanelWidth(next, window.innerWidth));
+  };
+
+  return { width, begin, move, end, key, reset };
+}
+
 export function AskPanel({
   reviewId,
   open,
@@ -52,6 +237,28 @@ export function AskPanel({
   onClose: () => void;
 }) {
   const client = useQueryClient();
+  /**
+   * The window's width, tracked so two things derived from it cannot go stale.
+   *
+   * The first is whether the handle is offered at all. The sheet hides it below the same
+   * measurement, which is what a reader sees; this is what stops the logic running there — a
+   * `display: none` strip is unreachable by mouse and would still leave a focused handle
+   * answering arrow keys, writing a width the narrow-window rule then correctly ignores, which
+   * is a control quietly doing nothing.
+   *
+   * The second is `aria-valuemax`, and it is why this is a width rather than the boolean it
+   * started as: the ceiling is a fraction of the window, so a boolean only re-rendered when the
+   * threshold was crossed and left a screen reader being told the maximum for whatever size the
+   * window happened to be when the panel opened.
+   */
+  const [viewport, setViewport] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const measure = () => setViewport(window.innerWidth);
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+  const resizable = askPanelIsResizable(viewport);
+  const panelWidth = useAskPanelWidth(resizable);
   const [question, setQuestion] = useState("");
   /**
    * The question being answered right now, and the prose that has arrived for it.
@@ -191,6 +398,40 @@ export function AskPanel({
         // screen reader than none at all.
         aria-describedby={undefined}
       >
+        {/* The panel's own edge, made draggable.
+            A `separator` with an orientation and a value, which is what a resizer between two
+            regions is — it separates the conversation from the review, and its position is the
+            fact a screen reader needs. Not a `slider`: nothing here is a value being chosen from
+            a range for its own sake, and announcing "480 of 1280" as a setting would describe the
+            implementation rather than what moved.
+
+            `aria-valuenow` is absent until the reader has set one, because before that the width
+            is a responsive expression rather than a number, and reporting the number it currently
+            computes to would claim a precision that is not there. */}
+        {resizable ? (
+          <div
+            data-slot="ask-resize"
+            className={resizeHandle}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the question panel"
+            aria-valuemin={MIN_ASK_PANEL_WIDTH}
+            aria-valuemax={maxAskPanelWidth(viewport)}
+            aria-valuenow={panelWidth.width ?? undefined}
+            tabIndex={0}
+            onPointerDown={panelWidth.begin}
+            onPointerMove={panelWidth.move}
+            onPointerUp={panelWidth.end}
+            onPointerCancel={panelWidth.end}
+            onKeyDown={panelWidth.key}
+            // Back to the responsive default. On the handle rather than as a button beside it:
+            // the gesture that undoes a drag belongs on the thing that was dragged, and a reset
+            // control sitting in the header would be chrome for something most readers never do.
+            onDoubleClick={panelWidth.reset}
+            title="Drag to resize, or double-click to reset"
+          />
+        ) : null}
+
         <div className="flex items-center justify-between gap-2 border-b border-rule px-5 py-3">
           <SheetTitle className="text-ui tracking-normal">Ask about this review</SheetTitle>
           <Button

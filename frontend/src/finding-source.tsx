@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "./api";
+import { HighlightedCode, languageForPath } from "./markdown";
 import type { BoundaryExcerpt } from "./types";
 
 /**
@@ -87,8 +88,17 @@ export function FindingSource({
               <em>{row.role}</em>
             </p>
             {row.text ? (
+              // Coloured from the file's own extension rather than from anything read out of
+              // the code. The path is recorded on the excerpt, so the grammar is a fact about
+              // the repository and not a guess about a fragment — which is the same rule
+              // markdown.tsx applies to fenced blocks, given better evidence.
               <pre>
-                <code>{row.text}</code>
+                <code>
+                  <HighlightedCode
+                    code={row.text}
+                    language={languageForPath(row.location?.path)}
+                  />
+                </code>
               </pre>
             ) : (
               <p className="m-0 rounded-control border border-dashed border-rule px-3 py-2 text-ui leading-[1.55] text-ink-3">

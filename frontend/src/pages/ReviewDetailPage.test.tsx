@@ -13,7 +13,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { AskAction, Overview, answersBehind, verdictChanges } from "./ReviewDetailPage";
+import {
+  AskAction,
+  Overview,
+  answersBehind,
+  findingForNode,
+  verdictChanges,
+} from "./ReviewDetailPage";
 import { AnswerProse } from "../markdown";
 import type {
   OpenQuestion,
@@ -343,5 +349,53 @@ describe("answersBehind", () => {
     );
 
     expect(behind.map((item) => item.recordedText)).toEqual(["First.", "Second."]);
+  });
+});
+
+/**
+ * The map's way back to the finding, which is the other half of a link the ledger already had.
+ *
+ * A finding could show its boundary on the map and the map could not name the finding, so a
+ * reader who followed the first link had nothing to follow home. The reference is what the
+ * ledger files a row under, so resolving to it is all the callback needs: the row's DOM id is
+ * that reference, and the tab it lives in is force-mounted.
+ */
+describe("findingForNode", () => {
+  const reviewed = [
+    {
+      reference: "BR-001",
+      material: true,
+      candidate: {
+        participants: [
+          { node_id: "clock", qualified_name: "ports.Clock" },
+          { node_id: "system_clock", qualified_name: "adapters.SystemClock" },
+        ],
+      },
+    },
+    {
+      reference: "BR-002",
+      material: false,
+      candidate: {
+        participants: [{ node_id: "store", qualified_name: "ports.Store" }],
+      },
+    },
+  ] as unknown as ReviewedBoundary[];
+
+  it("names the finding a judged boundary belongs to", () => {
+    expect(findingForNode("clock", reviewed)).toBe("BR-001");
+    expect(findingForNode("store", reviewed)).toBe("BR-002");
+  });
+
+  it("names it from the implementation behind it too", () => {
+    // Both participants are drawn, and a reader who selected either is asking about the same
+    // finding — the boundary and the single class behind it are its two halves.
+    expect(findingForNode("system_clock", reviewed)).toBe("BR-001");
+  });
+
+  it("names nothing for the neighbourhood, which no finding is about", () => {
+    // Most of the map is what reaches these boundaries. Answering with a reference there would
+    // send the reader to a row about something else.
+    expect(findingForNode("adapters.Report", reviewed)).toBeNull();
+    expect(findingForNode("clock", [])).toBeNull();
   });
 });

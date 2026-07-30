@@ -132,6 +132,19 @@ class AtlasExploreRequest(APIModel):
         return self
 
 
+class ReviewContextRequest(APIModel):
+    """The nodes a map is being drawn around, asked for together.
+
+    Together rather than one at a time because a node's edges are only drawable once its
+    neighbours are known, and a client that asked per node would be told about edges whose
+    other end it never received.
+    """
+
+    root_path: str = Field(min_length=1)
+    node_ids: list[str] = Field(min_length=1, max_length=40)
+    limit: int = Field(default=25, ge=1, le=100)
+
+
 class ReviewRequest(APIModel):
     case_id: str = Field(min_length=1)
     repository_root: str = Field(min_length=1)
@@ -539,6 +552,20 @@ def create_app(runtime: Runtime) -> FastAPI:
     @app.get("/api/repositories/inspect")
     def repository_inspect(root_path: str, node_id: str) -> AtlasQueryResult:
         return runtime.atlas_service.inspect(Path(root_path), node_id)
+
+    @app.post("/api/repositories/review-context")
+    def repository_review_context(request: ReviewContextRequest) -> AtlasQueryResult:
+        """The subgraph around a review's boundaries, for the map that opens beside it.
+
+        Ids the atlas no longer holds are skipped rather than refused — the result names the
+        ones it found, so a map drawn from a rebuilt atlas is short a node rather than absent.
+        """
+
+        return runtime.atlas_service.review_context(
+            Path(request.root_path),
+            request.node_ids,
+            limit=request.limit,
+        )
 
     @app.post("/api/repositories/explore")
     def repository_explore(request: AtlasExploreRequest) -> AtlasQueryResult:

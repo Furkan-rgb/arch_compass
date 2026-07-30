@@ -331,6 +331,55 @@ def test_the_api_serves_the_code_a_finding_was_measured_from(runtime: Runtime) -
         )
 
 
+def test_the_api_answers_a_whole_map_in_one_request(runtime: Runtime) -> None:
+    """The route behind the atlas tab opening with context rather than isolated boxes.
+
+    Asked one node at a time — `/inspect`, which is what the workspace did before — each
+    answer is the node alone, so every edge out of it names a neighbour the client was never
+    given and has to be dropped. Defended here is that one request carries both ends of every
+    edge it reports, and that an id the atlas no longer holds is skipped rather than refused.
+    """
+
+    repository = str(Path("eval/cases/speech-vendor/repository").resolve())
+
+    with TestClient(create_app(runtime)) as client:
+        indexed = client.post("/api/repositories/index", json={"root_path": repository})
+        assert indexed.status_code == 201, indexed.text
+        summary = client.get("/api/repositories/summary", params={"root_path": repository})
+        anchors = summary.json()["node_ids"][:3]
+        assert len(anchors) == 3
+
+        response = client.post(
+            "/api/repositories/review-context",
+            json={"root_path": repository, "node_ids": [*anchors, "node_departed"]},
+        )
+
+        assert response.status_code == 200, response.text
+        context = response.json()
+        # The stale id is absent from what was found, and did not take the others with it.
+        assert context["node_ids"] == anchors
+        assert "3 of 4 requested nodes found" in context["summary"]
+        returned = {item["node_id"] for item in context["node_summaries"]}
+        assert set(anchors) <= returned
+        assert len(returned) > len(anchors), "neighbours are what makes this a map"
+        # Every reported edge is drawable: both endpoints came back in the same answer.
+        for edge in context["relationships"]:
+            assert edge["source_id"] in returned
+            assert edge["target_id"] in returned
+        assert all(value["node_id"] in returned for value in context["metric_values"])
+        assert all(signal["node_id"] in returned for signal in context["signals"])
+
+        # Ids that are all stale are an empty map with a sentence, not a 4xx the tab would
+        # have to render as a failure.
+        empty = client.post(
+            "/api/repositories/review-context",
+            json={"root_path": repository, "node_ids": ["node_departed"]},
+        )
+        assert empty.status_code == 200, empty.text
+        assert empty.json()["node_summaries"] == []
+        assert "None of the 1 requested nodes" in empty.json()["summary"]
+
+
 def test_a_streamed_review_that_fails_says_so_in_the_stream(
     runtime: Runtime,
     tmp_path: Path,
@@ -547,6 +596,7 @@ def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> N
         "/api/review-conversations/{conversation_id}/messages/stream",
         "/api/reviews/{review_id}/score",
         "/api/repositories/explore",
+        "/api/repositories/review-context",
     ):
         assert route in paths, route
 

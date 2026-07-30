@@ -179,6 +179,24 @@ export function answersBehind(
   });
 }
 
+/**
+ * Which finding a node on the map belongs to, by the reference the ledger files it under.
+ *
+ * Both participants, because both are on the map: the boundary carries the verdict and the
+ * implementation behind it is drawn beside it, and a reader who selected either of them is
+ * asking about the same finding. `null` for every other node the atlas returned — most of the
+ * map is the neighbourhood, which no finding is about.
+ */
+export function findingForNode(
+  nodeId: string,
+  reviewed: ReviewedBoundary[],
+): string | null {
+  const found = reviewed.find((item) =>
+    item.candidate.participants.some((participant) => participant.node_id === nodeId),
+  );
+  return found?.reference ?? null;
+}
+
 function WhatChanged({
   changes,
   total,
@@ -690,6 +708,25 @@ export function ReviewDetailPage() {
         openTab("atlas");
       }
     : null;
+  /**
+   * The same journey back: a node on the map to the finding written about it.
+   *
+   * Opening the row before switching tabs, for the same reason the citations do — the reasoning
+   * is already unfolded when the reader arrives rather than unfolding under them. The panels
+   * are force-mounted, so the row is in the document either way and one frame is only what the
+   * tab switch needs before the scroll can land on it.
+   */
+  const openFinding = (nodeId: string) => {
+    const reference = findingForNode(nodeId, reviewed);
+    if (!reference) return;
+    setOpenRow(reference);
+    openTab("findings");
+    requestAnimationFrame(() =>
+      document
+        .getElementById(reference)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    );
+  };
 
   // How many verdicts this page can actually see. A tab watching the run's own record has
   // the counts and not the verdicts, and a band reporting 0 and 0 there would be answering a
@@ -854,6 +891,7 @@ export function ReviewDetailPage() {
             boundaries={reviewed}
             selectedNodeId={atlasNodeId}
             onSelectNode={setAtlasNodeId}
+            onOpenFinding={openFinding}
           />
         ) : null}
       </TabsContent>

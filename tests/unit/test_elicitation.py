@@ -19,6 +19,7 @@ from archcompass.adapters.models.structured import (
     ChatMessage,
     ProposedCandidateVerdict,
     StructuredReasoningProvider,
+    opening_capital,
 )
 from archcompass.application.review_rendering import render_report
 from archcompass.configuration import ReasoningModelConfig
@@ -350,7 +351,10 @@ def test_a_question_carries_what_was_seen_and_a_subject_for_the_answer() -> None
     assert questions[0].what_the_review_saw == (
         "Speech and Voice both wrap one implementation."
     )
-    assert questions[0].unknown == "whether a second vendor is contracted"
+    # Opened with a capital by the application. The reply said "whether a second vendor is
+    # contracted", which is the phrasing the contract asks for and reads as a fragment
+    # everywhere it is then printed — under a heading, in a step of the walk, and in the case.
+    assert questions[0].unknown == "Whether a second vendor is contracted"
 
 
 def test_a_question_resting_on_no_boundary_is_discarded() -> None:
@@ -554,3 +558,42 @@ def test_a_review_with_nothing_open_renders_no_question_section() -> None:
     markdown = render_report(_report([]))
 
     assert "What it needs to know" not in markdown
+
+
+def test_a_question_is_opened_with_a_capital_and_not_otherwise_touched() -> None:
+    """The whole of the normalization, including everything it deliberately will not do.
+
+    A model writes these fields as fragments — "is there a requirement for a second sink?" —
+    because that is how the contract asks for them, and by the time a reader sees one it is a
+    sentence: under a heading, in a step of the walk, and in the case as the question half of a
+    clarification. So the application raises the first letter and stops there.
+
+    Stopping there is the point. What people write in these fields is full of identifiers, and
+    anything more ambitious mangles them: lower-casing would turn `SQLite` into `sQLite` and
+    `BUILT_IN_VOICES` into something nobody can grep for, and title-casing would wreck a
+    sentence. A string that does not open on a lower-case letter is left exactly as it is,
+    because there is no first letter to raise and guessing where the sentence really begins is
+    how a fix like this starts damaging text it was never about.
+    """
+
+    assert opening_capital("is a second vendor contracted?") == (
+        "Is a second vendor contracted?"
+    )
+    # Already a sentence, so nothing to do — and nothing done, byte for byte.
+    assert opening_capital("Is a second vendor contracted?") == (
+        "Is a second vendor contracted?"
+    )
+    # No first letter to raise. A digit, a quote and a backtick all open strings these fields
+    # really carry, and each is left alone rather than searched past for a letter.
+    assert opening_capital("3 of 5 verdicts move on this.") == "3 of 5 verdicts move on this."
+    assert opening_capital("`AudioSink` has one implementation.") == (
+        "`AudioSink` has one implementation."
+    )
+    assert opening_capital('"only one caller reads it" is the claim.') == (
+        '"only one caller reads it" is the claim.'
+    )
+    # The rest of the string is untouched, which is what keeps an identifier readable.
+    assert opening_capital("the SQLite choice is settled; BUILT_IN_VOICES is not.") == (
+        "The SQLite choice is settled; BUILT_IN_VOICES is not."
+    )
+    assert opening_capital("") == ""

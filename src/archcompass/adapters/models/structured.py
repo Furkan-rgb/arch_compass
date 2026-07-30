@@ -96,6 +96,35 @@ def _grounded_statements(
     return statements
 
 
+def opening_capital(value: str) -> str:
+    """The same text with its first character upper-cased, and nothing else touched.
+
+    Models write a question's fields as sentence fragments about half the time — "is there a
+    requirement for a second sink?" — because that is how the field reads in the contract that
+    asks for it. It is a sentence by the time a reader sees it: under a heading, in a numbered
+    step of a walk, and now in the case itself as the question half of a clarification. A
+    lower-case opening there reads as an unfinished thought rather than as something being
+    asked of them.
+
+    Fixed here rather than by asking the model, because a rule about capitalisation is a rule a
+    model will follow unevenly and a rule the application can simply apply. Fixed in the data
+    rather than with `::first-letter`, because there are now four places these strings render —
+    the questions surface, the rendered markdown report, the answered-history panel, and the
+    case's own clarifications — and a CSS fix reaches only the ones that are HTML.
+
+    **The first character only, and only where it is a lower-case letter.** Anything more
+    aggressive damages what people actually write in these fields: title-casing would wreck a
+    sentence, and lower-casing anything would turn `SQLite` into `sQLite` and `BUILT_IN_VOICES`
+    into something that cannot be grepped for. A string opening on a digit, a quote or a
+    backtick is left exactly as it is, because there is no first letter to raise and guessing
+    at where the sentence really starts is how a fix like this begins mangling identifiers.
+    """
+
+    if not value or not value[0].islower():
+        return value
+    return value[0].upper() + value[1:]
+
+
 def _grounded_questions(
     proposed: list[ProposedOpenQuestion],
     boundaries: list[ReviewedBoundary],
@@ -111,6 +140,11 @@ def _grounded_questions(
     A question grounded on no boundary is discarded rather than kept, exactly as an
     ungrounded theme is. It is not a question about this repository at all: every real one
     traces to a verdict that admitted it turned on something.
+
+    It is also where the four prose fields get their opening capital. This is already the one
+    place a question is normalized and numbered, so the strip and the capital belong together:
+    both are the application tidying text on its way into a record, and neither is a judgement
+    a model should be asked to make. See `opening_capital` for why it does no more than that.
     """
 
     questions: list[OpenQuestion] = []
@@ -125,10 +159,10 @@ def _grounded_questions(
         questions.append(
             OpenQuestion(
                 reference=f"Q-{len(questions) + 1}",
-                what_the_review_saw=item.what_the_review_saw.strip(),
-                unknown=item.unknown.strip(),
-                why_it_matters=item.why_it_matters.strip(),
-                question=item.question.strip(),
+                what_the_review_saw=opening_capital(item.what_the_review_saw.strip()),
+                unknown=opening_capital(item.unknown.strip()),
+                why_it_matters=opening_capital(item.why_it_matters.strip()),
+                question=opening_capital(item.question.strip()),
                 answer_belongs_in=item.answer_belongs_in,
                 supporting_references=references,
             )
