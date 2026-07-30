@@ -5,6 +5,13 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Ledger,
   LedgerBar,
   LedgerCount,
@@ -16,8 +23,8 @@ import {
   rowProps,
   rowWhere,
   type Stripe,
+  ledgerSheet,
 } from "@/components/ledger";
-import { cn } from "@/lib/utils";
 
 import { api } from "../api";
 import {
@@ -27,9 +34,7 @@ import {
   PageHeader,
   formatDate,
   page,
-  sheet,
   shortId,
-  useDialogFocus,
 } from "../components";
 import type { BoundaryReviewSummary } from "../types";
 
@@ -108,20 +113,18 @@ export function Outcome({ review }: { review: BoundaryReviewSummary }) {
   );
 }
 
-/* A row of the menu, which is not a Button: a control the width of the surface it drops out
-   of, aligned with the sentence above it. The hover is deliberately the surface's own colour
-   for everything but the destructive item — the menu is already the sunken well, so what
-   marks the one row that cannot be undone is its hue, not a highlight. */
-const menuItem =
-  "flex w-full cursor-pointer items-center gap-2 rounded-control border-0 bg-transparent p-2 text-left text-body text-ink not-disabled:hover:bg-sunken";
-const menuItemDanger = "text-danger not-disabled:hover:bg-danger-soft";
-
 /**
  * What can be done to one row: stop it, or remove it.
  *
  * Outside the row's link rather than inside it. A button nested in an anchor is neither
  * reliably clickable nor announced as its own control, and "delete" is the last action that
  * should depend on a click landing where the reader meant it.
+ *
+ * The menu itself was hand-built — an absolutely positioned span, a `role="menu"` written by
+ * hand, and a focus loop borrowed from the dialog helper. What that spelling never had is
+ * what a menu is actually judged on: arrow keys, typeahead, dismissal on a click anywhere
+ * else on the page, and the collision handling that keeps the last row's menu from opening
+ * off the bottom of the window. Those come with the primitive.
  */
 function RowActions({
   review,
@@ -134,13 +137,7 @@ function RowActions({
   onDelete: () => void;
   busy: boolean;
 }) {
-  const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const close = () => {
-    setOpen(false);
-    setConfirming(false);
-  };
-  const menu = useDialogFocus(close, open);
   const running = review.status === "running";
 
   return (
@@ -155,63 +152,57 @@ function RowActions({
           <Square size={13} aria-hidden fill="currentColor" /> Cancel
         </Button>
       ) : null}
-      <span className="relative inline-flex">
-        <Button
-          type="button"
-          size="icon"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          aria-label={`More actions for the review of ${
-            review.case_title || review.review_id
-          }`}
-          onClick={() => (open ? close() : setOpen(true))}
-        >
-          <MoreVertical size={16} aria-hidden />
-        </Button>
-        {open ? (
-          <span
-            data-slot="row-menu"
-            className="absolute top-[calc(100%+5px)] right-0 z-20 grid min-w-[15em] gap-0.5 rounded-panel border border-rule bg-sunken p-1"
-            role="menu"
-            ref={menu as React.Ref<HTMLSpanElement>}
+      <DropdownMenu
+        // The question is asked inside the menu, so a menu that closes has un-asked it. Half
+        // a confirmation left standing is the one state this must never reopen into.
+        onOpenChange={(next) => {
+          if (!next) setConfirming(false);
+        }}
+      >
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size="icon"
+            aria-label={`More actions for the review of ${
+              review.case_title || review.review_id
+            }`}
           >
-            {confirming ? (
-              <>
-                {/* Confirmed in place rather than by a browser dialog: the row being
-                    deleted stays visible behind the question, which is the one detail that
-                    makes the answer meaningful. */}
-                <span data-slot="row-menu-ask" className="p-2 text-ui leading-[1.5] text-ink-2">
-                  Delete this review? Its question threads go with it.
-                </span>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={cn(menuItem, menuItemDanger)}
-                  disabled={busy}
-                  onClick={() => {
-                    close();
-                    onDelete();
-                  }}
-                >
-                  <Trash2 size={14} aria-hidden /> Delete permanently
-                </button>
-                <button type="button" role="menuitem" className={menuItem} onClick={close}>
-                  Keep it
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                role="menuitem"
-                className={cn(menuItem, menuItemDanger)}
-                onClick={() => setConfirming(true)}
+            <MoreVertical size={16} aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent data-slot="row-menu">
+          {confirming ? (
+            <>
+              {/* Confirmed in place rather than by a browser dialog: the row being deleted
+                  stays visible behind the question, which is the one detail that makes the
+                  answer meaningful. */}
+              <DropdownMenuLabel data-slot="row-menu-ask">
+                Delete this review? Its question threads go with it.
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={busy}
+                onSelect={onDelete}
               >
-                <Trash2 size={14} aria-hidden /> Delete
-              </button>
-            )}
-          </span>
-        ) : null}
-      </span>
+                <Trash2 size={14} aria-hidden /> Delete permanently
+              </DropdownMenuItem>
+              <DropdownMenuItem>Keep it</DropdownMenuItem>
+            </>
+          ) : (
+            <DropdownMenuItem
+              variant="destructive"
+              // The one item here that does not dismiss the menu: it replaces the menu's
+              // contents with the question, and closing would throw away the thing it asked.
+              onSelect={(event) => {
+                event.preventDefault();
+                setConfirming(true);
+              }}
+            >
+              <Trash2 size={14} aria-hidden /> Delete
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </span>
   );
 }
@@ -240,7 +231,7 @@ export function CaseHistory({
   busy: boolean;
 }) {
   return (
-    <section data-slot="case-history" className={sheet}>
+    <section data-slot="case-history" className={ledgerSheet}>
       <LedgerBar>
         <strong>{title || <code>{shortId(caseId)}</code>}</strong>
         <LedgerCount>
@@ -255,7 +246,7 @@ export function CaseHistory({
                 link that opens it. */}
             <div
               data-slot="review-row"
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center hover:bg-sunken"
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center rounded-[var(--row-radius)] hover:bg-sunken"
             >
               <Link
                 to={`/reviews/${review.review_id}`}
@@ -352,8 +343,13 @@ export function ReviewsPage() {
       </p>
 
       {reviews.isLoading ? (
-        <div className={sheet}>
-          <Loading label="Reading reviews…" rows={4} />
+        <div className={ledgerSheet}>
+          <Loading
+            label="Reading reviews…"
+            rows={4}
+            // The rows this list waits for are ledger rows, so the wait reserves their height.
+            className="[&>[data-slot=skeleton-row]]:min-h-[var(--row-h)]"
+          />
         </div>
       ) : null}
       {reviews.isError ? <ErrorPanel error={reviews.error} /> : null}

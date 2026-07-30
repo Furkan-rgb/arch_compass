@@ -23,10 +23,10 @@ import {
   rowProps,
   rowQueued,
   rowWhere,
+  ledgerSheet,
 } from "@/components/ledger";
 import { cn } from "@/lib/utils";
 
-import { sheet } from "./components";
 import { FindingSource } from "./finding-source";
 import type { RunState } from "./run-progress";
 import type { ReviewedBoundary } from "./types";
@@ -103,10 +103,20 @@ export const VERDICT_WORDS = { material: "should change", cleared: "earns its pl
 export type BandFact = { label: string; value: ReactNode; title?: string };
 
 /* The counts are the product's material and its whole answer, so they are the one number on
-   the page set at display size in the face values are stored in. The word under each is a
-   label, at the size and tracking every label on this page wears. */
-const countValue = "font-mono text-display font-[650] tracking-[-.02em] tabular-nums leading-[1.15]";
-const countName = "text-micro tracking-[.05em] uppercase";
+   the page set at display size — in the display face, which is where this design states a
+   judgement. Tabular, because two of them stand side by side and their digits have to line
+   up. The word under each is a label, at the size and tracking every label on this page
+   wears. */
+const countValue =
+  "font-display text-display font-[650] tracking-[-.03em] tabular-nums leading-[1.05]";
+const countName = "text-micro tracking-[.06em] uppercase";
+/* One of the two glows this design allows, and the reason the dark theme exists: on onyx the
+   verdict counts stop being coloured numerals and become the lamps the page is lit by. The
+   token is `none` by day — a glow on porcelain is a smudge — so nothing here has to ask
+   which theme is on. It is spent on the verdicts and nowhere else, which is why it is not
+   folded into `countValue`: the neutral count a held run prints is a position, not a verdict,
+   and a third light on the page would cost the other two their meaning. */
+const countLamp = "[text-shadow:var(--lamp-glow)]";
 
 /**
  * What the verdicts amount to, in the first 80 pixels of the page.
@@ -136,12 +146,21 @@ export function VerdictBand({
 }) {
   const share = (count: number) => (total > 0 ? `${(count / total) * 100}%` : "0%");
   return (
+    // Not the page's standard sheet: the band is the one panel whose material is stated in
+    // tokens of its own, because by night it is a gradient rather than a flat surface — the
+    // page's single lit object, with the lamps on it.
     <section
       data-slot="verdict-band"
-      className={cn(sheet, "flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3")}
+      className={cn(
+        "mb-[var(--gap-lg)] flex flex-wrap items-center gap-x-[34px] gap-y-3.5",
+        // `background`, not `background-color`: by night this token is a gradient, and a
+        // colour property handed one paints nothing at all.
+        "rounded-panel [border:var(--band-border)] [background:var(--band-bg)]",
+        "p-[var(--band-pad)] shadow-[var(--band-shadow)]",
+      )}
       aria-label="Verdicts"
     >
-      <div data-slot="verdict-pair" className="flex gap-6">
+      <div data-slot="verdict-pair" className="flex gap-[26px]">
         {mode === "counted" ? (
           <div className="grid">
             <b className={countValue}>{judged}</b>
@@ -151,11 +170,11 @@ export function VerdictBand({
           <>
             {/* The hue is on the pair, so the number and its word are one statement. */}
             <div className="grid text-material">
-              <b className={countValue}>{material}</b>
+              <b className={cn(countValue, countLamp)}>{material}</b>
               <span className={countName}>{VERDICT_WORDS.material}</span>
             </div>
             <div className="grid text-cleared">
-              <b className={countValue}>{cleared}</b>
+              <b className={cn(countValue, countLamp)}>{cleared}</b>
               <span className={countName}>{VERDICT_WORDS.cleared}</span>
             </div>
           </>
@@ -166,7 +185,7 @@ export function VerdictBand({
           of the sweep that has not been judged yet. On a finished review there is none. */}
       {mode === "counted" || total === 0 ? null : (
         <div
-          className="flex h-1.5 w-32 overflow-hidden rounded-pill bg-rule-soft"
+          className="flex h-2 w-[150px] overflow-hidden rounded-pill bg-[var(--band-track)]"
           role="img"
           aria-label={
             mode === "live"
@@ -183,11 +202,11 @@ export function VerdictBand({
           a far end, where it becomes the line under the counts instead. */}
       <dl
         data-slot="band-facts"
-        className="ml-auto flex flex-wrap gap-x-6 gap-y-1 max-[860px]:ml-0"
+        className="ml-auto flex flex-wrap gap-x-[26px] gap-y-1 max-[860px]:ml-0"
       >
         {facts.map((fact) => (
           <div key={fact.label} className="min-w-0">
-            <dt className={cn(countName, "text-ink-3")}>{fact.label}</dt>
+            <dt className={cn(countName, "tracking-[.05em] text-ink-3")}>{fact.label}</dt>
             <dd
               className="mt-0.5 overflow-hidden font-mono text-meta tabular-nums text-ellipsis whitespace-nowrap text-ink-2"
               title={fact.title}
@@ -306,7 +325,7 @@ function LedgerRow({
         <CollapsibleContent
           forceMount
           id={`detail-${item.reference}`}
-          className="pt-1 pr-4 pb-4 pl-9 data-[state=closed]:hidden"
+          className="pt-1.5 pr-[var(--row-pad-x)] pb-5 pl-[var(--detail-pad-l)] data-[state=closed]:hidden"
         >
           {/* The review's own wording for the verdict, kept as it was written. It depends on
               which shape was judged — "not earning its place" is right for indirection that
@@ -368,13 +387,13 @@ function LedgerRow({
                   tall. */}
               <ul
                 data-slot="bearings"
-                className="m-0 grid list-none grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2 p-0"
+                className="m-0 grid list-none grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2.5 p-0"
               >
                 {bearings.map((bearing) => (
                   <li
                     key={bearing.policy_id}
                     data-slot="bearing"
-                    className="rounded-control border border-rule bg-sunken px-3 py-2"
+                    className="rounded-control [border:var(--sheet-border)] bg-sunken px-3.5 py-2.5"
                   >
                     <strong className="mb-0.5 block text-meta font-[650] leading-[1.35] text-ink">
                       {bearing.policy_title}
@@ -465,7 +484,7 @@ export function FindingsLedger({
   );
 
   return (
-    <section className={sheet} aria-label="Boundaries examined">
+    <section className={ledgerSheet} aria-label="Boundaries examined">
       <LedgerBar>
         <strong>Boundaries</strong>
         <ToggleGroup
@@ -536,7 +555,7 @@ export function JudgingLedger({ progress }: { progress: RunState }) {
   const settled = progress?.eliciting || progress?.summarising;
 
   return (
-    <section className={sheet} aria-label="Boundaries examined">
+    <section className={ledgerSheet} aria-label="Boundaries examined">
       <LedgerBar>
         <strong>Boundaries</strong>
         <LedgerCount>

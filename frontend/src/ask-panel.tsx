@@ -27,7 +27,7 @@ import { AnswerProse } from "./markdown";
 /* One message bubble, in the two shapes a turn has. The question is the reader's and sits
    against the right edge in the accent; the answer is the review's and sits against the
    left on the plain surface, with the corner nearest its own side squared off. */
-const bubble = "m-0 min-w-0 max-w-[92%] rounded-panel px-3 py-2 text-meta leading-[1.55] [overflow-wrap:anywhere]";
+const bubble = "m-0 min-w-0 max-w-[92%] rounded-panel px-3.5 py-2.5 text-meta leading-[1.55] [overflow-wrap:anywhere]";
 const asked = `${bubble} justify-self-end rounded-br-control border border-accent-rule bg-accent-soft`;
 const answered = `${bubble} justify-self-start rounded-bl-control border border-rule bg-surface text-ink-2`;
 /* Labelled, never hidden: a reader has to be able to tell "the review says this" from
@@ -172,7 +172,7 @@ export function AskPanel({
         // drawer's own `inset-y-0` is written with an attribute selector, and a margin is
         // the one way to move it that does not have to outrank that.
         className={cn(
-          "mt-12 flex flex-col gap-0 overflow-visible bg-chrome p-0 text-ink shadow-float",
+          "mt-12 flex flex-col gap-0 overflow-visible bg-chrome backdrop-blur-[var(--chrome-blur)] p-0 text-ink shadow-float",
           "z-30 data-[side=right]:h-auto",
           // The one deliberate change to this page's design: 360px read grounded answers
           // through a slot, and every grounded answer carries an excerpt of the reader's
@@ -191,7 +191,7 @@ export function AskPanel({
         // screen reader than none at all.
         aria-describedby={undefined}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-rule px-3 py-2">
+        <div className="flex items-center justify-between gap-2 border-b border-rule px-5 py-3">
           <SheetTitle className="text-ui tracking-normal">Ask about this review</SheetTitle>
           <Button
             type="button"
@@ -209,7 +209,7 @@ export function AskPanel({
         {threads.length > 0 || threadId === "new" ? (
           <div
             data-slot="ask-threads"
-            className="flex flex-wrap gap-1 border-b border-rule-soft px-3 py-2"
+            className="flex flex-wrap gap-1 border-b border-rule-soft px-5 py-3"
             role="group"
             aria-label="Question threads"
           >
@@ -325,7 +325,7 @@ export function AskPanel({
         ) : null}
 
         <form
-          className="flex flex-none gap-2 border-t border-rule px-3 py-2"
+          className="flex flex-none gap-2 border-t border-rule px-5 py-3"
           onSubmit={(event) => {
             event.preventDefault();
             if (question.trim()) ask.mutate(question.trim());

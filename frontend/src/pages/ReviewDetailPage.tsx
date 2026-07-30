@@ -60,7 +60,7 @@ export function Overview({ overview }: { overview: ReviewOverview }) {
   return (
     // "Conclusion", not "Findings": the findings are the boundaries above, each with its own
     // verdict. This is what they amount to read as a set.
-    <section data-slot="overview" className={cn(sheet, "p-4")} aria-label="Conclusion">
+    <section data-slot="overview" className={cn(sheet, "p-[var(--card-pad)]")} aria-label="Conclusion">
       <h2 className="m-0 mb-3 text-micro font-[650] tracking-[.09em] uppercase text-accent-ink">
         Conclusion
       </h2>
@@ -192,7 +192,7 @@ function WhatChanged({
   return (
     // Ruled down its accent side: what the reader's own answers did is a result about this
     // page, not one more panel on it.
-    <section className={cn(sheet, "border-l-[3px] border-l-primary px-4 py-3")}>
+    <section className={cn(sheet, "border-l-[3px] border-l-primary p-[var(--card-pad)]")}>
       <p className="m-0 flex items-start gap-2 text-body leading-reading">
         <ArrowRight size={15} aria-hidden className="mt-1 flex-none text-accent-ink" />
         <span>
@@ -262,14 +262,14 @@ function WhatChanged({
    them. Below 720px the reason it was wrong takes the whole row — there is no second column
    left to hold it. */
 const scoreRow =
-  "grid grid-cols-[auto_auto_1fr] items-baseline gap-2 rounded-control px-3 py-2 text-ui max-[720px]:grid-cols-[auto_1fr]";
+  "grid grid-cols-[auto_auto_1fr] items-baseline gap-2 rounded-control px-3.5 py-2.5 text-ui max-[720px]:grid-cols-[auto_1fr]";
 
 function Score({ score }: { score: ReviewScore }) {
   return (
-    <section data-slot="score" className={cn(sheet, "px-4 py-3")}>
+    <section data-slot="score" className={cn(sheet, "p-[var(--card-pad)]")}>
       <p className="m-0 mb-3 flex items-baseline gap-2 text-body text-ink-2">
         <FlaskConical size={15} aria-hidden />
-        <strong className="text-head tabular-nums text-ink">
+        <strong className="font-display text-head font-[650] tabular-nums text-ink">
           {score.correct}/{score.total}
         </strong>
         <span>
@@ -333,7 +333,7 @@ function AnsweredHistory({
 }) {
   const asked = new Map(questions.map((item) => [item.reference, item]));
   return (
-    <section className={cn(sheet, "px-4 py-3")} aria-label="Answers already recorded">
+    <section className={cn(sheet, "p-[var(--card-pad)]")} aria-label="Answers already recorded">
       <p className="mb-2 text-ui text-ink-2">
         {answered.length} {answered.length === 1 ? "answer" : "answers"} became case revision{" "}
         {revision ?? "?"}, which is what this pass judged against.
@@ -378,7 +378,7 @@ function Unfinished({ review }: { review: BoundaryReview }) {
         parent={{ to: "/reviews", label: "Reviews" }}
         meta={<Badge>case rev {review.case_revision}</Badge>}
       />
-      <div className={cn(sheet, "grid max-w-[76ch] gap-3")}>
+      <div className={cn(sheet, "grid max-w-[76ch] gap-3.5")}>
         {/* Cancelling records no reason, because there is none to record beyond the choice
             itself. Only what ArchCompass wrote for a person to read reaches this list; an
             unexpected failure is recorded without its text. */}
@@ -753,7 +753,7 @@ export function ReviewDetailPage() {
         ) : null}
         {id === "questions" ? (
           <>
-            {holding ? <div className={cn(sheet, "max-w-[96ch] p-4")}>{questions}</div> : null}
+            {holding ? <div className={cn(sheet, "max-w-[96ch] p-[var(--card-pad)]")}>{questions}</div> : null}
             {answered.length > 0 ? (
               <AnsweredHistory
                 questions={askedEarlier}

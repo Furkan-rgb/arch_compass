@@ -335,10 +335,10 @@ workspace on port 8765 and Vite on port 5173:
 ```bash
 archcompass web --no-open
 cd frontend
-npm run dev
+pnpm run dev
 ```
 
-Vite proxies `/api` to the local Python process. `npm run build` writes production assets into
+Vite proxies `/api` to the local Python process. `pnpm run build` writes production assets into
 the Python presentation package so an installed wheel does not require Node.
 
 FastAPI owns the browser API contract. Run `make api-types` after changing a web route or response

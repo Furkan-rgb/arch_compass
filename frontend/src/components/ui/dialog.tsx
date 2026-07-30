@@ -79,7 +79,9 @@ function DialogContent({
             // The gutter is the overlay's padding, so the width here is simply "all of it,
             // up to a reading measure" — no `calc` against the viewport, and one class for a
             // caller that needs a wider one.
-            "grid w-full max-w-md gap-3 rounded-panel border border-rule bg-surface p-4",
+            // Borderless on porcelain and hairlined on onyx, like every other panel: what
+            // holds a floating dialog off the page by day is its shadow.
+            "grid w-full max-w-md gap-3.5 rounded-panel [border:var(--sheet-border)] bg-surface p-6",
             "text-body text-ink shadow-float outline-none",
             className
           )}
@@ -88,7 +90,7 @@ function DialogContent({
           {children}
           {showCloseButton && (
             <DialogPrimitive.Close data-slot="dialog-close" asChild>
-              <Button size="icon" className="absolute top-3 right-3 border-0 bg-transparent">
+              <Button size="icon" className="absolute top-4 right-4 border-0 bg-transparent">
                 <X size={14} aria-hidden />
                 <span className="sr-only">Close</span>
               </Button>
@@ -127,7 +129,7 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("text-sub font-[650] tracking-[-.015em] text-ink", className)}
+      className={cn("font-display text-sub font-[650] tracking-[-.015em] text-ink", className)}
       {...props}
     />
   )

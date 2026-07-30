@@ -22,7 +22,9 @@ function ToggleGroup({
     <ToggleGroupPrimitive.Root
       data-slot="toggle-group"
       className={cn(
-        "inline-flex w-fit items-center rounded-control border border-rule bg-sunken p-0.5",
+        // The well, and no rule around it: by day the surface it is sunk into is what marks
+        // its edge, and by night the well is a lift of white that needs no help being seen.
+        "inline-flex w-fit items-center gap-0.5 rounded-[calc(var(--r-control)+2px)] bg-sunken p-[3px]",
         className
       )}
       {...props}
@@ -38,12 +40,16 @@ function ToggleGroupItem({
     <ToggleGroupPrimitive.Item
       data-slot="toggle-group-item"
       className={cn(
-        "inline-flex h-[22px] shrink-0 cursor-pointer items-center justify-center",
-        "rounded-sm bg-transparent px-2 text-meta text-ink-2 whitespace-nowrap",
+        "inline-flex min-h-[25px] shrink-0 cursor-pointer items-center justify-center",
+        "rounded-control bg-transparent px-2.5 py-[3px] text-meta text-ink-2 whitespace-nowrap",
         "transition-[color,background-color] duration-[120ms]",
         "hover:text-ink",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
-        "data-[state=on]:bg-surface data-[state=on]:font-[550] data-[state=on]:text-ink data-[state=on]:shadow-lift",
+        /* The pressed segment, straight off the flip tokens: by day a white chip that
+           stands off the well on a one-pixel shadow, by night the well itself lit to ten
+           percent white — because a white chip on onyx reads as a hole, not a lift. */
+        "data-[state=on]:bg-[var(--seg-on)] data-[state=on]:font-[550]",
+        "data-[state=on]:text-[var(--seg-on-ink)] data-[state=on]:shadow-[var(--seg-shadow)]",
         "disabled:cursor-not-allowed disabled:opacity-55",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0",
         className

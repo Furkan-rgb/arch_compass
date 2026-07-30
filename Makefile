@@ -2,10 +2,10 @@
 
 sync:
 	uv sync --locked
-	cd frontend && npm ci
+	cd frontend && pnpm install --frozen-lockfile
 
 frontend-sync:
-	cd frontend && npm ci
+	cd frontend && pnpm install --frozen-lockfile
 
 api-types:
 	uv run python scripts/generate_openapi_types.py
@@ -23,10 +23,10 @@ test:
 	uv run pytest
 
 frontend-check: api-types-check
-	cd frontend && npm run check
+	cd frontend && pnpm run check
 
 frontend-build:
-	cd frontend && npm run build
+	cd frontend && pnpm run build
 
 # The built bundle is committed so the workspace serves without a Node toolchain.
 # This fails when it no longer matches frontend/, which is otherwise invisible until

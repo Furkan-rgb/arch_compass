@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button"
 
 /*
   A document opens as one: full height at the edge, at reading width, with the record it came
-  from still visible beside it. Square against the window, ruled on the side it is attached
-  to, and carrying the float shadow — the second and last place that shadow is spent.
+  from still visible beside it. Square against the window it is attached to and rounded on the
+  two corners that are free of it, ruled on the attached side, and carrying the float shadow —
+  the second and last place that shadow is spent.
 */
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
@@ -63,11 +64,11 @@ function SheetContent({
         data-slot="sheet-content"
         data-side={side}
         className={cn(
-          "fixed z-50 flex flex-col gap-3 overflow-y-auto bg-surface p-4 text-body text-ink shadow-float outline-none",
-          "data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-[min(620px,94vw)] data-[side=right]:border-l data-[side=right]:border-rule",
-          "data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-[min(620px,94vw)] data-[side=left]:border-r data-[side=left]:border-rule",
-          "data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=top]:border-rule",
-          "data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=bottom]:border-rule",
+          "fixed z-50 flex flex-col gap-3.5 overflow-y-auto bg-surface p-6 text-body text-ink shadow-float outline-none",
+          "data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-[min(620px,94vw)] data-[side=right]:rounded-l-panel data-[side=right]:border-l data-[side=right]:border-rule",
+          "data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-[min(620px,94vw)] data-[side=left]:rounded-r-panel data-[side=left]:border-r data-[side=left]:border-rule",
+          "data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:rounded-b-panel data-[side=top]:border-b data-[side=top]:border-rule",
+          "data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:rounded-t-panel data-[side=bottom]:border-t data-[side=bottom]:border-rule",
           className
         )}
         {...props}
@@ -75,7 +76,7 @@ function SheetContent({
         {children}
         {showCloseButton && (
           <SheetPrimitive.Close data-slot="sheet-close" asChild>
-            <Button size="icon" className="absolute top-4 right-4">
+            <Button size="icon" className="absolute top-5 right-5">
               <X size={14} aria-hidden />
               <span className="sr-only">Close</span>
             </Button>
@@ -113,7 +114,7 @@ function SheetTitle({
   return (
     <SheetPrimitive.Title
       data-slot="sheet-title"
-      className={cn("text-sub leading-tight font-[650] tracking-[-.015em] text-ink", className)}
+      className={cn("font-display text-sub leading-tight font-[650] tracking-[-.015em] text-ink", className)}
       {...props}
     />
   )

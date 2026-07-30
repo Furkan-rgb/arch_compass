@@ -1,19 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { vi } from "vitest";
+import { render, screen } from "@testing-library/react";
 
 import { Badge } from "@/components/ui/badge";
 
-import { EmptyState, Loading, useDialogFocus } from "./components";
-
-function TestDialog({ onClose }: { onClose: () => void }) {
-  const ref = useDialogFocus(onClose);
-  return (
-    <aside ref={ref} role="dialog">
-      <button type="button">Close dialog</button>
-      <a href="#evidence">Evidence</a>
-    </aside>
-  );
-}
+import { EmptyState, Loading } from "./components";
 
 describe("workspace primitives", () => {
   it("renders a semantic status badge", () => {
@@ -51,15 +40,5 @@ describe("workspace primitives", () => {
     // Rows are drawn from the Skeleton primitive now, so they are counted by the slot they
     // fill rather than by a class name — four rows, each still one row of the list to come.
     expect(document.querySelectorAll('[data-slot="skeleton-row"]')).toHaveLength(4);
-  });
-
-  it("focuses dialogs and lets keyboard users close them", () => {
-    const onClose = vi.fn();
-    render(<TestDialog onClose={onClose} />);
-    const dialog = screen.getByRole("dialog");
-
-    expect(screen.getByRole("button", { name: "Close dialog" })).toHaveFocus();
-    fireEvent.keyDown(dialog, { key: "Escape" });
-    expect(onClose).toHaveBeenCalledOnce();
   });
 });

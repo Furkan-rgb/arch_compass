@@ -15,8 +15,8 @@ import { cn } from "@/lib/utils"
 */
 const badgeVariants = cva(
   [
-    "inline-flex w-fit items-center gap-1 rounded-pill border px-2 py-px",
-    "text-micro font-semibold tracking-[.03em] whitespace-nowrap",
+    "inline-flex w-fit items-center gap-1 rounded-pill border px-2.5 py-0.5",
+    "text-micro font-[650] tracking-[.04em] whitespace-nowrap",
     "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
     "[&>svg]:pointer-events-none [&>svg]:shrink-0",
   ],

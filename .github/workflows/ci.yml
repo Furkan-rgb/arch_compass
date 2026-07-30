@@ -34,19 +34,26 @@ jobs:
         with:
           python-version-file: .python-version
 
+      # Before setup-node, which needs pnpm on PATH to resolve its cache directory. The
+      # version comes from the `packageManager` field rather than being pinned twice.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Install locked Python dependencies
         run: uv sync --locked
 
       - name: Install locked frontend dependencies
         working-directory: frontend
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Run deterministic checks
         run: make check

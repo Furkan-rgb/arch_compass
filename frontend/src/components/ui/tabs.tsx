@@ -26,8 +26,8 @@ function TabsList({ className, ...props }: React.ComponentProps<typeof TabsPrimi
     <TabsPrimitive.List
       data-slot="tabs-list"
       className={cn(
-        "flex gap-0.5 overflow-x-auto bg-chrome shadow-[inset_0_-1px_0_var(--rule)]",
-        "mx-[calc(var(--gutter)*-1)] mb-4 px-[var(--gutter)]",
+        "flex gap-1 overflow-x-auto bg-chrome backdrop-blur-[var(--chrome-blur)] shadow-[inset_0_-1px_0_var(--rule)]",
+        "mx-[calc(var(--gutter)*-1)] mb-[var(--gap-lg)] px-[var(--gutter)]",
         className
       )}
       {...props}
@@ -43,12 +43,19 @@ function TabsTrigger({
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "cursor-pointer border-0 border-b-2 border-transparent bg-transparent",
-        "px-3 pt-2 pb-[7px] text-ui text-ink-2 whitespace-nowrap",
-        "transition-[color,border-color] duration-[120ms]",
+        "relative cursor-pointer border-0 bg-transparent",
+        "px-3 py-[11px] text-ui text-ink-2 whitespace-nowrap",
+        "transition-[color] duration-[120ms]",
         "hover:text-ink",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
-        "data-[state=active]:border-b-primary data-[state=active]:font-[550] data-[state=active]:text-ink",
+        "data-[state=active]:font-semibold data-[state=active]:text-[var(--chrome-active-ink)]",
+        /* The marker is drawn rather than bordered, and inset ten pixels from each end so it
+           marks the word instead of the whole hit area. Absolute and pinned to `bottom-0`,
+           not `-1px`: it has to overlap the strip's rule without adding a pixel of scrollable
+           height — see the note above about what a border cost here once. */
+        "after:pointer-events-none after:absolute after:inset-x-2.5 after:bottom-0",
+        "after:h-0.5 after:rounded-t-pill after:content-['']",
+        "data-[state=active]:after:bg-primary",
         /* The count beside a section's name is a fact about it, in the face facts are
            stored in, and it must not reflow its own width as the run fills it in. */
         "[&_i]:ml-1 [&_i]:font-mono [&_i]:text-micro [&_i]:not-italic [&_i]:tabular-nums [&_i]:text-ink-3",

@@ -101,7 +101,7 @@ function CaseLayer({
 const pick = "m-0 grid max-h-[232px] list-none gap-0.5 overflow-y-auto p-0";
 const pickButton = cn(
   "grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-0.5",
-  "rounded-control border border-transparent bg-sunken px-2 py-1.5 text-left",
+  "rounded-control border border-transparent bg-sunken px-2.5 py-2 text-left",
   "hover:border-rule",
   "aria-pressed:border-accent-rule aria-pressed:bg-accent-soft",
 );
@@ -120,12 +120,12 @@ const examplePill = cn(
   "not-disabled:hover:border-accent-rule not-disabled:hover:bg-accent-soft",
   "disabled:cursor-not-allowed disabled:opacity-55",
 );
-const startColumn = "grid min-w-0 content-start gap-2 px-4 pt-3 pb-4";
+const startColumn = "grid min-w-0 content-start gap-2.5 px-[22px] pt-4 pb-5";
 const startHead = "flex items-baseline gap-2";
 const hint = "m-0 text-meta leading-[1.5] text-ink-2";
 const note = "m-0 text-meta leading-[1.5] text-ink-3";
 /* A read that failed is reported once, above both columns, inside the sheet's own gutter. */
-const readError = "px-4 [&_[data-slot=error-strip]]:mt-3 [&_[data-slot=error-strip]]:mb-0";
+const readError = "px-[22px] [&_[data-slot=error-strip]]:mt-3 [&_[data-slot=error-strip]]:mb-0";
 
 export function HomePage() {
   const client = useQueryClient();
@@ -316,7 +316,7 @@ export function HomePage() {
             already parsed and a case already written, so the first run is a real one. */}
         <div
           data-slot="examples"
-          className="flex flex-wrap items-center gap-2 border-b border-rule-soft px-4 py-3"
+          className="flex flex-wrap items-center gap-2.5 border-b border-rule-soft px-[22px] py-4"
         >
           <span className="text-micro font-[650] tracking-[.08em] uppercase text-ink-3">
             Examples fill both rails
@@ -413,7 +413,7 @@ export function HomePage() {
 
             <div className="flex gap-2">
               <Input
-                className="h-7 min-w-0 flex-1 text-meta placeholder:font-mono"
+                className="min-w-0 flex-1 text-meta placeholder:font-mono"
                 value={path}
                 onChange={(event) => setPath(event.target.value)}
                 placeholder="/absolute/path/to/python-project"
@@ -522,7 +522,7 @@ export function HomePage() {
             that commits anything, beside the sentence saying exactly what it will do. */}
         <div
           data-slot="commit"
-          className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-b-panel border-t border-rule bg-sunken px-4 py-3"
+          className="flex flex-wrap items-center gap-x-4 gap-y-2.5 rounded-b-panel border-t border-rule bg-sunken px-[22px] py-4"
         >
           <p className="m-0 flex-[1_1_32ch] text-meta leading-[1.5] text-ink-2 [&_strong]:font-[650] [&_strong]:text-ink">
             {!ready ? (

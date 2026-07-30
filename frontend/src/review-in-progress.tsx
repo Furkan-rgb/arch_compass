@@ -148,7 +148,7 @@ export function RunLog({
     >
       {/* Neither panel carries the sheet's standing gap: the two sit in one row, and a gap
           under them would be a gap under the row. */}
-      <div className={cn(sheet, "mb-0 px-4 py-3")}>
+      <div className={cn(sheet, "mb-0 p-[var(--card-pad)]")}>
         <RunProgress
           progress={progress}
           pass={pass}

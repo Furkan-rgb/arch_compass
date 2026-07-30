@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { LedgerBar, LedgerCount, LedgerFoot } from "@/components/ledger";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -83,8 +84,35 @@ export function PoliciesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [scope, setScope] = useState("all");
-  const [selected, setSelected] = useState<Policy | null>(null);
   const policies = useQuery({ queryKey: ["policies"], queryFn: api.policies });
+  /**
+   * Which policy is open, kept in the URL rather than in a `useState`.
+   *
+   * It was local state, which was right while the only way in was clicking a row of this
+   * table. The palette can now send a reader straight to a policy by name from anywhere in
+   * the app, and a destination that no address can describe is not a destination. As a side
+   * effect a policy under discussion is now a link someone can paste.
+   *
+   * Replaced rather than pushed: the parameter says what is open, and reading four policies
+   * in a row should not put four steps between the reader and where they came from.
+   */
+  const [params, setParams] = useSearchParams();
+  const selectedId = params.get("policy");
+  const selected = useMemo(
+    () => (policies.data || []).find((policy) => policy.id === selectedId) || null,
+    [policies.data, selectedId],
+  );
+  const setSelected = (policy: Policy | null) => {
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (policy) next.set("policy", policy.id);
+        else next.delete("policy");
+        return next;
+      },
+      { replace: true },
+    );
+  };
   const sources = useQuery({ queryKey: ["policy-sources"], queryFn: api.policySources });
   const [source, setSource] = useState("");
   const addSource = useMutation({
@@ -126,7 +154,7 @@ export function PoliciesPage() {
 
       {/* One row above the sheet: what to look for, which slice, and how many are left. On a
           phone it becomes a stack, where each control is a row rather than a share of one. */}
-      <div className="mb-3 flex flex-wrap items-center gap-2 max-[620px]:flex-col max-[620px]:items-stretch">
+      <div className="mb-[var(--gap-lg)] flex flex-wrap items-center gap-2.5 max-[620px]:flex-col max-[620px]:items-stretch">
         <label className="relative flex flex-[1_1_240px] items-center max-[620px]:flex-[0_0_30px]">
           <Search
             size={14}
@@ -267,7 +295,7 @@ export function PoliciesPage() {
           <strong>Additional policy sources</strong>
           <LedgerCount>files stay authored outside Arch Compass</LedgerCount>
         </LedgerBar>
-        <div className="flex flex-wrap items-center gap-2 p-3">
+        <div className="flex flex-wrap items-center gap-2.5 p-[var(--card-pad)]">
           <label className="min-w-0 flex-[1_1_260px]">
             <span className="sr-only">Policy file or directory</span>
             <Input
@@ -283,7 +311,7 @@ export function PoliciesPage() {
             {addSource.isPending ? "Adding…" : "Add source"}
           </Button>
         </div>
-        <ul className="m-0 grid list-none px-3 pb-3">
+        <ul className="m-0 grid list-none px-[22px] pb-5">
           {sources.data?.map((item) => (
             <li key={item.canonical_path} className={sourceRow}>
               <code className="overflow-hidden text-meta text-ellipsis whitespace-nowrap text-ink-2">
@@ -350,7 +378,7 @@ export function PoliciesPage() {
                 columns would give the empty one as much of the drawer as the full one.
                 Pushed to the far end, which is where a row of facts sits everywhere in this
                 design, until the drawer is too narrow to have a far end. */}
-            <dl className="ml-auto flex flex-wrap gap-x-6 gap-y-1 rounded-control border border-rule bg-sunken px-3 py-2 max-[860px]:ml-0">
+            <dl className="ml-auto flex flex-wrap gap-x-[26px] gap-y-1 rounded-control border border-rule bg-sunken px-3.5 py-2.5 max-[860px]:ml-0">
               <div className="min-w-0">
                 <dt className={factLabel}>Strength</dt>
                 <dd className={factValue}>{selected.strength}</dd>
@@ -387,4 +415,4 @@ export function PoliciesPage() {
    that says there are none is the same row — including its dividing rule, so the section reads
    as a list with one entry in it rather than as a paragraph with a border. */
 const sourceRow =
-  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-rule-soft py-1.5";
+  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-rule-soft py-2";

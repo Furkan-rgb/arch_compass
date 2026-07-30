@@ -9,6 +9,25 @@
    specificity, which is how Tailwind writes its own selector-based dark variant. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
+/* Two subsetted variable faces, shipped with the app rather than fetched: this workspace runs
+   against a local model on a local repository, and a font that arrives from a CDN — or does
+   not — is the one part of the interface that would need the network. The `url()`s are
+   relative so Vite fingerprints them into `assets/`, which is what lets the server hand them
+   out immutable. */
+@font-face {
+  font-family: "Schibsted Grotesk";
+  src: url("./assets/fonts/schibsted.woff2") format("woff2");
+  font-weight: 400 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("./assets/fonts/instrument.woff2") format("woff2");
+  font-weight: 400 700;
+  font-stretch: 75% 100%;
+  font-display: swap;
+}
+
 /* Preflight is Tailwind's own again. What stood here was a hand copy of it, kept while the
    package was out of the tree; the copy is gone rather than left to shadow the original.
    One line of it was never preflight, and that line is the only survivor: */
@@ -16,41 +35,125 @@
 small { font-size: var(--s-meta); }
 
 /*
-  The token sheet. One neutral ramp with a green-slate bias, one accent that only ever means
-  "you can act on this", and two verdict hues that appear nowhere but on a verdict. Every
-  colour, size and radius below is named here and nowhere else.
+  The token sheet — Porcelain by day, Onyx by night.
+
+  The rule the two halves are built on: geometry, type and layout never flip with the theme;
+  the *material* does. By day the app is floating porcelain cards over a warm off-white with
+  almost no drawn rules — depth is shadow. By night it is layered onyx surfaces where shadow
+  cannot read, so depth is a surface step plus a 5–7% hairline, and the verdicts become
+  softly glowing lamps.
+
+  So the block below is in two parts. First the theme-invariant half — type, radii, control
+  heights, spacing — which is stated once and never restated in the dark block. Then the
+  material half, which is stated twice and is the only thing `[data-theme="dark"]` touches.
+
+  Every colour, size and radius in the app is named here and nowhere else.
 */
 :root {
   color-scheme: light;
 
-  /* Surfaces, from the page behind everything to the well sunk into a panel. */
-  --canvas: #f2f5f4;
-  --chrome: #ffffff;
-  --surface: #ffffff;
-  --sunken: #f7faf9;
-  --rule: #dce4e2;
-  --rule-soft: #e9efed;
+  /* ── Theme-invariant: type ───────────────────────────────────────────────── */
 
-  /* Three weights of ink, and no fourth. */
-  --ink: #152220;
-  --ink-2: #4a5a56;
-  --ink-3: #758480;
+  /* Display is the face a judgement is stated in — headings, sheet titles, the verdict
+     numerals, the brand. UI is everything that is not display, code or data. */
+  --font-display:
+    "Schibsted Grotesk", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  --font-ui:
+    "Instrument Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  /* Mono stays the system stack: a path, a line number and a count should look like the
+     terminal the reader also has open, not like a third typeface choice. */
+  --font-mono:
+    ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
+
+  /* Seven steps. A size that is not one of these is a bug. */
+  --s-micro: 11px;
+  --s-meta: 12.5px;
+  --s-ui: 14px;
+  --s-body: 15px;
+  --s-read: 16px;
+  --s-sub: 19px;
+  --s-head: 24px;
+  /* An eighth, for the one or two places a number is the whole point: the verdict counts. */
+  --s-display: 36px;
+
+  --leading-tight: 1.25;
+  --leading-ui: 1.5;
+  --leading-reading: 1.66;
+
+  /* ── Theme-invariant: geometry and density ───────────────────────────────── */
+
+  /* Three radii: something you click, something that holds things, something round. */
+  --r-control: 10px;
+  --r-panel: 16px;
+  --r-pill: 999px;
+
+  /* Two control heights, because a page has one primary action and it is allowed to be the
+     tallest thing on the row. A field matches the primary, not the secondary: a control you
+     type into is read for longer than one you press. */
+  --h-control: 32px;
+  --h-control-lg: 34px;
+  --h-field: 34px;
+
+  /* A ledger row. Named because the row, its stripe and the skeleton that stands in for it
+     while a run fills the list all have to agree on it. */
+  --row-h: 50px;
+  --row-pad-x: 20px;
+
+  /* The default insets. The 8/4 grid is unchanged; what changed is where the defaults sit on
+     it — the old 8–12px paddings drew a dense tool, and this design is read rather than
+     scanned. Panes and cards are named so a page loosens by moving a token. */
+  --pane-pad: 26px 28px 30px;
+  --card-pad: 20px 22px;
+  --gap-lg: 18px;
+
+  /* The page gutter, and the amount the chrome rows bleed back out through it. */
+  --gutter: clamp(20px, 3vw, 36px);
+  /* The ask panel's width, named because two rules have to agree on it: the drawer takes
+     exactly this, and the column beneath gives back exactly this. It was 360px, which read
+     grounded answers through a slot — and every grounded answer carries an excerpt of the
+     reader's own code. */
+  --ask-panel-width: clamp(400px, 32vw, 560px);
+
+  /* ── Porcelain: the day material ─────────────────────────────────────────── */
+
+  /* Surfaces, from the page behind everything to the well sunk into a panel. */
+  --canvas: #f5f4f1;
+  /* The chrome rows are translucent over whatever scrolls under them, so every rule that
+     paints `--chrome` also has to blur behind it — the measurement is named for that. */
+  --chrome: rgb(255 255 255 / 72%);
+  --chrome-blur: 13px;
+  --chrome-active: #ffffff;
+  --chrome-active-ink: #1d1b18;
+  --surface: #ffffff;
+  --sunken: #f1efeb;
+  --rule: rgb(29 27 24 / 7%);
+  --rule-soft: rgb(29 27 24 / 5%);
+
+  /* Three weights of ink, and no fourth. The third is as light as it may be and still be
+     read: it lands on the canvas, on a card and in the well of a table header, and the
+     darkest of those three grounds is what sets its value. */
+  --ink: #1d1b18;
+  --ink-2: #5c5850;
+  --ink-3: #726c63;
 
   /* Interaction, and only interaction. The accent never carries a judgement. */
-  --accent: #0e6180;
-  --accent-ink: #0b4d67;
-  --accent-soft: #e4f0f5;
-  --accent-rule: #b0d2e0;
+  --accent: #2f5fe0;
+  --accent-ink: #2b55c9;
+  --accent-soft: rgb(47 95 224 / 7%);
+  --accent-rule: rgb(47 95 224 / 22%);
   --on-accent: #ffffff;
 
-  /* The two verdicts, spent nowhere else: revision magenta means this should change,
-     field green means it earns its place. */
-  --material: #99358b;
-  --material-soft: #f9ecf6;
-  --material-rule: #e4bcdc;
-  --cleared: #337a44;
-  --cleared-soft: #e8f3e9;
-  --cleared-rule: #b8d8bf;
+  /* The two verdicts, spent nowhere else: a burnt amber means this should change, field
+     green means it earns its place. */
+  --material: #a84e0e;
+  --material-soft: rgb(168 78 14 / 8%);
+  --material-rule: rgb(168 78 14 / 25%);
+  --cleared: #2f744c;
+  --cleared-soft: rgb(47 116 76 / 10%);
+  --cleared-rule: rgb(47 116 76 / 30%);
 
   /* A failure is a thing that should change, so it borrows the revision family rather than
      bringing a fourth hue onto the screen. The alias stays because the meaning differs:
@@ -62,52 +165,97 @@ small { font-size: var(--s-meta); }
 
   /* The atlas draws relationships the parser inferred rather than read. Deliberately a
      muted accent and not a hue of its own — an inferred edge is a hedge, not a verdict. */
-  --inference: #4c7c8c;
-  --inference-soft: #eaf1f3;
+  --inference: #5a6a94;
+  --inference-soft: rgb(90 106 148 / 9%);
 
-  --overlay: rgb(13 18 17 / 55%);
+  --overlay: rgb(29 27 24 / 45%);
   /* A code block is dark in both themes, so the syntax colours below are chosen once. */
-  --code-bg: #101a19;
-  --code-ink: #dfe8e5;
+  --code-bg: #221f1b;
+  --code-ink: #e8e4dd;
+  --code-dim: #8a847a;
+  --code-keyword: #9fb8f2;
+  --code-string: #a4cfa8;
+  /* The rest of the syntax palette. Stated once and not restated by night, unlike the three
+     above: those three are most of the ink in a listing and are worth tuning against each
+     theme's own code ground, while these land on a handful of tokens per screen and read the
+     same on both. Named here anyway, because "every colour is in the token sheet" is either
+     true or it is not a rule. */
+  --code-number: #dcbc8a;
+  --code-function: #e6d3a3;
+  --code-builtin: #9fd0c8;
+  --code-decorator: #a99ac9;
+  --code-property: #cbd5e1;
+  --code-operator: #93a1b2;
+  --code-added: #9ad0a3;
+  --code-removed: #dfa0a6;
 
-  /* Shadow marks the two things that float above the page and nothing else. */
-  --float: 0 16px 40px rgb(18 32 30 / 13%), 0 2px 6px rgb(18 32 30 / 7%);
-  --lift: 0 1px 2px rgb(18 32 30 / 12%);
+  /* By day, depth is shadow: a card lifts a little, a pane lifts more, and the two things
+     that float over the page lift most. There is one step smaller than these — the pixel a
+     pressed segment stands on — and it is `--seg-shadow` in the flip block below, because
+     it is the only place that step is ever spent. */
+  --shadow-card: 0 1px 2px rgb(29 27 24 / 4%), 0 8px 22px rgb(29 27 24 / 5%);
+  --shadow-panel: 0 1px 2px rgb(29 27 24 / 5%), 0 14px 36px rgb(29 27 24 / 7%);
+  --float: 0 24px 64px rgb(29 27 24 / 16%);
+  /* Two glows, ever: the primary button, and the verdict numerals in the band. Both are dark
+     only — a glow on porcelain is a smudge. They are two tokens rather than one because they
+     are drawn with different properties (a box shadow and a text shadow), and both are named
+     here so no component has to know which theme it is in to decide whether to glow. Adding
+     a third is a change to the design, not to a component. */
+  --glow: none;
+  --lamp-glow: none;
 
-  /* Seven steps. A size that is not one of these is a bug. */
-  --s-micro: 11px;
-  --s-meta: 12px;
-  --s-ui: 13px;
-  --s-body: 14px;
-  --s-read: 15px;
-  --s-sub: 18px;
-  --s-head: 22px;
-  /* An eighth, for the one or two places a number is the whole point. */
-  --s-display: 28px;
+  /* ── Material flip ───────────────────────────────────────────────────────────
+     The engine of the hybrid. A component reads these and stays theme-blind: it never asks
+     which theme is on, it asks what a row is made of. By day a row is a card that floats on
+     its own with a gap under it; by night the cards fuse into one sheet and a hairline is
+     all that divides them.
+     ────────────────────────────────────────────────────────────────────────── */
+  --row-bg: #ffffff;
+  --row-radius: 14px;
+  --row-shadow: var(--shadow-card);
+  --row-divider: 0;
+  --row-gap: 10px;
+  --rows-pad: 0;
+  /* The sheet the rows sit in: by day it is not there at all, because the rows are already
+     the objects. By night it is the object and the rows are its contents. */
+  --sheet-bg: transparent;
+  --sheet-border: 0;
+  --sheet-shadow: none;
+  --lhead-rule: 0;
+  --foot-rule: 0;
 
-  --leading-tight: 1.3;
-  --leading-ui: 1.5;
-  --leading-reading: 1.65;
+  /* The verdict stripe. By day a short rounded tick set in from the row's edge; by night the
+     row's whole leading edge. Same element, four measurements. */
+  --stripe-col: 4px;
+  --stripe-align: center;
+  --stripe-h: 22px;
+  --stripe-ml: 14px;
+  --stripe-r: 99px;
+  /* Where a row's disclosed reasoning starts: past the stripe's column, its gutter and the
+     arrow's column, so the essay hangs off the same edge the row's name does. Derived rather
+     than stated twice, because the only part of it that flips is the stripe. */
+  --detail-pad-l: calc(var(--stripe-col) + 34px);
 
-  /* Three radii: something you click, something that holds things, something round. */
-  --r-control: 5px;
-  --r-panel: 9px;
-  --r-pill: 999px;
+  /* The verdict band over a ledger. */
+  --band-bg: #ffffff;
+  --band-border: 0;
+  --band-shadow: var(--shadow-panel);
+  --band-track: #edebe6;
+  --band-pad: 22px 26px;
 
-  /* The page gutter, and the amount the chrome rows bleed back out through it. */
-  --gutter: clamp(16px, 3vw, 32px);
-  /* The ask panel's width, named because two rules have to agree on it: the drawer takes
-     exactly this, and the column beneath gives back exactly this. It was 360px, which read
-     grounded answers through a slot — and every grounded answer carries an excerpt of the
-     reader's own code. */
-  --ask-panel-width: clamp(400px, 32vw, 560px);
+  /* A secondary button. By day it is a white card like every other floating thing, held down
+     by a border a shade firmer than `--rule` — a 7% hairline reads as a division between
+     regions, and the edge of something you press has to read as an edge. By night it is not a
+     surface at all but a frosted chip: 5% white over whatever it sits on, which is what keeps
+     a row of buttons from looking like a row of holes cut in the sheet. */
+  --btn-bg: #ffffff;
+  --btn-rule: rgb(29 27 24 / 12%);
 
-  --font-ui:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
-  --font-mono:
-    ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, "Liberation Mono",
-    monospace;
+  /* A pressed segment in a toggle group: by day it is a white chip that stands off the well,
+     by night it is the well lit up, because a white chip on onyx is a hole. */
+  --seg-on: #ffffff;
+  --seg-on-ink: #1d1b18;
+  --seg-shadow: 0 1px 3px rgb(29 27 24 / 12%);
 
   font-family: var(--font-ui);
   color: var(--ink);
@@ -116,47 +264,87 @@ small { font-size: var(--s-meta); }
   text-rendering: optimizeLegibility;
 }
 
+/* Onyx: the night material. Nothing above the "Porcelain" heading is restated here — if a
+   value appears in this block it is because the material changed, not the design. */
 [data-theme="dark"] {
   color-scheme: dark;
-  --canvas: #0d1211;
-  --chrome: #111716;
-  --surface: #141b1a;
-  --sunken: #0f1514;
-  --rule: #26332f;
-  --rule-soft: #1b2522;
-  --ink: #e6edeb;
-  --ink-2: #9db0aa;
-  --ink-3: #6d7f79;
-  --accent: #6ab8d6;
-  --accent-ink: #92cfe6;
-  --accent-soft: #102934;
-  --accent-rule: #2b4e5f;
-  --on-accent: #062430;
-  --material: #d892cb;
-  --material-soft: #351a31;
-  --material-rule: #5c3355;
-  --cleared: #7ec48f;
-  --cleared-soft: #14291a;
-  --cleared-rule: #2c5537;
-  --inference: #8fb6c4;
-  --inference-soft: #17262c;
-  --overlay: rgb(2 6 6 / 72%);
-  --code-bg: #080e0e;
-  --code-ink: #dce5e2;
-  --float: 0 16px 40px rgb(0 0 0 / 55%), 0 2px 6px rgb(0 0 0 / 45%);
-  --lift: 0 1px 2px rgb(0 0 0 / 40%);
+  --canvas: #0b0d11;
+  --chrome: rgb(17 20 26 / 82%);
+  --chrome-active: rgb(124 156 255 / 13%);
+  --chrome-active-ink: #cdd9ff;
+  --surface: #12151b;
+  --sunken: rgb(255 255 255 / 4%);
+  --rule: rgb(255 255 255 / 7%);
+  --rule-soft: rgb(255 255 255 / 5%);
+  --ink: #e9ecf2;
+  --ink-2: #a8b0bd;
+  --ink-3: #7b8492;
+  --accent: #7c9cff;
+  --accent-ink: #a4baff;
+  --accent-soft: rgb(124 156 255 / 10%);
+  --accent-rule: rgb(124 156 255 / 26%);
+  --on-accent: #0a0f22;
+  --material: #ffb35c;
+  --material-soft: rgb(255 179 92 / 10%);
+  --material-rule: rgb(255 179 92 / 30%);
+  --cleared: #5ce0a8;
+  --cleared-soft: rgb(92 224 168 / 12%);
+  --cleared-rule: rgb(92 224 168 / 30%);
+  --inference: #96a3c4;
+  --inference-soft: rgb(150 163 196 / 12%);
+  --overlay: rgb(0 0 0 / 60%);
+  --code-bg: #0a0c10;
+  --code-ink: #d7dde6;
+  --code-dim: #5b636f;
+  --code-keyword: #93b0ff;
+  --code-string: #7fd8ae;
+  --shadow-card: 0 18px 48px rgb(0 0 0 / 45%);
+  --shadow-panel: var(--shadow-card);
+  --float: 0 24px 64px rgb(0 0 0 / 55%);
+  --glow: 0 0 22px rgb(124 156 255 / 30%);
+  /* The lamps. On onyx the verdict counts stop being coloured numerals and become the only
+     light source on the page — which is the whole reason this theme exists. */
+  --lamp-glow: 0 0 26px currentColor;
+
+  --row-bg: transparent;
+  --row-radius: 0;
+  --row-shadow: none;
+  --row-divider: 1px solid rgb(255 255 255 / 5%);
+  --row-gap: 0;
+  --sheet-bg: #12151b;
+  --sheet-border: 1px solid rgb(255 255 255 / 6%);
+  --sheet-shadow: var(--shadow-card);
+  --lhead-rule: 1px solid rgb(255 255 255 / 6%);
+  --foot-rule: 1px solid rgb(255 255 255 / 6%);
+
+  --stripe-col: 3px;
+  --stripe-align: stretch;
+  --stripe-h: auto;
+  --stripe-ml: 0;
+  --stripe-r: 0;
+
+  --band-bg: linear-gradient(180deg, #14181f, #10141a);
+  --band-border: 1px solid rgb(255 255 255 / 7%);
+  --band-track: rgb(255 255 255 / 8%);
+
+  --btn-bg: rgb(255 255 255 / 5%);
+  --btn-rule: rgb(255 255 255 / 12%);
+
+  --seg-on: rgb(255 255 255 / 10%);
+  --seg-on-ink: #eef1f6;
+  --seg-shadow: none;
 }
 
 /* The atlas is drawn from the same palette: a node's state is the verdict family it belongs
    to, so a hotspot on the map and a finding in the ledger are visibly the same claim. */
 :root {
-  --atlas-canvas-bg: #eef3f2;
+  --atlas-canvas-bg: #efedea;
   --atlas-grid: var(--rule-soft);
-  --atlas-edge: #9aaaa6;
-  --atlas-edge-strong: #5f716c;
+  --atlas-edge: #b1aca2;
+  --atlas-edge-strong: #6f6a61;
   --atlas-edge-risk: var(--material);
   --atlas-node-bg: var(--surface);
-  --atlas-node-border: #c3cfcc;
+  --atlas-node-border: #d8d4cc;
   --atlas-node-active-bg: var(--accent-soft);
   --atlas-node-active-border: var(--accent);
   --atlas-node-hotspot: var(--material);
@@ -168,10 +356,10 @@ small { font-size: var(--s-meta); }
 }
 
 [data-theme="dark"] {
-  --atlas-canvas-bg: #0a0f0f;
-  --atlas-edge: #45564f;
-  --atlas-edge-strong: #788c86;
-  --atlas-node-border: #33443f;
+  --atlas-canvas-bg: #08090d;
+  --atlas-edge: #3d434f;
+  --atlas-edge-strong: #7e8695;
+  --atlas-node-border: #2b303a;
 }
 
 /* ── Second names for the sheet above ─────────────────────────────────────────
@@ -228,6 +416,8 @@ small { font-size: var(--s-meta); }
 @theme inline {
   --color-canvas: var(--canvas);
   --color-chrome: var(--chrome);
+  --color-chrome-active: var(--chrome-active);
+  --color-chrome-active-ink: var(--chrome-active-ink);
   --color-surface: var(--surface);
   --color-sunken: var(--sunken);
   --color-rule: var(--rule);
@@ -251,6 +441,9 @@ small { font-size: var(--s-meta); }
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --color-danger-rule: var(--danger-rule);
+
+  --color-btn-bg: var(--btn-bg);
+  --color-btn-rule: var(--btn-rule);
 
   --color-inference: var(--inference);
   --color-inference-soft: var(--inference-soft);
@@ -313,11 +506,15 @@ small { font-size: var(--s-meta); }
   --radius-lg: var(--r-control);
   --radius-xl: var(--r-panel);
 
+  --font-display: var(--font-display);
   --font-ui: var(--font-ui);
   --font-mono: var(--font-mono);
 
+  /* Three steps of depth by day, of which two flatten by night — see the flip block. */
+  --shadow-card: var(--shadow-card);
+  --shadow-panel: var(--shadow-panel);
   --shadow-float: var(--float);
-  --shadow-lift: var(--lift);
+  --shadow-glow: var(--glow);
 }
 
 /* ── What every element is, before anything asks ──────────────────────────────
@@ -352,10 +549,10 @@ small { font-size: var(--s-meta); }
   input::placeholder, textarea::placeholder { color: var(--ink-3); opacity: 1; }
   ::selection { color: var(--ink); background: var(--accent-soft); }
   h1, h2, h3, h4, p { margin-top: 0; }
-  /* Headings are the interface face at a heavier weight, tracked in. The serif that used to
+  /* Headings are the display face at a heavier weight, tracked in. The serif that used to
      open every page said "essay about architecture"; what this returns is judgements about
      code, with citations. Sizes here are a floor — components set their own. */
-  h1, h2, h3, h4 { font-weight: 650; letter-spacing: -0.01em; }
+  h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 650; letter-spacing: -0.01em; }
   h1, h2 { letter-spacing: -0.015em; }
   h1 { font-size: var(--s-head); }
   h2 { font-size: var(--s-sub); }
@@ -419,8 +616,8 @@ small { font-size: var(--s-meta); }
     font-size: var(--s-ui);
     transition: border-color .12s, box-shadow .12s;
   }
-  input, select { height: 30px; padding: 0 8px; }
-  textarea { min-height: 72px; padding: 8px; resize: vertical; line-height: 1.55; }
+  input, select { height: var(--h-field); padding: 0 10px; }
+  textarea { min-height: 76px; padding: 8px 10px; resize: vertical; line-height: 1.55; }
   input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 }
 .mono-path { overflow-wrap: anywhere; color: var(--ink-2); font-size: var(--s-body); }
@@ -467,21 +664,21 @@ small { font-size: var(--s-meta); }
   rather than tinted, because in a suggested change they are usually the annotation ("# before"
   / "# after") and should read as quieter than the code around them.
 */
-.token.comment, .token.prolog, .token.doctype, .token.cdata { color: #7d8a9c; font-style: italic; }
-.token.keyword, .token.boolean, .token.selector, .token.important { color: #93b8e8; }
-.token.string, .token.char, .token.attr-value, .token.regex { color: #a8cfa2; }
-.token.number, .token.symbol, .token.constant { color: #dcbc8a; }
-.token.function, .token.class-name { color: #e6d3a3; }
-.token.builtin { color: #9fd0c8; }
-.token.decorator, .token.annotation, .token.tag { color: #a99ac9; }
-.token.property, .token.attr-name, .token.variable { color: #cbd5e1; }
-.token.operator, .token.punctuation { color: #93a1b2; }
+.token.comment, .token.prolog, .token.doctype, .token.cdata { color: var(--code-dim); font-style: italic; }
+.token.keyword, .token.boolean, .token.selector, .token.important { color: var(--code-keyword); }
+.token.string, .token.char, .token.attr-value, .token.regex { color: var(--code-string); }
+.token.number, .token.symbol, .token.constant { color: var(--code-number); }
+.token.function, .token.class-name { color: var(--code-function); }
+.token.builtin { color: var(--code-builtin); }
+.token.decorator, .token.annotation, .token.tag { color: var(--code-decorator); }
+.token.property, .token.attr-name, .token.variable { color: var(--code-property); }
+.token.operator, .token.punctuation { color: var(--code-operator); }
 .token.italic { font-style: italic; }
 .token.bold { font-weight: 600; }
 /* A diff is the one grammar where the colour carries meaning rather than category, and it is
    applied per line rather than per token — a removed line is removed whatever is on it. */
-.token.inserted, .code-line.inserted { color: #9ad0a3; }
-.token.deleted, .code-line.deleted { color: #dfa0a6; }
+.token.inserted, .code-line.inserted { color: var(--code-added); }
+.token.deleted, .code-line.deleted { color: var(--code-removed); }
 /* Every line becomes an element, whether it was coloured or not. It must not become a block. */
 .markdown pre .code-line { display: inline; }
 .evidence-list { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; color: var(--ink-2); font-size: var(--s-body); overflow-wrap: anywhere; }

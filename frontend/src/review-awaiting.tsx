@@ -54,7 +54,7 @@ export function HoldBanner({
     // Ruled down its left edge in the revision hue, the same mark a verdict that should
     // change wears: this is the review saying it cannot finish, not a note about it.
     <div
-      className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-control border border-material-rule border-l-[3px] border-l-material bg-material-soft px-4 py-2"
+      className="mb-[var(--gap-lg)] flex flex-wrap items-center gap-x-4 gap-y-2.5 rounded-control border border-material-rule border-l-[3px] border-l-material bg-material-soft px-5 py-3"
       role="status"
     >
       <b className="text-ui text-material">Holding</b>
@@ -93,10 +93,10 @@ export function HeldVerdicts({
   const [revealed, setRevealed] = useState(false);
 
   return (
-    <section className="mb-3 grid gap-3">
+    <section className="mb-[var(--gap-lg)] grid gap-3.5">
       {revealed ? (
         <>
-          <p className="m-0 flex items-start gap-2 rounded-panel border border-material-rule bg-material-soft px-4 py-3 text-body leading-[1.65] text-ink-2 [&>svg]:mt-[3px] [&>svg]:flex-none">
+          <p className="m-0 flex items-start gap-2 rounded-panel border border-material-rule bg-material-soft p-[var(--card-pad)] text-body leading-[1.65] text-ink-2 [&>svg]:mt-[3px] [&>svg]:flex-none">
             <TriangleAlert size={15} aria-hidden />
             <span className="max-w-[92ch]">
               <strong>These verdicts are provisional.</strong> They were reached against a

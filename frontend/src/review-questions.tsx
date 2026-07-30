@@ -232,7 +232,7 @@ export function OpenQuestions({
 
       {current ? (
         <div
-          className="max-w-[82ch] rounded-panel border border-accent-rule bg-accent-soft px-4 py-3"
+          className="max-w-[82ch] rounded-panel border border-accent-rule bg-accent-soft p-[var(--card-pad)]"
           key={current.reference}
         >
           <p className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-read leading-[1.5] font-semibold">
@@ -312,7 +312,7 @@ export function OpenQuestions({
       {at === reviewStep && answered.length > 0 ? (
         <div
           data-slot="answer-preview"
-          className="mt-4 rounded-panel border border-dashed border-accent-rule bg-surface px-4 py-3"
+          className="mt-4 rounded-panel border border-dashed border-accent-rule bg-surface p-[var(--card-pad)]"
         >
           <p className="mb-2 text-ui font-semibold text-ink-2">
             {answered.length} of {questions.length} answered. Carrying on will record

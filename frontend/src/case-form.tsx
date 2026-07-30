@@ -10,11 +10,11 @@ import type { ArchitectureCase, CaseUpdate } from "./types";
 
 /* The surface a case is written on, shared by the form and the YAML editor: one padded grid
    inside the layer that floats it, with a head that puts the way out beside the title. */
-export const caseSurface = "grid gap-3 p-4";
+export const caseSurface = "grid gap-3.5 p-[var(--card-pad)]";
 export const caseHead = "flex items-center justify-between gap-3";
 /* One group of the form: a well with its own rule, and a small-caps label saying what this
    group is for. */
-const group = "grid gap-4 rounded-panel border border-rule bg-sunken p-4";
+const group = "grid gap-4 rounded-panel [border:var(--sheet-border)] bg-sunken p-[var(--card-pad)]";
 const groupTitle = "m-0 text-micro font-[650] tracking-[.08em] uppercase text-ink-3";
 const example =
   "grid grid-cols-[auto_1fr] items-baseline gap-2 text-ui leading-[1.5] text-ink-2 max-[720px]:grid-cols-[1fr] max-[720px]:gap-0.5";
@@ -121,7 +121,7 @@ export function casePayload(values: CaseFormValues): ArchitectureCase & CaseUpda
    gutter a sentence needs, and the focus mark is tightened by a pixel because the box is
    already inside a bordered group. One string, because eleven fields have to look alike.
 
-   The field keeps the vendored 30px: the line is taller than that and an input centres it,
+   The field keeps the vendored 34px: the line is taller than that and an input centres it,
    which is what these have always looked like. Only a textarea's height comes from its own
    content, so only a textarea takes the vertical padding — and `rows` decides how tall it
    opens, which is why the vendored floor comes off. */

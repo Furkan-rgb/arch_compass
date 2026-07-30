@@ -42,7 +42,7 @@ function TooltipContent({
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          "z-50 w-fit max-w-xs rounded-control bg-ink px-2 py-1 text-micro text-canvas",
+          "z-50 w-fit max-w-xs rounded-sm bg-ink px-2 py-1 text-micro text-canvas",
           className
         )}
         {...props}
