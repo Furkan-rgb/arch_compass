@@ -670,3 +670,86 @@ def test_the_openapi_contract_declares_cancelling_and_deleting(runtime: Runtime)
     delete = document["paths"]["/api/reviews/{review_id}"]["delete"]["responses"]
     assert "204" in delete
     assert "content" not in delete["204"]
+
+
+def test_the_folder_picker_is_shown_directories_and_never_files(
+    runtime: Runtime,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Directories only, dot-directories omitted, ordered case-insensitively by name."""
+
+    home = tmp_path / "home"
+    for name in ("Ledger", "atlas", ".git", "Warehouse"):
+        (home / name).mkdir(parents=True)
+    (home / "notes.md").write_text("not a repository", encoding="utf-8")
+    monkeypatch.setattr(Path, "home", classmethod(lambda _cls: home))
+
+    with TestClient(create_app(runtime)) as client:
+        listing = client.get("/api/filesystem/directories")
+
+    assert listing.status_code == 200, listing.text
+    body = listing.json()
+    assert body["path"] == str(home)
+    assert body["parent"] == str(tmp_path)
+    assert [item["name"] for item in body["directories"]] == [
+        "atlas",
+        "Ledger",
+        "Warehouse",
+    ]
+    # Absolute, because that is the whole reason this route exists.
+    assert [item["path"] for item in body["directories"]] == [
+        str(home / "atlas"),
+        str(home / "Ledger"),
+        str(home / "Warehouse"),
+    ]
+
+
+def test_the_folder_picker_descends_one_directory_at_a_time(
+    runtime: Runtime, tmp_path: Path
+) -> None:
+    """Browsing is one request per directory, and the way back up comes with the listing."""
+
+    (tmp_path / "projects" / "warehouse").mkdir(parents=True)
+
+    with TestClient(create_app(runtime)) as client:
+        listing = client.get(
+            "/api/filesystem/directories", params={"path": str(tmp_path / "projects")}
+        )
+
+    assert listing.status_code == 200, listing.text
+    body = listing.json()
+    assert body["parent"] == str(tmp_path)
+    assert [item["name"] for item in body["directories"]] == ["warehouse"]
+
+
+def test_the_filesystem_root_says_there_is_nowhere_above_it(runtime: Runtime) -> None:
+    """Null rather than the root again: a picker climbs until this says stop."""
+
+    with TestClient(create_app(runtime)) as client:
+        listing = client.get("/api/filesystem/directories", params={"path": "/"})
+
+    assert listing.status_code == 200, listing.text
+    assert listing.json()["parent"] is None
+
+
+def test_browsing_somewhere_unbrowsable_refuses_with_a_problem_detail(
+    runtime: Runtime, tmp_path: Path
+) -> None:
+    """A missing path or a file is refused as a `ProblemDetail` the page can print."""
+
+    (tmp_path / "case.yaml").write_text("title: not a folder\n", encoding="utf-8")
+
+    with TestClient(create_app(runtime)) as client:
+        missing = client.get(
+            "/api/filesystem/directories", params={"path": str(tmp_path / "gone")}
+        )
+        a_file = client.get(
+            "/api/filesystem/directories", params={"path": str(tmp_path / "case.yaml")}
+        )
+
+    assert missing.status_code == 422
+    assert missing.json()["code"] == "validation_error"
+    assert str(tmp_path / "gone") in missing.json()["message"]
+    assert a_file.status_code == 422
+    assert "not a folder" in a_file.json()["message"]

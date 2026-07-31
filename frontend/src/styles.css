@@ -922,6 +922,16 @@ small { font-size: var(--s-meta); }
   grid-template-columns: minmax(0, 1fr) 290px;
   min-height: 360px;
 }
+/* Outside fullscreen the row is given a height of its own — a floored `1fr` so neither the
+   graph nor the detail column can push it back open — or the canvas grows to the height of
+   the whole SVG and the page scrolls instead of the graph. */
+@media (min-width: 621px) {
+  .atlas-panel:not(.atlas-panel--fullscreen) .atlas-layout {
+    height: clamp(520px, 65vh, 760px);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .atlas-panel:not(.atlas-panel--fullscreen) .atlas-detail { overflow-y: auto; }
+}
 /* A column, so the canvas grows into whatever height the row ends up with. As a plain
    grid cell the viewport stretches to match the taller detail column while the canvas
    kept its own fixed height, leaving dead background below the graph. */
@@ -1233,7 +1243,7 @@ small { font-size: var(--s-meta); }
   .atlas-controls { margin-left: auto; }
   .atlas-layout { grid-template-columns: 1fr; }
   .atlas-viewport { border-right: 0; border-bottom: 1px solid var(--rule); }
-  .atlas-canvas { min-height: 420px; }
+  .atlas-canvas { min-height: 420px; height: clamp(420px, 60vh, 560px); }
   .atlas-metric-strip { grid-template-columns: repeat(2, 1fr); }
   .atlas-metric-strip > div { border-bottom: 1px solid var(--rule); }
 }

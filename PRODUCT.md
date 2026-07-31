@@ -20,7 +20,7 @@ Verdicts with reasoning, not lint. Three structural detectors cover both directi
 
 ## Operating Context
 
-Single-user browser workspace served locally from the Python package (`archcompass web`, binds 127.0.0.1 only, no auth). The current directory is the workspace. The navigation is the flow: Home starts a review (two order-free rails — repository and case — converging on one Run button), Policies is the standing library the judgement reads, Reviews is the standing record it writes. Reviews take minutes and may pause to ask the user clarifying questions mid-run. Bundled examples fill both rails in one click so a fresh workspace can produce a real review immediately.
+Single-user browser workspace served locally from the Python package (`archcompass web`, binds 127.0.0.1 only, no auth). The current directory is the workspace. The navigation is the flow, behind one front door: Home is a showcase page whose hero verdict card cycles three clearly-labelled specimen verdicts written for the page (it reads nothing from the workspace), Start starts a review (two order-free rails — repository and case — converging on one Run button), Policies is the standing library the judgement reads, Reviews is the standing record it writes. Reviews take minutes and may pause to ask the user clarifying questions mid-run. Bundled examples fill both rails in one click so a fresh workspace can produce a real review immediately.
 
 ## Capabilities and Constraints
 

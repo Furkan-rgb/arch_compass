@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { CaseForm } from "./case-form";
-import { CaseLayer } from "./pages/HomePage";
+import { CaseLayer } from "./pages/StartPage";
 import type { ArchitectureCase } from "./types";
 
 const CASE = {

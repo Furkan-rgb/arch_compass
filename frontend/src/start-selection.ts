@@ -17,7 +17,10 @@ export type StartSelection = {
   repositoryRoot: string | null;
   /** A chosen case, or `null` — which is a valid state, not an unfinished one. */
   caseId: string | null;
-  /** A path typed but not yet indexed. Offered, never silently selected. */
+  /**
+   * A repository named by a case that nothing has parsed yet. Offered, never silently
+   * selected: it is where the folder picker opens.
+   */
   path: string;
 };
 
@@ -67,7 +70,9 @@ export function chooseCase(
  * selected: indexing is a real action with its own failure modes, and a rail that filled
  * itself with something that had never been parsed would be claiming a step had happened.
  *
- * A path already typed is never overwritten — that is something the reader wrote.
+ * The offer is always the latest one, and overwrites any earlier one: it decides where the
+ * folder picker opens, so a repository named by a case nobody has chosen any more would open
+ * it somewhere the page no longer points at.
  */
 export function applyRepositoryHint(
   selection: StartSelection,
@@ -78,7 +83,6 @@ export function applyRepositoryHint(
   if (indexed.includes(root)) {
     return { ...selection, repositoryRoot: root };
   }
-  if (selection.path.trim()) return selection;
   return { ...selection, path: root };
 }
 

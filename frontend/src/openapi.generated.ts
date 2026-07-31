@@ -221,6 +221,15 @@ export interface components {
     "kind": "cyclic_components";
     "limit"?: number;
   };
+    "DirectoryEntry": {
+    "name": string;
+    "path": string;
+  };
+    "DirectoryListing": {
+    "path": string;
+    "parent": string | null;
+    "directories": Array<components["schemas"]["DirectoryEntry"]>;
+  };
     "EdgeType": "contains" | "imports" | "calls" | "inherits" | "implements" | "references" | "tests" | "configures";
     "FailureDiagnostic": {
     "code": components["schemas"]["FailureDiagnosticCode"];
@@ -310,6 +319,7 @@ export interface components {
     "schema_version"?: 2;
     "id": string;
     "title": string;
+    "description"?: string | null;
     "scope": components["schemas"]["PolicyScope"];
     "applies_to"?: string | null;
     "strength": components["schemas"]["PolicyStrength"];
@@ -816,6 +826,21 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "list_directories_api_filesystem_directories_get": {
+    parameters: {
+      query: {
+      "path"?: string | null;
+      };
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": components["schemas"]["DirectoryListing"];
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
   "list_policies_api_policies_get": {
     parameters: {
       query: {
@@ -1125,6 +1150,9 @@ export interface paths {
   };
   "/api/cases/{case_id}/history": {
     get: operations["case_history_api_cases__case_id__history_get"];
+  };
+  "/api/filesystem/directories": {
+    get: operations["list_directories_api_filesystem_directories_get"];
   };
   "/api/policies": {
     get: operations["list_policies_api_policies_get"];

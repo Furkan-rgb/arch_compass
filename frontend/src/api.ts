@@ -8,6 +8,7 @@ import type {
   CaseRevision,
   CaseSummary,
   CaseUpdate,
+  DirectoryListing,
   Policy,
   PolicySource,
   ProblemDetail,
@@ -360,6 +361,14 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(value),
     }),
+  /**
+   * One directory's immediate subdirectories, for the folder picker on the start step. No
+   * path means the home directory.
+   */
+  directories: (path?: string) =>
+    request<DirectoryListing>(
+      `/api/filesystem/directories${path ? `?path=${encodeURIComponent(path)}` : ""}`,
+    ),
   repositories: () => request<RepositorySummary[]>("/api/repositories"),
   // Indexing answers with the atlas version it created, not a repository summary: the
   // node and edge counts belong to the listing, and claiming them here would be a type

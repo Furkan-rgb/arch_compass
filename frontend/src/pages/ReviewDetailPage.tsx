@@ -427,7 +427,7 @@ function Unfinished({ review }: { review: BoundaryReview }) {
         <p className={unfinishedNote}>
           Nothing was written to the case or the atlas. A review is derived from both, so
           running it again is the whole of the fix. Started {formatDate(review.created_at)} ·
-          case <code>{shortId(review.case_id)}</code> · <Link to="/">Start a review</Link> ·{" "}
+          case <code>{shortId(review.case_id)}</code> · <Link to="/start">Start a review</Link> ·{" "}
           <Link to="/reviews">All reviews</Link>
         </p>
       </div>
@@ -497,7 +497,7 @@ export function ReviewUnavailable({
           )}
         </p>
         <p className={unfinishedNote}>
-          <Link to="/reviews">All reviews</Link> · <Link to="/">Start a review</Link> ·{" "}
+          <Link to="/reviews">All reviews</Link> · <Link to="/start">Start a review</Link> ·{" "}
           <code>{shortId(reviewId)}</code>
         </p>
       </div>

@@ -143,12 +143,12 @@ export function EmptyLine({
 
 export function Shell({ children }: { children: ReactNode }) {
   const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
-  // The navigation is the flow (master plan §6B): one entry for the flow itself, then the
-  // two standing records it reads and writes — the policy corpus it judges against, and
-  // every review it has produced. Repositories and cases are the start step's two rails,
-  // not destinations beside it.
+  // The flow (master plan §6B), now with a front door in front of it: Home, then the step
+  // itself, then the two standing records the flow reads and writes. Repositories and cases
+  // remain the start step's two rails, not destinations beside it.
   const navigation = [
-    { to: "/", label: "Start", end: true },
+    { to: "/", label: "Home", end: true },
+    { to: "/start", label: "Start" },
     { to: "/reviews", label: "Reviews" },
     { to: "/policies", label: "Policies" },
   ];

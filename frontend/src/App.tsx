@@ -9,6 +9,9 @@ import { RunProvider } from "./run";
 const HomePage = lazy(() =>
   import("./pages/HomePage").then(({ HomePage }) => ({ default: HomePage })),
 );
+const StartPage = lazy(() =>
+  import("./pages/StartPage").then(({ StartPage }) => ({ default: StartPage })),
+);
 const PoliciesPage = lazy(() =>
   import("./pages/PoliciesPage").then(({ PoliciesPage }) => ({ default: PoliciesPage })),
 );
@@ -36,15 +39,17 @@ export function App() {
           <Suspense fallback={<Booting label="Opening field notes…" />}>
             <Routes>
               <Route path="/" element={<HomePage />} />
+              <Route path="/start" element={<StartPage />} />
               {/* Past reviews are a standing record, like the policy corpus, so they keep
                   their own place rather than growing without limit under the start step. */}
               <Route path="/reviews" element={<ReviewsPage />} />
               <Route path="/reviews/:reviewId" element={<ReviewDetailPage />} />
               <Route path="/policies" element={<PoliciesPage />} />
-              {/* Cases dissolved into Home, and the standalone atlas explorer into the review
-                  that raises the question (workspace-design §4). A bookmark must not 404. */}
-              <Route path="/cases" element={<Navigate to="/" replace />} />
-              <Route path="/repositories" element={<Navigate to="/" replace />} />
+              {/* Cases dissolved into the start step, and the standalone atlas explorer into
+                  the review that raises the question (workspace-design §4). A bookmark must
+                  not 404. */}
+              <Route path="/cases" element={<Navigate to="/start" replace />} />
+              <Route path="/repositories" element={<Navigate to="/start" replace />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>

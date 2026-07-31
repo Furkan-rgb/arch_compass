@@ -1,10 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, FlaskConical, Play } from "lucide-react";
+import {
+  ArrowRight,
+  ArrowUp,
+  ChevronRight,
+  FlaskConical,
+  FolderOpen,
+  Play,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -147,12 +161,203 @@ const note = "m-0 text-meta leading-[1.5] text-ink-3";
 /* A read that failed is reported once, above both columns, inside the sheet's own gutter. */
 const readError = "px-[22px] [&_[data-slot=error-strip]]:mt-3 [&_[data-slot=error-strip]]:mb-0";
 
-export function HomePage() {
+/**
+ * Walking the machine's folders to find the one to index. State lives here, not on the page,
+ * so the dialog unmounting it resets the walk.
+ */
+function FolderBrowser({
+  start,
+  indexing,
+  error,
+  onIndex,
+}: {
+  /** Where to open: a repository some case named, or the home folder where `null` lands. */
+  start: string | null;
+  indexing: boolean;
+  error: unknown;
+  onIndex: (root: string) => void;
+}) {
+  const [at, setAt] = useState<string | null>(start);
+  const [typed, setTyped] = useState(start ?? "");
+  // The field follows the walk until anybody edits it, so a listing that lands a beat later
+  // cannot eat a path half way through being pasted.
+  const [edited, setEdited] = useState(false);
+  const listing = useQuery({
+    queryKey: ["directories", at],
+    queryFn: () => api.directories(at ?? undefined),
+  });
+  // The server's resolved path, never what the field holds.
+  const here = listing.data?.path ?? null;
+
+  useEffect(() => {
+    if (here && !edited) setTyped(here);
+  }, [here, edited]);
+
+  const walk = (next: string | null) => {
+    setEdited(false);
+    setAt(next);
+  };
+
+  const go = () => {
+    const asked = typed.trim();
+    if (!asked) return;
+    // An unchanged query key will not fetch again on its own, so asking for where we already
+    // are has to refetch by hand.
+    if (asked === at) {
+      setEdited(false);
+      void listing.refetch();
+    } else {
+      walk(asked);
+    }
+  };
+
+  return (
+    <>
+      <form
+        className="flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          go();
+        }}
+      >
+        <Button
+          type="button"
+          size="icon"
+          aria-label="Go up to the parent folder"
+          // A null parent is the server saying there is nowhere above this; nothing here
+          // counts slashes to work that out.
+          disabled={!listing.data?.parent}
+          onClick={() => walk(listing.data?.parent ?? null)}
+        >
+          <ArrowUp size={14} aria-hidden />
+        </Button>
+        <Input
+          className="min-w-0 flex-1 font-mono text-meta"
+          value={typed}
+          onChange={(event) => {
+            setEdited(true);
+            setTyped(event.target.value);
+          }}
+          aria-label="Folder path"
+          spellCheck={false}
+        />
+        <Button type="submit" disabled={!typed.trim()}>
+          Go
+        </Button>
+      </form>
+
+      {listing.isLoading ? <Loading label="Reading folders…" rows={3} /> : null}
+      {listing.error ? (
+        <ErrorPanel
+          error={listing.error}
+          onRetry={() => void listing.refetch()}
+          retrying={listing.isFetching}
+        />
+      ) : null}
+      {listing.data?.directories.length ? (
+        <ul data-slot="pick" className={cn(pick, "max-h-[280px]")}>
+          {listing.data.directories.map((folder) => (
+            <li key={folder.path}>
+              <button
+                type="button"
+                className={pickButton}
+                onClick={() => walk(folder.path)}
+              >
+                <b className={pickName}>{folder.name}</b>
+                <ChevronRight size={14} aria-hidden className="self-center text-ink-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : listing.isLoading || listing.isError ? null : (
+        <EmptyLine>No folders in here — index this one, or go up.</EmptyLine>
+      )}
+
+      {error ? <ErrorPanel error={error} /> : null}
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-rule-soft pt-3.5">
+        <p className={cn(note, "flex-[1_1_28ch]")}>
+          The workspace must not sit inside the project being analysed.
+        </p>
+        <Button
+          type="button"
+          variant="primary"
+          // Indexes the folder whose contents are on screen, never a half-typed line.
+          disabled={!here || indexing}
+          onClick={() => here && onIndex(here)}
+        >
+          {indexing ? "Indexing…" : "Index this folder"}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Where a repository comes from. Browsing happens on the server, which is the same machine:
+ * a browser's native folder picker hands over a name and some bytes, never a location on disk.
+ *
+ * Ordinarily dismissable, unlike the layer a case is written on — nothing in here is anyone's
+ * writing, so Escape and the backdrop cost at most one directory of walking.
+ */
+function FolderPicker({
+  open,
+  onOpenChange,
+  disabled,
+  start,
+  indexing,
+  error,
+  onIndex,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  disabled: boolean;
+  start: string | null;
+  indexing: boolean;
+  error: unknown;
+  onIndex: (root: string) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogTrigger asChild>
+        <Button type="button" disabled={disabled}>
+          <FolderOpen size={14} aria-hidden />
+          Index a folder…
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        className="max-w-[560px]"
+        // Top-aligned, not centred: the list changes height on every folder walked into, and
+        // centring would slide the controls out from under the pointer each time.
+        overlayClassName="items-start py-[12vh]"
+      >
+        <DialogHeader>
+          <DialogTitle>Index a folder</DialogTitle>
+          <DialogDescription>
+            Browse to the root of a local Python project, or paste its path. Parsing reads
+            the code without importing or modifying it.
+          </DialogDescription>
+        </DialogHeader>
+        <FolderBrowser
+          start={start}
+          indexing={indexing}
+          error={error}
+          onIndex={onIndex}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function StartPage() {
   const client = useQueryClient();
   const [repositoryRoot, setRepositoryRoot] = useState<string | null>(null);
   const [caseId, setCaseId] = useState<string | null>(null);
   const [path, setPath] = useState("");
   const [editor, setEditor] = useState<Editor>(null);
+  // Held here rather than inside the picker: a successful index is what closes it, and the
+  // mutation is this page's.
+  const [picking, setPicking] = useState(false);
   // Read at the click rather than at the layer's mount: the revise layer re-mounts when the
   // stored case arrives, and by then focus is already inside it.
   const opener = useRef<HTMLElement | null>(null);
@@ -216,6 +421,8 @@ export function HomePage() {
   const index = useMutation({
     mutationFn: (root: string) => api.indexRepository(root),
     onSuccess: async (version) => {
+      // Only success closes the picker; a refusal leaves it open on the folder that failed.
+      setPicking(false);
       setPath("");
       setRepositoryRoot(version.root_path);
       await client.invalidateQueries({ queryKey: ["repositories"] });
@@ -454,40 +661,24 @@ export function HomePage() {
               // not an empty one, and saying "nothing indexed yet" over a failed read is
               // this page telling the reader something it does not know.
               <EmptyLine>
-                Nothing indexed yet — point at a local Python project below, or load an
+                Nothing indexed yet — browse to a local Python project below, or load an
                 example above.
               </EmptyLine>
             )}
 
-            <div className="flex gap-2">
-              <Input
-                className="min-w-0 flex-1 text-meta placeholder:font-mono"
-                value={path}
-                onChange={(event) => setPath(event.target.value)}
-                placeholder="/absolute/path/to/python-project"
-                aria-label="Local repository path"
-              />
-              <Button
-                type="button"
-                disabled={!path.trim() || busy}
-                onClick={() => index.mutate(path.trim())}
-              >
-                {index.isPending ? "Indexing…" : "Index"}
-              </Button>
-            </div>
-            <p className={note}>
-              The workspace must not sit inside the project being analysed.
-            </p>
-            {index.isError ? (
-              <ErrorPanel
+            <div className="flex flex-wrap gap-2">
+              <FolderPicker
+                open={picking}
+                onOpenChange={setPicking}
+                disabled={busy}
+                // A repository some case named that nothing has parsed yet: the picker opens
+                // there so the reader confirms the folder rather than finding it again.
+                start={path.trim() || null}
+                indexing={index.isPending}
                 error={index.error}
-                onRetry={
-                  index.variables ? () => index.mutate(index.variables!) : undefined
-                }
-                retrying={index.isPending}
-                retryLabel="Index it again"
+                onIndex={(root) => index.mutate(root)}
               />
-            ) : null}
+            </div>
           </div>
 
           {/* The rule between the two columns lives on the second of them, and turns to run

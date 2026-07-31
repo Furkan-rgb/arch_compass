@@ -412,7 +412,7 @@ export function ReviewsPage() {
           description="Pick a repository on the start step and run one. A case is optional."
           action={
             <Button asChild variant="primary">
-              <Link to="/">
+              <Link to="/start">
                 Start a review <ArrowRight size={13} aria-hidden />
               </Link>
             </Button>

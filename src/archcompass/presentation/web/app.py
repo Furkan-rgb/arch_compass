@@ -239,6 +239,22 @@ class AnswerProgress(RootModel[AnswerProgressLine]):
     """One line of `POST /api/review-conversations/{id}/messages/stream`."""
 
 
+class DirectoryEntry(APIModel):
+    """One subdirectory of the directory being browsed."""
+
+    name: str
+    path: str
+
+
+class DirectoryListing(APIModel):
+    """One local directory as a folder picker reads it: where it is, and what is under it."""
+
+    path: str
+    #: Null at the filesystem root, which is where climbing stops.
+    parent: str | None
+    directories: list[DirectoryEntry]
+
+
 class BundledCase(APIModel):
     """One example case shipped with ArchCompass, ready to load into the workspace.
 
@@ -626,6 +642,17 @@ def create_app(runtime: Runtime) -> FastAPI:
             limit=request.limit,
         )
 
+    @app.get("/api/filesystem/directories")
+    def list_directories(path: str | None = None) -> DirectoryListing:
+        """Browse this machine's folders, so a repository root can be chosen rather than typed.
+
+        With no `path`, the home directory. Read-only, one directory per request: only the
+        names immediately inside it. Safe because the workspace binds 127.0.0.1 and serves the
+        one person whose files these already are.
+        """
+
+        return _directory_listing(Path(path) if path else Path.home())
+
     @app.get("/api/bundled-cases")
     def list_bundled_cases() -> list[BundledCase]:
         return [
@@ -983,6 +1010,42 @@ def _static_cache_headers(served: Path) -> dict[str, str]:
     if served.parent.name == "assets":
         return {"cache-control": "public, max-age=31536000, immutable"}
     return {"cache-control": "no-cache"}
+
+
+def _directory_listing(requested: Path) -> DirectoryListing:
+    """One directory read for the picker, or a `PathValidationError` naming what went wrong.
+
+    Read here rather than behind an application service: a listing holds no workspace state
+    and is asked for by exactly one screen.
+
+    Dot-directories are left out — `.git`, `.venv` and `.mypy_cache` are most of what sits in
+    a project root and none is a repository anyone means to index. The picker keeps a path
+    field for the reader who does.
+    """
+
+    try:
+        directory = requested.expanduser().resolve(strict=True)
+    except OSError as error:
+        raise PathValidationError(f"There is nothing at {requested}.") from error
+    if not directory.is_dir():
+        raise PathValidationError(f"{directory} is a file, not a folder.")
+    try:
+        children = sorted(
+            (child for child in directory.iterdir() if not child.name.startswith(".")),
+            key=lambda child: child.name.casefold(),
+        )
+    except OSError as error:
+        raise PathValidationError(f"{directory} cannot be read.") from error
+    return DirectoryListing(
+        path=str(directory),
+        # A root is its own parent, which is how the filesystem says there is nowhere above it.
+        parent=None if directory.parent == directory else str(directory.parent),
+        directories=[
+            DirectoryEntry(name=child.name, path=str(child))
+            for child in children
+            if child.is_dir()
+        ],
+    )
 
 
 def _abstraction_name(candidate: FindingCandidate) -> str:

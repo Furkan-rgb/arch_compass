@@ -50,14 +50,14 @@ describe("choosing a case", () => {
     expect(next.path).toBe("/repos/not-yet");
   });
 
-  it("never overwrites a path the reader typed", () => {
-    const next = chooseCase(
-      selection({ path: "/repos/mine" }),
-      UNINDEXED_CASE,
-      INDEXED,
-    );
+  it("offers the repository of the case chosen last, not the first one to name any", () => {
+    const first = chooseCase(selection(), UNINDEXED_CASE, INDEXED);
 
-    expect(next.path).toBe("/repos/mine");
+    const next = chooseCase(first, { case_id: "case-5", repository_root: "/repos/later" }, INDEXED);
+
+    // The offer decides where the folder picker opens, so a stale one would send the reader
+    // somewhere the page no longer points at.
+    expect(next.path).toBe("/repos/later");
   });
 
   it("leaves the repository alone for a case that names none", () => {

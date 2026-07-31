@@ -6,6 +6,7 @@ export type BoundaryReviewReport = OpenAPIComponents["schemas"]["BoundaryReviewR
 export type BoundaryReviewSummary = OpenAPIComponents["schemas"]["BoundaryReviewSummary"];
 export type ReviewStatus = OpenAPIComponents["schemas"]["ReviewStatus"];
 export type ReviewedBoundary = OpenAPIComponents["schemas"]["ReviewedBoundary"];
+export type FindingPattern = OpenAPIComponents["schemas"]["FindingPattern"];
 export type ReviewConversation = OpenAPIComponents["schemas"]["ReviewConversation"];
 export type ReviewMessage = OpenAPIComponents["schemas"]["ReviewMessage"];
 export type BundledCase = OpenAPIComponents["schemas"]["BundledCase"];
@@ -23,6 +24,7 @@ export type CaseUpdate = OpenAPIComponents["schemas"]["CaseUpdate"];
 export type Clarification = OpenAPIComponents["schemas"]["Clarification"];
 export type RecordedAnswer = OpenAPIComponents["schemas"]["RecordedAnswer"];
 export type BoundaryExcerpt = OpenAPIComponents["schemas"]["BoundaryExcerpt"];
+export type DirectoryListing = OpenAPIComponents["schemas"]["DirectoryListing"];
 
 export interface WorkspaceSummary {
   workspace: string;

@@ -137,7 +137,7 @@ export function CommandPalette() {
                 appears: the Reviews page and a single review carry the same mark, so a reader
                 scanning the list sorts it by shape before reading a word of it. */}
             <CommandGroup heading="Go to">
-              <CommandItem value={haystack("Start a review home")} onSelect={() => go("/")}>
+              <CommandItem value={haystack("Start a review")} onSelect={() => go("/start")}>
                 <Compass size={15} aria-hidden />
                 Start
               </CommandItem>
