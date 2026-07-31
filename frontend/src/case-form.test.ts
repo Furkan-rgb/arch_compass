@@ -1,4 +1,9 @@
-import { caseFormValues, casePayload } from "./case-form";
+import {
+  appendSeedLines,
+  caseFormValues,
+  casePayload,
+  CONVENTION_SEEDS,
+} from "./case-form";
 import type { ArchitectureCase } from "./types";
 
 const STORED = {
@@ -15,6 +20,10 @@ const STORED = {
   quality_attributes: [],
   functional_requirements: [],
   actors_and_workflows: [],
+  stated_conventions: [
+    "All I/O crosses a port; the domain never imports an adapter.",
+    "Ports exist for every dependency we intend to swap or fake in tests.",
+  ],
   clarifications: [
     {
       id: "clar_1",
@@ -33,6 +42,10 @@ describe("caseFormValues", () => {
       "SMS ships next release.\nPostgres is under discussion.",
     );
     expect(values.confirmed_facts).toBe("The label format is fixed downstream.");
+    expect(values.stated_conventions).toBe(
+      "All I/O crosses a port; the domain never imports an adapter.\n" +
+        "Ports exist for every dependency we intend to swap or fake in tests.",
+    );
     expect(values.technical_constraints).toBe("");
   });
 
@@ -63,6 +76,23 @@ describe("casePayload", () => {
     expect(payload.expected_future_changes).toEqual(STORED.expected_future_changes);
     expect(payload.non_goals).toEqual(STORED.non_goals);
     expect(payload.organisational_constraints).toEqual(STORED.organisational_constraints);
+    expect(payload.stated_conventions).toEqual(STORED.stated_conventions);
+  });
+
+  it("saves the lines a stance was written as, and nothing about which chip wrote them", () => {
+    // "We are hexagonal" is not something a boundary can be held against; the lines are. The
+    // seeder exists to save typing, so what leaves the form is prose the reader can reword or
+    // delete, with no record of the style it started as.
+    const payload = casePayload({
+      ...caseFormValues(undefined),
+      stated_conventions: "  Adapters may not import domain internals.  \n\nOne port per swap.",
+    });
+
+    expect(payload.stated_conventions).toEqual([
+      "Adapters may not import domain internals.",
+      "One port per swap.",
+    ]);
+    expect(Object.keys(payload)).not.toContain("convention_style");
   });
 
   it("sets the statement kind the list implies rather than asking for it", () => {
@@ -120,5 +150,73 @@ describe("casePayload", () => {
     expect(payload.clarifications).toEqual([
       { ...values.clarifications[0], answer: "Reworded, and still mine." },
     ]);
+  });
+});
+
+/**
+ * What a chip does to the box, as a rule rather than as a click.
+ *
+ * The whole of a seeder's behaviour is here: it adds lines and it keeps what is written. Every
+ * hazard in it — a doubled commitment, a reworded line quietly replaced — is a hazard about
+ * text, so it is settled about text.
+ */
+describe("appendSeedLines", () => {
+  const hexagonal = CONVENTION_SEEDS.find((seed) => seed.name === "Hexagonal")!.lines;
+
+  it("writes a style's lines into an empty box", () => {
+    expect(appendSeedLines("", hexagonal)).toBe(hexagonal.join("\n"));
+  });
+
+  it("adds them under what is already written, keeping every word of it", () => {
+    const written = "Nothing in this codebase talks to the filesystem outside `storage/`.";
+
+    expect(appendSeedLines(written, hexagonal)).toBe([written, ...hexagonal].join("\n"));
+  });
+
+  it("does not write a line that is already there", () => {
+    // Pressing the same chip twice is a slip, not a second commitment.
+    const once = appendSeedLines("", hexagonal);
+
+    expect(appendSeedLines(once, hexagonal)).toBe(once);
+  });
+
+  it("adds only the lines that are missing", () => {
+    const partial = hexagonal[0];
+
+    expect(appendSeedLines(partial, hexagonal)).toBe([partial, hexagonal[1]].join("\n"));
+  });
+
+  it("leaves a reworded line alone and adds the seed beside it", () => {
+    // Nothing here can tell a rewrite from a second commitment, and guessing would throw away
+    // words somebody chose. The reader deletes whichever they did not mean.
+    const reworded = "All I/O crosses a port. The domain imports no adapter.";
+    const next = appendSeedLines(reworded, hexagonal);
+
+    expect(next).toContain(reworded);
+    expect(next).toContain(hexagonal[0]);
+  });
+
+  it("does not leave a blank line where the reader left a trailing newline", () => {
+    expect(appendSeedLines("Ports are owned by the domain.\n\n", hexagonal)).toBe(
+      ["Ports are owned by the domain.", ...hexagonal].join("\n"),
+    );
+  });
+});
+
+describe("CONVENTION_SEEDS", () => {
+  it("offers concrete commitments rather than style names", () => {
+    // A chip's own word ("Hexagonal") is a label on a button and never reaches the case. What
+    // it writes is two or three sentences a review can hold a boundary against.
+    expect(CONVENTION_SEEDS.map((seed) => seed.name)).toEqual([
+      "DDD",
+      "Hexagonal",
+      "Vertical slice",
+      "Layered",
+    ]);
+    for (const seed of CONVENTION_SEEDS) {
+      expect(seed.lines.length).toBeGreaterThanOrEqual(2);
+      expect(seed.lines.length).toBeLessThanOrEqual(3);
+      for (const line of seed.lines) expect(line).not.toContain("\n");
+    }
   });
 });

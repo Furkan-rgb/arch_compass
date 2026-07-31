@@ -122,6 +122,61 @@ def test_a_clarification_is_revised_like_any_other_part_of_the_case(runtime) -> 
     assert len(history[0].snapshot.clarifications) == 2
 
 
+def test_stated_conventions_default_to_none_and_survive_a_round_trip(runtime) -> None:
+    """A commitment is the user's words, so it must come back out as it went in.
+
+    Empty is the ordinary state — most cases state no convention at all — and a case stored
+    before the field existed validates with the list empty, which is why `schema_version`
+    stays at 2.
+    """
+
+    del runtime
+    assert ArchitectureCase(title="A case with no stated stance").stated_conventions == []
+
+    conventions = [
+        "All I/O crosses a port; the domain never imports an adapter.",
+        "Every module owns its own configuration.",
+    ]
+    case = ArchitectureCase(title="A case with a stance", stated_conventions=conventions)
+    restored = ArchitectureCase.model_validate(case.model_dump(mode="json"))
+
+    assert restored.stated_conventions == conventions
+    assert restored.schema_version == 2
+
+
+def test_stated_conventions_are_revised_like_any_other_list(runtime) -> None:
+    """They are authored rather than elicited, so the ordinary update path is the only one."""
+
+    created = runtime.case_service.create(
+        ArchitectureCase(
+            title="A case whose stance changed",
+            stated_conventions=["All I/O crosses a port."],
+        )
+    )
+
+    revised = runtime.case_service.update(
+        created.case_id,
+        CaseUpdate(
+            stated_conventions=[
+                "All I/O crosses a port; the domain never imports an adapter.",
+            ]
+        ),
+    )
+
+    assert revised.revision == 2
+    assert revised.snapshot.stated_conventions == [
+        "All I/O crosses a port; the domain never imports an adapter.",
+    ]
+    # An update that leaves the key out keeps what is there, like every other list here.
+    assert (
+        runtime.case_service.update(created.case_id, CaseUpdate(title="Renamed"))
+        .snapshot.stated_conventions
+        == revised.snapshot.stated_conventions
+    )
+    history = runtime.case_service.history(created.case_id)
+    assert history[0].snapshot.stated_conventions == ["All I/O crosses a port."]
+
+
 def test_a_clarification_needs_both_halves(runtime) -> None:
     """A pair with one side missing is not a weaker pair; it is a different thing.
 

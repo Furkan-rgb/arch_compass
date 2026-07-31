@@ -120,6 +120,15 @@ class ArchitectureCase(DomainModel):
     quality_attributes: list[str] = Field(default_factory=list[str])
     technical_constraints: list[str] = Field(default_factory=list[str])
     organisational_constraints: list[str] = Field(default_factory=list[str])
+    #: Commitments the team says it has deliberately made — "all I/O crosses a port", "the
+    #: domain never imports an adapter" — one per line, in the user's words. A normative
+    #: stance about how this repository is meant to be built, which is a different claim from
+    #: what it is actually built like: the atlas says what is there, this says what was
+    #: intended, and the two can disagree. Empty is the ordinary state.
+    #:
+    #: Additive with a default, so `schema_version` stays at 2 for the reason the comment on
+    #: `clarifications` gives. Not a `CaseField`: a convention is authored, never elicited.
+    stated_conventions: list[str] = Field(default_factory=list[str])
     expected_future_changes: list[str] = Field(default_factory=list[str])
     non_goals: list[str] = Field(default_factory=list[str])
     confirmed_facts: list[CaseStatement] = Field(default_factory=list[CaseStatement])
@@ -190,6 +199,7 @@ class CaseUpdate(DomainModel):
     quality_attributes: list[str] | None = None
     technical_constraints: list[str] | None = None
     organisational_constraints: list[str] | None = None
+    stated_conventions: list[str] | None = None
     expected_future_changes: list[str] | None = None
     non_goals: list[str] | None = None
     confirmed_facts: list[CaseStatement] | None = None

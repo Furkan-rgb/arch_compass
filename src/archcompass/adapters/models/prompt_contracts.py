@@ -119,7 +119,14 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
     # against questions rather than against a paraphrase of them, and it is the check that
     # ends the loop: a stage that cannot see a recorded answer hinges again on the fact it
     # settles, and the reader is asked what they have already replied to.
-    version=11,
+    #
+    # v12 says how to weigh `stated_conventions`. Without it the two readings of a commitment
+    # are both available and both wrong: a stage that ignores it judges a port the team
+    # deliberately requires as indirection hiding one implementation, and a stage that takes
+    # it at face value clears a boundary because the case says boundaries are kept there. It
+    # is intent, so it changes what a shape is *for* and settles nothing about what the code
+    # actually does.
+    version=12,
     stage_contract=_text(
         """
         A structural detector found one pattern in this repository and reported what it
@@ -224,6 +231,15 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
         on expected_future_changes states that the change is coming. It is not a softer kind of
         evidence for being phrased as a reply — it is the reader telling you about their own
         project, which is the most authoritative thing in the input.
+
+        stated_conventions is the case naming the commitments this team says it has
+        deliberately made — that all I/O crosses a port, that the domain never imports an
+        adapter. A boundary that is keeping one of them is not empty indirection merely for
+        hiding little today; it is doing the job the team chose for it, and structure that
+        contradicts a stated commitment is worth saying so plainly. But a convention is what
+        they intend, never evidence of what the code does: check it against what was measured
+        before you credit a boundary with honouring it, because a rule a repository states and
+        does not keep is precisely what this review exists to find.
 
         A partial answer in the case is still an answer. If the case says a change is
         coming and does not say when, the change is coming; if it rules something out as a

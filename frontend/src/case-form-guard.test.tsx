@@ -113,6 +113,46 @@ describe("CaseForm and the answers already recorded", () => {
 });
 
 /**
+ * The chips over the conventions box, which write lines and are then forgotten.
+ *
+ * The dedup rule itself is settled in `case-form.test.ts`, about text. What is checked here is
+ * the one thing text cannot answer: that a chip is a button reachable by its own word, that
+ * pressing it writes into the box rather than into some hidden selection, and that it leaves
+ * no state behind claiming the case remembers a style.
+ */
+describe("Seeding a stance from a named style", () => {
+  const conventions = () =>
+    screen.getByLabelText("What architectural commitments has the team deliberately made?");
+
+  it("writes the style's lines into the box a reader can then edit", () => {
+    render(form({ initial: CASE }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Hexagonal" }));
+
+    expect(conventions()).toHaveValue(
+      "All I/O crosses a port; the domain never imports an adapter.\n" +
+        "Ports exist for every dependency we intend to swap or fake in tests.",
+    );
+  });
+
+  it("is not a toggle, and holds nothing once it has written", () => {
+    // One-shot: there is no state to be in. A chip that stayed lit would claim the case
+    // remembers a style, and only the lines are ever stored.
+    render(form({ initial: CASE }));
+    const chip = screen.getByRole("button", { name: "Layered" });
+
+    fireEvent.click(chip);
+    fireEvent.click(chip);
+
+    expect(chip).not.toHaveAttribute("aria-pressed");
+    expect(conventions()).toHaveValue(
+      "Dependencies point one way: presentation → application → domain; inner layers never import outward.\n" +
+        "Each layer talks only to the layer directly beneath it.",
+    );
+  });
+});
+
+/**
  * The layer this form floats on, and what it takes to dismiss it.
  *
  * A case is eleven fields of prose, written once, with nothing anywhere to undo throwing it

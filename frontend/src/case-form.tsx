@@ -47,6 +47,7 @@ export interface CaseFormValues {
   quality_attributes: string;
   functional_requirements: string;
   actors_and_workflows: string;
+  stated_conventions: string;
   /**
    * The questions a review asked and the answers given to them, as pairs.
    *
@@ -71,6 +72,7 @@ const EMPTY: CaseFormValues = {
   quality_attributes: "",
   functional_requirements: "",
   actors_and_workflows: "",
+  stated_conventions: "",
   clarifications: [],
 };
 
@@ -79,6 +81,63 @@ function lines(value: string): string[] {
     .split("\n")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+/**
+ * Named styles, as the two or three lines a team that had actually committed to one would
+ * have written.
+ *
+ * Seeds, not a taxonomy. Pressing a chip writes its lines into the box and is then forgotten:
+ * nothing stores which style was chosen, because "we are hexagonal" is not something a
+ * boundary can be held against — "all I/O crosses a port; the domain never imports an
+ * adapter" is. Every line is meant to be reworded or deleted, and a team that keeps one and
+ * drops the other has said something a list of style names could not.
+ */
+export const CONVENTION_SEEDS: ReadonlyArray<{ name: string; lines: readonly string[] }> = [
+  {
+    name: "DDD",
+    lines: [
+      "Domain logic lives in the domain model; application services orchestrate and decide nothing.",
+      "Aggregates own their invariants, and nothing outside an aggregate mutates their state.",
+    ],
+  },
+  {
+    name: "Hexagonal",
+    lines: [
+      "All I/O crosses a port; the domain never imports an adapter.",
+      "Ports exist for every dependency we intend to swap or fake in tests.",
+    ],
+  },
+  {
+    name: "Vertical slice",
+    lines: [
+      "Code is organised by feature, not layer; a slice holds its own handler, model and persistence.",
+      "Slices never reach into each other's internals; sharing is extracted only after it repeats.",
+    ],
+  },
+  {
+    name: "Layered",
+    lines: [
+      "Dependencies point one way: presentation → application → domain; inner layers never import outward.",
+      "Each layer talks only to the layer directly beneath it.",
+    ],
+  },
+];
+
+/**
+ * A style's lines added to whatever is already written, keeping every word of it.
+ *
+ * A line already present verbatim is not added twice, so pressing the same chip again is a
+ * no-op rather than a doubled commitment. A line the reader has since reworded is a different
+ * line and stays alongside the seed: nothing here can tell a rewrite from a second
+ * commitment, and guessing would throw away words somebody chose.
+ */
+export function appendSeedLines(current: string, seeds: readonly string[]): string {
+  const present = new Set(lines(current));
+  const missing = seeds.filter((line) => !present.has(line));
+  if (!missing.length) return current;
+  const written = current.trimEnd();
+  return [...(written ? [written] : []), ...missing].join("\n");
 }
 
 /** A stored case as form values: lists become one item per line, in their stored order. */
@@ -98,6 +157,7 @@ export function caseFormValues(snapshot: ArchitectureCase | undefined): CaseForm
     quality_attributes: (snapshot.quality_attributes || []).join("\n"),
     functional_requirements: (snapshot.functional_requirements || []).join("\n"),
     actors_and_workflows: (snapshot.actors_and_workflows || []).join("\n"),
+    stated_conventions: (snapshot.stated_conventions || []).join("\n"),
     clarifications: (snapshot.clarifications || []).map((item) => ({ ...item })),
   };
 }
@@ -127,6 +187,7 @@ export function casePayload(values: CaseFormValues): ArchitectureCase & CaseUpda
     quality_attributes: lines(values.quality_attributes),
     functional_requirements: lines(values.functional_requirements),
     actors_and_workflows: lines(values.actors_and_workflows),
+    stated_conventions: lines(values.stated_conventions),
     // Answers trimmed, and a pair whose answer has been emptied is dropped rather than sent.
     // Blank is how someone deletes one by clearing the box instead of pressing the button, and
     // the server would refuse it anyway: a question sitting in the case with nothing answering
@@ -162,6 +223,22 @@ const tag =
 const tagGood = cn(tag, "border-cleared-rule bg-cleared-soft text-cleared");
 const tagBad = cn(tag, "border-material-rule bg-material-soft text-material");
 
+/* A seeder, which is a thing to take rather than a state to be in — the same pill the start
+   page offers an example with, and deliberately not a `Button`: a row of four controls at
+   button weight above one textarea would read as four things to decide between before the
+   box could be typed in.
+
+   No pressed state, because there is nothing to be pressed into. A chip writes lines and is
+   finished; the answer afterwards is whatever the lines say, and a chip that stayed lit would
+   claim the case remembers a style it never stored. */
+const seedChip = cn(
+  "inline-flex h-[26px] cursor-pointer items-center rounded-pill border border-rule",
+  "bg-surface px-3 text-meta whitespace-nowrap text-ink",
+  "transition-[color,background-color,border-color] duration-[120ms]",
+  "hover:border-accent-rule hover:bg-accent-soft hover:text-accent-ink",
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+);
+
 /**
  * One field, with the question it answers and — where an answer can miss — a pair of
  * examples.
@@ -176,16 +253,27 @@ function Field({
   hint,
   good,
   bad,
+  seeder,
   children,
 }: {
   label: string;
   hint?: string;
   good?: string;
   bad?: string;
+  /**
+   * Controls that sit between the question and the box and write into it.
+   *
+   * Their presence is what decides whether this field can wrap itself in a label at all: a
+   * label labels its first labelable descendant, so a button standing above the box would
+   * take both that association and every click on the question text. A field with a seeder
+   * is a plain group, and its box carries the question as `aria-label` — the same words the
+   * eye reads, said the only other way there is to say them.
+   */
+  seeder?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  return (
-    <label className="grid gap-1">
+  const asked = (
+    <>
       <span className="text-body font-[650]">{label}</span>
       {hint ? (
         <span className="max-w-[86ch] text-ui leading-[1.5] text-ink-2">{hint}</span>
@@ -202,6 +290,21 @@ function Field({
           </span>
         </span>
       ) : null}
+    </>
+  );
+
+  if (seeder) {
+    return (
+      <div className="grid gap-1">
+        {asked}
+        {seeder}
+        {children}
+      </div>
+    );
+  }
+  return (
+    <label className="grid gap-1">
+      {asked}
       {children}
     </label>
   );
@@ -334,6 +437,67 @@ export function CaseForm({
               bad="The current code is a bit messy in places."
             >
               <Textarea className={caseArea} rows={4} {...form.register("confirmed_facts")} />
+            </Field>
+          </div>
+
+          {/* Outside the accented well on purpose. What a team has committed to changes how a
+              boundary reads, but it cannot make a boundary earn its place the way a coming
+              change can, and giving it the same mark would say it could. */}
+          <div data-slot="case-conventions" className={group}>
+            <h4 className={groupTitle}>Stated conventions</h4>
+            <p className="m-0 -mt-1 max-w-[86ch] text-ui leading-[1.6] text-ink-2">
+              A verdict respects a stance you have taken: a port that looks like empty
+              indirection is judged differently once hexagonal is a commitment the team made on
+              purpose. But a commitment is intent, not a fact about the code — writing one here
+              says what this team meant to build, and a review still reads whether the code
+              does it.
+            </p>
+            <Field
+              label="What architectural commitments has the team deliberately made?"
+              hint="One per line. Optional — empty means the review judges purely from the code and the case."
+              good="Adapters may not import domain internals; all I/O crosses a port the domain owns."
+              bad="We follow clean architecture best practices."
+              seeder={
+                <>
+                  <div
+                    role="group"
+                    aria-label="Seed from a named style"
+                    className="mt-0.5 flex flex-wrap gap-1.5"
+                  >
+                    {CONVENTION_SEEDS.map((seed) => (
+                      <button
+                        key={seed.name}
+                        type="button"
+                        className={seedChip}
+                        onClick={() =>
+                          form.setValue(
+                            "stated_conventions",
+                            appendSeedLines(
+                              form.getValues("stated_conventions"),
+                              seed.lines,
+                            ),
+                            { shouldDirty: true },
+                          )
+                        }
+                      >
+                        {seed.name}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="mb-[3px] max-w-[86ch] text-meta leading-[1.5] text-ink-3">
+                    A chip only writes lines into the box below, where you can reword or delete
+                    any of them. The lines are what is saved; which chip you pressed is not
+                    stored anywhere.
+                  </span>
+                </>
+              }
+            >
+              <Textarea
+                className={caseArea}
+                rows={4}
+                aria-label="What architectural commitments has the team deliberately made?"
+                {...form.register("stated_conventions")}
+              />
             </Field>
           </div>
 

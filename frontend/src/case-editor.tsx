@@ -58,6 +58,10 @@ organisational_constraints: []
 expected_future_changes: []
 non_goals: []
 
+# Commitments this team has deliberately made, one per line. Optional, and intent
+# rather than fact: a review still reads whether the code keeps them.
+stated_conventions: []
+
 confirmed_facts:
   - text: >-
       Something that is settled, in your words.

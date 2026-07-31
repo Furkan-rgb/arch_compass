@@ -26,6 +26,7 @@ export interface components {
     "quality_attributes"?: Array<string>;
     "technical_constraints"?: Array<string>;
     "organisational_constraints"?: Array<string>;
+    "stated_conventions"?: Array<string>;
     "expected_future_changes"?: Array<string>;
     "non_goals"?: Array<string>;
     "confirmed_facts"?: Array<components["schemas"]["CaseStatement"]>;
@@ -196,6 +197,7 @@ export interface components {
     "quality_attributes"?: Array<string> | null;
     "technical_constraints"?: Array<string> | null;
     "organisational_constraints"?: Array<string> | null;
+    "stated_conventions"?: Array<string> | null;
     "expected_future_changes"?: Array<string> | null;
     "non_goals"?: Array<string> | null;
     "confirmed_facts"?: Array<components["schemas"]["CaseStatement"]> | null;

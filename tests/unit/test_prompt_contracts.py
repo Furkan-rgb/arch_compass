@@ -31,7 +31,7 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
     """The enum and the registry must not drift; a gap surfaces as a runtime KeyError."""
 
     expected_versions = {
-        ReasoningTask.JUDGE_FINDING_CANDIDATE: 11,
+        ReasoningTask.JUDGE_FINDING_CANDIDATE: 12,
         ReasoningTask.ELICIT_QUESTIONS: 3,
         ReasoningTask.SUMMARISE_REVIEW: 7,
         ReasoningTask.ANSWER_REVIEW_QUESTION: 7,
@@ -261,6 +261,21 @@ def test_the_judgement_contract_reads_the_answers_already_given() -> None:
     # is the field its bears_on names, or the pair says less than the line it replaced did.
     assert "carries the same force as an entry in the field its bears_on names" in contract
     assert "binds the design exactly as a listed constraint does" in contract
+
+
+def test_the_judgement_contract_reads_a_stated_convention_as_intent() -> None:
+    """Both readings of a commitment are wrong, and the contract has to rule out each.
+
+    Ignored, a port the team deliberately requires is judged as indirection hiding one
+    implementation. Believed, a boundary is cleared because the case says boundaries are kept
+    there — the case asserting the very thing the review was asked to check.
+    """
+
+    contract = _normalized(JUDGE_FINDING_CANDIDATE.stage_contract)
+
+    assert "stated_conventions is the case naming the commitments" in contract
+    assert "not empty indirection merely for hiding little today" in contract
+    assert "what they intend, never evidence of what the code does" in contract
 
 
 def test_the_elicitation_request_asks_for_a_force_rather_than_a_destination() -> None:
