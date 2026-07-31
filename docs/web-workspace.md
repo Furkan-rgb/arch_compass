@@ -358,5 +358,9 @@ failure.
 
 The active frontend error path aliases the generated `ProblemDetail` contract, and the case,
 review and conversation response types are aliases of it rather than hand-maintained copies.
-`make check` verifies that the committed OpenAPI declarations are current, and that the committed
-bundle under `presentation/web/static` still matches `frontend/`.
+`make check` verifies that the committed OpenAPI declarations are current.
+
+The build output under `presentation/web/static` is not committed. Every target that serves or
+ships it builds it first, and the build backend packs the directory from disk, so a wheel carries a
+bundle built from the working tree. A checkout that has never been built serves
+`frontend_not_built` rather than a stale page.

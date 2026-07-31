@@ -1,4 +1,4 @@
-.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build bundle-check test-ollama test-google eval eval-local check build full demo demo-local test-browser web web-google
+.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build test-ollama test-google eval eval-local check build full demo demo-local test-browser web web-google
 
 sync:
 	uv sync --locked
@@ -27,13 +27,6 @@ frontend-check: api-types-check
 
 frontend-build:
 	cd frontend && pnpm run build
-
-# The built bundle is committed so the workspace serves without a Node toolchain.
-# This fails when it no longer matches frontend/, which is otherwise invisible until
-# someone loads a stale page.
-bundle-check: frontend-build
-	git diff --quiet -- src/archcompass/presentation/web/static || \
-		(echo "Committed frontend bundle is stale. Run 'make frontend-build' and commit the result." && exit 1)
 
 test-ollama:
 	uv run pytest -m "ollama"
@@ -81,12 +74,12 @@ web: frontend-build
 web-google: frontend-build
 	uv run archcompass --models-config config/models.google.yaml web
 
-# Drives the committed bundle in a real browser against a real server, with the model
+# Drives the built bundle in a real browser against a real server, with the model
 # substituted. Outside `check` because it needs Playwright's chromium downloaded.
 test-browser: frontend-build
 	uv run pytest -m browser -v
 
-check: lint typecheck test frontend-check bundle-check
+check: lint typecheck test frontend-check
 
 build: frontend-build
 	uv build --no-sources

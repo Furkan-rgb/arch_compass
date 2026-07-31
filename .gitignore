@@ -9,6 +9,11 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+# The frontend build output. Not committed: the build backend packs this directory from
+# disk rather than from git, and every target that serves or ships it (`web`, `build`,
+# `test-browser`) builds it first, so the wheel carries a fresh bundle either way. When it
+# is absent the server answers `frontend_not_built` instead of failing to start.
+src/archcompass/presentation/web/static/
 .archcompass/
 # This repository is also a workspace, so running `archcompass web` here writes the
 # workspace's own configuration from the packaged template. The configurations that ship
