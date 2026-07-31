@@ -8,8 +8,12 @@ import { cn } from "@/lib/utils"
   marked by 2px of accent on that rule and nothing else — the registry's pill-in-a-well says
   "pick a mode", which is a different claim about what is below.
 
-  The strip is chrome, so it bleeds back out through the page's own gutter and its rule runs
-  the width of the column.
+  The strip bleeds back out through the page's own gutter so its rule runs the width of the
+  column — but the rule is all it is. A surface is chrome only when something scrolls under
+  it, and this strip is not positioned: the `bg-chrome` it used to carry painted a band with
+  nothing behind it and the `backdrop-blur` beside it blurred the canvas against itself. Past
+  1472px the column stops growing, and that band stopped with it — chrome cut off square in
+  mid-canvas. Same reasoning as the page header, which gave up the same two utilities.
 
   The rule is an inset shadow rather than a border because the strip scrolls sideways when
   the sections outgrow a narrow window, and `overflow-x` cannot be authored alone: a box
@@ -26,7 +30,7 @@ function TabsList({ className, ...props }: React.ComponentProps<typeof TabsPrimi
     <TabsPrimitive.List
       data-slot="tabs-list"
       className={cn(
-        "flex gap-1 overflow-x-auto bg-chrome backdrop-blur-[var(--chrome-blur)] shadow-[inset_0_-1px_0_var(--rule)]",
+        "flex gap-1 overflow-x-auto shadow-[inset_0_-1px_0_var(--rule)]",
         "mx-[calc(var(--gutter)*-1)] mb-[var(--gap-lg)] px-[var(--gutter)]",
         className
       )}

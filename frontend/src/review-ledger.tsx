@@ -385,9 +385,15 @@ function LedgerRow({
                   Policies page, and these were inheriting its 255px floor, its hover lift
                   and its pointer cursor — a card of two lines stood a quarter of a screen
                   tall. */}
+              {/* The grid carries its own bottom margin. Without one the space under it was
+                  whatever the next block happened to bring: `FindingSource` brings 16px, a
+                  hinge brings nothing, and an excerpt that came back empty brings nothing —
+                  so the cards sat flush against the next thing on exactly the boundaries
+                  that have the most to say. Every gap in this detail is 16px after margins
+                  collapse, and this one is now no exception. */}
               <ul
                 data-slot="bearings"
-                className="m-0 grid list-none grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2.5 p-0"
+                className="m-0 mb-3 grid list-none grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2.5 p-0"
               >
                 {bearings.map((bearing) => (
                   <li
@@ -415,21 +421,30 @@ function LedgerRow({
               things a verdict rests on, and only this one is the reader's to fix — which is
               why it sits above the limits rather than being folded into them. */}
           {item.hinge ? (
-            <p className="mb-2 max-w-[78ch] border-l-2 border-accent-rule pl-3 text-ui leading-[1.6] text-ink-2">
+            // It draws its own rule, so it owns the space above that rule rather than taking
+            // whatever the block before it left: against the bearing cards, an accent edge
+            // starting flush with a card's bottom read as part of that card.
+            <p className="mt-4 mb-2 max-w-[78ch] border-l-2 border-accent-rule pl-3 text-ui leading-[1.6] text-ink-2">
               <strong className="text-accent-ink">
                 This verdict turns on an open question.
               </strong>{" "}
-              {item.hinge.unknown}{" "}
-              <span className="block">If so: {item.hinge.if_confirmed}</span>{" "}
-              <span className="block">If not: {item.hinge.if_denied}</span>
+              {item.hinge.unknown}
+              {/* Two answers to the question above, and they are alternatives rather than a
+                  sentence that wrapped — which is what three block spans at reading leading
+                  and no separation between them looked like. */}
+              <span className="mt-1 block">If so: {item.hinge.if_confirmed}</span>
+              <span className="mt-1 block">If not: {item.hinge.if_denied}</span>
             </p>
           ) : null}
 
           <FindingSource reviewId={reviewId} reference={item.reference} />
 
+          {/* What this finding could not see — a statement about the finding, not a caption
+              on the excerpt above it. With no margin it sat on the last code block and read
+              as one, so it takes the same 16px every other section here takes. */}
           <p
             data-slot="finding-limits"
-            className="m-0 max-w-[78ch] text-meta leading-[1.5] text-ink-3"
+            className="m-0 mt-4 max-w-[78ch] text-meta leading-[1.5] text-ink-3"
           >
             {item.candidate.limitations}
           </p>

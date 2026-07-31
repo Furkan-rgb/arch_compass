@@ -1316,6 +1316,18 @@ small { font-size: var(--s-meta); }
    page's whole layout depends on is. */
 @media (min-width: 1120px) {
   main:has(.page--asking) { padding-right: var(--ask-panel-width); }
+  /* The bar holds its contents in the same column the page does, so it has to give back the
+     same width — otherwise opening the drawer recentres the page and leaves the bar centred
+     on a viewport that is no longer what the reader is looking at, and the two left edges
+     part by half the drawer.
+
+     Padding, so only the column moves: the bar's own background still runs to the viewport
+     edge, which is right, because the drawer hangs below it rather than over it.
+
+     `:has()` from the shell's root element rather than from the header, since the class that
+     says a drawer is open is on the page inside <main> — the header's own sibling. The child
+     combinator is what keeps this to that one element instead of every ancestor it has. */
+  :has(.page--asking) > header[data-slot="app-bar"] { padding-right: var(--ask-panel-width); }
 }
 
 /* ── Reviews as a standing record ─────────────────────────────────────────────

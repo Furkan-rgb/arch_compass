@@ -161,72 +161,83 @@ export function Shell({ children }: { children: ReactNode }) {
           thing on this bar the reader cannot work out for themselves. */}
       {/* `--chrome` is translucent now, so every surface painted with it blurs behind
           itself — without that the bar reads as a smear of whatever scrolls under it. */}
-      <header className="sticky top-0 z-20 flex min-h-[52px] flex-wrap items-center gap-x-[18px] gap-y-1.5 border-b border-rule bg-chrome px-[var(--gutter)] py-2 backdrop-blur-[var(--chrome-blur)]">
-        <NavLink to="/" className="mr-1 flex items-center gap-2">
-          <span
-            className="grid size-[26px] flex-none place-items-center rounded-sm bg-primary font-display text-meta font-bold text-on-accent"
-            aria-hidden="true"
-          >
-            AC
-          </span>
-          <b className="font-display text-ui font-semibold tracking-[-.01em]">Arch Compass</b>
-        </NavLink>
-        <nav aria-label="Primary navigation" className="flex gap-0.5">
-          {navigation.map(({ to, label, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                cn(
-                  "rounded-sm px-3 py-1.5 text-ui",
-                  // The active pill is chrome rather than accent: it marks where you are,
-                  // and the accent in this design means "you can act on this". By day that
-                  // is a white chip lifted out of the translucent bar; by night the bar has
-                  // no lighter step to give, so it is the accent at 13% instead.
-                  isActive
-                    ? "bg-[var(--chrome-active)] font-[550] text-[var(--chrome-active-ink)]"
-                    : "text-ink-2 hover:bg-sunken hover:text-ink",
-                )
-              }
+      <header
+        data-slot="app-bar"
+        className="sticky top-0 z-20 min-h-[52px] border-b border-rule bg-chrome py-2 backdrop-blur-[var(--chrome-blur)]"
+      >
+        {/* The bar bleeds to the viewport because it is the surface the page scrolls under;
+            what it holds does not. Past 1472px the page column stops growing and centres, and
+            a bar whose contents stayed pinned to the viewport gutter left the brand a quarter
+            of a screen to the left of the first word under it. Same measurement as `page`,
+            with the gutter inside the column rather than on this element — that is what makes
+            the two left edges resolve to the same pixel instead of one gutter apart. */}
+        <div className="mx-auto flex min-h-[36px] w-[min(1400px,100%)] flex-wrap items-center gap-x-[18px] gap-y-1.5 px-[var(--gutter)]">
+          <NavLink to="/" className="mr-1 flex items-center gap-2">
+            <span
+              className="grid size-[26px] flex-none place-items-center rounded-sm bg-primary font-display text-meta font-bold text-on-accent"
+              aria-hidden="true"
             >
-              {label}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="flex-1" />
-        {/* The way to anything this workspace holds, and the keystroke that opens it. The
-            hint is the control: a shortcut nobody is told about is a shortcut nobody has. */}
-        <CommandPalette />
-        {/* What this workspace is pointed at, in the face its values are stored in. It
-            states itself rather than waiting to be asked: which model answered is the first
-            thing a verdict's credibility depends on. Mono and unweighted, against the chip's
-            own voice — this is a machine's name, not a judgement about anything. */}
-        <Badge
-          variant={workspace.isError ? "material" : "neutral"}
-          className={cn(
-            "min-w-0 gap-2 py-0.5 font-mono font-normal tracking-normal",
-            // The bar is --chrome and a chip is --surface; in the dark theme those are two
-            // different greys, so this one keeps the bar it sits on.
-            !workspace.isError && "bg-transparent",
-          )}
-          title={workspace.data?.workspace}
-        >
-          <span
+              AC
+            </span>
+            <b className="font-display text-ui font-semibold tracking-[-.01em]">Arch Compass</b>
+          </NavLink>
+          <nav aria-label="Primary navigation" className="flex gap-0.5">
+            {navigation.map(({ to, label, end }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={end}
+                className={({ isActive }) =>
+                  cn(
+                    "rounded-sm px-3 py-1.5 text-ui",
+                    // The active pill is chrome rather than accent: it marks where you are,
+                    // and the accent in this design means "you can act on this". By day that
+                    // is a white chip lifted out of the translucent bar; by night the bar has
+                    // no lighter step to give, so it is the accent at 13% instead.
+                    isActive
+                      ? "bg-[var(--chrome-active)] font-[550] text-[var(--chrome-active-ink)]"
+                      : "text-ink-2 hover:bg-sunken hover:text-ink",
+                  )
+                }
+              >
+                {label}
+              </NavLink>
+            ))}
+          </nav>
+          <div className="flex-1" />
+          {/* The way to anything this workspace holds, and the keystroke that opens it. The
+              hint is the control: a shortcut nobody is told about is a shortcut nobody has. */}
+          <CommandPalette />
+          {/* What this workspace is pointed at, in the face its values are stored in. It
+              states itself rather than waiting to be asked: which model answered is the first
+              thing a verdict's credibility depends on. Mono and unweighted, against the chip's
+              own voice — this is a machine's name, not a judgement about anything. */}
+          <Badge
+            variant={workspace.isError ? "material" : "neutral"}
             className={cn(
-              "size-1.5 flex-none rounded-full",
-              workspace.isError ? "bg-danger" : "bg-cleared",
+              "min-w-0 gap-2 py-0.5 font-mono font-normal tracking-normal",
+              // The bar is --chrome and a chip is --surface; in the dark theme those are two
+              // different greys, so this one keeps the bar it sits on.
+              !workspace.isError && "bg-transparent",
             )}
-          />
-          <span className="overflow-hidden text-ellipsis whitespace-nowrap">
-            {workspace.isError
-              ? "workspace unavailable"
-              : reasoning
-                ? `${reasoning.provider} · ${reasoning.model}`
-                : "reading workspace…"}
-          </span>
-        </Badge>
-        <ThemeControl />
+            title={workspace.data?.workspace}
+          >
+            <span
+              className={cn(
+                "size-1.5 flex-none rounded-full",
+                workspace.isError ? "bg-danger" : "bg-cleared",
+              )}
+            />
+            <span className="overflow-hidden text-ellipsis whitespace-nowrap">
+              {workspace.isError
+                ? "workspace unavailable"
+                : reasoning
+                  ? `${reasoning.provider} · ${reasoning.model}`
+                  : "reading workspace…"}
+            </span>
+          </Badge>
+          <ThemeControl />
+        </div>
       </header>
       <main className="min-h-[calc(100vh-52px)]">{children}</main>
     </div>
@@ -253,11 +264,15 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    // A chrome bar rather than page content, so it bleeds back out through the page's own
-    // gutter and its rule runs the width of the column.
+    // It bleeds back out through the page's own gutter so its rule runs the width of the
+    // column — but the rule is all it is. A surface is chrome only when something scrolls
+    // under it, which here is the sticky bar and nothing else: this row is not positioned,
+    // so its `bg-chrome` painted a band with nothing behind it to blur and its
+    // `backdrop-blur` blurred the canvas against itself. On a wide screen that band stopped
+    // at the column edge and read as chrome cut off in mid-air. The rule was doing the work.
     <header
       data-slot="page-header"
-      className="mx-[calc(var(--gutter)*-1)] -mt-[26px] mb-[26px] flex min-h-[50px] flex-wrap items-center gap-x-3.5 gap-y-2 border-b border-rule bg-chrome px-[var(--gutter)] py-2 backdrop-blur-[var(--chrome-blur)]"
+      className="mx-[calc(var(--gutter)*-1)] -mt-[26px] mb-[26px] flex min-h-[50px] flex-wrap items-center gap-x-3.5 gap-y-2 border-b border-rule px-[var(--gutter)] py-2"
     >
       {/* Everything in the trail is quieter than the record's own name, whatever it is —
           the parent link, the separator, and any chip the caller hangs off the end. That
