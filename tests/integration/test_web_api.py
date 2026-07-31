@@ -753,3 +753,173 @@ def test_browsing_somewhere_unbrowsable_refuses_with_a_problem_detail(
     assert str(tmp_path / "gone") in missing.json()["message"]
     assert a_file.status_code == 422
     assert "not a folder" in a_file.json()["message"]
+
+
+#: The nine headings `parse_policy` requires, each given a sentence. Written out rather than
+#: borrowed from a bundled file, because what these tests are about is a body someone typed.
+AUTHORED_SECTIONS = (
+    "Intent",
+    "Guidance",
+    "Signals",
+    "Diagnostic questions",
+    "Likely consequences",
+    "Exceptions",
+    "Positive example",
+    "Counterexample",
+    "Related policies",
+)
+
+
+def _authored_body() -> str:
+    return "\n".join(
+        f"## {heading}\nWhat this policy says about {heading.lower()}."
+        for heading in AUTHORED_SECTIONS
+    )
+
+
+def _draft(**overrides: object) -> dict[str, object]:
+    return {
+        "title": "Keep imports pointing inward",
+        "description": "A module that imports its caller has no boundary left to defend.",
+        "body": _authored_body(),
+        "tags": ["dependencies", "layering"],
+        "strength": "preferred",
+        **overrides,
+    }
+
+
+def test_a_policy_authored_over_the_api_is_a_file_the_corpus_reads(
+    runtime: Runtime,
+) -> None:
+    """Created, edited and deleted through the API; Markdown on disk the whole time.
+
+    The point of the round trip is that nothing about an authored policy is a second class
+    of record: it is written where the workspace keeps its own, read back through the same
+    parser as the bundled corpus, and listed beside it.
+    """
+
+    authored = runtime.workspace / ".archcompass" / "policies"
+
+    with TestClient(create_app(runtime)) as client:
+        created = client.post("/api/policies", json=_draft())
+        assert created.status_code == 201, created.text
+        policy = created.json()
+        # The id is derived from the title rather than sent: one name for the thing, and it
+        # is the name every citation of it will use.
+        assert policy["id"] == "keep-imports-pointing-inward"
+        assert policy["scope"] == "general"
+        assert policy["origin"] == "workspace"
+        assert policy["tags"] == ["dependencies", "layering"]
+
+        written = authored / "keep-imports-pointing-inward.md"
+        assert written.is_file()
+        assert written.read_text(encoding="utf-8").startswith("---\n")
+        assert policy["source_path"] == str(written)
+
+        listed = client.get("/api/policies")
+        assert listed.status_code == 200
+        catalog = {item["id"]: item for item in listed.json()}
+        assert catalog["keep-imports-pointing-inward"]["origin"] == "workspace"
+        # Everything else in reach is somebody else's file, and says so.
+        assert {
+            item["origin"]
+            for item in catalog.values()
+            if item["id"] != "keep-imports-pointing-inward"
+        } == {"external"}
+
+        edited = client.put(
+            "/api/policies/keep-imports-pointing-inward",
+            json=_draft(
+                title="Keep every import pointing inward",
+                strength="required",
+                tags=["layering"],
+            ),
+        )
+        assert edited.status_code == 200, edited.text
+        # The title moved and the id did not follow it: an id is what a review cites.
+        assert edited.json()["id"] == "keep-imports-pointing-inward"
+        assert edited.json()["title"] == "Keep every import pointing inward"
+        assert edited.json()["strength"] == "required"
+        assert [path.name for path in authored.glob("*.md")] == [
+            "keep-imports-pointing-inward.md"
+        ]
+
+        deleted = client.delete("/api/policies/keep-imports-pointing-inward")
+        assert deleted.status_code == 204, deleted.text
+        assert not written.exists()
+        assert client.get("/api/policies/keep-imports-pointing-inward").status_code == 404
+
+
+def test_an_authored_policy_cannot_take_an_id_the_corpus_already_holds(
+    runtime: Runtime,
+) -> None:
+    """Two policies under one id is a corpus that will not load, so it is refused first."""
+
+    with TestClient(create_app(runtime)) as client:
+        collision = client.post(
+            "/api/policies", json=_draft(title="Delay premature abstraction")
+        )
+
+    assert collision.status_code == 409, collision.text
+    assert collision.json()["code"] == "state_conflict"
+    assert "delay-premature-abstraction" in collision.json()["message"]
+    assert not (runtime.workspace / ".archcompass" / "policies").exists()
+
+
+def test_policies_read_from_elsewhere_are_not_this_workspace_to_rewrite(
+    runtime: Runtime,
+) -> None:
+    """Bundled rules are read here, not owned here, and both writes say so as a conflict."""
+
+    with TestClient(create_app(runtime)) as client:
+        bundled = client.get("/api/policies/delay-premature-abstraction")
+        assert bundled.status_code == 200
+        assert bundled.json()["origin"] == "external"
+
+        edited = client.put("/api/policies/delay-premature-abstraction", json=_draft())
+        deleted = client.delete("/api/policies/delay-premature-abstraction")
+
+        assert edited.status_code == 409, edited.text
+        assert deleted.status_code == 409, deleted.text
+        assert "does not own" in deleted.json()["message"]
+        # Refused rather than half-applied: the bundled file is still the one it was.
+        unchanged = client.get("/api/policies/delay-premature-abstraction")
+        assert unchanged.json()["content_hash"] == bundled.json()["content_hash"]
+
+
+def test_a_policy_that_cannot_be_read_back_is_never_left_on_disk(
+    runtime: Runtime,
+) -> None:
+    """The check is the parser, not a second opinion about what a policy looks like.
+
+    A body missing sections is written, parsed, refused and removed, so the corpus never
+    holds a file the next review would fail to load — and an edit refused that way leaves
+    the policy it was an edit of exactly as it was.
+    """
+
+    authored = runtime.workspace / ".archcompass" / "policies"
+
+    with TestClient(create_app(runtime)) as client:
+        refused = client.post(
+            "/api/policies",
+            json=_draft(body="## Intent\nSomething, but not the nine sections."),
+        )
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["code"] == "validation_error"
+        assert "missing sections" in refused.json()["message"]
+        assert list(authored.glob("*")) == []
+
+        # A title with nothing to make an id out of is refused by the contract instead.
+        assert client.post("/api/policies", json=_draft(title="...")).status_code == 422
+
+        assert client.post("/api/policies", json=_draft()).status_code == 201
+        written = authored / "keep-imports-pointing-inward.md"
+        before = written.read_text(encoding="utf-8")
+        broken = client.put(
+            "/api/policies/keep-imports-pointing-inward",
+            json=_draft(body="## Intent\nNot enough of a policy to store."),
+        )
+
+        assert broken.status_code == 422, broken.text
+        assert written.read_text(encoding="utf-8") == before
+        assert list(authored.glob("*.md.staged")) == []

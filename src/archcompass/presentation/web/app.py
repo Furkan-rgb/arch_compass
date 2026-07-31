@@ -43,6 +43,7 @@ from archcompass.domain.errors import (
     ModelOutputValidationError,
     PathValidationError,
     PersistenceError,
+    PolicyConflictError,
     PolicyFormatError,
     PolicyNotFoundError,
     ProviderError,
@@ -51,7 +52,11 @@ from archcompass.domain.errors import (
     ReviewStillRunningError,
     StaleAtlasError,
 )
-from archcompass.domain.policy import PolicyDocument, PolicySourceRegistration
+from archcompass.domain.policy import (
+    PolicyDocument,
+    PolicyDraft,
+    PolicySourceRegistration,
+)
 from archcompass.domain.review import BoundaryExcerpt, BoundaryReview
 from archcompass.domain.review_conversation import ReviewConversation, ReviewMessage
 from archcompass.domain.workspace import (
@@ -951,6 +956,35 @@ def create_app(runtime: Runtime) -> FastAPI:
             removed=runtime.policy_service.remove_source(Path(source))
         )
 
+    @app.post("/api/policies", status_code=201, responses=_problem_responses(409, 422))
+    def create_policy(draft: PolicyDraft) -> PolicyDocument:
+        """Write a policy of this workspace's own into `<workspace>/.archcompass/policies`.
+
+        A real Markdown file in the format every other policy is in, so nothing about it is
+        second-class: the next review reads it from disk with the rest of the corpus, and it
+        remains editable in an editor after this page has forgotten about it.
+        """
+
+        return runtime.policy_service.create(draft)
+
+    @app.put(
+        "/api/policies/{policy_id}",
+        responses=_problem_responses(404, 409, 422),
+    )
+    def update_policy(policy_id: str, draft: PolicyDraft) -> PolicyDocument:
+        """Rewrite one of this workspace's policies. Anything read from elsewhere is a 409."""
+
+        return runtime.policy_service.update(policy_id, draft)
+
+    @app.delete(
+        "/api/policies/{policy_id}",
+        status_code=204,
+        responses=_problem_responses(404, 409),
+    )
+    def delete_policy(policy_id: str) -> Response:
+        runtime.policy_service.delete(policy_id)
+        return Response(status_code=204)
+
     @app.get("/api/policies/{policy_id}", responses=_problem_responses(404))
     def get_policy(
         policy_id: str, repository_root: str | None = None
@@ -1244,6 +1278,7 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
         (
             CaseRevisionConflictError,
             ConversationRevisionConflictError,
+            PolicyConflictError,
             ReviewNotCancellableError,
             ReviewStillRunningError,
             StaleAtlasError,

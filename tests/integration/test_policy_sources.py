@@ -10,6 +10,7 @@ from archcompass.adapters.persistence.policy_source_repository import (
 )
 from archcompass.adapters.retrieval.policy_markdown import (
     MarkdownPolicySourceInspector,
+    MarkdownPolicyStore,
 )
 from archcompass.application.policies import PolicyService
 from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
@@ -47,6 +48,11 @@ def _service(database: SQLiteDatabase) -> PolicyService:
         source_repository=SQLitePolicySourceRepository(database),
         source_inspector=MarkdownPolicySourceInspector(),
         bundled_sources=(BUNDLED_POLICY_SOURCE,),
+        # Beside the database, as it is in a real workspace. Nothing here writes one; what
+        # matters is that it is a directory of its own, so a registered source is never
+        # mistaken for the one this workspace authors into.
+        authored_source=database.path.parent / ".archcompass" / "policies",
+        policy_store=MarkdownPolicyStore(),
     )
 
 

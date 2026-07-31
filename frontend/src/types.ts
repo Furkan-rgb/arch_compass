@@ -151,6 +151,11 @@ export interface FailureDiagnostic {
   count?: number | null;
 }
 
+export type PolicyStrength = OpenAPIComponents["schemas"]["PolicyStrength"];
+export type PolicyOrigin = OpenAPIComponents["schemas"]["PolicyOrigin"];
+/** A policy as it is authored: what the form sends, and all the server accepts. */
+export type PolicyDraft = OpenAPIComponents["schemas"]["PolicyDraft"];
+
 export interface Policy {
   id: string;
   title: string;
@@ -164,6 +169,14 @@ export interface Policy {
   body: string;
   source_path: string;
   content_hash: string;
+  /**
+   * Whose file this is, and so whether this workspace may rewrite it.
+   *
+   * Read from the server and never worked out here. Which directory a policy came from is a
+   * fact the workspace holds — a page that guessed it from `source_path` would offer an edit
+   * the server then refuses, or worse, hide one it would have allowed.
+   */
+  origin?: PolicyOrigin;
 }
 
 export interface PolicyApplicability {
