@@ -1020,6 +1020,23 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "review_report_api_reviews__review_id__report_get": {
+    parameters: {
+      query: never;
+      path: {
+      "review_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": unknown;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
+    };
+  };
   "review_source_api_reviews__review_id__source_get": {
     parameters: {
       query: {
@@ -1218,6 +1235,9 @@ export interface paths {
   };
   "/api/reviews/{review_id}/cancel": {
     post: operations["cancel_review_api_reviews__review_id__cancel_post"];
+  };
+  "/api/reviews/{review_id}/report": {
+    get: operations["review_report_api_reviews__review_id__report_get"];
   };
   "/api/reviews/{review_id}/score": {
     get: operations["score_review_api_reviews__review_id__score_get"];

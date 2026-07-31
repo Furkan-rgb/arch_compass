@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from queue import Queue
@@ -46,13 +47,14 @@ from archcompass.domain.errors import (
     PolicyFormatError,
     PolicyNotFoundError,
     ProviderError,
+    ReviewHasNoReportError,
     ReviewNotCancellableError,
     ReviewNotFoundError,
     ReviewStillRunningError,
     StaleAtlasError,
 )
 from archcompass.domain.policy import PolicyDocument, PolicySourceRegistration
-from archcompass.domain.review import BoundaryExcerpt, BoundaryReview
+from archcompass.domain.review import BoundaryExcerpt, BoundaryReview, ReviewStatus
 from archcompass.domain.review_conversation import ReviewConversation, ReviewMessage
 from archcompass.domain.workspace import (
     BoundaryReviewSummary,
@@ -760,6 +762,49 @@ def create_app(runtime: Runtime) -> FastAPI:
             context_lines=context_lines,
         )
 
+    @app.get(
+        "/api/reviews/{review_id}/report",
+        response_class=Response,
+        responses={
+            200: {
+                "content": {"text/markdown": {}},
+                "description": "The stored report, as a file named after the review.",
+            },
+            **_problem_responses(404, 409, 422),
+        },
+    )
+    def review_report(review_id: str) -> Response:
+        """The review as the Markdown document it was already written as.
+
+        The stored string, handed over unchanged. It was rendered once, at the moment the
+        review concluded, from the report pinned to the case revision and the atlas that
+        produced it — rendering it again here would let the exported file drift from the
+        record it claims to be, on nothing more than a change to the renderer.
+
+        A review with no report is a conflict rather than a 404: the review is there, and
+        what is absent is a document that either has not been written yet or never will be.
+        """
+
+        review = runtime.review_repository.get(review_id)
+        if review.markdown_report is None:
+            if review.status is ReviewStatus.RUNNING:
+                raise ReviewStillRunningError(
+                    "That review is still running, so there is no report to export yet."
+                )
+            raise ReviewHasNoReportError(
+                f"That review is {review.status.value} and reached no verdicts, so there "
+                "is no report to export."
+            )
+        return Response(
+            content=review.markdown_report,
+            media_type="text/markdown",
+            headers={
+                "content-disposition": (
+                    f'attachment; filename="{_report_filename(review_id)}"'
+                )
+            },
+        )
+
     @app.post(
         "/api/reviews/{review_id}/answers",
         status_code=201,
@@ -1012,6 +1057,18 @@ def _static_cache_headers(served: Path) -> dict[str, str]:
     return {"cache-control": "no-cache"}
 
 
+#: Everything a downloaded filename is allowed to keep. Review identifiers are generated
+#: and already safe, but this name leaves in a header a browser writes straight to disk, so
+#: it is built from what survives the filter rather than from what arrived in the path.
+_UNSAFE_IN_FILENAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _report_filename(review_id: str) -> str:
+    """Named after the review, because a folder of these has to stay tellable apart."""
+
+    return f"archcompass-review-{_UNSAFE_IN_FILENAME.sub('-', review_id)}.md"
+
+
 def _directory_listing(requested: Path) -> DirectoryListing:
     """One directory read for the picker, or a `PathValidationError` naming what went wrong.
 
@@ -1244,6 +1301,7 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
         (
             CaseRevisionConflictError,
             ConversationRevisionConflictError,
+            ReviewHasNoReportError,
             ReviewNotCancellableError,
             ReviewStillRunningError,
             StaleAtlasError,

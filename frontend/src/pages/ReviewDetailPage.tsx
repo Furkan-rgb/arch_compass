@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, CircleCheck, FlaskConical, MessageCircleQuestion, X } from "lucide-react";
+import { ArrowRight, CircleCheck, Download, FlaskConical, MessageCircleQuestion, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -557,6 +557,33 @@ export function AskAction({
   );
 }
 
+/**
+ * The review as the file it was already written as.
+ *
+ * An anchor rather than a request: the workspace answers with `Content-Disposition`, so the
+ * browser saves the response itself. Nothing is fetched, held or revoked here, and the
+ * control is keyboard-reachable because it is a link — which is also why this is the one
+ * call that does not go through `api.ts`, where every function reads a body.
+ *
+ * `download` is on it so a refusal stays a failed download rather than navigating the reader
+ * off their own review onto a page of JSON.
+ *
+ * Absent rather than greyed while there is nothing to hand over, which is the opposite of
+ * what asking does — and for the opposite reason. Asking is a capability of the review that
+ * a reader has to learn exists; exporting a report that does not exist is not a refusal
+ * worth explaining, it is a run that has not finished.
+ */
+export function ExportAction({ reviewId, available }: { reviewId: string; available: boolean }) {
+  if (!available) return null;
+  return (
+    <Button asChild>
+      <a href={`/api/reviews/${encodeURIComponent(reviewId)}/report`} download>
+        <Download size={14} aria-hidden /> Export Markdown
+      </a>
+    </Button>
+  );
+}
+
 type TabId = "findings" | "questions" | "runlog" | "atlas";
 
 /** A run's length, in the units a reader counts model calls in. */
@@ -1016,11 +1043,20 @@ export function ReviewDetailPage() {
         parent={{ to: "/reviews", label: "Reviews" }}
         meta={<Badge variant="accent">case rev {caseRevision}</Badge>}
         action={
-          <AskAction
-            status={status}
-            expanded={showAsking}
-            onToggle={() => setAsking((value) => !value)}
-          />
+          <>
+            {/* Before the primary control and quieter than it: taking the review away is
+                something a reader does with a page they have finished with, and asking is
+                what the page is for. */}
+            <ExportAction
+              reviewId={reviewId}
+              available={Boolean(review.data?.markdown_report)}
+            />
+            <AskAction
+              status={status}
+              expanded={showAsking}
+              onToggle={() => setAsking((value) => !value)}
+            />
+          </>
         }
       />
 

@@ -12,6 +12,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from archcompass.bootstrap import Runtime
+from archcompass.domain.review import ReviewStatus
 from archcompass.presentation.web import create_app
 
 FIXTURE = "boundary-review"
@@ -331,6 +332,87 @@ def test_the_api_serves_the_code_a_finding_was_measured_from(runtime: Runtime) -
         )
 
 
+def test_a_finished_review_downloads_as_the_markdown_it_was_written_as(
+    runtime: Runtime,
+) -> None:
+    """Export hands over the stored document, not a second rendering of the same review.
+
+    Byte-for-byte against `markdown_report` is the whole assertion. A route that re-rendered
+    would pass every test about headings and still be wrong: the file a reader keeps has to
+    be the report the workspace stored when the review concluded, so the two cannot drift.
+    """
+
+    with TestClient(create_app(runtime)) as client:
+        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
+        repository_root = {
+            item["name"]: item for item in client.get("/api/bundled-cases").json()
+        }[FIXTURE]["repository_root"]
+        created = client.post(
+            "/api/reviews",
+            json={"case_id": loaded.json()["case_id"], "repository_root": repository_root},
+        )
+        assert created.status_code == 201, created.text
+        review = created.json()
+        review_id = review["review_id"]
+
+        exported = client.get(f"/api/reviews/{review_id}/report")
+
+    assert exported.status_code == 200, exported.text
+    assert exported.text == review["markdown_report"]
+    assert exported.headers["content-type"].startswith("text/markdown")
+    # The header is what makes this a download rather than a page: without the filename the
+    # browser saves the review under its route, and every export lands as `report`.
+    disposition = exported.headers["content-disposition"]
+    assert disposition.startswith("attachment;")
+    assert f'filename="archcompass-review-{review_id}.md"' in disposition
+
+
+def test_a_review_with_no_report_refuses_the_download_rather_than_serving_nothing(
+    runtime: Runtime,
+) -> None:
+    """The two absences a reader can meet, told apart by whether waiting would help.
+
+    A run in progress will have a report shortly; one that was stopped never will. Both are
+    conflicts rather than 404s — the review is there, and it is the document that is not.
+    """
+
+    with TestClient(create_app(runtime)) as client:
+        assert client.get("/api/reviews/rev_missing/report").status_code == 404
+
+        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
+        finished = client.post(
+            "/api/reviews",
+            json={
+                "case_id": loaded.json()["case_id"],
+                "repository_root": client.get("/api/repositories").json()[0]["root_path"],
+            },
+        ).json()
+        # Written into the store rather than raced against a real run: the substitute
+        # provider finishes faster than a request can be made against a running review.
+        running = runtime.review_repository.get(finished["review_id"]).model_copy(
+            update={
+                "review_id": "rev_stillrunning",
+                "status": ReviewStatus.RUNNING,
+                "report": None,
+                "markdown_report": None,
+            }
+        )
+        runtime.review_repository.begin(running)
+
+        waiting = client.get(f"/api/reviews/{running.review_id}/report")
+        assert waiting.status_code == 409, waiting.text
+        assert waiting.json()["code"] == "state_conflict"
+        assert "still running" in waiting.json()["message"]
+        # Worth asking again, and the only one of the two that is.
+        assert waiting.json()["retryable"] is True
+
+        assert runtime.review_repository.cancel(running.review_id)
+        stopped = client.get(f"/api/reviews/{running.review_id}/report")
+        assert stopped.status_code == 409, stopped.text
+        assert "cancelled" in stopped.json()["message"]
+        assert stopped.json()["retryable"] is False
+
+
 def test_the_api_answers_a_whole_map_in_one_request(runtime: Runtime) -> None:
     """The route behind the atlas tab opening with context rather than isolated boxes.
 
@@ -595,6 +677,7 @@ def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> N
         "/api/review-conversations/{conversation_id}/messages",
         "/api/review-conversations/{conversation_id}/messages/stream",
         "/api/reviews/{review_id}/score",
+        "/api/reviews/{review_id}/report",
         "/api/repositories/explore",
         "/api/repositories/review-context",
     ):

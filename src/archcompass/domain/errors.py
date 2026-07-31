@@ -86,6 +86,15 @@ class ReviewStillRunningError(ArchCompassError):
     """The review is being produced right now, and the request needs it not to be."""
 
 
+class ReviewHasNoReportError(ArchCompassError):
+    """The review ended without reaching a verdict, so it has no document to hand over.
+
+    Kept apart from `ReviewStillRunningError`, which is the same absence with an opposite
+    remedy: a run in progress will have a report shortly, and one that failed or was
+    cancelled never will. Running it again produces a different review, not this one.
+    """
+
+
 class ProviderError(ArchCompassError):
     pass
 
