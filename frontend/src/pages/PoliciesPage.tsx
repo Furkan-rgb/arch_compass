@@ -7,11 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -378,29 +378,39 @@ export function PoliciesPage() {
         </ul>
       </section>
 
-      {/* A policy is a document, so it opens as one: full height at the right, at reading
-          width, with the corpus it came from still visible beside it. Modal, unlike the
-          review's question panel — this is a thing to read rather than a thing to ask about
-          what is behind it, so the page behind is genuinely out of reach. */}
-      <Sheet
+      {/* A policy is a document, so it opens as one: a card at reading width, in the middle
+          of the page, with the corpus it came from dimmed behind it. It was a drawer at the
+          right edge, which is the shape for a panel opened beside a record to work on it —
+          but this one is modal, so nothing beside it was legible anyway, and all the edge
+          bought was a reading column with the reader's attention elsewhere.
+
+          The overlay is the scroller, as it is for the case layer: policy bodies run from
+          three lines to several screens, and a card that grows past the window and scrolls
+          the page it floats on beats a fixed frame with the prose scrolling inside it. */}
+      <Dialog
         open={selected !== null}
         onOpenChange={(open) => {
           if (!open) setSelected(null);
         }}
       >
         {selected ? (
-          <SheetContent
-            data-slot="policy-drawer"
-            // Its own close button, in the head beside the title, rather than the drawer's
-            // floating one: the head is already a row with the title on one side of it.
+          <DialogContent
+            data-slot="policy-card"
+            // Its own close button, in the head beside the title, rather than the floating
+            // one: the head is already a row with the title on one side of it.
             showCloseButton={false}
             aria-labelledby="policy-title"
+            // Wider than the dialog's default measure, which is sized for a question. This
+            // holds a document — headings, lists, the odd code block — at the width the
+            // markdown in the rest of the app is set to.
+            className="max-w-[760px]"
+            overlayClassName="px-[var(--gutter)] py-6"
           >
-            <SheetHeader>
+            <DialogHeader className="flex-row items-start justify-between gap-3">
               <div>
-                <SheetTitle id="policy-title" className="mb-0.5">
+                <DialogTitle id="policy-title" className="mb-0.5 leading-tight">
                   {selected.title}
-                </SheetTitle>
+                </DialogTitle>
                 <code className="text-micro text-ink-3">{selected.id}</code>
               </div>
               <Button
@@ -412,7 +422,7 @@ export function PoliciesPage() {
               >
                 <X size={14} aria-hidden />
               </Button>
-            </SheetHeader>
+            </DialogHeader>
             {/* What this policy is, as facts rather than prose: a well of its own, holding
                 the row of facts sized by what is in them rather than by a track — a policy
                 with four tags and one with none are the same shape of statement, and equal
@@ -445,9 +455,9 @@ export function PoliciesPage() {
             <p className="m-0 border-t border-rule-soft pt-3 text-micro text-ink-3 [overflow-wrap:anywhere]">
               <code>{selected.source_path}</code>
             </p>
-          </SheetContent>
+          </DialogContent>
         ) : null}
-      </Sheet>
+      </Dialog>
     </div>
   );
 }
