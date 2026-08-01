@@ -1537,3 +1537,494 @@ small { font-size: var(--s-meta); }
 [data-slot="source-excerpt"] .token.inserted { color: var(--excerpt-added, var(--code-added)); }
 [data-slot="source-excerpt"] .token.deleted { color: var(--excerpt-removed, var(--code-removed)); }
 [data-slot="source-excerpt"] pre code { display: block; color: var(--ink); font-size: var(--s-ui); line-height: 1.55; white-space: pre; tab-size: 4; }
+
+/* ── The front door ───────────────────────────────────────────────────────────
+   Everything from here to the end of the sheet belongs to `/` and to nothing
+   else. Three things run under and beside the page's own words — the ground the
+   sections stand on, the course plotted through them, and a comet travelling each
+   of the course's segments — and none of them is something the page could have
+   written in utilities: they are pseudo-elements, keyframes, scroll timelines and
+   full-bleed offsets.
+
+   All of it is decorative by construction. There is no element to label, nothing
+   takes a tab stop, and no screen reader has anything to announce.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* Both of these are load-bearing, and one alone does nothing.
+
+   The ground's full-bleed layers reach the viewport edge with `calc(50% - 50vw)`,
+   and `100vw` counts the scrollbar the column does not, so they overshoot by half
+   of one per side. Declared on the body alone that overshoot stays in the
+   document's scroll width: while the root's overflow is `visible` the body's is
+   propagated to the viewport and the body's own used value goes back to
+   `visible`, so nothing clips. Declaring it on the root stops that propagation,
+   which is what lets the body's own rule apply to the body.
+
+   `clip` over a `hidden` fallback in both places: it clips without making either
+   axis a scroll container.
+
+   Scoped to the page that needs it rather than stated globally. Every other
+   surface in this workspace holds its own scrollers — the atlas canvas, a filter
+   bar, a fenced block — and a document-level clip would silently turn any
+   overflow they ever fail to contain from reachable into invisible.
+
+   Measured on the page it does apply to: scroll width equals client width at 380,
+   620, 880, 1024, 1260 and 1440, and the bands still reach both viewport edges. */
+html:has(.home-hero) {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+html:has(.home-hero) body {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+/* ── The ground ───────────────────────────────────────────────────────────────
+   What every section stands on. Three layers and no fourth: chart paper, two
+   anchored pools of depth, and two sunken fields.
+
+   The layers sit at `z-index: 0` and the sections' own children are lifted to
+   `1`, rather than the obvious `z-index: -1`. A negative layer paints before every
+   in-flow box in the root stacking context, and `body` carries a background of its
+   own — so the ground would be drawn and then painted over by the canvas. At zero
+   the order is document order among positioned boxes, which is the field, then the
+   chart paper, then everything the page actually says.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* The three values the ground is made of, and the page has no fourth background
+   of any kind. All three darken by day and by night — a field is a recess in both
+   materials, which is why body text only ever gains contrast where they reach.
+
+   `--ground-field` lands on `--sunken` by day, which is what a well is here; by
+   night it lands on the map's own ground, so the field the instrument sits in is
+   the same ground the atlas beside it is drawn on. */
+:root {
+  --ground-grid: rgb(29 27 24 / 4%);
+  --ground-field: rgb(29 27 24 / 2.5%);
+  /* By day this is not a glow — a glow on porcelain is a smudge. It is a cool
+     pool of depth: the accent at a fortieth, which reads as porcelain gone
+     slightly grey and slightly cold rather than as a colour.
+
+     It is also as far as it may go. A pool darkens the ground, and the ink this
+     design will not go lighter than — `--ink-3` — sits at 4.73:1 on bare canvas.
+     2.5% takes it to 4.56, and 5% would take it under AA. The measurement is the
+     limit, not the taste. */
+  --ground-pool: rgb(47 95 224 / 2.5%);
+  /* And the field gets none of it: `--ground-field` has already spent the
+     contrast a pool would need. By day the recess is the depth. */
+  --ground-lamp: transparent;
+}
+[data-theme="dark"] {
+  --ground-grid: rgb(255 255 255 / 4.5%);
+  /* Black, not white: by night a field is cut *into* the canvas, which is what
+     lets the sheet and the map panel float above it — a lightened band would sit
+     at exactly `--surface` and the instrument would vanish into its own case. */
+  --ground-field: rgb(0 0 0 / 32%);
+  /* Onyx can afford the lamp porcelain cannot: over the field this leaves
+     `--ink-3` at 4.78:1 and over bare canvas at 4.60:1, both clear of AA. */
+  --ground-pool: rgb(124 156 255 / 9%);
+  --ground-lamp: rgb(124 156 255 / 9%);
+}
+
+.home-hero,
+.home-run-field,
+.home-record-field { position: relative; }
+
+.home-hero > *,
+.home-run-field > *,
+.home-record-field > * { position: relative; z-index: 1; }
+
+.home-hero::before,
+.home-hero::after,
+.home-run-field::before,
+.home-run-field::after,
+.home-record-field::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: calc(50% - 50vw);
+  right: calc(50% - 50vw);
+  pointer-events: none;
+}
+
+/* 1 — Chart paper. The atlas's own 24px grid, at a whisper, and only where the
+   product's map world justifies it: behind the hero and behind The Run. Masked
+   rather than tiled flat, so it is densest under the specimen card and under the
+   map, and gone by the time it reaches a paragraph. */
+.home-hero::before,
+.home-run-field::after {
+  background-image:
+    linear-gradient(to right, var(--ground-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ground-grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.home-hero::before {
+  top: -10%;
+  bottom: 0;
+  -webkit-mask-image: radial-gradient(96% 96% at 72% 44%, #000 22%, transparent 78%);
+  mask-image: radial-gradient(96% 96% at 72% 44%, #000 22%, transparent 78%);
+}
+.home-run-field::after {
+  top: 0;
+  bottom: 0;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 82%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 82%, transparent);
+}
+
+/* 2 — Two anchored pools, and there is no third. One under the hero's specimen
+   card, one under the map, so the two floating objects on this page have
+   something to float on. Both darken their ground in both themes, so every
+   passage they reach gains contrast rather than losing it. */
+.home-hero::after {
+  top: -20%;
+  bottom: -14%;
+  background: radial-gradient(58% 78% at 72% 48%, var(--ground-pool), transparent 76%);
+}
+
+/* 3 — The field. A full-bleed recess the instrument is set into, drawn as the
+   day's well and the night's atlas ground. Two on the page and no more: The Run,
+   and the record it writes. */
+.home-run-field::before,
+.home-record-field::before {
+  top: 0;
+  bottom: 0;
+  background-color: var(--ground-field);
+}
+.home-run-field::before {
+  background-image: radial-gradient(62% 72% at 30% 54%, var(--ground-lamp), transparent 74%);
+}
+
+/* Below the hero's collapse the two things the ground is anchored to have moved
+   under the text rather than beside it, so the pools and the chart paper follow
+   them. */
+@media (max-width: 880px) {
+  .home-hero::before {
+    -webkit-mask-image: radial-gradient(96% 62% at 50% 76%, #000 10%, transparent 76%);
+    mask-image: radial-gradient(96% 62% at 50% 76%, #000 10%, transparent 76%);
+  }
+  .home-hero::after {
+    background: radial-gradient(72% 44% at 50% 76%, var(--ground-pool), transparent 78%);
+  }
+  .home-run-field::before {
+    background-image: radial-gradient(86% 38% at 50% 42%, var(--ground-lamp), transparent 76%);
+  }
+}
+
+/* ── The Run, replayed ────────────────────────────────────────────────────────
+   The section draws the app's own `JudgingLedger` and `VerdictBand`. What is here
+   is only where this one placement differs from what those components draw
+   everywhere else, and each difference is a fact about the placement rather than
+   a second opinion about the component.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* The map beside it is already saying where each boundary sits, so the ledger
+   gives that column back and spends the room on the qualified name instead. A
+   row's six cells are fixed by `rowProps`, in one order, and the fourth of them is
+   the location — hidden rather than emptied, because a cell left in place would
+   still hold its track open. Below 860px the row drops columns of its own and four
+   cells land in the four tracks the component already asks for. */
+.home-replay [data-slot="ledger-row"] {
+  grid-template-columns: var(--stripe-col) 20px minmax(0, 1fr) auto auto;
+}
+.home-replay [data-slot="ledger-row"] > :nth-child(4) { display: none; }
+@media (max-width: 860px) {
+  .home-replay [data-slot="ledger-row"] {
+    grid-template-columns: var(--stripe-col) 20px minmax(0, 1fr) auto;
+  }
+}
+
+/* ── The specimen map ─────────────────────────────────────────────────────────
+   Every rule the map is drawn with is the atlas's, above. These are the things a
+   decorative map inside a narrow column needs that a workbench canvas does not: a
+   panel that is a column, a canvas that scrolls sideways rather than shrinking its
+   own type past reading, and no pointer affordances on a map nothing can be done
+   to.
+   ──────────────────────────────────────────────────────────────────────────── */
+.atlas-panel.home-atlas {
+  display: flex;
+  min-height: 420px;
+  flex-direction: column;
+}
+.home-atlas .atlas-toolbar { padding: 8px 16px; font-size: var(--s-meta); }
+.home-atlas .atlas-legend { gap: 6px 12px; }
+.home-atlas .atlas-legend__key { gap: 5px; white-space: nowrap; }
+.home-atlas .atlas-canvas {
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  cursor: default;
+  scrollbar-gutter: auto;
+  touch-action: auto;
+}
+.home-atlas .atlas-canvas svg { width: 100%; min-width: 560px; height: auto; }
+.home-atlas .atlas-node { cursor: default; }
+/* The second ink, like the toolbar above it and for the same reason: both strips
+   are the panel's chrome and sit on the same well. The third ink measures 4.42:1
+   on that well by night, which is under AA — the lightest ink this design has is
+   chosen against the canvas, not against a surface laid over it. */
+.home-atlas .atlas-visible-count {
+  padding: 8px 16px;
+  color: var(--ink-2);
+  font-size: var(--s-micro);
+  line-height: 1.5;
+  text-align: left;
+}
+@media (max-width: 620px) {
+  .home-atlas .atlas-canvas { height: auto; min-height: 0; }
+}
+
+/* The one under the model right now is the workbench atlas's selected node, which
+   already carries the fill, the border and the ring it needs. Three declarations
+   complete it: the body breathes, the kind badge takes the same lit surface, and
+   its glyph goes to the interactive ink. */
+.home-atlas .atlas-node--active .atlas-node__body {
+  animation: atlas-node-breathe 2.5s ease-in-out infinite;
+}
+.home-atlas .atlas-node--active .atlas-node__kind {
+  fill: var(--atlas-node-active-bg);
+  stroke: var(--atlas-node-active-border);
+}
+.home-atlas .atlas-node--active .atlas-node__symbol { fill: var(--accent-ink); }
+
+/* A miniature of the node it names, rather than a second vocabulary of icons. */
+.atlas-legend__swatch {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  border: 1px solid var(--atlas-node-border);
+  border-radius: 3px;
+  background: var(--atlas-node-bg);
+}
+.atlas-legend__key--hotspot .atlas-legend__swatch {
+  border-color: var(--atlas-node-hotspot);
+  background: var(--atlas-node-hotspot-bg);
+}
+.atlas-legend__key--cleared .atlas-legend__swatch {
+  border-color: var(--cleared);
+  background: var(--cleared-soft);
+}
+.atlas-legend__key--judging .atlas-legend__swatch {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Held while the pointer is over the replay or something inside it has focus. The
+   replay's timer stops, so the map's own motion has to stop with it — and none of
+   that motion is reachable from the interval that drives the rows.
+
+   After every rule that hands one of these an animation, and that is the whole
+   reason it is down here rather than beside the replay's other overrides: the
+   `animation` shorthand resets `animation-play-state` to `running`, so at equal
+   specificity a pause written above the breathing node was simply overwritten. */
+.home-replay[data-held] .atlas-pulse,
+.home-replay[data-held] .atlas-node__body,
+.home-replay[data-held] .atlas-node__halo { animation-play-state: paused; }
+
+/* ── The record, as a specimen of one ─────────────────────────────────────────
+   The app's own `.markdown`, capped and faded: this is one page of a report, and a
+   page of a report has to look like it goes on.
+   ──────────────────────────────────────────────────────────────────────────── */
+.home-doc {
+  position: relative;
+  max-height: 360px;
+  overflow: hidden;
+  padding: 24px 26px 48px;
+}
+.home-doc::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 110px;
+  background: linear-gradient(to bottom, transparent, var(--surface));
+}
+.home-doc h1 { margin: 0 0 4px; }
+.home-doc h2 { margin: 24px 0 8px; }
+.home-doc p { margin: 0 0 12px; }
+
+/* ── The plotted course ───────────────────────────────────────────────────────
+   One line, drawn in the atlas's edge language, running the length of the page
+   like a course plotted on a chart. Its geometry is the product's argument: three
+   materials converge into one judgement; the course crosses the field the run is
+   judged in; at the question it forks through the reader's own answer (the accent
+   border of the what-changed block IS the course there); and it ends at a terminal
+   fix beside the record. Every turn states something true, which is what separates
+   a course from a timeline.
+
+   Desktop only (≥1260px): the line lives in the left margin, and a margin is
+   something the narrow layouts do not have. Below that, nothing here exists —
+   including the converge fan, whose 34px stem the narrow page keeps instead.
+
+   The drawn state is the BASE state. Scroll-drawing is layered on only where
+   scroll-driven animations exist, so Safari, Firefox and reduced-motion all read a
+   complete chart rather than a missing one.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.course-rail,
+.course-pulse,
+.course-tick,
+.course-converge,
+.course-elbow,
+.course-end { display: none; }
+
+@media (min-width: 1260px) {
+  .course-host { position: relative; --course-x: -34px; }
+
+  .course-rail {
+    display: block;
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    bottom: 0;
+    left: var(--course-x);
+    width: 1.5px;
+    background: var(--atlas-edge-strong);
+    opacity: .4;
+    transform-origin: top;
+    pointer-events: none;
+  }
+  .course-rail--end { bottom: auto; height: 101px; }
+
+  /* A waypoint where the course crosses each section's rule. */
+  .course-tick {
+    display: block;
+    position: absolute;
+    z-index: 1;
+    top: -3px;
+    left: calc(var(--course-x) - 2.6px);
+    width: 7px;
+    height: 7px;
+    border-radius: var(--r-pill);
+    background: var(--accent);
+    opacity: .8;
+    pointer-events: none;
+  }
+
+  /* Three materials, one judgement: the fan replaces the plain stem. */
+  .course-stem { display: none; }
+  .course-converge { display: block; width: 100%; height: 56px; }
+  .course-converge path {
+    fill: none;
+    stroke: var(--atlas-edge-strong);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    opacity: .55;
+  }
+  .course-converge .course-converge__stub { stroke: var(--accent); opacity: .9; }
+
+  /* The fork through the reader's answer: off the rail, into the accent border of
+     the what-changed block, and back out under it. */
+  .home-changed { position: relative; }
+  .course-elbow {
+    display: block;
+    position: absolute;
+    /* Absolute offsets resolve against the padding box, and this block wears a
+       3px accent border-left — the course's own segment through it — so the elbow
+       backs up by that border to run rail-to-border exactly. */
+    left: -37px;
+    width: 34px;
+    height: 24px;
+    pointer-events: none;
+  }
+  .course-elbow--in { top: -2px; }
+  .course-elbow--out { bottom: -2px; }
+  .course-elbow path {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    opacity: .7;
+  }
+
+  /* The destination fix: where the course was always headed. */
+  .course-end {
+    display: grid;
+    place-items: center;
+    position: absolute;
+    z-index: 1;
+    top: 100px;
+    left: calc(var(--course-x) - 7.25px);
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid var(--accent);
+    border-radius: var(--r-pill);
+    pointer-events: none;
+  }
+  .course-end::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: var(--r-pill);
+    background: var(--accent);
+  }
+
+  /* ── The comet ────────────────────────────────────────────────────────────
+     One head running each segment of the course, in the same vocabulary the map
+     beside it states a live relationship in — the page's own edges, moving for
+     the reason its edges move.
+
+     A sibling of the rail rather than a child, and that is not a preference: the
+     rail scales on its own Y axis while it draws itself, and a head parented to
+     it would be squashed by that transform for the whole of the draw. So the
+     comet is positioned identically instead, clips to the same segment, and
+     carries the stagger that keeps five segments from firing as one.
+     ────────────────────────────────────────────────────────────────────────── */
+  @media (prefers-reduced-motion: no-preference) {
+    .course-pulse {
+      display: block;
+      position: absolute;
+      z-index: 1;
+      top: 0;
+      bottom: 0;
+      left: var(--course-x);
+      width: 1.5px;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .course-pulse--end { bottom: auto; height: 101px; }
+    .course-pulse::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 64px;
+      background: linear-gradient(to bottom, transparent, var(--accent) 55%, transparent);
+      opacity: .8;
+      animation: course-comet 6s linear infinite;
+      animation-delay: var(--course-pulse-delay, 0s);
+    }
+  }
+
+  /* The delight layer: the course draws itself just ahead of the reader. Layered
+     on top of the complete base state, so absence of support means a drawn chart,
+     never an empty margin. */
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      .course-rail {
+        animation: course-draw linear both;
+        animation-timeline: view();
+        animation-range: entry 0% cover 42%;
+      }
+      /* The record sits too near the page's end for a cover range to ever finish
+         there; the terminal rail completes on entry instead. */
+      .course-rail--end { animation-range: entry 0% entry 85%; }
+      .course-converge path,
+      .course-elbow path {
+        stroke-dasharray: 1;
+        animation: course-dash linear both;
+        animation-timeline: view();
+        animation-range: entry 25% entry 95%;
+      }
+      .course-tick,
+      .course-end {
+        animation: course-lit linear both;
+        animation-timeline: view();
+        animation-range: entry 0% entry 55%;
+      }
+    }
+  }
+}
+
+@keyframes course-draw { from { transform: scaleY(0); } }
+@keyframes course-dash { from { stroke-dashoffset: 1; } }
+@keyframes course-lit { from { opacity: .2; transform: scale(.55); } }
+@keyframes course-comet { from { top: -64px; } to { top: 100%; } }

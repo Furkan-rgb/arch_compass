@@ -23,7 +23,9 @@ import {
   rowProps,
   rowQueued,
   rowWhere,
+  citationLink,
   ledgerSheet,
+  VERDICT_WORDS,
 } from "@/components/ledger";
 import { cn } from "@/lib/utils";
 
@@ -54,15 +56,7 @@ import type { ReviewedBoundary } from "./types";
  */
 export function Cite({ reference }: { reference: string }) {
   return (
-    <a
-      data-slot="citation"
-      className={cn(
-        "rounded-pill border border-accent-rule bg-accent-soft px-2 py-px",
-        "font-mono text-meta tracking-[.04em] whitespace-nowrap text-accent-ink no-underline",
-        "hover:border-primary hover:bg-primary hover:text-on-accent",
-      )}
-      href={`#${reference}`}
-    >
+    <a data-slot="citation" className={citationLink} href={`#${reference}`}>
       {reference}
     </a>
   );
@@ -96,9 +90,6 @@ export function loudVerdict(reviewed: ReviewedBoundary[]): boolean | null {
   if (material === cleared) return null;
   return material < cleared;
 }
-
-/** The words this product uses for the two verdicts, wherever it counts or marks them. */
-export const VERDICT_WORDS = { material: "should change", cleared: "earns its place" };
 
 export type BandFact = { label: string; value: ReactNode; title?: string };
 
@@ -563,7 +554,31 @@ export function FindingsLedger({
  * and gets rows without labels rather than invented ones — the detected order is known only
  * to the run that swept for them.
  */
-export function JudgingLedger({ progress }: { progress: RunState }) {
+export function JudgingLedger({
+  progress,
+  bearings,
+  foot,
+}: {
+  progress: RunState;
+  /**
+   * What each landed verdict leaned on, as `borne/presented`, in the run's own order.
+   *
+   * Absent on a real run and that is not an omission: the stream reports that a boundary was
+   * judged and which way, never how many policies bore on it, so a column filled in here from
+   * anything but the caller's own knowledge would be a guess printed as a count. The finished
+   * review has them, and `FindingsLedger` is where they are read.
+   */
+  bearings?: string[];
+  /**
+   * What this list does not contain, where the caller has something to say about it.
+   *
+   * A run in flight has one thing worth saying and says it itself: the rows are unnamed
+   * because the names are in the stream. Anywhere the ledger is drawn over a set that is
+   * already named — the front door's replay of one — that sentence is not the true one, and
+   * the caller supplies the sentence that is.
+   */
+  foot?: ReactNode;
+}) {
   const total = progress?.total ?? 0;
   const named = progress?.boundaries ?? [];
   const judged = progress?.judged ?? 0;
@@ -600,7 +615,9 @@ export function JudgingLedger({ progress }: { progress: RunState }) {
                   <Skeleton className="h-2 w-[24ch] max-w-full" aria-hidden />
                 )}
                 <span className={rowWhere} />
-                <span className={rowMeta} />
+                <span className={rowMeta}>
+                  {verdict === null ? null : bearings?.[index]}
+                </span>
                 {verdict === null ? (
                   <span className={current ? rowJudging : rowQueued}>
                     {current ? "judging…" : "queued"}
@@ -615,7 +632,9 @@ export function JudgingLedger({ progress }: { progress: RunState }) {
           );
         })}
       </Ledger>
-      {named.length === 0 && total > 0 ? (
+      {foot ? (
+        <LedgerFoot>{foot}</LedgerFoot>
+      ) : named.length === 0 && total > 0 ? (
         <LedgerFoot>
           Which boundary is under the model right now is in the stream this run is writing,
           not in its record, so the rows are unnamed here.

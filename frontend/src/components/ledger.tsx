@@ -213,9 +213,45 @@ export function rowProps({
   } as const;
 }
 
+/*
+  The verdict's own vocabulary: a fill, an ink, and a word.
+
+  Three records rather than three copies, because this product draws one verdict in four
+  shapes — a tick beside a row, a rule down the leading edge of a poster card, the count in
+  the band, and the word next to any of them — and a hue that disagreed with its word across
+  two of them would be the design saying two things about one judgement. Everything below
+  composes these; nothing anywhere writes `bg-material` beside a verdict again.
+
+  The neutral fill is a record with no verdict yet, not a missing one, and the accent is the
+  one under the model right now — neither is a judgement, which is why neither has an ink or
+  a word.
+*/
+export const VERDICT_FILL = {
+  none: "bg-rule",
+  material: "bg-material",
+  cleared: "bg-cleared",
+  // `bg-primary`, not `bg-accent`. In this sheet the bare name `accent` belongs to shadcn's
+  // meaning of it — the tint a row takes under the pointer, which here is `--sunken` — and
+  // this design's accent reaches the utilities as `--color-primary`. Written as `bg-accent`
+  // the row under the model right now was drawn in the well's own colour: a stripe the same
+  // shade as a hover, on the one row of a running ledger that has to be findable.
+  judging: "bg-primary",
+} as const;
+
+export const VERDICT_INK = { material: "text-material", cleared: "text-cleared" } as const;
+
+/** The words this product uses for the two verdicts, wherever it counts or marks them. */
+export const VERDICT_WORDS = {
+  material: "should change",
+  cleared: "earns its place",
+} as const;
+
+export type Stripe = keyof typeof VERDICT_FILL;
+export type Verdict = keyof typeof VERDICT_INK;
+
 /**
  * The verdict stripe: the mark that makes a column of records scannable without reading a
- * word of any of them. The neutral rule is a record with no verdict yet, not a missing one.
+ * word of any of them.
  *
  * Same element, two drawings, four measurements. By day it is a short rounded tick set in
  * from the card's leading edge, because a rule running the full height of a floating card
@@ -231,23 +267,28 @@ const stripeVariants = cva(
     "w-[var(--stripe-col)] h-[var(--stripe-h)] ml-[var(--stripe-ml)]",
     "justify-self-start [align-self:var(--stripe-align)] rounded-[var(--stripe-r)]",
   ],
-  {
-    variants: {
-      verdict: {
-        none: "bg-rule",
-        material: "bg-material",
-        cleared: "bg-cleared",
-        judging: "bg-accent",
-      },
-    },
-    defaultVariants: { verdict: "none" },
-  },
+  { variants: { verdict: VERDICT_FILL }, defaultVariants: { verdict: "none" } },
 );
-
-export type Stripe = "none" | "material" | "cleared" | "judging";
 
 export function RowStripe({ verdict = "none" }: { verdict?: Stripe }) {
   return <i aria-hidden className={stripeVariants({ verdict })} />;
+}
+
+/**
+ * One record as a poster rather than as a row: the same stripe, run the full height of a
+ * card, with the verdict set large beside it.
+ *
+ * The material flip does not reach this one. A row's stripe is short by day because it sits
+ * on a floating card among other floating cards; a poster *is* the card, and its stripe is
+ * the card's own leading edge in both themes. So the four `--stripe-*` tokens are deliberately
+ * not read here — what is shared with a row is the hue, which is the part that carries the
+ * judgement.
+ */
+export const posterCard =
+  "grid grid-cols-[4px_minmax(0,1fr)] gap-x-4 border border-rule-soft bg-surface";
+
+export function PosterStripe({ verdict }: { verdict: Stripe }) {
+  return <span aria-hidden className={cn("self-stretch rounded-[99px]", VERDICT_FILL[verdict])} />;
 }
 
 /** What the record is: a qualified name or a timestamp, in the face this product stores facts in. */
@@ -279,10 +320,7 @@ export const rowQueued = "font-mono text-micro whitespace-nowrap text-ink-3";
  */
 const verdictTextVariants = cva("font-mono text-micro whitespace-nowrap", {
   variants: {
-    verdict: {
-      material: "text-material",
-      cleared: "text-cleared",
-    },
+    verdict: VERDICT_INK,
     tone: {
       mark: "tracking-[.05em] uppercase",
       sentence: "tracking-[.01em] tabular-nums",
@@ -296,11 +334,48 @@ export function VerdictText({
   tone,
   children,
 }: VariantProps<typeof verdictTextVariants> & {
-  verdict: "material" | "cleared";
+  verdict: Verdict;
   children: ReactNode;
 }) {
   return (
     <span data-slot="verdict-text" className={verdictTextVariants({ verdict, tone })}>
+      {children}
+    </span>
+  );
+}
+
+/**
+ * A policy a verdict leaned on, named on the verdict itself.
+ *
+ * Two tones of one chip, because a citation is the same claim whether it can be followed or
+ * not. On a review it is a link into the row it names — the single most useful move on that
+ * page — and it takes the interactive step up in size and the filled hover that says so. On
+ * a page with no rows to land in it is a plain chip at the smallest step, and it must not
+ * offer a hover it cannot honour.
+ */
+const citationVariants = cva(
+  "rounded-pill border border-accent-rule bg-accent-soft font-mono whitespace-nowrap text-accent-ink",
+  {
+    variants: {
+      tone: {
+        chip: "px-[9px] py-[3px] text-micro",
+        link: cn(
+          "px-2 py-px text-meta tracking-[.04em] no-underline",
+          "hover:border-primary hover:bg-primary hover:text-on-accent",
+        ),
+      },
+    },
+    defaultVariants: { tone: "chip" },
+  },
+);
+
+/** The citation as a link, for a page whose rows it can reach. */
+export const citationLink = citationVariants({ tone: "link" });
+
+/** The citation as a plain chip, where there is nothing to follow it to. */
+export function Citation({ children }: { children: ReactNode }) {
+  return (
+    <span data-slot="citation" className={citationVariants()}>
       {children}
     </span>
   );
