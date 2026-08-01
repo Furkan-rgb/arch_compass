@@ -16,9 +16,10 @@ import yaml
 from pydantic import ValidationError
 
 from archcompass.domain.base import stable_id
-from archcompass.domain.errors import PolicyFormatError
+from archcompass.domain.errors import PersistenceError, PolicyFormatError
 from archcompass.domain.policy import (
     PolicyDocument,
+    PolicyDraft,
     PolicyScope,
     PolicySource,
     PolicyStrength,
@@ -59,6 +60,83 @@ class MarkdownPolicySourceInspector:
 
     def load_documents(self, sources: list[Path]) -> list[PolicyDocument]:
         return load_policy_sources(sources)
+
+
+#: What the front matter of an authored policy says wrote it. Bundled policies name their
+#: own corpus here; a policy written in this workspace has no other provenance to claim, and
+#: the field is not a form question — nothing downstream weighs a policy by its author.
+AUTHORED_POLICY_AUTHOR = "Workspace"
+
+#: The name a policy is written under before it has been parsed. Deliberately not `*.md`,
+#: which is the glob a source directory is read by: a draft that never passes the parser is
+#: never a member of the corpus, not even for the moment between writing and checking it.
+STAGED_SUFFIX = ".md.staged"
+
+
+class MarkdownPolicyStore:
+    """The authored directory, written in the format the parser above reads.
+
+    Rendered through `yaml.safe_dump` rather than by formatting the front matter by hand, so
+    a title with a colon in it stays one scalar. What the dump cannot defend against is a
+    `---` inside a value, which would close the front matter early — `PolicyDraft` refuses
+    that at the door, and the parse this class is staged for catches whatever it missed.
+    """
+
+    def stage(self, directory: Path, policy_id: str, draft: PolicyDraft) -> Path:
+        staged = directory / f"{policy_id}{STAGED_SUFFIX}"
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            staged.write_text(_render_policy(policy_id, draft), encoding="utf-8")
+        except OSError as error:
+            raise PersistenceError(
+                f"Could not write the policy {policy_id} to {directory}: {error}"
+            ) from error
+        return staged
+
+    def publish(self, staged: Path) -> Path:
+        published = staged.with_name(staged.name.removesuffix(STAGED_SUFFIX) + ".md")
+        try:
+            # Replace rather than write-then-delete: an edit that survived the parse becomes
+            # visible whole or not at all, and never as a half-written file a review reads.
+            staged.replace(published)
+        except OSError as error:
+            raise PersistenceError(
+                f"Could not put the policy {published.stem} in place: {error}"
+            ) from error
+        return published
+
+    def discard(self, staged: Path) -> None:
+        staged.unlink(missing_ok=True)
+
+    def remove(self, directory: Path, policy_id: str) -> None:
+        try:
+            (directory / f"{policy_id}.md").unlink()
+        except OSError as error:
+            raise PersistenceError(
+                f"Could not delete the policy {policy_id}: {error}"
+            ) from error
+
+
+def _render_policy(policy_id: str, draft: PolicyDraft) -> str:
+    front_matter = yaml.safe_dump(
+        {
+            "id": policy_id,
+            "title": draft.title,
+            "scope": PolicyScope.GENERAL.value,
+            "strength": draft.strength.value,
+            "tags": list(draft.tags),
+            "source": {"author": AUTHORED_POLICY_AUTHOR, "inspiration": []},
+            "description": draft.description,
+        },
+        sort_keys=False,
+        allow_unicode=True,
+        # `None` is flow style for collections that hold no collection of their own, which
+        # is what makes `tags: [layering, dependencies]` come out the way every bundled
+        # policy already writes it. An authored file should be indistinguishable from one
+        # of those in an editor: they are the same kind of file and get edited the same way.
+        default_flow_style=None,
+    )
+    return f"---\n{front_matter}---\n{draft.body.strip()}\n"
 
 
 def parse_policy(path: Path) -> PolicyDocument:

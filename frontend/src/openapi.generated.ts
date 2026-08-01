@@ -102,6 +102,16 @@ export interface components {
     "analysis_config_hash": string;
     "created_at"?: string;
   };
+    "AvailableModelResponse": {
+    "profile_id": string;
+    "provider": string;
+    "model": string;
+    "label"?: string;
+    "input_token_limit"?: number | null;
+    "output_token_limit"?: number | null;
+    "is_configured_default"?: boolean;
+    "is_selected"?: boolean;
+  };
     "BoundaryExcerpt": {
     "reference": string;
     "qualified_name": string;
@@ -268,8 +278,16 @@ export interface components {
   };
     "MetricNature": "objective_measurement" | "structural_proxy";
     "MetricScope": "lexical_node" | "owning_module" | "reverse_static_impact_neighbourhood" | "bounded_resolved_call_chain";
+    "ModelCatalogResponse": {
+    "providers": Array<components["schemas"]["ProviderAvailabilityResponse"]>;
+    "candidates": Array<components["schemas"]["AvailableModelResponse"]>;
+  };
     "ModelIdentity": {
     "provider": string;
+    "model": string;
+  };
+    "ModelSelectionRequest": {
+    "profile_id": string;
     "model": string;
   };
     "NeighbourhoodQuery": {
@@ -328,7 +346,16 @@ export interface components {
     "body": string;
     "source_path": string;
     "content_hash": string;
+    "origin"?: components["schemas"]["PolicyOrigin"];
   };
+    "PolicyDraft": {
+    "title": string;
+    "description": string;
+    "body": string;
+    "tags"?: Array<string>;
+    "strength": components["schemas"]["PolicyStrength"];
+  };
+    "PolicyOrigin": "external" | "workspace";
     "PolicyScope": "general" | "user" | "organisation" | "repository" | "accepted_adr";
     "PolicySource": {
     "author": string;
@@ -350,6 +377,13 @@ export interface components {
     "message": string;
     "retryable"?: boolean;
     "field_errors"?: Array<string>;
+  };
+    "ProviderAvailabilityResponse": {
+    "profile_id": string;
+    "provider": string;
+    "available": boolean;
+    "detail"?: string;
+    "probed_at": string;
   };
     "QuestionAnswered": {
     "event"?: "answered";
@@ -472,13 +506,6 @@ export interface components {
     "repository_root": string;
     "elicited_from"?: string | null;
   };
-    "ReviewScoreResponse": {
-    "example": string;
-    "correct": number;
-    "total": number;
-    "boundaries": Array<components["schemas"]["ScoredBoundaryResponse"]>;
-    "unscored": Array<string>;
-  };
     "ReviewStarted": {
     "event"?: "started";
     "review_id": string;
@@ -500,14 +527,6 @@ export interface components {
     "hinge"?: components["schemas"]["VerdictHinge"] | null;
     "recommended_response"?: string;
     "verdict_label": string;
-  };
-    "ScoredBoundaryResponse": {
-    "reference": string;
-    "abstraction": string;
-    "expected": boolean;
-    "actual": boolean;
-    "correct": boolean;
-    "because": string;
   };
     "SearchNodesQuery": {
     "kind": "search_nodes";
@@ -556,7 +575,11 @@ export interface components {
     "if_denied": string;
   };
     "WorkspaceModels": {
-    "reasoning": components["schemas"]["ModelIdentity"];
+    "reasoning"?: components["schemas"]["ModelIdentity"] | null;
+    "failure"?: string;
+    "from_configuration"?: boolean;
+    "pinned"?: boolean;
+    "unresolvable"?: boolean;
   };
     "WorkspaceSummaryResponse": {
     "workspace": string;
@@ -646,6 +669,19 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "clear_model_selection_api_models_selection_delete": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "204": unknown;
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
   "create_case_api_cases_post": {
     parameters: {
       query: never;
@@ -657,6 +693,20 @@ export interface operations {
     responses: {
       "201": components["schemas"]["CaseRevision"];
       "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "create_policy_api_policies_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["PolicyDraft"];
+    responses: {
+      "201": components["schemas"]["PolicyDocument"];
+      "422": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
     };
   };
   "create_review_api_reviews_post": {
@@ -686,6 +736,23 @@ export interface operations {
       "201": components["schemas"]["ReviewConversation"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "delete_policy_api_policies__policy_id__delete": {
+    parameters: {
+      query: never;
+      path: {
+      "policy_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "204": unknown;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
     };
   };
   "delete_review_api_reviews__review_id__delete": {
@@ -932,6 +999,19 @@ export interface operations {
       "404": components["schemas"]["ProblemDetail"];
     };
   };
+  "model_catalog_api_models_get": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": components["schemas"]["ModelCatalogResponse"];
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
   "remove_policy_source_api_policies_sources_delete": {
     parameters: {
       query: {
@@ -1020,6 +1100,23 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "review_report_api_reviews__review_id__report_get": {
+    parameters: {
+      query: never;
+      path: {
+      "review_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": unknown;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
+    };
+  };
   "review_source_api_reviews__review_id__source_get": {
     parameters: {
       query: {
@@ -1039,20 +1136,18 @@ export interface operations {
       "404": components["schemas"]["ProblemDetail"];
     };
   };
-  "score_review_api_reviews__review_id__score_get": {
+  "select_model_api_models_selection_put": {
     parameters: {
       query: never;
-      path: {
-      "review_id": string;
-      };
+      path: never;
       header: never;
       cookie: never;
     };
-    requestBody?: never;
+    requestBody: components["schemas"]["ModelSelectionRequest"];
     responses: {
-      "200": components["schemas"]["ReviewScoreResponse"] | null;
+      "200": components["schemas"]["WorkspaceSummaryResponse"];
       "422": components["schemas"]["ProblemDetail"];
-      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
     };
   };
   "start_from_repository_api_repositories_start_post": {
@@ -1115,6 +1210,23 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "update_policy_api_policies__policy_id__put": {
+    parameters: {
+      query: never;
+      path: {
+      "policy_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["PolicyDraft"];
+    responses: {
+      "200": components["schemas"]["PolicyDocument"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
+    };
+  };
   "workspace_summary_api_workspace_get": {
     parameters: {
       query: never;
@@ -1154,8 +1266,16 @@ export interface paths {
   "/api/filesystem/directories": {
     get: operations["list_directories_api_filesystem_directories_get"];
   };
+  "/api/models": {
+    get: operations["model_catalog_api_models_get"];
+  };
+  "/api/models/selection": {
+    put: operations["select_model_api_models_selection_put"];
+    delete: operations["clear_model_selection_api_models_selection_delete"];
+  };
   "/api/policies": {
     get: operations["list_policies_api_policies_get"];
+    post: operations["create_policy_api_policies_post"];
   };
   "/api/policies/sources": {
     get: operations["list_policy_sources_api_policies_sources_get"];
@@ -1164,6 +1284,8 @@ export interface paths {
   };
   "/api/policies/{policy_id}": {
     get: operations["get_policy_api_policies__policy_id__get"];
+    put: operations["update_policy_api_policies__policy_id__put"];
+    delete: operations["delete_policy_api_policies__policy_id__delete"];
   };
   "/api/repositories": {
     get: operations["list_repositories_api_repositories_get"];
@@ -1219,8 +1341,8 @@ export interface paths {
   "/api/reviews/{review_id}/cancel": {
     post: operations["cancel_review_api_reviews__review_id__cancel_post"];
   };
-  "/api/reviews/{review_id}/score": {
-    get: operations["score_review_api_reviews__review_id__score_get"];
+  "/api/reviews/{review_id}/report": {
+    get: operations["review_report_api_reviews__review_id__report_get"];
   };
   "/api/reviews/{review_id}/source": {
     get: operations["review_source_api_reviews__review_id__source_get"];

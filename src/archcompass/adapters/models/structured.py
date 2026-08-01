@@ -170,20 +170,30 @@ def _hinge(proposed: ProposedVerdictHinge) -> VerdictHinge | None:
     is true, and the domain carries `None` for the ordinary one. Nothing downstream reads a
     word, and nothing upstream infers a fact from a blank field.
 
-    A hinge that declares itself and then says nothing is dropped rather than recorded or
-    raised. The schema cannot prevent it — the three prose fields must stay optional for a
-    verdict that stands either way, so nothing in the grammar stops a reply setting the word
-    and leaving them blank, and a live run against `gemma4:26b` did exactly that on the
-    fourth of eight boundaries.
+    Two hinges are dropped rather than recorded or raised, and both are a declaration the
+    reply does not support.
+
+    The first says nothing. The grammar requires all three prose fields now, so this needs a
+    whitespace-only answer to reach — but it is reached, and a live `gemma4:26b` run left
+    them blank on the fourth of eight boundaries back when the grammar allowed it.
+
+    The second says the same thing twice. Two branches whose text is identical are the model
+    stating that the verdict does not move, and a declaration beside them saying it does is
+    contradicted by the reply it sits in. Only exact equality is read that way, deliberately:
+    whether "leave as is" and "the boundary should stay" mean one verdict is a judgement
+    about prose, and code that guessed at it would discard a real hinge on nearly every
+    honestly-written pair. This is the half of "read those two back" that is decidable, and
+    it is the shortest way to satisfy three required fields without answering them — the
+    same string twice — so it is the door those fields open.
 
     Dropping is the same treatment a policy bearing asserted without saying how already
     receives, and for the same reason: an unexplained flag is not a claim a reader can
     check. Failing instead was worse than either honest answer. It discarded three correct
-    verdicts that had each cost a model call, over an optional field, on a boundary whose
-    rationale, bearings and verdict were all sound — and it did so at the one point in the
-    reply where nothing binds by position, so nothing could be silently re-attributed. Arity
-    still fails loudly, because a short list of bearings shifts every later answer onto the
-    wrong policy; a blank hinge shifts nothing.
+    verdicts that had each cost a model call, over one field, on a boundary whose rationale,
+    bearings and verdict were all sound — and it did so at the one point in the reply where
+    nothing binds by position, so nothing could be silently re-attributed. Arity still fails
+    loudly, because a short list of bearings shifts every later answer onto the wrong policy;
+    a blank hinge shifts nothing.
     """
 
     if proposed.dependence != "turns_on_this_unknown":
@@ -192,6 +202,8 @@ def _hinge(proposed: ProposedVerdictHinge) -> VerdictHinge | None:
     if_confirmed = proposed.if_confirmed.strip()
     if_denied = proposed.if_denied.strip()
     if not (unknown and if_confirmed and if_denied):
+        return None
+    if if_confirmed == if_denied:
         return None
     return VerdictHinge(
         unknown=unknown,
@@ -271,15 +283,32 @@ class ProposedVerdictHinge(BaseModel):
     `dependence` is a word rather than a flag for the same reason `verdict` is one. A
     boolean here would be read for polarity at every call site, and the field it sits beside
     is the one place in this codebase where that has already gone wrong in production.
+
+    All four are required, and the three prose fields being optional was the whole bug.
+    While they were, the shortest legal reply was the declaration on its own — and a
+    structured decoder fills fields in order, so `dependence` was sampled with the reasoning
+    that decides it nowhere in the context at all. Three of six hinges in one measured run
+    came back `{"unknown": "", "if_confirmed": "", "if_denied": "", "dependence":
+    "stands_either_way"}`, and a review of eight boundaries against `gemini-3.5-flash-lite`
+    gave that answer eight times and so asked nothing.
+
+    It only looked like it worked because every run until then had thinking on and did the
+    reading somewhere this schema cannot see. Requiring the fields puts both branches in the
+    context window before the word that summarises them is chosen, which is what field order
+    meant here in the first place. A verdict with nothing open pays one sentence for it,
+    which `_hinge` discards.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    #: The circumstance the case does not state. Empty only where nothing was open.
-    unknown: str = ""
-    #: The verdict this boundary gets under each answer, written out rather than named.
-    if_confirmed: str = ""
-    if_denied: str = ""
+    #: The circumstance the case does not state. Written on every verdict, including the
+    #: ordinary ones, where it is the record of what was considered and discarded rather
+    #: than a claim that anything is contingent.
+    unknown: str = Field(min_length=1)
+    #: The verdict this boundary gets under each answer, written out rather than named. The
+    #: same text twice is a verdict that does not move, whatever `dependence` then says.
+    if_confirmed: str = Field(min_length=1)
+    if_denied: str = Field(min_length=1)
     dependence: Literal["stands_either_way", "turns_on_this_unknown"]
 
 

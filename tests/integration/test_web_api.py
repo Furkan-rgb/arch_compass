@@ -12,6 +12,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from archcompass.bootstrap import Runtime
+from archcompass.domain.review import ReviewStatus
 from archcompass.presentation.web import create_app
 
 FIXTURE = "boundary-review"
@@ -29,8 +30,9 @@ def test_the_api_covers_the_whole_review_loop(runtime: Runtime) -> None:
         assert examples.status_code == 200
         listed = {item["name"]: item for item in examples.json()}
         assert FIXTURE in listed
-        # Only an example that ships answers can be scored; the flag is what the workspace
-        # uses to say so, and a client that trusted it wrongly would grade against nothing.
+        # The flag says the example ships an answer key, which is what the offline harness
+        # measures against. Nothing in the workspace grades a review, so this is a property
+        # of the example rather than a promise about what the review will show.
         assert listed[FIXTURE]["has_expected_answers"] is True
 
         loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
@@ -77,17 +79,6 @@ def test_the_api_covers_the_whole_review_loop(runtime: Runtime) -> None:
         history = client.get(f"/api/review-conversations/{conversation_id}")
         assert history.status_code == 200
         assert len(history.json()["messages"]) == 1
-
-        scored = client.get(f"/api/reviews/{review_id}/score")
-        assert scored.status_code == 200, scored.text
-        result = scored.json()
-        assert result is not None, "a bundled example that ships answers must be gradable"
-        assert result["example"] == FIXTURE
-        assert result["total"] == len(review["report"]["reviewed"])
-        # Nothing may be silently excluded: an uncovered boundary means the example drifted
-        # from its own key, and a score over the remainder would look complete.
-        assert result["unscored"] == []
-        assert {item["reference"] for item in result["boundaries"]} == known
 
 
 def test_a_streamed_review_counts_its_boundaries_before_judging_them(
@@ -331,6 +322,87 @@ def test_the_api_serves_the_code_a_finding_was_measured_from(runtime: Runtime) -
         )
 
 
+def test_a_finished_review_downloads_as_the_markdown_it_was_written_as(
+    runtime: Runtime,
+) -> None:
+    """Export hands over the stored document, not a second rendering of the same review.
+
+    Byte-for-byte against `markdown_report` is the whole assertion. A route that re-rendered
+    would pass every test about headings and still be wrong: the file a reader keeps has to
+    be the report the workspace stored when the review concluded, so the two cannot drift.
+    """
+
+    with TestClient(create_app(runtime)) as client:
+        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
+        repository_root = {
+            item["name"]: item for item in client.get("/api/bundled-cases").json()
+        }[FIXTURE]["repository_root"]
+        created = client.post(
+            "/api/reviews",
+            json={"case_id": loaded.json()["case_id"], "repository_root": repository_root},
+        )
+        assert created.status_code == 201, created.text
+        review = created.json()
+        review_id = review["review_id"]
+
+        exported = client.get(f"/api/reviews/{review_id}/report")
+
+    assert exported.status_code == 200, exported.text
+    assert exported.text == review["markdown_report"]
+    assert exported.headers["content-type"].startswith("text/markdown")
+    # The header is what makes this a download rather than a page: without the filename the
+    # browser saves the review under its route, and every export lands as `report`.
+    disposition = exported.headers["content-disposition"]
+    assert disposition.startswith("attachment;")
+    assert f'filename="archcompass-review-{review_id}.md"' in disposition
+
+
+def test_a_review_with_no_report_refuses_the_download_rather_than_serving_nothing(
+    runtime: Runtime,
+) -> None:
+    """The two absences a reader can meet, told apart by whether waiting would help.
+
+    A run in progress will have a report shortly; one that was stopped never will. Both are
+    conflicts rather than 404s — the review is there, and it is the document that is not.
+    """
+
+    with TestClient(create_app(runtime)) as client:
+        assert client.get("/api/reviews/rev_missing/report").status_code == 404
+
+        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
+        finished = client.post(
+            "/api/reviews",
+            json={
+                "case_id": loaded.json()["case_id"],
+                "repository_root": client.get("/api/repositories").json()[0]["root_path"],
+            },
+        ).json()
+        # Written into the store rather than raced against a real run: the substitute
+        # provider finishes faster than a request can be made against a running review.
+        running = runtime.review_repository.get(finished["review_id"]).model_copy(
+            update={
+                "review_id": "rev_stillrunning",
+                "status": ReviewStatus.RUNNING,
+                "report": None,
+                "markdown_report": None,
+            }
+        )
+        runtime.review_repository.begin(running)
+
+        waiting = client.get(f"/api/reviews/{running.review_id}/report")
+        assert waiting.status_code == 409, waiting.text
+        assert waiting.json()["code"] == "state_conflict"
+        assert "still running" in waiting.json()["message"]
+        # Worth asking again, and the only one of the two that is.
+        assert waiting.json()["retryable"] is True
+
+        assert runtime.review_repository.cancel(running.review_id)
+        stopped = client.get(f"/api/reviews/{running.review_id}/report")
+        assert stopped.status_code == 409, stopped.text
+        assert "cancelled" in stopped.json()["message"]
+        assert stopped.json()["retryable"] is False
+
+
 def test_the_api_answers_a_whole_map_in_one_request(runtime: Runtime) -> None:
     """The route behind the atlas tab opening with context rather than isolated boxes.
 
@@ -518,49 +590,6 @@ def test_a_review_of_an_unindexed_repository_fails_rather_than_reporting_nothing
         assert "repo index" in attempted.json()["message"]
 
 
-def test_a_review_of_unscored_code_reports_no_score_rather_than_a_made_up_one(
-    runtime: Runtime,
-    tmp_path: Path,
-) -> None:
-    """Someone's own repository has no right answer; inventing one would be worse than none.
-
-    Written here rather than borrowed from `eval/cases`. Both bundled examples ship an
-    answer key on purpose, and a test that relied on one of them not having one would go
-    green or red depending on a decision about the examples rather than about scoring.
-    """
-
-    own_code = tmp_path / "someones-own-repository"
-    own_code.mkdir()
-    (own_code / "gateway.py").write_text(
-        "from typing import Protocol\n\n\n"
-        "class Gateway(Protocol):\n"
-        "    def send(self, message: str) -> None: ...\n\n\n"
-        "class HttpGateway(Gateway):\n"
-        "    def send(self, message: str) -> None:\n"
-        "        print(message)\n",
-        encoding="utf-8",
-    )
-    atlas = runtime.analyzer.analyze(own_code)
-    runtime.atlas_repository.save(atlas)
-
-    with TestClient(create_app(runtime)) as client:
-        created = client.post("/api/cases", json={
-            "title": "Unscored",
-            "problem_statement": "A repository that ships no answer key.",
-            "desired_outcome": "An honest absence of a score.",
-        })
-        review = client.post("/api/reviews", json={
-            "case_id": created.json()["case_id"],
-            "repository_root": atlas.version.root_path,
-        })
-        assert review.status_code == 201, review.text
-
-        scored = client.get(f"/api/reviews/{review.json()['review_id']}/score")
-
-        assert scored.status_code == 200
-        assert scored.json() is None
-
-
 def test_a_validation_failure_says_which_field_was_wrong(runtime: Runtime) -> None:
     """The message a reader sees has to point at something.
 
@@ -594,7 +623,7 @@ def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> N
         "/api/review-conversations",
         "/api/review-conversations/{conversation_id}/messages",
         "/api/review-conversations/{conversation_id}/messages/stream",
-        "/api/reviews/{review_id}/score",
+        "/api/reviews/{review_id}/report",
         "/api/repositories/explore",
         "/api/repositories/review-context",
     ):
@@ -753,3 +782,173 @@ def test_browsing_somewhere_unbrowsable_refuses_with_a_problem_detail(
     assert str(tmp_path / "gone") in missing.json()["message"]
     assert a_file.status_code == 422
     assert "not a folder" in a_file.json()["message"]
+
+
+#: The nine headings `parse_policy` requires, each given a sentence. Written out rather than
+#: borrowed from a bundled file, because what these tests are about is a body someone typed.
+AUTHORED_SECTIONS = (
+    "Intent",
+    "Guidance",
+    "Signals",
+    "Diagnostic questions",
+    "Likely consequences",
+    "Exceptions",
+    "Positive example",
+    "Counterexample",
+    "Related policies",
+)
+
+
+def _authored_body() -> str:
+    return "\n".join(
+        f"## {heading}\nWhat this policy says about {heading.lower()}."
+        for heading in AUTHORED_SECTIONS
+    )
+
+
+def _draft(**overrides: object) -> dict[str, object]:
+    return {
+        "title": "Keep imports pointing inward",
+        "description": "A module that imports its caller has no boundary left to defend.",
+        "body": _authored_body(),
+        "tags": ["dependencies", "layering"],
+        "strength": "preferred",
+        **overrides,
+    }
+
+
+def test_a_policy_authored_over_the_api_is_a_file_the_corpus_reads(
+    runtime: Runtime,
+) -> None:
+    """Created, edited and deleted through the API; Markdown on disk the whole time.
+
+    The point of the round trip is that nothing about an authored policy is a second class
+    of record: it is written where the workspace keeps its own, read back through the same
+    parser as the bundled corpus, and listed beside it.
+    """
+
+    authored = runtime.workspace / ".archcompass" / "policies"
+
+    with TestClient(create_app(runtime)) as client:
+        created = client.post("/api/policies", json=_draft())
+        assert created.status_code == 201, created.text
+        policy = created.json()
+        # The id is derived from the title rather than sent: one name for the thing, and it
+        # is the name every citation of it will use.
+        assert policy["id"] == "keep-imports-pointing-inward"
+        assert policy["scope"] == "general"
+        assert policy["origin"] == "workspace"
+        assert policy["tags"] == ["dependencies", "layering"]
+
+        written = authored / "keep-imports-pointing-inward.md"
+        assert written.is_file()
+        assert written.read_text(encoding="utf-8").startswith("---\n")
+        assert policy["source_path"] == str(written)
+
+        listed = client.get("/api/policies")
+        assert listed.status_code == 200
+        catalog = {item["id"]: item for item in listed.json()}
+        assert catalog["keep-imports-pointing-inward"]["origin"] == "workspace"
+        # Everything else in reach is somebody else's file, and says so.
+        assert {
+            item["origin"]
+            for item in catalog.values()
+            if item["id"] != "keep-imports-pointing-inward"
+        } == {"external"}
+
+        edited = client.put(
+            "/api/policies/keep-imports-pointing-inward",
+            json=_draft(
+                title="Keep every import pointing inward",
+                strength="required",
+                tags=["layering"],
+            ),
+        )
+        assert edited.status_code == 200, edited.text
+        # The title moved and the id did not follow it: an id is what a review cites.
+        assert edited.json()["id"] == "keep-imports-pointing-inward"
+        assert edited.json()["title"] == "Keep every import pointing inward"
+        assert edited.json()["strength"] == "required"
+        assert [path.name for path in authored.glob("*.md")] == [
+            "keep-imports-pointing-inward.md"
+        ]
+
+        deleted = client.delete("/api/policies/keep-imports-pointing-inward")
+        assert deleted.status_code == 204, deleted.text
+        assert not written.exists()
+        assert client.get("/api/policies/keep-imports-pointing-inward").status_code == 404
+
+
+def test_an_authored_policy_cannot_take_an_id_the_corpus_already_holds(
+    runtime: Runtime,
+) -> None:
+    """Two policies under one id is a corpus that will not load, so it is refused first."""
+
+    with TestClient(create_app(runtime)) as client:
+        collision = client.post(
+            "/api/policies", json=_draft(title="Delay premature abstraction")
+        )
+
+    assert collision.status_code == 409, collision.text
+    assert collision.json()["code"] == "state_conflict"
+    assert "delay-premature-abstraction" in collision.json()["message"]
+    assert not (runtime.workspace / ".archcompass" / "policies").exists()
+
+
+def test_policies_read_from_elsewhere_are_not_this_workspace_to_rewrite(
+    runtime: Runtime,
+) -> None:
+    """Bundled rules are read here, not owned here, and both writes say so as a conflict."""
+
+    with TestClient(create_app(runtime)) as client:
+        bundled = client.get("/api/policies/delay-premature-abstraction")
+        assert bundled.status_code == 200
+        assert bundled.json()["origin"] == "external"
+
+        edited = client.put("/api/policies/delay-premature-abstraction", json=_draft())
+        deleted = client.delete("/api/policies/delay-premature-abstraction")
+
+        assert edited.status_code == 409, edited.text
+        assert deleted.status_code == 409, deleted.text
+        assert "does not own" in deleted.json()["message"]
+        # Refused rather than half-applied: the bundled file is still the one it was.
+        unchanged = client.get("/api/policies/delay-premature-abstraction")
+        assert unchanged.json()["content_hash"] == bundled.json()["content_hash"]
+
+
+def test_a_policy_that_cannot_be_read_back_is_never_left_on_disk(
+    runtime: Runtime,
+) -> None:
+    """The check is the parser, not a second opinion about what a policy looks like.
+
+    A body missing sections is written, parsed, refused and removed, so the corpus never
+    holds a file the next review would fail to load — and an edit refused that way leaves
+    the policy it was an edit of exactly as it was.
+    """
+
+    authored = runtime.workspace / ".archcompass" / "policies"
+
+    with TestClient(create_app(runtime)) as client:
+        refused = client.post(
+            "/api/policies",
+            json=_draft(body="## Intent\nSomething, but not the nine sections."),
+        )
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["code"] == "validation_error"
+        assert "missing sections" in refused.json()["message"]
+        assert list(authored.glob("*")) == []
+
+        # A title with nothing to make an id out of is refused by the contract instead.
+        assert client.post("/api/policies", json=_draft(title="...")).status_code == 422
+
+        assert client.post("/api/policies", json=_draft()).status_code == 201
+        written = authored / "keep-imports-pointing-inward.md"
+        before = written.read_text(encoding="utf-8")
+        broken = client.put(
+            "/api/policies/keep-imports-pointing-inward",
+            json=_draft(body="## Intent\nNot enough of a policy to store."),
+        )
+
+        assert broken.status_code == 422, broken.text
+        assert written.read_text(encoding="utf-8") == before
+        assert list(authored.glob("*.md.staged")) == []

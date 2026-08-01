@@ -10,6 +10,7 @@ import type {
   CaseUpdate,
   DirectoryListing,
   Policy,
+  PolicyDraft,
   PolicySource,
   ProblemDetail,
   BoundaryReview,
@@ -18,8 +19,8 @@ import type {
   ReviewConversation,
   ReviewMessage,
   ReviewProgress,
-  ReviewScore,
   RepositorySummary,
+  ModelCatalog,
   WorkspaceSummary,
 } from "./types";
 
@@ -30,10 +31,19 @@ export class ApiError extends Error {
     public readonly code = "request_failed",
     /** The failure this one was translated from, where it was translated from one. */
     cause?: unknown,
+    /**
+     * Whether repeating this request could succeed, as the server judged it. Read from the
+     * problem detail rather than guessed from the status, which cannot tell a provider that
+     * is briefly busy from one whose quota is spent for the day.
+     */
+    public readonly retryable = false,
   ) {
     super(message, cause === undefined ? undefined : { cause });
   }
 }
+
+/** Nothing has been chosen to reason with. A required field, not a failure. */
+export const NO_MODEL_CODE = "no_model_selected";
 
 /**
  * The code every "nothing on the other end answered as this API" failure carries.
@@ -94,7 +104,13 @@ async function readJson<T>(response: Response): Promise<T> {
 /** The server's own words for a refusal, kept as it wrote them. */
 async function refusal(response: Response, fallback: string): Promise<ApiError> {
   const detail = await readJson<Partial<ProblemDetail>>(response);
-  return new ApiError(detail.message || fallback, response.status, detail.code);
+  return new ApiError(
+    detail.message || fallback,
+    response.status,
+    detail.code,
+    undefined,
+    detail.retryable ?? false,
+  );
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -156,6 +172,16 @@ async function streamLines<Line>(
 export const api = {
   workspace: () => request<WorkspaceSummary>("/api/workspace"),
 
+  /** Asks every configured provider what it has. Only called when the chooser opens. */
+  models: () => request<ModelCatalog>("/api/models"),
+  selectModel: (choice: { profile_id: string; model: string }) =>
+    request<WorkspaceSummary>("/api/models/selection", {
+      method: "PUT",
+      body: JSON.stringify(choice),
+    }),
+  clearModelSelection: () =>
+    request<void>("/api/models/selection", { method: "DELETE" }),
+
   bundledCases: () => request<BundledCase[]>("/api/bundled-cases"),
   loadBundledCase: (name: string) =>
     request<CaseRevision>(`/api/bundled-cases/${encodeURIComponent(name)}/load`, {
@@ -168,8 +194,6 @@ export const api = {
     ),
   review: (reviewId: string) =>
     request<BoundaryReview>(`/api/reviews/${encodeURIComponent(reviewId)}`),
-  reviewScore: (reviewId: string) =>
-    request<ReviewScore | null>(`/api/reviews/${encodeURIComponent(reviewId)}/score`),
   createReview: (caseId: string, repositoryRoot: string) =>
     request<BoundaryReview>("/api/reviews", {
       method: "POST",
@@ -424,6 +448,31 @@ export const api = {
       body: JSON.stringify(value),
     }),
   policies: () => request<Policy[]>("/api/policies"),
+  /**
+   * Write a policy of this workspace's own. The id is the server's to derive from the
+   * title, which is why nothing here sends one — and why a title whose slug is already
+   * taken comes back as a 409 rather than quietly replacing what holds it.
+   */
+  createPolicy: (draft: PolicyDraft) =>
+    request<Policy>("/api/policies", {
+      method: "POST",
+      body: JSON.stringify(draft),
+    }),
+  // PUT, because this is the policy stated again in full rather than a patch: a file is
+  // rewritten from what the form holds, and a field left out would be a field cleared.
+  updatePolicy: (policyId: string, draft: PolicyDraft) =>
+    request<Policy>(`/api/policies/${encodeURIComponent(policyId)}`, {
+      method: "PUT",
+      body: JSON.stringify(draft),
+    }),
+  // Not `request`: a 204 has no body to parse, as on deleting a review.
+  deletePolicy: async (policyId: string): Promise<void> => {
+    const response = await send(`/api/policies/${encodeURIComponent(policyId)}`, {
+      method: "DELETE",
+    });
+    if (response.ok) return;
+    throw await refusal(response, "Arch Compass could not delete that policy.");
+  },
   policySources: () => request<PolicySource[]>("/api/policies/sources"),
   addPolicySource: (source: string) =>
     request<PolicySource>("/api/policies/sources", {

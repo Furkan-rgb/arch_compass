@@ -15,6 +15,7 @@ import json
 from typing import cast
 
 import pytest
+from tests.reasoning_support import SETTLED_HINGE
 
 from archcompass.adapters.models.structured import (
     ChatMessage,
@@ -137,7 +138,7 @@ def _reply(
             "policy_bearings": [{"bears_on": flag, "how": how} for flag, how in bearings],
             # The ordinary answer, so a test about policy binding does not have to say
             # anything about elicitation to be a well-formed reply.
-            "hinge": hinge or {"dependence": "stands_either_way"},
+            "hinge": hinge or SETTLED_HINGE,
             "recommended_response": response,
         }
     )

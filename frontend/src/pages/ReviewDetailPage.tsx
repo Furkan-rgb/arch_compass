@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, CircleCheck, FlaskConical, MessageCircleQuestion, X } from "lucide-react";
+import { ArrowRight, Download, MessageCircleQuestion } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,6 @@ import type {
   OpenQuestion,
   RecordedAnswer,
   ReviewOverview,
-  ReviewScore,
   ReviewStatus,
   ReviewedBoundary,
 } from "../types";
@@ -279,65 +278,6 @@ function WhatChanged({
   );
 }
 
-/* One graded boundary. The verdict family is the row's own surface rather than a mark beside
-   it: what a reader wants from a score is how many came out right, before reading any of
-   them. Below 720px the reason it was wrong takes the whole row — there is no second column
-   left to hold it. */
-const scoreRow =
-  "grid grid-cols-[auto_auto_1fr] items-baseline gap-2 rounded-control px-3.5 py-2.5 text-ui max-[720px]:grid-cols-[auto_1fr]";
-
-function Score({ score }: { score: ReviewScore }) {
-  return (
-    <section data-slot="score" className={cn(sheet, "p-[var(--card-pad)]")}>
-      <p className="m-0 mb-3 flex items-baseline gap-2 text-body text-ink-2">
-        <FlaskConical size={15} aria-hidden />
-        <strong className="font-display text-head font-[650] tabular-nums text-ink">
-          {score.correct}/{score.total}
-        </strong>
-        <span>
-          correct against the answers <code>{score.example}</code> ships
-        </span>
-      </p>
-      <ul className="m-0 grid list-none gap-1 p-0">
-        {score.boundaries.map((item) => (
-          <li
-            key={item.reference}
-            className={cn(
-              scoreRow,
-              item.correct
-                ? "bg-cleared-soft text-cleared"
-                : "bg-material-soft text-material",
-            )}
-          >
-            {item.correct ? (
-              <CircleCheck size={13} aria-hidden />
-            ) : (
-              <X size={13} aria-hidden />
-            )}
-            <code>{item.reference}</code>
-            <span className="justify-self-start max-[720px]:col-span-full">
-              {item.actual ? "should change" : "fine as it is"}
-              {item.correct
-                ? ""
-                : ` — expected ${item.expected ? "should change" : "fine as it is"}`}
-            </span>
-            {item.correct ? null : (
-              <span className="col-[2/-1] mt-[3px] leading-[1.5] opacity-85 max-[720px]:col-span-full">
-                {item.because}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
-      {score.unscored.length > 0 ? (
-        <p className="m-0 mt-3 text-ui text-material">
-          Not scored, absent from the answer key: {score.unscored.join(", ")}
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
 /**
  * The answers that produced this pass, beside the questions they answered.
  *
@@ -557,6 +497,33 @@ export function AskAction({
   );
 }
 
+/**
+ * The review as the file it was already written as.
+ *
+ * An anchor rather than a request: the workspace answers with `Content-Disposition`, so the
+ * browser saves the response itself. Nothing is fetched, held or revoked here, and the
+ * control is keyboard-reachable because it is a link — which is also why this is the one
+ * call that does not go through `api.ts`, where every function reads a body.
+ *
+ * `download` is on it so a refusal stays a failed download rather than navigating the reader
+ * off their own review onto a page of JSON.
+ *
+ * Absent rather than greyed while there is nothing to hand over, which is the opposite of
+ * what asking does — and for the opposite reason. Asking is a capability of the review that
+ * a reader has to learn exists; exporting a report that does not exist is not a refusal
+ * worth explaining, it is a run that has not finished.
+ */
+export function ExportAction({ reviewId, available }: { reviewId: string; available: boolean }) {
+  if (!available) return null;
+  return (
+    <Button asChild>
+      <a href={`/api/reviews/${encodeURIComponent(reviewId)}/report`} download>
+        <Download size={14} aria-hidden /> Export Markdown
+      </a>
+    </Button>
+  );
+}
+
 type TabId = "findings" | "questions" | "runlog" | "atlas";
 
 /** A run's length, in the units a reader counts model calls in. */
@@ -613,14 +580,6 @@ export function ReviewDetailPage() {
     // subject. It polls until the run ends and then stops: the review is immutable
     // afterwards, so there is nothing further to ask about.
     refetchInterval: (query) => (query.state.data?.status === "running" ? 2000 : false),
-  });
-  const score = useQuery({
-    queryKey: ["review-score", reviewId],
-    queryFn: () => api.reviewScore(reviewId),
-    // Only once there is a judgement to grade. The page is open while the review is still
-    // being produced, and a score asked for then answers "no score" truthfully — an answer
-    // that would then be cached over the real one.
-    enabled: Boolean(reviewId) && review.data?.status === "succeeded",
   });
 
   const caseId = review.data?.case_id;
@@ -965,7 +924,6 @@ export function ReviewDetailPage() {
                 reopening — so the conclusion is the conclusion, and asking happens on its
                 own surface before this page exists. */}
             {report && !running && !holding ? <Overview overview={report.overview} /> : null}
-            {score.data ? <Score score={score.data} /> : null}
           </>
         ) : null}
         {id === "questions" ? (
@@ -1016,11 +974,20 @@ export function ReviewDetailPage() {
         parent={{ to: "/reviews", label: "Reviews" }}
         meta={<Badge variant="accent">case rev {caseRevision}</Badge>}
         action={
-          <AskAction
-            status={status}
-            expanded={showAsking}
-            onToggle={() => setAsking((value) => !value)}
-          />
+          <>
+            {/* Before the primary control and quieter than it: taking the review away is
+                something a reader does with a page they have finished with, and asking is
+                what the page is for. */}
+            <ExportAction
+              reviewId={reviewId}
+              available={Boolean(review.data?.markdown_report)}
+            />
+            <AskAction
+              status={status}
+              expanded={showAsking}
+              onToggle={() => setAsking((value) => !value)}
+            />
+          </>
         }
       />
 

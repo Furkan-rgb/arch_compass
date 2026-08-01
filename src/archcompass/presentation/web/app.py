@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator, Sequence
+from datetime import datetime
 from pathlib import Path
 from queue import Queue
 from threading import Thread
@@ -41,18 +43,25 @@ from archcompass.domain.errors import (
     ConversationRevisionConflictError,
     ConversationValidationError,
     ModelOutputValidationError,
+    NoReasoningModelSelectedError,
     PathValidationError,
     PersistenceError,
+    PolicyConflictError,
     PolicyFormatError,
     PolicyNotFoundError,
     ProviderError,
+    ReviewHasNoReportError,
     ReviewNotCancellableError,
     ReviewNotFoundError,
     ReviewStillRunningError,
     StaleAtlasError,
 )
-from archcompass.domain.policy import PolicyDocument, PolicySourceRegistration
-from archcompass.domain.review import BoundaryExcerpt, BoundaryReview
+from archcompass.domain.policy import (
+    PolicyDocument,
+    PolicyDraft,
+    PolicySourceRegistration,
+)
+from archcompass.domain.review import BoundaryExcerpt, BoundaryReview, ReviewStatus
 from archcompass.domain.review_conversation import ReviewConversation, ReviewMessage
 from archcompass.domain.workspace import (
     BoundaryReviewSummary,
@@ -270,30 +279,6 @@ class BundledCase(APIModel):
     has_expected_answers: bool
 
 
-class ScoredBoundaryResponse(APIModel):
-    reference: str
-    abstraction: str
-    expected: bool
-    actual: bool
-    correct: bool
-    because: str
-
-
-class ReviewScoreResponse(APIModel):
-    """A review graded against the answers its example ships.
-
-    `unscored` names boundaries the key does not cover. They are reported rather than
-    folded into the total, because a score over the remainder would look complete while
-    measuring less than it claims.
-    """
-
-    example: str
-    correct: int
-    total: int
-    boundaries: list[ScoredBoundaryResponse]
-    unscored: list[str]
-
-
 class ReviewStarted(APIModel):
     """The run has a record, so it has an identity — the stream's first line.
 
@@ -404,19 +389,71 @@ class ModelIdentity(APIModel):
 
 
 class WorkspaceModels(APIModel):
-    """The one model a review needs.
+    """The one model a review needs, and what is currently known about it.
 
     An embedding identity was reported here too, for a policy index that no longer exists:
     every policy is presented whole to the judging stage, so nothing is embedded and there
     is nothing for a reader to check about a model that decided nothing (ADR 0013).
     """
 
-    reasoning: ModelIdentity
+    #: Absent where this workspace has not chosen a model and nothing configured one for it.
+    #: A state to display rather than an error to raise: everything a review does not need a
+    #: model for still works, and the interface asks for one where it is actually required.
+    reasoning: ModelIdentity | None = None
+    #: What the last run against this model said when it failed. Empty when the last run
+    #: succeeded, when none has run, or once a probe has since found the provider healthy.
+    #: The half of a model's health no probe can see: a spent quota lists perfectly well.
+    failure: str = ""
+    #: The model is in force because a file says so rather than because anyone chose it —
+    #: a workspace holding exactly one configuration and no stored selection.
+    from_configuration: bool = False
+    #: This run was pointed at a configuration explicitly, so the model is not the
+    #: workspace's to change while it lasts. The chooser says so instead of offering a
+    #: choice that would be ignored.
+    pinned: bool = False
+    #: The stored choice names a configuration this workspace no longer holds.
+    unresolvable: bool = False
 
 
 class WorkspaceSummaryResponse(APIModel):
     workspace: str
     models: WorkspaceModels
+
+
+class AvailableModelResponse(APIModel):
+    """One model a provider currently offers, through one configuration."""
+
+    profile_id: str
+    provider: str
+    model: str
+    label: str = ""
+    input_token_limit: int | None = None
+    output_token_limit: int | None = None
+    #: The model this configuration's own file names, and so the one its timeouts and
+    #: thinking setting were written for.
+    is_configured_default: bool = False
+    is_selected: bool = False
+
+
+class ProviderAvailabilityResponse(APIModel):
+    """Whether one configured provider answered, and what it said if it did not."""
+
+    profile_id: str
+    provider: str
+    available: bool
+    #: Why not, naming the cure where there is one. Empty when available.
+    detail: str = ""
+    probed_at: datetime
+
+
+class ModelCatalogResponse(APIModel):
+    providers: list[ProviderAvailabilityResponse]
+    candidates: list[AvailableModelResponse]
+
+
+class ModelSelectionRequest(APIModel):
+    profile_id: str = Field(min_length=1)
+    model: str = Field(min_length=1)
 
 
 class PolicySourceRemovalResponse(APIModel):
@@ -482,17 +519,93 @@ def create_app(runtime: Runtime) -> FastAPI:
             ).model_dump(mode="json"),
     )
 
-    @app.get("/api/workspace")
-    def workspace_summary() -> WorkspaceSummaryResponse:
+    def _summary() -> WorkspaceSummaryResponse:
+        """What this workspace is pointed at, without asking any provider anything.
+
+        Read on every page load, which is why it costs one row and no network. Whether a
+        model is reachable is a different question with a different price, and it is asked
+        by the chooser at the moment someone is waiting to choose.
+        """
+
+        status = runtime.model_catalog_service.status()
+        selection = status.selection
         return WorkspaceSummaryResponse(
             workspace=str(runtime.workspace),
             models=WorkspaceModels(
-                reasoning=ModelIdentity(
-                    provider=runtime.config.models.reasoning.provider,
-                    model=runtime.config.models.reasoning.model,
+                reasoning=(
+                    ModelIdentity(provider=status.provider, model=status.model)
+                    if status.provider and status.model
+                    else None
                 ),
+                failure=selection.failure_detail if selection else "",
+                from_configuration=status.from_configuration,
+                pinned=status.pinned,
+                unresolvable=status.unresolvable,
             ),
         )
+
+    @app.get("/api/workspace")
+    def workspace_summary() -> WorkspaceSummaryResponse:
+        return _summary()
+
+    @app.get("/api/models")
+    def model_catalog() -> ModelCatalogResponse:
+        """Every configured provider, whether it answered, and what it offered.
+
+        A GET that performs work: each configuration is asked, over the network, with its own
+        short budget. It also writes, in one narrow sense — a provider that answers clears a
+        failure recorded against the current selection. Idempotent, and the alternative was
+        making the chooser's first paint a mutation.
+        """
+
+        catalog = runtime.model_catalog_service.catalog()
+        return ModelCatalogResponse(
+            providers=[
+                ProviderAvailabilityResponse(
+                    profile_id=provider.profile_id,
+                    provider=provider.provider,
+                    available=provider.available,
+                    detail=provider.detail,
+                    probed_at=provider.probed_at,
+                )
+                for provider in catalog.providers
+            ],
+            candidates=[
+                AvailableModelResponse(
+                    profile_id=candidate.profile_id,
+                    provider=candidate.provider,
+                    model=candidate.model,
+                    label=candidate.label,
+                    input_token_limit=candidate.input_token_limit,
+                    output_token_limit=candidate.output_token_limit,
+                    is_configured_default=candidate.is_configured_default,
+                    is_selected=candidate.is_selected,
+                )
+                for candidate in catalog.candidates
+            ],
+        )
+
+    @app.put("/api/models/selection", responses=_problem_responses(409))
+    def select_model(request: ModelSelectionRequest) -> WorkspaceSummaryResponse:
+        """Choose the model this workspace reasons with, until it chooses another.
+
+        Returns the whole summary rather than the selection, so the page that asked can
+        replace what its chip is reading instead of fetching it again.
+        """
+
+        runtime.model_catalog_service.select(request.profile_id, request.model)
+        return _summary()
+
+    @app.delete("/api/models/selection", status_code=204)
+    def clear_model_selection() -> Response:
+        """Forget the choice, falling back to whatever this workspace configures.
+
+        The way back out of a choice that turned out to be wrong — on a hosted workspace
+        there is no file to edit instead.
+        """
+
+        runtime.model_catalog_service.clear()
+        return Response(status_code=204)
 
     @app.get("/api/cases")
     def list_cases(
@@ -760,6 +873,49 @@ def create_app(runtime: Runtime) -> FastAPI:
             context_lines=context_lines,
         )
 
+    @app.get(
+        "/api/reviews/{review_id}/report",
+        response_class=Response,
+        responses={
+            200: {
+                "content": {"text/markdown": {}},
+                "description": "The stored report, as a file named after the review.",
+            },
+            **_problem_responses(404, 409, 422),
+        },
+    )
+    def review_report(review_id: str) -> Response:
+        """The review as the Markdown document it was already written as.
+
+        The stored string, handed over unchanged. It was rendered once, at the moment the
+        review concluded, from the report pinned to the case revision and the atlas that
+        produced it — rendering it again here would let the exported file drift from the
+        record it claims to be, on nothing more than a change to the renderer.
+
+        A review with no report is a conflict rather than a 404: the review is there, and
+        what is absent is a document that either has not been written yet or never will be.
+        """
+
+        review = runtime.review_repository.get(review_id)
+        if review.markdown_report is None:
+            if review.status is ReviewStatus.RUNNING:
+                raise ReviewStillRunningError(
+                    "That review is still running, so there is no report to export yet."
+                )
+            raise ReviewHasNoReportError(
+                f"That review is {review.status.value} and reached no verdicts, so there "
+                "is no report to export."
+            )
+        return Response(
+            content=review.markdown_report,
+            media_type="text/markdown",
+            headers={
+                "content-disposition": (
+                    f'attachment; filename="{_report_filename(review_id)}"'
+                )
+            },
+        )
+
     @app.post(
         "/api/reviews/{review_id}/answers",
         status_code=201,
@@ -829,35 +985,6 @@ def create_app(runtime: Runtime) -> FastAPI:
 
         runtime.review_repository.delete(review_id)
         return Response(status_code=204)
-
-    @app.get(
-        "/api/reviews/{review_id}/score",
-        responses=_problem_responses(404, 422),
-    )
-    def score_review(review_id: str) -> ReviewScoreResponse | None:
-        """Null when the reviewed repository ships no answers, which is the usual case."""
-
-        review = runtime.review_repository.get(review_id)
-        score = runtime.bundled_case_service.score(review)
-        if score is None:
-            return None
-        return ReviewScoreResponse(
-            example=score.example,
-            correct=score.correct,
-            total=score.total,
-            boundaries=[
-                ScoredBoundaryResponse(
-                    reference=item.reference,
-                    abstraction=item.abstraction,
-                    expected=item.expected,
-                    actual=item.actual,
-                    correct=item.correct,
-                    because=item.because,
-                )
-                for item in score.boundaries
-            ],
-            unscored=list(score.unscored),
-        )
 
     @app.post(
         "/api/review-conversations",
@@ -951,6 +1078,35 @@ def create_app(runtime: Runtime) -> FastAPI:
             removed=runtime.policy_service.remove_source(Path(source))
         )
 
+    @app.post("/api/policies", status_code=201, responses=_problem_responses(409, 422))
+    def create_policy(draft: PolicyDraft) -> PolicyDocument:
+        """Write a policy of this workspace's own into `<workspace>/.archcompass/policies`.
+
+        A real Markdown file in the format every other policy is in, so nothing about it is
+        second-class: the next review reads it from disk with the rest of the corpus, and it
+        remains editable in an editor after this page has forgotten about it.
+        """
+
+        return runtime.policy_service.create(draft)
+
+    @app.put(
+        "/api/policies/{policy_id}",
+        responses=_problem_responses(404, 409, 422),
+    )
+    def update_policy(policy_id: str, draft: PolicyDraft) -> PolicyDocument:
+        """Rewrite one of this workspace's policies. Anything read from elsewhere is a 409."""
+
+        return runtime.policy_service.update(policy_id, draft)
+
+    @app.delete(
+        "/api/policies/{policy_id}",
+        status_code=204,
+        responses=_problem_responses(404, 409),
+    )
+    def delete_policy(policy_id: str) -> Response:
+        runtime.policy_service.delete(policy_id)
+        return Response(status_code=204)
+
     @app.get("/api/policies/{policy_id}", responses=_problem_responses(404))
     def get_policy(
         policy_id: str, repository_root: str | None = None
@@ -1010,6 +1166,18 @@ def _static_cache_headers(served: Path) -> dict[str, str]:
     if served.parent.name == "assets":
         return {"cache-control": "public, max-age=31536000, immutable"}
     return {"cache-control": "no-cache"}
+
+
+#: Everything a downloaded filename is allowed to keep. Review identifiers are generated
+#: and already safe, but this name leaves in a header a browser writes straight to disk, so
+#: it is built from what survives the filter rather than from what arrived in the path.
+_UNSAFE_IN_FILENAME = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _report_filename(review_id: str) -> str:
+    """Named after the review, because a folder of these has to stay tellable apart."""
+
+    return f"archcompass-review-{_UNSAFE_IN_FILENAME.sub('-', review_id)}.md"
 
 
 def _directory_listing(requested: Path) -> DirectoryListing:
@@ -1244,6 +1412,8 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
         (
             CaseRevisionConflictError,
             ConversationRevisionConflictError,
+            PolicyConflictError,
+            ReviewHasNoReportError,
             ReviewNotCancellableError,
             ReviewStillRunningError,
             StaleAtlasError,
@@ -1267,6 +1437,10 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
         ),
     ):
         return 422, "validation_error", False
+    if isinstance(error, NoReasoningModelSelectedError):
+        # 409 rather than 503: nothing is unavailable, and nothing about the request is
+        # malformed — the workspace simply has not chosen yet.
+        return 409, "no_model_selected", False
     if isinstance(error, ProviderError):
         return 503, "provider_unavailable", True
     if isinstance(error, PersistenceError):

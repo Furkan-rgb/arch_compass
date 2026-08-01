@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -8,10 +9,12 @@ from pydantic import ValidationError
 
 from archcompass.configuration import (
     ReasoningModelConfig,
+    discover_model_profiles,
     load_environment_file,
     load_provider_environment,
     resolve_api_key,
     resolve_config_path,
+    run_is_pinned,
 )
 from archcompass.domain.errors import ConfigurationError
 
@@ -275,3 +278,94 @@ def test_a_workspace_env_file_may_name_its_own_configuration(
     load_provider_environment(workspace)
 
     assert os.environ["ARCHCOMPASS_MODELS_CONFIG"] == "config/models.ollama.yaml"
+
+
+_VALID_PROFILE = """
+models:
+  reasoning:
+    provider: {provider}
+    model: {model}
+    base_url: http://127.0.0.1:11434
+    timeout_seconds: 30
+"""
+
+
+def _profiles_in(tmp_path: Path, **files: str) -> Path:
+    (tmp_path / "config").mkdir(exist_ok=True)
+    for name, text in files.items():
+        (tmp_path / "config" / name.replace("__", ".")).write_text(text, encoding="utf-8")
+    return tmp_path
+
+
+def test_discovery_finds_every_configuration_resolution_refuses_to_choose_between() -> None:
+    """The two functions are meant to disagree, and this is the disagreement.
+
+    Resolution asks what this run was pointed at, where several candidates and nothing
+    choosing between them has to stop. Discovery asks what there is to choose from, where
+    several is the ordinary answer and the reason a chooser exists at all. Pinned together
+    so that neither is later "fixed" into the other.
+    """
+
+    workspace = _profiles_in(
+        Path(tempfile.mkdtemp()),
+        models__ollama__yaml=_VALID_PROFILE.format(provider="ollama", model="gemma4:26b"),
+        models__google__yaml=_VALID_PROFILE.format(provider="google", model="gemini-3.6-flash"),
+    )
+
+    with pytest.raises(ConfigurationError):
+        resolve_config_path(workspace)
+
+    discovered = discover_model_profiles(workspace)
+    assert [profile.profile_id for profile in discovered] == [
+        "models.google.yaml",
+        "models.ollama.yaml",
+    ]
+    assert [profile.provider for profile in discovered] == ["google", "ollama"]
+
+
+def test_discovery_includes_the_unnamed_configuration_the_glob_does_not_match(
+    tmp_path: Path,
+) -> None:
+    """`models.*.yaml` needs something between the dots, so `models.yaml` needs naming."""
+
+    workspace = _profiles_in(
+        tmp_path,
+        models__yaml=_VALID_PROFILE.format(provider="ollama", model="gemma4:12b"),
+        models__google__yaml=_VALID_PROFILE.format(provider="google", model="gemini-3.6-flash"),
+    )
+
+    discovered = discover_model_profiles(workspace)
+
+    assert [profile.profile_id for profile in discovered] == [
+        "models.yaml",
+        "models.google.yaml",
+    ]
+
+
+def test_a_configuration_that_will_not_parse_is_left_out_rather_than_raised(
+    tmp_path: Path,
+) -> None:
+    """A half-written file must not be able to empty a chooser of the profiles that work."""
+
+    workspace = _profiles_in(
+        tmp_path,
+        models__ollama__yaml=_VALID_PROFILE.format(provider="ollama", model="gemma4:26b"),
+        models__broken__yaml="models:\n  reasoning:\n    provider: ollama\n",
+    )
+
+    discovered = discover_model_profiles(workspace)
+
+    assert [profile.profile_id for profile in discovered] == ["models.ollama.yaml"]
+
+
+def test_a_run_is_pinned_by_a_flag_or_by_the_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Both say which provider this run costs against, so neither is the workspace's to override."""
+
+    monkeypatch.delenv("ARCHCOMPASS_MODELS_CONFIG", raising=False)
+    assert not run_is_pinned()
+    assert run_is_pinned(tmp_path / "models.yaml")
+
+    monkeypatch.setenv("ARCHCOMPASS_MODELS_CONFIG", "config/models.google.yaml")
+    assert run_is_pinned()

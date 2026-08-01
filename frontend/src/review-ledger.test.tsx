@@ -231,4 +231,50 @@ describe("JudgingLedger", () => {
       "not in its record",
     );
   });
+
+  it("counts bearings only where the caller knows them, and only once a verdict has landed", () => {
+    // The stream reports that a boundary was judged and which way, never how many policies
+    // bore on it. A caller that does know — a page replaying a run it wrote itself — hands
+    // them in; a caller that does not gets an empty column rather than a guess.
+    const progress = {
+      total: 3,
+      boundaries: ["ports.Feed", "ports.Ledger", "ports.Digest"],
+      verdicts: [true, null, null],
+      judged: 1,
+      eliciting: false,
+      summarising: false,
+      concluded: false,
+    };
+    const { rerender } = render(<JudgingLedger progress={progress} />);
+    expect(screen.getByLabelText("Boundaries examined")).not.toHaveTextContent("/53");
+
+    rerender(<JudgingLedger progress={progress} bearings={["3/53", "2/53", "4/53"]} />);
+    const rows = within(screen.getByLabelText("Boundaries examined")).getAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent("3/53");
+    expect(rows[1]).not.toHaveTextContent("2/53");
+    expect(rows[2]).not.toHaveTextContent("4/53");
+  });
+
+  it("takes the caller's sentence about what its rows do not contain", () => {
+    // The one it writes itself is true of a run in flight and of nothing else, so a ledger
+    // drawn over a set that is already named states the sentence that is true there.
+    render(
+      <JudgingLedger
+        progress={{
+          total: 1,
+          boundaries: ["ports.Feed"],
+          verdicts: [true],
+          judged: 1,
+          eliciting: false,
+          summarising: false,
+          concluded: false,
+        }}
+        foot="Cleared boundaries keep their rows."
+      />,
+    );
+
+    expect(screen.getByLabelText("Boundaries examined")).toHaveTextContent(
+      "Cleared boundaries keep their rows.",
+    );
+  });
 });

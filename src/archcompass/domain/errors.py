@@ -13,6 +13,16 @@ class ConfigurationError(ArchCompassError):
     pass
 
 
+class NoReasoningModelSelectedError(ConfigurationError):
+    """Something asked this workspace to reason, and it has not chosen a model.
+
+    A `ConfigurationError` by inheritance because that is what it is, and its own type
+    because it is the one configuration fault whose cure is inside the application. Every
+    other one wants a file edited and a process restarted; this one wants a click, and the
+    interface can only offer that click if it can tell this case apart from the rest.
+    """
+
+
 class PathValidationError(ArchCompassError):
     pass
 
@@ -52,6 +62,15 @@ class PolicyNotFoundError(ArchCompassError):
     pass
 
 
+class PolicyConflictError(ArchCompassError):
+    """The corpus already answers this, and the request needs it not to.
+
+    An id another policy holds, or a file this workspace did not write. Neither is a
+    malformed request — both are true statements about the corpus as it stands — so
+    repeating the request identically fails identically until the corpus changes.
+    """
+
+
 class PersistenceError(ArchCompassError):
     pass
 
@@ -84,6 +103,15 @@ class ReviewNotCancellableError(ArchCompassError):
 
 class ReviewStillRunningError(ArchCompassError):
     """The review is being produced right now, and the request needs it not to be."""
+
+
+class ReviewHasNoReportError(ArchCompassError):
+    """The review ended without reaching a verdict, so it has no document to hand over.
+
+    Kept apart from `ReviewStillRunningError`, which is the same absence with an opposite
+    remedy: a run in progress will have a report shortly, and one that failed or was
+    cancelled never will. Running it again produces a different review, not this one.
+    """
 
 
 class ProviderError(ArchCompassError):

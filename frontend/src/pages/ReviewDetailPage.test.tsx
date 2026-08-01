@@ -17,6 +17,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ApiError } from "../api";
 import {
   AskAction,
+  ExportAction,
   Overview,
   ReviewUnavailable,
   answersBehind,
@@ -193,6 +194,33 @@ describe("AskAction", () => {
       const { button } = openFor(status);
       expect(button).toHaveProperty("disabled", true);
     }
+  });
+});
+
+/**
+ * Taking the review away, as the file the workspace already wrote.
+ *
+ * A link and not a button, which is the whole of what makes it work: the browser saves what
+ * the server marks as an attachment, so there is no body read here and nothing for the test
+ * to stub. What is worth defending is that it points at the review it is on, and that it is
+ * not on screen at all before there is a document behind it.
+ */
+describe("ExportAction", () => {
+  it("links to the review's own report once one has been written", () => {
+    render(<ExportAction reviewId="rev_abc" available />);
+
+    const link = screen.getByRole("link", { name: /Export Markdown/ });
+    expect(link).toHaveAttribute("href", "/api/reviews/rev_abc/report");
+    // Without this a refusal navigates the reader off their review onto a page of JSON.
+    expect(link).toHaveAttribute("download");
+  });
+
+  it("is absent while the review has no report to hand over", () => {
+    // A run still going has nothing to export, and a greyed control explaining that would
+    // be one more thing on a page that is already waiting.
+    render(<ExportAction reviewId="rev_abc" available={false} />);
+
+    expect(screen.queryByRole("link", { name: /Export/ })).toBeNull();
   });
 });
 

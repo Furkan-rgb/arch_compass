@@ -12,7 +12,7 @@ The workspace's primary humans are an **architect or tech lead** reviewing struc
 
 ## Product Purpose
 
-ArchCompass is a local-first software architecture advisor. It reviews the boundaries in an existing repository — abstractions, ports, indirections — and decides, one at a time, whether each is earning its place given what the user is actually building. It exists because AI-assisted coding makes producing working code cheap while leaving the harder problem — containing complexity, limiting change amplification — untouched. Success for the product is credible, evidence-backed judgement; success for this codebase is additionally **portfolio-grade craft**: the workspace itself is a demonstration of the standard it advocates. (Confirmed 2026-07-30.)
+ArchCompass is a software architecture advisor. It reviews the boundaries in an existing repository — abstractions, ports, indirections — and decides, one at a time, whether each is earning its place given what the user is actually building. It exists because AI-assisted coding makes producing working code cheap while leaving the harder problem — containing complexity, limiting change amplification — untouched. Success for the product is credible, evidence-backed judgement; success for this codebase is additionally **portfolio-grade craft**: the workspace itself is a demonstration of the standard it advocates. (Confirmed 2026-07-30.)
 
 ## Positioning
 

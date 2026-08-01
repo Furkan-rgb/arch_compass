@@ -15,13 +15,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from archcompass.domain.errors import PolicyFormatError, PolicyNotFoundError
+from archcompass.domain.errors import (
+    PolicyConflictError,
+    PolicyFormatError,
+    PolicyNotFoundError,
+)
 from archcompass.domain.policy import (
     PolicyDocument,
+    PolicyDraft,
+    PolicyOrigin,
     PolicyScope,
     PolicySourceRegistration,
+    policy_slug,
 )
-from archcompass.ports.policies import PolicySourceInspector, PolicySourceRepository
+from archcompass.ports.policies import (
+    PolicySourceInspector,
+    PolicySourceRepository,
+    PolicyStore,
+)
 
 
 class PolicyService:
@@ -31,12 +42,22 @@ class PolicyService:
         source_repository: PolicySourceRepository,
         source_inspector: PolicySourceInspector,
         bundled_sources: tuple[Path, ...],
+        authored_source: Path,
+        policy_store: PolicyStore,
     ) -> None:
         self._source_repository = source_repository
         self._source_inspector = source_inspector
+        self._policy_store = policy_store
         self._bundled_sources = tuple(
             self._source_inspector.canonicalize(source, require_exists=False)
             for source in bundled_sources
+        )
+        #: The workspace's own policies, a standing source like the bundled corpus rather
+        #: than a registered one. It is where writing goes, so it is read whether or not it
+        #: exists yet: a workspace nobody has authored in has an empty one, not a missing
+        #: source the first write would have to remember to register.
+        self._authored_source = self._source_inspector.canonicalize(
+            authored_source, require_exists=False
         )
 
     def add_source(self, source: Path) -> PolicySourceRegistration:
@@ -76,9 +97,12 @@ class PolicyService:
         else.
         """
 
-        return self._source_inspector.load_documents(
-            self.effective_sources(repository_root=repository_root)
-        )
+        return [
+            self._attributed(document)
+            for document in self._source_inspector.load_documents(
+                self.effective_sources(repository_root=repository_root)
+            )
+        ]
 
     def get(
         self, policy_id: str, *, repository_root: Path | None = None
@@ -94,12 +118,70 @@ class PolicyService:
                 return policy
         raise PolicyNotFoundError(f"Policy {policy_id} was not found")
 
+    def create(self, draft: PolicyDraft) -> PolicyDocument:
+        """Write a policy of this workspace's own, filed under a slug of its title.
+
+        The id is checked against the whole effective catalog rather than against the
+        authored directory alone: two policies with one id is a corpus that cannot be
+        loaded at all, so a title that collides with a bundled rule is refused before
+        anything is written rather than after.
+        """
+
+        policy_id = policy_slug(draft.title)
+        if any(policy.id == policy_id for policy in self.catalog()):
+            raise PolicyConflictError(
+                f"A policy called {policy_id} already exists; give this one another title"
+            )
+        return self._write(policy_id, draft)
+
+    def update(self, policy_id: str, draft: PolicyDraft) -> PolicyDocument:
+        """Rewrite one of this workspace's policies, keeping the id it is cited by.
+
+        The title may change and the id does not follow it. An id is what a review's
+        bearings name and what a `## Related policies` section points at, so renaming the
+        file on a reworded title would silently break every reference to it — the same
+        reason bundled ids do not restate their titles.
+        """
+
+        self._authored(policy_id)
+        return self._write(policy_id, draft)
+
+    def delete(self, policy_id: str) -> None:
+        self._authored(policy_id)
+        self._policy_store.remove(self._authored_source, policy_id)
+
+    def _authored(self, policy_id: str) -> PolicyDocument:
+        """The policy under this id, provided this workspace is the one that wrote it."""
+
+        policy = self.get(policy_id)
+        if policy.origin is not PolicyOrigin.WORKSPACE:
+            raise PolicyConflictError(
+                f"Policy {policy_id} is read here, not authored here: it lives in "
+                f"{policy.source_path}, which Arch Compass does not own"
+            )
+        return policy
+
+    def _write(self, policy_id: str, draft: PolicyDraft) -> PolicyDocument:
+        staged = self._policy_store.stage(self._authored_source, policy_id, draft)
+        try:
+            self._source_inspector.load_documents([staged])
+        except PolicyFormatError:
+            self._policy_store.discard(staged)
+            raise
+        published = self._policy_store.publish(staged)
+        return self._attributed(self._source_inspector.load_documents([published])[0])
+
+    def _attributed(self, document: PolicyDocument) -> PolicyDocument:
+        if Path(document.source_path).is_relative_to(self._authored_source):
+            return document.model_copy(update={"origin": PolicyOrigin.WORKSPACE})
+        return document
+
     def effective_sources(self, *, repository_root: Path | None = None) -> list[Path]:
         registered = [
             self._source_inspector.canonicalize(Path(item.canonical_path))
             for item in self._source_repository.list()
         ]
-        sources = [*self._bundled_sources, *registered]
+        sources = [*self._bundled_sources, self._authored_source, *registered]
         if repository_root is not None:
             repository = repository_root.expanduser().resolve()
             sources.append(repository / ".archcompass" / "policies")

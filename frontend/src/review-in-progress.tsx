@@ -1,12 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Square } from "lucide-react";
+import { VERDICT_WORDS } from "@/components/ledger";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { api } from "./api";
 import { ErrorPanel, sheet } from "./components";
 import { RunProgress, type AwaitingAnswers, type RunPass, type RunState } from "./run-progress";
-import { VERDICT_WORDS } from "./review-ledger";
 import type { BoundaryReview, BoundaryReviewSummary, ReviewedBoundary } from "./types";
 
 /**

@@ -6,6 +6,7 @@ import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from hashlib import sha256
 from importlib.resources import files
 from pathlib import Path
 
@@ -34,24 +35,62 @@ class SQLiteDatabase:
                     )
                     """
                 )
+                # Added after the fact, so a database written before it exists has the
+                # column with nothing in it. That is the grandfathered case below.
+                if "checksum" not in {
+                    str(row[1])
+                    for row in connection.execute("PRAGMA table_info(schema_migrations)")
+                }:
+                    connection.execute(
+                        "ALTER TABLE schema_migrations ADD COLUMN checksum TEXT"
+                    )
                 connection.commit()
                 current_rows = connection.execute(
-                    "SELECT version FROM schema_migrations ORDER BY version"
+                    "SELECT version, checksum FROM schema_migrations ORDER BY version"
                 ).fetchall()
-                current = {int(row[0]) for row in current_rows}
+                current = {int(row[0]): row[1] for row in current_rows}
                 for resource in sorted(migration_root.iterdir(), key=lambda item: item.name):
                     if not resource.name.endswith(".sql"):
                         continue
                     version = int(resource.name.split("_", maxsplit=1)[0])
+                    script = resource.read_text(encoding="utf-8")
                     if version in current:
+                        self._verify_unchanged(
+                            resource.name, script, recorded=current[version]
+                        )
                         continue
-                    self._apply_migration(
-                        connection,
-                        version=version,
-                        script=resource.read_text(encoding="utf-8"),
-                    )
+                    self._apply_migration(connection, version=version, script=script)
         except (OSError, sqlite3.Error, ValueError) as error:
             raise PersistenceError(f"Could not initialize database {self.path}: {error}") from error
+
+    @staticmethod
+    def _checksum(script: str) -> str:
+        return sha256(script.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _verify_unchanged(name: str, script: str, *, recorded: str | None) -> None:
+        """Refuse to run against a database whose history no longer matches these files.
+
+        A migration is only ever read once — the run that applies it — and every run after
+        that skips it by version number. So editing an applied migration changes nothing and
+        announces nothing: the file says one thing, the database says another, and the two
+        disagree until some unrelated query fails. That happened here, with two columns added
+        to 021 after it had run, surfacing much later as `no column named input_token_limit`
+        from a click on a model — a message about a table, pointing nowhere near the cause.
+
+        A recorded `None` is a row written before this check existed. Grandfathered rather
+        than treated as a mismatch: no checksum was stored, so there is nothing to compare,
+        and refusing to open every database that predates this would be a worse failure than
+        the one it guards against.
+        """
+
+        if recorded is None or recorded == SQLiteDatabase._checksum(script):
+            return
+        raise PersistenceError(
+            f"Migration {name} has changed since it was applied to this database. An applied "
+            "migration is history and history is append-only: restore the file to what it "
+            "was and put the change in a new migration beside it."
+        )
 
     @staticmethod
     def _apply_migration(
@@ -92,8 +131,13 @@ class SQLiteDatabase:
                 for statement in statements:
                     connection.execute(statement)
                 connection.execute(
-                    "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
-                    (version, datetime.now(UTC).isoformat()),
+                    "INSERT INTO schema_migrations(version, applied_at, checksum) "
+                    "VALUES (?, ?, ?)",
+                    (
+                        version,
+                        datetime.now(UTC).isoformat(),
+                        SQLiteDatabase._checksum(script),
+                    ),
                 )
                 orphaned = connection.execute("PRAGMA foreign_key_check").fetchall()
                 if orphaned:

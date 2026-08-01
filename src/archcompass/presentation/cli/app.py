@@ -26,7 +26,7 @@ from archcompass.domain.errors import ArchCompassError
 
 app = typer.Typer(
     name="archcompass",
-    help="Evidence-grounded, local-first software architecture advice.",
+    help="Evidence-grounded software architecture advice.",
     no_args_is_help=True,
 )
 policies_app = typer.Typer(help="Build and inspect architectural policies.")
@@ -151,6 +151,11 @@ def web(
     result = initialize_workspace_runtime(
         selected_workspace,
         models_config=state.models_config,
+        # No configuration is written for a workspace that has none. The interface asks for
+        # a model where one is actually needed and offers only models a reachable provider
+        # has, so a seeded file would put a provider in the chip that is not there — which
+        # is the ordinary case for anything hosted. `archcompass init` still writes one.
+        write_default_config=False,
     )
     state.set_runtime(result.runtime)
     url = f"http://127.0.0.1:{port}"

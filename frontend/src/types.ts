@@ -10,7 +10,6 @@ export type FindingPattern = OpenAPIComponents["schemas"]["FindingPattern"];
 export type ReviewConversation = OpenAPIComponents["schemas"]["ReviewConversation"];
 export type ReviewMessage = OpenAPIComponents["schemas"]["ReviewMessage"];
 export type BundledCase = OpenAPIComponents["schemas"]["BundledCase"];
-export type ReviewScore = OpenAPIComponents["schemas"]["ReviewScoreResponse"];
 export type ReviewProgress = OpenAPIComponents["schemas"]["ReviewProgress"];
 export type AnswerProgress = OpenAPIComponents["schemas"]["AnswerProgress"];
 export type ReviewOverview = OpenAPIComponents["schemas"]["ReviewOverview"];
@@ -26,12 +25,19 @@ export type RecordedAnswer = OpenAPIComponents["schemas"]["RecordedAnswer"];
 export type BoundaryExcerpt = OpenAPIComponents["schemas"]["BoundaryExcerpt"];
 export type DirectoryListing = OpenAPIComponents["schemas"]["DirectoryListing"];
 
-export interface WorkspaceSummary {
-  workspace: string;
-  models: {
-    reasoning: { provider: string; model: string };
-  };
-}
+/**
+ * What this workspace is pointed at, including being pointed at nothing.
+ *
+ * Aliased from the generated schema rather than restated here. It was restated, and drifted
+ * the moment `reasoning` became nullable: a hand-written mirror of a contract is a second
+ * copy of it that no build step checks.
+ */
+export type WorkspaceSummary = OpenAPIComponents["schemas"]["WorkspaceSummaryResponse"];
+export type WorkspaceModels = OpenAPIComponents["schemas"]["WorkspaceModels"];
+export type ModelCatalog = OpenAPIComponents["schemas"]["ModelCatalogResponse"];
+export type ModelCandidate = OpenAPIComponents["schemas"]["AvailableModelResponse"];
+export type ProviderAvailability =
+  OpenAPIComponents["schemas"]["ProviderAvailabilityResponse"];
 
 export interface RepositorySummary {
   version_id: string;
@@ -151,6 +157,11 @@ export interface FailureDiagnostic {
   count?: number | null;
 }
 
+export type PolicyStrength = OpenAPIComponents["schemas"]["PolicyStrength"];
+export type PolicyOrigin = OpenAPIComponents["schemas"]["PolicyOrigin"];
+/** A policy as it is authored: what the form sends, and all the server accepts. */
+export type PolicyDraft = OpenAPIComponents["schemas"]["PolicyDraft"];
+
 export interface Policy {
   id: string;
   title: string;
@@ -164,6 +175,14 @@ export interface Policy {
   body: string;
   source_path: string;
   content_hash: string;
+  /**
+   * Whose file this is, and so whether this workspace may rewrite it.
+   *
+   * Read from the server and never worked out here. Which directory a policy came from is a
+   * fact the workspace holds — a page that guessed it from `source_path` would offer an edit
+   * the server then refuses, or worse, hide one it would have allowed.
+   */
+  origin?: PolicyOrigin;
 }
 
 export interface PolicyApplicability {

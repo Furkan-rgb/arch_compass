@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Search, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { LedgerBar, LedgerCount, LedgerFoot } from "@/components/ledger";
@@ -27,7 +27,19 @@ import { api } from "../api";
 import { EmptyLine, ErrorPanel, humanizeLabel, Loading, PageHeader, page, sheet } from "../components";
 import { Markdown } from "../markdown";
 import { policyApplicabilityLabel } from "../policy-applicability";
-import type { Policy } from "../types";
+import { PolicyForm } from "../policy-form";
+import type { Policy, PolicyDraft } from "../types";
+
+/**
+ * Whether this workspace wrote the file, and so whether it may rewrite it.
+ *
+ * The server's answer, never a guess from `source_path`. A page that worked it out from the
+ * path would offer an edit the server then refuses the moment either side changed its mind
+ * about which directory is which.
+ */
+function isAuthoredHere(policy: Policy): boolean {
+  return policy.origin === "workspace";
+}
 
 export function filterPolicies(
   policies: Policy[],
@@ -104,16 +116,54 @@ export function PoliciesPage() {
     () => (policies.data || []).find((policy) => policy.id === selectedId) || null,
     [policies.data, selectedId],
   );
-  const setSelected = (policy: Policy | null) => {
+  const setSelected = (policyId: string | null) => {
+    setConfirmingDelete(false);
     setParams(
       (current) => {
         const next = new URLSearchParams(current);
-        if (policy) next.set("policy", policy.id);
+        if (policyId) next.set("policy", policyId);
         else next.delete("policy");
         return next;
       },
       { replace: true },
     );
+  };
+  /**
+   * The policy being written, or `null` when nothing is.
+   *
+   * `{ policy: null }` is a new one and `{ policy }` is that one being rewritten — two
+   * states of one form rather than two forms, because the fields are the same fields and the
+   * only thing that differs is which route the draft goes to.
+   */
+  const [drafting, setDrafting] = useState<{ policy: Policy | null } | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const savePolicy = useMutation({
+    mutationFn: ({ policyId, draft }: { policyId: string | null; draft: PolicyDraft }) =>
+      policyId ? api.updatePolicy(policyId, draft) : api.createPolicy(draft),
+    onSuccess: (policy) => {
+      setDrafting(null);
+      void queryClient.invalidateQueries({ queryKey: ["policies"] });
+      // Open what was just written. A policy is a document, and the thing to do after
+      // writing one is read it — not return to a table and hunt for the row.
+      setSelected(policy.id);
+    },
+  });
+  const deletePolicy = useMutation({
+    mutationFn: api.deletePolicy,
+    onSuccess: () => {
+      setSelected(null);
+      void queryClient.invalidateQueries({ queryKey: ["policies"] });
+    },
+  });
+  /* Every way in clears the refusal the last attempt earned. A form that opens already
+     saying what was wrong with something else is answering a question nobody asked. */
+  const startDrafting = (policy: Policy | null) => {
+    savePolicy.reset();
+    setDrafting({ policy });
+  };
+  const askToDelete = (asking: boolean) => {
+    deletePolicy.reset();
+    setConfirmingDelete(asking);
   };
   const sources = useQuery({ queryKey: ["policy-sources"], queryFn: api.policySources });
   const [source, setSource] = useState("");
@@ -174,13 +224,29 @@ export function PoliciesPage() {
               retryLabel: "Remove it again",
             }
           : null;
+  // Writing and deleting are not in that chain, and deliberately: both happen inside the
+  // layer the policy is open in, which covers the strip at the top of the page. A refusal
+  // reported where the reader cannot see it is a refusal nobody was told about, so each of
+  // those two answers beside the control that asked.
 
   return (
     <div className={page}>
       {/* No rebuild action. Policies are read from their sources whenever they are asked
           for, so what is on this page is what the next review will be shown, and a button
           to bring an index up to date would be a step that changes nothing (ADR 0013). */}
-      <PageHeader title="Policies" />
+      <PageHeader
+        title="Policies"
+        action={
+          <Button
+            type="button"
+            variant="primary"
+            data-slot="new-policy"
+            onClick={() => startDrafting(null)}
+          >
+            <Plus size={15} aria-hidden /> New policy
+          </Button>
+        }
+      />
       {/* One strip for four requests, and the retry belongs to whichever of them failed —
           re-reading the corpus after a source failed to attach would report success at
           having done the wrong thing. The order is the order they are tried in above. */}
@@ -276,7 +342,7 @@ export function PoliciesPage() {
                 <TableRow
                   key={policy.id}
                   className="cursor-pointer hover:bg-sunken"
-                  onClick={() => setSelected(policy)}
+                  onClick={() => setSelected(policy.id)}
                 >
                   <TableCell className="min-w-[24ch]">
                     {/* The row is clickable for the pointer; the title is the control, so
@@ -286,14 +352,25 @@ export function PoliciesPage() {
                       type="button"
                       data-slot="policy-open"
                       className="cursor-pointer border-0 bg-transparent p-0 text-left text-ui font-[650] tracking-[-.01em] text-ink hover:text-accent-ink"
-                      onClick={() => setSelected(policy)}
+                      onClick={() => setSelected(policy.id)}
                     >
                       {policy.title}
                     </button>
                     <p className="m-0 mt-0.5 max-w-[62ch] leading-[1.5] text-ink-2">
                       {policy.description || policyPrecis(policy.body)}
                     </p>
-                    <code className={cellCode}>{policy.id}</code>
+                    <span className="mt-0.5 flex items-center gap-2">
+                      <code className={cellCode}>{policy.id}</code>
+                      {/* Accent rather than neutral: a chip in the accent family means "you
+                          can act on this", and this is the one row on the page you can. The
+                          editing itself lives in the policy, which is where the reader will
+                          be when they decide it needs changing. */}
+                      {isAuthoredHere(policy) ? (
+                        <Badge variant="accent" data-slot="policy-authored">
+                          yours
+                        </Badge>
+                      ) : null}
+                    </span>
                   </TableCell>
                   <TableCell title={policy.applies_to || undefined}>
                     {policyApplicabilityLabel(policy.scope, policy.applies_to)}
@@ -316,8 +393,8 @@ export function PoliciesPage() {
                 <TableRow>
                   <TableCell colSpan={4}>
                     <EmptyLine className="my-1">
-                      Nothing matches that. Clear the search, or add the file these rules
-                      live in below.
+                      Nothing matches that. Clear the search, write the rule yourself, or add
+                      the file these rules live in below.
                     </EmptyLine>
                   </TableCell>
                 </TableRow>
@@ -413,16 +490,76 @@ export function PoliciesPage() {
                 </DialogTitle>
                 <code className="text-micro text-ink-3">{selected.id}</code>
               </div>
-              <Button
-                size="icon"
-                type="button"
-                className="flex-none"
-                aria-label="Close policy"
-                onClick={() => setSelected(null)}
-              >
-                <X size={14} aria-hidden />
-              </Button>
+              {/* Editing lives on the document, not on the row: the decision that a rule
+                  needs rewording is made while reading it. Offered only where the server
+                  says this workspace wrote the file — everything else here is read, and a
+                  control that led to a 409 would be a promise the page could not keep. */}
+              <div className="flex flex-none items-center gap-1.5">
+                {isAuthoredHere(selected) ? (
+                  <>
+                    <Button
+                      type="button"
+                      data-slot="edit-policy"
+                      onClick={() => startDrafting(selected)}
+                    >
+                      <Pencil size={13} aria-hidden /> Edit
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      data-slot="delete-policy"
+                      onClick={() => askToDelete(true)}
+                    >
+                      <Trash2 size={13} aria-hidden /> Delete
+                    </Button>
+                  </>
+                ) : null}
+                <Button
+                  size="icon"
+                  type="button"
+                  aria-label="Close policy"
+                  onClick={() => setSelected(null)}
+                >
+                  <X size={14} aria-hidden />
+                </Button>
+              </div>
             </DialogHeader>
+            {deletePolicy.error ? (
+              <ErrorPanel
+                error={deletePolicy.error}
+                onRetry={() => deletePolicy.mutate(selected.id)}
+                retrying={deletePolicy.isPending}
+                retryLabel="Delete it again"
+              />
+            ) : null}
+            {/* Asked in place, with the policy still open behind the question — the file
+                being deleted is the one detail that makes the answer meaningful, and a
+                browser dialog would replace it with a sentence. In the strip's own hue,
+                which is the register this design asks destructive questions in. */}
+            {confirmingDelete && isAuthoredHere(selected) ? (
+              <div
+                data-slot="delete-policy-ask"
+                role="group"
+                aria-label={`Delete ${selected.title}?`}
+                className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-control border border-danger-rule border-l-[3px] border-l-danger bg-danger-soft px-3.5 py-2.5 text-meta leading-[1.5]"
+              >
+                <b className="font-[650] text-danger">
+                  Delete this policy? The Markdown goes with it, and reviews already run keep
+                  citing an id nothing answers to.
+                </b>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={deletePolicy.isPending}
+                  onClick={() => deletePolicy.mutate(selected.id)}
+                >
+                  {deletePolicy.isPending ? "Deleting…" : "Delete permanently"}
+                </Button>
+                <Button type="button" onClick={() => askToDelete(false)}>
+                  Keep it
+                </Button>
+              </div>
+            ) : null}
             {/* What this policy is, as facts rather than prose: a well of its own, holding
                 the row of facts sized by what is in them rather than by a track — a policy
                 with four tags and one with none are the same shape of statement, and equal
@@ -455,6 +592,71 @@ export function PoliciesPage() {
             <p className="m-0 border-t border-rule-soft pt-3 text-micro text-ink-3 [overflow-wrap:anywhere]">
               <code>{selected.source_path}</code>
             </p>
+          </DialogContent>
+        ) : null}
+      </Dialog>
+
+      {/* Writing one opens in the same layer reading one does, at the same measure. A policy
+          is a document either way, and a form that arrived from the side would say the thing
+          being written is a setting rather than the material this product reasons over. */}
+      <Dialog
+        open={drafting !== null}
+        onOpenChange={(open) => {
+          if (!open) setDrafting(null);
+        }}
+      >
+        {drafting ? (
+          <DialogContent
+            data-slot="policy-editor"
+            showCloseButton={false}
+            aria-labelledby="policy-editor-title"
+            className="max-w-[760px]"
+            overlayClassName="px-[var(--gutter)] py-6"
+          >
+            <DialogHeader className="flex-row items-start justify-between gap-3">
+              <div>
+                <DialogTitle id="policy-editor-title" className="mb-0.5 leading-tight">
+                  {drafting.policy ? "Edit policy" : "New policy"}
+                </DialogTitle>
+                <span className="text-micro text-ink-3">
+                  {drafting.policy
+                    ? drafting.policy.id
+                    : "Written to this workspace’s own .archcompass/policies"}
+                </span>
+              </div>
+              <Button
+                size="icon"
+                type="button"
+                className="flex-none"
+                aria-label="Close the policy editor"
+                onClick={() => setDrafting(null)}
+              >
+                <X size={14} aria-hidden />
+              </Button>
+            </DialogHeader>
+            {/* Keyed on which policy is open, because `useForm` takes its defaults once at
+                mount: without it, editing a second policy without closing the layer first
+                would show the fields of the first. */}
+            <PolicyForm
+              key={drafting.policy?.id || "new"}
+              heading={drafting.policy ? "Edit policy" : "New policy"}
+              initial={drafting.policy}
+              submitLabel={drafting.policy ? "Save policy" : "Create policy"}
+              pendingLabel={drafting.policy ? "Saving…" : "Creating…"}
+              pending={savePolicy.isPending}
+              error={savePolicy.error}
+              note={
+                drafting.policy
+                  ? "The id stays as it is, because reviews already cite it."
+                  : "The id is made from the title, and every review after this is shown the policy whole."
+              }
+              onSubmit={(draft) =>
+                savePolicy.mutate({
+                  policyId: drafting.policy?.id ?? null,
+                  draft,
+                })
+              }
+            />
           </DialogContent>
         ) : null}
       </Dialog>

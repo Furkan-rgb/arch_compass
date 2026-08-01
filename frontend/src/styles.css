@@ -38,7 +38,7 @@ small { font-size: var(--s-meta); }
   The token sheet — Porcelain by day, Onyx by night.
 
   The rule the two halves are built on: geometry, type and layout never flip with the theme;
-  the *material* does. By day the app is floating porcelain cards over a warm off-white with
+  the *material* does. By day the app is floating porcelain cards over a cool chart-white with
   almost no drawn rules — depth is shadow. By night it is layered onyx surfaces where shadow
   cannot read, so depth is a surface step plus a 5–7% hairline, and the verdicts become
   softly glowing lamps.
@@ -129,20 +129,25 @@ small { font-size: var(--s-meta); }
      that clamp happened to compute to on the day. */
   --ask-panel-width: var(--ask-panel-width-user, clamp(400px, 32vw, 560px));
 
-  /* ── Porcelain: the day material ─────────────────────────────────────────── */
+  /* ── Porcelain: the day material ──────────────────────────────────────────
+     Cool, not warm: porcelain is a blue-white, and the day theme is the same
+     chart the night theme is, read in daylight. The old warm off-white made the
+     two themes two different products; on cool paper the white sheets float a
+     step higher (1.14:1 vs 1.10:1 against the canvas) and the blue accent is at
+     home instead of visiting. */
 
   /* Surfaces, from the page behind everything to the well sunk into a panel. */
-  --canvas: #f5f4f1;
+  --canvas: #eef0f4;
   /* The chrome rows are translucent over whatever scrolls under them, so every rule that
      paints `--chrome` also has to blur behind it — the measurement is named for that. */
   --chrome: rgb(255 255 255 / 72%);
   --chrome-blur: 13px;
   --chrome-active: #ffffff;
-  --chrome-active-ink: #1d1b18;
+  --chrome-active-ink: #182031;
   --surface: #ffffff;
-  --sunken: #f1efeb;
-  --rule: rgb(29 27 24 / 7%);
-  --rule-soft: rgb(29 27 24 / 5%);
+  --sunken: #e9edf3;
+  --rule: rgb(24 32 49 / 7%);
+  --rule-soft: rgb(24 32 49 / 5%);
   /* The one lit row in the palette. By day it is the well, exactly — a highlight inside a
      white sheet is that sheet's own sunken tone and nothing new. By night the well is 4%
      white, which under a floating panel's shadow is not enough to find with the arrow keys,
@@ -152,9 +157,9 @@ small { font-size: var(--s-meta); }
   /* Three weights of ink, and no fourth. The third is as light as it may be and still be
      read: it lands on the canvas, on a card and in the well of a table header, and the
      darkest of those three grounds is what sets its value. */
-  --ink: #1d1b18;
-  --ink-2: #5c5850;
-  --ink-3: #726c63;
+  --ink: #182031;
+  --ink-2: #47536a;
+  --ink-3: #586576;
 
   /* Interaction, and only interaction. The accent never carries a judgement. */
   --accent: #2f5fe0;
@@ -185,11 +190,11 @@ small { font-size: var(--s-meta); }
   --inference: #5a6a94;
   --inference-soft: rgb(90 106 148 / 9%);
 
-  --overlay: rgb(29 27 24 / 45%);
+  --overlay: rgb(16 22 34 / 45%);
   /* A code block is dark in both themes, so the syntax colours below are chosen once. */
-  --code-bg: #221f1b;
-  --code-ink: #e8e4dd;
-  --code-dim: #8a847a;
+  --code-bg: #1c2028;
+  --code-ink: #dce2ea;
+  --code-dim: #7e8795;
   --code-keyword: #9fb8f2;
   --code-string: #a4cfa8;
   /* The rest of the syntax palette. Stated once and not restated by night, unlike the three
@@ -210,9 +215,9 @@ small { font-size: var(--s-meta); }
      that float over the page lift most. There is one step smaller than these — the pixel a
      pressed segment stands on — and it is `--seg-shadow` in the flip block below, because
      it is the only place that step is ever spent. */
-  --shadow-card: 0 1px 2px rgb(29 27 24 / 4%), 0 8px 22px rgb(29 27 24 / 5%);
-  --shadow-panel: 0 1px 2px rgb(29 27 24 / 5%), 0 14px 36px rgb(29 27 24 / 7%);
-  --float: 0 24px 64px rgb(29 27 24 / 16%);
+  --shadow-card: 0 1px 2px rgb(24 32 49 / 4%), 0 8px 22px rgb(24 32 49 / 6%);
+  --shadow-panel: 0 1px 2px rgb(24 32 49 / 5%), 0 14px 36px rgb(24 32 49 / 8%);
+  --float: 0 24px 64px rgb(24 32 49 / 16%);
   /* Two glows, ever: the primary button, and the verdict numerals in the band. Both are dark
      only — a glow on porcelain is a smudge. They are two tokens rather than one because they
      are drawn with different properties (a box shadow and a text shadow), and both are named
@@ -257,7 +262,7 @@ small { font-size: var(--s-meta); }
   --band-bg: #ffffff;
   --band-border: 0;
   --band-shadow: var(--shadow-panel);
-  --band-track: #edebe6;
+  --band-track: #e4e8ef;
   --band-pad: 22px 26px;
 
   /* A secondary button. By day it is a white card like every other floating thing, held down
@@ -266,13 +271,13 @@ small { font-size: var(--s-meta); }
      surface at all but a frosted chip: 5% white over whatever it sits on, which is what keeps
      a row of buttons from looking like a row of holes cut in the sheet. */
   --btn-bg: #ffffff;
-  --btn-rule: rgb(29 27 24 / 12%);
+  --btn-rule: rgb(24 32 49 / 12%);
 
   /* A pressed segment in a toggle group: by day it is a white chip that stands off the well,
      by night it is the well lit up, because a white chip on onyx is a hole. */
   --seg-on: #ffffff;
-  --seg-on-ink: #1d1b18;
-  --seg-shadow: 0 1px 3px rgb(29 27 24 / 12%);
+  --seg-on-ink: #182031;
+  --seg-shadow: 0 1px 3px rgb(24 32 49 / 12%);
 
   font-family: var(--font-ui);
   color: var(--ink);
@@ -356,13 +361,13 @@ small { font-size: var(--s-meta); }
 /* The atlas is drawn from the same palette: a node's state is the verdict family it belongs
    to, so a hotspot on the map and a finding in the ledger are visibly the same claim. */
 :root {
-  --atlas-canvas-bg: #efedea;
+  --atlas-canvas-bg: #e9edf3;
   --atlas-grid: var(--rule-soft);
-  --atlas-edge: #b1aca2;
-  --atlas-edge-strong: #6f6a61;
+  --atlas-edge: #a9b1c0;
+  --atlas-edge-strong: #5f6a7e;
   --atlas-edge-risk: var(--material);
   --atlas-node-bg: var(--surface);
-  --atlas-node-border: #d8d4cc;
+  --atlas-node-border: #d2d8e2;
   --atlas-node-active-bg: var(--accent-soft);
   --atlas-node-active-border: var(--accent);
   --atlas-node-hotspot: var(--material);
@@ -551,6 +556,16 @@ small { font-size: var(--s-meta); }
   html { min-width: 320px; min-height: 100%; background: var(--canvas); }
   html { scroll-behavior: smooth; }
 
+  /* The gutter is always there, whether or not anything is scrolling in it.
+     Opening a dialog locks the body — Radix sets `overflow: hidden` so the page
+     underneath cannot be scrolled by a wheel meant for the sheet — and that takes
+     the scrollbar away with it. The page is centred, so the width it was centred
+     in changing by a scrollbar's worth slid everything sideways at the exact
+     moment the reader's attention moved to the sheet. Reserving the gutter costs
+     that strip on a page too short to scroll, and buys a page that never moves:
+     not on open, not on close, and not between a short route and a long one. */
+  html { scrollbar-gutter: stable; }
+
   body {
     margin: 0;
     min-width: 320px;
@@ -590,6 +605,25 @@ small { font-size: var(--s-meta); }
   [role="button"]:focus-visible {
     border-radius: var(--r-control);
   }
+}
+
+/* The other half of the gutter above, and without it that rule made the shift it
+   was written to prevent.
+
+   Radix locks the page through `react-remove-scroll`, which does not only set
+   `overflow: hidden` on the body: it measures the scrollbar first and adds that
+   width back as `margin-right`, so a page that loses its scrollbar does not
+   widen. That compensation assumes the scrollbar goes away. Under
+   `scrollbar-gutter: stable` it does not — the gutter stays reserved through the
+   lock — so the margin is width the page never gained, and the centred column
+   inside it slid half a scrollbar to the left on open and back on close.
+
+   Unlayered and one step more specific than the rule it answers, because that
+   rule is `!important` and is injected into the head at runtime: a layer would
+   put this in a different cascade round entirely, and equal specificity would
+   lose to whichever style element was appended last. */
+html body[data-scroll-locked] {
+  margin-right: 0 !important;
 }
 
 /* ── The chrome ───────────────────────────────────────────────────────────────
@@ -820,6 +854,24 @@ small { font-size: var(--s-meta); }
   background: var(--surface);
 }
 .atlas-filter-toggle { border-color: var(--rule); }
+.atlas-pulse-select {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--ink-3);
+  font-size: var(--s-meta);
+}
+.atlas-pulse-select select {
+  min-height: 36px;
+  padding: 8px 10px;
+  color: var(--ink-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--s-ui);
+}
 .atlas-filter-toggle.active {
   color: var(--accent-ink);
   border-color: var(--accent-rule);
@@ -1034,6 +1086,113 @@ small { font-size: var(--s-meta); }
   stroke-width: 3;
   stroke-dasharray: none;
   opacity: 1;
+}
+
+/* ── The selected node's neighbourhood, moving ────────────────────────────────────
+   A click on a node already dims everything it does not reach, which is legible but
+   reads as a filter that was applied rather than as an answer to the click — and on
+   onyx, where a resting edge is `#3d434f`, the dimmed half is very nearly gone. These
+   four give the highlight a pulse. Which one is on is the reader's, chosen in the
+   toolbar; `still` keeps the highlight the way it has always been.
+
+   The pulse is its own path over the edge and never the edge itself — three edge kinds
+   already spend `stroke-dasharray` on meaning. Every path is emitted with
+   `pathLength="100"`, so the numbers below are percentages of an edge rather than pixels
+   and a long relationship pulses at the same speed as a short one.
+   ─────────────────────────────────────────────────────────────────────────────── */
+.atlas-pulse {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  opacity: 0;
+  pointer-events: none;
+}
+.atlas-node__halo {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  opacity: 0;
+  pointer-events: none;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Comet: one head runs the length of the relationship, source to target. The gap is
+   longer than the whole path, so there is one head on the wire and never a train. */
+[data-pulse="comet"] .atlas-pulse {
+  stroke-width: 3.4;
+  stroke-dasharray: 4 101;
+  opacity: 1;
+  filter: drop-shadow(0 0 5px var(--accent-rule));
+  animation: atlas-pulse-run 3.5s cubic-bezier(.5, 0, .5, 1) infinite;
+}
+
+/* Travel: the same direction stated quietly, as dashes crawling with the arrow. */
+[data-pulse="travel"] .atlas-pulse {
+  stroke-width: 2.6;
+  stroke-dasharray: 3 6;
+  opacity: .85;
+  animation: atlas-pulse-crawl 2.5s linear infinite;
+}
+
+/* Breathe: no direction and no origin, only that this set is live. It needs no overlay —
+   it is the existing highlight, breathing. A path edge is left out: that highlight is a
+   verdict about a route the reader asked for and should not be made to move. */
+[data-pulse="breathe"] .atlas-edge--active:not(.atlas-edge--path) {
+  animation: atlas-edge-breathe 2.5s ease-in-out infinite;
+}
+[data-pulse="breathe"] .atlas-node--active .atlas-node__body {
+  animation: atlas-node-breathe 2.5s ease-in-out infinite;
+}
+
+/* Ripple: the pulse gets an origin. The node rings, the near edges fire before the far
+   ones, and every head leaves the node that was clicked — including the half of the
+   neighbourhood drawn towards it, which simply plays backwards. This is the one mode
+   that spends the arrow's direction, and it buys a single gesture with it. */
+[data-pulse="ripple"] .atlas-pulse {
+  stroke-width: 3.2;
+  stroke-dasharray: 4 101;
+  opacity: 1;
+  filter: drop-shadow(0 0 5px var(--accent-rule));
+  animation: atlas-pulse-run 2.5s cubic-bezier(.35, 0, .3, 1) infinite;
+  animation-delay: calc(var(--atlas-pulse-rank, 0) * .14s);
+}
+[data-pulse="ripple"] .atlas-pulse--incoming { animation-direction: reverse; }
+[data-pulse="ripple"] .atlas-node--active .atlas-node__halo {
+  animation: atlas-halo-ring 2.5s cubic-bezier(.2, .6, .3, 1) infinite;
+}
+
+@keyframes atlas-pulse-run {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -105; }
+}
+@keyframes atlas-pulse-crawl { to { stroke-dashoffset: -9; } }
+/* The floor is 55% rather than the near-nothing a breath would naturally reach: an edge
+   that fades far enough to read as gone stops being a highlight for half of every cycle,
+   and the widening already carries the movement. */
+@keyframes atlas-edge-breathe {
+  0%, 100% { opacity: .95; stroke-width: 1.5; }
+  50% { opacity: .55; stroke-width: 3.1; }
+}
+@keyframes atlas-node-breathe {
+  0%, 100% { stroke-width: 2.5; }
+  50% { stroke-width: 4.2; }
+}
+@keyframes atlas-halo-ring {
+  0% { opacity: .55; transform: scale(1); }
+  55%, 100% { opacity: 0; transform: scale(1.16); }
+}
+
+/* A reader who has asked for less motion gets the static highlight, whatever is selected
+   in the toolbar. */
+@media (prefers-reduced-motion: reduce) {
+  .atlas-pulse,
+  .atlas-node__halo {
+    opacity: 0 !important;
+    animation: none !important;
+  }
+  .atlas-edge,
+  .atlas-node__body { animation: none !important; }
 }
 .atlas-node { cursor: pointer; outline: none; }
 .atlas-node__body {
@@ -1270,8 +1429,8 @@ small { font-size: var(--s-meta); }
 
    Nothing of it is left here. The sheet is `sheet` in components.tsx, the ledger
    inside it is components/ledger.tsx, and each region of the page — the
-   conclusion, what the reader's answers changed, the score against a shipped
-   answer key — is drawn where it is used, in the page's own file.
+   conclusion, what the reader's answers changed — is drawn where it is used, in
+   the page's own file.
    ──────────────────────────────────────────────────────────────────────────── */
 
 /* ── An answer, as prose ─────────────────────────────────────────────────────
@@ -1412,3 +1571,519 @@ small { font-size: var(--s-meta); }
 [data-slot="source-excerpt"] .token.inserted { color: var(--excerpt-added, var(--code-added)); }
 [data-slot="source-excerpt"] .token.deleted { color: var(--excerpt-removed, var(--code-removed)); }
 [data-slot="source-excerpt"] pre code { display: block; color: var(--ink); font-size: var(--s-ui); line-height: 1.55; white-space: pre; tab-size: 4; }
+
+/* ── The front door ───────────────────────────────────────────────────────────
+   Everything from here to the end of the sheet belongs to `/` and to nothing
+   else. Three things run under and beside the page's own words — the ground the
+   sections stand on, the course plotted through them, and a comet travelling each
+   of the course's segments — and none of them is something the page could have
+   written in utilities: they are pseudo-elements, keyframes, scroll timelines and
+   full-bleed offsets.
+
+   All of it is decorative by construction. There is no element to label, nothing
+   takes a tab stop, and no screen reader has anything to announce.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* Both of these are load-bearing, and one alone does nothing.
+
+   The ground's full-bleed layers reach the viewport edge with `calc(50% - 50vw)`,
+   and `100vw` counts the scrollbar the column does not, so they overshoot by half
+   of one per side. Declared on the body alone that overshoot stays in the
+   document's scroll width: while the root's overflow is `visible` the body's is
+   propagated to the viewport and the body's own used value goes back to
+   `visible`, so nothing clips. Declaring it on the root stops that propagation,
+   which is what lets the body's own rule apply to the body.
+
+   `clip` over a `hidden` fallback in both places: it clips without making either
+   axis a scroll container.
+
+   Scoped to the page that needs it rather than stated globally. Every other
+   surface in this workspace holds its own scrollers — the atlas canvas, a filter
+   bar, a fenced block — and a document-level clip would silently turn any
+   overflow they ever fail to contain from reachable into invisible.
+
+   Measured on the page it does apply to: scroll width equals client width at 380,
+   620, 880, 1024, 1260 and 1440, and the bands still reach both viewport edges. */
+html:has(.home-hero) {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+html:has(.home-hero) body {
+  overflow-x: hidden;
+  overflow-x: clip;
+  /* The one continuous ground: the field tone and the far raster, painted on the
+     body so no section can interrupt them. Layer order is tone over grid — the
+     tone is translucent and must also sit on the lines. */
+  background-image:
+    linear-gradient(var(--ground-field), var(--ground-field)),
+    linear-gradient(to right, var(--ground-grid-far) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ground-grid-far) 1px, transparent 1px);
+  background-size: auto, 24px 24px, 24px 24px;
+}
+
+/* ── The ground ───────────────────────────────────────────────────────────────
+   What every section stands on. Two layers and no third: the chart paper and
+   the field, both painted once on the body, and three anchored pools of light
+   over them.
+
+   The pools sit at `z-index: 0` and the sections' own children are lifted to
+   `1`, rather than the obvious `z-index: -1`. A negative layer paints before every
+   in-flow box in the root stacking context, and `body` carries a background of its
+   own — so the pools would be drawn and then painted over by the canvas. At zero
+   the order is document order among positioned boxes, which is the pool, then
+   everything the page actually says.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* The values the ground is made of, and the page has no other background of any
+   kind. The ground is ONE continuous surface: the whole home page stands in the
+   field, drawn once on the body, and nothing on the page starts or stops it — a
+   field that arrived at a section's edge would be a slab, and the page has none.
+   What varies from section to section is only light: soft radial pools, nothing
+   with an edge to find.
+
+   All layers darken their ground in both materials — a pool is a recess in both
+   — which is why body text only ever gains contrast where they reach. */
+:root {
+  /* One raster, painted once on the body. It used to come at two distances — a
+     page-wide whisper plus a full-strength copy inside radial windows — but the
+     copies tiled from different origins (the windows' boxes, offset again by the
+     scrollbar's half-width inside `50vw`), so the two lattices could never
+     coincide and read as one grid printed twice, slightly off. By day the lines
+     are drafting blue: the blue-pencil grid of chart paper, not a screen accent. */
+  --ground-grid-far: rgb(47 95 224 / 6%);
+  /* The field the whole page stands in. Strong enough to see by day — the old
+     1.5% was invisible, which is most of why the page read as flat next to the
+     night theme. `--ink-3` sits at 5.20:1 on bare canvas, 4.92:1 in the field,
+     and 4.55:1 under the strongest pool a passage can be under — the floor
+     stays AA, and the measurement is the limit, not the taste. */
+  --ground-field: rgb(24 32 49 / 3%);
+  /* By day this is not a glow — a glow on paper is a smudge. A cool pool of
+     depth under the hero card, and a gentler one under the record. */
+  --ground-pool: rgb(47 95 224 / 6%);
+  /* The Run's own light. By day a cool deepening — the oval the map sits in —
+     and by night the lamp the section is read under. */
+  --ground-lamp: rgb(47 95 224 / 5%);
+}
+[data-theme="dark"] {
+  --ground-grid-far: rgb(255 255 255 / 3.5%);
+  /* Black, not white: by night the field is cut *into* the canvas, which is what
+     lets every sheet and panel on the page float above it — a lightened ground
+     would sit at exactly `--surface` and the instruments would vanish into
+     their own case. Page-wide, it is the atlas's own ground: the whole home
+     page is drawn on the map's paper. `--ink-3` measures 4.78:1 over it. */
+  --ground-field: rgb(0 0 0 / 32%);
+  --ground-pool: rgb(124 156 255 / 9%);
+  --ground-lamp: rgb(124 156 255 / 9%);
+}
+
+.home-hero,
+.home-run-field,
+.home-record-field { position: relative; }
+
+.home-hero > *,
+.home-run-field > *,
+.home-record-field > * { position: relative; z-index: 1; }
+
+.home-hero::after,
+.home-run-field::before,
+.home-record-field::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: calc(50% - 50vw);
+  right: calc(50% - 50vw);
+  pointer-events: none;
+}
+
+/* 1 — Two anchored pools, and there is no third. One under the hero's specimen
+   card, one under the map, so the two floating objects on this page have
+   something to float on. Both darken their ground in both themes, so every
+   passage they reach gains contrast rather than losing it. */
+.home-hero::after {
+  top: -20%;
+  bottom: -14%;
+  background: radial-gradient(58% 78% at 72% 48%, var(--ground-pool), transparent 76%);
+}
+
+/* 2 — The Run's lamp, and the record's landing. Radial and radial only: with the
+   field continuous under the whole page, what marks these two sections is light
+   falling on it — the oval the map sits in, and a cooler, gentler pool where the
+   course ends. Nothing here has an edge; every falloff reaches nothing before
+   anything else begins. */
+.home-run-field::before {
+  top: 0;
+  bottom: 0;
+  background: radial-gradient(62% 72% at 30% 54%, var(--ground-lamp), transparent 74%);
+}
+.home-record-field::before {
+  top: -10%;
+  bottom: 0;
+  background: radial-gradient(74% 64% at 50% 34%, var(--ground-pool), transparent 76%);
+}
+
+/* Below the hero's collapse the two things the ground is anchored to have moved
+   under the text rather than beside it, so the pools follow them. */
+@media (max-width: 880px) {
+  .home-hero::after {
+    background: radial-gradient(72% 44% at 50% 76%, var(--ground-pool), transparent 78%);
+  }
+  .home-run-field::before {
+    background-image: radial-gradient(86% 38% at 50% 42%, var(--ground-lamp), transparent 76%);
+  }
+}
+
+/* ── The Run, replayed ────────────────────────────────────────────────────────
+   The section draws the app's own `JudgingLedger` and `VerdictBand`. What is here
+   is only where this one placement differs from what those components draw
+   everywhere else, and each difference is a fact about the placement rather than
+   a second opinion about the component.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* The map beside it is already saying where each boundary sits, so the ledger
+   gives that column back and spends the room on the qualified name instead. A
+   row's six cells are fixed by `rowProps`, in one order, and the fourth of them is
+   the location — hidden rather than emptied, because a cell left in place would
+   still hold its track open. Below 860px the row drops columns of its own and four
+   cells land in the four tracks the component already asks for. */
+.home-replay [data-slot="ledger-row"] {
+  grid-template-columns: var(--stripe-col) 20px minmax(0, 1fr) auto auto;
+}
+.home-replay [data-slot="ledger-row"] > :nth-child(4) { display: none; }
+@media (max-width: 860px) {
+  .home-replay [data-slot="ledger-row"] {
+    grid-template-columns: var(--stripe-col) 20px minmax(0, 1fr) auto;
+  }
+}
+
+/* ── The specimen map ─────────────────────────────────────────────────────────
+   Every rule the map is drawn with is the atlas's, above. These are the things a
+   decorative map inside a narrow column needs that a workbench canvas does not: a
+   panel that is a column, a canvas that scrolls sideways rather than shrinking its
+   own type past reading, and no pointer affordances on a map nothing can be done
+   to.
+   ──────────────────────────────────────────────────────────────────────────── */
+.atlas-panel.home-atlas {
+  display: flex;
+  min-height: 420px;
+  flex-direction: column;
+}
+.home-atlas .atlas-toolbar { padding: 8px 16px; font-size: var(--s-meta); }
+.home-atlas .atlas-legend { gap: 6px 12px; }
+.home-atlas .atlas-legend__key { gap: 5px; white-space: nowrap; }
+.home-atlas .atlas-canvas {
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  cursor: default;
+  scrollbar-gutter: auto;
+  touch-action: auto;
+}
+.home-atlas .atlas-canvas svg { width: 100%; min-width: 560px; height: auto; }
+.home-atlas .atlas-node { cursor: default; }
+/* The second ink, like the toolbar above it and for the same reason: both strips
+   are the panel's chrome and sit on the same well. The third ink measures 4.42:1
+   on that well by night, which is under AA — the lightest ink this design has is
+   chosen against the canvas, not against a surface laid over it. */
+.home-atlas .atlas-visible-count {
+  padding: 8px 16px;
+  color: var(--ink-2);
+  font-size: var(--s-micro);
+  line-height: 1.5;
+  text-align: left;
+}
+@media (max-width: 620px) {
+  .home-atlas .atlas-canvas { height: auto; min-height: 0; }
+}
+
+/* The one under the model right now is the workbench atlas's selected node, which
+   already carries the fill, the border and the ring it needs. Three declarations
+   complete it: the body breathes, the kind badge takes the same lit surface, and
+   its glyph goes to the interactive ink. */
+.home-atlas .atlas-node--active .atlas-node__body {
+  animation: atlas-node-breathe 2.5s ease-in-out infinite;
+}
+.home-atlas .atlas-node--active .atlas-node__kind {
+  fill: var(--atlas-node-active-bg);
+  stroke: var(--atlas-node-active-border);
+}
+.home-atlas .atlas-node--active .atlas-node__symbol { fill: var(--accent-ink); }
+
+/* A miniature of the node it names, rather than a second vocabulary of icons. */
+.atlas-legend__swatch {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  border: 1px solid var(--atlas-node-border);
+  border-radius: 3px;
+  background: var(--atlas-node-bg);
+}
+.atlas-legend__key--hotspot .atlas-legend__swatch {
+  border-color: var(--atlas-node-hotspot);
+  background: var(--atlas-node-hotspot-bg);
+}
+.atlas-legend__key--cleared .atlas-legend__swatch {
+  border-color: var(--cleared);
+  background: var(--cleared-soft);
+}
+.atlas-legend__key--judging .atlas-legend__swatch {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Held while the pointer is over the replay or something inside it has focus. The
+   replay's timer stops, so the map's own motion has to stop with it — and none of
+   that motion is reachable from the interval that drives the rows.
+
+   After every rule that hands one of these an animation, and that is the whole
+   reason it is down here rather than beside the replay's other overrides: the
+   `animation` shorthand resets `animation-play-state` to `running`, so at equal
+   specificity a pause written above the breathing node was simply overwritten. */
+.home-replay[data-held] .atlas-pulse,
+.home-replay[data-held] .atlas-node__body,
+.home-replay[data-held] .atlas-node__halo { animation-play-state: paused; }
+
+/* ── The record, as a specimen of one ─────────────────────────────────────────
+   The app's own `.markdown`, capped and faded: this is one page of a report, and a
+   page of a report has to look like it goes on.
+   ──────────────────────────────────────────────────────────────────────────── */
+.home-doc {
+  position: relative;
+  max-height: 360px;
+  overflow: hidden;
+  padding: 24px 26px 48px;
+}
+.home-doc::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 110px;
+  background: linear-gradient(to bottom, transparent, var(--surface));
+}
+.home-doc h1 { margin: 0 0 4px; }
+.home-doc h2 { margin: 24px 0 8px; }
+.home-doc p { margin: 0 0 12px; }
+
+/* ── The plotted course ───────────────────────────────────────────────────────
+   One line, drawn in the atlas's edge language, running the length of the page
+   like a course plotted on a chart. Its geometry is the product's argument: three
+   materials converge into one judgement; the course crosses the field the run is
+   judged in; at the question it forks through the reader's own answer (the accent
+   border of the what-changed block IS the course there); and it ends at a terminal
+   fix beside the record. Every turn states something true, which is what separates
+   a course from a timeline.
+
+   Desktop only (≥1260px): the line lives in the left margin, and a margin is
+   something the narrow layouts do not have. Below that, nothing here exists —
+   including the converge fan, whose 34px stem the narrow page keeps instead.
+
+   The drawn state is the BASE state. Scroll-drawing is layered on only where
+   scroll-driven animations exist, so Safari, Firefox and reduced-motion all read a
+   complete chart rather than a missing one.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.course-rail,
+.course-pulse,
+.course-tick,
+.course-converge,
+.course-elbow,
+.course-end { display: none; }
+
+@media (min-width: 1260px) {
+  .course-host { position: relative; --course-x: -34px; }
+
+  .course-rail {
+    display: block;
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    bottom: 0;
+    left: var(--course-x);
+    width: 1.5px;
+    background: var(--atlas-edge-strong);
+    opacity: .4;
+    transform-origin: top;
+    pointer-events: none;
+  }
+  .course-rail--end { bottom: auto; height: 101px; }
+
+  /* A waypoint where the course crosses each section's rule. */
+  .course-tick {
+    display: block;
+    position: absolute;
+    z-index: 1;
+    top: -3px;
+    left: calc(var(--course-x) - 2.6px);
+    width: 7px;
+    height: 7px;
+    border-radius: var(--r-pill);
+    background: var(--accent);
+    opacity: .8;
+    pointer-events: none;
+  }
+
+  /* Three materials, one judgement: the fan replaces the plain stem. */
+  .course-stem { display: none; }
+  .course-converge { display: block; width: 100%; height: 56px; }
+  /* Accent like the elbows and the stub, not atlas gray: the whole connection
+     from the three materials into the judgement is one blue course. */
+  .course-converge path {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    opacity: .45;
+  }
+  .course-converge .course-converge__stub { opacity: .9; }
+
+  /* The judgement, moving: one head leaves each material at the same moment and
+     the three arrive together, then a single head carries on down the stub —
+     the atlas's own comet (a dash whose gap is longer than the path), on the
+     course's geometry. Dash arithmetic is normalized against pathLength=100;
+     the resting offset parks the head just before the path so a paused or
+     reduced-motion page shows nothing rather than a stray accent mark.
+     `.course-converge` is in the selector so this beats `.course-converge path`
+     above — as a bare class it loses, and the comet rides gray and thin. */
+  .course-converge .course-converge__pulse {
+    stroke: var(--accent);
+    stroke-width: 2;
+    stroke-linecap: round;
+    /* Not `non-scaling-stroke`, deliberately: Chromium measures dashes in raw
+       path units when it and `pathLength` combine, and the comet IS a dash.
+       The near-1:1 viewBox is what makes opting out affordable. */
+    vector-effect: none;
+    stroke-dasharray: 5 200;
+    stroke-dashoffset: 5;
+    opacity: .9;
+    filter: drop-shadow(0 0 5px var(--accent-rule));
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .course-converge__pulse { animation: course-converge-pulse 6s linear infinite; }
+    /* The strands' head lands at the junction ~1.6s in; the stub's leaves it. */
+    .course-converge__pulse--stub { animation-delay: 1.6s; }
+  }
+
+  /* The fork through the reader's answer: off the rail, into the accent border of
+     the what-changed block, and back out under it. */
+  .home-changed { position: relative; }
+  .course-elbow {
+    display: block;
+    position: absolute;
+    /* Absolute offsets resolve against the padding box, and this block wears a
+       3px accent border-left — the course's own segment through it — so the elbow
+       backs up by that border to run rail-to-border exactly. */
+    left: -37px;
+    width: 34px;
+    height: 24px;
+    pointer-events: none;
+  }
+  .course-elbow--in { top: -2px; }
+  .course-elbow--out { bottom: -2px; }
+  .course-elbow path {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    opacity: .7;
+  }
+
+  /* The destination fix: where the course was always headed. */
+  .course-end {
+    display: grid;
+    place-items: center;
+    position: absolute;
+    z-index: 1;
+    top: 100px;
+    left: calc(var(--course-x) - 7.25px);
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid var(--accent);
+    border-radius: var(--r-pill);
+    pointer-events: none;
+  }
+  .course-end::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: var(--r-pill);
+    background: var(--accent);
+  }
+
+  /* ── The comet ────────────────────────────────────────────────────────────
+     One head running each segment of the course, in the same vocabulary the map
+     beside it states a live relationship in — the page's own edges, moving for
+     the reason its edges move.
+
+     A sibling of the rail rather than a child, and that is not a preference: the
+     rail scales on its own Y axis while it draws itself, and a head parented to
+     it would be squashed by that transform for the whole of the draw. So the
+     comet is positioned identically instead, clips to the same segment, and
+     carries the stagger that keeps five segments from firing as one.
+     ────────────────────────────────────────────────────────────────────────── */
+  @media (prefers-reduced-motion: no-preference) {
+    .course-pulse {
+      display: block;
+      position: absolute;
+      z-index: 1;
+      top: 0;
+      bottom: 0;
+      left: var(--course-x);
+      width: 1.5px;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .course-pulse--end { bottom: auto; height: 101px; }
+    .course-pulse::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 64px;
+      background: linear-gradient(to bottom, transparent, var(--accent) 55%, transparent);
+      opacity: .8;
+      animation: course-comet 6s linear infinite;
+      animation-delay: var(--course-pulse-delay, 0s);
+    }
+  }
+
+  /* The delight layer: the course draws itself just ahead of the reader. Layered
+     on top of the complete base state, so absence of support means a drawn chart,
+     never an empty margin. */
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      .course-rail {
+        animation: course-draw linear both;
+        animation-timeline: view();
+        /* Fast enough that the line is never missing between two waypoints the
+           reader can already see: at `cover 42%` the short thesis rail was still
+           drawing itself while both its dots were on screen, and the course read
+           as broken between them. */
+        animation-range: entry 0% cover 22%;
+      }
+      /* The record sits too near the page's end for a cover range to ever finish
+         there; the terminal rail completes on entry instead. */
+      .course-rail--end { animation-range: entry 0% entry 85%; }
+      /* The fan and the elbows do not scroll-draw. Their strokes carry
+         `vector-effect: non-scaling-stroke`, and Chromium measures a dash
+         against the path's raw length rather than its `pathLength` when the
+         two combine — a "drawing" dash renders as a dotted line instead. They
+         are small event marks; arriving already drawn costs nothing. */
+      .course-tick,
+      .course-end {
+        animation: course-lit linear both;
+        animation-timeline: view();
+        animation-range: entry 0% entry 55%;
+      }
+    }
+  }
+}
+
+@keyframes course-draw { from { transform: scaleY(0); } }
+@keyframes course-lit { from { opacity: .2; transform: scale(.55); } }
+@keyframes course-comet { from { top: -64px; } to { top: 100%; } }
+/* Travel in the first 1.8s of the cycle, then hold past the path's end — the
+   rest of the period is the quiet between runs, shared with the rail comets. */
+@keyframes course-converge-pulse {
+  0% { stroke-dashoffset: 5; }
+  30% { stroke-dashoffset: -110; }
+  100% { stroke-dashoffset: -110; }
+}

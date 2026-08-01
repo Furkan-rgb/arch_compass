@@ -21,7 +21,31 @@ from archcompass.adapters.models.structured import (
 )
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ProviderError
+from archcompass.domain.model_catalog import AvailableModel, ProbeResult
 from archcompass.ports.reasoning import ReasoningTask
+
+# ─────────────────────────────────────────────────────────────────────────────────────────
+# The local models this advisor offers, most preferred first. Edit this list to change what
+# the model chooser puts in front of a reader; nothing else in this file needs touching.
+#
+# A pulled model is not a model that can judge a boundary. `/api/tags` lists everything the
+# server holds and says nothing about what any of it does, so an embedding model appears
+# beside a reasoning one and reads exactly the same — `embeddinggemma:latest` was offered,
+# and chosen, and would have failed at the first boundary of a review.
+#
+# The cost here is sharper than on a hosted provider: these are models somebody pulled
+# deliberately, so pulling a new one and not seeing it in the chooser is a surprise the file
+# has to explain. It is still the right trade — a chooser that lists whatever happens to be
+# on disk is not offering a choice, it is showing an inventory — but a name missing from
+# this list is the first thing to check when a pulled model does not appear.
+# ─────────────────────────────────────────────────────────────────────────────────────────
+OFFERED_MODELS: Final = (
+    "gemma4:26b",
+    "gemma4:31b",
+    "gemma4:12b",
+    "qwen3.6:35b",
+    "qwen3.6:27b",
+)
 
 _MAX_TRANSPORT_ATTEMPTS: Final = 3
 _BACKOFF_BASE_SECONDS: Final = 0.5
@@ -100,6 +124,80 @@ def _as_provider_error(error: Exception) -> ProviderError:
             f"Ollama reasoning request failed with HTTP {error.status_code}{suffix}"
         )
     return ProviderError(f"Ollama reasoning request failed: {error}")
+
+
+#: What a liveness check may spend. `timeout_seconds` is 360 in both shipped configurations,
+#: which is right for a judgement and absurd for a question a dropdown is waiting on: a
+#: firewalled host would hold the picker open for six minutes before admitting nothing is
+#: there.
+PROBE_TIMEOUT_SECONDS: Final = 2.0
+
+
+def _probe_detail(base_url: str, error: Exception) -> str:
+    """Why the server could not be asked, as something a reader can act on.
+
+    A sentence rather than an exception's `str`: "nothing is listening at
+    http://127.0.0.1:11434" names the cure and "ConnectionError" does not.
+    """
+
+    if isinstance(error, ResponseError):
+        detail = error.error.strip()
+        if len(detail) > 200:
+            detail = detail[:199].rstrip() + "…"
+        suffix = f": {detail}" if detail else ""
+        return f"HTTP {error.status_code}{suffix}"
+    if isinstance(error, httpx.TimeoutException):
+        return f"{base_url} did not answer within {PROBE_TIMEOUT_SECONDS:g}s"
+    if isinstance(error, ConnectionError):
+        return f"nothing is listening at {base_url}"
+    return str(error)
+
+
+def probe_ollama(config: ReasoningModelConfig) -> ProbeResult:
+    """Which of the offered models this Ollama server has pulled, or why it could not be asked.
+
+    Never raises. Unavailability is the answer to the question, not a failure to answer it:
+    a picker has to be able to show "Ollama is not running" beside the providers that are,
+    and an exception here would take the whole listing down with it.
+
+    Deliberately without `_with_retry`. This is a liveness check, and a server that is not
+    running is not going to start during three attempts with backoff — all that buys is six
+    seconds of a reader waiting to be told something already known after the first.
+    """
+
+    if not config.base_url:
+        return ProbeResult(available=False, detail="this profile sets no base_url")
+    try:
+        listed = Client(host=config.base_url, timeout=PROBE_TIMEOUT_SECONDS).list()
+    except _REQUEST_FAILURES as error:
+        return ProbeResult(available=False, detail=_probe_detail(config.base_url, error))
+    found = {
+        entry.model: AvailableModel(
+            name=entry.model,
+            # Ollama offers no display name, so the size is the most useful thing it knows
+            # that the tag does not already say.
+            label=(entry.details.parameter_size or "") if entry.details else "",
+        )
+        for entry in listed.models
+        if entry.model in OFFERED_MODELS
+    }
+    if not found:
+        # The server is running and answered — it simply holds none of the models this
+        # advisor offers, which is a different fault from being unreachable and has its own
+        # cure: pull one, or add what is already here to the list at the top of this file.
+        return ProbeResult(
+            available=False,
+            detail=(
+                f"{config.base_url} is running but has pulled none of "
+                f"{', '.join(OFFERED_MODELS)}"
+            ),
+        )
+    # Ordered by preference rather than by whatever order the server listed them in, so the
+    # model at the top of the chooser is the one this advisor would pick for itself.
+    return ProbeResult(
+        available=True,
+        models=[found[name] for name in OFFERED_MODELS if name in found],
+    )
 
 
 class OllamaChatTransport:

@@ -11,6 +11,7 @@ from pydantic import Field, ValidationError, model_validator
 
 from archcompass.domain.base import DomainModel, canonical_json, stable_id
 from archcompass.domain.errors import ConfigurationError
+from archcompass.domain.model_catalog import ModelProfile
 
 
 def default_config_text() -> str:
@@ -127,10 +128,13 @@ class ReasoningModelConfig(DomainModel):
     #: one judgement about supplied evidence, so this is a property of the configured model
     #: rather than of any stage.
     #:
-    #: The third state is not decoration. Measured on `gemma4:26b` against the scored
-    #: example, the three settings differ in every direction: `true` took 510s and scored
-    #: 4/6, `false` took 40s and scored 3/6, and leaving it to the model took ~250s and
-    #: scored 5-6/6. A boolean alone could not express the best of those.
+    #: Three settings and three outcomes, and an adapter owes all three however its own API
+    #: spells them. `true` in particular must reach the provider as an instruction and never
+    #: decay into absence: a request that says nothing gets the model's default, and defaults
+    #: are a property of the model rather than of the API — `gemini-3.6-flash` reasons
+    #: without being asked and `gemini-3.5-flash-lite` does not. Where a provider takes a
+    #: level rather than a flag, requiring it means naming one. Where a model cannot think at
+    #: all, the honest answer is the provider's refusal, not a quiet run without it.
     #:
     #: Thinking tokens are spent from `max_output_tokens` on both providers, so requiring
     #: it on a tight output budget can leave the structured answer truncated — which
@@ -234,3 +238,65 @@ def load_config(path: Path) -> AppConfig:
         return AppConfig.model_validate(raw)
     except (OSError, yaml.YAMLError, ValidationError) as error:
         raise ConfigurationError(f"Invalid model configuration {path}: {error}") from error
+
+
+def run_is_pinned(explicit: Path | None = None) -> bool:
+    """Whether this run was pointed at a configuration rather than left to find one.
+
+    `--models-config` and `ARCHCOMPASS_MODELS_CONFIG` are instructions about this process,
+    and a stored selection quietly overriding one would make them mean nothing: `make
+    web-google` would run whichever model was last clicked. So the interface reports the
+    model as pinned and declines to change it, and the workspace's own choice — which is
+    not erased — takes effect again the next time nothing says otherwise.
+
+    Callers must load the workspace's `.env` first, for the same reason
+    `resolve_config_path` requires it.
+    """
+
+    return explicit is not None or bool(os.environ.get("ARCHCOMPASS_MODELS_CONFIG"))
+
+
+def discover_model_profiles(
+    workspace: Path, explicit: Path | None = None
+) -> list[ModelProfile]:
+    """Every configuration this workspace could run against.
+
+    A different question from `resolve_config_path`, and the two are meant to disagree.
+    Resolution asks what *this run* was pointed at, where several candidates and nothing
+    choosing between them is an error worth stopping for — which provider a review runs
+    against decides what it costs and how long it takes. This asks what there is to choose
+    from, where several is the ordinary answer and the reason a chooser exists at all.
+
+    Never raises. A file that will not parse is left out silently: a half-written
+    `models.experimental.yaml` should not be able to empty a picker, and the profiles that
+    do parse are still perfectly good choices.
+    """
+
+    directory = (workspace / CONFIG_DIRECTORY).resolve()
+    # `models.yaml` first because it is the one a workspace is given, and the glob does not
+    # match it — `models.*.yaml` needs something between the dots.
+    paths = [directory / DEFAULT_CONFIG_NAME]
+    paths.extend(sorted(path for path in directory.glob(NAMED_CONFIG_PATTERN)))
+    if explicit is not None:
+        paths.append(explicit.expanduser().resolve())
+    profiles: list[ModelProfile] = []
+    seen: set[str] = set()
+    for path in paths:
+        # A profile is identified by its basename, so an explicit path naming a file the
+        # workspace already holds is the same profile rather than a second copy of it.
+        if not path.is_file() or path.name in seen:
+            continue
+        try:
+            config = load_config(path)
+        except ConfigurationError:
+            continue
+        seen.add(path.name)
+        profiles.append(
+            ModelProfile(
+                profile_id=path.name,
+                path=str(path),
+                provider=config.models.reasoning.provider,
+                configured_model=config.models.reasoning.model,
+            )
+        )
+    return profiles

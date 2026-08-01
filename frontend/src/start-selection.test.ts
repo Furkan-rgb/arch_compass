@@ -97,7 +97,7 @@ describe("clearing a case", () => {
     const next = chooseCase(chosen, WAREHOUSE_CASE, INDEXED);
 
     expect(next.repositoryRoot).toBe("/repos/warehouse");
-    expect(isReady(next)).toBe(true);
+    expect(isReady(next, true)).toBe(true);
   });
 
   it("round-trips: clearing and choosing again returns the same selection", () => {
@@ -127,7 +127,7 @@ describe("choosing a repository", () => {
     const twice = chooseRepository(once, "/repos/warehouse");
 
     expect(twice.repositoryRoot).toBe("/repos/warehouse");
-    expect(isReady(twice)).toBe(true);
+    expect(isReady(twice, true)).toBe(true);
   });
 });
 
@@ -145,7 +145,7 @@ describe("what pressing Run does", () => {
   it("reviews the chosen case when there is one", () => {
     const chosen = chooseCase(selection(), WAREHOUSE_CASE, INDEXED);
 
-    expect(runIntent(chosen)).toEqual({
+    expect(runIntent(chosen, true)).toEqual({
       kind: "against-case",
       caseId: "case-1",
       repositoryRoot: "/repos/warehouse",
@@ -157,7 +157,7 @@ describe("what pressing Run does", () => {
 
     // The path for someone who has not written a case: an empty one is opened about the
     // repository and the review's own questions fill it in.
-    expect(runIntent(chosen)).toEqual({
+    expect(runIntent(chosen, true)).toEqual({
       kind: "from-repository",
       repositoryRoot: "/repos/warehouse",
     });
@@ -167,16 +167,23 @@ describe("what pressing Run does", () => {
     const chosen = chooseCase(selection(), WAREHOUSE_CASE, INDEXED);
     const cleared = chooseCase(chosen, WAREHOUSE_CASE, INDEXED);
 
-    expect(runIntent(cleared)).toEqual({
+    expect(runIntent(cleared, true)).toEqual({
       kind: "from-repository",
       repositoryRoot: "/repos/warehouse",
     });
   });
 
   it("refuses to run without a repository, however much else is chosen", () => {
-    expect(runIntent(selection())).toBeNull();
-    expect(runIntent(selection({ caseId: "case-1" }))).toBeNull();
-    expect(runIntent(selection({ path: "/repos/typed-but-not-indexed" }))).toBeNull();
+    expect(runIntent(selection(), true)).toBeNull();
+    expect(runIntent(selection({ caseId: "case-1" }), true)).toBeNull();
+    expect(runIntent(selection({ path: "/repos/typed-but-not-indexed" }), true)).toBeNull();
+  });
+
+  it("refuses to run without a model, however much else is chosen", () => {
+    const chosen = chooseCase(selection(), WAREHOUSE_CASE, INDEXED);
+
+    expect(isReady(chosen, false)).toBe(false);
+    expect(runIntent(chosen, false)).toBeNull();
   });
 
   it("never disagrees with the button's own enabled state", () => {
@@ -192,7 +199,9 @@ describe("what pressing Run does", () => {
     ];
 
     for (const state of states) {
-      expect(isReady(state)).toBe(runIntent(state) !== null);
+      for (const hasModel of [true, false]) {
+        expect(isReady(state, hasModel)).toBe(runIntent(state, hasModel) !== null);
+      }
     }
   });
 });

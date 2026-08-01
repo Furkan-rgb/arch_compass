@@ -32,7 +32,7 @@ export function resolveTheme(
  * fails if they part company again.
  */
 export const THEME_COLORS: Record<EffectiveTheme, string> = {
-  light: "#f5f4f1", // --canvas, Porcelain
+  light: "#eef0f4", // --canvas, Porcelain
   dark: "#0b0d11", // --canvas, Onyx
 };
 

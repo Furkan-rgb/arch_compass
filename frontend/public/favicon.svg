@@ -19,7 +19,7 @@
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <style>
-    :root { --mark: #1d1b18; }
+    :root { --mark: #182031; }
     @media (prefers-color-scheme: dark) { :root { --mark: #e9ecf2; } }
   </style>
   <circle cx="16" cy="16" r="12.5" fill="none" stroke="var(--mark)" stroke-width="2.5" />

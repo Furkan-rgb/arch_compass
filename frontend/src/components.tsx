@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 
 import { api, ApiError, UNREACHABLE_CODE } from "./api";
 import { CommandPalette } from "./command-palette";
+import { ModelChip, ModelPickerProvider } from "./model-picker";
 import { isThemePreference, useTheme, type ThemePreference } from "./theme";
 
 const themeOptions: Array<{
@@ -152,9 +153,9 @@ export function Shell({ children }: { children: ReactNode }) {
     { to: "/reviews", label: "Reviews" },
     { to: "/policies", label: "Policies" },
   ];
-  const reasoning = workspace.data?.models.reasoning;
 
   return (
+    <ModelPickerProvider>
     <div className="min-h-screen">
       {/* The whole identity in 48px. It wraps rather than folding into a drawer: three
           links and a status chip fit on a phone, and a hamburger would hide the only
@@ -212,35 +213,22 @@ export function Shell({ children }: { children: ReactNode }) {
               states itself rather than waiting to be asked: which model answered is the first
               thing a verdict's credibility depends on. Mono and unweighted, against the chip's
               own voice — this is a machine's name, not a judgement about anything. */}
-          <Badge
-            variant={workspace.isError ? "material" : "neutral"}
-            className={cn(
-              "min-w-0 gap-2 py-0.5 font-mono font-normal tracking-normal",
-              // The bar is --chrome and a chip is --surface; in the dark theme those are two
-              // different greys, so this one keeps the bar it sits on.
-              !workspace.isError && "bg-transparent",
-            )}
-            title={workspace.data?.workspace}
-          >
-            <span
-              className={cn(
-                "size-1.5 flex-none rounded-full",
-                workspace.isError ? "bg-danger" : "bg-cleared",
-              )}
-            />
-            <span className="overflow-hidden text-ellipsis whitespace-nowrap">
-              {workspace.isError
-                ? "workspace unavailable"
-                : reasoning
-                  ? `${reasoning.provider} · ${reasoning.model}`
-                  : "reading workspace…"}
-            </span>
-          </Badge>
+          {workspace.isError ? (
+            <Badge variant="material" className="min-w-0 gap-2 py-0.5 font-mono font-normal tracking-normal">
+              <span className="size-1.5 flex-none rounded-full bg-danger" />
+              <span className="overflow-hidden text-ellipsis whitespace-nowrap">
+                workspace unavailable
+              </span>
+            </Badge>
+          ) : (
+            <ModelChip workspace={workspace.data} />
+          )}
           <ThemeControl />
         </div>
       </header>
       <main className="min-h-[calc(100vh-52px)]">{children}</main>
     </div>
+    </ModelPickerProvider>
   );
 }
 

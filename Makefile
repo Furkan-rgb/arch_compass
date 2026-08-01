@@ -69,17 +69,20 @@ eval-local:
 # field that process has never heard of. Restarting fixes it; building here means there is
 # nothing to fix, and it costs about two seconds.
 web: frontend-build
-	uv run archcompass --models-config config/models.ollama.yaml web
+	uv run archcompass web
 
 web-google: frontend-build
-	uv run archcompass --models-config config/models.google.yaml web
+	uv run archcompass web
 
 # Drives the built bundle in a real browser against a real server, with the model
 # substituted. Outside `check` because it needs Playwright's chromium downloaded.
 test-browser: frontend-build
 	uv run pytest -m browser -v
 
-check: lint typecheck test frontend-check
+# The bundle is built first because the test suite asserts on it: the cache-header test
+# loads `/`, which answers `frontend_not_built` until the bundle is on disk. That is
+# invisible on a machine that has already built one, and fails every time in CI.
+check: frontend-build lint typecheck test frontend-check
 
 build: frontend-build
 	uv build --no-sources

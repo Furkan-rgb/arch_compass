@@ -20,7 +20,10 @@ models:
     # Gemini spends thinking tokens from this same allowance, so a stage needs noticeably
     # more headroom here than the response JSON alone would suggest.
     max_output_tokens: 32768
-    # true requires reasoning, false forbids it, null leaves it to the model. Gemini
-    # chooses its own level when required to think, and spends those tokens from the
-    # allowance above — which is why it is larger here than in the Ollama configuration.
-    thinking: true
+    # true requires reasoning, false forbids it, null leaves it to the model — and on
+    # Gemini those really are three different things rather than two. Requiring it sends
+    # `thinking_level: MEDIUM`, because leaving the field out means whatever the chosen
+    # model does by default, and the smaller ones default to not thinking at all. Those
+    # tokens come from the allowance above, which is why it is larger here than in the
+    # Ollama configuration.
+    thinking: false

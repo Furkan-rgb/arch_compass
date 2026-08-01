@@ -33,9 +33,24 @@ const INDEXED: RepositorySummary = {
   signal_count: 3,
 };
 
+/** A workspace that has chosen a model. The run button needs one, so most tests want it. */
+function chosenModel(reasoning: { provider: string; model: string } | null) {
+  vi.spyOn(api, "workspace").mockResolvedValue({
+    workspace: "/home/dev/workspace",
+    models: {
+      reasoning,
+      failure: "",
+      from_configuration: false,
+      pinned: false,
+      unresolvable: false,
+    },
+  });
+}
+
 /** Every read the start step makes, with the repository listing under the test's control. */
 function workspace(repositories: RepositorySummary[] = []) {
   const listed = { current: repositories };
+  chosenModel({ provider: "fake", model: "deterministic-architecture-v4" });
   vi.spyOn(api, "repositories").mockImplementation(async () => listed.current);
   vi.spyOn(api, "cases").mockResolvedValue([]);
   vi.spyOn(api, "reviews").mockResolvedValue([]);
@@ -132,5 +147,26 @@ describe("indexing a repository by browsing to it", () => {
 
     const up = await screen.findByRole("button", { name: /parent folder/ });
     expect(up).toBeDisabled();
+  });
+});
+
+describe("running needs a model as well as a repository", () => {
+  it("names the missing model and refuses to run, once a repository is chosen", async () => {
+    workspace([INDEXED]);
+    chosenModel(null);
+
+    open();
+
+    expect(await screen.findByText(/No reasoning model is chosen/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Run review/ })).toBeDisabled();
+  });
+
+  it("runs once a model is there, with the same repository chosen", async () => {
+    workspace([INDEXED]);
+
+    open();
+
+    await screen.findByText(/Judging every boundary in/);
+    expect(screen.getByRole("button", { name: /Run review/ })).toBeEnabled();
   });
 });
