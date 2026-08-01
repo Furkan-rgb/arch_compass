@@ -38,7 +38,7 @@ small { font-size: var(--s-meta); }
   The token sheet — Porcelain by day, Onyx by night.
 
   The rule the two halves are built on: geometry, type and layout never flip with the theme;
-  the *material* does. By day the app is floating porcelain cards over a warm off-white with
+  the *material* does. By day the app is floating porcelain cards over a cool chart-white with
   almost no drawn rules — depth is shadow. By night it is layered onyx surfaces where shadow
   cannot read, so depth is a surface step plus a 5–7% hairline, and the verdicts become
   softly glowing lamps.
@@ -129,20 +129,25 @@ small { font-size: var(--s-meta); }
      that clamp happened to compute to on the day. */
   --ask-panel-width: var(--ask-panel-width-user, clamp(400px, 32vw, 560px));
 
-  /* ── Porcelain: the day material ─────────────────────────────────────────── */
+  /* ── Porcelain: the day material ──────────────────────────────────────────
+     Cool, not warm: porcelain is a blue-white, and the day theme is the same
+     chart the night theme is, read in daylight. The old warm off-white made the
+     two themes two different products; on cool paper the white sheets float a
+     step higher (1.14:1 vs 1.10:1 against the canvas) and the blue accent is at
+     home instead of visiting. */
 
   /* Surfaces, from the page behind everything to the well sunk into a panel. */
-  --canvas: #f5f4f1;
+  --canvas: #eef0f4;
   /* The chrome rows are translucent over whatever scrolls under them, so every rule that
      paints `--chrome` also has to blur behind it — the measurement is named for that. */
   --chrome: rgb(255 255 255 / 72%);
   --chrome-blur: 13px;
   --chrome-active: #ffffff;
-  --chrome-active-ink: #1d1b18;
+  --chrome-active-ink: #182031;
   --surface: #ffffff;
-  --sunken: #f1efeb;
-  --rule: rgb(29 27 24 / 7%);
-  --rule-soft: rgb(29 27 24 / 5%);
+  --sunken: #e9edf3;
+  --rule: rgb(24 32 49 / 7%);
+  --rule-soft: rgb(24 32 49 / 5%);
   /* The one lit row in the palette. By day it is the well, exactly — a highlight inside a
      white sheet is that sheet's own sunken tone and nothing new. By night the well is 4%
      white, which under a floating panel's shadow is not enough to find with the arrow keys,
@@ -152,9 +157,9 @@ small { font-size: var(--s-meta); }
   /* Three weights of ink, and no fourth. The third is as light as it may be and still be
      read: it lands on the canvas, on a card and in the well of a table header, and the
      darkest of those three grounds is what sets its value. */
-  --ink: #1d1b18;
-  --ink-2: #5c5850;
-  --ink-3: #726c63;
+  --ink: #182031;
+  --ink-2: #47536a;
+  --ink-3: #586576;
 
   /* Interaction, and only interaction. The accent never carries a judgement. */
   --accent: #2f5fe0;
@@ -185,11 +190,11 @@ small { font-size: var(--s-meta); }
   --inference: #5a6a94;
   --inference-soft: rgb(90 106 148 / 9%);
 
-  --overlay: rgb(29 27 24 / 45%);
+  --overlay: rgb(16 22 34 / 45%);
   /* A code block is dark in both themes, so the syntax colours below are chosen once. */
-  --code-bg: #221f1b;
-  --code-ink: #e8e4dd;
-  --code-dim: #8a847a;
+  --code-bg: #1c2028;
+  --code-ink: #dce2ea;
+  --code-dim: #7e8795;
   --code-keyword: #9fb8f2;
   --code-string: #a4cfa8;
   /* The rest of the syntax palette. Stated once and not restated by night, unlike the three
@@ -210,9 +215,9 @@ small { font-size: var(--s-meta); }
      that float over the page lift most. There is one step smaller than these — the pixel a
      pressed segment stands on — and it is `--seg-shadow` in the flip block below, because
      it is the only place that step is ever spent. */
-  --shadow-card: 0 1px 2px rgb(29 27 24 / 4%), 0 8px 22px rgb(29 27 24 / 5%);
-  --shadow-panel: 0 1px 2px rgb(29 27 24 / 5%), 0 14px 36px rgb(29 27 24 / 7%);
-  --float: 0 24px 64px rgb(29 27 24 / 16%);
+  --shadow-card: 0 1px 2px rgb(24 32 49 / 4%), 0 8px 22px rgb(24 32 49 / 6%);
+  --shadow-panel: 0 1px 2px rgb(24 32 49 / 5%), 0 14px 36px rgb(24 32 49 / 8%);
+  --float: 0 24px 64px rgb(24 32 49 / 16%);
   /* Two glows, ever: the primary button, and the verdict numerals in the band. Both are dark
      only — a glow on porcelain is a smudge. They are two tokens rather than one because they
      are drawn with different properties (a box shadow and a text shadow), and both are named
@@ -257,7 +262,7 @@ small { font-size: var(--s-meta); }
   --band-bg: #ffffff;
   --band-border: 0;
   --band-shadow: var(--shadow-panel);
-  --band-track: #edebe6;
+  --band-track: #e4e8ef;
   --band-pad: 22px 26px;
 
   /* A secondary button. By day it is a white card like every other floating thing, held down
@@ -266,13 +271,13 @@ small { font-size: var(--s-meta); }
      surface at all but a frosted chip: 5% white over whatever it sits on, which is what keeps
      a row of buttons from looking like a row of holes cut in the sheet. */
   --btn-bg: #ffffff;
-  --btn-rule: rgb(29 27 24 / 12%);
+  --btn-rule: rgb(24 32 49 / 12%);
 
   /* A pressed segment in a toggle group: by day it is a white chip that stands off the well,
      by night it is the well lit up, because a white chip on onyx is a hole. */
   --seg-on: #ffffff;
-  --seg-on-ink: #1d1b18;
-  --seg-shadow: 0 1px 3px rgb(29 27 24 / 12%);
+  --seg-on-ink: #182031;
+  --seg-shadow: 0 1px 3px rgb(24 32 49 / 12%);
 
   font-family: var(--font-ui);
   color: var(--ink);
@@ -356,13 +361,13 @@ small { font-size: var(--s-meta); }
 /* The atlas is drawn from the same palette: a node's state is the verdict family it belongs
    to, so a hotspot on the map and a finding in the ledger are visibly the same claim. */
 :root {
-  --atlas-canvas-bg: #efedea;
+  --atlas-canvas-bg: #e9edf3;
   --atlas-grid: var(--rule-soft);
-  --atlas-edge: #b1aca2;
-  --atlas-edge-strong: #6f6a61;
+  --atlas-edge: #a9b1c0;
+  --atlas-edge-strong: #5f6a7e;
   --atlas-edge-risk: var(--material);
   --atlas-node-bg: var(--surface);
-  --atlas-node-border: #d8d4cc;
+  --atlas-node-border: #d2d8e2;
   --atlas-node-active-bg: var(--accent-soft);
   --atlas-node-active-border: var(--accent);
   --atlas-node-hotspot: var(--material);
@@ -1588,47 +1593,50 @@ html:has(.home-hero) body {
 }
 
 /* ── The ground ───────────────────────────────────────────────────────────────
-   What every section stands on. Three layers and no fourth: chart paper, two
-   anchored pools of depth, and two sunken fields.
+   What every section stands on. Two layers and no third: the chart paper and
+   the field, both painted once on the body, and three anchored pools of light
+   over them.
 
-   The layers sit at `z-index: 0` and the sections' own children are lifted to
+   The pools sit at `z-index: 0` and the sections' own children are lifted to
    `1`, rather than the obvious `z-index: -1`. A negative layer paints before every
    in-flow box in the root stacking context, and `body` carries a background of its
-   own — so the ground would be drawn and then painted over by the canvas. At zero
-   the order is document order among positioned boxes, which is the field, then the
-   chart paper, then everything the page actually says.
+   own — so the pools would be drawn and then painted over by the canvas. At zero
+   the order is document order among positioned boxes, which is the pool, then
+   everything the page actually says.
    ──────────────────────────────────────────────────────────────────────────── */
 
 /* The values the ground is made of, and the page has no other background of any
    kind. The ground is ONE continuous surface: the whole home page stands in the
    field, drawn once on the body, and nothing on the page starts or stops it — a
    field that arrived at a section's edge would be a slab, and the page has none.
-   What varies from section to section is only light and raster: soft radial
-   pools, nothing with an edge to find.
+   What varies from section to section is only light: soft radial pools, nothing
+   with an edge to find.
 
    All layers darken their ground in both materials — a pool is a recess in both
    — which is why body text only ever gains contrast where they reach. */
 :root {
-  /* The raster at two distances: `-far` is the whole page's chart paper; the
-     full-strength grid appears only inside the radial windows behind the hero
-     and the map, so the paper reads as lit there rather than switched on. */
-  --ground-grid: rgb(29 27 24 / 4%);
-  --ground-grid-far: rgb(29 27 24 / 2%);
-  /* The field the whole page stands in. Porcelain keeps most of its contrast
-     budget: `--ink-3` sits at 4.73:1 on bare canvas, and with the field plus
-     the strongest pool a passage can be under, the measured floor stays at AA.
-     The measurement is the limit, not the taste. */
-  --ground-field: rgb(29 27 24 / 1.5%);
-  /* By day this is not a glow — a glow on porcelain is a smudge. A cool pool of
+  /* One raster, painted once on the body. It used to come at two distances — a
+     page-wide whisper plus a full-strength copy inside radial windows — but the
+     copies tiled from different origins (the windows' boxes, offset again by the
+     scrollbar's half-width inside `50vw`), so the two lattices could never
+     coincide and read as one grid printed twice, slightly off. By day the lines
+     are drafting blue: the blue-pencil grid of chart paper, not a screen accent. */
+  --ground-grid-far: rgb(47 95 224 / 6%);
+  /* The field the whole page stands in. Strong enough to see by day — the old
+     1.5% was invisible, which is most of why the page read as flat next to the
+     night theme. `--ink-3` sits at 5.20:1 on bare canvas, 4.92:1 in the field,
+     and 4.55:1 under the strongest pool a passage can be under — the floor
+     stays AA, and the measurement is the limit, not the taste. */
+  --ground-field: rgb(24 32 49 / 3%);
+  /* By day this is not a glow — a glow on paper is a smudge. A cool pool of
      depth under the hero card, and a gentler one under the record. */
-  --ground-pool: rgb(47 95 224 / 2.5%);
-  /* The Run's own light. By day a plain deepening — the oval the map sits in —
+  --ground-pool: rgb(47 95 224 / 6%);
+  /* The Run's own light. By day a cool deepening — the oval the map sits in —
      and by night the lamp the section is read under. */
-  --ground-lamp: rgb(29 27 24 / 2%);
+  --ground-lamp: rgb(47 95 224 / 5%);
 }
 [data-theme="dark"] {
-  --ground-grid: rgb(255 255 255 / 4.5%);
-  --ground-grid-far: rgb(255 255 255 / 2.5%);
+  --ground-grid-far: rgb(255 255 255 / 3.5%);
   /* Black, not white: by night the field is cut *into* the canvas, which is what
      lets every sheet and panel on the page float above it — a lightened ground
      would sit at exactly `--surface` and the instruments would vanish into
@@ -1647,10 +1655,8 @@ html:has(.home-hero) body {
 .home-run-field > *,
 .home-record-field > * { position: relative; z-index: 1; }
 
-.home-hero::before,
 .home-hero::after,
 .home-run-field::before,
-.home-run-field::after,
 .home-record-field::before {
   content: "";
   position: absolute;
@@ -1660,34 +1666,7 @@ html:has(.home-hero) body {
   pointer-events: none;
 }
 
-/* 1 — Chart paper. The atlas's own 24px grid, at a whisper, and only where the
-   product's map world justifies it: behind the hero and behind The Run. Masked
-   rather than tiled flat, so it is densest under the specimen card and under the
-   map, and gone by the time it reaches a paragraph. */
-.home-hero::before,
-.home-run-field::after {
-  background-image:
-    linear-gradient(to right, var(--ground-grid) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--ground-grid) 1px, transparent 1px);
-  background-size: 24px 24px;
-}
-.home-hero::before {
-  top: -10%;
-  bottom: 0;
-  -webkit-mask-image: radial-gradient(96% 96% at 72% 44%, #000 22%, transparent 78%);
-  mask-image: radial-gradient(96% 96% at 72% 44%, #000 22%, transparent 78%);
-}
-/* Over the body's far raster, the full-strength grid appears only inside this
-   radial window — the paper is lit where the map is read, and the window's edge
-   is a falloff, never a line the page-wide paper could disagree with. */
-.home-run-field::after {
-  top: 0;
-  bottom: 0;
-  -webkit-mask-image: radial-gradient(72% 78% at 38% 50%, #000 24%, transparent 78%);
-  mask-image: radial-gradient(72% 78% at 38% 50%, #000 24%, transparent 78%);
-}
-
-/* 2 — Two anchored pools, and there is no third. One under the hero's specimen
+/* 1 — Two anchored pools, and there is no third. One under the hero's specimen
    card, one under the map, so the two floating objects on this page have
    something to float on. Both darken their ground in both themes, so every
    passage they reach gains contrast rather than losing it. */
@@ -1697,7 +1676,7 @@ html:has(.home-hero) body {
   background: radial-gradient(58% 78% at 72% 48%, var(--ground-pool), transparent 76%);
 }
 
-/* 3 — The Run's lamp, and the record's landing. Radial and radial only: with the
+/* 2 — The Run's lamp, and the record's landing. Radial and radial only: with the
    field continuous under the whole page, what marks these two sections is light
    falling on it — the oval the map sits in, and a cooler, gentler pool where the
    course ends. Nothing here has an edge; every falloff reaches nothing before
@@ -1714,13 +1693,8 @@ html:has(.home-hero) body {
 }
 
 /* Below the hero's collapse the two things the ground is anchored to have moved
-   under the text rather than beside it, so the pools and the chart paper follow
-   them. */
+   under the text rather than beside it, so the pools follow them. */
 @media (max-width: 880px) {
-  .home-hero::before {
-    -webkit-mask-image: radial-gradient(96% 62% at 50% 76%, #000 10%, transparent 76%);
-    mask-image: radial-gradient(96% 62% at 50% 76%, #000 10%, transparent 76%);
-  }
   .home-hero::after {
     background: radial-gradient(72% 44% at 50% 76%, var(--ground-pool), transparent 78%);
   }
@@ -1921,22 +1895,26 @@ html:has(.home-hero) body {
   /* Three materials, one judgement: the fan replaces the plain stem. */
   .course-stem { display: none; }
   .course-converge { display: block; width: 100%; height: 56px; }
+  /* Accent like the elbows and the stub, not atlas gray: the whole connection
+     from the three materials into the judgement is one blue course. */
   .course-converge path {
     fill: none;
-    stroke: var(--atlas-edge-strong);
+    stroke: var(--accent);
     stroke-width: 1.5;
     vector-effect: non-scaling-stroke;
-    opacity: .55;
+    opacity: .45;
   }
-  .course-converge .course-converge__stub { stroke: var(--accent); opacity: .9; }
+  .course-converge .course-converge__stub { opacity: .9; }
 
   /* The judgement, moving: one head leaves each material at the same moment and
      the three arrive together, then a single head carries on down the stub —
      the atlas's own comet (a dash whose gap is longer than the path), on the
      course's geometry. Dash arithmetic is normalized against pathLength=100;
      the resting offset parks the head just before the path so a paused or
-     reduced-motion page shows nothing rather than a stray accent mark. */
-  .course-converge__pulse {
+     reduced-motion page shows nothing rather than a stray accent mark.
+     `.course-converge` is in the selector so this beats `.course-converge path`
+     above — as a bare class it loses, and the comet rides gray and thin. */
+  .course-converge .course-converge__pulse {
     stroke: var(--accent);
     stroke-width: 2;
     stroke-linecap: round;
