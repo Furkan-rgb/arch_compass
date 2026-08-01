@@ -244,7 +244,7 @@ export function HomePage() {
     <div className={column}>
       <section className="grid grid-cols-[minmax(0,5fr)_minmax(0,4fr)] items-center gap-[clamp(28px,4vw,56px)] pt-[clamp(48px,8vh,88px)] pb-[clamp(40px,6vh,64px)] max-[880px]:grid-cols-1">
         <div>
-          <p className="eyebrow mb-[18px]">Local-first architecture advisor</p>
+          <p className="eyebrow mb-[18px]">Software architecture advisor</p>
           <h1 className="m-0 mb-5 text-[clamp(34px,4.6vw,52px)] leading-[1.06] font-bold tracking-[-.025em]">
             Verdicts with reasoning, <span className="text-ink-3">not lint.</span>
           </h1>

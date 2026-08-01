@@ -26,7 +26,7 @@ from archcompass.domain.errors import ArchCompassError
 
 app = typer.Typer(
     name="archcompass",
-    help="Evidence-grounded, local-first software architecture advice.",
+    help="Evidence-grounded software architecture advice.",
     no_args_is_help=True,
 )
 policies_app = typer.Typer(help="Build and inspect architectural policies.")

@@ -7,14 +7,11 @@ it disagrees with a verdict in the review, the verdict is what happened.
 
 ## What ArchCompass is
 
-ArchCompass is a local-first architecture advisor. It reads a Python repository, finds the
+ArchCompass is an architecture advisor. It reads a Python repository, finds the
 boundaries in it, and judges one at a time whether each is earning its place — given what
 that repository is actually being asked to do. It does not propose an architecture, rank
 repositories, or score code quality. It answers one question, repeatedly, about structure
 that already exists.
-
-Everything it produces runs on one machine against one workspace. There is no shared index,
-no upload, and no comparison against other codebases.
 
 ## What a boundary is
 

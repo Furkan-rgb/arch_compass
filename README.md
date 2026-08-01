@@ -2,7 +2,7 @@
 
 **Context-aware software architecture advice grounded in requirements, repository evidence, design policy and expected change.**
 
-ArchCompass is a local-first software architecture advisor for developers and coding agents. It helps answer not only _how to implement a feature_, but **how the surrounding software should be structured so that it remains understandable and changeable over time**.
+ArchCompass is a software architecture advisor for developers and coding agents. It helps answer not only _how to implement a feature_, but **how the surrounding software should be structured so that it remains understandable and changeable over time**.
 
 The project is built around a simple observation: AI-assisted coding is making it much easier to produce working code, but it does not remove the harder problem of managing complexity. A system can function correctly today while still being difficult to understand, expensive to modify and fragile under future requirements.
 
