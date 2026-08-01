@@ -1577,6 +1577,14 @@ html:has(.home-hero) {
 html:has(.home-hero) body {
   overflow-x: hidden;
   overflow-x: clip;
+  /* The one continuous ground: the field tone and the far raster, painted on the
+     body so no section can interrupt them. Layer order is tone over grid — the
+     tone is translucent and must also sit on the lines. */
+  background-image:
+    linear-gradient(var(--ground-field), var(--ground-field)),
+    linear-gradient(to right, var(--ground-grid-far) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ground-grid-far) 1px, transparent 1px);
+  background-size: auto, 24px 24px, 24px 24px;
 }
 
 /* ── The ground ───────────────────────────────────────────────────────────────
@@ -1591,68 +1599,44 @@ html:has(.home-hero) body {
    chart paper, then everything the page actually says.
    ──────────────────────────────────────────────────────────────────────────── */
 
-/* The three values the ground is made of, and the page has no fourth background
-   of any kind. All three darken by day and by night — a field is a recess in both
-   materials, which is why body text only ever gains contrast where they reach.
+/* The values the ground is made of, and the page has no other background of any
+   kind. The ground is ONE continuous surface: the whole home page stands in the
+   field, drawn once on the body, and nothing on the page starts or stops it — a
+   field that arrived at a section's edge would be a slab, and the page has none.
+   What varies from section to section is only light and raster: soft radial
+   pools, nothing with an edge to find.
 
-   `--ground-field` lands on `--sunken` by day, which is what a well is here; by
-   night it lands on the map's own ground, so the field the instrument sits in is
-   the same ground the atlas beside it is drawn on. */
+   All layers darken their ground in both materials — a pool is a recess in both
+   — which is why body text only ever gains contrast where they reach. */
 :root {
+  /* The raster at two distances: `-far` is the whole page's chart paper; the
+     full-strength grid appears only inside the radial windows behind the hero
+     and the map, so the paper reads as lit there rather than switched on. */
   --ground-grid: rgb(29 27 24 / 4%);
-  --ground-field: rgb(29 27 24 / 2.5%);
-  /* By day this is not a glow — a glow on porcelain is a smudge. It is a cool
-     pool of depth: the accent at a fortieth, which reads as porcelain gone
-     slightly grey and slightly cold rather than as a colour.
-
-     It is also as far as it may go. A pool darkens the ground, and the ink this
-     design will not go lighter than — `--ink-3` — sits at 4.73:1 on bare canvas.
-     2.5% takes it to 4.56, and 5% would take it under AA. The measurement is the
-     limit, not the taste. */
+  --ground-grid-far: rgb(29 27 24 / 2%);
+  /* The field the whole page stands in. Porcelain keeps most of its contrast
+     budget: `--ink-3` sits at 4.73:1 on bare canvas, and with the field plus
+     the strongest pool a passage can be under, the measured floor stays at AA.
+     The measurement is the limit, not the taste. */
+  --ground-field: rgb(29 27 24 / 1.5%);
+  /* By day this is not a glow — a glow on porcelain is a smudge. A cool pool of
+     depth under the hero card, and a gentler one under the record. */
   --ground-pool: rgb(47 95 224 / 2.5%);
-  /* And the field gets none of it: `--ground-field` has already spent the
-     contrast a pool would need. By day the recess is the depth. */
-  --ground-lamp: transparent;
-  /* How far a field takes to arrive, and to leave. Switched on at a line, the
-     recess reads as a slab laid over the page rather than as ground the page is
-     standing on; given this much room the tone crosses under the eye's threshold
-     for an edge and only the depth is left. Scaled to the tone it has to hide:
-     porcelain's 2.5% needs less distance than onyx's 32%. */
-  --ground-feather: 140px;
-  /* The shape of that arrival, stated once because every layer of a field has to
-     leave on the same curve — a mask, so the tone and whatever is drawn inside it
-     go together. Not a theme value and not repeated in the night block: it reads
-     `--ground-feather` where it is used, which is the value that differs.
-
-     An S rather than a ramp. A straight ramp is continuous in tone but not in its
-     rate, and the eye finds the two corners where it starts and stops — the same
-     edge complaint, moved inward twice. These stops are a smoothstep, so there is
-     no point on the page where the tone changes how fast it is changing. */
-  --ground-fade: linear-gradient(
-    to bottom,
-    rgb(0 0 0 / 0%) 0,
-    rgb(0 0 0 / 16%) calc(var(--ground-feather) * 0.25),
-    rgb(0 0 0 / 50%) calc(var(--ground-feather) * 0.5),
-    rgb(0 0 0 / 84%) calc(var(--ground-feather) * 0.75),
-    rgb(0 0 0 / 100%) var(--ground-feather),
-    rgb(0 0 0 / 100%) calc(100% - var(--ground-feather)),
-    rgb(0 0 0 / 84%) calc(100% - var(--ground-feather) * 0.75),
-    rgb(0 0 0 / 50%) calc(100% - var(--ground-feather) * 0.5),
-    rgb(0 0 0 / 16%) calc(100% - var(--ground-feather) * 0.25),
-    rgb(0 0 0 / 0%) 100%
-  );
+  /* The Run's own light. By day a plain deepening — the oval the map sits in —
+     and by night the lamp the section is read under. */
+  --ground-lamp: rgb(29 27 24 / 2%);
 }
 [data-theme="dark"] {
   --ground-grid: rgb(255 255 255 / 4.5%);
-  /* Black, not white: by night a field is cut *into* the canvas, which is what
-     lets the sheet and the map panel float above it — a lightened band would sit
-     at exactly `--surface` and the instrument would vanish into its own case. */
+  --ground-grid-far: rgb(255 255 255 / 2.5%);
+  /* Black, not white: by night the field is cut *into* the canvas, which is what
+     lets every sheet and panel on the page float above it — a lightened ground
+     would sit at exactly `--surface` and the instruments would vanish into
+     their own case. Page-wide, it is the atlas's own ground: the whole home
+     page is drawn on the map's paper. `--ink-3` measures 4.78:1 over it. */
   --ground-field: rgb(0 0 0 / 32%);
-  /* Onyx can afford the lamp porcelain cannot: over the field this leaves
-     `--ink-3` at 4.78:1 and over bare canvas at 4.60:1, both clear of AA. */
   --ground-pool: rgb(124 156 255 / 9%);
   --ground-lamp: rgb(124 156 255 / 9%);
-  --ground-feather: 168px;
 }
 
 .home-hero,
@@ -1693,16 +1677,14 @@ html:has(.home-hero) body {
   -webkit-mask-image: radial-gradient(96% 96% at 72% 44%, #000 22%, transparent 78%);
   mask-image: radial-gradient(96% 96% at 72% 44%, #000 22%, transparent 78%);
 }
-/* The raster leaves on the field's own curve rather than a percentage of its own.
-   A grid that outlived its ground, or ended sooner than it, would put back exactly
-   the line the field was feathered to lose — and a raster ends harder than a tone
-   does, because what stops is a set of lines. Same mask, so the two cannot
-   disagree at either end. */
+/* Over the body's far raster, the full-strength grid appears only inside this
+   radial window — the paper is lit where the map is read, and the window's edge
+   is a falloff, never a line the page-wide paper could disagree with. */
 .home-run-field::after {
   top: 0;
   bottom: 0;
-  -webkit-mask-image: var(--ground-fade);
-  mask-image: var(--ground-fade);
+  -webkit-mask-image: radial-gradient(72% 78% at 38% 50%, #000 24%, transparent 78%);
+  mask-image: radial-gradient(72% 78% at 38% 50%, #000 24%, transparent 78%);
 }
 
 /* 2 — Two anchored pools, and there is no third. One under the hero's specimen
@@ -1715,25 +1697,20 @@ html:has(.home-hero) body {
   background: radial-gradient(58% 78% at 72% 48%, var(--ground-pool), transparent 76%);
 }
 
-/* 3 — The field. A full-bleed recess the instrument is set into, drawn as the
-   day's well and the night's atlas ground. Two on the page and no more: The Run,
-   and the record it writes.
-
-   Both ends are feathered, and the mask is what makes it one recess rather than
-   a band: it takes the tone and the lamp inside it together, so the night's wash
-   cannot outlive the ground it is a wash on. The falloff reaches nothing exactly
-   at the section's own edge — which is where the page's hairline is — so the
-   rule between two sections stays a rule and never becomes the lip of a slab. */
-.home-run-field::before,
-.home-record-field::before {
+/* 3 — The Run's lamp, and the record's landing. Radial and radial only: with the
+   field continuous under the whole page, what marks these two sections is light
+   falling on it — the oval the map sits in, and a cooler, gentler pool where the
+   course ends. Nothing here has an edge; every falloff reaches nothing before
+   anything else begins. */
+.home-run-field::before {
   top: 0;
   bottom: 0;
-  background-color: var(--ground-field);
-  -webkit-mask-image: var(--ground-fade);
-  mask-image: var(--ground-fade);
+  background: radial-gradient(62% 72% at 30% 54%, var(--ground-lamp), transparent 74%);
 }
-.home-run-field::before {
-  background-image: radial-gradient(62% 72% at 30% 54%, var(--ground-lamp), transparent 74%);
+.home-record-field::before {
+  top: -10%;
+  bottom: 0;
+  background: radial-gradient(74% 64% at 50% 34%, var(--ground-pool), transparent 76%);
 }
 
 /* Below the hero's collapse the two things the ground is anchored to have moved
@@ -2044,7 +2021,11 @@ html:has(.home-hero) body {
       .course-rail {
         animation: course-draw linear both;
         animation-timeline: view();
-        animation-range: entry 0% cover 42%;
+        /* Fast enough that the line is never missing between two waypoints the
+           reader can already see: at `cover 42%` the short thesis rail was still
+           drawing itself while both its dots were on screen, and the course read
+           as broken between them. */
+        animation-range: entry 0% cover 22%;
       }
       /* The record sits too near the page's end for a cover range to ever finish
          there; the terminal rail completes on entry instead. */
