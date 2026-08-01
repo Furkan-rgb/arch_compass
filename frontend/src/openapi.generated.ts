@@ -328,7 +328,16 @@ export interface components {
     "body": string;
     "source_path": string;
     "content_hash": string;
+    "origin"?: components["schemas"]["PolicyOrigin"];
   };
+    "PolicyDraft": {
+    "title": string;
+    "description": string;
+    "body": string;
+    "tags"?: Array<string>;
+    "strength": components["schemas"]["PolicyStrength"];
+  };
+    "PolicyOrigin": "external" | "workspace";
     "PolicyScope": "general" | "user" | "organisation" | "repository" | "accepted_adr";
     "PolicySource": {
     "author": string;
@@ -644,6 +653,20 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "create_policy_api_policies_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["PolicyDraft"];
+    responses: {
+      "201": components["schemas"]["PolicyDocument"];
+      "422": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
+    };
+  };
   "create_review_api_reviews_post": {
     parameters: {
       query: never;
@@ -671,6 +694,23 @@ export interface operations {
       "201": components["schemas"]["ReviewConversation"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "delete_policy_api_policies__policy_id__delete": {
+    parameters: {
+      query: never;
+      path: {
+      "policy_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "204": unknown;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
     };
   };
   "delete_review_api_reviews__review_id__delete": {
@@ -1101,6 +1141,23 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "update_policy_api_policies__policy_id__put": {
+    parameters: {
+      query: never;
+      path: {
+      "policy_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["PolicyDraft"];
+    responses: {
+      "200": components["schemas"]["PolicyDocument"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
+    };
+  };
   "workspace_summary_api_workspace_get": {
     parameters: {
       query: never;
@@ -1142,6 +1199,7 @@ export interface paths {
   };
   "/api/policies": {
     get: operations["list_policies_api_policies_get"];
+    post: operations["create_policy_api_policies_post"];
   };
   "/api/policies/sources": {
     get: operations["list_policy_sources_api_policies_sources_get"];
@@ -1150,6 +1208,8 @@ export interface paths {
   };
   "/api/policies/{policy_id}": {
     get: operations["get_policy_api_policies__policy_id__get"];
+    put: operations["update_policy_api_policies__policy_id__put"];
+    delete: operations["delete_policy_api_policies__policy_id__delete"];
   };
   "/api/repositories": {
     get: operations["list_repositories_api_repositories_get"];

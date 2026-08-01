@@ -26,6 +26,7 @@ from archcompass.adapters.persistence import (
 )
 from archcompass.adapters.retrieval import (
     MarkdownPolicySourceInspector,
+    MarkdownPolicyStore,
     load_method_primer,
 )
 from archcompass.application.atlas_freshness import AtlasFreshnessService
@@ -57,6 +58,11 @@ from archcompass.ports.repositories import (
 )
 
 BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
+
+#: Where a workspace keeps the policies written in it, beside the database it already keeps
+#: there. The one policy directory Arch Compass owns the files in: everything else in the
+#: corpus is somebody else's Markdown, read where it lies.
+AUTHORED_POLICY_DIRECTORY = Path(".archcompass") / "policies"
 
 
 @dataclass(frozen=True)
@@ -138,6 +144,8 @@ def build_runtime(
         source_repository=SQLitePolicySourceRepository(database),
         source_inspector=MarkdownPolicySourceInspector(),
         bundled_sources=configured_policy_sources,
+        authored_source=canonical_workspace / AUTHORED_POLICY_DIRECTORY,
+        policy_store=MarkdownPolicyStore(),
     )
     case_service = CaseService(cases)
     repository_service = RepositoryIndexService(

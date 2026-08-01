@@ -10,6 +10,7 @@ import type {
   CaseUpdate,
   DirectoryListing,
   Policy,
+  PolicyDraft,
   PolicySource,
   ProblemDetail,
   BoundaryReview,
@@ -421,6 +422,31 @@ export const api = {
       body: JSON.stringify(value),
     }),
   policies: () => request<Policy[]>("/api/policies"),
+  /**
+   * Write a policy of this workspace's own. The id is the server's to derive from the
+   * title, which is why nothing here sends one — and why a title whose slug is already
+   * taken comes back as a 409 rather than quietly replacing what holds it.
+   */
+  createPolicy: (draft: PolicyDraft) =>
+    request<Policy>("/api/policies", {
+      method: "POST",
+      body: JSON.stringify(draft),
+    }),
+  // PUT, because this is the policy stated again in full rather than a patch: a file is
+  // rewritten from what the form holds, and a field left out would be a field cleared.
+  updatePolicy: (policyId: string, draft: PolicyDraft) =>
+    request<Policy>(`/api/policies/${encodeURIComponent(policyId)}`, {
+      method: "PUT",
+      body: JSON.stringify(draft),
+    }),
+  // Not `request`: a 204 has no body to parse, as on deleting a review.
+  deletePolicy: async (policyId: string): Promise<void> => {
+    const response = await send(`/api/policies/${encodeURIComponent(policyId)}`, {
+      method: "DELETE",
+    });
+    if (response.ok) return;
+    throw await refusal(response, "Arch Compass could not delete that policy.");
+  },
   policySources: () => request<PolicySource[]>("/api/policies/sources"),
   addPolicySource: (source: string) =>
     request<PolicySource>("/api/policies/sources", {

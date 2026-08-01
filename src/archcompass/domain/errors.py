@@ -52,6 +52,15 @@ class PolicyNotFoundError(ArchCompassError):
     pass
 
 
+class PolicyConflictError(ArchCompassError):
+    """The corpus already answers this, and the request needs it not to.
+
+    An id another policy holds, or a file this workspace did not write. Neither is a
+    malformed request — both are true statements about the corpus as it stands — so
+    repeating the request identically fails identically until the corpus changes.
+    """
+
+
 class PersistenceError(ArchCompassError):
     pass
 
