@@ -472,13 +472,6 @@ export interface components {
     "repository_root": string;
     "elicited_from"?: string | null;
   };
-    "ReviewScoreResponse": {
-    "example": string;
-    "correct": number;
-    "total": number;
-    "boundaries": Array<components["schemas"]["ScoredBoundaryResponse"]>;
-    "unscored": Array<string>;
-  };
     "ReviewStarted": {
     "event"?: "started";
     "review_id": string;
@@ -500,14 +493,6 @@ export interface components {
     "hinge"?: components["schemas"]["VerdictHinge"] | null;
     "recommended_response"?: string;
     "verdict_label": string;
-  };
-    "ScoredBoundaryResponse": {
-    "reference": string;
-    "abstraction": string;
-    "expected": boolean;
-    "actual": boolean;
-    "correct": boolean;
-    "because": string;
   };
     "SearchNodesQuery": {
     "kind": "search_nodes";
@@ -1056,22 +1041,6 @@ export interface operations {
       "404": components["schemas"]["ProblemDetail"];
     };
   };
-  "score_review_api_reviews__review_id__score_get": {
-    parameters: {
-      query: never;
-      path: {
-      "review_id": string;
-      };
-      header: never;
-      cookie: never;
-    };
-    requestBody?: never;
-    responses: {
-      "200": components["schemas"]["ReviewScoreResponse"] | null;
-      "422": components["schemas"]["ProblemDetail"];
-      "404": components["schemas"]["ProblemDetail"];
-    };
-  };
   "start_from_repository_api_repositories_start_post": {
     parameters: {
       query: never;
@@ -1238,9 +1207,6 @@ export interface paths {
   };
   "/api/reviews/{review_id}/report": {
     get: operations["review_report_api_reviews__review_id__report_get"];
-  };
-  "/api/reviews/{review_id}/score": {
-    get: operations["score_review_api_reviews__review_id__score_get"];
   };
   "/api/reviews/{review_id}/source": {
     get: operations["review_source_api_reviews__review_id__source_get"];

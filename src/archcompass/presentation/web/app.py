@@ -272,30 +272,6 @@ class BundledCase(APIModel):
     has_expected_answers: bool
 
 
-class ScoredBoundaryResponse(APIModel):
-    reference: str
-    abstraction: str
-    expected: bool
-    actual: bool
-    correct: bool
-    because: str
-
-
-class ReviewScoreResponse(APIModel):
-    """A review graded against the answers its example ships.
-
-    `unscored` names boundaries the key does not cover. They are reported rather than
-    folded into the total, because a score over the remainder would look complete while
-    measuring less than it claims.
-    """
-
-    example: str
-    correct: int
-    total: int
-    boundaries: list[ScoredBoundaryResponse]
-    unscored: list[str]
-
-
 class ReviewStarted(APIModel):
     """The run has a record, so it has an identity — the stream's first line.
 
@@ -874,35 +850,6 @@ def create_app(runtime: Runtime) -> FastAPI:
 
         runtime.review_repository.delete(review_id)
         return Response(status_code=204)
-
-    @app.get(
-        "/api/reviews/{review_id}/score",
-        responses=_problem_responses(404, 422),
-    )
-    def score_review(review_id: str) -> ReviewScoreResponse | None:
-        """Null when the reviewed repository ships no answers, which is the usual case."""
-
-        review = runtime.review_repository.get(review_id)
-        score = runtime.bundled_case_service.score(review)
-        if score is None:
-            return None
-        return ReviewScoreResponse(
-            example=score.example,
-            correct=score.correct,
-            total=score.total,
-            boundaries=[
-                ScoredBoundaryResponse(
-                    reference=item.reference,
-                    abstraction=item.abstraction,
-                    expected=item.expected,
-                    actual=item.actual,
-                    correct=item.correct,
-                    because=item.because,
-                )
-                for item in score.boundaries
-            ],
-            unscored=list(score.unscored),
-        )
 
     @app.post(
         "/api/review-conversations",

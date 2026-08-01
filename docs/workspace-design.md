@@ -46,8 +46,7 @@ HOME — the flow's front door
 │              THE REVIEW PAGE — the destination
 │              every boundary, material and cleared ·
 │              recommended responses · policy bearings ·
-│              detection limits · score bar when the
-│              example ships answers · the question dock
+│              detection limits · the question dock
 │              (each question carries the whole review)
 │                      │
 │                      └── "Revise case & review again"
@@ -79,7 +78,7 @@ One front door with one job: start a review.
 
 - The start step presents the two rails side by side, order-free, with bundled examples
   as one-click fills of both rails (kept prominent — they remain the shortest path to a
-  first review, and the scored one is how the tool proves itself).
+  first review, and the one with an answer key is how the tool proves itself offline).
 - The hero cards, the `/new` links, and the aggregate stat tiles go. Workspace readiness
   (model, provider) collapses into the sidebar footer where it already lives.
 
@@ -138,8 +137,8 @@ lengths, drawn as one, are indistinguishable from a hung request.
 
 Already the strongest surface, and it stays the centre of gravity. Every boundary with
 its verdict rail, rationale, policy bearings with the denominator named, detection
-limits printed against the boundary, the score bar for the scored example, and the
-question dock riding the bottom of the page.
+limits printed against the boundary, and the question dock riding the bottom of the
+page.
 
 It gains, in order of value:
 

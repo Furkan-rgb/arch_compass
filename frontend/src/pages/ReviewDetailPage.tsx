@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, CircleCheck, Download, FlaskConical, MessageCircleQuestion, X } from "lucide-react";
+import { ArrowRight, Download, MessageCircleQuestion } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,6 @@ import type {
   OpenQuestion,
   RecordedAnswer,
   ReviewOverview,
-  ReviewScore,
   ReviewStatus,
   ReviewedBoundary,
 } from "../types";
@@ -274,65 +273,6 @@ function WhatChanged({
             );
           })}
         </ul>
-      ) : null}
-    </section>
-  );
-}
-
-/* One graded boundary. The verdict family is the row's own surface rather than a mark beside
-   it: what a reader wants from a score is how many came out right, before reading any of
-   them. Below 720px the reason it was wrong takes the whole row — there is no second column
-   left to hold it. */
-const scoreRow =
-  "grid grid-cols-[auto_auto_1fr] items-baseline gap-2 rounded-control px-3.5 py-2.5 text-ui max-[720px]:grid-cols-[auto_1fr]";
-
-function Score({ score }: { score: ReviewScore }) {
-  return (
-    <section data-slot="score" className={cn(sheet, "p-[var(--card-pad)]")}>
-      <p className="m-0 mb-3 flex items-baseline gap-2 text-body text-ink-2">
-        <FlaskConical size={15} aria-hidden />
-        <strong className="font-display text-head font-[650] tabular-nums text-ink">
-          {score.correct}/{score.total}
-        </strong>
-        <span>
-          correct against the answers <code>{score.example}</code> ships
-        </span>
-      </p>
-      <ul className="m-0 grid list-none gap-1 p-0">
-        {score.boundaries.map((item) => (
-          <li
-            key={item.reference}
-            className={cn(
-              scoreRow,
-              item.correct
-                ? "bg-cleared-soft text-cleared"
-                : "bg-material-soft text-material",
-            )}
-          >
-            {item.correct ? (
-              <CircleCheck size={13} aria-hidden />
-            ) : (
-              <X size={13} aria-hidden />
-            )}
-            <code>{item.reference}</code>
-            <span className="justify-self-start max-[720px]:col-span-full">
-              {item.actual ? "should change" : "fine as it is"}
-              {item.correct
-                ? ""
-                : ` — expected ${item.expected ? "should change" : "fine as it is"}`}
-            </span>
-            {item.correct ? null : (
-              <span className="col-[2/-1] mt-[3px] leading-[1.5] opacity-85 max-[720px]:col-span-full">
-                {item.because}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
-      {score.unscored.length > 0 ? (
-        <p className="m-0 mt-3 text-ui text-material">
-          Not scored, absent from the answer key: {score.unscored.join(", ")}
-        </p>
       ) : null}
     </section>
   );
@@ -640,14 +580,6 @@ export function ReviewDetailPage() {
     // subject. It polls until the run ends and then stops: the review is immutable
     // afterwards, so there is nothing further to ask about.
     refetchInterval: (query) => (query.state.data?.status === "running" ? 2000 : false),
-  });
-  const score = useQuery({
-    queryKey: ["review-score", reviewId],
-    queryFn: () => api.reviewScore(reviewId),
-    // Only once there is a judgement to grade. The page is open while the review is still
-    // being produced, and a score asked for then answers "no score" truthfully — an answer
-    // that would then be cached over the real one.
-    enabled: Boolean(reviewId) && review.data?.status === "succeeded",
   });
 
   const caseId = review.data?.case_id;
@@ -992,7 +924,6 @@ export function ReviewDetailPage() {
                 reopening — so the conclusion is the conclusion, and asking happens on its
                 own surface before this page exists. */}
             {report && !running && !holding ? <Overview overview={report.overview} /> : null}
-            {score.data ? <Score score={score.data} /> : null}
           </>
         ) : null}
         {id === "questions" ? (

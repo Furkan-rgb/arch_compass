@@ -20,49 +20,11 @@ import yaml
 from archcompass.application.repository_index import RepositoryIndexService
 from archcompass.domain.case import ArchitectureCase, CaseRevision, RepositoryReference
 from archcompass.domain.errors import CaseNotFoundError
-from archcompass.domain.review import BoundaryReview
-from archcompass.ports.repositories import AtlasRepository, CaseRepository
+from archcompass.ports.repositories import CaseRepository
 
 #: Shipped alongside the package rather than resolved from the working directory, so a
 #: workspace opened from anywhere finds the same examples.
 BUNDLED_CASE_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "eval" / "cases"
-
-
-@dataclass(frozen=True)
-class ScoredBoundary:
-    """One boundary compared against the answer its example ships."""
-
-    reference: str
-    abstraction: str
-    expected: bool
-    actual: bool
-    because: str
-
-    @property
-    def correct(self) -> bool:
-        return self.expected == self.actual
-
-
-@dataclass(frozen=True)
-class ReviewScore:
-    """How a review did against a known answer.
-
-    `unscored` is never folded into the total. A boundary the key does not cover means the
-    example drifted from its own answers, and a score computed over the remainder would
-    look like a result while quietly measuring less than it claims.
-    """
-
-    example: str
-    boundaries: tuple[ScoredBoundary, ...]
-    unscored: tuple[str, ...]
-
-    @property
-    def correct(self) -> int:
-        return sum(1 for item in self.boundaries if item.correct)
-
-    @property
-    def total(self) -> int:
-        return len(self.boundaries)
 
 
 @dataclass(frozen=True)
@@ -71,8 +33,9 @@ class BundledCaseSummary:
     title: str
     problem_statement: str
     repository_root: str
-    #: Whether the case ships a scoring key. Both bundled examples do, and either is the
-    #: one to reach for when the question is "is the advisor any good".
+    #: Whether the case ships an answer key. Nothing in the workspace grades against it —
+    #: the offline harness in `scripts/run_boundary_review.py` does — but it marks which
+    #: examples have a measured answer behind them.
     has_expected_answers: bool
 
 
@@ -87,12 +50,10 @@ class BundledCaseService:
         *,
         cases: CaseRepository,
         repositories: RepositoryIndexService,
-        atlases: AtlasRepository,
         root: Path = BUNDLED_CASE_ROOT,
     ) -> None:
         self._cases = cases
         self._repositories = repositories
-        self._atlases = atlases
         self._root = root
 
     def list(self) -> list[BundledCaseSummary]:
@@ -131,51 +92,3 @@ class BundledCaseService:
             update={"repository": RepositoryReference(root_path=str(repository))}
         )
         return self._cases.create(case, actor=f"bundled:{name}")
-
-    def score(self, review: BoundaryReview) -> ReviewScore | None:
-        """Grade a review against the answers its example ships, if it has any.
-
-        Returns None when the reviewed repository is not a bundled example, or is one
-        without a key. A review of someone's own code has no right answer to compare with,
-        and inventing a score for it would be worse than showing none.
-        """
-
-        report = review.report
-        if report is None:
-            return None
-        atlas = self._atlases.get(review.atlas_version_id)
-        reviewed_root = Path(atlas.version.root_path).resolve()
-        for directory in sorted(self._root.iterdir() if self._root.is_dir() else []):
-            if (directory / "repository").resolve() != reviewed_root:
-                continue
-            answers = directory / "expected.yaml"
-            if not answers.is_file():
-                return None
-            declared = _document(answers).get("boundaries", [])
-            key: dict[str, dict[str, object]] = {
-                str(entry.get("abstraction", "")): entry
-                for entry in cast("list[dict[str, object]]", declared)
-            }
-            scored: list[ScoredBoundary] = []
-            unscored: list[str] = []
-            for item in report.reviewed:
-                name = item.candidate.participants[0].qualified_name
-                expected = key.get(name)
-                if expected is None:
-                    unscored.append(name)
-                    continue
-                scored.append(
-                    ScoredBoundary(
-                        reference=item.reference,
-                        abstraction=name,
-                        expected=bool(expected.get("material")),
-                        actual=item.material,
-                        because=str(expected.get("because", "")).strip(),
-                    )
-                )
-            return ReviewScore(
-                example=directory.name,
-                boundaries=tuple(scored),
-                unscored=tuple(sorted(unscored)),
-            )
-        return None

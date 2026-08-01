@@ -153,7 +153,6 @@ def build_runtime(
     bundled_case_service = BundledCaseService(
         cases=cases,
         repositories=repository_service,
-        atlases=atlases,
     )
     review_source_service = ReviewSourceService(
         atlases=atlases,

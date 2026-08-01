@@ -820,6 +820,24 @@ small { font-size: var(--s-meta); }
   background: var(--surface);
 }
 .atlas-filter-toggle { border-color: var(--rule); }
+.atlas-pulse-select {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--ink-3);
+  font-size: var(--s-meta);
+}
+.atlas-pulse-select select {
+  min-height: 36px;
+  padding: 8px 10px;
+  color: var(--ink-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--s-ui);
+}
 .atlas-filter-toggle.active {
   color: var(--accent-ink);
   border-color: var(--accent-rule);
@@ -1034,6 +1052,113 @@ small { font-size: var(--s-meta); }
   stroke-width: 3;
   stroke-dasharray: none;
   opacity: 1;
+}
+
+/* ── The selected node's neighbourhood, moving ────────────────────────────────────
+   A click on a node already dims everything it does not reach, which is legible but
+   reads as a filter that was applied rather than as an answer to the click — and on
+   onyx, where a resting edge is `#3d434f`, the dimmed half is very nearly gone. These
+   four give the highlight a pulse. Which one is on is the reader's, chosen in the
+   toolbar; `still` keeps the highlight the way it has always been.
+
+   The pulse is its own path over the edge and never the edge itself — three edge kinds
+   already spend `stroke-dasharray` on meaning. Every path is emitted with
+   `pathLength="100"`, so the numbers below are percentages of an edge rather than pixels
+   and a long relationship pulses at the same speed as a short one.
+   ─────────────────────────────────────────────────────────────────────────────── */
+.atlas-pulse {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  opacity: 0;
+  pointer-events: none;
+}
+.atlas-node__halo {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  opacity: 0;
+  pointer-events: none;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Comet: one head runs the length of the relationship, source to target. The gap is
+   longer than the whole path, so there is one head on the wire and never a train. */
+[data-pulse="comet"] .atlas-pulse {
+  stroke-width: 3.4;
+  stroke-dasharray: 4 101;
+  opacity: 1;
+  filter: drop-shadow(0 0 5px var(--accent-rule));
+  animation: atlas-pulse-run 3.5s cubic-bezier(.5, 0, .5, 1) infinite;
+}
+
+/* Travel: the same direction stated quietly, as dashes crawling with the arrow. */
+[data-pulse="travel"] .atlas-pulse {
+  stroke-width: 2.6;
+  stroke-dasharray: 3 6;
+  opacity: .85;
+  animation: atlas-pulse-crawl 2.5s linear infinite;
+}
+
+/* Breathe: no direction and no origin, only that this set is live. It needs no overlay —
+   it is the existing highlight, breathing. A path edge is left out: that highlight is a
+   verdict about a route the reader asked for and should not be made to move. */
+[data-pulse="breathe"] .atlas-edge--active:not(.atlas-edge--path) {
+  animation: atlas-edge-breathe 2.5s ease-in-out infinite;
+}
+[data-pulse="breathe"] .atlas-node--active .atlas-node__body {
+  animation: atlas-node-breathe 2.5s ease-in-out infinite;
+}
+
+/* Ripple: the pulse gets an origin. The node rings, the near edges fire before the far
+   ones, and every head leaves the node that was clicked — including the half of the
+   neighbourhood drawn towards it, which simply plays backwards. This is the one mode
+   that spends the arrow's direction, and it buys a single gesture with it. */
+[data-pulse="ripple"] .atlas-pulse {
+  stroke-width: 3.2;
+  stroke-dasharray: 4 101;
+  opacity: 1;
+  filter: drop-shadow(0 0 5px var(--accent-rule));
+  animation: atlas-pulse-run 2.5s cubic-bezier(.35, 0, .3, 1) infinite;
+  animation-delay: calc(var(--atlas-pulse-rank, 0) * .14s);
+}
+[data-pulse="ripple"] .atlas-pulse--incoming { animation-direction: reverse; }
+[data-pulse="ripple"] .atlas-node--active .atlas-node__halo {
+  animation: atlas-halo-ring 2.5s cubic-bezier(.2, .6, .3, 1) infinite;
+}
+
+@keyframes atlas-pulse-run {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -105; }
+}
+@keyframes atlas-pulse-crawl { to { stroke-dashoffset: -9; } }
+/* The floor is 55% rather than the near-nothing a breath would naturally reach: an edge
+   that fades far enough to read as gone stops being a highlight for half of every cycle,
+   and the widening already carries the movement. */
+@keyframes atlas-edge-breathe {
+  0%, 100% { opacity: .95; stroke-width: 1.5; }
+  50% { opacity: .55; stroke-width: 3.1; }
+}
+@keyframes atlas-node-breathe {
+  0%, 100% { stroke-width: 2.5; }
+  50% { stroke-width: 4.2; }
+}
+@keyframes atlas-halo-ring {
+  0% { opacity: .55; transform: scale(1); }
+  55%, 100% { opacity: 0; transform: scale(1.16); }
+}
+
+/* A reader who has asked for less motion gets the static highlight, whatever is selected
+   in the toolbar. */
+@media (prefers-reduced-motion: reduce) {
+  .atlas-pulse,
+  .atlas-node__halo {
+    opacity: 0 !important;
+    animation: none !important;
+  }
+  .atlas-edge,
+  .atlas-node__body { animation: none !important; }
 }
 .atlas-node { cursor: pointer; outline: none; }
 .atlas-node__body {
@@ -1270,8 +1395,8 @@ small { font-size: var(--s-meta); }
 
    Nothing of it is left here. The sheet is `sheet` in components.tsx, the ledger
    inside it is components/ledger.tsx, and each region of the page — the
-   conclusion, what the reader's answers changed, the score against a shipped
-   answer key — is drawn where it is used, in the page's own file.
+   conclusion, what the reader's answers changed — is drawn where it is used, in
+   the page's own file.
    ──────────────────────────────────────────────────────────────────────────── */
 
 /* ── An answer, as prose ─────────────────────────────────────────────────────

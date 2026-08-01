@@ -10,7 +10,6 @@ export type FindingPattern = OpenAPIComponents["schemas"]["FindingPattern"];
 export type ReviewConversation = OpenAPIComponents["schemas"]["ReviewConversation"];
 export type ReviewMessage = OpenAPIComponents["schemas"]["ReviewMessage"];
 export type BundledCase = OpenAPIComponents["schemas"]["BundledCase"];
-export type ReviewScore = OpenAPIComponents["schemas"]["ReviewScoreResponse"];
 export type ReviewProgress = OpenAPIComponents["schemas"]["ReviewProgress"];
 export type AnswerProgress = OpenAPIComponents["schemas"]["AnswerProgress"];
 export type ReviewOverview = OpenAPIComponents["schemas"]["ReviewOverview"];

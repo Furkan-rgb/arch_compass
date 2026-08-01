@@ -17,6 +17,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import {
+  type CSSProperties,
   type FormEvent,
   useEffect,
   useId,
@@ -164,6 +165,31 @@ const STATE_ORDER: AtlasNodeState[] = [
   "contained",
   "cleared",
   "inference",
+];
+
+/**
+ * How the neighbourhood of a selected node is animated.
+ *
+ * A viewing preference and nothing more: the same nodes and the same relationships are
+ * drawn whichever is chosen, and what changes is how hard the highlight argues for itself.
+ * The static highlight stays available under `none`, because a map being read closely is a
+ * map that should be allowed to hold still.
+ *
+ * Three of the four run along the edge in the direction it is stored — every edge is
+ * written dependent → dependency, and `edgePath` starts its curve at the source, so a pulse
+ * travels the way the arrowhead already points. `ripple` is the exception and pays for it:
+ * it sends every pulse *out* of the node the reader clicked, which means the half of the
+ * neighbourhood that points inward is played backwards. That trade is deliberate — ripple
+ * is about the selection, the other three are about the relationship.
+ */
+export type AtlasPulse = "comet" | "travel" | "breathe" | "ripple" | "none";
+
+const PULSES: { value: AtlasPulse; label: string }[] = [
+  { value: "comet", label: "Comet" },
+  { value: "travel", label: "Travel" },
+  { value: "breathe", label: "Breathe" },
+  { value: "ripple", label: "Ripple" },
+  { value: "none", label: "Still" },
 ];
 
 const NODE_WIDTH = 190;
@@ -1080,6 +1106,7 @@ export function RepositoryAtlas({
   const { positions } = layout;
   const highlightedNodes = new Set(highlightedNodeIds);
   const highlightedEdges = new Set(highlightedEdgeIds);
+  const [pulse, setPulse] = useState<AtlasPulse>("comet");
   const [zoom, setZoom] = useState(1);
   const [panning, setPanning] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -1456,6 +1483,24 @@ export function RepositoryAtlas({
     window.requestAnimationFrame(() => nodeRefs.current.get(next!.id)?.focus());
   };
 
+  /**
+   * The relationships a pulse is drawn along: the selected node's own, and no others.
+   *
+   * An edge already carrying the dependency-path highlight is left out rather than drawn
+   * twice. That highlight is a different claim — it traces a route the reader asked for,
+   * and `query_service` walks edges in both directions to find one, so a pulse following
+   * each edge's own arrow would zigzag along a path that reads as a single journey.
+   */
+  const pulseEdges =
+    selected && pulse !== "none" && pulse !== "breathe"
+      ? visibleGraph.edges.filter(
+          (edge) =>
+            edge.sourceId !== edge.targetId &&
+            !highlightedEdges.has(edge.id) &&
+            (edge.sourceId === selected.id || edge.targetId === selected.id),
+        )
+      : [];
+
   return (
     <section
       ref={panelRef}
@@ -1515,6 +1560,24 @@ export function RepositoryAtlas({
         >
           Public only
         </button>
+        {/* A select rather than a fifth row of pill buttons. The lens changes which graph is
+            on screen and earns its width; this only changes how the selected node's
+            neighbourhood moves, and a control that is set once should not out-shout one that
+            is pressed constantly. */}
+        <label className="atlas-pulse-select">
+          <span>Highlight</span>
+          <select
+            value={pulse}
+            aria-label="Highlight motion for the selected node"
+            onChange={(event) => setPulse(event.target.value as AtlasPulse)}
+          >
+            {PULSES.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
         {lens === "risk" && onExploreAtlas && (
           <>
             <button
@@ -1635,6 +1698,7 @@ export function RepositoryAtlas({
                 height: `${layout.height * zoom}px`,
               }}
               preserveAspectRatio="xMinYMin meet"
+              data-pulse={pulse}
             >
               <defs>
                 <pattern id={gridId} width="24" height="24" patternUnits="userSpaceOnUse">
@@ -1693,6 +1757,30 @@ export function RepositoryAtlas({
                   );
                 })}
               </g>
+              {/* Drawn over every edge and under every node, and never onto the edge itself:
+                  `--kind-tests`, `--kind-configures` and `--risk` already own
+                  `stroke-dasharray`, and a pulse written into `.atlas-edge` would quietly
+                  erase the distinction those dashes carry. */}
+              <g aria-hidden="true">
+                {pulseEdges.map((edge, rank) => {
+                  const source = positions.get(edge.sourceId);
+                  const target = positions.get(edge.targetId);
+                  if (!source || !target) return null;
+                  return (
+                    <path
+                      key={edge.id}
+                      className={`atlas-pulse ${
+                        edge.targetId === selected?.id ? "atlas-pulse--incoming" : ""
+                      }`}
+                      d={edgePath(source, target)}
+                      /* Normalised, so the dash means the same fraction of a long edge and
+                         a short one and the whole neighbourhood pulses at one speed. */
+                      pathLength={100}
+                      style={{ "--atlas-pulse-rank": rank } as CSSProperties}
+                    />
+                  );
+                })}
+              </g>
               {visibleGraph.nodes.map((node) => {
                 const position = positions.get(node.id);
                 if (!position) return null;
@@ -1741,6 +1829,16 @@ export function RepositoryAtlas({
                     }}
                   >
                     <rect className="atlas-node__body" width={NODE_WIDTH} height={NODE_HEIGHT} rx="10" />
+                    {/* The ring ripple sends outward. Invisible in every other mode, and
+                        rendered only for the selected node so nothing else can ring. */}
+                    {active && (
+                      <rect
+                        className="atlas-node__halo"
+                        width={NODE_WIDTH}
+                        height={NODE_HEIGHT}
+                        rx="10"
+                      />
+                    )}
                     <circle className="atlas-node__kind" cx="24" cy="25" r="10" />
                     <text className="atlas-node__symbol" x="24" y="29" textAnchor="middle">
                       {node.state === "hotspot"

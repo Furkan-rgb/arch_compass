@@ -30,8 +30,9 @@ def test_the_api_covers_the_whole_review_loop(runtime: Runtime) -> None:
         assert examples.status_code == 200
         listed = {item["name"]: item for item in examples.json()}
         assert FIXTURE in listed
-        # Only an example that ships answers can be scored; the flag is what the workspace
-        # uses to say so, and a client that trusted it wrongly would grade against nothing.
+        # The flag says the example ships an answer key, which is what the offline harness
+        # measures against. Nothing in the workspace grades a review, so this is a property
+        # of the example rather than a promise about what the review will show.
         assert listed[FIXTURE]["has_expected_answers"] is True
 
         loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
@@ -78,17 +79,6 @@ def test_the_api_covers_the_whole_review_loop(runtime: Runtime) -> None:
         history = client.get(f"/api/review-conversations/{conversation_id}")
         assert history.status_code == 200
         assert len(history.json()["messages"]) == 1
-
-        scored = client.get(f"/api/reviews/{review_id}/score")
-        assert scored.status_code == 200, scored.text
-        result = scored.json()
-        assert result is not None, "a bundled example that ships answers must be gradable"
-        assert result["example"] == FIXTURE
-        assert result["total"] == len(review["report"]["reviewed"])
-        # Nothing may be silently excluded: an uncovered boundary means the example drifted
-        # from its own key, and a score over the remainder would look complete.
-        assert result["unscored"] == []
-        assert {item["reference"] for item in result["boundaries"]} == known
 
 
 def test_a_streamed_review_counts_its_boundaries_before_judging_them(
@@ -600,49 +590,6 @@ def test_a_review_of_an_unindexed_repository_fails_rather_than_reporting_nothing
         assert "repo index" in attempted.json()["message"]
 
 
-def test_a_review_of_unscored_code_reports_no_score_rather_than_a_made_up_one(
-    runtime: Runtime,
-    tmp_path: Path,
-) -> None:
-    """Someone's own repository has no right answer; inventing one would be worse than none.
-
-    Written here rather than borrowed from `eval/cases`. Both bundled examples ship an
-    answer key on purpose, and a test that relied on one of them not having one would go
-    green or red depending on a decision about the examples rather than about scoring.
-    """
-
-    own_code = tmp_path / "someones-own-repository"
-    own_code.mkdir()
-    (own_code / "gateway.py").write_text(
-        "from typing import Protocol\n\n\n"
-        "class Gateway(Protocol):\n"
-        "    def send(self, message: str) -> None: ...\n\n\n"
-        "class HttpGateway(Gateway):\n"
-        "    def send(self, message: str) -> None:\n"
-        "        print(message)\n",
-        encoding="utf-8",
-    )
-    atlas = runtime.analyzer.analyze(own_code)
-    runtime.atlas_repository.save(atlas)
-
-    with TestClient(create_app(runtime)) as client:
-        created = client.post("/api/cases", json={
-            "title": "Unscored",
-            "problem_statement": "A repository that ships no answer key.",
-            "desired_outcome": "An honest absence of a score.",
-        })
-        review = client.post("/api/reviews", json={
-            "case_id": created.json()["case_id"],
-            "repository_root": atlas.version.root_path,
-        })
-        assert review.status_code == 201, review.text
-
-        scored = client.get(f"/api/reviews/{review.json()['review_id']}/score")
-
-        assert scored.status_code == 200
-        assert scored.json() is None
-
-
 def test_a_validation_failure_says_which_field_was_wrong(runtime: Runtime) -> None:
     """The message a reader sees has to point at something.
 
@@ -676,7 +623,6 @@ def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> N
         "/api/review-conversations",
         "/api/review-conversations/{conversation_id}/messages",
         "/api/review-conversations/{conversation_id}/messages/stream",
-        "/api/reviews/{review_id}/score",
         "/api/reviews/{review_id}/report",
         "/api/repositories/explore",
         "/api/repositories/review-context",

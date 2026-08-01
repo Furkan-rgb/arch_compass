@@ -79,7 +79,10 @@ web-google: frontend-build
 test-browser: frontend-build
 	uv run pytest -m browser -v
 
-check: lint typecheck test frontend-check
+# The bundle is built first because the test suite asserts on it: the cache-header test
+# loads `/`, which answers `frontend_not_built` until the bundle is on disk. That is
+# invisible on a machine that has already built one, and fails every time in CI.
+check: frontend-build lint typecheck test frontend-check
 
 build: frontend-build
 	uv build --no-sources

@@ -41,7 +41,6 @@ REVIEW_ROW = "[data-slot='review-row']"
 REVIEW_LINK = "[data-slot='review-link']"
 VERDICT = "[data-slot='verdict-text']"
 OVERVIEW = "[data-slot='overview']"
-SCORE = "[data-slot='score']"
 REVIEW_ATLAS = "[data-slot='review-atlas']"
 COMMIT = "[data-slot='commit']"
 # The sentence over the run button names the repository and the case, so two `strong`s in it
@@ -196,14 +195,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             # 7. Detection limits are stated on each boundary, not once in a footer.
             assert page.locator("[data-slot='finding-limits']").count() == 6
 
-            # 8. The example ships answers, so the run is graded rather than only read.
-            #    Six rows, every one accounted for — a page that silently scored fewer
-            #    would read as a complete result while measuring less than it claims.
-            page.wait_for_selector(SCORE, timeout=20_000)
-            assert page.locator(f"{SCORE} li").count() == 6
-            assert "Not scored" not in page.content()
-
-            # 9. A follow-up question is answered and its grounding shown.
+            # 8. A follow-up question is answered and its grounding shown.
             #
             #    Asking is a panel the reader opens rather than a dock riding the foot of
             #    every review, so the first step is asking for it. Everything below is about
@@ -229,7 +221,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             grounding = page.locator(f"{recorded} [data-slot='grounding']").first.inner_text()
             assert "BR-" in grounding, grounding
 
-            # 10. Threads are durable and plural: a second one is kept apart from the
+            # 9. Threads are durable and plural: a second one is kept apart from the
             #     first, and both stay reachable.
             page.get_by_role("button", name="New thread").click()
             page.get_by_label("Question about this review").fill("What should I do first?")
@@ -328,7 +320,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             assert 0 < len(tracks) <= cards.count(), (tracks, cards.count())
             assert len(set(tracks)) == 1, tracks
 
-            # 11. The review carries its own atlas, drawn around the boundaries it examined
+            # 10. The review carries its own atlas, drawn around the boundaries it examined
             #     and marked with their verdicts. Which verdict appears here is the
             #     substitute's business — it condemns every boundary nothing depends on, so
             #     this fixture has no cleared node to find. That both verdicts reach the
@@ -360,7 +352,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             # One pixel of slack for sub-pixel layout rounding, not for a missing rule.
             assert abs(filled[0] - filled[1]) <= 1, filled
 
-            # 12. A finding shows its boundary on that map, without leaving the review.
+            # 11. A finding shows its boundary on that map, without leaving the review.
             #     The question and the answer are one reading, so this selects the node in
             #     place rather than opening a second page to hold it. The control lives in
             #     the finding's own reasoning, so the row is opened to reach it — which is
@@ -414,7 +406,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             # in the URL, and what matters is that selecting a node does not write one.
             assert page.url == url_before
 
-            # 13. Past reviews are a standing record with their own place, grouped by the
+            # 12. Past reviews are a standing record with their own place, grouped by the
             #     case each judged, and reopen from there. The front door keeps a pointer,
             #     not a listing that grows without limit under the start step.
             page.goto(workspace_url, wait_until="networkidle")
@@ -438,14 +430,14 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.locator(REVIEW_LINK).first.click()
             page.wait_for_selector(REVIEW_PAGE, timeout=20_000)
 
-            # 14. The standalone atlas explorer is gone entirely. The only map is the one
+            # 13. The standalone atlas explorer is gone entirely. The only map is the one
             #     inside a review, where a boundary is already the question being asked.
             page.goto(workspace_url, wait_until="networkidle")
             assert page.get_by_role("link", name="Policies").count() == 1
             assert page.get_by_role("link", name="Repositories").count() == 0
             assert page.get_by_role("link", name="Explore this atlas").count() == 0
 
-            # 15. Neither superseded path 404s; both land on the flow.
+            # 14. Neither superseded path 404s; both land on the flow.
             page.goto(f"{workspace_url}/cases", wait_until="networkidle")
             page.wait_for_selector("text=Start a review", timeout=20_000)
             page.goto(f"{workspace_url}/repositories", wait_until="networkidle")

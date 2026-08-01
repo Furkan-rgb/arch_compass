@@ -18,7 +18,6 @@ import type {
   ReviewConversation,
   ReviewMessage,
   ReviewProgress,
-  ReviewScore,
   RepositorySummary,
   WorkspaceSummary,
 } from "./types";
@@ -168,8 +167,6 @@ export const api = {
     ),
   review: (reviewId: string) =>
     request<BoundaryReview>(`/api/reviews/${encodeURIComponent(reviewId)}`),
-  reviewScore: (reviewId: string) =>
-    request<ReviewScore | null>(`/api/reviews/${encodeURIComponent(reviewId)}/score`),
   createReview: (caseId: string, repositoryRoot: string) =>
     request<BoundaryReview>("/api/reviews", {
       method: "POST",
