@@ -1930,6 +1930,31 @@ html:has(.home-hero) body {
   }
   .course-converge .course-converge__stub { stroke: var(--accent); opacity: .9; }
 
+  /* The judgement, moving: one head leaves each material at the same moment and
+     the three arrive together, then a single head carries on down the stub —
+     the atlas's own comet (a dash whose gap is longer than the path), on the
+     course's geometry. Dash arithmetic is normalized against pathLength=100;
+     the resting offset parks the head just before the path so a paused or
+     reduced-motion page shows nothing rather than a stray accent mark. */
+  .course-converge__pulse {
+    stroke: var(--accent);
+    stroke-width: 2;
+    stroke-linecap: round;
+    /* Not `non-scaling-stroke`, deliberately: Chromium measures dashes in raw
+       path units when it and `pathLength` combine, and the comet IS a dash.
+       The near-1:1 viewBox is what makes opting out affordable. */
+    vector-effect: none;
+    stroke-dasharray: 5 200;
+    stroke-dashoffset: 5;
+    opacity: .9;
+    filter: drop-shadow(0 0 5px var(--accent-rule));
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .course-converge__pulse { animation: course-converge-pulse 6s linear infinite; }
+    /* The strands' head lands at the junction ~1.6s in; the stub's leaves it. */
+    .course-converge__pulse--stub { animation-delay: 1.6s; }
+  }
+
   /* The fork through the reader's answer: off the rail, into the accent border of
      the what-changed block, and back out under it. */
   .home-changed { position: relative; }
@@ -2030,13 +2055,11 @@ html:has(.home-hero) body {
       /* The record sits too near the page's end for a cover range to ever finish
          there; the terminal rail completes on entry instead. */
       .course-rail--end { animation-range: entry 0% entry 85%; }
-      .course-converge path,
-      .course-elbow path {
-        stroke-dasharray: 1;
-        animation: course-dash linear both;
-        animation-timeline: view();
-        animation-range: entry 25% entry 95%;
-      }
+      /* The fan and the elbows do not scroll-draw. Their strokes carry
+         `vector-effect: non-scaling-stroke`, and Chromium measures a dash
+         against the path's raw length rather than its `pathLength` when the
+         two combine — a "drawing" dash renders as a dotted line instead. They
+         are small event marks; arriving already drawn costs nothing. */
       .course-tick,
       .course-end {
         animation: course-lit linear both;
@@ -2048,6 +2071,12 @@ html:has(.home-hero) body {
 }
 
 @keyframes course-draw { from { transform: scaleY(0); } }
-@keyframes course-dash { from { stroke-dashoffset: 1; } }
 @keyframes course-lit { from { opacity: .2; transform: scale(.55); } }
 @keyframes course-comet { from { top: -64px; } to { top: 100%; } }
+/* Travel in the first 1.8s of the cycle, then hold past the path's end — the
+   rest of the period is the quiet between runs, shared with the rail comets. */
+@keyframes course-converge-pulse {
+  0% { stroke-dashoffset: 5; }
+  30% { stroke-dashoffset: -110; }
+  100% { stroke-dashoffset: -110; }
+}

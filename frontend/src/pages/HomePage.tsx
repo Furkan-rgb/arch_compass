@@ -605,16 +605,26 @@ export function HomePage() {
         <div className="grid justify-items-center">
           {/* Three materials, one judgement: the section's thesis, drawn as a line. In flow,
               so it survives every column width without measuring anything. */}
+          {/* The viewBox is 1000 wide, not 100: the fan only exists at ≥1260px where the
+              column is capped, so a near-width user space keeps the stretch close to 1:1 —
+              which is what lets the comets' dash arithmetic (normalized to pathLength) and
+              their round caps survive `preserveAspectRatio="none"`. */}
           <svg
             aria-hidden
             className="course-converge"
-            viewBox="0 0 100 56"
+            viewBox="0 0 1000 56"
             preserveAspectRatio="none"
           >
-            <path pathLength={1} d="M 16.7 0 C 16.7 22, 50 16, 50 40" />
-            <path pathLength={1} d="M 50 0 C 50 16, 50 24, 50 40" />
-            <path pathLength={1} d="M 83.3 0 C 83.3 22, 50 16, 50 40" />
-            <path pathLength={1} className="course-converge__stub" d="M 50 40 L 50 56" />
+            <path pathLength={1} d="M 167 0 C 167 22, 500 16, 500 40" />
+            <path pathLength={1} d="M 500 0 C 500 16, 500 24, 500 40" />
+            <path pathLength={1} d="M 833 0 C 833 22, 500 16, 500 40" />
+            <path pathLength={1} className="course-converge__stub" d="M 500 40 L 500 56" />
+            {/* The same four paths again as wires for the comets: overlays, so the pulse
+                can be a dash without the lines beneath ever being dashed themselves. */}
+            <path pathLength={100} className="course-converge__pulse" d="M 167 0 C 167 22, 500 16, 500 40" />
+            <path pathLength={100} className="course-converge__pulse" d="M 500 0 C 500 16, 500 24, 500 40" />
+            <path pathLength={100} className="course-converge__pulse" d="M 833 0 C 833 22, 500 16, 500 40" />
+            <path pathLength={100} className="course-converge__pulse course-converge__pulse--stub" d="M 500 40 L 500 56" />
           </svg>
           <span aria-hidden className="course-stem h-[34px] w-px bg-rule" />
           <div className="flex w-full flex-wrap items-center gap-x-[18px] gap-y-3 rounded-panel border border-rule-soft bg-surface px-[22px] py-4 shadow-card">
