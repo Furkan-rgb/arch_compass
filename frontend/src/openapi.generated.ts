@@ -102,6 +102,16 @@ export interface components {
     "analysis_config_hash": string;
     "created_at"?: string;
   };
+    "AvailableModelResponse": {
+    "profile_id": string;
+    "provider": string;
+    "model": string;
+    "label"?: string;
+    "input_token_limit"?: number | null;
+    "output_token_limit"?: number | null;
+    "is_configured_default"?: boolean;
+    "is_selected"?: boolean;
+  };
     "BoundaryExcerpt": {
     "reference": string;
     "qualified_name": string;
@@ -268,8 +278,16 @@ export interface components {
   };
     "MetricNature": "objective_measurement" | "structural_proxy";
     "MetricScope": "lexical_node" | "owning_module" | "reverse_static_impact_neighbourhood" | "bounded_resolved_call_chain";
+    "ModelCatalogResponse": {
+    "providers": Array<components["schemas"]["ProviderAvailabilityResponse"]>;
+    "candidates": Array<components["schemas"]["AvailableModelResponse"]>;
+  };
     "ModelIdentity": {
     "provider": string;
+    "model": string;
+  };
+    "ModelSelectionRequest": {
+    "profile_id": string;
     "model": string;
   };
     "NeighbourhoodQuery": {
@@ -359,6 +377,13 @@ export interface components {
     "message": string;
     "retryable"?: boolean;
     "field_errors"?: Array<string>;
+  };
+    "ProviderAvailabilityResponse": {
+    "profile_id": string;
+    "provider": string;
+    "available": boolean;
+    "detail"?: string;
+    "probed_at": string;
   };
     "QuestionAnswered": {
     "event"?: "answered";
@@ -550,7 +575,11 @@ export interface components {
     "if_denied": string;
   };
     "WorkspaceModels": {
-    "reasoning": components["schemas"]["ModelIdentity"];
+    "reasoning"?: components["schemas"]["ModelIdentity"] | null;
+    "failure"?: string;
+    "from_configuration"?: boolean;
+    "pinned"?: boolean;
+    "unresolvable"?: boolean;
   };
     "WorkspaceSummaryResponse": {
     "workspace": string;
@@ -637,6 +666,19 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": Array<components["schemas"]["CaseRevision"]>;
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "clear_model_selection_api_models_selection_delete": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "204": unknown;
       "422": components["schemas"]["ProblemDetail"];
     };
   };
@@ -957,6 +999,19 @@ export interface operations {
       "404": components["schemas"]["ProblemDetail"];
     };
   };
+  "model_catalog_api_models_get": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": components["schemas"]["ModelCatalogResponse"];
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
   "remove_policy_source_api_policies_sources_delete": {
     parameters: {
       query: {
@@ -1081,6 +1136,20 @@ export interface operations {
       "404": components["schemas"]["ProblemDetail"];
     };
   };
+  "select_model_api_models_selection_put": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["ModelSelectionRequest"];
+    responses: {
+      "200": components["schemas"]["WorkspaceSummaryResponse"];
+      "422": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
+    };
+  };
   "start_from_repository_api_repositories_start_post": {
     parameters: {
       query: never;
@@ -1196,6 +1265,13 @@ export interface paths {
   };
   "/api/filesystem/directories": {
     get: operations["list_directories_api_filesystem_directories_get"];
+  };
+  "/api/models": {
+    get: operations["model_catalog_api_models_get"];
+  };
+  "/api/models/selection": {
+    put: operations["select_model_api_models_selection_put"];
+    delete: operations["clear_model_selection_api_models_selection_delete"];
   };
   "/api/policies": {
     get: operations["list_policies_api_policies_get"];

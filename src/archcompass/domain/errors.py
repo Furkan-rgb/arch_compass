@@ -13,6 +13,16 @@ class ConfigurationError(ArchCompassError):
     pass
 
 
+class NoReasoningModelSelectedError(ConfigurationError):
+    """Something asked this workspace to reason, and it has not chosen a model.
+
+    A `ConfigurationError` by inheritance because that is what it is, and its own type
+    because it is the one configuration fault whose cure is inside the application. Every
+    other one wants a file edited and a process restarted; this one wants a click, and the
+    interface can only offer that click if it can tell this case apart from the rest.
+    """
+
+
 class PathValidationError(ArchCompassError):
     pass
 

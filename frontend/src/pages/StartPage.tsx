@@ -26,6 +26,7 @@ import { api } from "../api";
 import { CaseEditor, CaseView } from "../case-editor";
 import { CaseForm, casePayload, type CaseFormValues } from "../case-form";
 import { EmptyLine, ErrorPanel, Loading, PageHeader, page, sheet } from "../components";
+import { useModelPicker } from "../model-picker";
 import { latestPerRepository } from "../repositories";
 import { useRun } from "../run";
 import {
@@ -534,7 +535,13 @@ export function StartPage() {
   const readFailure = [repositories, cases, examples].find((query) => query.error);
   const reading = readFailure?.error;
 
-  const ready = isReady(selection);
+  // The model is chosen in the top bar and outlives this page, but a run needs one, so this
+  // step has to say so rather than let the request be refused after the button is pressed.
+  const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
+  const hasModel = Boolean(workspace.data?.models.reasoning);
+  const openPicker = useModelPicker();
+
+  const ready = isReady(selection, hasModel);
   const busy =
     run.running || loadExample.isPending || index.isPending || reviewRepository.isPending;
 
@@ -773,8 +780,20 @@ export function StartPage() {
           className="flex flex-wrap items-center gap-x-4 gap-y-2.5 rounded-b-panel border-t border-rule bg-sunken px-[22px] py-4"
         >
           <p className="m-0 flex-[1_1_32ch] text-meta leading-[1.5] text-ink-2 [&_strong]:font-[650] [&_strong]:text-ink">
-            {!ready ? (
+            {!selection.repositoryRoot ? (
               <>Choose or index a repository to run. A case is optional.</>
+            ) : !hasModel ? (
+              <>
+                No reasoning model is chosen.{" "}
+                <button
+                  type="button"
+                  onClick={() => openPicker?.()}
+                  className="font-[650] text-primary underline underline-offset-2"
+                >
+                  Choose a model
+                </button>{" "}
+                to run — only models a reachable provider currently has are offered.
+              </>
             ) : caseId ? (
               <>
                 Judging every boundary in{" "}
@@ -799,7 +818,7 @@ export function StartPage() {
               // One run, two ways in, decided in one place rather than re-derived here: a
               // chosen case is reviewed against, and no case opens an empty one about this
               // repository first.
-              const intent = runIntent(selection);
+              const intent = runIntent(selection, hasModel);
               if (intent === null) return;
               if (intent.kind === "against-case") {
                 run.start(intent.caseId, intent.repositoryRoot);

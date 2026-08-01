@@ -20,6 +20,7 @@ import type {
   ReviewMessage,
   ReviewProgress,
   RepositorySummary,
+  ModelCatalog,
   WorkspaceSummary,
 } from "./types";
 
@@ -30,10 +31,19 @@ export class ApiError extends Error {
     public readonly code = "request_failed",
     /** The failure this one was translated from, where it was translated from one. */
     cause?: unknown,
+    /**
+     * Whether repeating this request could succeed, as the server judged it. Read from the
+     * problem detail rather than guessed from the status, which cannot tell a provider that
+     * is briefly busy from one whose quota is spent for the day.
+     */
+    public readonly retryable = false,
   ) {
     super(message, cause === undefined ? undefined : { cause });
   }
 }
+
+/** Nothing has been chosen to reason with. A required field, not a failure. */
+export const NO_MODEL_CODE = "no_model_selected";
 
 /**
  * The code every "nothing on the other end answered as this API" failure carries.
@@ -94,7 +104,13 @@ async function readJson<T>(response: Response): Promise<T> {
 /** The server's own words for a refusal, kept as it wrote them. */
 async function refusal(response: Response, fallback: string): Promise<ApiError> {
   const detail = await readJson<Partial<ProblemDetail>>(response);
-  return new ApiError(detail.message || fallback, response.status, detail.code);
+  return new ApiError(
+    detail.message || fallback,
+    response.status,
+    detail.code,
+    undefined,
+    detail.retryable ?? false,
+  );
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -155,6 +171,16 @@ async function streamLines<Line>(
 
 export const api = {
   workspace: () => request<WorkspaceSummary>("/api/workspace"),
+
+  /** Asks every configured provider what it has. Only called when the chooser opens. */
+  models: () => request<ModelCatalog>("/api/models"),
+  selectModel: (choice: { profile_id: string; model: string }) =>
+    request<WorkspaceSummary>("/api/models/selection", {
+      method: "PUT",
+      body: JSON.stringify(choice),
+    }),
+  clearModelSelection: () =>
+    request<void>("/api/models/selection", { method: "DELETE" }),
 
   bundledCases: () => request<BundledCase[]>("/api/bundled-cases"),
   loadBundledCase: (name: string) =>

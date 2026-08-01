@@ -25,12 +25,19 @@ export type RecordedAnswer = OpenAPIComponents["schemas"]["RecordedAnswer"];
 export type BoundaryExcerpt = OpenAPIComponents["schemas"]["BoundaryExcerpt"];
 export type DirectoryListing = OpenAPIComponents["schemas"]["DirectoryListing"];
 
-export interface WorkspaceSummary {
-  workspace: string;
-  models: {
-    reasoning: { provider: string; model: string };
-  };
-}
+/**
+ * What this workspace is pointed at, including being pointed at nothing.
+ *
+ * Aliased from the generated schema rather than restated here. It was restated, and drifted
+ * the moment `reasoning` became nullable: a hand-written mirror of a contract is a second
+ * copy of it that no build step checks.
+ */
+export type WorkspaceSummary = OpenAPIComponents["schemas"]["WorkspaceSummaryResponse"];
+export type WorkspaceModels = OpenAPIComponents["schemas"]["WorkspaceModels"];
+export type ModelCatalog = OpenAPIComponents["schemas"]["ModelCatalogResponse"];
+export type ModelCandidate = OpenAPIComponents["schemas"]["AvailableModelResponse"];
+export type ProviderAvailability =
+  OpenAPIComponents["schemas"]["ProviderAvailabilityResponse"];
 
 export interface RepositorySummary {
   version_id: string;

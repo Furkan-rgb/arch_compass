@@ -100,9 +100,16 @@ export function chooseRepository(
   return { ...selection, repositoryRoot: root };
 }
 
-/** A repository is the whole requirement; a case is optional (master plan §6C.1). */
-export function isReady(selection: StartSelection): boolean {
-  return Boolean(selection.repositoryRoot);
+/**
+ * A repository and a model are the two requirements; a case is optional (master plan §6C.1).
+ *
+ * The model is a requirement of the run rather than of the selection, which is why it is an
+ * argument rather than a field: it is chosen in the top bar and outlives this page. It is
+ * still checked here, because the button's `disabled` and what pressing it does have to be
+ * derived from one function.
+ */
+export function isReady(selection: StartSelection, hasModel: boolean): boolean {
+  return Boolean(selection.repositoryRoot) && hasModel;
 }
 
 /**
@@ -118,9 +125,9 @@ export type RunIntent =
   | { kind: "from-repository"; repositoryRoot: string }
   | null;
 
-export function runIntent(selection: StartSelection): RunIntent {
+export function runIntent(selection: StartSelection, hasModel: boolean): RunIntent {
   const { repositoryRoot, caseId } = selection;
-  if (!repositoryRoot) return null;
+  if (!repositoryRoot || !hasModel) return null;
   if (caseId) return { kind: "against-case", caseId, repositoryRoot };
   return { kind: "from-repository", repositoryRoot };
 }

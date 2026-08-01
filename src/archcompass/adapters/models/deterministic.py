@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from typing import ClassVar
 
+from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.atlas import (
     FindingCandidate,
     FindingPattern,
@@ -15,6 +16,7 @@ from archcompass.domain.case import (
     CaseField,
 )
 from archcompass.domain.knowledge import MethodKnowledge
+from archcompass.domain.model_catalog import AvailableModel, ProbeResult
 from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
     BoundaryReview,
@@ -29,6 +31,21 @@ from archcompass.domain.review import (
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
 from archcompass.ports.reasoning import ReasoningTask, StreamingAnswerReasoner
+
+#: What this substitute answers to. It matches `model_identity` rather than whatever a
+#: fixture's YAML happens to name, because reporting a model it is not would be the one lie a
+#: chooser cannot afford.
+DETERMINISTIC_MODEL = "deterministic-architecture-v4"
+
+
+def probe_deterministic(config: ReasoningModelConfig) -> ProbeResult:
+    """Always reachable, with exactly one model — its own."""
+
+    del config
+    return ProbeResult(
+        available=True,
+        models=[AvailableModel(name=DETERMINISTIC_MODEL, label="deterministic substitute")],
+    )
 
 
 class DeterministicReasoningProvider:

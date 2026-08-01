@@ -125,9 +125,23 @@ def test_thinking_is_held_down_for_the_short_decision_stages() -> None:
         thinking_level=types.ThinkingLevel.MINIMAL
     )
     assert _thinking_config(None) is None
-    assert _thinking_config(True) is None
     assert _thinking_config("high") == types.ThinkingConfig(
         thinking_level=types.ThinkingLevel.HIGH
+    )
+
+
+def test_required_reasoning_names_a_level_rather_than_omitting_the_field() -> None:
+    """An absent `thinking_level` is the model's default, and defaults disagree.
+
+    Measured against one key on one prompt: `gemini-3.6-flash` spends 831 thinking tokens
+    with the field absent, `gemini-3.5-flash-lite` spends none. So a configuration saying
+    reasoning is required has to name a level, or it turns reasoning off on exactly the
+    models that most need it — which is what produced a review whose every verdict claimed
+    to stand either way and which therefore asked nothing.
+    """
+
+    assert _thinking_config(True) == types.ThinkingConfig(
+        thinking_level=types.ThinkingLevel.MEDIUM
     )
 
 
@@ -161,6 +175,41 @@ def test_reasoning_request_carries_the_schema_and_the_system_prompt(
     assert payload["generationConfig"]["responseMimeType"] == "application/json"
     assert "Provider-specific capabilities leak" in json.dumps(payload["contents"])
     assert payload["systemInstruction"]["parts"][0]["text"]
+
+
+@pytest.mark.parametrize(
+    ("configured", "sent"),
+    [(True, "MEDIUM"), (False, "MINIMAL"), (None, None)],
+)
+def test_the_configured_thinking_setting_reaches_the_request(
+    monkeypatch: pytest.MonkeyPatch,
+    configured: bool | None,
+    sent: str | None,
+) -> None:
+    """`thinking: true` has to arrive as a request that requires thinking.
+
+    The wire and not the argument, because the bug this guards against lived entirely
+    between the two: `_thinking_config` accepted `true` and returned nothing, so the request
+    carried no thinking instruction at all. Unlike Ollama, where `think` is a parameter of
+    the same shape, this one is a translation — the setting is a bool and the API wants a
+    level — and a translation is a place a value can go missing.
+    """
+
+    captured: list[httpx.Request] = []
+
+    def send(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return _candidate_response(verdict_json(bearings=2))
+
+    _patch_transport(monkeypatch, send)
+    config = _reasoning_config().model_copy(update={"thinking": configured})
+
+    GoogleReasoningProvider(config).judge_finding_candidate(_case(), _candidate(), _policies(2))
+
+    thinking = json.loads(captured[0].content)["generationConfig"].get("thinkingConfig") or {}
+    # Either spelling: the API takes both, and which one the SDK emits is its business
+    # rather than the thing under test here.
+    assert (thinking.get("thinkingLevel") or thinking.get("thinking_level")) == sent
 
 
 class _Left(BaseModel):
@@ -471,3 +520,132 @@ def test_model_identity_names_the_provider_and_model() -> None:
     assert GoogleReasoningProvider(_reasoning_config()).model_identity == (
         "google:reasoning-test"
     )
+
+
+def _models_response(*entries: dict[str, object]) -> httpx.Response:
+    return _raw_response({"models": list(entries)})
+
+
+def test_the_probe_offers_only_the_models_this_advisor_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One key reaches forty-two models and almost all of them report `generateContent`.
+
+    Text-to-speech, image generation and three superseded generations of flash all pass a
+    capability filter, which is why there is not one: the set worth judging with is named.
+    """
+
+    def listing(request: httpx.Request) -> httpx.Response:
+        assert "models" in str(request.url)
+        return _models_response(
+            {
+                "name": "models/gemini-3.6-flash",
+                "displayName": "Gemini 3.6 Flash",
+                "inputTokenLimit": 1048576,
+                "outputTokenLimit": 65536,
+                "supportedGenerationMethods": ["generateContent", "countTokens"],
+            },
+            {
+                "name": "models/gemini-2.0-flash",
+                "displayName": "Gemini 2.0 Flash",
+                "supportedGenerationMethods": ["generateContent"],
+            },
+            {
+                "name": "models/gemini-3.1-flash-tts-preview",
+                "displayName": "Gemini 3.1 Flash TTS",
+                "supportedGenerationMethods": ["generateContent"],
+            },
+            {
+                "name": "models/text-embedding-004",
+                "supportedGenerationMethods": ["embedContent"],
+            },
+        )
+
+    _patch_transport(monkeypatch, listing)
+    result = google_adapters.probe_google(_reasoning_config())
+
+    assert result.available
+    assert [model.name for model in result.models] == ["gemini-3.6-flash"]
+    offered = result.models[0]
+    assert offered.label == "Gemini 3.6 Flash"
+    assert (offered.input_token_limit, offered.output_token_limit) == (1048576, 65536)
+
+
+def test_a_key_reaching_none_of_the_named_models_says_so(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A working key without access to them is a different fault from an unreachable one.
+
+    Reported rather than left as an empty group: a heading saying "google" with nothing
+    under it names neither the problem nor the cure.
+    """
+
+    _patch_transport(
+        monkeypatch,
+        lambda _request: _models_response(
+            {"name": "models/gemini-2.0-flash", "supportedGenerationMethods": ["generateContent"]}
+        ),
+    )
+    result = google_adapters.probe_google(_reasoning_config())
+
+    assert not result.available
+    assert result.models == []
+    assert "gemini-3.6-flash" in result.detail
+
+
+def test_a_missing_api_key_is_reported_rather_than_raised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reason this probe is a function and not a method on a constructed provider.
+
+    Building the transport resolves the key and raises, so a probe reached through one
+    could never report the single most likely reason this provider is unusable — and the
+    chooser has to render it beside the providers that are working.
+    """
+
+    monkeypatch.delenv(_KEY_VARIABLE, raising=False)
+    result = google_adapters.probe_google(_reasoning_config())
+
+    assert not result.available
+    assert result.models == []
+    assert _KEY_VARIABLE in result.detail
+
+
+def test_a_rejected_key_carries_the_server_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`models.list` authenticates, so this is where a bad key surfaces rather than mid-review."""
+
+    def rejected(_request: httpx.Request) -> httpx.Response:
+        return _raw_response(
+            {"error": {"code": 400, "message": "API key not valid.", "status": "INVALID_ARGUMENT"}},
+            status_code=400,
+        )
+
+    _patch_transport(monkeypatch, rejected)
+    result = google_adapters.probe_google(_reasoning_config())
+
+    assert not result.available
+    assert result.detail == "HTTP 400: API key not valid."
+
+
+def test_the_probe_asks_for_base_models_in_one_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`query_base` false lists tuned models, and a Pager fetches more pages as it walks.
+
+    Both would be silent: the first empties the chooser, the second turns a two-second
+    question into as many round trips as the account has models.
+    """
+
+    asked: list[str] = []
+
+    def listing(request: httpx.Request) -> httpx.Response:
+        asked.append(str(request.url))
+        return _models_response()
+
+    _patch_transport(monkeypatch, listing)
+    google_adapters.probe_google(_reasoning_config())
+
+    assert len(asked) == 1
+    assert "pageSize=200" in asked[0]

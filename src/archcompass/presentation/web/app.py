@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator, Sequence
+from datetime import datetime
 from pathlib import Path
 from queue import Queue
 from threading import Thread
@@ -42,6 +43,7 @@ from archcompass.domain.errors import (
     ConversationRevisionConflictError,
     ConversationValidationError,
     ModelOutputValidationError,
+    NoReasoningModelSelectedError,
     PathValidationError,
     PersistenceError,
     PolicyConflictError,
@@ -387,19 +389,71 @@ class ModelIdentity(APIModel):
 
 
 class WorkspaceModels(APIModel):
-    """The one model a review needs.
+    """The one model a review needs, and what is currently known about it.
 
     An embedding identity was reported here too, for a policy index that no longer exists:
     every policy is presented whole to the judging stage, so nothing is embedded and there
     is nothing for a reader to check about a model that decided nothing (ADR 0013).
     """
 
-    reasoning: ModelIdentity
+    #: Absent where this workspace has not chosen a model and nothing configured one for it.
+    #: A state to display rather than an error to raise: everything a review does not need a
+    #: model for still works, and the interface asks for one where it is actually required.
+    reasoning: ModelIdentity | None = None
+    #: What the last run against this model said when it failed. Empty when the last run
+    #: succeeded, when none has run, or once a probe has since found the provider healthy.
+    #: The half of a model's health no probe can see: a spent quota lists perfectly well.
+    failure: str = ""
+    #: The model is in force because a file says so rather than because anyone chose it —
+    #: a workspace holding exactly one configuration and no stored selection.
+    from_configuration: bool = False
+    #: This run was pointed at a configuration explicitly, so the model is not the
+    #: workspace's to change while it lasts. The chooser says so instead of offering a
+    #: choice that would be ignored.
+    pinned: bool = False
+    #: The stored choice names a configuration this workspace no longer holds.
+    unresolvable: bool = False
 
 
 class WorkspaceSummaryResponse(APIModel):
     workspace: str
     models: WorkspaceModels
+
+
+class AvailableModelResponse(APIModel):
+    """One model a provider currently offers, through one configuration."""
+
+    profile_id: str
+    provider: str
+    model: str
+    label: str = ""
+    input_token_limit: int | None = None
+    output_token_limit: int | None = None
+    #: The model this configuration's own file names, and so the one its timeouts and
+    #: thinking setting were written for.
+    is_configured_default: bool = False
+    is_selected: bool = False
+
+
+class ProviderAvailabilityResponse(APIModel):
+    """Whether one configured provider answered, and what it said if it did not."""
+
+    profile_id: str
+    provider: str
+    available: bool
+    #: Why not, naming the cure where there is one. Empty when available.
+    detail: str = ""
+    probed_at: datetime
+
+
+class ModelCatalogResponse(APIModel):
+    providers: list[ProviderAvailabilityResponse]
+    candidates: list[AvailableModelResponse]
+
+
+class ModelSelectionRequest(APIModel):
+    profile_id: str = Field(min_length=1)
+    model: str = Field(min_length=1)
 
 
 class PolicySourceRemovalResponse(APIModel):
@@ -465,17 +519,93 @@ def create_app(runtime: Runtime) -> FastAPI:
             ).model_dump(mode="json"),
     )
 
-    @app.get("/api/workspace")
-    def workspace_summary() -> WorkspaceSummaryResponse:
+    def _summary() -> WorkspaceSummaryResponse:
+        """What this workspace is pointed at, without asking any provider anything.
+
+        Read on every page load, which is why it costs one row and no network. Whether a
+        model is reachable is a different question with a different price, and it is asked
+        by the chooser at the moment someone is waiting to choose.
+        """
+
+        status = runtime.model_catalog_service.status()
+        selection = status.selection
         return WorkspaceSummaryResponse(
             workspace=str(runtime.workspace),
             models=WorkspaceModels(
-                reasoning=ModelIdentity(
-                    provider=runtime.config.models.reasoning.provider,
-                    model=runtime.config.models.reasoning.model,
+                reasoning=(
+                    ModelIdentity(provider=status.provider, model=status.model)
+                    if status.provider and status.model
+                    else None
                 ),
+                failure=selection.failure_detail if selection else "",
+                from_configuration=status.from_configuration,
+                pinned=status.pinned,
+                unresolvable=status.unresolvable,
             ),
         )
+
+    @app.get("/api/workspace")
+    def workspace_summary() -> WorkspaceSummaryResponse:
+        return _summary()
+
+    @app.get("/api/models")
+    def model_catalog() -> ModelCatalogResponse:
+        """Every configured provider, whether it answered, and what it offered.
+
+        A GET that performs work: each configuration is asked, over the network, with its own
+        short budget. It also writes, in one narrow sense — a provider that answers clears a
+        failure recorded against the current selection. Idempotent, and the alternative was
+        making the chooser's first paint a mutation.
+        """
+
+        catalog = runtime.model_catalog_service.catalog()
+        return ModelCatalogResponse(
+            providers=[
+                ProviderAvailabilityResponse(
+                    profile_id=provider.profile_id,
+                    provider=provider.provider,
+                    available=provider.available,
+                    detail=provider.detail,
+                    probed_at=provider.probed_at,
+                )
+                for provider in catalog.providers
+            ],
+            candidates=[
+                AvailableModelResponse(
+                    profile_id=candidate.profile_id,
+                    provider=candidate.provider,
+                    model=candidate.model,
+                    label=candidate.label,
+                    input_token_limit=candidate.input_token_limit,
+                    output_token_limit=candidate.output_token_limit,
+                    is_configured_default=candidate.is_configured_default,
+                    is_selected=candidate.is_selected,
+                )
+                for candidate in catalog.candidates
+            ],
+        )
+
+    @app.put("/api/models/selection", responses=_problem_responses(409))
+    def select_model(request: ModelSelectionRequest) -> WorkspaceSummaryResponse:
+        """Choose the model this workspace reasons with, until it chooses another.
+
+        Returns the whole summary rather than the selection, so the page that asked can
+        replace what its chip is reading instead of fetching it again.
+        """
+
+        runtime.model_catalog_service.select(request.profile_id, request.model)
+        return _summary()
+
+    @app.delete("/api/models/selection", status_code=204)
+    def clear_model_selection() -> Response:
+        """Forget the choice, falling back to whatever this workspace configures.
+
+        The way back out of a choice that turned out to be wrong — on a hosted workspace
+        there is no file to edit instead.
+        """
+
+        runtime.model_catalog_service.clear()
+        return Response(status_code=204)
 
     @app.get("/api/cases")
     def list_cases(
@@ -1307,6 +1437,10 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
         ),
     ):
         return 422, "validation_error", False
+    if isinstance(error, NoReasoningModelSelectedError):
+        # 409 rather than 503: nothing is unavailable, and nothing about the request is
+        # malformed — the workspace simply has not chosen yet.
+        return 409, "no_model_selected", False
     if isinstance(error, ProviderError):
         return 503, "provider_unavailable", True
     if isinstance(error, PersistenceError):

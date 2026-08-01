@@ -96,6 +96,40 @@ def test_a_reasoning_request_carries_the_narrowed_schema(
     )
 
 
+@pytest.mark.parametrize(
+    ("configured", "sent"),
+    [(True, True), (False, False), (None, None)],
+)
+def test_the_configured_thinking_setting_reaches_the_request(
+    monkeypatch: pytest.MonkeyPatch,
+    configured: bool | None,
+    sent: bool | None,
+) -> None:
+    """`thinking: true` has to arrive as a request that requires thinking.
+
+    On the wire rather than on the transport's argument, because that is where the same bug
+    shipped in the Google adapter and only the body showed it. Ollama needs no translation —
+    `think` is its own parameter and takes the same three values — which is exactly why this
+    is worth pinning: a transport that has nothing to do is one whose job is easy to lose.
+    """
+
+    captured: dict[str, object] = {}
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        captured.update(url=url, **kwargs)
+        return _chat_response(verdict_json(bearings=2))
+
+    _patch_transport(monkeypatch, post)
+
+    _judge(OllamaReasoningProvider(_reasoning_config(thinking=configured)))
+
+    body = captured["json"]
+    assert isinstance(body, dict)
+    # `.get`, because the client omits the field entirely rather than sending a null — and
+    # over this API an absent `think` is precisely what "leave it to the model" means.
+    assert body.get("think") is sent
+
+
 def test_structured_output_is_parsed_into_the_domain_verdict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -286,3 +320,116 @@ def test_the_transport_declares_the_streaming_capability() -> None:
     assert isinstance(
         ollama_adapters.OllamaChatTransport(_reasoning_config()), StreamingChatTransport
     )
+
+
+def test_the_probe_offers_only_the_models_this_advisor_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`/api/tags` says what is on disk and nothing about what any of it can do.
+
+    An embedding model lists exactly like a reasoning one, so the set worth judging with is
+    named rather than inferred. Ordered by preference, not by however the server listed them.
+    """
+
+    def tags(url: str, **_: object) -> httpx.Response:
+        assert url.endswith("/api/tags")
+        return _http_response(
+            {
+                "models": [
+                    {"model": "embeddinggemma:latest", "details": {"parameter_size": "300M"}},
+                    {"model": "gemma4:12b", "details": {"parameter_size": "12B"}},
+                    {
+                        "model": "gemma4:26b",
+                        "details": {"parameter_size": "26B", "family": "gemma4"},
+                    },
+                    {"model": "some-experiment:latest", "details": {"parameter_size": "8B"}},
+                ]
+            }
+        )
+
+    _patch_transport(monkeypatch, tags)
+    result = ollama_adapters.probe_ollama(_reasoning_config())
+
+    assert result.available
+    assert result.detail == ""
+    assert [(model.name, model.label) for model in result.models] == [
+        ("gemma4:26b", "26B"),
+        ("gemma4:12b", "12B"),
+    ]
+
+
+def test_a_running_server_holding_none_of_them_says_so(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Different from unreachable, and with its own cure: pull one, or widen the list."""
+
+    _patch_transport(
+        monkeypatch,
+        lambda _url, **_kwargs: _http_response(
+            {"models": [{"model": "embeddinggemma:latest", "details": {}}]}
+        ),
+    )
+    result = ollama_adapters.probe_ollama(_reasoning_config())
+
+    assert not result.available
+    assert result.models == []
+    assert "gemma4:26b" in result.detail
+
+
+def test_a_server_that_is_not_running_is_reported_rather_than_raised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unavailability is the answer to the question, not a failure to answer it.
+
+    A raised probe would take down the listing of every other provider with it, which is
+    the one thing a chooser cannot afford: the reader is there precisely because something
+    is wrong, and the row naming what is wrong is the useful one.
+    """
+
+    def refused(_url: str, **_kwargs: object) -> httpx.Response:
+        raise ConnectionError("connection refused")
+
+    _patch_transport(monkeypatch, refused)
+    result = ollama_adapters.probe_ollama(_reasoning_config())
+
+    assert not result.available
+    assert result.models == []
+    assert result.detail == "nothing is listening at http://ollama.test/"
+
+
+def test_the_probe_does_not_wait_out_the_configured_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """360s is right for a judgement and absurd for a dropdown.
+
+    This is what the module-level shape buys: a probe reached through the transport would
+    inherit the transport's client and could not lower its own budget.
+    """
+
+    seen: list[object] = []
+
+    def request(client: httpx.Client, _method: str, _url: str, **_: object) -> httpx.Response:
+        # The Ollama client fixes its budget on the HTTP client rather than per request,
+        # so that is where the probe's own number has to show up.
+        seen.append(client.timeout.connect)
+        return _http_response({"models": []})
+
+    monkeypatch.setattr(httpx.Client, "request", request)
+    ollama_adapters.probe_ollama(_reasoning_config(timeout_seconds=360))
+
+    assert seen == [ollama_adapters.PROBE_TIMEOUT_SECONDS]
+
+
+def test_a_profile_without_a_base_url_says_so_instead_of_probing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The transport raises for this; the probe reports it, because the picker must render it."""
+
+    def never(_url: str, **_kwargs: object) -> httpx.Response:
+        raise AssertionError("a profile with no base_url has nothing to ask")
+
+    _patch_transport(monkeypatch, never)
+    result = ollama_adapters.probe_ollama(_reasoning_config(base_url=None))
+
+    assert not result.available
+    assert "base_url" in result.detail

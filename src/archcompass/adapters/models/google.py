@@ -33,8 +33,46 @@ from archcompass.configuration import (
     ReasoningModelConfig,
     resolve_api_key,
 )
-from archcompass.domain.errors import ProviderError
+from archcompass.domain.errors import ConfigurationError, ProviderError
+from archcompass.domain.model_catalog import AvailableModel, ProbeResult
 from archcompass.ports.reasoning import ReasoningTask
+
+# ─────────────────────────────────────────────────────────────────────────────────────────
+# The Gemini models this advisor offers, most preferred first. Edit this list to change what
+# the model chooser puts in front of a reader; nothing else in this file needs touching.
+#
+# Named rather than filtered, because no property of a listing separates the models worth
+# judging with from the rest. One key reaches forty-two: text-to-speech, image generation,
+# music, an embedding model, half a dozen preview variants and several superseded
+# generations of flash. All but one report `generateContent`, so a capability filter — which
+# is what stood here — let almost every one of them through. Offering forty choices where
+# one is defensible is not a chooser, it is a quiz.
+#
+# The cost is that a new Gemini release needs a line here. That is the intended cost: which
+# model a review runs against decides what it costs, how long it takes and how good the
+# judgement is, so it is a decision to make deliberately rather than to inherit from
+# whatever the vendor shipped this week.
+#
+# Three things deliberately absent:
+#
+# * The `-latest` aliases. They would never need editing, which is exactly the problem: a
+#   review records `reasoning_model` as provenance, and an alias makes two reviews claim the
+#   same model while having run different ones. A judgement someone has to trust cannot have
+#   a moving name on it.
+# * The 3.x previews, newer than `gemini-2.5-pro` though they are. Previews get withdrawn,
+#   and a withdrawn name here is a permanently unavailable row until somebody notices.
+# * The whole 2.0 line, which reports no thinking support and caps output at 8192 while
+#   `config/models.google.yaml` asks for thinking.
+# ─────────────────────────────────────────────────────────────────────────────────────────
+OFFERED_MODELS: Final = (
+    #: The default: newest flash, 1M in / 65k out, thinking.
+    "gemini-3.6-flash",
+    #: The only pro that is not a preview — there is no 3.6 pro — for a harder judgement.
+    "gemini-2.5-pro",
+    #: Somewhere to go when the free-tier quota is spent, which this adapter's whole 429
+    #: backoff exists for and which the chip now reports against the selection.
+    "gemini-3.5-flash-lite",
+)
 
 PROVIDER_NAME: Final = "google"
 
@@ -209,6 +247,85 @@ def _describe(error: errors.APIError) -> str:
     return f"HTTP {error.code}{suffix}"
 
 
+#: See the Ollama adapter's constant of the same name: a probe answers a dropdown, and the
+#: configured timeout answers a judgement.
+PROBE_TIMEOUT_SECONDS: Final = 2.0
+#: One page, one request. `models.list` returns a `Pager` that fetches further pages as it
+#: is iterated, and a probe that walks a paginated list is not a two-second probe. AI Studio
+#: offers well under this many base models, so the first page is all of them.
+_PROBE_PAGE_SIZE: Final = 200
+#: What a failed listing may raise once the SDK has done its own mapping. `errors.APIError`
+#: is handled separately, because it is the one that carries a message worth repeating.
+_PROBE_FAILURES: Final = (httpx.HTTPError, ConnectionError, KeyError, TypeError, ValueError)
+
+
+def _offered(model: types.Model) -> AvailableModel | None:
+    """One listed model, where it is one this advisor offers."""
+
+    name = (model.name or "").removeprefix("models/")
+    if name not in OFFERED_MODELS:
+        return None
+    return AvailableModel(
+        name=name,
+        label=model.display_name or "",
+        input_token_limit=model.input_token_limit,
+        output_token_limit=model.output_token_limit,
+    )
+
+
+def probe_google(config: ReasoningModelConfig) -> ProbeResult:
+    """Whether the key works and which models it reaches, in one request.
+
+    `models.list` is the whole check: it authenticates and enumerates in the same breath, so
+    a missing or rejected key — the single most likely reason this provider is unusable — is
+    reported here as a value instead of raising at the first boundary of a review.
+
+    What it cannot report is how much free-tier quota is left: a key with a spent daily quota
+    probes as available and fails on the next request, which is why a failure is recorded
+    against the selection rather than inferred from a probe.
+    """
+
+    try:
+        api_key = resolve_api_key(config.api_key_env, provider=PROVIDER_NAME)
+    except ConfigurationError as error:
+        return ProbeResult(available=False, detail=str(error))
+    # Held in a name for the length of the call, deliberately. Written as one chained
+    # expression, the client is unreferenced the moment `.models` is read, and CPython
+    # finalizes it — closing the HTTP connection — before `list` gets to use it. The request
+    # then fails with "Cannot send a request, as the client has been closed", which says
+    # nothing about a probe and appears only against a real server.
+    client = _client(api_key, config.base_url, PROBE_TIMEOUT_SECONDS)
+    try:
+        page = client.models.list(
+            # `query_base` already defaults to true, and is passed anyway: false lists
+            # tuned models instead, so a change of default would silently empty this.
+            config=types.ListModelsConfig(query_base=True, page_size=_PROBE_PAGE_SIZE)
+        ).page
+    except errors.APIError as error:
+        return ProbeResult(available=False, detail=_describe(error))
+    except _PROBE_FAILURES as error:
+        return ProbeResult(available=False, detail=str(error))
+    found = {model.name: model for model in (_offered(item) for item in page) if model}
+    if not found:
+        # The key works and the request succeeded — this provider simply reaches none of the
+        # models this advisor offers, which is a different fault from being unreachable and
+        # has a different cure. Reported as unavailable because that is what it is here: an
+        # empty group under a heading saying "google" explains nothing at all.
+        return ProbeResult(
+            available=False,
+            detail=(
+                f"this key reaches {len(page)} models, none of them "
+                f"{' or '.join(OFFERED_MODELS)}"
+            ),
+        )
+    # Ordered by preference rather than by whatever order the listing arrived in, so the
+    # model at the top of the chooser is the one this advisor would pick for itself.
+    return ProbeResult(
+        available=True,
+        models=[found[name] for name in OFFERED_MODELS if name in found],
+    )
+
+
 class GoogleChatTransport:
     """Encodes one already-assembled request for the Gemini `generateContent` API."""
 
@@ -300,12 +417,29 @@ def _thinking_config(think: ThinkLevel) -> types.ThinkingConfig | None:
 
     `MINIMAL` rather than off is deliberate and is as far down as the 3-series goes:
     the stages that pass `think=False` want a short structured decision, and Gemini
-    spends thinking tokens from the same allowance as the answer. `None` and `True`
-    leave the model's own default in place.
+    spends thinking tokens from the same allowance as the answer.
+
+    `True` names a level rather than leaving the field out, and the difference is not
+    academic. Sending nothing leaves the model's own default in place, and that default
+    is not a property of the API — it is a property of the model. Measured against this
+    key on one fixed prompt, `gemini-3.6-flash` spends 831 thinking tokens with the field
+    absent and `gemini-3.5-flash-lite` spends none at all: the same configuration saying
+    "reasoning is required" turned reasoning off on the smaller model. It showed up as a
+    review that asked no questions — every verdict came back declaring it stood either
+    way, which is the answer the judging prompt names as the ordinary one and the answer a
+    model that is not thinking will take — and the run went straight to its summary.
+
+    `MEDIUM` because it is what the absent field already meant on the model this
+    configuration was written for: 861 thinking tokens against 831 on the same prompt. So
+    the model that was reasoning goes on reasoning as it did, and the model that was not
+    starts. A stage that wants less than the configuration asks for still names its own
+    level and keeps it.
     """
 
     if think is False:
         return types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)
+    if think is True:
+        return types.ThinkingConfig(thinking_level=types.ThinkingLevel.MEDIUM)
     if isinstance(think, str):
         return types.ThinkingConfig(thinking_level=_THINKING_LEVELS[think])
     return None

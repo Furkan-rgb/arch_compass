@@ -556,6 +556,16 @@ small { font-size: var(--s-meta); }
   html { min-width: 320px; min-height: 100%; background: var(--canvas); }
   html { scroll-behavior: smooth; }
 
+  /* The gutter is always there, whether or not anything is scrolling in it.
+     Opening a dialog locks the body — Radix sets `overflow: hidden` so the page
+     underneath cannot be scrolled by a wheel meant for the sheet — and that takes
+     the scrollbar away with it. The page is centred, so the width it was centred
+     in changing by a scrollbar's worth slid everything sideways at the exact
+     moment the reader's attention moved to the sheet. Reserving the gutter costs
+     that strip on a page too short to scroll, and buys a page that never moves:
+     not on open, not on close, and not between a short route and a long one. */
+  html { scrollbar-gutter: stable; }
+
   body {
     margin: 0;
     min-width: 320px;
@@ -595,6 +605,25 @@ small { font-size: var(--s-meta); }
   [role="button"]:focus-visible {
     border-radius: var(--r-control);
   }
+}
+
+/* The other half of the gutter above, and without it that rule made the shift it
+   was written to prevent.
+
+   Radix locks the page through `react-remove-scroll`, which does not only set
+   `overflow: hidden` on the body: it measures the scrollbar first and adds that
+   width back as `margin-right`, so a page that loses its scrollbar does not
+   widen. That compensation assumes the scrollbar goes away. Under
+   `scrollbar-gutter: stable` it does not — the gutter stays reserved through the
+   lock — so the margin is width the page never gained, and the centred column
+   inside it slid half a scrollbar to the left on open and back on close.
+
+   Unlayered and one step more specific than the rule it answers, because that
+   rule is `!important` and is injected into the head at runtime: a layer would
+   put this in a different cascade round entirely, and equal specificity would
+   lose to whichever style element was appended last. */
+html body[data-scroll-locked] {
+  margin-right: 0 !important;
 }
 
 /* ── The chrome ───────────────────────────────────────────────────────────────

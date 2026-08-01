@@ -725,6 +725,52 @@ def test_a_review_being_produced_has_one_page_that_says_so(
             browser.close()
 
 
+def test_opening_a_dialog_does_not_slide_the_page_sideways(workspace_url: str) -> None:
+    """The page underneath a dialog holds still, to the pixel.
+
+    Which two mechanisms collide here, and why one has to be switched off, is written beside
+    the `body[data-scroll-locked]` rule in `styles.css`.
+
+    Only a browser can see this. There is no layout in jsdom, so the unit suite renders the
+    same dialog with the same rules and measures nothing at all.
+
+    `--hide-scrollbars` is Playwright's own default for headless, and it is precisely the
+    condition under which the bug cannot happen: with no scrollbar to measure the
+    compensation is zero and the page holds still for the wrong reason.
+    """
+
+    playwright = pytest.importorskip("playwright.sync_api")
+
+    with playwright.sync_playwright() as driver:
+        browser = driver.chromium.launch(ignore_default_args=["--hide-scrollbars"])
+        page = browser.new_page(viewport={"width": 1440, "height": 800})
+        try:
+            page.goto(f"{workspace_url}/reviews", wait_until="networkidle")
+            gutter = page.evaluate(
+                "window.innerWidth - document.documentElement.clientWidth"
+            )
+            assert gutter > 0, "no scrollbar gutter is reserved, so this proves nothing"
+
+            column = page.locator("header[data-slot='app-bar'] > div")
+            before = column.bounding_box()
+            assert before is not None
+
+            page.get_by_role("button", name="Search and jump to").click()
+            page.wait_for_selector("[data-slot='dialog-content']", timeout=10_000)
+            during = column.bounding_box()
+            assert during is not None
+            assert during["x"] == before["x"], "the page slid sideways under the dialog"
+            assert during["width"] == before["width"]
+
+            page.keyboard.press("Escape")
+            page.wait_for_selector("[data-slot='dialog-content']", state="detached")
+            after = column.bounding_box()
+            assert after is not None
+            assert after["x"] == before["x"]
+        finally:
+            browser.close()
+
+
 def test_a_person_can_delete_a_review_they_no_longer_want(workspace_url: str) -> None:
     """Deleting is not editing: the record goes, rather than being made to say something else.
 

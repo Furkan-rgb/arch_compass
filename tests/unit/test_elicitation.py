@@ -170,18 +170,29 @@ def test_standing_either_way_is_recorded_as_no_hinge() -> None:
     assert verdict.hinge is None
 
 
-def test_a_hinge_claiming_to_exist_without_saying_what_it_is_is_dropped() -> None:
-    """The schema cannot prevent it, so the reply is read rather than refused.
+def test_the_working_behind_the_declaration_is_required_by_the_grammar() -> None:
+    """The fix, stated in the grammar rather than in the request, which already said it.
 
-    The three prose fields must stay optional for a verdict that stands either way, so
-    nothing in the grammar stops a reply setting the word and leaving them blank. A live
-    `gemma4:26b` run did exactly that. Recording it would tell a reader their verdict rests
-    on something and never say what.
+    What optional fields cost is written on `ProposedVerdictHinge`.
     """
 
-    provider, _ = _provider(
-        _verdict_reply({"dependence": "turns_on_this_unknown", "unknown": "   "})
-    )
+    schema = ProposedCandidateVerdict.model_json_schema()
+    hinge = schema["$defs"]["ProposedVerdictHinge"]
+
+    assert set(hinge["required"]) == {"unknown", "if_confirmed", "if_denied", "dependence"}
+    for field in ("unknown", "if_confirmed", "if_denied"):
+        assert hinge["properties"][field]["minLength"] == 1
+
+
+def test_a_hinge_claiming_to_exist_without_saying_what_it_is_is_dropped() -> None:
+    """What the grammar cannot require is that the writing says anything.
+
+    `minLength` counts characters and a space is a character, so this is still reachable and
+    still read rather than refused. Recording it would tell a reader their verdict rests on
+    something and never say what.
+    """
+
+    provider, _ = _provider(_verdict_reply({**TURNS_ON, "unknown": "   "}))
 
     verdict = provider.judge_finding_candidate(_case(), _candidate(), POLICIES)
 
@@ -194,15 +205,21 @@ def test_a_hinge_claiming_to_exist_without_saying_what_it_is_is_dropped() -> Non
 def test_a_partial_hinge_is_dropped_rather_than_half_recorded() -> None:
     """A hinge without both branches cannot say which way the verdict moves."""
 
+    provider, _ = _provider(_verdict_reply({**TURNS_ON, "if_denied": " "}))
+
+    assert provider.judge_finding_candidate(_case(), _candidate(), POLICIES).hinge is None
+
+
+def test_one_answer_written_under_both_branches_is_dropped() -> None:
+    """The door the required fields open, and the one code can shut.
+
+    Three fields that must be filled can be filled with the same sentence twice, which is a
+    verdict that does not move however the word beside it reads.
+    """
+
+    same = "The boundary stays either way."
     provider, _ = _provider(
-        _verdict_reply(
-            {
-                "dependence": "turns_on_this_unknown",
-                "unknown": "The case does not say whether a second vendor is contracted.",
-                "if_confirmed": "The boundary should stay.",
-                "if_denied": "",
-            }
-        )
+        _verdict_reply({**TURNS_ON, "if_confirmed": same, "if_denied": f"  {same} "})
     )
 
     assert provider.judge_finding_candidate(_case(), _candidate(), POLICIES).hinge is None
@@ -214,13 +231,11 @@ def test_a_blank_hinge_costs_no_repair_round_and_no_review() -> None:
     A blank hinge binds nothing — it is the one part of this reply where no position
     attributes anything — so a bad one shifts no other answer onto the wrong thing. Failing
     would discard a whole review's worth of correct verdicts, each already paid for, over
-    an optional field. Arity is the opposite case and still fails loudly, which the test
-    below this one holds.
+    prose answered with a space. Arity is the opposite case and still fails loudly, which
+    the test below this one holds.
     """
 
-    provider, transport = _provider(
-        _verdict_reply({"dependence": "turns_on_this_unknown", "unknown": ""})
-    )
+    provider, transport = _provider(_verdict_reply({**TURNS_ON, "unknown": " "}))
 
     provider.judge_finding_candidate(_case(), _candidate(), POLICIES)
 
@@ -239,7 +254,7 @@ def test_a_short_list_of_bearings_still_fails_loudly() -> None:
         {
             "rationale": "Argued from the case.",
             "policy_bearings": [],
-            "hinge": {"dependence": "stands_either_way"},
+            "hinge": {**TURNS_ON, "dependence": "stands_either_way"},
             "verdict": "leave_as_is",
             "recommended_response": "",
         }

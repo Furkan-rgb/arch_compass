@@ -147,6 +147,17 @@ def policies(count: int = 2) -> list[PolicyDocument]:
     return [policy(f"policy-{index}", f"Policy {index}") for index in range(1, count + 1)]
 
 
+#: The ordinary hinge: every field answered, and the verdict the same under both answers.
+#: Filled rather than blank because the schema requires it — the three prose fields are the
+#: working behind the declaration, and a reply may no longer skip to the conclusion.
+SETTLED_HINGE = {
+    "unknown": "Whether a second provider is actually contracted.",
+    "if_confirmed": "The boundary absorbs the change and should stay.",
+    "if_denied": "The constraint the case states keeps the boundary anyway.",
+    "dependence": "stands_either_way",
+}
+
+
 def verdict_json(
     *,
     bearings: int = 2,
@@ -159,7 +170,7 @@ def verdict_json(
         {
             "rationale": rationale,
             "policy_bearings": [{"bears_on": False, "how": ""} for _ in range(bearings)],
-            "hinge": {"dependence": "stands_either_way"},
+            "hinge": SETTLED_HINGE,
             "verdict": "should_change" if material else "leave_as_is",
             "recommended_response": "Name the implementation directly." if material else "",
         }
