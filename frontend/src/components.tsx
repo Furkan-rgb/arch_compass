@@ -84,8 +84,14 @@ export const page = "mx-auto w-[min(1400px,100%)] px-[var(--gutter)] pt-[26px] p
  * opens in, which is the other thing shadcn calls a sheet. This is the flat panel a region of
  * a page sits on, and it has been called the sheet here since before the drawer existed.
  */
-export const sheet =
-  "mb-[var(--gap-lg)] rounded-panel [border:var(--sheet-border)] bg-surface shadow-card";
+export const sheet = cn(
+  "mb-[var(--gap-lg)] rounded-panel [border:var(--sheet-border)] bg-surface shadow-card",
+  // Cards to canvas on a phone: the sheet bleeds through the page gutter, drops its
+  // corners, shadow and side walls, and keeps only its top and bottom rules to mark
+  // where a region begins and ends. The matching interior insets live in the tokens
+  // (`--card-pad`, styles.css) so text inside and outside a sheet shares one left edge.
+  "max-sm:mx-[calc(var(--gutter)*-1)] max-sm:rounded-none max-sm:border-x-0 max-sm:shadow-none",
+);
 
 /**
  * A labelled division inside a region: what this part of it is, then the part itself.

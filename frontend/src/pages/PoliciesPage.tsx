@@ -435,7 +435,7 @@ export function PoliciesPage() {
             {addSource.isPending ? "Adding…" : "Add source"}
           </Button>
         </div>
-        <ul className="m-0 grid list-none px-[22px] pb-5">
+        <ul className="m-0 grid list-none px-[var(--card-pad-x)] pb-5">
           {sources.data?.map((item) => (
             <li key={item.canonical_path} className={sourceRow}>
               <code className="overflow-hidden text-meta text-ellipsis whitespace-nowrap text-ink-2">

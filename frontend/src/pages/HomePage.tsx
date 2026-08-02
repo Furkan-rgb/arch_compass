@@ -236,7 +236,7 @@ function Material({
   children: ReactNode;
 }) {
   return (
-    <div className="grid content-start gap-2 rounded-panel border border-rule-soft bg-surface px-[22px] py-5 shadow-card">
+    <div className="grid content-start gap-2 rounded-panel border border-rule-soft bg-surface px-[var(--card-pad-x)] py-5 shadow-card">
       <h3 className="m-0 flex items-center gap-[9px] text-read">
         <Icon size={15} aria-hidden className="flex-none text-primary" />
         {name}
@@ -628,7 +628,7 @@ export function HomePage() {
             <path pathLength={100} className="course-converge__pulse course-converge__pulse--stub" d="M 500 40 L 500 56" />
           </svg>
           <span aria-hidden className="course-stem h-[34px] w-px bg-rule" />
-          <div className="flex w-full flex-wrap items-center gap-x-[18px] gap-y-3 rounded-panel border border-rule-soft bg-surface px-[22px] py-4 shadow-card">
+          <div className="flex w-full flex-wrap items-center gap-x-[18px] gap-y-3 rounded-panel border border-rule-soft bg-surface px-[var(--card-pad-x)] py-4 shadow-card">
             <p className="m-0 flex-[1_1_32ch] text-ui text-ink-2 [&_strong]:font-[650] [&_strong]:text-ink">
               Judging every boundary in <strong>your-repository</strong> against{" "}
               <strong>your case</strong>. This opens the review and follows it there.

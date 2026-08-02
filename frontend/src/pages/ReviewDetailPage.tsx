@@ -211,8 +211,11 @@ function WhatChanged({
 }) {
   return (
     // Ruled down its accent side: what the reader's own answers did is a result about this
-    // page, not one more panel on it.
-    <section className={cn(sheet, "border-l-[3px] border-l-primary p-[var(--card-pad)]")}>
+    // page, not one more panel on it. The `!` on the phone width: `sheet` strips its side
+    // walls there, and this card's left edge is not a wall — it is the accent saying
+    // "conclusion". Both rules live in the same breakpoint, so importance settles what
+    // source order cannot promise.
+    <section className={cn(sheet, "border-l-[3px] border-l-primary p-[var(--card-pad)] max-sm:border-l-[3px]!")}>
       <p className="m-0 flex items-start gap-2 text-body leading-reading">
         <ArrowRight size={15} aria-hidden className="mt-1 flex-none text-accent-ink" />
         <span>

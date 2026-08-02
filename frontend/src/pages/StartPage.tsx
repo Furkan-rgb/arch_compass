@@ -158,12 +158,12 @@ const examplePill = cn(
   "not-disabled:hover:border-accent-rule not-disabled:hover:bg-accent-soft",
   "disabled:cursor-not-allowed disabled:opacity-55",
 );
-const startColumn = "grid min-w-0 content-start gap-2.5 px-[22px] pt-4 pb-5";
+const startColumn = "grid min-w-0 content-start gap-2.5 px-[var(--card-pad-x)] pt-4 pb-5";
 const startHead = "flex items-baseline gap-2";
 const hint = "m-0 text-meta leading-[1.5] text-ink-2";
 const note = "m-0 text-meta leading-[1.5] text-ink-3";
 /* A read that failed is reported once, above both columns, inside the sheet's own gutter. */
-const readError = "px-[22px] [&_[data-slot=error-strip]]:mt-3 [&_[data-slot=error-strip]]:mb-0";
+const readError = "px-[var(--card-pad-x)] [&_[data-slot=error-strip]]:mt-3 [&_[data-slot=error-strip]]:mb-0";
 
 /**
  * Walking the machine's folders to find the one to index. State lives here, not on the page,
@@ -576,7 +576,7 @@ export function StartPage() {
             already parsed and a case already written, so the first run is a real one. */}
         <div
           data-slot="examples"
-          className="flex flex-wrap items-center gap-2.5 border-b border-rule-soft px-[22px] py-4"
+          className="flex flex-wrap items-center gap-2.5 border-b border-rule-soft px-[var(--card-pad-x)] py-4"
         >
           <span className="text-micro font-[650] tracking-[.08em] uppercase text-ink-3">
             Examples fill both rails
@@ -795,7 +795,7 @@ export function StartPage() {
             that commits anything, beside the sentence saying exactly what it will do. */}
         <div
           data-slot="commit"
-          className="flex flex-wrap items-center gap-x-4 gap-y-2.5 rounded-b-panel border-t border-rule bg-sunken px-[22px] py-4"
+          className="flex flex-wrap items-center gap-x-4 gap-y-2.5 rounded-b-panel border-t border-rule bg-sunken px-[var(--card-pad-x)] py-4"
         >
           <p className="m-0 flex-[1_1_32ch] text-meta leading-[1.5] text-ink-2 [&_strong]:font-[650] [&_strong]:text-ink">
             {!selection.repositoryRoot ? (

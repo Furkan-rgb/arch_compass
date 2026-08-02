@@ -107,6 +107,7 @@ small { font-size: var(--s-meta); }
      scanned. Panes and cards are named so a page loosens by moving a token. */
   --pane-pad: 26px 28px 30px;
   --card-pad: 20px 22px;
+  --card-pad-x: 22px;
   --gap-lg: 18px;
 
   /* The page gutter, and the amount the chrome rows bleed back out through it. */
@@ -284,6 +285,21 @@ small { font-size: var(--s-meta); }
   background: var(--canvas);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+/* On a phone the cards give their walls back. A card's border earns its keep separating
+   things that sit side by side; stacked single-file on a small screen, the rhythm between
+   sections does that work, and the card's two side walls plus its own interior padding
+   were spending a seventh of the width saying nothing. The insets collapse to the page's
+   one gutter, so every line of text — inside a sheet or not — shares the same left edge.
+   The sheets themselves bleed through the gutter in `sheet` (components.tsx), which reads
+   these tokens; nothing changes at widths where the cards genuinely carry the layout. */
+@media (max-width: 639px) {
+  :root {
+    --card-pad: 18px var(--gutter);
+    --card-pad-x: var(--gutter);
+    --row-pad-x: var(--gutter);
+  }
 }
 
 /* Onyx: the night material. Nothing above the "Porcelain" heading is restated here — if a

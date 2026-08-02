@@ -659,7 +659,7 @@ export function AboutPage() {
           {HONESTY.map(({ name, says }) => (
             <div
               key={name}
-              className="grid content-start gap-1.5 rounded-panel border border-rule-soft bg-surface px-[22px] py-5 shadow-card"
+              className="grid content-start gap-1.5 rounded-panel border border-rule-soft bg-surface px-[var(--card-pad-x)] py-5 shadow-card"
             >
               <dt className="m-0 text-ui font-[650]">{name}</dt>
               <dd className="m-0 text-ui leading-[1.6] text-ink-2">{says}</dd>
