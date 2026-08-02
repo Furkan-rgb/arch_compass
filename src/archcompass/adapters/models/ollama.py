@@ -42,19 +42,21 @@ PROVIDER_NAME: Final = "ollama"
 # on disk is not offering a choice, it is showing an inventory — but a name missing from
 # this list is the first thing to check when a pulled model does not appear.
 #
-# Each model carries the thinking modes it genuinely has. `/api/tags` reports no capability
-# at all, so this is the only place the difference can be stated — and it is not cosmetic:
-# Ollama rejects `think` outright for a model without the capability, so a gemma4 offered as
-# "not thinking" would fail at the first boundary of a review rather than quietly ignore the
-# request. `(None,)` means the parameter is never sent.
+# Which models are offered stays an authored decision; whether each of them can think is the
+# server's answer, not this file's. `/api/tags` reports no capability, but `/api/show` does —
+# a `capabilities` list carrying "thinking" — and that is what decides the modes. It is not
+# cosmetic: Ollama rejects `think` outright for a model without the capability, so a model
+# offered as "not thinking" that cannot think would fail at the first boundary of a review
+# rather than quietly ignore the request. Declaring the modes here got `gemma4:26b` wrong in
+# exactly that direction, which is why they are now asked for.
 # ─────────────────────────────────────────────────────────────────────────────────────────
-OFFERED_MODELS: Final[Mapping[str, tuple[bool | None, ...]]] = {
-    "gemma4:26b": (None,),
-    "gemma4:31b": (None,),
-    "gemma4:12b": (None,),
-    "qwen3.6:35b": (True, False),
-    "qwen3.6:27b": (True, False),
-}
+OFFERED_MODELS: Final[tuple[str, ...]] = (
+    "gemma4:26b",
+    "gemma4:31b",
+    "gemma4:12b",
+    "qwen3.6:35b",
+    "qwen3.6:27b",
+)
 
 _MAX_TRANSPORT_ATTEMPTS: Final = 3
 _BACKOFF_BASE_SECONDS: Final = 0.5
@@ -161,6 +163,29 @@ def _probe_detail(base_url: str, error: Exception) -> str:
     return str(error)
 
 
+def _thinking_modes(client: Client, model: str | None) -> tuple[bool | None, ...]:
+    """Whether this server will accept `think` for this model, asked model by model.
+
+    `/api/show` is the only endpoint that says so — `capabilities` carries "thinking" — and
+    it is one request per model found. That fits the two-second budget because these are
+    local reads of a manifest the server already holds: sub-millisecond each, against at
+    most as many models as this file names, on a host that has just answered `/api/tags`.
+    The alternative is what stood here, a declared list that was wrong about `gemma4:26b`.
+
+    A `show` that fails takes only its own model's modes with it. The model is listed, it
+    was found, and the honest thing to say about a capability nobody answered for is
+    nothing — which is what `(None,)` sends.
+    """
+
+    if model is None:  # pragma: no cover - a listing entry always names its model
+        return (None,)
+    try:
+        capabilities = client.show(model).capabilities or []
+    except _REQUEST_FAILURES:
+        return (None,)
+    return (True, False) if "thinking" in capabilities else (None,)
+
+
 def probe_ollama(defaults: ProviderDefaults) -> ProbeResult:
     """Which of the offered models this Ollama server has pulled, or why it could not be asked.
 
@@ -176,8 +201,9 @@ def probe_ollama(defaults: ProviderDefaults) -> ProbeResult:
     base_url = defaults.resolved_base_url()
     if not base_url:
         return ProbeResult(available=False, detail="this provider sets no base_url")
+    client = Client(host=base_url, timeout=PROBE_TIMEOUT_SECONDS)
     try:
-        listed = Client(host=base_url, timeout=PROBE_TIMEOUT_SECONDS).list()
+        listed = client.list()
     except _REQUEST_FAILURES as error:
         return ProbeResult(available=False, detail=_probe_detail(base_url, error))
     found = {
@@ -186,7 +212,7 @@ def probe_ollama(defaults: ProviderDefaults) -> ProbeResult:
             # Ollama offers no display name, so the size is the most useful thing it knows
             # that the tag does not already say.
             label=(entry.details.parameter_size or "") if entry.details else "",
-            thinking_modes=OFFERED_MODELS[entry.model],
+            thinking_modes=_thinking_modes(client, entry.model),
         )
         for entry in listed.models
         if entry.model in OFFERED_MODELS

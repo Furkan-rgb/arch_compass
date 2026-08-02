@@ -551,6 +551,7 @@ def test_the_probe_offers_only_the_models_this_advisor_names(
                 "inputTokenLimit": 1048576,
                 "outputTokenLimit": 65536,
                 "supportedGenerationMethods": ["generateContent", "countTokens"],
+                "thinking": True,
             },
             {
                 "name": "models/gemini-2.0-flash",
@@ -576,6 +577,34 @@ def test_the_probe_offers_only_the_models_this_advisor_names(
     offered = result.models[0]
     assert offered.label == "Gemini 3.6 Flash"
     assert (offered.input_token_limit, offered.output_token_limit) == (1048576, 65536)
+
+
+def test_the_thinking_modes_come_from_what_the_listing_says_the_model_can_do(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`models.list` reports `thinking` per model, and it was declared by hand until it was wrong.
+
+    `gemini-3.5-flash-lite` was offered as non-thinking while the listing reports it as
+    thinking. A model the provider says can think is offered both ways; one it says cannot
+    is offered as the single row that sends no thinking instruction — not as `False`, which
+    would be asking a model that does not reason to stop.
+    """
+
+    _patch_transport(
+        monkeypatch,
+        lambda _request: _models_response(
+            {"name": "models/gemini-3.6-flash", "thinking": True},
+            {"name": "models/gemini-2.5-pro", "thinking": True},
+            {"name": "models/gemini-3.5-flash-lite"},
+        ),
+    )
+    result = google_adapters.probe_google(_probe_defaults())
+
+    assert [(model.name, model.thinking_modes) for model in result.models] == [
+        ("gemini-3.6-flash", (True, False)),
+        ("gemini-2.5-pro", (True, False)),
+        ("gemini-3.5-flash-lite", (None,)),
+    ]
 
 
 def test_a_key_reaching_none_of_the_named_models_says_so(

@@ -331,6 +331,44 @@ def test_the_transport_declares_the_streaming_capability() -> None:
     )
 
 
+def _listing(*names: str) -> httpx.Response:
+    return _http_response(
+        {
+            "models": [
+                {"model": name, "details": {"parameter_size": "26B"}} for name in names
+            ]
+        }
+    )
+
+
+def _server(
+    tags: httpx.Response,
+    capabilities: dict[str, list[str]] | None = None,
+) -> Callable[..., httpx.Response]:
+    """A server answering `/api/tags` with a listing and `/api/show` per model.
+
+    The capabilities are keyed by model so one test can hold a thinking model and a
+    non-thinking one at once, which is the case the probe now has to tell apart.
+    """
+
+    answers = capabilities or {}
+
+    def handler(url: str, **kwargs: object) -> httpx.Response:
+        if url.endswith("/api/tags"):
+            return tags
+        assert url.endswith("/api/show")
+        body = kwargs["json"]
+        assert isinstance(body, dict)
+        name = body["model"]
+        assert isinstance(name, str)
+        # `model_info` is required by the client's own response model, so a fake omitting
+        # it fails validation rather than reporting no capability — which is not the case
+        # under test here.
+        return _http_response({"model_info": {}, "capabilities": answers.get(name, [])})
+
+    return handler
+
+
 def test_the_probe_offers_only_the_models_this_advisor_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -340,23 +378,20 @@ def test_the_probe_offers_only_the_models_this_advisor_names(
     named rather than inferred. Ordered by preference, not by however the server listed them.
     """
 
-    def tags(url: str, **_: object) -> httpx.Response:
-        assert url.endswith("/api/tags")
-        return _http_response(
-            {
-                "models": [
-                    {"model": "embeddinggemma:latest", "details": {"parameter_size": "300M"}},
-                    {"model": "gemma4:12b", "details": {"parameter_size": "12B"}},
-                    {
-                        "model": "gemma4:26b",
-                        "details": {"parameter_size": "26B", "family": "gemma4"},
-                    },
-                    {"model": "some-experiment:latest", "details": {"parameter_size": "8B"}},
-                ]
-            }
-        )
-
-    _patch_transport(monkeypatch, tags)
+    tags = _http_response(
+        {
+            "models": [
+                {"model": "embeddinggemma:latest", "details": {"parameter_size": "300M"}},
+                {"model": "gemma4:12b", "details": {"parameter_size": "12B"}},
+                {
+                    "model": "gemma4:26b",
+                    "details": {"parameter_size": "26B", "family": "gemma4"},
+                },
+                {"model": "some-experiment:latest", "details": {"parameter_size": "8B"}},
+            ]
+        }
+    )
+    _patch_transport(monkeypatch, _server(tags))
     result = ollama_adapters.probe_ollama(_probe_defaults())
 
     assert result.available
@@ -364,6 +399,59 @@ def test_the_probe_offers_only_the_models_this_advisor_names(
     assert [(model.name, model.label) for model in result.models] == [
         ("gemma4:26b", "26B"),
         ("gemma4:12b", "12B"),
+    ]
+
+
+def test_the_thinking_modes_come_from_what_the_server_says_the_model_can_do(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`/api/show` answers this, and it was declared by hand until it was wrong.
+
+    `gemma4:26b` was offered as never thinking while the server reports the capability. A
+    model that has it is offered both ways; one that does not is offered as the single row
+    that sends no `think` at all — `False` would be a request Ollama rejects outright.
+    """
+
+    _patch_transport(
+        monkeypatch,
+        _server(
+            _listing("gemma4:26b", "gemma4:12b"),
+            {"gemma4:26b": ["completion", "thinking"], "gemma4:12b": ["completion"]},
+        ),
+    )
+    result = ollama_adapters.probe_ollama(_probe_defaults())
+
+    assert [(model.name, model.thinking_modes) for model in result.models] == [
+        ("gemma4:26b", (True, False)),
+        ("gemma4:12b", (None,)),
+    ]
+
+
+def test_a_model_whose_capabilities_cannot_be_read_does_not_take_the_probe_down(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One failed `show` costs that model its second mode, and nothing else.
+
+    The model is pulled, it was listed, and the picker still has to be able to offer it.
+    What nobody answered for is left unasked rather than guessed at.
+    """
+
+    def handler(url: str, **kwargs: object) -> httpx.Response:
+        if url.endswith("/api/tags"):
+            return _listing("gemma4:26b", "gemma4:12b")
+        body = kwargs["json"]
+        assert isinstance(body, dict)
+        if body["model"] == "gemma4:26b":
+            raise ConnectionError("connection reset")
+        return _http_response({"model_info": {}, "capabilities": ["completion", "thinking"]})
+
+    _patch_transport(monkeypatch, handler)
+    result = ollama_adapters.probe_ollama(_probe_defaults())
+
+    assert result.available
+    assert [(model.name, model.thinking_modes) for model in result.models] == [
+        ("gemma4:26b", (None,)),
+        ("gemma4:12b", (True, False)),
     ]
 
 

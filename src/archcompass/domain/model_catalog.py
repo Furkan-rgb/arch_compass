@@ -38,12 +38,12 @@ class AvailableModel(DomainModel):
     #: why these are only ever applied downwards.
     input_token_limit: int | None = None
     output_token_limit: int | None = None
-    #: The thinking modes this model genuinely offers, from the adapter's curated list —
+    #: The thinking modes this model genuinely offers, as the provider reported them —
     #: `True` requires reasoning, `False` forbids it, `None` leaves the model to its own
-    #: default. Not discoverable: a listing says a model exists, never whether asking it to
-    #: think is a request it will accept. `gemini-3.5-flash-lite` does not think and
-    #: `gemini-2.5-pro` cannot meaningfully stop, so offering either the other mode would be
-    #: offering a choice that is refused or ignored.
+    #: default. A model that can think is offered both ways; one that cannot is offered as
+    #: the single `None` row, because forbidding reasoning is still a request and there is
+    #: nothing there to ask. Which models are offered at all is the adapter's own decision;
+    #: this is not, and was wrong in both directions while it was declared by hand.
     thinking_modes: tuple[bool | None, ...] = (None,)
 
 

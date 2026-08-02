@@ -64,24 +64,28 @@ from archcompass.ports.reasoning import ReasoningTask
 #   and a withdrawn name here is a permanently unavailable row until somebody notices.
 # * The whole 2.0 line, which reports no thinking support and caps output at 8192.
 #
-# Each model carries the thinking modes it genuinely has, and they differ per model rather
-# than per provider. Nothing in a listing says which: `models.list` reports the same shape
-# for a model that reasons by default and one that cannot reason at all, so this is the only
-# place the difference can be stated.
+# Which models are offered stays an authored decision; whether each of them can think is not.
+# `models.list` answers that itself, in a `thinking` field on every entry, and the probe pays
+# for that listing already — so a model's modes are read from the same response that found
+# it rather than declared beside its name and left to drift. Declaring them here got
+# `gemini-3.5-flash-lite` wrong: the listing reports it as thinking.
+#
+# One edge is unverified: a model reported as thinking that cannot be talked *down*. Whether
+# `gemini-2.5-pro` accepts `MINIMAL` is unmeasured — the quota was spent before the attempt
+# finished — so it is offered both ways on the provider's word. The philosophy already
+# covers it: if the provider refuses, the refusal arrives named at run time and is recorded
+# against the selection, which is where every other thing a listing cannot promise shows up.
 # ─────────────────────────────────────────────────────────────────────────────────────────
-OFFERED_MODELS: Final[Mapping[str, tuple[bool | None, ...]]] = {
+OFFERED_MODELS: Final[tuple[str, ...]] = (
     #: The default: newest flash, 1M in / 65k out. Reasons by default and answers well
-    #: without it, so it is the one model here worth offering both ways.
-    "gemini-3.6-flash": (True, False),
+    #: without it.
+    "gemini-3.6-flash",
     #: The only pro that is not a preview — there is no 3.6 pro — for a harder judgement.
-    #: Thinking only: it is a reasoning model, and `MINIMAL` on it buys a slower flash.
-    "gemini-2.5-pro": (True,),
+    "gemini-2.5-pro",
     #: Somewhere to go when the free-tier quota is spent, which this adapter's whole 429
-    #: backoff exists for and which the chip now reports against the selection. Measured on
-    #: one fixed prompt it spends no thinking tokens at all, asked or not, so offering it as
-    #: a thinking model would be offering something it does not do.
-    "gemini-3.5-flash-lite": (False,),
-}
+    #: backoff exists for and which the chip now reports against the selection.
+    "gemini-3.5-flash-lite",
+)
 
 PROVIDER_NAME: Final = "google"
 
@@ -269,7 +273,13 @@ _PROBE_FAILURES: Final = (httpx.HTTPError, ConnectionError, KeyError, TypeError,
 
 
 def _offered(model: types.Model) -> AvailableModel | None:
-    """One listed model, where it is one this advisor offers."""
+    """One listed model, where it is one this advisor offers.
+
+    `thinking` is the provider's own answer to whether reasoning can be asked for, and it
+    decides the modes: a model that can think is offered both ways, and one that cannot is
+    offered as the single row that sends no thinking instruction at all — not as `False`,
+    because forbidding reasoning is a request, and there is nothing here to ask.
+    """
 
     name = (model.name or "").removeprefix("models/")
     if name not in OFFERED_MODELS:
@@ -279,7 +289,7 @@ def _offered(model: types.Model) -> AvailableModel | None:
         label=model.display_name or "",
         input_token_limit=model.input_token_limit,
         output_token_limit=model.output_token_limit,
-        thinking_modes=OFFERED_MODELS[name],
+        thinking_modes=(True, False) if model.thinking else (None,),
     )
 
 
