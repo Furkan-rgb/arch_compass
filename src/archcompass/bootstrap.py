@@ -54,7 +54,7 @@ from archcompass.configuration import (
     load_provider_environment,
 )
 from archcompass.domain.errors import ConfigurationError
-from archcompass.ports.atlas import AtlasQueryService, RepositoryAnalyzer
+from archcompass.ports.atlas import AtlasQueryService, EdgeResolver, RepositoryAnalyzer
 from archcompass.ports.model_catalog import ProviderDescriptor
 from archcompass.ports.reasoning import FocusedReasoningProvider
 from archcompass.ports.repositories import (
@@ -136,7 +136,7 @@ def build_runtime(
     atlases = SQLiteAtlasRepository(database)
     reviews = SQLiteBoundaryReviewRepository(database)
     review_conversations = SQLiteReviewConversationRepository(database)
-    analyzer = PythonAstRepositoryAnalyzer()
+    analyzer = PythonAstRepositoryAnalyzer(edge_resolver=build_edge_resolver())
     freshness = AtlasFreshnessService(analyzer)
     source_reader = SafeSourceReader()
     queries = DeterministicAtlasQueryService(source_reader, freshness)
@@ -259,6 +259,22 @@ _ALL_PROVIDERS: Final[dict[str, ProviderDescriptor]] = {
 #: Which of them a deployment offers, as a comma-separated list of names. Absent means all,
 #: which is what a local run wants.
 PROVIDERS_VARIABLE: Final = "ARCHCOMPASS_PROVIDERS"
+
+
+def build_edge_resolver() -> EdgeResolver | None:
+    """The type oracle, if this installation has one.
+
+    Its backend is an optional extra (`uv sync --extra resolution`), so whether the import
+    succeeds is the whole of the decision — there is no flag, and nothing above this module
+    can be configured into asking for a resolver that is not installed. Absent, the atlas is
+    exactly what it was before typed edges existed.
+    """
+
+    try:
+        from archcompass.adapters.analysis.mypy_resolver import MypyEdgeResolver
+    except ImportError:
+        return None
+    return MypyEdgeResolver()
 
 
 def enabled_providers() -> dict[str, ProviderDescriptor]:

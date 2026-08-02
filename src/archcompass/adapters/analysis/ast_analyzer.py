@@ -6,7 +6,7 @@ import ast
 import re
 import subprocess
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from itertools import pairwise
@@ -18,6 +18,7 @@ from archcompass.adapters.analysis.ast_support import (
     ast_for_node,
     build_edge,
     lexical_nodes,
+    module_name,
 )
 from archcompass.adapters.analysis.boundary_signals import (
     add_structural_protocol_edges,
@@ -51,6 +52,12 @@ from archcompass.domain.atlas import (
 )
 from archcompass.domain.base import canonical_json, stable_id
 from archcompass.domain.errors import PathValidationError
+from archcompass.ports.atlas import (
+    ConformanceQuestion,
+    EdgeResolutionRequest,
+    EdgeResolver,
+    ReferenceQuestion,
+)
 
 # v4 records per-module facts (constants stated, repository modules named). An atlas built
 # by v3 has none, so it is stale rather than quietly missing them, and is re-analyzed.
@@ -79,7 +86,14 @@ IGNORED_DIRECTORIES = {
 CONFIG_SUFFIXES = {".yaml", ".yml", ".toml", ".json", ".ini", ".cfg", ".env"}
 
 
-def _analysis_config_hash() -> str:
+#: What the hash records when no resolver is configured. A marker rather than an omitted
+#: key: an atlas built with typed edges and one built without them are different atlases,
+#: and leaving the key out when the extra is absent would let the second be read as the
+#: first the moment the extra is installed.
+_RESOLUTION_ABSENT = "absent"
+
+
+def _analysis_config_hash(resolution: Mapping[str, str] | None = None) -> str:
     return stable_id(
         "analysis",
         canonical_json(
@@ -87,6 +101,11 @@ def _analysis_config_hash() -> str:
                 "ignored": sorted(IGNORED_DIRECTORIES),
                 "config_suffixes": sorted(CONFIG_SUFFIXES),
                 "parser": PARSER_VERSION,
+                "resolution": (
+                    dict(sorted(resolution.items()))
+                    if resolution is not None
+                    else _RESOLUTION_ABSENT
+                ),
             }
         ),
     )
@@ -111,7 +130,38 @@ class RepositorySnapshot:
     git_commit_sha: str | None
 
 
+@dataclass(frozen=True)
+class UnresolvedSite:
+    """One call or name the parse could not attach to a symbol of this repository.
+
+    Kept rather than only reported, because it is exactly the question the type-aware
+    resolver is asked. The site carries its own source node so an answer can be turned
+    into an edge without re-walking the module.
+    """
+
+    source: AtlasNode
+    module_path: str
+    line: int
+    expression: str
+    edge_type: EdgeType
+
+
+#: Names too common to be worth reporting as unresolved. A call to `len` was never a missing
+#: edge, and a signal per occurrence would bury the ones that are.
+_UNREMARKABLE_CALLS = frozenset({"print", "len", "str", "int", "list", "dict"})
+
+
 class PythonAstRepositoryAnalyzer:
+    """The static parse, optionally corrected by a type oracle.
+
+    The parse is always the source of nodes; the resolver only ever changes which edges
+    exist between them. Without one the atlas is exactly what it has always been, which is
+    what makes the extra optional rather than a fork of the analyzer.
+    """
+
+    def __init__(self, edge_resolver: EdgeResolver | None = None) -> None:
+        self._edge_resolver = edge_resolver
+
     def analyze(self, root: Path) -> Atlas:
         snapshot = self._snapshot(root)
         canonical_root = snapshot.root
@@ -124,7 +174,7 @@ class PythonAstRepositoryAnalyzer:
             git_commit_sha=snapshot.git_commit_sha,
             content_fingerprint=snapshot.content_fingerprint,
             parser_version=PARSER_VERSION,
-            analysis_config_hash=_analysis_config_hash(),
+            analysis_config_hash=self._config_hash(),
         )
         root_node = self._node(
             path=".",
@@ -186,15 +236,26 @@ class PythonAstRepositoryAnalyzer:
             for module in modules
             for symbol in module.symbols.values()
         }
+        unresolved: list[UnresolvedSite] = []
         for module in modules:
             self._resolve_module_edges(
                 module,
                 module_by_name,
                 symbol_by_qualified,
                 edges,
-                signals,
+                unresolved,
             )
-        add_structural_protocol_edges(nodes, edges, modules)
+        # Exactly one source of structural `IMPLEMENTS` edges. The heuristic guesses from
+        # names and annotations at 0.8; the typed sweep answers the same question from the
+        # type checker's own view. Running both would double every agreed pair and leave a
+        # reader unable to say which pass believed what.
+        if self._edge_resolver is None:
+            add_structural_protocol_edges(nodes, edges, modules)
+        else:
+            unresolved = self._apply_resolution(
+                self._edge_resolver, canonical_root, nodes, edges, unresolved
+            )
+        signals.extend(self._unresolved_call_signals(unresolved))
         edges = self._deduplicate_edges(edges)
         module_facts = self._module_facts(modules)
         self._add_duplicate_constant_signals(module_facts, signals)
@@ -230,7 +291,7 @@ class PythonAstRepositoryAnalyzer:
             content_fingerprint=snapshot.content_fingerprint,
             git_commit_sha=snapshot.git_commit_sha,
             parser_version=PARSER_VERSION,
-            analysis_config_hash=_analysis_config_hash(),
+            analysis_config_hash=self._config_hash(),
         )
 
     def _snapshot(self, root: Path) -> RepositorySnapshot:
@@ -447,7 +508,7 @@ class PythonAstRepositoryAnalyzer:
             node = self._node(
                 path=relative,
                 name=path.stem,
-                qualified=self._module_name(relative),
+                qualified=module_name(relative),
                 kind=NodeType.MODULE,
                 parent_id=self._parent_for_path(path, root, packages, root_node).atlas_id,
                 start=1,
@@ -475,7 +536,7 @@ class PythonAstRepositoryAnalyzer:
                 ast.Module(body=[], type_ignores=[]),
                 source,
             )
-        qualified = self._module_name(relative)
+        qualified = module_name(relative)
         is_test = path.name.startswith("test_") or "tests" in Path(relative).parts
         is_config = path.stem in {"config", "settings", "configuration"}
         kind = (
@@ -622,7 +683,7 @@ class PythonAstRepositoryAnalyzer:
         module_by_name: dict[str, ParsedModule],
         symbol_by_qualified: dict[str, AtlasNode],
         edges: list[AtlasEdge],
-        signals: list[ObscuritySignal],
+        unresolved: list[UnresolvedSite],
     ) -> None:
         for statement in module.tree.body:
             if isinstance(statement, ast.Import):
@@ -750,13 +811,14 @@ class PythonAstRepositoryAnalyzer:
                                     line=item.lineno,
                                 )
                             )
-                    elif dotted and dotted not in {"print", "len", "str", "int", "list", "dict"}:
-                        signals.append(
-                            self._signal(
-                                "unresolved-call",
-                                f"Static call target could not be resolved: {dotted}",
-                                source_node,
-                                item.lineno,
+                    elif dotted:
+                        unresolved.append(
+                            UnresolvedSite(
+                                source=source_node,
+                                module_path=module.relative_path,
+                                line=item.lineno,
+                                expression=dotted,
+                                edge_type=EdgeType.CALLS,
                             )
                         )
             if isinstance(ast_node, ast.ClassDef):
@@ -793,7 +855,18 @@ class PythonAstRepositoryAnalyzer:
                 target, confidence = self._resolve_symbol(
                     item.id, source_node, module, symbol_by_qualified
                 )
-                if target is None or target.atlas_id == source_node.atlas_id:
+                if target is None:
+                    unresolved.append(
+                        UnresolvedSite(
+                            source=source_node,
+                            module_path=module.relative_path,
+                            line=item.lineno,
+                            expression=item.id,
+                            edge_type=EdgeType.REFERENCES,
+                        )
+                    )
+                    continue
+                if target.atlas_id == source_node.atlas_id:
                     continue
                 edges.append(
                     build_edge(
@@ -805,6 +878,172 @@ class PythonAstRepositoryAnalyzer:
                         line=item.lineno,
                     )
                 )
+
+    def _config_hash(self) -> str:
+        return _analysis_config_hash(
+            self._edge_resolver.fingerprint() if self._edge_resolver is not None else None
+        )
+
+    def _apply_resolution(
+        self,
+        resolver: EdgeResolver,
+        root: Path,
+        nodes: dict[str, AtlasNode],
+        edges: list[AtlasEdge],
+        unresolved: list[UnresolvedSite],
+    ) -> list[UnresolvedSite]:
+        """Ask the type oracle everything at once, and keep the answers that are edges.
+
+        Returns the sites still unresolved afterwards, so the signal that reports them says
+        what is genuinely invisible rather than what the cheap pass alone could not see.
+        """
+
+        # Deduplicated for the request and kept whole for the signals: one site is one
+        # question however many times it is written, but an unresolved call is reported
+        # where it occurs, and collapsing occurrences here would silently change what the
+        # resolver-absent path reports.
+        sites: dict[tuple[str, int, str], list[UnresolvedSite]] = defaultdict(list)
+        for site in unresolved:
+            sites[(site.module_path, site.line, site.expression)].append(site)
+        request = EdgeResolutionRequest(
+            conformances=self._conformance_questions(nodes, edges),
+            references=tuple(
+                ReferenceQuestion(path=path, line=line, expression=expression)
+                for path, line, expression in sorted(sites)
+            ),
+        )
+        result = resolver.resolve(root, request)
+        by_qualified = self._nodes_by_qualified_name(nodes)
+        for verdict in result.conformances:
+            implementation = by_qualified.get(verdict.question.class_qualified_name)
+            abstraction = by_qualified.get(verdict.question.abstraction_qualified_name)
+            if implementation is None or abstraction is None:
+                continue
+            edges.append(
+                build_edge(
+                    implementation.atlas_id,
+                    abstraction.atlas_id,
+                    EdgeType.IMPLEMENTS,
+                    # A rule the checker itself endorsed is as certain as this project gets;
+                    # the relaxed rule is one deliberate step below it, and above the 0.8 the
+                    # name-and-annotation heuristic earns.
+                    confidence=1.0 if verdict.rule == "strict" else 0.9,
+                    path=implementation.path,
+                    line=implementation.start_line,
+                    resolved_by="types",
+                    conformance=verdict.rule,
+                )
+            )
+        resolved_sites: set[int] = set()
+        for reference in result.references:
+            question = reference.question
+            target = by_qualified.get(reference.target_qualified_name)
+            # A symbol outside this repository is not an edge. `builtins.list.append` is a
+            # correct answer and there is no node for it, so the resolution is dropped and
+            # the site stays unresolved rather than pointing at nothing.
+            if target is None:
+                continue
+            for site in sites.get((question.path, question.line, question.expression), []):
+                if target.atlas_id == site.source.atlas_id:
+                    continue
+                resolved_sites.add(id(site))
+                edges.append(
+                    build_edge(
+                        site.source.atlas_id,
+                        target.atlas_id,
+                        site.edge_type,
+                        path=site.module_path,
+                        line=site.line,
+                        resolved_by="types",
+                    )
+                )
+                if site.edge_type == EdgeType.CALLS and site.source.node_type in {
+                    NodeType.TEST_FUNCTION,
+                    NodeType.TEST_MODULE,
+                }:
+                    edges.append(
+                        build_edge(
+                            site.source.atlas_id,
+                            target.atlas_id,
+                            EdgeType.TESTS,
+                            path=site.module_path,
+                            line=site.line,
+                            resolved_by="types",
+                        )
+                    )
+        return [site for site in unresolved if id(site) not in resolved_sites]
+
+    @staticmethod
+    def _conformance_questions(
+        nodes: dict[str, AtlasNode], edges: list[AtlasEdge]
+    ) -> tuple[ConformanceQuestion, ...]:
+        """Every (class, abstraction) pair worth judging, and no more.
+
+        The same population the untyped heuristic reads — abstractions declared here, and
+        classes outside `tests/` — so the two passes answer for the same repository and a
+        measurement of one is a measurement of the other. Pairs an inheritance already
+        established are left alone; the parse named them with certainty and a second edge at
+        the same site would only restate it.
+        """
+
+        stated = {
+            (edge.source_id, edge.target_id)
+            for edge in edges
+            if edge.edge_type == EdgeType.IMPLEMENTS
+        }
+        abstractions = sorted(
+            (node for node in nodes.values() if node.node_type == NodeType.INTERFACE),
+            key=lambda item: item.atlas_id,
+        )
+        classes = sorted(
+            (
+                node
+                for node in nodes.values()
+                if node.node_type == NodeType.CLASS and not node.path.startswith("tests/")
+            ),
+            key=lambda item: item.atlas_id,
+        )
+        return tuple(
+            ConformanceQuestion(
+                class_path=candidate.path,
+                class_qualified_name=candidate.qualified_name,
+                abstraction_path=abstraction.path,
+                abstraction_qualified_name=abstraction.qualified_name,
+            )
+            for abstraction in abstractions
+            for candidate in classes
+            if (candidate.atlas_id, abstraction.atlas_id) not in stated
+        )
+
+    @staticmethod
+    def _nodes_by_qualified_name(nodes: dict[str, AtlasNode]) -> dict[str, AtlasNode]:
+        """Qualified name back to the node that owns it.
+
+        Packages and the repository itself are excluded: a package directory and the
+        `__init__.py` inside it carry the same dotted name, and a resolver naming that name
+        means the module.
+        """
+
+        return {
+            node.qualified_name: node
+            for node in sorted(nodes.values(), key=lambda item: item.atlas_id)
+            if node.node_type not in {NodeType.REPOSITORY, NodeType.PACKAGE}
+        }
+
+    def _unresolved_call_signals(
+        self, unresolved: Iterable[UnresolvedSite]
+    ) -> list[ObscuritySignal]:
+        return [
+            self._signal(
+                "unresolved-call",
+                f"Static call target could not be resolved: {site.expression}",
+                site.source,
+                site.line,
+            )
+            for site in unresolved
+            if site.edge_type == EdgeType.CALLS
+            and site.expression not in _UNREMARKABLE_CALLS
+        ]
 
     def _compute_metrics(
         self,
@@ -1108,13 +1347,6 @@ class PythonAstRepositoryAnalyzer:
             return max([next_current, *child_depths])
 
         return depth(syntax, 0, root=True)
-
-    @staticmethod
-    def _module_name(relative_path: str) -> str:
-        parts = relative_path.removesuffix(".py").split("/")
-        if parts[-1] == "__init__":
-            parts = parts[:-1]
-        return ".".join(parts) or "__root__"
 
     @staticmethod
     def _parent_for_path(
