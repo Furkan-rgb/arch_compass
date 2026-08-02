@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
+from archcompass.adapters.models.deterministic import DETERMINISTIC_MODEL
 from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
 from archcompass.domain.errors import StaleAtlasError
 from archcompass.presentation.cli import app as cli_module
@@ -16,6 +17,10 @@ from archcompass.presentation.cli.app import app
 runner = CliRunner()
 
 _STYLE_CODES = re.compile(r"\x1b\[[0-9;]*m")
+
+#: What a CLI run reasons with here. Global options, so they precede the subcommand: after
+#: it, Typer rejects the whole invocation with "No such option".
+_SUBSTITUTE = ["--provider", "fake", "--model", DETERMINISTIC_MODEL]
 
 
 def unstyled(output: str) -> str:
@@ -34,8 +39,10 @@ def test_web_accepts_workspace_after_command(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     help_text = unstyled(result.output)
     assert "--workspace" in help_text
+    # Read in pieces: Typer wraps the column to the terminal width, so the sentence this is
+    # about is never contiguous in the rendered output.
     assert "Defaults to" in help_text
-    assert "the current directory" in help_text
+    assert "current" in help_text and "directory (.)" in help_text
     assert "--no-open" in help_text
 
 
@@ -47,10 +54,7 @@ def test_web_defaults_workspace_to_current_directory(
 
     def initialize_workspace(workspace: Path, **_: object) -> SimpleNamespace:
         selected_workspaces.append(workspace)
-        return SimpleNamespace(
-            runtime=SimpleNamespace(workspace=workspace),
-            created_paths=(),
-        )
+        return SimpleNamespace(workspace=workspace)
 
     monkeypatch.setattr(
         cli_module,
@@ -71,6 +75,18 @@ def test_web_defaults_workspace_to_current_directory(
     assert selected_workspaces == [Path.cwd().resolve(), tmp_path.resolve()]
 
 
+def test_naming_a_provider_without_a_model_is_refused(tmp_path: Path) -> None:
+    """Either alone would have to be completed by a guess, and which model a review runs
+    against decides what it costs and how long it takes."""
+
+    result = runner.invoke(
+        app, ["--workspace", str(tmp_path), "--provider", "fake", "init"]
+    )
+
+    assert result.exit_code != 0
+    assert "--provider and --model" in unstyled(result.output)
+
+
 def test_console_entrypoint_reports_domain_errors_without_a_traceback(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -88,15 +104,16 @@ def test_console_entrypoint_reports_domain_errors_without_a_traceback(
     assert captured.err == "Error: atlas is stale\n"
 
 
-def test_cli_commands_cover_local_workflow(tmp_path: Path, fake_config_text: str) -> None:
+def test_cli_commands_cover_local_workflow(tmp_path: Path) -> None:
     """Init, policies, case, index, review, ask — the whole local loop through the CLI."""
 
     workspace = tmp_path.resolve()
     initialized = runner.invoke(app, ["--workspace", str(workspace), "init"])
     assert initialized.exit_code == 0, initialized.output
 
-    (workspace / "config" / "models.yaml").write_text(fake_config_text, encoding="utf-8")
-    common = ["--workspace", str(workspace)]
+    # The model is named on the command line rather than chosen: a CLI run has no chip to
+    # click, and every command here means to reason with the substitute.
+    common = ["--workspace", str(workspace), *_SUBSTITUTE]
 
     # No rebuild step before listing. Policies are read from their sources when asked for,
     # so the bundled corpus is there from the first command.
@@ -146,17 +163,10 @@ def test_cli_commands_cover_local_workflow(tmp_path: Path, fake_config_text: str
     assert json.loads(history.output)[0]["messages"]
 
 
-def test_cli_policy_source_registry_is_persistent(
-    tmp_path: Path,
-    fake_config_text: str,
-) -> None:
+def test_cli_policy_source_registry_is_persistent(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     initialized = runner.invoke(app, ["--workspace", str(workspace), "init"])
     assert initialized.exit_code == 0, initialized.output
-    (workspace / "config" / "models.yaml").write_text(
-        fake_config_text,
-        encoding="utf-8",
-    )
     source = tmp_path / "team-policies"
     source.mkdir()
     template = (BUNDLED_POLICY_SOURCE / "contain-dependencies.md").read_text(

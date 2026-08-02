@@ -166,6 +166,11 @@ export function PoliciesPage() {
     setConfirmingDelete(asking);
   };
   const sources = useQuery({ queryKey: ["policy-sources"], queryFn: api.policySources });
+  // The hosted demo refuses filesystem policy sources — the paths would name the server's
+  // own disk — so the section that registers them has nothing it could do there. Authoring
+  // a policy stays: that writes inside the session's workspace.
+  const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
+  const hosted = Boolean(workspace.data?.hosted);
   const [source, setSource] = useState("");
   const addSource = useMutation({
     mutationFn: api.addPolicySource,
@@ -408,6 +413,7 @@ export function PoliciesPage() {
         </LedgerFoot>
       </div>
 
+      {hosted ? null : (
       <section className={sheet}>
         <LedgerBar>
           <strong>Additional policy sources</strong>
@@ -454,6 +460,7 @@ export function PoliciesPage() {
           ) : null}
         </ul>
       </section>
+      )}
 
       {/* A policy is a document, so it opens as one: a card at reading width, in the middle
           of the page, with the corpus it came from dimmed behind it. It was a drawer at the

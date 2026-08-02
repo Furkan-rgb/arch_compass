@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from typing import ClassVar
+from typing import ClassVar, Final
 
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.atlas import (
@@ -30,18 +30,25 @@ from archcompass.domain.review import (
     VerdictHinge,
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
+from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
 from archcompass.ports.reasoning import ReasoningTask, StreamingAnswerReasoner
 
+PROVIDER_NAME: Final = "fake"
+
 #: What this substitute answers to. It matches `model_identity` rather than whatever a
-#: fixture's YAML happens to name, because reporting a model it is not would be the one lie a
+#: fixture happens to name, because reporting a model it is not would be the one lie a
 #: chooser cannot afford.
 DETERMINISTIC_MODEL = "deterministic-architecture-v4"
 
 
-def probe_deterministic(config: ReasoningModelConfig) -> ProbeResult:
-    """Always reachable, with exactly one model — its own."""
+def probe_deterministic(defaults: ProviderDefaults) -> ProbeResult:
+    """Always reachable, with exactly one model — its own.
 
-    del config
+    One thinking mode, and it is `None`: this substitute reaches no model at all, so
+    claiming it reasons on request would be the same lie as reporting a model it is not.
+    """
+
+    del defaults
     return ProbeResult(
         available=True,
         models=[AvailableModel(name=DETERMINISTIC_MODEL, label="deterministic substitute")],
@@ -405,6 +412,23 @@ class DeterministicReasoningProvider:
             supporting_references=[item.reference for item in supporting],
             suggested_answer=asked.strip() if settled else "",
         )
+
+
+def _build_deterministic(config: ReasoningModelConfig) -> DeterministicReasoningProvider:
+    """Ignores the configuration, deliberately: there is no transport to configure."""
+
+    del config
+    return DeterministicReasoningProvider()
+
+
+#: The substitute as a provider like any other, so an offline workspace chooses it the same
+#: way it chooses a real one rather than through a separate path nothing else exercises.
+DESCRIPTOR: Final = ProviderDescriptor(
+    name=PROVIDER_NAME,
+    build=_build_deterministic,
+    probe=probe_deterministic,
+    defaults=ProviderDefaults(),
+)
 
 
 #: As in `structured`: the streaming capability is found by `isinstance`, which compares

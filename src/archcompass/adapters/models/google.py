@@ -35,6 +35,7 @@ from archcompass.configuration import (
 )
 from archcompass.domain.errors import ConfigurationError, ProviderError
 from archcompass.domain.model_catalog import AvailableModel, ProbeResult
+from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
 from archcompass.ports.reasoning import ReasoningTask
 
 # ─────────────────────────────────────────────────────────────────────────────────────────
@@ -61,18 +62,26 @@ from archcompass.ports.reasoning import ReasoningTask
 #   a moving name on it.
 # * The 3.x previews, newer than `gemini-2.5-pro` though they are. Previews get withdrawn,
 #   and a withdrawn name here is a permanently unavailable row until somebody notices.
-# * The whole 2.0 line, which reports no thinking support and caps output at 8192 while
-#   `config/models.google.yaml` asks for thinking.
+# * The whole 2.0 line, which reports no thinking support and caps output at 8192.
+#
+# Each model carries the thinking modes it genuinely has, and they differ per model rather
+# than per provider. Nothing in a listing says which: `models.list` reports the same shape
+# for a model that reasons by default and one that cannot reason at all, so this is the only
+# place the difference can be stated.
 # ─────────────────────────────────────────────────────────────────────────────────────────
-OFFERED_MODELS: Final = (
-    #: The default: newest flash, 1M in / 65k out, thinking.
-    "gemini-3.6-flash",
+OFFERED_MODELS: Final[Mapping[str, tuple[bool | None, ...]]] = {
+    #: The default: newest flash, 1M in / 65k out. Reasons by default and answers well
+    #: without it, so it is the one model here worth offering both ways.
+    "gemini-3.6-flash": (True, False),
     #: The only pro that is not a preview — there is no 3.6 pro — for a harder judgement.
-    "gemini-2.5-pro",
+    #: Thinking only: it is a reasoning model, and `MINIMAL` on it buys a slower flash.
+    "gemini-2.5-pro": (True,),
     #: Somewhere to go when the free-tier quota is spent, which this adapter's whole 429
-    #: backoff exists for and which the chip now reports against the selection.
-    "gemini-3.5-flash-lite",
-)
+    #: backoff exists for and which the chip now reports against the selection. Measured on
+    #: one fixed prompt it spends no thinking tokens at all, asked or not, so offering it as
+    #: a thinking model would be offering something it does not do.
+    "gemini-3.5-flash-lite": (False,),
+}
 
 PROVIDER_NAME: Final = "google"
 
@@ -270,10 +279,11 @@ def _offered(model: types.Model) -> AvailableModel | None:
         label=model.display_name or "",
         input_token_limit=model.input_token_limit,
         output_token_limit=model.output_token_limit,
+        thinking_modes=OFFERED_MODELS[name],
     )
 
 
-def probe_google(config: ReasoningModelConfig) -> ProbeResult:
+def probe_google(defaults: ProviderDefaults) -> ProbeResult:
     """Whether the key works and which models it reaches, in one request.
 
     `models.list` is the whole check: it authenticates and enumerates in the same breath, so
@@ -286,7 +296,7 @@ def probe_google(config: ReasoningModelConfig) -> ProbeResult:
     """
 
     try:
-        api_key = resolve_api_key(config.api_key_env, provider=PROVIDER_NAME)
+        api_key = resolve_api_key(defaults.api_key_env, provider=PROVIDER_NAME)
     except ConfigurationError as error:
         return ProbeResult(available=False, detail=str(error))
     # Held in a name for the length of the call, deliberately. Written as one chained
@@ -294,7 +304,7 @@ def probe_google(config: ReasoningModelConfig) -> ProbeResult:
     # finalizes it — closing the HTTP connection — before `list` gets to use it. The request
     # then fails with "Cannot send a request, as the client has been closed", which says
     # nothing about a probe and appears only against a real server.
-    client = _client(api_key, config.base_url, PROBE_TIMEOUT_SECONDS)
+    client = _client(api_key, defaults.resolved_base_url(), PROBE_TIMEOUT_SECONDS)
     try:
         page = client.models.list(
             # `query_base` already defaults to true, and is passed anyway: false lists
@@ -466,7 +476,8 @@ def _response_text(
         raise ProviderError(
             f"Google AI Studio truncated the {task.value} response at "
             f"{config.max_output_tokens} output tokens. Gemini spends thinking tokens "
-            "from that same allowance; raise max_output_tokens in models.yaml."
+            "from that same allowance; choose the same model without thinking, or raise "
+            "this provider's output budget."
         )
     if finish_reason is not None and finish_reason != types.FinishReason.STOP:
         raise ProviderError(
@@ -481,3 +492,15 @@ def _response_text(
 class GoogleReasoningProvider(StructuredReasoningProvider):
     def __init__(self, config: ReasoningModelConfig) -> None:
         super().__init__(config, GoogleChatTransport(config))
+
+
+#: How this build reaches Google AI Studio, stated once and read by the composition root.
+#:
+#: No `base_url`: the SDK knows its own endpoint, and the only reason to override it is a
+#: test that patches the transport instead.
+DESCRIPTOR: Final = ProviderDescriptor(
+    name=PROVIDER_NAME,
+    build=GoogleReasoningProvider,
+    probe=probe_google,
+    defaults=ProviderDefaults(api_key_env="GOOGLE_API_KEY"),
+)

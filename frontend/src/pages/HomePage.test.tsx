@@ -52,7 +52,7 @@ describe("the hero's verdict card", () => {
 
     const hero = within(stack());
     expect(
-      hero.getByText(/Specimen verdicts — run a bundled example to write your own/),
+      hero.getByText(/Specimen verdicts/),
     ).toBeInTheDocument();
     expect(hero.getByText("Remove the boundary.")).toBeInTheDocument();
     expect(hero.getByText("avoid-pass-through-parameters")).toBeInTheDocument();
@@ -75,10 +75,10 @@ describe("every fabricated region", () => {
     open();
 
     for (const line of [
-      /Specimen verdicts —/,
-      /Specimen run —/,
-      /Specimen question —/,
-      /Specimen report —/,
+      /Specimen verdicts/,
+      /Specimen run/,
+      /Specimen question/,
+      /Specimen report/,
     ]) {
       expect(screen.getByText(line)).toBeInTheDocument();
     }

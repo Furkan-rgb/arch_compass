@@ -539,6 +539,10 @@ export function StartPage() {
   // step has to say so rather than let the request be refused after the button is pressed.
   const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
   const hasModel = Boolean(workspace.data?.models.reasoning);
+  // The hosted demo has no folders worth walking: the server refuses to browse its own
+  // filesystem, so offering the picker would offer a control whose every click is a 403.
+  // The bundled examples are the whole repertoire there, and the copy says so.
+  const hosted = Boolean(workspace.data?.hosted);
   const openPicker = useModelPicker();
 
   const ready = isReady(selection, hasModel);
@@ -668,24 +672,28 @@ export function StartPage() {
               // not an empty one, and saying "nothing indexed yet" over a failed read is
               // this page telling the reader something it does not know.
               <EmptyLine>
-                Nothing indexed yet — browse to a local Python project below, or load an
-                example above.
+                {hosted
+                  ? "Nothing indexed yet — load an example above."
+                  : "Nothing indexed yet — browse to a local Python project below, or load an example above."}
               </EmptyLine>
             )}
 
-            <div className="flex flex-wrap gap-2">
-              <FolderPicker
-                open={picking}
-                onOpenChange={setPicking}
-                disabled={busy}
-                // A repository some case named that nothing has parsed yet: the picker opens
-                // there so the reader confirms the folder rather than finding it again.
-                start={path.trim() || null}
-                indexing={index.isPending}
-                error={index.error}
-                onIndex={(root) => index.mutate(root)}
-              />
-            </div>
+            {!hosted ? (
+              <div className="flex flex-wrap gap-2">
+                <FolderPicker
+                  open={picking}
+                  onOpenChange={setPicking}
+                  disabled={busy}
+                  // A repository some case named that nothing has parsed yet: the picker
+                  // opens there so the reader confirms the folder rather than finding it
+                  // again.
+                  start={path.trim() || null}
+                  indexing={index.isPending}
+                  error={index.error}
+                  onIndex={(root) => index.mutate(root)}
+                />
+              </div>
+            ) : null}
           </div>
 
           {/* The rule between the two columns lives on the second of them, and turns to run

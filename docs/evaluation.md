@@ -211,9 +211,10 @@ model, one case, one moment. See [plans/quality-harness.md](plans/quality-harnes
 
 ## Optional live-model and transport evaluations
 
-Tests marked `ollama` use the models in `config/models.yaml`. They exercise a complete
-structured review against the configured reasoning model, including the arity of a judgement's
-policy bearings against the corpus it was presented.
+Tests marked `ollama` name the model they run against in the test itself, because that is
+what the number they produce is about. They exercise a complete structured review against
+that reasoning model, including the arity of a judgement's policy bearings against the
+corpus it was presented.
 
 The live clustering contract also uses deliberately opaque canonical force IDs and verifies that
 the provider returns an exact partition after the adapter's constrained `F1`–`Fn` reference

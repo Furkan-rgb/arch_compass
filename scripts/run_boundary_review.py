@@ -39,7 +39,7 @@ from typing import TextIO
 import yaml
 
 from archcompass.application.reviews import JudgedCandidate
-from archcompass.bootstrap import Runtime, build_runtime
+from archcompass.bootstrap import Runtime, build_runtime, pinned_model
 from archcompass.domain.case import ArchitectureCase
 
 CASES = Path(__file__).resolve().parent.parent / "eval" / "cases"
@@ -370,11 +370,27 @@ def print_table(outcomes: list[Outcome]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    # Pinned rather than left to whatever the workspace last chose: this run reports a score
+    # against an answer key, and a score is meaningless without saying which model produced
+    # it. The workspace here is a temporary directory anyway, so there is nothing to choose.
     parser.add_argument(
-        "--models-config",
-        type=Path,
-        default=Path("config/models.ollama.yaml"),
-        help="Reasoning provider configuration to run against.",
+        "--provider",
+        default="ollama",
+        help="Which provider to reason with.",
+    )
+    parser.add_argument(
+        "--model",
+        default="gemma4:26b",
+        help="Which model to reason with.",
+    )
+    parser.add_argument(
+        "--thinking",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Require or forbid reasoning before answering. Omitted leaves it to the model, "
+            "which is a third behaviour rather than the absence of the other two."
+        ),
     )
     parser.add_argument(
         "--all",
@@ -421,7 +437,10 @@ def main() -> int:
     outcomes: list[Outcome] = []
     try:
         with tempfile.TemporaryDirectory(prefix="archcompass-evaluation-") as directory:
-            runtime = build_runtime(Path(directory), models_config=arguments.models_config)
+            runtime = build_runtime(
+                Path(directory),
+                pin=pinned_model(arguments.provider, arguments.model, arguments.thinking),
+            )
             for example in examples:
                 marker = "" if example.expected else "  (no answer key)"
                 print(f"\n{example.name}{marker}", flush=True)

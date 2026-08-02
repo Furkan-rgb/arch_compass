@@ -27,6 +27,7 @@ from archcompass.domain.errors import (
     PromptBudgetExceededError,
     ProviderError,
 )
+from archcompass.ports.model_catalog import ProviderDefaults
 from archcompass.ports.reasoning import ReasoningTask
 
 
@@ -39,6 +40,14 @@ def _reasoning_config(**overrides: object) -> ReasoningModelConfig:
     }
     values.update(overrides)
     return ReasoningModelConfig.model_validate(values)
+
+
+def _probe_defaults(**overrides: object) -> ProviderDefaults:
+    """What a probe is handed: an endpoint, and nothing about any model."""
+
+    values: dict[str, object] = {"base_url": "http://ollama.test/"}
+    values.update(overrides)
+    return ProviderDefaults(**values)  # pyright: ignore[reportArgumentType]
 
 
 def _http_response(payload: object, *, status_code: int = 200) -> httpx.Response:
@@ -348,7 +357,7 @@ def test_the_probe_offers_only_the_models_this_advisor_names(
         )
 
     _patch_transport(monkeypatch, tags)
-    result = ollama_adapters.probe_ollama(_reasoning_config())
+    result = ollama_adapters.probe_ollama(_probe_defaults())
 
     assert result.available
     assert result.detail == ""
@@ -369,7 +378,7 @@ def test_a_running_server_holding_none_of_them_says_so(
             {"models": [{"model": "embeddinggemma:latest", "details": {}}]}
         ),
     )
-    result = ollama_adapters.probe_ollama(_reasoning_config())
+    result = ollama_adapters.probe_ollama(_probe_defaults())
 
     assert not result.available
     assert result.models == []
@@ -390,7 +399,7 @@ def test_a_server_that_is_not_running_is_reported_rather_than_raised(
         raise ConnectionError("connection refused")
 
     _patch_transport(monkeypatch, refused)
-    result = ollama_adapters.probe_ollama(_reasoning_config())
+    result = ollama_adapters.probe_ollama(_probe_defaults())
 
     assert not result.available
     assert result.models == []
@@ -415,21 +424,21 @@ def test_the_probe_does_not_wait_out_the_configured_timeout(
         return _http_response({"models": []})
 
     monkeypatch.setattr(httpx.Client, "request", request)
-    ollama_adapters.probe_ollama(_reasoning_config(timeout_seconds=360))
+    ollama_adapters.probe_ollama(_probe_defaults(timeout_seconds=360))
 
     assert seen == [ollama_adapters.PROBE_TIMEOUT_SECONDS]
 
 
-def test_a_profile_without_a_base_url_says_so_instead_of_probing(
+def test_a_provider_without_a_base_url_says_so_instead_of_probing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The transport raises for this; the probe reports it, because the picker must render it."""
 
     def never(_url: str, **_kwargs: object) -> httpx.Response:
-        raise AssertionError("a profile with no base_url has nothing to ask")
+        raise AssertionError("a provider with no base_url has nothing to ask")
 
     _patch_transport(monkeypatch, never)
-    result = ollama_adapters.probe_ollama(_reasoning_config(base_url=None))
+    result = ollama_adapters.probe_ollama(_probe_defaults(base_url=None))
 
     assert not result.available
     assert "base_url" in result.detail

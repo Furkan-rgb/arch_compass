@@ -103,13 +103,12 @@ export interface components {
     "created_at"?: string;
   };
     "AvailableModelResponse": {
-    "profile_id": string;
     "provider": string;
     "model": string;
+    "thinking"?: boolean | null;
     "label"?: string;
     "input_token_limit"?: number | null;
     "output_token_limit"?: number | null;
-    "is_configured_default"?: boolean;
     "is_selected"?: boolean;
   };
     "BoundaryExcerpt": {
@@ -285,10 +284,12 @@ export interface components {
     "ModelIdentity": {
     "provider": string;
     "model": string;
+    "thinking"?: boolean | null;
   };
     "ModelSelectionRequest": {
-    "profile_id": string;
+    "provider": string;
     "model": string;
+    "thinking"?: boolean | null;
   };
     "NeighbourhoodQuery": {
     "kind": "forward_neighbourhood" | "reverse_neighbourhood";
@@ -379,7 +380,6 @@ export interface components {
     "field_errors"?: Array<string>;
   };
     "ProviderAvailabilityResponse": {
-    "profile_id": string;
     "provider": string;
     "available": boolean;
     "detail"?: string;
@@ -577,13 +577,12 @@ export interface components {
     "WorkspaceModels": {
     "reasoning"?: components["schemas"]["ModelIdentity"] | null;
     "failure"?: string;
-    "from_configuration"?: boolean;
     "pinned"?: boolean;
-    "unresolvable"?: boolean;
   };
     "WorkspaceSummaryResponse": {
     "workspace": string;
     "models": components["schemas"]["WorkspaceModels"];
+    "hosted"?: boolean;
   };
   };
 }

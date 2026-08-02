@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from archcompass.bootstrap import Runtime, build_runtime
+from archcompass.adapters.models.deterministic import DETERMINISTIC_MODEL
+from archcompass.bootstrap import Runtime, build_runtime, pinned_model
 
 
 @pytest.fixture(autouse=True)
@@ -26,25 +27,9 @@ def isolate_environment() -> Iterator[None]:
 
 
 @pytest.fixture
-def fake_config_text() -> str:
-    return """models:
-  reasoning:
-    provider: fake
-    model: deterministic-architecture-v1
-    base_url: http://127.0.0.1:11434
-    timeout_seconds: 1
-    context_window_tokens: 32768
-    max_output_tokens: 16384
-"""
-
-
-@pytest.fixture
-def runtime(tmp_path: Path, fake_config_text: str) -> Runtime:
-    config_path = tmp_path / "config" / "models.yaml"
-    config_path.parent.mkdir(parents=True)
-    config_path.write_text(fake_config_text, encoding="utf-8")
-    # Named rather than discovered. A run reads `.env` from the working directory as well as
-    # the workspace, so a developer who points their own workspace at a provider would
-    # silently point the suite at it too — and every test here means to run against the
-    # substitute written just above.
-    return build_runtime(tmp_path, models_config=config_path)
+def runtime(tmp_path: Path) -> Runtime:
+    # Pinned rather than chosen. A workspace with no stored selection reasons with nothing,
+    # and every test reaching this fixture means to run against the deterministic
+    # substitute — pinning says so in one place instead of each of them clicking a model
+    # first.
+    return build_runtime(tmp_path, pin=pinned_model("fake", DETERMINISTIC_MODEL))

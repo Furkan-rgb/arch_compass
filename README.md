@@ -2,6 +2,11 @@
 
 **Context-aware software architecture advice grounded in requirements, repository evidence, design policy and expected change.**
 
+**[Try the live demo →](https://archcompass-99312935671.europe-west1.run.app)** — no signup;
+pick a bundled example, run a review, ask it questions. Every visitor gets their own
+workspace, and the model calls are rationed, so if a run is refused, the day's shared
+budget is spent — come back tomorrow or run it locally.
+
 ArchCompass is a software architecture advisor for developers and coding agents. It helps answer not only _how to implement a feature_, but **how the surrounding software should be structured so that it remains understandable and changeable over time**.
 
 The project is built around a simple observation: AI-assisted coding is making it much easier to produce working code, but it does not remove the harder problem of managing complexity. A system can function correctly today while still being difficult to understand, expensive to modify and fragile under future requirements.
@@ -143,7 +148,7 @@ named beyond the package that owns it (the two shapes of *repetition without own
 Reusable architectural guidance — intent, signals, diagnostic questions, consequences,
 exceptions, examples and counterexamples.
 
-The whole corpus is presented with every candidate. It is roughly 21,000 characters
+The whole corpus is presented with every candidate. It is roughly 45,000 characters
 against an input budget near 490,000, so there is no retrieval step, no ranking, and no
 threshold that could quietly deny the advisor a policy that would have applied.
 
@@ -320,10 +325,12 @@ A module may be locally complicated while still improving the system by hiding t
 Policies are Markdown, validated for metadata and sections, and **presented whole with
 every candidate**.
 
-There is no retrieval step. The corpus is about 21,000 characters against an input budget
-near 490,000 — roughly four per cent — so ranking policies would introduce a way to be
-wrong in exchange for nothing. A policy that does not appear in a verdict did not apply,
-rather than never having been shown.
+There is no embedding model, no index and no retrieval step. The corpus is about 45,000
+characters against an input budget near 490,000, so it fits several times over and ranking
+only added a way to lose the passage that mattered (ADR 0013). If the corpus ever outgrows
+one request, retrieval comes back as a deliberate change rather than an inherited one. A
+policy that does not appear in a verdict did not apply, rather than never having been
+shown.
 
 ```text
 Policy Markdown
@@ -335,11 +342,6 @@ Policy Markdown
 The model never sees a policy identifier and never writes one. Identity is attached
 afterwards from the position, so a mistyped or recalled-from-memory ID has no route into a
 report.
-
-There is no embedding model, no index and no retrieval step. The corpus is about 45,000
-characters against an input budget near 490,000, so it fits several times over and ranking
-only added a way to lose the passage that mattered (ADR 0013). If the corpus ever outgrows
-one request, retrieval comes back as a deliberate change rather than an inherited one.
 
 ---
 
@@ -439,78 +441,79 @@ Experimental. One limit is worth stating plainly rather than discovering:
 - A SQLite build supporting loadable extensions
 - Optional: a local Ollama service for real-model consultations
 
-Two model configurations ship with the repository, and neither is implicit — a run always
-says which models produced it:
+Two providers ship with the build, and neither is implicit — a run always says which
+model produced it:
 
 ```text
-config/models.ollama.yaml    local models through Ollama
-config/models.google.yaml    hosted Gemini models with a free tier
+ollama    local models through Ollama
+google    hosted Gemini models with a free tier
 ```
 
-Select one per command with `--models-config`, or for a whole workspace with
-`ARCHCOMPASS_MODELS_CONFIG` — in the shell, or in **that workspace's own** `.env`, where a
-relative path is read against the workspace rather than the current directory. A `.env` in
-the directory you happen to be standing in supplies credentials only: a key travels with
-the person running the command, but which models a workspace uses is that workspace's own
-business. See [Google AI Studio](#google-ai-studio) below for the hosted path.
+There is no model configuration file. Where a provider is reached, which variable carries
+its credential and what its budgets are is stated in code, one descriptor per adapter, and
+the only thing a run reads off disk is a `.env` — and only ever for a key. What is left to
+choose is the part that actually varies: which provider, which model, and whether the model
+reasons before answering.
 
-Being pointed at a file settles it, whatever the file is called — the name only matters
-when nothing points anywhere. Then a workspace uses `config/models.yaml` if it has one, or
-the single `config/models.*.yaml` it keeps if there is exactly one, and otherwise gets the
-packaged default written in as `config/models.yaml` on first use: a default to create, not
-a file to require. A workspace holding several and nothing choosing between them is asked
-rather than guessed at, because which provider a review runs against decides what it costs
-and how long it takes. This repository is such a workspace, so it makes the choice in the
-Makefile —
+A workspace chooses in the interface, from the model chip in the top bar, which offers only
+models a reachable provider currently has. The choice is one row in that workspace's own
+database and survives restarts. A command can override it for the length of one process:
 
 ```bash
-make web           # the workspace on config/models.ollama.yaml
-make web-google    # the workspace on config/models.google.yaml
+archcompass --provider google --model gemini-3.6-flash review <case-id> --repo /path/to/repo
 ```
 
-Each names a `thinking` setting for its reasoning model: `true` requires the model to
-reason before answering, `false` forbids it, and `null` leaves it to the model. Those tokens
-are spent from `max_output_tokens`, so requiring thinking on a tight output budget can
-truncate the structured answer — which fails validation rather than returning something
+`--provider` and `--model` are given together or not at all, and while they are in force
+the model is not the workspace's to change — a stored choice quietly overriding them would
+make the flags mean nothing. This repository is also a workspace, so the Makefile makes the
+choice for its demonstrations —
+
+```bash
+make web           # the workspace, reasoning with whatever it has chosen
+make web-google    # the workspace, pinned to a hosted Gemini model
+```
+
+A deployment that cannot reach every provider says so with `ARCHCOMPASS_PROVIDERS`, a
+comma-separated list of names: a hosted server has no local Ollama, and a chooser listing
+one is a row that can only ever say "nothing is listening". `ARCHCOMPASS_OLLAMA_URL` moves
+the local endpoint off loopback for the same kind of deployment.
+
+Thinking is part of what is chosen rather than a setting beside it: `--thinking` requires
+the model to reason before answering, `--no-thinking` forbids it, and omitting both leaves
+it to the model. In the chip, a model that genuinely offers both appears twice — once each
+way — and one that does not appears once. Those tokens are spent from the output allowance,
+so a reasoning selection is given the larger of the two budgets; on a tight one the
+structured answer is truncated, which fails validation rather than returning something
 wrong.
 
 The three are not two. Measured on `gemma4:26b` against the scored example: `true` took 510s
 and scored 4/6, `false` took 40s and scored 3/6, and `null` took about 250s and scored 5-6/6.
-The Ollama configuration therefore ships `null`, and the Google one `true`, where Gemini
-picks its own level.
+That is why the models that do not genuinely offer a mode are not offered in it.
 
-The reasoning model's `context_window_tokens` controls Ollama's total context
-window (`num_ctx`), including input and generated output.
-`max_output_tokens` separately caps generated output.
+The provider's `context_window_tokens` controls Ollama's total context window (`num_ctx`),
+including input and generated output. `max_output_tokens` separately caps generated output.
 
-The checked-in `config/models.ollama.yaml` expects `gemma4:26b`; the packaged fallback
-copied into a new workspace expects `gemma4:12b`. Pull the model named by the configuration
-you use — a review needs one model and no other:
+Pull the model you mean to reason with — a review needs one model and no other:
 
 ```bash
 ollama pull gemma4:26b
-# Or, for the packaged fallback: ollama pull gemma4:12b
 ```
 
 Models are not downloaded automatically.
 
 ### Google AI Studio
 
-A hosted alternative that needs no local model. `config/models.google.yaml` is ready to
-use and selects Gemini models with a free tier:
+A hosted alternative that needs no local model. The provider is there as soon as a key is:
 
 ```bash
 echo 'GOOGLE_API_KEY=your-key-here' >> .env
-archcompass review <case-id> --repo /path/to/repository \
-  --models-config config/models.google.yaml
-# Or, for every command in a shell:
-export ARCHCOMPASS_MODELS_CONFIG=config/models.google.yaml
+archcompass --provider google --model gemini-3.6-flash review <case-id> --repo /path/to/repo
 ```
 
 Get a key from [Google AI Studio](https://aistudio.google.com/apikey). `.env` sits at
-the workspace root and is git-ignored; a model configuration names the environment variable
-through `api_key_env` and never holds the key itself. A variable already set in the
-environment takes precedence over the file.
+the workspace root and is git-ignored; the provider's descriptor names the environment
+variable and never holds the key itself. A variable already set in the environment takes
+precedence over the file.
 
 Two things differ from Ollama and are worth knowing:
 
@@ -659,6 +662,31 @@ Revisions are append-only, and a review records the exact one it ran against.
 uv run archcompass policies list
 uv run archcompass policies show <policy-id>
 ```
+
+---
+
+## Hosted demo
+
+The same application deploys as a public demo from one container. `ARCHCOMPASS_HOSTED=1`
+switches on the three things a public server needs that a local workspace does not:
+
+- **A workspace per visitor.** A session cookie names each visitor's own workspace on the
+  container's ephemeral disk, so two people trying the demo at once never see each other's
+  cases, reviews or model choice.
+- **A demo repertoire, not a filesystem.** Browsing the server's folders is refused, and
+  only the bundled example repositories can be indexed and reviewed.
+- **A daily budget.** The model-spending endpoints are rationed per session and per
+  instance, so one visitor cannot spend the day's free-tier quota.
+
+`archcompass web` reaches none of this — locally, nothing changes.
+
+```bash
+make docker-build   # builds the image and checks the container answers
+```
+
+[docs/deploy.md](docs/deploy.md) has the Cloud Run commands: `ARCHCOMPASS_PROVIDERS=google`
+so the picker never offers an Ollama that is not there, and `GOOGLE_API_KEY` from Secret
+Manager — the hosted entry point refuses to start without a working provider.
 
 ---
 

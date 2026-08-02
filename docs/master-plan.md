@@ -363,7 +363,7 @@ re-runs the model calls over unchanged candidates. And greenfield (§4.1) is rea
 replacing only Rail A's source.
 
 **There is no retrieval step.** The whole policy corpus is presented with every
-candidate. It is roughly 21,000 characters against an input budget of ~490,000, so
+candidate. It is roughly 45,000 characters against an input budget of ~490,000, so
 ranking policies would introduce a way to be wrong in exchange for nothing. When the
 corpus outgrows one request this changes, and the change will be deliberate rather than
 inherited.

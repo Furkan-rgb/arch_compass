@@ -1,0 +1,33 @@
+# Everything the image does not run. `eval/cases` is deliberately absent from this list:
+# the bundled examples are the only repositories the hosted demo will index, so they are
+# part of the product rather than test data.
+.git
+.github
+.venv
+.env
+.archcompass
+.pytest_cache
+.ruff_cache
+.claude
+.agents
+__pycache__
+*.py[cod]
+.coverage
+htmlcov
+dist
+build
+*.egg-info
+frontend/node_modules
+frontend/coverage
+frontend/*.tsbuildinfo
+src/archcompass/presentation/web/static
+tests
+docs
+reports
+scripts
+eval/*.md
+Dockerfile
+.dockerignore
+Makefile
+CLAUDE.md
+PRODUCT.md

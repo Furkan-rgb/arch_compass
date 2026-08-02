@@ -1,4 +1,4 @@
-"""FastAPI adapter for the local Arch Compass workspace."""
+"""FastAPI adapter for the Arch Compass workspace, local or hosted."""
 
 # Pyright cannot see FastAPI's decorator registration as a function reference.
 # pyright: reportUnusedFunction=false
@@ -14,7 +14,7 @@ from threading import Thread
 from typing import Annotated, Any, Literal, cast
 
 import yaml
-from fastapi import Body, FastAPI, Query, Request, Response
+from fastapi import Body, Depends, FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import (
@@ -67,6 +67,16 @@ from archcompass.domain.workspace import (
     BoundaryReviewSummary,
     CaseSummary,
     RepositorySummary,
+)
+from archcompass.presentation.web.restrictions import (
+    HostedRefusal,
+    HostedRestrictions,
+    RunBudget,
+)
+from archcompass.presentation.web.runtimes import (
+    RuntimeProvider,
+    SingleRuntimeProvider,
+    session_token,
 )
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -386,6 +396,9 @@ class PolicySourceRequest(APIModel):
 class ModelIdentity(APIModel):
     provider: str
     model: str
+    #: Whether this model reasons before answering: `true` required, `false` forbidden,
+    #: absent left to the model. Part of what was chosen, so part of what is reported.
+    thinking: bool | None = None
 
 
 class WorkspaceModels(APIModel):
@@ -404,41 +417,44 @@ class WorkspaceModels(APIModel):
     #: succeeded, when none has run, or once a probe has since found the provider healthy.
     #: The half of a model's health no probe can see: a spent quota lists perfectly well.
     failure: str = ""
-    #: The model is in force because a file says so rather than because anyone chose it —
-    #: a workspace holding exactly one configuration and no stored selection.
-    from_configuration: bool = False
-    #: This run was pointed at a configuration explicitly, so the model is not the
+    #: This process was told which model to use on its command line, so the model is not the
     #: workspace's to change while it lasts. The chooser says so instead of offering a
     #: choice that would be ignored.
     pinned: bool = False
-    #: The stored choice names a configuration this workspace no longer holds.
-    unresolvable: bool = False
 
 
 class WorkspaceSummaryResponse(APIModel):
+    #: Where this workspace's state lives, for a reader who may want to open it. A hosted
+    #: workspace says what it is instead of where it is: its directory is named after the
+    #: session cookie, and that cookie is HttpOnly precisely so a page cannot read it.
     workspace: str
     models: WorkspaceModels
+    #: Whether this is the hosted demo, where the folder picker is off and only the bundled
+    #: examples can be reviewed. Defaults to false, so a client written against a local
+    #: workspace reads the same document it always did.
+    hosted: bool = False
 
 
 class AvailableModelResponse(APIModel):
-    """One model a provider currently offers, through one configuration."""
+    """One model a provider currently offers, in one of the thinking modes it has.
 
-    profile_id: str
+    A model that reasons both ways appears twice, once per mode, because the two are
+    genuinely different choices: they cost differently and answer differently. A model with
+    one mode appears once.
+    """
+
     provider: str
     model: str
+    thinking: bool | None = None
     label: str = ""
     input_token_limit: int | None = None
     output_token_limit: int | None = None
-    #: The model this configuration's own file names, and so the one its timeouts and
-    #: thinking setting were written for.
-    is_configured_default: bool = False
     is_selected: bool = False
 
 
 class ProviderAvailabilityResponse(APIModel):
-    """Whether one configured provider answered, and what it said if it did not."""
+    """Whether one enabled provider answered, and what it said if it did not."""
 
-    profile_id: str
     provider: str
     available: bool
     #: Why not, naming the cure where there is one. Empty when available.
@@ -452,26 +468,70 @@ class ModelCatalogResponse(APIModel):
 
 
 class ModelSelectionRequest(APIModel):
-    profile_id: str = Field(min_length=1)
+    provider: str = Field(min_length=1)
     model: str = Field(min_length=1)
+    #: Absent means the model's own default, which is a third choice rather than the absence
+    #: of one — so it is sent as null rather than omitted where a page means it.
+    thinking: bool | None = None
 
 
 class PolicySourceRemovalResponse(APIModel):
     removed: bool
 
 
-def create_app(runtime: Runtime) -> FastAPI:
-    # A review runs synchronously inside its request. The background job queue existed
-    # because a consultation took eight model calls through several stages and needed
-    # recovery after an interrupted process; a review is one call per boundary against an
-    # already-indexed atlas, and re-running it costs nothing that has to be reconciled.
-    #
-    # What does need saying is what happened to a run the last workspace was in the middle
-    # of. A run cannot outlive the process holding its request, so a row still marked
-    # running when this one starts belongs to a process that is gone, and leaving it saying
-    # "in progress" for ever would be the one thing worse than reporting it failed.
-    runtime.review_repository.abandon_running(
-        reason="The workspace stopped while this review was running, so nothing was judged."
+def _acquire_runtime(request: Request) -> Runtime:
+    """The workspace this request is served from.
+
+    A dependency rather than something the routes close over, because which workspace that
+    is stopped being a property of the process the moment one deployment served more than
+    one visitor. Everything the provider decides — one workspace or one per session — it
+    decides here, once per request.
+    """
+
+    provider: RuntimeProvider = request.app.state.runtimes
+    return provider.acquire(request)
+
+
+def _acquire_restrictions(request: Request) -> HostedRestrictions:
+    restrictions: HostedRestrictions = request.app.state.restrictions
+    return restrictions
+
+
+def spend_model_budget(request: Request) -> None:
+    """Admit one run against this session's and this instance's daily budget.
+
+    Declared on the routes that make model calls rather than on all of them: reading a
+    stored review costs nothing, and a demo that rationed reading would be measuring the
+    wrong thing. Nothing is metered in local mode, where there is no budget object.
+    """
+
+    budget: RunBudget | None = request.app.state.budget
+    if budget is not None:
+        budget.admit(session_token(request))
+
+
+RuntimeDep = Annotated[Runtime, Depends(_acquire_runtime)]
+RestrictionsDep = Annotated[HostedRestrictions, Depends(_acquire_restrictions)]
+#: What the routes that spend model tokens carry. A dependency with no value, so it is
+#: declared beside the route's own decorator arguments rather than in its signature.
+SpendsModelBudget = Depends(spend_model_budget)
+
+
+def create_app(
+    runtime: Runtime | RuntimeProvider,
+    *,
+    hosted: bool = False,
+    budget: RunBudget | None = None,
+) -> FastAPI:
+    """The HTTP surface over one workspace, or over a provider that chooses one per request.
+
+    A bare `Runtime` is still accepted because that is what a local run has: the CLI opens
+    one workspace before the server starts, and wrapping it in a provider at every call site
+    would be ceremony around a thing that never varies.
+    """
+
+    runtimes = (
+        SingleRuntimeProvider(runtime) if isinstance(runtime, Runtime) else runtime
     )
     app = FastAPI(
         title="Arch Compass Local API",
@@ -480,6 +540,22 @@ def create_app(runtime: Runtime) -> FastAPI:
         openapi_url="/api/openapi.json",
         responses=_problem_responses(422),
     )
+    # On the app rather than in a closure so the dependencies can be module-level functions:
+    # a dependency named in an annotation is resolved against module globals, and one
+    # defined inside `create_app` cannot be referred to from a route's signature at all.
+    app.state.runtimes = runtimes
+    app.state.restrictions = HostedRestrictions(hosted=hosted)
+    app.state.budget = budget
+
+    @app.exception_handler(HostedRefusal)
+    async def hosted_refusal(_request: Request, error: HostedRefusal) -> JSONResponse:
+        return JSONResponse(
+            status_code=error.status_code,
+            content=ProblemDetail(
+                code=error.code,
+                message=error.message,
+            ).model_dump(mode="json"),
+        )
 
     @app.exception_handler(ArchCompassError)
     async def archcompass_error(
@@ -519,40 +595,17 @@ def create_app(runtime: Runtime) -> FastAPI:
             ).model_dump(mode="json"),
     )
 
-    def _summary() -> WorkspaceSummaryResponse:
-        """What this workspace is pointed at, without asking any provider anything.
-
-        Read on every page load, which is why it costs one row and no network. Whether a
-        model is reachable is a different question with a different price, and it is asked
-        by the chooser at the moment someone is waiting to choose.
-        """
-
-        status = runtime.model_catalog_service.status()
-        selection = status.selection
-        return WorkspaceSummaryResponse(
-            workspace=str(runtime.workspace),
-            models=WorkspaceModels(
-                reasoning=(
-                    ModelIdentity(provider=status.provider, model=status.model)
-                    if status.provider and status.model
-                    else None
-                ),
-                failure=selection.failure_detail if selection else "",
-                from_configuration=status.from_configuration,
-                pinned=status.pinned,
-                unresolvable=status.unresolvable,
-            ),
-        )
-
     @app.get("/api/workspace")
-    def workspace_summary() -> WorkspaceSummaryResponse:
-        return _summary()
+    def workspace_summary(
+        runtime: RuntimeDep, hosted_mode: RestrictionsDep
+    ) -> WorkspaceSummaryResponse:
+        return _summary(runtime, hosted_mode)
 
     @app.get("/api/models")
-    def model_catalog() -> ModelCatalogResponse:
-        """Every configured provider, whether it answered, and what it offered.
+    def model_catalog(runtime: RuntimeDep) -> ModelCatalogResponse:
+        """Every enabled provider, whether it answered, and what it offered.
 
-        A GET that performs work: each configuration is asked, over the network, with its own
+        A GET that performs work: each provider is asked, over the network, with its own
         short budget. It also writes, in one narrow sense — a provider that answers clears a
         failure recorded against the current selection. Idempotent, and the alternative was
         making the chooser's first paint a mutation.
@@ -562,7 +615,6 @@ def create_app(runtime: Runtime) -> FastAPI:
         return ModelCatalogResponse(
             providers=[
                 ProviderAvailabilityResponse(
-                    profile_id=provider.profile_id,
                     provider=provider.provider,
                     available=provider.available,
                     detail=provider.detail,
@@ -572,13 +624,12 @@ def create_app(runtime: Runtime) -> FastAPI:
             ],
             candidates=[
                 AvailableModelResponse(
-                    profile_id=candidate.profile_id,
                     provider=candidate.provider,
                     model=candidate.model,
+                    thinking=candidate.thinking,
                     label=candidate.label,
                     input_token_limit=candidate.input_token_limit,
                     output_token_limit=candidate.output_token_limit,
-                    is_configured_default=candidate.is_configured_default,
                     is_selected=candidate.is_selected,
                 )
                 for candidate in catalog.candidates
@@ -586,22 +637,28 @@ def create_app(runtime: Runtime) -> FastAPI:
         )
 
     @app.put("/api/models/selection", responses=_problem_responses(409))
-    def select_model(request: ModelSelectionRequest) -> WorkspaceSummaryResponse:
+    def select_model(
+        runtime: RuntimeDep,
+        hosted_mode: RestrictionsDep,
+        request: ModelSelectionRequest,
+    ) -> WorkspaceSummaryResponse:
         """Choose the model this workspace reasons with, until it chooses another.
 
         Returns the whole summary rather than the selection, so the page that asked can
         replace what its chip is reading instead of fetching it again.
         """
 
-        runtime.model_catalog_service.select(request.profile_id, request.model)
-        return _summary()
+        runtime.model_catalog_service.select(
+            request.provider, request.model, request.thinking
+        )
+        return _summary(runtime, hosted_mode)
 
     @app.delete("/api/models/selection", status_code=204)
-    def clear_model_selection() -> Response:
-        """Forget the choice, falling back to whatever this workspace configures.
+    def clear_model_selection(runtime: RuntimeDep) -> Response:
+        """Forget the choice, leaving this workspace with no model until it makes another.
 
-        The way back out of a choice that turned out to be wrong — on a hosted workspace
-        there is no file to edit instead.
+        The way back out of a choice that turned out to be wrong. There is no file to edit
+        instead, and on a hosted workspace there never was one.
         """
 
         runtime.model_catalog_service.clear()
@@ -609,16 +666,18 @@ def create_app(runtime: Runtime) -> FastAPI:
 
     @app.get("/api/cases")
     def list_cases(
+        runtime: RuntimeDep,
         limit: Annotated[int, Query(ge=1, le=500)] = 100,
     ) -> list[CaseSummary]:
         return runtime.case_service.list(limit=limit)
 
     @app.post("/api/cases", status_code=201)
-    def create_case(case: ArchitectureCase) -> CaseRevision:
+    def create_case(runtime: RuntimeDep, case: ArchitectureCase) -> CaseRevision:
         return runtime.case_service.create(case)
 
     @app.post("/api/cases/import-yaml", status_code=201)
     def import_case_yaml(
+        runtime: RuntimeDep,
         source: Annotated[str, Body(media_type="text/yaml")],
     ) -> CaseRevision:
         try:
@@ -628,33 +687,44 @@ def create_app(runtime: Runtime) -> FastAPI:
         return runtime.case_service.create(case)
 
     @app.get("/api/cases/{case_id}")
-    def get_case(case_id: str, revision: int | None = None) -> CaseRevision:
+    def get_case(runtime: RuntimeDep, case_id: str, revision: int | None = None) -> CaseRevision:
         return runtime.case_service.show(case_id, revision)
 
     @app.patch("/api/cases/{case_id}")
-    def update_case(case_id: str, update: CaseUpdate) -> CaseRevision:
+    def update_case(runtime: RuntimeDep, case_id: str, update: CaseUpdate) -> CaseRevision:
         return runtime.case_service.update(case_id, update)
 
     @app.get("/api/cases/{case_id}/history")
-    def case_history(case_id: str) -> list[CaseRevision]:
+    def case_history(runtime: RuntimeDep, case_id: str) -> list[CaseRevision]:
         return runtime.case_service.history(case_id)
 
     @app.get("/api/repositories")
     def list_repositories(
+        runtime: RuntimeDep,
         limit: Annotated[int, Query(ge=1, le=500)] = 100,
     ) -> list[RepositorySummary]:
         return runtime.repository_service.list(limit=limit)
 
     @app.post("/api/repositories/index", status_code=201)
-    def index_repository(request: RepositoryPathRequest) -> AtlasVersion:
-        return runtime.repository_service.index(Path(request.root_path))
+    def index_repository(
+        runtime: RuntimeDep,
+        hosted_mode: RestrictionsDep,
+        request: RepositoryPathRequest,
+    ) -> AtlasVersion:
+        return runtime.repository_service.index(
+            hosted_mode.repository_root(Path(request.root_path), runtime)
+        )
 
     @app.post(
         "/api/repositories/start",
         status_code=201,
         responses=_problem_responses(404, 422),
     )
-    def start_from_repository(request: RepositoryPathRequest) -> CaseRevision:
+    def start_from_repository(
+        runtime: RuntimeDep,
+        hosted_mode: RestrictionsDep,
+        request: RepositoryPathRequest,
+    ) -> CaseRevision:
         """Index a repository and open a case about it, with nothing written in it yet.
 
         The whole of the first step for someone who has not authored a case. Both halves
@@ -663,27 +733,30 @@ def create_app(runtime: Runtime) -> FastAPI:
         ordering, and the same reason, as loading a bundled example.
         """
 
-        root = Path(request.root_path)
+        root = hosted_mode.repository_root(Path(request.root_path), runtime)
         runtime.repository_service.index(root)
         return runtime.case_service.start_from_repository(root)
 
     @app.get("/api/repositories/summary")
-    def repository_summary(root_path: str) -> AtlasQueryResult:
+    def repository_summary(runtime: RuntimeDep, root_path: str) -> AtlasQueryResult:
         return runtime.atlas_service.summary(Path(root_path))
 
     @app.get("/api/repositories/hotspots")
     def repository_hotspots(
+        runtime: RuntimeDep,
         root_path: str,
         metric: str = "reverse_dependency_reach",
     ) -> AtlasQueryResult:
         return runtime.atlas_service.hotspots(Path(root_path), metric)
 
     @app.get("/api/repositories/inspect")
-    def repository_inspect(root_path: str, node_id: str) -> AtlasQueryResult:
+    def repository_inspect(runtime: RuntimeDep, root_path: str, node_id: str) -> AtlasQueryResult:
         return runtime.atlas_service.inspect(Path(root_path), node_id)
 
     @app.post("/api/repositories/review-context")
-    def repository_review_context(request: ReviewContextRequest) -> AtlasQueryResult:
+    def repository_review_context(
+        runtime: RuntimeDep, request: ReviewContextRequest
+    ) -> AtlasQueryResult:
         """The subgraph around a review's boundaries, for the map that opens beside it.
 
         Ids the atlas no longer holds are skipped rather than refused — the result names the
@@ -697,7 +770,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         )
 
     @app.post("/api/repositories/explore")
-    def repository_explore(request: AtlasExploreRequest) -> AtlasQueryResult:
+    def repository_explore(runtime: RuntimeDep, request: AtlasExploreRequest) -> AtlasQueryResult:
         repository = Path(request.root_path)
         if request.operation == "search":
             return runtime.atlas_service.search(
@@ -756,18 +829,22 @@ def create_app(runtime: Runtime) -> FastAPI:
         )
 
     @app.get("/api/filesystem/directories")
-    def list_directories(path: str | None = None) -> DirectoryListing:
+    def list_directories(
+        hosted_mode: RestrictionsDep, path: str | None = None
+    ) -> DirectoryListing:
         """Browse this machine's folders, so a repository root can be chosen rather than typed.
 
         With no `path`, the home directory. Read-only, one directory per request: only the
         names immediately inside it. Safe because the workspace binds 127.0.0.1 and serves the
-        one person whose files these already are.
+        one person whose files these already are — which is exactly why the hosted demo, where
+        neither half of that sentence holds, refuses it.
         """
 
+        hosted_mode.browsing()
         return _directory_listing(Path(path) if path else Path.home())
 
     @app.get("/api/bundled-cases")
-    def list_bundled_cases() -> list[BundledCase]:
+    def list_bundled_cases(runtime: RuntimeDep) -> list[BundledCase]:
         return [
             BundledCase(
                 name=item.name,
@@ -784,15 +861,16 @@ def create_app(runtime: Runtime) -> FastAPI:
         status_code=201,
         responses=_problem_responses(404, 422),
     )
-    def load_bundled_case(name: str) -> CaseRevision:
+    def load_bundled_case(runtime: RuntimeDep, name: str) -> CaseRevision:
         return runtime.bundled_case_service.load(name)
 
     @app.post(
         "/api/reviews",
         status_code=201,
+        dependencies=[SpendsModelBudget],
         responses=_problem_responses(404, 422, 503),
     )
-    def create_review(request: ReviewRequest) -> BoundaryReview:
+    def create_review(runtime: RuntimeDep, request: ReviewRequest) -> BoundaryReview:
         return runtime.review_service.review(
             request.case_id,
             repository_root=Path(request.repository_root),
@@ -802,6 +880,7 @@ def create_app(runtime: Runtime) -> FastAPI:
     @app.post(
         "/api/reviews/stream",
         response_class=NDJSONStreamingResponse,
+        dependencies=[SpendsModelBudget],
         responses={
             200: {
                 "model": ReviewProgress,
@@ -813,7 +892,7 @@ def create_app(runtime: Runtime) -> FastAPI:
             **_problem_responses(422),
         },
     )
-    def stream_review(request: ReviewRequest) -> NDJSONStreamingResponse:
+    def stream_review(runtime: RuntimeDep, request: ReviewRequest) -> NDJSONStreamingResponse:
         """The review a person watches: countable, because detection knows the length.
 
         Everything that can go wrong after the first line arrives as a `failed` line
@@ -831,6 +910,7 @@ def create_app(runtime: Runtime) -> FastAPI:
 
     @app.get("/api/reviews")
     def list_reviews(
+        runtime: RuntimeDep,
         case_id: str | None = None,
         limit: Annotated[int, Query(ge=1, le=500)] = 100,
     ) -> list[BoundaryReviewSummary]:
@@ -840,7 +920,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         "/api/reviews/{review_id}",
         responses=_problem_responses(404, 422),
     )
-    def get_review(review_id: str) -> BoundaryReview:
+    def get_review(runtime: RuntimeDep, review_id: str) -> BoundaryReview:
         return runtime.review_repository.get(review_id)
 
     @app.get(
@@ -848,6 +928,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         responses=_problem_responses(404, 422),
     )
     def review_source(
+        runtime: RuntimeDep,
         review_id: str,
         reference: Annotated[str | None, Query(pattern=r"^BR-[0-9]{3}$")] = None,
         context_lines: Annotated[int, Query(ge=0, le=MAX_CONTEXT_LINES)] = 0,
@@ -884,7 +965,7 @@ def create_app(runtime: Runtime) -> FastAPI:
             **_problem_responses(404, 409, 422),
         },
     )
-    def review_report(review_id: str) -> Response:
+    def review_report(runtime: RuntimeDep, review_id: str) -> Response:
         """The review as the Markdown document it was already written as.
 
         The stored string, handed over unchanged. It was rendered once, at the moment the
@@ -922,6 +1003,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         responses=_problem_responses(404, 409, 422),
     )
     def answer_review_questions(
+        runtime: RuntimeDep,
         review_id: str,
         request: ReviewAnswersRequest,
     ) -> CaseRevision:
@@ -953,7 +1035,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         "/api/reviews/{review_id}/cancel",
         responses=_problem_responses(404, 409, 422),
     )
-    def cancel_review(review_id: str) -> BoundaryReview:
+    def cancel_review(runtime: RuntimeDep, review_id: str) -> BoundaryReview:
         """Ask a running review to stop, and answer with the record that says it will.
 
         The run reads that record between model calls, so this returns before the work has
@@ -975,7 +1057,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         status_code=204,
         responses=_problem_responses(404, 409, 422),
     )
-    def delete_review(review_id: str) -> Response:
+    def delete_review(runtime: RuntimeDep, review_id: str) -> Response:
         """Remove a review and the question threads hung off it.
 
         Deleting is not editing: it removes the record rather than leaving one that says
@@ -992,6 +1074,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         responses=_problem_responses(404, 422),
     )
     def create_review_conversation(
+        runtime: RuntimeDep,
         request: ReviewConversationCreateRequest,
     ) -> ReviewConversation:
         return runtime.review_conversation_service.create(
@@ -1004,22 +1087,24 @@ def create_app(runtime: Runtime) -> FastAPI:
         "/api/review-conversations",
         responses=_problem_responses(404, 422),
     )
-    def list_review_conversations(review_id: str) -> list[ReviewConversation]:
+    def list_review_conversations(runtime: RuntimeDep, review_id: str) -> list[ReviewConversation]:
         return runtime.review_conversation_service.list(review_id)
 
     @app.get(
         "/api/review-conversations/{conversation_id}",
         responses=_problem_responses(404, 422),
     )
-    def get_review_conversation(conversation_id: str) -> ReviewConversation:
+    def get_review_conversation(runtime: RuntimeDep, conversation_id: str) -> ReviewConversation:
         return runtime.review_conversation_service.show(conversation_id)
 
     @app.post(
         "/api/review-conversations/{conversation_id}/messages",
         status_code=201,
+        dependencies=[SpendsModelBudget],
         responses=_problem_responses(404, 409, 422, 503),
     )
     def ask_review_question(
+        runtime: RuntimeDep,
         conversation_id: str,
         request: ReviewQuestionRequest,
     ) -> ReviewMessage:
@@ -1028,6 +1113,7 @@ def create_app(runtime: Runtime) -> FastAPI:
     @app.post(
         "/api/review-conversations/{conversation_id}/messages/stream",
         response_class=NDJSONStreamingResponse,
+        dependencies=[SpendsModelBudget],
         responses={
             200: {
                 "model": AnswerProgress,
@@ -1040,6 +1126,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         },
     )
     def stream_review_question(
+        runtime: RuntimeDep,
         conversation_id: str,
         request: ReviewQuestionRequest,
     ) -> NDJSONStreamingResponse:
@@ -1057,7 +1144,9 @@ def create_app(runtime: Runtime) -> FastAPI:
         )
 
     @app.get("/api/policies")
-    def list_policies(repository_root: str | None = None) -> list[PolicyDocument]:
+    def list_policies(
+        runtime: RuntimeDep, repository_root: str | None = None
+    ) -> list[PolicyDocument]:
         return runtime.policy_service.catalog(
             repository_root=(
                 Path(repository_root) if repository_root is not None else None
@@ -1065,21 +1154,33 @@ def create_app(runtime: Runtime) -> FastAPI:
         )
 
     @app.get("/api/policies/sources")
-    def list_policy_sources() -> list[PolicySourceRegistration]:
+    def list_policy_sources(runtime: RuntimeDep) -> list[PolicySourceRegistration]:
         return runtime.policy_service.list_sources()
 
     @app.post("/api/policies/sources", status_code=201)
-    def add_policy_source(request: PolicySourceRequest) -> PolicySourceRegistration:
+    def add_policy_source(
+        runtime: RuntimeDep,
+        hosted_mode: RestrictionsDep,
+        request: PolicySourceRequest,
+    ) -> PolicySourceRegistration:
+        """Read a folder of Markdown policies from this machine into every review.
+
+        Refused on the hosted demo: the folder named would be one of the server's. Writing
+        policies here is not — those live in the session's own workspace, and `POST
+        /api/policies` still answers.
+        """
+
+        hosted_mode.policy_source()
         return runtime.policy_service.add_source(Path(request.source))
 
     @app.delete("/api/policies/sources")
-    def remove_policy_source(source: str) -> PolicySourceRemovalResponse:
+    def remove_policy_source(runtime: RuntimeDep, source: str) -> PolicySourceRemovalResponse:
         return PolicySourceRemovalResponse(
             removed=runtime.policy_service.remove_source(Path(source))
         )
 
     @app.post("/api/policies", status_code=201, responses=_problem_responses(409, 422))
-    def create_policy(draft: PolicyDraft) -> PolicyDocument:
+    def create_policy(runtime: RuntimeDep, draft: PolicyDraft) -> PolicyDocument:
         """Write a policy of this workspace's own into `<workspace>/.archcompass/policies`.
 
         A real Markdown file in the format every other policy is in, so nothing about it is
@@ -1093,7 +1194,7 @@ def create_app(runtime: Runtime) -> FastAPI:
         "/api/policies/{policy_id}",
         responses=_problem_responses(404, 409, 422),
     )
-    def update_policy(policy_id: str, draft: PolicyDraft) -> PolicyDocument:
+    def update_policy(runtime: RuntimeDep, policy_id: str, draft: PolicyDraft) -> PolicyDocument:
         """Rewrite one of this workspace's policies. Anything read from elsewhere is a 409."""
 
         return runtime.policy_service.update(policy_id, draft)
@@ -1103,12 +1204,13 @@ def create_app(runtime: Runtime) -> FastAPI:
         status_code=204,
         responses=_problem_responses(404, 409),
     )
-    def delete_policy(policy_id: str) -> Response:
+    def delete_policy(runtime: RuntimeDep, policy_id: str) -> Response:
         runtime.policy_service.delete(policy_id)
         return Response(status_code=204)
 
     @app.get("/api/policies/{policy_id}", responses=_problem_responses(404))
     def get_policy(
+        runtime: RuntimeDep,
         policy_id: str, repository_root: str | None = None
     ) -> PolicyDocument:
         return runtime.policy_service.get(
@@ -1149,6 +1251,40 @@ def create_app(runtime: Runtime) -> FastAPI:
         )
 
     return app
+
+
+def _summary(
+    runtime: Runtime, restrictions: HostedRestrictions
+) -> WorkspaceSummaryResponse:
+    """What this workspace is pointed at, without asking any provider anything.
+
+    Read on every page load, which is why it costs one row and no network. Whether a
+    model is reachable is a different question with a different price, and it is asked
+    by the chooser at the moment someone is waiting to choose.
+    """
+
+    status = runtime.model_catalog_service.status()
+    selection = status.selection
+    return WorkspaceSummaryResponse(
+        # The path is withheld on the hosted demo rather than shortened: it ends in the
+        # session token, and a page that could read it could hand another visitor's
+        # workspace to anyone.
+        workspace="Hosted demo workspace" if restrictions.hosted else str(runtime.workspace),
+        models=WorkspaceModels(
+            reasoning=(
+                ModelIdentity(
+                    provider=status.provider,
+                    model=status.model,
+                    thinking=status.thinking,
+                )
+                if status.provider and status.model
+                else None
+            ),
+            failure=selection.failure_detail if selection else "",
+            pinned=status.pinned,
+        ),
+        hosted=restrictions.hosted,
+    )
 
 
 def _static_cache_headers(served: Path) -> dict[str, str]:

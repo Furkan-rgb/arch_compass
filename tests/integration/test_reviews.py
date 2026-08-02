@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from archcompass.adapters.models.deterministic import DETERMINISTIC_MODEL
 from archcompass.application.review_rendering import render_review
 from archcompass.bootstrap import Runtime
 from archcompass.domain.atlas import FindingPattern, NodeType
@@ -286,7 +287,20 @@ def test_the_cli_reports_the_review_it_reached(runtime: Runtime, tmp_path: Path)
 
     result = CliRunner().invoke(
         app,
-        ["--workspace", str(tmp_path), "review", case_id, "--repo", str(FIXTURE)],
+        [
+            "--workspace",
+            str(tmp_path),
+            # Named rather than chosen: this process builds its own runtime, and a workspace
+            # that has chosen nothing reasons with nothing.
+            "--provider",
+            "fake",
+            "--model",
+            DETERMINISTIC_MODEL,
+            "review",
+            case_id,
+            "--repo",
+            str(FIXTURE),
+        ],
     )
 
     assert result.exit_code == 0, result.output

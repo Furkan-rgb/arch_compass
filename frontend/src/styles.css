@@ -2087,3 +2087,42 @@ html:has(.home-hero) body {
   30% { stroke-dashoffset: -110; }
   100% { stroke-dashoffset: -110; }
 }
+
+/* ── The method page's stations ───────────────────────────────────────────────
+   The About page's course arrives at a number rather than passing it. When the
+   blue fill reaches a station, the number pops once and a ring goes out from it
+   — the atlas's ripple vocabulary, spent here on "under the eye now". Both are
+   one-shot by construction: each element mounts when its stage activates and
+   plays once, so nothing loops while the reader is still. The ring is drawn at
+   opacity 0 outside the animation, which is what makes the reduced-motion case
+   free: with no animation to raise it, it simply never appears, and the colour
+   flip on the number says everything it said.
+   ─────────────────────────────────────────────────────────────────────────── */
+.about-station-ring {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border: 2px solid var(--accent);
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .about-station-ring {
+    animation: about-station-ring 0.55s ease-out both;
+  }
+  /* A spring, not an ease: the overshoot past 1 is the arrival being felt. */
+  .about-station-pop {
+    animation: about-station-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+}
+
+@keyframes about-station-ring {
+  from { opacity: 0.5; transform: scale(0.45); }
+  to { opacity: 0; transform: scale(1.6); }
+}
+@keyframes about-station-pop {
+  from { transform: scale(0.92); }
+  to { transform: scale(1); }
+}

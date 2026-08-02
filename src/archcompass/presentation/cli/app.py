@@ -17,10 +17,12 @@ from archcompass.application.safety import (
 from archcompass.bootstrap import (
     Runtime,
     build_runtime,
+    pinned_model,
 )
 from archcompass.bootstrap import (
     initialize_workspace as initialize_workspace_runtime,
 )
+from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.case import ArchitectureCase, CaseUpdate
 from archcompass.domain.errors import ArchCompassError
 
@@ -44,24 +46,22 @@ app.add_typer(reviews_app, name="reviews")
 
 
 class CLIState:
-    def __init__(self, workspace: Path, models_config: Path | None) -> None:
+    def __init__(self, workspace: Path, pin: ReasoningModelConfig | None) -> None:
         self.workspace = workspace
-        self.models_config = models_config
+        self.pin = pin
         self._runtime: Runtime | None = None
 
     @property
     def runtime(self) -> Runtime:
         if self._runtime is None:
-            self._runtime = build_runtime(
-                self.workspace, models_config=self.models_config
-            )
+            self._runtime = build_runtime(self.workspace, pin=self.pin)
         return self._runtime
 
     def runtime_for_repository(self, repository: Path) -> Runtime:
         if self._runtime is None:
             self._runtime = build_runtime(
                 self.workspace,
-                models_config=self.models_config,
+                pin=self.pin,
                 repository=repository,
             )
         else:
@@ -79,30 +79,53 @@ def root_callback(
         Path,
         typer.Option(
             "--workspace",
-            help="Workspace containing config, state, and reports.",
+            help="Workspace containing state and reports.",
             file_okay=False,
         ),
     ] = Path("."),
-    models_config: Annotated[
-        Path | None,
-        typer.Option("--models-config", help="Explicit model configuration path."),
+    provider: Annotated[
+        str | None,
+        typer.Option("--provider", help="Reason with this provider for this run only."),
+    ] = None,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Reason with this model for this run only."),
+    ] = None,
+    thinking: Annotated[
+        bool | None,
+        typer.Option(
+            "--thinking/--no-thinking",
+            help=(
+                "Require or forbid reasoning before answering. Omitted leaves it to the "
+                "model, which is a third behaviour rather than the absence of the other two."
+            ),
+        ),
     ] = None,
 ) -> None:
-    context.obj = CLIState(workspace.expanduser().resolve(), models_config)
+    # Both or neither. A provider without a model names no model to run, and a model without
+    # a provider names no way to reach it; either alone would have to be completed by a
+    # guess, and which model a review runs against decides what it costs and how long it
+    # takes. `--thinking` is only meaningful alongside them, so it is refused on its own for
+    # the same reason rather than silently ignored.
+    if (provider is None) != (model is None):
+        raise typer.BadParameter("--provider and --model are given together or not at all")
+    if provider is None and thinking is not None:
+        raise typer.BadParameter("--thinking/--no-thinking needs --provider and --model")
+    pin = (
+        pinned_model(provider, model, thinking)
+        if provider is not None and model is not None
+        else None
+    )
+    context.obj = CLIState(workspace.expanduser().resolve(), pin)
 
 
 @app.command("init")
 def initialize(context: typer.Context) -> None:
-    """Create missing workspace configuration and database without overwriting files."""
+    """Create the workspace directory and its database without overwriting anything."""
     state = _state(context)
-    result = initialize_workspace_runtime(
-        state.workspace,
-        models_config=state.models_config,
-    )
-    state.set_runtime(result.runtime)
-    typer.echo(f"Workspace ready: {result.runtime.workspace}")
-    for path in result.created_paths:
-        typer.echo(f"Created {path}")
+    runtime = initialize_workspace_runtime(state.workspace, pin=state.pin)
+    state.set_runtime(runtime)
+    typer.echo(f"Workspace ready: {runtime.workspace}")
 
 
 @app.command("web")
@@ -113,7 +136,7 @@ def web(
         typer.Option(
             "--workspace",
             help=(
-                "Workspace containing config, state, and reports. "
+                "Workspace containing state and reports. "
                 "Defaults to the current directory (.)."
             ),
             file_okay=False,
@@ -148,24 +171,14 @@ def web(
     selected_workspace = (
         workspace.expanduser().resolve() if workspace is not None else state.workspace
     )
-    result = initialize_workspace_runtime(
-        selected_workspace,
-        models_config=state.models_config,
-        # No configuration is written for a workspace that has none. The interface asks for
-        # a model where one is actually needed and offers only models a reachable provider
-        # has, so a seeded file would put a provider in the chip that is not there — which
-        # is the ordinary case for anything hosted. `archcompass init` still writes one.
-        write_default_config=False,
-    )
-    state.set_runtime(result.runtime)
+    runtime = initialize_workspace_runtime(selected_workspace, pin=state.pin)
+    state.set_runtime(runtime)
     url = f"http://127.0.0.1:{port}"
     typer.echo(f"Arch Compass web workspace: {url}")
-    for path in result.created_paths:
-        typer.echo(f"Created {path}")
     if open_browser:
         threading.Timer(0.75, lambda: webbrowser.open(url)).start()
     uvicorn.run(
-        create_app(result.runtime),
+        create_app(runtime),
         host="127.0.0.1",
         port=port,
         access_log=False,

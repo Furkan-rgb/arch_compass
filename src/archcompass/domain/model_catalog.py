@@ -5,12 +5,13 @@ vendor transports" and a `domain/models.py` beside it would read as the same thi
 here knows how to reach a provider; these are the shapes an adapter fills in and the
 interface reads back.
 
-The distinction the whole module turns on: a *profile* is a configuration file this
-workspace holds, and a *candidate* is one model a live provider says that profile can
-actually run. The file supplies the credentials, the timeouts and the thinking setting —
-all of them hand-authored and none of them discoverable — and the provider supplies the
-only thing a file cannot know, which is what is installed or licensed right now. Neither
-alone is enough to choose from, which is why a candidate is the product of the two.
+The distinction the whole module turns on: a *provider* is something this build knows how
+to reach, and a *candidate* is one way of reasoning that a live provider says it can
+actually offer — a model, and one of the thinking modes that model genuinely has. The
+provider's descriptor supplies the endpoint, the credential variable and the budgets, none
+of them discoverable, and the provider itself supplies the only thing code cannot know,
+which is what is installed or licensed right now. Neither alone is enough to choose from,
+which is why a candidate is the product of the two.
 """
 
 from __future__ import annotations
@@ -33,10 +34,17 @@ class AvailableModel(DomainModel):
     #: can tell "no better label exists" from "the label is the name".
     label: str = ""
     #: What the provider reports the model can hold and produce. Advisory, and deliberately
-    #: not authoritative over the profile: see `ReasoningModelSelection` for why these are
-    #: only ever applied downwards.
+    #: not authoritative over the provider's own budgets: see `ReasoningModelSelection` for
+    #: why these are only ever applied downwards.
     input_token_limit: int | None = None
     output_token_limit: int | None = None
+    #: The thinking modes this model genuinely offers, from the adapter's curated list —
+    #: `True` requires reasoning, `False` forbids it, `None` leaves the model to its own
+    #: default. Not discoverable: a listing says a model exists, never whether asking it to
+    #: think is a request it will accept. `gemini-3.5-flash-lite` does not think and
+    #: `gemini-2.5-pro` cannot meaningfully stop, so offering either the other mode would be
+    #: offering a choice that is refused or ignored.
+    thinking_modes: tuple[bool | None, ...] = (None,)
 
 
 class ProbeResult(DomainModel):
@@ -54,23 +62,9 @@ class ProbeResult(DomainModel):
     models: list[AvailableModel] = Field(default_factory=list[AvailableModel])
 
 
-class ModelProfile(DomainModel):
-    """One `models.*.yaml` this workspace holds, summarised for a chooser."""
-
-    #: The file's basename — `models.google.yaml`. A basename rather than a path because
-    #: this is what a selection stores: a workspace that moves keeps its choice, and no
-    #: absolute path from one machine ends up in another's database.
-    profile_id: str
-    path: str
-    provider: str
-    #: The model this profile's own file names, which is the sensible default within it.
-    configured_model: str
-
-
 class ProviderAvailability(DomainModel):
-    """A profile's probe result, once the application has said which profile it was."""
+    """One provider's probe result, once the application has said which provider it was."""
 
-    profile_id: str
     provider: str
     available: bool
     detail: str = ""
@@ -78,22 +72,22 @@ class ProviderAvailability(DomainModel):
 
 
 class ModelCandidate(DomainModel):
-    """A profile crossed with a model its provider currently offers.
+    """One model a provider currently offers, in one of the thinking modes it has.
 
-    The unit the picker lists and a selection names. Two of them can carry the same `model`
-    from different profiles — the same Gemini reachable through two keys, say — which is why
-    a selection is identified by the pair and never by the model name alone.
+    The unit the picker lists and a selection names. A model appearing twice — once
+    thinking, once not — is two candidates rather than one with a switch beside it, because
+    they cost differently, answer differently, and are chosen the same way everything else
+    here is chosen: by picking the row that says what it does.
     """
 
-    profile_id: str
     provider: str
     model: str
+    #: `True` requires reasoning, `False` forbids it, `None` leaves the model to its own
+    #: default. Part of the identity: a candidate is (provider, model, thinking).
+    thinking: bool | None = None
     label: str = ""
     input_token_limit: int | None = None
     output_token_limit: int | None = None
-    #: The model this candidate's own profile names. Worth marking rather than sorting to
-    #: the top: it is the choice whose timeouts and thinking setting were written for it.
-    is_configured_default: bool = False
     is_selected: bool = False
 
 
@@ -114,15 +108,18 @@ class ModelCatalog(DomainModel):
 class ReasoningModelSelection(DomainModel):
     """The choice this workspace has made, and what the last run made of it.
 
-    Stored beside the configuration files rather than inside one. A `models.*.yaml` is
-    hand-authored, comment-rich and committed; rewriting one to record a click would destroy
-    the prose explaining every number in it. So the file stays the source of everything that
-    was reasoned about, and this record is the source of the one thing that was chosen.
+    Three fields make the choice, because three things vary between two runs that are
+    otherwise identical: which provider is reached, which model it is asked, and whether
+    that model reasons first. Everything else about reaching the provider is a property of
+    the provider, lives in its descriptor, and is not a workspace's to choose.
     """
 
-    profile_id: str
     provider: str
     model: str
+    #: `True` requires reasoning, `False` forbids it, `None` leaves the model to its own
+    #: default. Stored rather than derived: it is part of what was picked, and the same
+    #: model offers it both ways where the model supports both.
+    thinking: bool | None = None
     selected_at: datetime = Field(default_factory=utc_now)
     #: When a run against this selection last failed, and what the provider said. A probe
     #: cannot discover this — it only asks whether the model is listed, and an exhausted
@@ -131,10 +128,10 @@ class ReasoningModelSelection(DomainModel):
     failed_at: datetime | None = None
     failure_detail: str = ""
     #: What the provider said about this model when it was chosen. Kept because resolving a
-    #: selection must not cost a probe, and because a profile's budgets were written for the
-    #: model its file names: choosing a smaller one through the same profile leaves those
-    #: numbers generous, which is the direction that truncates a request instead of refusing
-    #: it. Applied downwards only. Null where the provider reports no limit.
+    #: selection must not cost a probe, and because a provider's budgets are written for the
+    #: models it usually reaches: choosing a smaller one leaves those numbers generous,
+    #: which is the direction that truncates a request instead of refusing it. Applied
+    #: downwards only. Null where the provider reports no limit.
     input_token_limit: int | None = None
     output_token_limit: int | None = None
 
@@ -149,32 +146,15 @@ class ReasoningModelStatus(DomainModel):
     selection: ReasoningModelSelection | None = None
     provider: str = ""
     model: str = ""
-    #: True where the effective model came from a configuration file rather than from a
-    #: choice made here — a CLI run, or a workspace holding exactly one profile and no
-    #: stored selection. Still changeable; it just was not chosen.
-    from_configuration: bool = False
-    #: True where this run was pointed at a configuration explicitly, by `--models-config`
-    #: or `ARCHCOMPASS_MODELS_CONFIG`. Then the choice is not the workspace's to make: the
-    #: command said which provider to run against, and a stored selection quietly overriding
-    #: it would make `--models-config` mean nothing.
+    thinking: bool | None = None
+    #: True where this process was told which model to use, by `--provider` and `--model`.
+    #: Then the choice is not the workspace's to make: the command said which provider this
+    #: run costs against, and a stored selection quietly overriding it would make the flags
+    #: mean nothing — `make demo` would run whichever model was last clicked.
     pinned: bool = False
-    #: The stored selection names a profile this workspace no longer holds. Distinct from
-    #: having chosen nothing, because the cure is different: a file came back or went away,
-    #: and saying so beats reporting the workspace as simply unconfigured.
-    unresolvable: bool = False
 
     @property
     def identity(self) -> str:
         """`provider:model`, or empty where nothing is selected."""
 
         return f"{self.provider}:{self.model}" if self.provider and self.model else ""
-
-    @property
-    def selection_profile(self) -> str:
-        """Which profile the stored choice names, or empty where there is no stored choice.
-
-        Empty for a model in force by configuration rather than by choice, which is what
-        keeps a chooser from marking a row as selected that nobody selected.
-        """
-
-        return self.selection.profile_id if self.selection else ""

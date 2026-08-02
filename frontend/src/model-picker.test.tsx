@@ -9,14 +9,12 @@ import type { ModelCatalog, WorkspaceSummary } from "./types";
 const CATALOG: ModelCatalog = {
   providers: [
     {
-      profile_id: "models.ollama.yaml",
       provider: "ollama",
       available: true,
       detail: "",
       probed_at: "2026-08-01T10:00:00Z",
     },
     {
-      profile_id: "models.google.yaml",
       provider: "google",
       available: false,
       detail: "The google provider needs an API key: set GOOGLE_API_KEY in .env",
@@ -25,13 +23,32 @@ const CATALOG: ModelCatalog = {
   ],
   candidates: [
     {
-      profile_id: "models.ollama.yaml",
       provider: "ollama",
       model: "gemma4:26b",
+      thinking: null,
       label: "26B",
       input_token_limit: null,
       output_token_limit: null,
-      is_configured_default: true,
+      is_selected: false,
+    },
+    // One model, two rows: a model that can reason either way is offered as both, and
+    // the variant is part of what a click sends.
+    {
+      provider: "ollama",
+      model: "qwen3.6:35b",
+      thinking: true,
+      label: "35B",
+      input_token_limit: null,
+      output_token_limit: null,
+      is_selected: false,
+    },
+    {
+      provider: "ollama",
+      model: "qwen3.6:35b",
+      thinking: false,
+      label: "35B",
+      input_token_limit: null,
+      output_token_limit: null,
       is_selected: false,
     },
   ],
@@ -43,9 +60,7 @@ function summary(models: Partial<WorkspaceSummary["models"]>): WorkspaceSummary 
     models: {
       reasoning: null,
       failure: "",
-      from_configuration: false,
       pinned: false,
-      unresolvable: false,
       ...models,
     },
   };
@@ -97,9 +112,9 @@ describe("the model chip", () => {
     );
   });
 
-  it("offers no choice when the run was pinned to a configuration", () => {
-    // `--models-config` decided which provider this process costs against. Offering a
-    // choice that would then be ignored is worse than offering none.
+  it("offers no choice when the run was pinned to a model", () => {
+    // `--provider`/`--model` decided which provider this process costs against. Offering
+    // a choice that would then be ignored is worse than offering none.
     open(summary({ reasoning: { provider: "google", model: "gemini-3.6-flash" }, pinned: true }));
 
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
@@ -130,24 +145,38 @@ describe("choosing a model", () => {
     expect(screen.getByText("gemma4:26b")).toBeInTheDocument();
   });
 
-  it("sends the profile as well as the model", async () => {
-    // The same model reachable through two configurations is two different choices, with
-    // different credentials and budgets behind them.
+  it("sends the variant as well as the model", async () => {
+    // The same name thinking and not are two different choices, with different costs and
+    // output budgets behind them, so the click has to say which row it was.
     vi.spyOn(api, "models").mockResolvedValue(CATALOG);
     const select = vi
       .spyOn(api, "selectModel")
-      .mockResolvedValue(summary({ reasoning: { provider: "ollama", model: "gemma4:26b" } }));
+      .mockResolvedValue(
+        summary({ reasoning: { provider: "ollama", model: "qwen3.6:35b", thinking: true } }),
+      );
     open(summary({}));
 
     fireEvent.click(screen.getByRole("button", { name: "Choose a reasoning model" }));
-    fireEvent.click(await screen.findByRole("option", { name: /gemma4:26b/ }));
+    fireEvent.click(await screen.findByRole("option", { name: /qwen3\.6:35b thinking/ }));
 
     // The first argument only: react-query hands the mutation its own context as a second.
     await waitFor(() => expect(select).toHaveBeenCalled());
     expect(select.mock.calls[0][0]).toEqual({
-      profile_id: "models.ollama.yaml",
-      model: "gemma4:26b",
+      provider: "ollama",
+      model: "qwen3.6:35b",
+      thinking: true,
     });
+  });
+
+  it("offers a model that reasons either way as two rows, and only marks the thinking one", async () => {
+    vi.spyOn(api, "models").mockResolvedValue(CATALOG);
+    open(summary({}));
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose a reasoning model" }));
+
+    const rows = await screen.findAllByRole("option", { name: /qwen3\.6:35b/ });
+    expect(rows).toHaveLength(2);
+    expect(screen.getAllByText("thinking")).toHaveLength(1);
   });
 });
 

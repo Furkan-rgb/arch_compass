@@ -84,7 +84,7 @@ def test_a_database_written_before_this_check_still_opens(tmp_path: Path) -> Non
     database.initialize()
 
 
-def test_the_selection_table_carries_the_columns_the_repository_writes(
+def test_the_choice_table_carries_the_columns_the_repository_writes(
     tmp_path: Path,
 ) -> None:
     """The shape the original fault was actually about, asserted against the whole chain."""
@@ -94,13 +94,16 @@ def test_the_selection_table_carries_the_columns_the_repository_writes(
     with database.connect() as connection:
         columns = {
             str(row[1])
-            for row in connection.execute("PRAGMA table_info(reasoning_model_selection)")
+            for row in connection.execute("PRAGMA table_info(reasoning_model_choice)")
         }
 
-    assert {"input_token_limit", "output_token_limit"} <= columns
+    assert {"thinking", "input_token_limit", "output_token_limit"} <= columns
+    # The table it replaces is gone rather than left beside it, so nothing can read a stale
+    # choice back out of a shape the application no longer writes.
+    assert "profile_id" not in columns
 
 
-def test_a_workspace_stopped_at_021_gains_the_columns_from_022(tmp_path: Path) -> None:
+def test_a_workspace_stopped_at_021_reaches_the_current_choice_table(tmp_path: Path) -> None:
     """The upgrade path this actually has to serve: a database created before 022 existed.
 
     Built by hand at that older shape rather than by rewinding the shipped files, because a
@@ -142,6 +145,6 @@ def test_a_workspace_stopped_at_021_gains_the_columns_from_022(tmp_path: Path) -
     with sqlite3.connect(path) as opened:
         columns = {
             str(row[1])
-            for row in opened.execute("PRAGMA table_info(reasoning_model_selection)")
+            for row in opened.execute("PRAGMA table_info(reasoning_model_choice)")
         }
-    assert {"input_token_limit", "output_token_limit"} <= columns
+    assert {"thinking", "input_token_limit", "output_token_limit"} <= columns

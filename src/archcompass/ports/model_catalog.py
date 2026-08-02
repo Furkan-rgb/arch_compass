@@ -8,12 +8,63 @@ the signature is already checked at each call site.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Protocol
 
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.model_catalog import ProbeResult, ReasoningModelSelection
 from archcompass.ports.reasoning import FocusedReasoningProvider
+
+
+@dataclass(frozen=True)
+class ProviderDefaults:
+    """Everything about reaching one provider that is not the model's name.
+
+    These numbers were hand-authored in a `models.*.yaml` per workspace, which asked every
+    reader to maintain a file whose every field but one was the same in every copy of it.
+    They are properties of the provider — what its endpoint is, which variable carries its
+    credential, how generous a budget check may be — so they belong beside the transport
+    that has to satisfy them.
+    """
+
+    #: Where the provider is reached. Required by a self-hosted provider such as Ollama; a
+    #: hosted SDK that knows its own endpoint leaves it unset.
+    base_url: str | None = None
+    #: Env var that overrides `base_url` at resolution time, so a deployment can move a
+    #: self-hosted provider without a code change.
+    base_url_env: str | None = None
+    #: Names the environment variable holding this provider's API key - never the key.
+    api_key_env: str | None = None
+    timeout_seconds: float = 360.0
+    #: Deliberately well below what a vendor advertises. This number only feeds the
+    #: pre-flight budget check, where under-stating refuses an oversize request with an
+    #: explicit message and over-stating lets one through to be truncated.
+    context_window_tokens: int = 131072
+    #: Output budget for a non-thinking selection.
+    max_output_tokens: int = 16384
+    #: Output budget for a thinking selection — larger because thinking tokens are spent
+    #: from the same allowance on both providers, so a stage needs noticeably more headroom
+    #: here than the response JSON alone would suggest.
+    max_output_tokens_thinking: int = 32768
+    chars_per_token: float = 4.0
+
+    def resolved_base_url(self) -> str | None:
+        """The endpoint to use now, letting the environment move a self-hosted provider.
+
+        Read at every use rather than resolved once at import, because the variable is set
+        by whoever starts the process and a value baked in at import time is one a
+        deployment cannot change. An empty value counts as unset: `FOO=` in a `.env` is how
+        a variable gets commented out in practice, and it must not blank the endpoint.
+        """
+
+        if self.base_url_env:
+            override = os.environ.get(self.base_url_env, "").strip()
+            if override:
+                return override
+        return self.base_url
+
 
 #: Whether a provider is reachable and what it currently offers.
 #:
@@ -21,12 +72,31 @@ from archcompass.ports.reasoning import FocusedReasoningProvider
 #: Constructing a provider is exactly what fails when a provider is unavailable — the Google
 #: transport resolves its API key in `__init__` — so a probe reached through a constructed
 #: reasoner could never report the most common reason for unavailability. It also lets the
-#: probe set its own timeout: a transport bakes in `timeout_seconds`, which is 360 in both
-#: shipped configurations and is right for a judgement, not for a dropdown.
-type ReasoningModelProbe = Callable[[ReasoningModelConfig], ProbeResult]
+#: probe set its own timeout: a transport bakes in `timeout_seconds`, which is 360 and is
+#: right for a judgement, not for a dropdown.
+#:
+#: Takes the defaults rather than a resolved `ReasoningModelConfig`: a probe asks what a
+#: provider has, which is a question with no model in it, and the only fields one ever read
+#: were the endpoint and the credential variable.
+type ReasoningModelProbe = Callable[[ProviderDefaults], ProbeResult]
 
 #: Building the reasoner for one resolved configuration.
 type ReasoningProviderFactory = Callable[[ReasoningModelConfig], FocusedReasoningProvider]
+
+
+@dataclass(frozen=True)
+class ProviderDescriptor:
+    """One provider this application can reach, registered by the module that implements it.
+
+    Exported as `DESCRIPTOR` from each adapter module, so adding a provider is adding a
+    module and naming it once in the composition root rather than editing three parallel
+    tables that drift.
+    """
+
+    name: str
+    build: ReasoningProviderFactory
+    probe: ReasoningModelProbe
+    defaults: ProviderDefaults
 
 
 class ReasoningModelSelectionRepository(Protocol):

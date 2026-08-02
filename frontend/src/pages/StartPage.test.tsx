@@ -40,9 +40,7 @@ function chosenModel(reasoning: { provider: string; model: string } | null) {
     models: {
       reasoning,
       failure: "",
-      from_configuration: false,
       pinned: false,
-      unresolvable: false,
     },
   });
 }

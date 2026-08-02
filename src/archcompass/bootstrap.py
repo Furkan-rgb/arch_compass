@@ -5,21 +5,22 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, NamedTuple
+from typing import Final
 
 from archcompass.adapters.analysis import (
     DeterministicAtlasQueryService,
     PythonAstRepositoryAnalyzer,
     SafeSourceReader,
 )
+from archcompass.adapters.models import SelectedModelReasoner
 from archcompass.adapters.models import (
-    DeterministicReasoningProvider,
-    GoogleReasoningProvider,
-    OllamaReasoningProvider,
-    SelectedModelReasoner,
-    probe_deterministic,
-    probe_google,
-    probe_ollama,
+    deterministic as deterministic_models,
+)
+from archcompass.adapters.models import (
+    google as google_models,
+)
+from archcompass.adapters.models import (
+    ollama as ollama_models,
 )
 from archcompass.adapters.persistence import (
     SQLiteAtlasRepository,
@@ -39,7 +40,7 @@ from archcompass.application.atlas_freshness import AtlasFreshnessService
 from archcompass.application.atlas_queries import AtlasService
 from archcompass.application.bundled_cases import BundledCaseService
 from archcompass.application.cases import CaseService
-from archcompass.application.model_catalog import ModelCatalogService
+from archcompass.application.model_catalog import ModelCatalogService, reasoning_config
 from archcompass.application.policies import PolicyService
 from archcompass.application.repository_index import RepositoryIndexService
 from archcompass.application.review_conversations import ReviewConversationService
@@ -48,22 +49,13 @@ from archcompass.application.reviews import ReviewService
 from archcompass.application.safety import (
     validate_workspace_repository_separation,
 )
-from archcompass.application.workspace import WorkspaceConfigurationService
 from archcompass.configuration import (
-    AppConfig,
     ReasoningModelConfig,
-    load_config,
     load_provider_environment,
-    resolve_config_path,
-    run_is_pinned,
 )
 from archcompass.domain.errors import ConfigurationError
-from archcompass.domain.model_catalog import ProbeResult
 from archcompass.ports.atlas import AtlasQueryService, RepositoryAnalyzer
-from archcompass.ports.model_catalog import (
-    ReasoningModelProbe,
-    ReasoningProviderFactory,
-)
+from archcompass.ports.model_catalog import ProviderDescriptor
 from archcompass.ports.reasoning import FocusedReasoningProvider
 from archcompass.ports.repositories import (
     AtlasRepository,
@@ -90,10 +82,6 @@ class Runtime:
     """
 
     workspace: Path
-    #: What this run was pointed at, where it was pointed at anything usable. Absent for a
-    #: workspace holding several configurations and no instruction about which to use — the
-    #: case the model chooser exists to settle, and no longer a reason to refuse to start.
-    config: AppConfig | None
     database: SQLiteDatabase
     case_repository: CaseRepository
     atlas_repository: AtlasRepository
@@ -113,16 +101,10 @@ class Runtime:
     model_catalog_service: ModelCatalogService
 
 
-@dataclass(frozen=True)
-class WorkspaceInitialization:
-    runtime: Runtime
-    created_paths: tuple[Path, ...]
-
-
 def build_runtime(
     workspace: Path,
     *,
-    models_config: Path | None = None,
+    pin: ReasoningModelConfig | None = None,
     policy_sources: list[Path] | None = None,
     repository: Path | None = None,
     initialize: bool = True,
@@ -134,22 +116,18 @@ def build_runtime(
     # the environment, and a `.env` file is where an interactive run keeps it.
     load_provider_environment(canonical_workspace)
     canonical_workspace.mkdir(parents=True, exist_ok=True)
-    # The database comes before the configuration now, because which model this workspace
-    # reasons with is a row in it. Nothing here needs the configuration to open the file.
+    # Which model this workspace reasons with is a row in this database, so it is opened
+    # before anything asks. Nothing else here needs it.
     database = SQLiteDatabase(
         canonical_workspace / ".archcompass" / "archcompass.db",
         workspace=canonical_workspace,
     )
     if initialize:
         database.initialize()
-    config = _configured(canonical_workspace, models_config)
     model_catalog_service = ModelCatalogService(
-        workspace=canonical_workspace,
-        explicit_config=models_config,
-        pinned=run_is_pinned(models_config),
+        registry=enabled_providers(),
         selections=SQLiteReasoningModelSelectionRepository(database),
-        probe=_probe_provider,
-        configured=config,
+        pin=pin,
     )
     # Resolved per call rather than built here: the choice can change while this process
     # runs, and a workspace that has not made one yet still has to start.
@@ -217,7 +195,6 @@ def build_runtime(
     )
     return Runtime(
         workspace=canonical_workspace,
-        config=config,
         database=database,
         case_repository=cases,
         atlas_repository=atlases,
@@ -241,105 +218,93 @@ def build_runtime(
 def initialize_workspace(
     workspace: Path,
     *,
-    models_config: Path | None = None,
-    write_default_config: bool = True,
-) -> WorkspaceInitialization:
+    pin: ReasoningModelConfig | None = None,
+) -> Runtime:
     """Open a workspace, creating what it is missing.
 
-    `write_default_config` is what separates the two commands that call this. `init` exists
-    to create missing configuration, so it writes one. The web workspace does not: a
-    workspace with nothing configured is now a state it can display and offer to settle, and
-    seeding an Ollama configuration into a hosted deployment that has no Ollama would replace
-    "choose a model" with a provider that is there in name and unreachable in fact.
+    Nothing is written but the workspace directory and its database. It used to seed a model
+    configuration file too, and the file is gone: which providers exist is stated in code,
+    and which model this workspace reasons with is a choice the interface asks for where a
+    model is actually needed — offering only models a reachable provider has, rather than
+    naming one that may not be installed.
     """
 
     canonical_workspace = workspace.expanduser().resolve()
-    # Before resolving anything: the workspace's `.env` is one of the places that says which
-    # configuration to use, and reading it afterwards would mean `archcompass init` and
-    # `archcompass web` never saw it. `build_runtime` loads it in this order too; loading it
-    # twice is free, because a variable already set is never overwritten.
+    # Before anything reaches a provider: a hosted provider reads its credential from the
+    # environment, and a `.env` is where an interactive run keeps it. `build_runtime` loads
+    # it in this order too; loading it twice is free, because a variable already set is never
+    # overwritten.
     load_provider_environment(canonical_workspace)
-    created: list[Path] = []
-    if write_default_config:
-        config_path = resolve_config_path(canonical_workspace, models_config)
-        external_config = models_config is not None or bool(
-            os.environ.get("ARCHCOMPASS_MODELS_CONFIG")
-        )
-        # The resolved path is the initialization target, so a workspace that already keeps
-        # provider-named configurations does not get an unnamed one written beside them.
-        # Creating is still conditional on the file being absent.
-        created = WorkspaceConfigurationService().initialize(
-            canonical_workspace,
-            config_path,
-            allow_external_config=external_config,
-        )
-        models_config = config_path
-    runtime = build_runtime(canonical_workspace, models_config=models_config)
-    return WorkspaceInitialization(runtime=runtime, created_paths=tuple(created))
+    return build_runtime(canonical_workspace, pin=pin)
 
 
-def _configured(workspace: Path, models_config: Path | None) -> AppConfig | None:
-    """The configuration this run was pointed at, where it was pointed at a usable one.
+#: Every provider this build knows how to reach, each registered by the module that
+#: implements it.
+#:
+#: One table rather than three parallel dispatches on the same strings. Building, probing
+#: and the defaults are wanted at different moments — one when a review runs, one when
+#: someone opens the chooser, one when a selection is resolved — and three if-chains over
+#: `"ollama" | "google" | "fake"` are three things that drift. It is also where the
+#: descriptors are type-checked: probes are plain functions held by name, so this is the one
+#: place their signatures have to agree with the port.
+_ALL_PROVIDERS: Final[dict[str, ProviderDescriptor]] = {
+    descriptor.name: descriptor
+    for descriptor in (
+        ollama_models.DESCRIPTOR,
+        google_models.DESCRIPTOR,
+        deterministic_models.DESCRIPTOR,
+    )
+}
 
-    `resolve_config_path` refuses to guess between several configurations, and that refusal
-    is right for a command whose whole cost turns on the answer. It is not a reason for a
-    workspace to fail to open: choosing between them is what the interface now does. So the
-    refusal becomes an absence here, and the absence becomes a required field on screen
-    rather than a traceback before anything has loaded.
+#: Which of them a deployment offers, as a comma-separated list of names. Absent means all,
+#: which is what a local run wants.
+PROVIDERS_VARIABLE: Final = "ARCHCOMPASS_PROVIDERS"
+
+
+def enabled_providers() -> dict[str, ProviderDescriptor]:
+    """The providers this deployment offers, in the order it named them.
+
+    A hosted deployment has no Ollama to reach, and a chooser listing one is a row that can
+    only ever say "nothing is listening" — worse than absent, because it reads as something
+    broken rather than as something not on offer. An unknown name is refused rather than
+    ignored: a typo that silently narrows the list would present itself as a provider that
+    has gone missing.
     """
 
-    try:
-        return load_config(resolve_config_path(workspace, models_config))
-    except ConfigurationError:
-        return None
+    raw = os.environ.get(PROVIDERS_VARIABLE, "").strip()
+    if not raw:
+        return dict(_ALL_PROVIDERS)
+    names = [item.strip() for item in raw.split(",") if item.strip()]
+    unknown = [item for item in names if item not in _ALL_PROVIDERS]
+    if unknown:
+        raise ConfigurationError(
+            f"{PROVIDERS_VARIABLE} names {', '.join(unknown)}, which this build cannot "
+            f"reach. It knows: {', '.join(_ALL_PROVIDERS)}."
+        )
+    return {item: _ALL_PROVIDERS[item] for item in names}
 
 
-class ProviderEntry(NamedTuple):
-    """How to reach one provider, and how to ask whether it is there."""
+def pinned_model(
+    provider: str, model: str, thinking: bool | None = None
+) -> ReasoningModelConfig:
+    """The configuration a command line asked for, refused by name if it cannot be reached.
 
-    build: ReasoningProviderFactory
-    probe: ReasoningModelProbe
+    Validated against the enabled registry rather than against everything this build knows,
+    so a run naming a provider its deployment has switched off is told so at the point of
+    asking instead of at the first boundary of a review.
+    """
 
-
-def _deterministic(config: ReasoningModelConfig) -> FocusedReasoningProvider:
-    del config
-    return DeterministicReasoningProvider()
-
-
-#: Every provider this application knows, paired with its own availability check.
-#:
-#: One table rather than two dispatches on the same strings. Building and probing are asked
-#: for at different moments — one when a review runs, one when someone opens the chooser —
-#: and a pair of parallel if-chains over `"ollama" | "google" | "fake"` is a pair that
-#: drifts. It is also where the probes are type-checked: they are plain functions passed by
-#: name, so this dict is the one place their signatures have to agree with the port.
-_PROVIDERS: Final[dict[str, ProviderEntry]] = {
-    "ollama": ProviderEntry(OllamaReasoningProvider, probe_ollama),
-    "google": ProviderEntry(GoogleReasoningProvider, probe_google),
-    "fake": ProviderEntry(_deterministic, probe_deterministic),
-}
+    descriptor = enabled_providers().get(provider)
+    if descriptor is None:
+        raise ConfigurationError(
+            f"{provider} is not a provider this deployment offers. It has: "
+            f"{', '.join(enabled_providers())}."
+        )
+    return reasoning_config(descriptor, model, thinking)
 
 
 def _build_reasoner(model: ReasoningModelConfig) -> FocusedReasoningProvider:
-    entry = _PROVIDERS.get(model.provider)
-    if entry is None:
+    descriptor = _ALL_PROVIDERS.get(model.provider)
+    if descriptor is None:
         raise ConfigurationError(f"Unsupported reasoning provider: {model.provider}")
-    return entry.build(model)
-
-
-def _probe_provider(model: ReasoningModelConfig) -> ProbeResult:
-    """Ask one profile's provider what it has, answering for an unknown one rather than raising.
-
-    The asymmetry with `_build_reasoner` is deliberate. Running a review against a provider
-    nothing can build has to stop; listing what a workspace could run against does not, and
-    a single stray `models.experimental.yaml` naming a typo must not be able to empty a
-    chooser of the providers that do work.
-    """
-
-    entry = _PROVIDERS.get(model.provider)
-    if entry is None:
-        return ProbeResult(
-            available=False,
-            detail=f"{model.provider} is not a provider this version knows how to reach",
-        )
-    return entry.probe(model)
+    return descriptor.build(model)

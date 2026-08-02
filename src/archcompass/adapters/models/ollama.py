@@ -22,7 +22,10 @@ from archcompass.adapters.models.structured import (
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ProviderError
 from archcompass.domain.model_catalog import AvailableModel, ProbeResult
+from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
 from archcompass.ports.reasoning import ReasoningTask
+
+PROVIDER_NAME: Final = "ollama"
 
 # ─────────────────────────────────────────────────────────────────────────────────────────
 # The local models this advisor offers, most preferred first. Edit this list to change what
@@ -38,14 +41,20 @@ from archcompass.ports.reasoning import ReasoningTask
 # has to explain. It is still the right trade — a chooser that lists whatever happens to be
 # on disk is not offering a choice, it is showing an inventory — but a name missing from
 # this list is the first thing to check when a pulled model does not appear.
+#
+# Each model carries the thinking modes it genuinely has. `/api/tags` reports no capability
+# at all, so this is the only place the difference can be stated — and it is not cosmetic:
+# Ollama rejects `think` outright for a model without the capability, so a gemma4 offered as
+# "not thinking" would fail at the first boundary of a review rather than quietly ignore the
+# request. `(None,)` means the parameter is never sent.
 # ─────────────────────────────────────────────────────────────────────────────────────────
-OFFERED_MODELS: Final = (
-    "gemma4:26b",
-    "gemma4:31b",
-    "gemma4:12b",
-    "qwen3.6:35b",
-    "qwen3.6:27b",
-)
+OFFERED_MODELS: Final[Mapping[str, tuple[bool | None, ...]]] = {
+    "gemma4:26b": (None,),
+    "gemma4:31b": (None,),
+    "gemma4:12b": (None,),
+    "qwen3.6:35b": (True, False),
+    "qwen3.6:27b": (True, False),
+}
 
 _MAX_TRANSPORT_ATTEMPTS: Final = 3
 _BACKOFF_BASE_SECONDS: Final = 0.5
@@ -126,10 +135,9 @@ def _as_provider_error(error: Exception) -> ProviderError:
     return ProviderError(f"Ollama reasoning request failed: {error}")
 
 
-#: What a liveness check may spend. `timeout_seconds` is 360 in both shipped configurations,
-#: which is right for a judgement and absurd for a question a dropdown is waiting on: a
-#: firewalled host would hold the picker open for six minutes before admitting nothing is
-#: there.
+#: What a liveness check may spend. `timeout_seconds` is 360, which is right for a judgement
+#: and absurd for a question a dropdown is waiting on: a firewalled host would hold the
+#: picker open for six minutes before admitting nothing is there.
 PROBE_TIMEOUT_SECONDS: Final = 2.0
 
 
@@ -153,7 +161,7 @@ def _probe_detail(base_url: str, error: Exception) -> str:
     return str(error)
 
 
-def probe_ollama(config: ReasoningModelConfig) -> ProbeResult:
+def probe_ollama(defaults: ProviderDefaults) -> ProbeResult:
     """Which of the offered models this Ollama server has pulled, or why it could not be asked.
 
     Never raises. Unavailability is the answer to the question, not a failure to answer it:
@@ -165,18 +173,20 @@ def probe_ollama(config: ReasoningModelConfig) -> ProbeResult:
     seconds of a reader waiting to be told something already known after the first.
     """
 
-    if not config.base_url:
-        return ProbeResult(available=False, detail="this profile sets no base_url")
+    base_url = defaults.resolved_base_url()
+    if not base_url:
+        return ProbeResult(available=False, detail="this provider sets no base_url")
     try:
-        listed = Client(host=config.base_url, timeout=PROBE_TIMEOUT_SECONDS).list()
+        listed = Client(host=base_url, timeout=PROBE_TIMEOUT_SECONDS).list()
     except _REQUEST_FAILURES as error:
-        return ProbeResult(available=False, detail=_probe_detail(config.base_url, error))
+        return ProbeResult(available=False, detail=_probe_detail(base_url, error))
     found = {
         entry.model: AvailableModel(
             name=entry.model,
             # Ollama offers no display name, so the size is the most useful thing it knows
             # that the tag does not already say.
             label=(entry.details.parameter_size or "") if entry.details else "",
+            thinking_modes=OFFERED_MODELS[entry.model],
         )
         for entry in listed.models
         if entry.model in OFFERED_MODELS
@@ -188,7 +198,7 @@ def probe_ollama(config: ReasoningModelConfig) -> ProbeResult:
         return ProbeResult(
             available=False,
             detail=(
-                f"{config.base_url} is running but has pulled none of "
+                f"{base_url} is running but has pulled none of "
                 f"{', '.join(OFFERED_MODELS)}"
             ),
         )
@@ -208,7 +218,7 @@ class OllamaChatTransport:
     def __init__(self, config: ReasoningModelConfig) -> None:
         self._config = config
         if not config.base_url:
-            raise ProviderError("The ollama provider requires base_url in models.yaml")
+            raise ProviderError("The ollama provider requires a base_url")
         self._client = Client(host=config.base_url, timeout=config.timeout_seconds)
 
     def complete(
@@ -293,6 +303,23 @@ class OllamaChatTransport:
 class OllamaReasoningProvider(StructuredReasoningProvider):
     def __init__(self, config: ReasoningModelConfig) -> None:
         super().__init__(config, OllamaChatTransport(config))
+
+
+#: How this build reaches a local Ollama server, stated once and read by the composition
+#: root.
+#:
+#: The endpoint is overridable from the environment because it is the one field here a
+#: deployment genuinely varies: the loopback default is right for the machine the models are
+#: pulled on and wrong for a server reaching one over a network.
+DESCRIPTOR: Final = ProviderDescriptor(
+    name=PROVIDER_NAME,
+    build=OllamaReasoningProvider,
+    probe=probe_ollama,
+    defaults=ProviderDefaults(
+        base_url="http://127.0.0.1:11434",
+        base_url_env="ARCHCOMPASS_OLLAMA_URL",
+    ),
+)
 
 
 #: `ChatTransport` is already checked by handing this to `StructuredReasoningProvider` above.

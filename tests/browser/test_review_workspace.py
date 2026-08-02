@@ -21,7 +21,8 @@ from pathlib import Path
 import pytest
 import uvicorn
 
-from archcompass.bootstrap import Runtime, build_runtime
+from archcompass.adapters.models.deterministic import DETERMINISTIC_MODEL
+from archcompass.bootstrap import Runtime, build_runtime, pinned_model
 from archcompass.domain.review import ReviewStatus
 from archcompass.presentation.web import create_app
 
@@ -49,17 +50,6 @@ COMMIT_FILLED = (
     "document.querySelectorAll('[data-slot=\"commit\"] p strong').length === 2"
 )
 
-FAKE_CONFIG = """models:
-  reasoning:
-    provider: fake
-    model: deterministic-architecture-v1
-    base_url: http://127.0.0.1:11434
-    timeout_seconds: 5
-    context_window_tokens: 131072
-    max_output_tokens: 8192
-"""
-
-
 def _free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -75,12 +65,9 @@ def workspace(tmp_path_factory: pytest.TempPathFactory) -> Runtime:
     """
 
     directory = tmp_path_factory.mktemp("browser-workspace")
-    config = directory / "config" / "models.yaml"
-    config.parent.mkdir(parents=True)
-    config.write_text(FAKE_CONFIG, encoding="utf-8")
-    # Named rather than discovered: a run reads `.env` from the working directory too, and
-    # this workspace means to run against the substitute written just above.
-    return build_runtime(directory, models_config=config)
+    # Pinned rather than chosen: a workspace that has chosen nothing reasons with nothing,
+    # and clicking through the model chip first would be a different test.
+    return build_runtime(directory, pin=pinned_model("fake", DETERMINISTIC_MODEL))
 
 
 @pytest.fixture(scope="module")

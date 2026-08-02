@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -9,12 +8,9 @@ from pydantic import ValidationError
 
 from archcompass.configuration import (
     ReasoningModelConfig,
-    discover_model_profiles,
     load_environment_file,
     load_provider_environment,
     resolve_api_key,
-    resolve_config_path,
-    run_is_pinned,
 )
 from archcompass.domain.errors import ConfigurationError
 
@@ -164,208 +160,29 @@ def test_the_workspace_environment_file_wins_over_the_working_directory(
     assert os.environ["ARCHCOMPASS_TEST_SCOPED_KEY"] == "from-workspace"
 
 
-def _workspace_with(tmp_path: Path, *names: str) -> Path:
-    (tmp_path / "config").mkdir()
-    for name in names:
-        (tmp_path / "config" / name).write_text("models: {}\n", encoding="utf-8")
-    return tmp_path
-
-
-def test_a_workspace_with_one_named_configuration_uses_it(tmp_path: Path) -> None:
-    """No second, unnamed configuration is invented beside the one that is already there.
-
-    A workspace naming its configuration for the provider it points at used to get
-    `models.yaml` written from the packaged template — pointing at a model that may not be
-    installed, and silently preferred over the one the user wrote.
-    """
-
-    workspace = _workspace_with(tmp_path, "models.ollama.yaml")
-
-    assert resolve_config_path(workspace).name == "models.ollama.yaml"
-
-
-def test_an_unnamed_configuration_still_wins_when_a_workspace_has_one(
-    tmp_path: Path,
-) -> None:
-    workspace = _workspace_with(tmp_path, "models.ollama.yaml", "models.yaml")
-
-    assert resolve_config_path(workspace).name == "models.yaml"
-
-
-def test_several_named_configurations_are_a_choice_rather_than_a_guess(
-    tmp_path: Path,
-) -> None:
-    """Which provider a review runs against decides its cost and its duration."""
-
-    workspace = _workspace_with(tmp_path, "models.google.yaml", "models.ollama.yaml")
-
-    with pytest.raises(ConfigurationError) as failure:
-        resolve_config_path(workspace)
-
-    message = str(failure.value)
-    assert "models.google.yaml" in message and "models.ollama.yaml" in message
-    assert "--models-config" in message
-
-
-def test_an_empty_workspace_is_pointed_at_the_default_name(tmp_path: Path) -> None:
-    """Which is what initialization then creates, so a new workspace still just works."""
-
-    assert resolve_config_path(tmp_path).name == "models.yaml"
-
-
-def test_an_explicit_path_beats_everything_a_workspace_holds(tmp_path: Path) -> None:
-    workspace = _workspace_with(tmp_path, "models.google.yaml", "models.ollama.yaml")
-    chosen = workspace / "config" / "models.google.yaml"
-
-    assert resolve_config_path(workspace, chosen) == chosen.resolve()
-
-
-def test_the_environment_variable_is_read_against_the_workspace(
+def test_a_working_directory_env_file_supplies_credentials(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """It usually arrives from the workspace's own `.env`, not from a shell in that tree."""
+    """A key travels with whoever runs the command, so the file beside them is read too.
 
-    workspace = _workspace_with(tmp_path, "models.ollama.yaml")
-    monkeypatch.setenv("ARCHCOMPASS_MODELS_CONFIG", "config/models.ollama.yaml")
-    monkeypatch.chdir(tmp_path.parent)
-
-    assert resolve_config_path(workspace) == (
-        workspace / "config" / "models.ollama.yaml"
-    ).resolve()
-
-
-def test_a_working_directory_env_file_supplies_credentials_but_not_the_configuration(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A key travels with whoever runs the command; a workspace's models do not.
-
-    Found by a repository that is itself a workspace: its `.env` was deciding the models
-    for every other workspace driven from inside it, including the temporary ones this
-    suite builds.
+    Nothing else travels that way any more. The variable a working directory was once
+    forbidden to supply named which model configuration to run against, and a repository
+    that is itself a workspace was deciding the models for every other workspace driven
+    from inside it — including the temporary ones this suite builds. There are no
+    configurations left to name.
     """
 
     working_directory = tmp_path / "somewhere"
     working_directory.mkdir()
     (working_directory / ".env").write_text(
-        "GOOGLE_API_KEY=from-the-working-directory\n"
-        "ARCHCOMPASS_MODELS_CONFIG=config/models.google.yaml\n",
-        encoding="utf-8",
+        "GOOGLE_API_KEY=from-the-working-directory\n", encoding="utf-8"
     )
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     monkeypatch.chdir(working_directory)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("ARCHCOMPASS_MODELS_CONFIG", raising=False)
 
     load_provider_environment(workspace)
 
     assert os.environ["GOOGLE_API_KEY"] == "from-the-working-directory"
-    assert "ARCHCOMPASS_MODELS_CONFIG" not in os.environ
-
-
-def test_a_workspace_env_file_may_name_its_own_configuration(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = _workspace_with(tmp_path, "models.ollama.yaml")
-    (workspace / ".env").write_text(
-        "ARCHCOMPASS_MODELS_CONFIG=config/models.ollama.yaml\n", encoding="utf-8"
-    )
-    monkeypatch.delenv("ARCHCOMPASS_MODELS_CONFIG", raising=False)
-
-    load_provider_environment(workspace)
-
-    assert os.environ["ARCHCOMPASS_MODELS_CONFIG"] == "config/models.ollama.yaml"
-
-
-_VALID_PROFILE = """
-models:
-  reasoning:
-    provider: {provider}
-    model: {model}
-    base_url: http://127.0.0.1:11434
-    timeout_seconds: 30
-"""
-
-
-def _profiles_in(tmp_path: Path, **files: str) -> Path:
-    (tmp_path / "config").mkdir(exist_ok=True)
-    for name, text in files.items():
-        (tmp_path / "config" / name.replace("__", ".")).write_text(text, encoding="utf-8")
-    return tmp_path
-
-
-def test_discovery_finds_every_configuration_resolution_refuses_to_choose_between() -> None:
-    """The two functions are meant to disagree, and this is the disagreement.
-
-    Resolution asks what this run was pointed at, where several candidates and nothing
-    choosing between them has to stop. Discovery asks what there is to choose from, where
-    several is the ordinary answer and the reason a chooser exists at all. Pinned together
-    so that neither is later "fixed" into the other.
-    """
-
-    workspace = _profiles_in(
-        Path(tempfile.mkdtemp()),
-        models__ollama__yaml=_VALID_PROFILE.format(provider="ollama", model="gemma4:26b"),
-        models__google__yaml=_VALID_PROFILE.format(provider="google", model="gemini-3.6-flash"),
-    )
-
-    with pytest.raises(ConfigurationError):
-        resolve_config_path(workspace)
-
-    discovered = discover_model_profiles(workspace)
-    assert [profile.profile_id for profile in discovered] == [
-        "models.google.yaml",
-        "models.ollama.yaml",
-    ]
-    assert [profile.provider for profile in discovered] == ["google", "ollama"]
-
-
-def test_discovery_includes_the_unnamed_configuration_the_glob_does_not_match(
-    tmp_path: Path,
-) -> None:
-    """`models.*.yaml` needs something between the dots, so `models.yaml` needs naming."""
-
-    workspace = _profiles_in(
-        tmp_path,
-        models__yaml=_VALID_PROFILE.format(provider="ollama", model="gemma4:12b"),
-        models__google__yaml=_VALID_PROFILE.format(provider="google", model="gemini-3.6-flash"),
-    )
-
-    discovered = discover_model_profiles(workspace)
-
-    assert [profile.profile_id for profile in discovered] == [
-        "models.yaml",
-        "models.google.yaml",
-    ]
-
-
-def test_a_configuration_that_will_not_parse_is_left_out_rather_than_raised(
-    tmp_path: Path,
-) -> None:
-    """A half-written file must not be able to empty a chooser of the profiles that work."""
-
-    workspace = _profiles_in(
-        tmp_path,
-        models__ollama__yaml=_VALID_PROFILE.format(provider="ollama", model="gemma4:26b"),
-        models__broken__yaml="models:\n  reasoning:\n    provider: ollama\n",
-    )
-
-    discovered = discover_model_profiles(workspace)
-
-    assert [profile.profile_id for profile in discovered] == ["models.ollama.yaml"]
-
-
-def test_a_run_is_pinned_by_a_flag_or_by_the_environment(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Both say which provider this run costs against, so neither is the workspace's to override."""
-
-    monkeypatch.delenv("ARCHCOMPASS_MODELS_CONFIG", raising=False)
-    assert not run_is_pinned()
-    assert run_is_pinned(tmp_path / "models.yaml")
-
-    monkeypatch.setenv("ARCHCOMPASS_MODELS_CONFIG", "config/models.google.yaml")
-    assert run_is_pinned()

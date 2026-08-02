@@ -78,11 +78,11 @@ export function ModelPickerProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const byProfile = useMemo(() => {
+  const byProvider = useMemo(() => {
     const grouped = new Map<string, ModelCandidate[]>();
     for (const candidate of catalog.data?.candidates ?? []) {
-      grouped.set(candidate.profile_id, [
-        ...(grouped.get(candidate.profile_id) ?? []),
+      grouped.set(candidate.provider, [
+        ...(grouped.get(candidate.provider) ?? []),
         candidate,
       ]);
     }
@@ -126,12 +126,9 @@ export function ModelPickerProvider({ children }: { children: ReactNode }) {
             </CommandEmpty>
 
             {providers.map((provider) => {
-              const candidates = byProfile.get(provider.profile_id) ?? [];
+              const candidates = byProvider.get(provider.provider) ?? [];
               return (
-                <CommandGroup
-                  key={provider.profile_id}
-                  heading={`${provider.provider} · ${provider.profile_id}`}
-                >
+                <CommandGroup key={provider.provider} heading={provider.provider}>
                   {/* Not a row that can be chosen, and deliberately still a row: the whole
                       point of showing an unreachable provider is the sentence it carries. */}
                   {!provider.available ? (
@@ -143,22 +140,34 @@ export function ModelPickerProvider({ children }: { children: ReactNode }) {
                     </CommandItem>
                   ) : null}
                   {candidates.map((candidate) => {
+                    // A model that can reason either way appears twice, and the variant is
+                    // part of the row's identity: the same name with thinking on and off
+                    // differs in what it costs, how long it takes and how much output
+                    // headroom the request gets, which is exactly what is being chosen.
+                    const thinking = candidate.thinking ?? null;
                     // Choosing is a round trip of its own — the server asks the provider for
                     // this model's limits on the way past — so the row that was clicked says
                     // it is working, and no second row can be clicked underneath it.
                     const saving =
                       choose.isPending &&
-                      choose.variables?.profile_id === candidate.profile_id &&
-                      choose.variables?.model === candidate.model;
+                      choose.variables?.provider === candidate.provider &&
+                      choose.variables?.model === candidate.model &&
+                      (choose.variables?.thinking ?? null) === thinking;
                     return (
                     <CommandItem
-                      key={`${candidate.profile_id}:${candidate.model}`}
-                      value={haystack(candidate.model, candidate.label, candidate.provider)}
+                      key={`${candidate.provider}:${candidate.model}:${String(thinking)}`}
+                      value={haystack(
+                        candidate.model,
+                        candidate.label,
+                        candidate.provider,
+                        thinking === true ? "thinking" : null,
+                      )}
                       disabled={choose.isPending}
                       onSelect={() =>
                         choose.mutate({
-                          profile_id: candidate.profile_id,
+                          provider: candidate.provider,
                           model: candidate.model,
+                          thinking,
                         })
                       }
                     >
@@ -172,9 +181,13 @@ export function ModelPickerProvider({ children }: { children: ReactNode }) {
                       <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-meta">
                         {candidate.model}
                       </span>
-                      {candidate.is_configured_default ? (
+                      {/* Only the thinking variant is marked. Its sibling needs no badge
+                          saying "not thinking" — an unmarked row already reads as the plain
+                          one, and a model offering a single way of working has nothing to
+                          distinguish it from. */}
+                      {thinking === true ? (
                         <Badge variant="neutral" className="flex-none">
-                          configured
+                          thinking
                         </Badge>
                       ) : null}
                       <span className={rowMeta}>{limits(candidate)}</span>
@@ -211,17 +224,15 @@ export function ModelChip({ workspace }: { workspace: WorkspaceSummary | undefin
   const failing = Boolean(models?.failure);
   const chosen = Boolean(reasoning);
   // Pinned runs and the brief moment before the workspace has answered are both read-only:
-  // `--models-config` said which provider this process costs against, so a choice offered
-  // here would be one that gets ignored.
+  // `--provider`/`--model` said which provider this process costs against, so a choice
+  // offered here would be one that gets ignored.
   const interactive = Boolean(openPicker) && !models?.pinned;
 
   const label = !workspace
     ? "reading workspace…"
     : reasoning
-      ? `${reasoning.provider} · ${reasoning.model}`
-      : models?.unresolvable
-        ? "configuration is gone"
-        : "Choose a model";
+      ? `${reasoning.provider} · ${reasoning.model}${reasoning.thinking === true ? " · thinking" : ""}`
+      : "Choose a model";
 
   const chip = (
     <Badge
@@ -255,7 +266,7 @@ export function ModelChip({ workspace }: { workspace: WorkspaceSummary | undefin
 
   if (!interactive) {
     return (
-      <span title={`Pinned by --models-config${models?.failure ? ` — ${models.failure}` : ""}`}>
+      <span title={`Pinned by --provider/--model${models?.failure ? ` — ${models.failure}` : ""}`}>
         {chip}
       </span>
     );

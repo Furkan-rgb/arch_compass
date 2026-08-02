@@ -73,8 +73,9 @@ content. Stages are timed by class, with the single configured timeout as the fa
 a workspace written before the classes existed behaves identically.
 
 Heavyweight or provider-specific behavior is constructed explicitly. Imports have no side effects.
-The packaged model configuration is a resource; workspace initialization copies it only when the
-selected configuration path does not exist.
+Each transport module exports a descriptor naming itself, its probe and its defaults; the
+composition root reads those and nothing else decides which providers exist. Workspace
+initialization copies no configuration, because there is none to copy.
 
 Review conversations use the same dependency direction and need far less machinery than
 the consultation conversations they replaced. A whole review serialises to roughly 25,000

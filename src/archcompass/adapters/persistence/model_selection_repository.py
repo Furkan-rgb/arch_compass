@@ -7,7 +7,7 @@ from archcompass.domain.base import utc_now
 from archcompass.domain.model_catalog import ReasoningModelSelection
 
 _COLUMNS = (
-    "profile_id, provider, model, selected_at, failed_at, failure_detail, "
+    "provider, model, thinking, selected_at, failed_at, failure_detail, "
     "input_token_limit, output_token_limit"
 )
 
@@ -26,7 +26,7 @@ class SQLiteReasoningModelSelectionRepository:
     def get(self) -> ReasoningModelSelection | None:
         with self._database.connect() as connection:
             row = connection.execute(
-                f"SELECT {_COLUMNS} FROM reasoning_model_selection WHERE id = 1"
+                f"SELECT {_COLUMNS} FROM reasoning_model_choice WHERE id = 1"
             ).fetchone()
         return None if row is None else ReasoningModelSelection.model_validate(dict(row))
 
@@ -41,15 +41,15 @@ class SQLiteReasoningModelSelectionRepository:
         with self._database.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO reasoning_model_selection(
-                    id, profile_id, provider, model, selected_at, failed_at,
+                INSERT INTO reasoning_model_choice(
+                    id, provider, model, thinking, selected_at, failed_at,
                     failure_detail, input_token_limit, output_token_limit
                 )
                 VALUES (1, ?, ?, ?, ?, NULL, '', ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
-                    profile_id = excluded.profile_id,
                     provider = excluded.provider,
                     model = excluded.model,
+                    thinking = excluded.thinking,
                     selected_at = excluded.selected_at,
                     failed_at = NULL,
                     failure_detail = '',
@@ -57,16 +57,18 @@ class SQLiteReasoningModelSelectionRepository:
                     output_token_limit = excluded.output_token_limit
                 """,
                 (
-                    selection.profile_id,
                     selection.provider,
                     selection.model,
+                    # Stored as 0/1/NULL rather than as text: the three states are the
+                    # domain's, and SQLite has no boolean to lose the third one in.
+                    None if selection.thinking is None else int(selection.thinking),
                     selection.selected_at.isoformat(),
                     selection.input_token_limit,
                     selection.output_token_limit,
                 ),
             )
             row = connection.execute(
-                f"SELECT {_COLUMNS} FROM reasoning_model_selection WHERE id = 1"
+                f"SELECT {_COLUMNS} FROM reasoning_model_choice WHERE id = 1"
             ).fetchone()
             connection.commit()
         if row is None:
@@ -75,7 +77,7 @@ class SQLiteReasoningModelSelectionRepository:
 
     def clear(self) -> None:
         with self._database.connect() as connection:
-            connection.execute("DELETE FROM reasoning_model_selection WHERE id = 1")
+            connection.execute("DELETE FROM reasoning_model_choice WHERE id = 1")
             connection.commit()
 
     def record_failure(self, detail: str) -> None:
@@ -88,7 +90,7 @@ class SQLiteReasoningModelSelectionRepository:
         with self._database.connect() as connection:
             connection.execute(
                 """
-                UPDATE reasoning_model_selection
+                UPDATE reasoning_model_choice
                 SET failed_at = ?, failure_detail = ?
                 WHERE id = 1
                 """,
@@ -100,7 +102,7 @@ class SQLiteReasoningModelSelectionRepository:
         with self._database.connect() as connection:
             connection.execute(
                 """
-                UPDATE reasoning_model_selection
+                UPDATE reasoning_model_choice
                 SET failed_at = NULL, failure_detail = ''
                 WHERE id = 1
                 """

@@ -12,8 +12,8 @@ import pytest
 from tests.reasoning_support import candidate, case, policies
 
 from archcompass.adapters.models.ollama import OllamaReasoningProvider
-from archcompass.bootstrap import build_runtime
-from archcompass.configuration import AppConfig, load_config
+from archcompass.bootstrap import build_runtime, pinned_model
+from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.case import ArchitectureCase
 
 pytestmark = pytest.mark.ollama
@@ -22,20 +22,24 @@ FIXTURE = Path("eval/cases/boundary-review/repository").resolve()
 
 
 @pytest.fixture(scope="module")
-def live_config() -> AppConfig:
-    config = load_config(Path("config/models.yaml").resolve())
-    assert config.models.reasoning.provider == "ollama"
-    return config
+def live_config() -> ReasoningModelConfig:
+    """The model this measurement runs against, named here rather than found in a file.
+
+    Named in the test because that is what the number it produces is about: a score against
+    an unstated model says nothing that can be compared with the last one.
+    """
+
+    return pinned_model("ollama", "gemma4:26b")
 
 
 def test_live_judgement_returns_one_bearing_per_presented_policy(
-    live_config: AppConfig,
+    live_config: ReasoningModelConfig,
 ) -> None:
     """Arity is the whole binding: a short reply would re-attribute every later answer."""
 
     corpus = policies(6)
 
-    verdict = OllamaReasoningProvider(live_config.models.reasoning).judge_finding_candidate(
+    verdict = OllamaReasoningProvider(live_config).judge_finding_candidate(
         case(), candidate(), corpus
     )
 
@@ -50,23 +54,19 @@ def test_live_judgement_returns_one_bearing_per_presented_policy(
 
 
 def test_live_review_and_question_round_trip(
-    live_config: AppConfig,
+    live_config: ReasoningModelConfig,
     tmp_path: Path,
 ) -> None:
     """The whole path against the real model: detect, judge, persist, ask."""
 
-    del live_config
     workspace = tmp_path / "workspace"
-    (workspace / "config").mkdir(parents=True)
-    (workspace / "config" / "models.yaml").write_text(
-        Path("config/models.yaml").read_text(encoding="utf-8"), encoding="utf-8"
-    )
+    workspace.mkdir(parents=True)
     for name in (".env",):
         source = Path(name)
         if source.is_file():
             (workspace / name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
 
-    runtime = build_runtime(workspace)
+    runtime = build_runtime(workspace, pin=live_config)
     runtime.repository_service.index(FIXTURE)
     revision = runtime.case_repository.create(
         ArchitectureCase(

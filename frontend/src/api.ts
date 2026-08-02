@@ -174,7 +174,7 @@ export const api = {
 
   /** Asks every configured provider what it has. Only called when the chooser opens. */
   models: () => request<ModelCatalog>("/api/models"),
-  selectModel: (choice: { profile_id: string; model: string }) =>
+  selectModel: (choice: { provider: string; model: string; thinking: boolean | null }) =>
     request<WorkspaceSummary>("/api/models/selection", {
       method: "PUT",
       body: JSON.stringify(choice),

@@ -26,6 +26,7 @@ from archcompass.adapters.models.structured import (
 )
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ConfigurationError, ProviderError
+from archcompass.ports.model_catalog import ProviderDefaults
 from archcompass.ports.reasoning import ReasoningTask
 
 _KEY_VARIABLE = "ARCHCOMPASS_TEST_GOOGLE_KEY"
@@ -34,6 +35,12 @@ _KEY_VARIABLE = "ARCHCOMPASS_TEST_GOOGLE_KEY"
 @pytest.fixture(autouse=True)
 def _api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(_KEY_VARIABLE, "test-key")
+
+
+def _probe_defaults() -> ProviderDefaults:
+    """What a probe is handed: a credential variable and, here, no endpoint of its own."""
+
+    return ProviderDefaults(api_key_env=_KEY_VARIABLE)
 
 
 def _reasoning_config() -> ReasoningModelConfig:
@@ -281,7 +288,7 @@ def test_truncated_response_names_the_thinking_budget_overlap() -> None:
         candidates=[types.Candidate(finish_reason=types.FinishReason.MAX_TOKENS)]
     )
 
-    with pytest.raises(ProviderError, match="max_output_tokens"):
+    with pytest.raises(ProviderError, match="output tokens"):
         _response_text(
             response,
             task=ReasoningTask.JUDGE_FINDING_CANDIDATE,
@@ -562,7 +569,7 @@ def test_the_probe_offers_only_the_models_this_advisor_names(
         )
 
     _patch_transport(monkeypatch, listing)
-    result = google_adapters.probe_google(_reasoning_config())
+    result = google_adapters.probe_google(_probe_defaults())
 
     assert result.available
     assert [model.name for model in result.models] == ["gemini-3.6-flash"]
@@ -586,7 +593,7 @@ def test_a_key_reaching_none_of_the_named_models_says_so(
             {"name": "models/gemini-2.0-flash", "supportedGenerationMethods": ["generateContent"]}
         ),
     )
-    result = google_adapters.probe_google(_reasoning_config())
+    result = google_adapters.probe_google(_probe_defaults())
 
     assert not result.available
     assert result.models == []
@@ -604,7 +611,7 @@ def test_a_missing_api_key_is_reported_rather_than_raised(
     """
 
     monkeypatch.delenv(_KEY_VARIABLE, raising=False)
-    result = google_adapters.probe_google(_reasoning_config())
+    result = google_adapters.probe_google(_probe_defaults())
 
     assert not result.available
     assert result.models == []
@@ -623,7 +630,7 @@ def test_a_rejected_key_carries_the_server_message(
         )
 
     _patch_transport(monkeypatch, rejected)
-    result = google_adapters.probe_google(_reasoning_config())
+    result = google_adapters.probe_google(_probe_defaults())
 
     assert not result.available
     assert result.detail == "HTTP 400: API key not valid."
@@ -645,7 +652,7 @@ def test_the_probe_asks_for_base_models_in_one_page(
         return _models_response()
 
     _patch_transport(monkeypatch, listing)
-    google_adapters.probe_google(_reasoning_config())
+    google_adapters.probe_google(_probe_defaults())
 
     assert len(asked) == 1
     assert "pageSize=200" in asked[0]
