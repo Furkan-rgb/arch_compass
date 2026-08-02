@@ -1,23 +1,7 @@
 import { load } from "js-yaml";
 
-import { CASE_SKELETON, caseToYaml, checkYamlSyntax } from "./case-editor";
+import { caseToYaml } from "./case-view";
 import type { ArchitectureCase } from "./types";
-
-describe("checkYamlSyntax", () => {
-  it("accepts a document the server can then judge", () => {
-    expect(checkYamlSyntax("title: A boundary decision\nnon_goals: []\n")).toBeNull();
-  });
-
-  it("names what is wrong when the document is not YAML at all", () => {
-    const problem = checkYamlSyntax("title: [unclosed\n");
-    expect(problem).toContain("flow collection");
-    expect(problem).toContain("title: [unclosed");
-  });
-
-  it("passes the skeleton, so an untouched editor fails at the server, not at syntax", () => {
-    expect(checkYamlSyntax(CASE_SKELETON)).toBeNull();
-  });
-});
 
 describe("caseToYaml", () => {
   const stored = {
@@ -57,20 +41,18 @@ describe("caseToYaml", () => {
     expect(yaml).not.toContain("policy_applicability");
   });
 
-  it("round-trips as the format the editor accepts", () => {
+  it("round-trips as the format the import route accepts", () => {
     const parsed = load(caseToYaml(stored)) as Record<string, unknown>;
 
     expect(parsed.title).toBe("Storage boundary");
     expect(parsed.non_goals).toEqual(["A second database."]);
     expect(parsed.confirmed_facts).toEqual([{ text: "SQLite is fixed.", kind: "fact" }]);
     expect(parsed.repository).toEqual({ root_path: "/repos/scheduler" });
-    expect(checkYamlSyntax(caseToYaml(stored))).toBeNull();
   });
 
   it("carries a question and its answer through as a pair", () => {
-    // The editor needs nothing special for these and is given nothing: a pair dumps like any
-    // other list entry, so reading a case shows the exchange that shaped it and editing one
-    // can reword an answer or delete a pair outright.
+    // Nothing special is done for these and nothing needs to be: a pair dumps like any
+    // other list entry, so reading a case shows the exchange that shaped it.
     const parsed = load(caseToYaml(stored)) as Record<string, unknown>;
 
     expect(parsed.clarifications).toEqual([

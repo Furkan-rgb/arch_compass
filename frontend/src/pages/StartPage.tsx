@@ -23,76 +23,46 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 import { api } from "../api";
-import { CaseEditor, CaseView } from "../case-editor";
-import { CaseForm, casePayload, type CaseFormValues } from "../case-form";
+import { CaseView } from "../case-view";
 import { EmptyLine, ErrorPanel, Loading, PageHeader, page, sheet } from "../components";
 import { useModelPicker } from "../model-picker";
 import { latestPerRepository } from "../repositories";
 import { useRun } from "../run";
 import {
-  applyRepositoryHint as hintRepository,
   chooseCase as pickCase,
   isReady,
   runIntent,
   type StartSelection,
 } from "../start-selection";
-import type { BundledCase, CaseRevision, CaseSummary } from "../types";
-
-/** Which case surface is open, if any: writing a new one, or reading a stored one. */
-type Editor =
-  | { mode: "form" }
-  | { mode: "revise"; caseId: string }
-  | { mode: "yaml" }
-  | { mode: "view"; caseId: string }
-  | null;
+import type { BundledCase, CaseSummary } from "../types";
 
 /**
- * The floating layer a case is written on.
+ * The floating layer a stored case is read on.
  *
  * A case is prose — eleven fields of it — and rendering that inline pushed the two pickers
  * and the run bar off the screen the moment anyone opened it, so the step you were in the
  * middle of disappeared while you did a different one. It floats instead: the start screen
  * stays behind it, unmoved, and closing puts the reader back exactly where they were.
  *
- * Deliberately not dismissed by a click on the backdrop. Everywhere else in this app that is
- * the courteous behaviour, but here the thing behind the click is half-written prose, and a
- * stray click is not a decision to throw it away. The close button is.
+ * This layer once carried a case being *written*, and with it two refusals — Escape and the
+ * backdrop would not dismiss half-written prose. Authoring moved into the review itself (a
+ * run without a case asks, and the answers become the case), so nothing shown here can be
+ * lost any more and both dismissals do what a reader expects of them.
  *
- * Escape was, and should not have been. It is the same dismissal by reflex as the backdrop —
- * pressed to dismiss a suggestion, to leave a field, to make something go away — and it was
- * throwing away a case someone had spent ten minutes writing, in silence, with nothing to
- * undo it. So it is refused on exactly the terms the backdrop is refused on: while `unsaved`
- * says there is writing here that is not in a revision yet, neither one closes this, and the
- * close button beside the heading stays the way out. On a surface nobody has typed into there
- * is nothing to protect, and Escape keeps doing what a reader expects of it.
- *
- * A vendored dialog now, which is where those decisions ended up being cheapest to keep: two
- * prevented events and focus that lands on the close button because that is the first thing in
- * the surface below. It carries no title of its own — the surface inside writes the heading,
- * and saying it twice would have a screen reader read the same words on the way in.
- *
- * The one thing the primitive cannot do here is give the focus back. A modal dialog returns
- * it to its own `DialogTrigger`, and there is none: this layer is rendered from state by any
- * of four buttons. So the control that opened it is remembered by the page and handed back,
- * because putting the reader back exactly where they were is the whole promise of a surface
- * that floats over a step rather than replacing it.
+ * The one thing the dialog primitive cannot do here is give the focus back. A modal dialog
+ * returns it to its own `DialogTrigger`, and there is none: this layer is rendered from
+ * state. So the control that opened it is remembered by the page and handed back, because
+ * putting the reader back exactly where they were is the whole promise of a surface that
+ * floats over a step rather than replacing it.
  */
 export function CaseLayer({
   label,
   opener,
-  unsaved,
   onClose,
   children,
 }: {
   label: string;
   opener: React.RefObject<HTMLElement | null>;
-  /**
-   * True while the surface inside holds writing that has not been saved as a revision.
-   *
-   * Absent on the surfaces where the question cannot arise — a stored case being read has
-   * nothing to lose, and a dismissal of it is only ever a dismissal.
-   */
-  unsaved?: boolean;
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -112,13 +82,6 @@ export function CaseLayer({
         // a scroller opens on its own middle.
         overlayClassName="items-start px-[var(--gutter)] py-6"
         className="max-w-[880px] gap-0 p-0"
-        onInteractOutside={(event) => event.preventDefault()}
-        // The one hole the backdrop's refusal left. Refused on the same terms and in the same
-        // way — the keypress simply does not dismiss — so there is one rule here rather than a
-        // second, differently-shaped guard for the same prose.
-        onEscapeKeyDown={(event) => {
-          if (unsaved) event.preventDefault();
-        }}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           opener.current?.focus();
@@ -161,7 +124,6 @@ const examplePill = cn(
 const startColumn = "grid min-w-0 content-start gap-2.5 px-[var(--card-pad-x)] pt-4 pb-5";
 const startHead = "flex items-baseline gap-2";
 const hint = "m-0 text-meta leading-[1.5] text-ink-2";
-const note = "m-0 text-meta leading-[1.5] text-ink-3";
 /* A read that failed is reported once, above both columns, inside the sheet's own gutter. */
 const readError = "px-[var(--card-pad-x)] [&_[data-slot=error-strip]]:mt-3 [&_[data-slot=error-strip]]:mb-0";
 
@@ -279,10 +241,7 @@ function FolderBrowser({
 
       {error ? <ErrorPanel error={error} /> : null}
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-rule-soft pt-3.5">
-        <p className={cn(note, "flex-[1_1_28ch]")}>
-          The workspace must not sit inside the project being analysed.
-        </p>
+      <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 border-t border-rule-soft pt-3.5">
         <Button
           type="button"
           variant="primary"
@@ -358,46 +317,30 @@ export function StartPage() {
   const [repositoryRoot, setRepositoryRoot] = useState<string | null>(null);
   const [caseId, setCaseId] = useState<string | null>(null);
   const [path, setPath] = useState("");
-  const [editor, setEditor] = useState<Editor>(null);
+  // The case whose stored revision is open for reading, if any.
+  const [viewing, setViewing] = useState<string | null>(null);
   // Held here rather than inside the picker: a successful index is what closes it, and the
   // mutation is this page's.
   const [picking, setPicking] = useState(false);
-  // Read at the click rather than at the layer's mount: the revise layer re-mounts when the
-  // stored case arrives, and by then focus is already inside it.
+  // Read at the click rather than at the layer's mount: the layer re-mounts when the stored
+  // case arrives, and by then focus is already inside it.
   const opener = useRef<HTMLElement | null>(null);
-  // Whether the open surface holds writing that is not in a revision yet. Held here rather
-  // than in the layer because the form is the only thing that can tell, and the layer is not
-  // its parent: this page renders both, and passing the answer between them is what lets the
-  // layer refuse a dismissal without knowing what a case field is.
-  const [unsaved, setUnsaved] = useState(false);
-  const openEditor = useCallback((next: Editor) => {
+  const openView = useCallback((caseId: string) => {
     opener.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    // Every surface opens with nothing written in it. Reset here as well as on the way out,
-    // because a form that was closed while dirty unmounts without ever reporting otherwise.
-    setUnsaved(false);
-    setEditor(next);
+    setViewing(caseId);
   }, []);
-  // One stable closure for all four surfaces below. It used to carry more weight than that:
-  // the hand-rolled focus trap re-ran — and re-grabbed focus — whenever this handler changed
-  // identity, so a fresh closure each render pulled the caret out of the field being typed
-  // into on every keystroke. The vendored dialog does not, and this stays anyway.
-  const closeEditor = useCallback(() => {
-    setUnsaved(false);
-    setEditor(null);
-  }, []);
+  const closeView = useCallback(() => setViewing(null), []);
 
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const cases = useQuery({ queryKey: ["cases"], queryFn: api.cases });
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: () => api.reviews() });
   const examples = useQuery({ queryKey: ["bundled-cases"], queryFn: api.bundledCases });
-  // The case behind an open panel: read for viewing, and read for revising so the form
-  // starts from the stored revision rather than from the summary the picker shows.
-  const opened = editor?.mode === "view" || editor?.mode === "revise" ? editor.caseId : null;
+  // The stored revision behind the open panel, not the summary the picker shows.
   const viewed = useQuery({
-    queryKey: ["case", opened],
-    queryFn: () => api.case(opened!),
-    enabled: Boolean(opened),
+    queryKey: ["case", viewing],
+    queryFn: () => api.case(viewing!),
+    enabled: Boolean(viewing),
   });
 
   const indexed = useMemo(
@@ -475,42 +418,6 @@ export function StartPage() {
       ]);
       run.start(started.caseId, started.root);
     },
-  });
-
-  const created = async (revision: CaseRevision) => {
-    setEditor(null);
-    // One selection, derived in one step, exactly as choosing a case from the list is.
-    // Setting the case and then applying the repository hint separately did not survive
-    // batching: the hint writes the whole selection back, and the one it was computed from
-    // still had the previous case in it — so a case authored here was created, listed, and
-    // silently left unchosen, with the run bar still offering a run on the code alone.
-    apply(
-      hintRepository(
-        { ...selection, caseId: revision.case_id },
-        revision.snapshot?.repository?.root_path,
-        indexedRoots,
-      ),
-    );
-    await client.invalidateQueries({ queryKey: ["cases"] });
-  };
-
-  const create = useMutation({
-    mutationFn: (source: string) => api.importCase(source),
-    onSuccess: created,
-  });
-
-  const write = useMutation({
-    mutationFn: (values: CaseFormValues) => api.createCase(casePayload(values)),
-    onSuccess: created,
-  });
-
-  const revise = useMutation({
-    mutationFn: (values: CaseFormValues) => {
-      const target = editor?.mode === "revise" ? editor.caseId : null;
-      if (!target) throw new Error("No case is open for revision.");
-      return api.updateCase(target, casePayload(values));
-    },
-    onSuccess: created,
   });
 
   // Which rail a choice fills, what it leaves alone, and what Run then does all live in
@@ -719,14 +626,15 @@ export function StartPage() {
               <h3 className="m-0 text-ui font-[650]">Case</h3>
               <Badge className="ml-auto">optional</Badge>
             </div>
-            {/* Optional, and saying so is the point. A case is what separates a boundary
-                that earns its place from one that does not, and it is also the reason
-                nobody got as far as a first verdict — so the review runs without one and
-                asks for what it lacked instead (master plan §6C.1). */}
+            {/* Nothing here authors a case, deliberately. There used to be a form, and its
+                correct use was almost always "skip it": the review runs without a case and
+                asks what it could not weigh, and the answers are how a case gets written
+                (master plan §6C.1). What this rail offers is the cases that already exist —
+                shaped by earlier reviews or loaded from an example — to run against again. */}
             <p className={hint}>
-              Skip this and the review runs on the repository alone, then asks what it could
-              not weigh — your answers become the case. Pick or write one here only if you
-              already know what this software has to do.
+              A case is written by the review itself: run without one and it asks what it
+              could not weigh — your answers become the case. Pick one here only to judge
+              against a case an earlier review already shaped.
             </p>
 
             {cases.isLoading ? <Loading label="Reading cases…" rows={2} /> : null}
@@ -751,43 +659,18 @@ export function StartPage() {
               </ul>
             ) : cases.isLoading || cases.isError ? null : (
               <EmptyLine>
-                No cases yet — write one below, or load a bundled example above to see what
-                a filled-in case looks like.
+                No cases yet — run a review and its questions will write one, or load a
+                bundled example above to see what a filled-in case looks like.
               </EmptyLine>
             )}
 
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                onClick={() => openEditor({ mode: "form" })}
-              >
-                New case
-              </Button>
-              {caseId ? (
-                <>
-                  <Button
-                    type="button"
-                    onClick={() => openEditor({ mode: "revise", caseId })}
-                  >
-                    Revise
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => openEditor({ mode: "view", caseId })}
-                  >
-                    View
-                  </Button>
-                </>
-              ) : null}
-              {/* The escape hatch stays: a case someone already has as YAML, or a field the
-                  form does not ask for, goes in this way. */}
-              <Button
-                type="button"
-                onClick={() => openEditor({ mode: "yaml" })}
-              >
-                Paste YAML
-              </Button>
-            </div>
+            {caseId ? (
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" onClick={() => openView(caseId)}>
+                  View
+                </Button>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -871,82 +754,15 @@ export function StartPage() {
         </Link>
       ) : null}
 
-      {editor?.mode === "form" ? (
-        <CaseLayer
-          opener={opener}
-          label="Write a case"
-          unsaved={unsaved}
-          onClose={closeEditor}
-        >
-          <CaseForm
-            heading="Write a case"
-            initial={undefined}
-            submitLabel="Create the case"
-            pendingLabel="Creating…"
-            pending={write.isPending}
-            error={write.error}
-            onSubmit={(values) => write.mutate(values)}
-            onClose={closeEditor}
-            onDirtyChange={setUnsaved}
-          />
-        </CaseLayer>
-      ) : null}
-      {editor?.mode === "revise" ? (
-        // Keyed by revision so the form re-mounts with the loaded case as its defaults
-        // rather than holding the empty values it was first built with. The key sits on the
-        // layer rather than on the form so that the re-mount takes the focus trap with it —
-        // keyed on the form alone, the element focus was resting on is replaced underneath
-        // it and the dialog stops hearing Escape.
-        <CaseLayer
-          key={`${editor.caseId}:${viewed.data?.revision ?? "loading"}`}
-          opener={opener}
-          label="Revise this case"
-          unsaved={unsaved}
-          onClose={closeEditor}
-        >
-          <CaseForm
-            heading="Revise this case"
-            initial={viewed.data?.snapshot}
-            submitLabel="Save as a new revision"
-            pendingLabel="Saving…"
-            pending={revise.isPending}
-            loading={viewed.isLoading}
-            error={viewed.error || revise.error}
-            onSubmit={(values) => revise.mutate(values)}
-            onClose={closeEditor}
-            onDirtyChange={setUnsaved}
-            note={
-              <p
-                data-slot="case-warning"
-                className="m-0 border-l-[3px] border-l-material bg-material-soft p-3 text-body leading-[1.55] text-ink [&>strong]:block"
-              >
-                <strong>Earlier reviews are not affected.</strong> This writes revision{" "}
-                {(viewed.data?.revision ?? 0) + 1}; every review that has already run stays
-                pinned to the revision it judged.
-              </p>
-            }
-          />
-        </CaseLayer>
-      ) : null}
-      {editor?.mode === "yaml" ? (
-        <CaseLayer opener={opener} label="Paste a case as YAML" onClose={closeEditor}>
-          <CaseEditor
-            pending={create.isPending}
-            error={create.error}
-            onCreate={(source) => create.mutate(source)}
-            onClose={closeEditor}
-          />
-        </CaseLayer>
-      ) : null}
-      {editor?.mode === "view" ? (
-        <CaseLayer opener={opener} label="The case, as stored" onClose={closeEditor}>
+      {viewing ? (
+        <CaseLayer opener={opener} label="The case, as stored" onClose={closeView}>
           <CaseView
             snapshot={viewed.data?.snapshot}
             loading={viewed.isLoading}
             error={viewed.error}
             onRetry={() => void viewed.refetch()}
             retrying={viewed.isFetching}
-            onClose={closeEditor}
+            onClose={closeView}
           />
         </CaseLayer>
       ) : null}

@@ -1,13 +1,11 @@
 import type {
   AnswerProgress,
   BoundaryExcerpt,
-  ArchitectureCase,
   AtlasExploreRequest,
   AtlasQueryResult,
   AtlasVersion,
   CaseRevision,
   CaseSummary,
-  CaseUpdate,
   DirectoryListing,
   Policy,
   PolicyDraft,
@@ -364,27 +362,6 @@ export const api = {
     request<CaseRevision>(
       `/api/cases/${caseId}${revision ? `?revision=${revision}` : ""}`,
     ),
-  createCase: (value: ArchitectureCase) =>
-    request<CaseRevision>("/api/cases", {
-      method: "POST",
-      body: JSON.stringify(value),
-    }),
-  // Not `request`: the body is YAML rather than JSON, and the route's media type is part
-  // of how it tells a case document from a case object.
-  importCase: async (source: string) => {
-    const response = await send("/api/cases/import-yaml", {
-      method: "POST",
-      headers: { "Content-Type": "text/yaml" },
-      body: source,
-    });
-    if (!response.ok) throw await refusal(response, "Invalid case YAML.");
-    return await readJson<CaseRevision>(response);
-  },
-  updateCase: (caseId: string, value: CaseUpdate) =>
-    request<CaseRevision>(`/api/cases/${caseId}`, {
-      method: "PATCH",
-      body: JSON.stringify(value),
-    }),
   /**
    * One directory's immediate subdirectories, for the folder picker on the start step. No
    * path means the home directory.
