@@ -51,6 +51,8 @@ export interface components {
     "edge_type": components["schemas"]["EdgeType"];
     "confidence": number;
     "location"?: components["schemas"]["SourceLocation"] | null;
+    "resolved_by"?: "parse" | "types";
+    "conformance"?: "strict" | "structural" | null;
   };
     "AtlasExploreRequest": {
     "root_path": string;

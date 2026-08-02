@@ -1,6 +1,6 @@
 # Plan: type-aware edge resolution
 
-**Status:** Spike complete — mypy is a go (findings below). Implementation not started.
+**Status:** Landed behind the `resolution` extra. Spike findings and measurements below.
 **Scope:** Atlas fidelity. No new detector, no new product surface, no change to what a
 verdict is allowed to rest on.
 
@@ -138,3 +138,58 @@ Measured, not felt — and on more than one input:
    Exit: full suite green with the extra absent *and* present.
 4. **Evaluation** — the measurements above, recorded here. Exit: the audiobook-studio
    acceptance test passes, or the plan is revised with what was learned instead.
+
+## Measurements
+
+Taken on the four bundled examples and on this project's own `src/`, before and after, with
+everything else held fixed. Timings are the best of three whole `analyze()` calls, so they
+include the AST parse, the metrics and the mypy build together — the number an indexing run
+actually pays. `implements` counts `IMPLEMENTS` edges; `unresolved` counts
+`unresolved-call` signals.
+
+| Repository | Files | `implements` before → after | Provenance after | `calls` before → after | `unresolved` before → after | Seconds before → after |
+| --- | --- | --- | --- | --- | --- | --- |
+| audiobook-studio | 13 | 2 → 2 | 1 strict, 1 structural | 14 → 24 | 36 → 26 | 0.02 → 0.40 |
+| boundary-review | 5 | 6 → 6 | 6 strict | 17 → 30 | 41 → 28 | 0.02 → 0.52 |
+| speech-vendor | 16 | 6 → 6 | 6 from the parse (all inherit) | 21 → 29 | 29 → 21 | 0.02 → 0.48 |
+| warehouse-sync | 14 | 2 → 2 | 2 from the parse (all inherit) | 11 → 14 | 26 → 23 | 0.02 → 0.43 |
+| this project's `src/` | 75 | 26 → 30 | 30 strict | 929 → 1120 | 2217 → 2026 | 1.16 → 2.01 |
+
+**The headline number did not move, and that is the honest result.** The heuristic already
+found audiobook-studio's two structurally-conforming adapters, so the acceptance case was
+never a count of two against a count of zero. What the typed pass changed there is what the
+atlas can *say*: both edges now carry `resolved_by: types`, one at `strict` and confidence
+1.0 and the other at `structural` and 0.9 — and the one at 0.9 is exactly `QwenSynthesis`,
+the adapter that narrows `narrate`'s parameter. Where the heuristic offered a flat 0.8 to
+both, a reader can now tell the pair the checker itself endorsed from the pair admitted by
+a relaxed rule, and the finding's limitations can say which.
+
+The negatives are correctly absent, which is the other half of the claim and the half a
+count cannot show. `Voice` has no members and is skipped, so it gains none of the nine
+classes that trivially satisfy it. Nothing in any example was wired to a protocol it does
+not implement.
+
+**The call edges are where the counts move.** Every example gains resolved calls and loses
+unresolved-call signals — audiobook-studio 14 → 24 calls and 36 → 26 unresolved, this
+project 929 → 1120 and 2217 → 2026 — because a method reached through a variable is a
+target the parse can only guess at and the checker simply knows. Those edges feed fan-in,
+blast radius and the call-chain metrics, so this is the part that lifts all three detectors
+rather than one.
+
+**One correctness result was only visible at scale, and it was severe.** Third-party imports
+are left unfollowed for cost, which makes an imported base class `Any` — and a class with
+`Any` in its ancestry answers *yes* to every member the checker is asked about. The first
+run over this project's own `src/` reported **10,176** conformance pairs where the truth is
+38, because every pydantic model in it satisfied every protocol in it. That failure is worse
+than a wrong count: a boundary with two hundred implementations behind it does not get
+reported wrongly, it drops out of the sole-implementation detector entirely, which is the
+silent-miss failure this project treats as its worst. Classes whose ancestry the build did
+not follow are now skipped outright — a class whose base is invisible cannot be judged — and
+`test_a_class_with_an_unfollowed_base_is_never_judged` holds it.
+
+**Cost.** Roughly half a second per bundled example and one extra second on this project's
+75 files; the mypy build is the whole of it and is flat in the number of questions asked,
+because the view is built once and every pair and every site is answered from it. Following
+third-party imports instead would be correct without the skip above and costs 10s against
+0.9s on this project — an order of magnitude to type code the atlas has no nodes for.
+Indexing is once per commit behind the content-fingerprint cache, so this is affordable.
