@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { BookOpenText, ClipboardList, Compass, Search } from "lucide-react";
+import { BookOpenText, ClipboardList, Compass, Info, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -148,6 +148,13 @@ export function CommandPalette() {
               <CommandItem value={haystack("Policies corpus")} onSelect={() => go("/policies")}>
                 <BookOpenText size={15} aria-hidden />
                 Policies
+              </CommandItem>
+              <CommandItem
+                value={haystack("About how it works method")}
+                onSelect={() => go("/about")}
+              >
+                <Info size={15} aria-hidden />
+                About
               </CommandItem>
             </CommandGroup>
 

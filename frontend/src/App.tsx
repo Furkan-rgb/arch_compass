@@ -6,6 +6,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Booting, Shell } from "./components";
 import { RunProvider } from "./run";
 
+const AboutPage = lazy(() =>
+  import("./pages/AboutPage").then(({ AboutPage }) => ({ default: AboutPage })),
+);
 const HomePage = lazy(() =>
   import("./pages/HomePage").then(({ HomePage }) => ({ default: HomePage })),
 );
@@ -45,6 +48,7 @@ export function App() {
               <Route path="/reviews" element={<ReviewsPage />} />
               <Route path="/reviews/:reviewId" element={<ReviewDetailPage />} />
               <Route path="/policies" element={<PoliciesPage />} />
+              <Route path="/about" element={<AboutPage />} />
               {/* Cases dissolved into the start step, and the standalone atlas explorer into
                   the review that raises the question (workspace-design §4). A bookmark must
                   not 404. */}

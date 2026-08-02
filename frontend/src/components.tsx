@@ -152,6 +152,9 @@ export function Shell({ children }: { children: ReactNode }) {
     { to: "/start", label: "Start" },
     { to: "/reviews", label: "Reviews" },
     { to: "/policies", label: "Policies" },
+    // After the records, because it explains them: the page that states the method, for a
+    // reader deciding whether to trust a verdict before running one of their own.
+    { to: "/about", label: "About" },
   ];
 
   return (

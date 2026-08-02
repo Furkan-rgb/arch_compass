@@ -185,7 +185,7 @@ function VerdictStack({ cards }: { cards: VerdictCard[] }) {
       onFocus={() => setHold(true)}
       onBlur={() => setHold(false)}
     >
-      <p className={specimen}>Specimen verdicts — run a bundled example to write your own</p>
+      <p className={specimen}>Specimen verdicts</p>
       {/* Stacked in one cell, so the block is as tall as the tallest of the three and never
           changes height as it turns. */}
       <div className="grid">
@@ -277,7 +277,9 @@ function Answer({
 
 type Judged = VerdictCard & { name: string; bearings: string };
 
-const REPLAY: Judged[] = [
+/** Exported for the About page's scroll-driven run: one specimen set, drawn on both pages,
+    so the front door and the method page can never disagree about how a run came out. */
+export const REPLAY: Judged[] = [
   {
     key: "BR-001",
     name: "orders.adapters.RepositoryPort",
@@ -397,7 +399,7 @@ function Replay() {
   return (
     <>
       {/* A fabricated run drawn without this line would falsify the page's own claim. */}
-      <p className={specimen}>Specimen run — run a bundled example to write your own</p>
+      <p className={specimen}>Specimen run</p>
 
       <VerdictBand
         material={material}
@@ -553,8 +555,7 @@ export function HomePage() {
               <Link to="/policies">Read the policies</Link>
             </Button>
             <p className="m-0 mt-1.5 basis-full text-meta text-ink-3">
-              A bundled example fills everything in one click — a fresh workspace produces a
-              real review immediately.
+              A bundled example produces a full review in one click.
             </p>
           </div>
         </div>
@@ -667,7 +668,7 @@ export function HomePage() {
           attributes every change to the answer that caused it.
         </p>
 
-        <p className={specimen}>Specimen question — run a bundled example to write your own</p>
+        <p className={specimen}>Specimen question</p>
 
         <div className="max-w-[82ch] rounded-panel border border-accent-rule bg-accent-soft p-[var(--card-pad)]">
           <p className="m-0 mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-read leading-[1.5] font-semibold">
@@ -805,7 +806,7 @@ export function HomePage() {
           record rather than a correction of the first.
         </p>
 
-        <p className={specimen}>Specimen report — run a bundled example to write your own</p>
+        <p className={specimen}>Specimen report</p>
 
         <div className="overflow-hidden rounded-panel border border-rule bg-surface shadow-card">
           <div className="flex flex-wrap items-center gap-2.5 border-b border-rule bg-sunken px-[var(--row-pad-x)] py-2.5">
@@ -879,9 +880,6 @@ export function HomePage() {
           ))}
         </ul>
         <div className="flex flex-wrap items-center justify-between gap-3 text-meta text-ink-3">
-          <span>
-            Open the workspace: <code className="font-mono">archcompass web</code>
-          </span>
           <span>ArchCompass — a workspace for architectural judgement.</span>
         </div>
       </div>
