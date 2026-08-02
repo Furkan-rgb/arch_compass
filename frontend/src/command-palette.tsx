@@ -105,7 +105,11 @@ export function CommandPalette() {
         {/* The second ink, not the third: this is 11px of mono on a 5%-white chip by night,
             where the third ink lands at 4.4:1 — under AA, and this is the one word on the
             control that carries the information. */}
-        <kbd className="font-mono text-micro text-ink-2">{SHORTCUT_LABEL}</kbd>
+        {/* Hidden where the primary pointer is a finger: a keystroke shown to a device
+            with no keyboard is not a hint, it is a puzzle. The button itself stays — the
+            palette is as reachable by tap as by key — and the aria-label keeps announcing
+            the shortcut for the hardware-keyboard readers this heuristic cannot see. */}
+        <kbd className="pointer-coarse:hidden font-mono text-micro text-ink-2">{SHORTCUT_LABEL}</kbd>
       </Button>
 
       <CommandDialog

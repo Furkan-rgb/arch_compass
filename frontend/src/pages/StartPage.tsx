@@ -150,7 +150,10 @@ const pickProse = "col-span-full overflow-hidden text-meta text-ellipsis whitesp
 /* An example is a pill rather than a button: it fills both rails at once, which is a thing
    to take rather than an action to perform. */
 const examplePill = cn(
-  "inline-flex h-[26px] cursor-pointer items-center gap-2 rounded-pill border border-rule",
+  // `min-w-0 max-w-full` because a pill's width is set by its title, and the longest title
+  // is longer than a phone: without them the flex row cannot shrink the pill, and the
+  // whole sheet is dragged past the viewport edge rather than the one label truncating.
+  "inline-flex h-[26px] min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-pill border border-rule",
   "bg-surface px-3 text-meta whitespace-nowrap text-ink",
   "not-disabled:hover:border-accent-rule not-disabled:hover:bg-accent-soft",
   "disabled:cursor-not-allowed disabled:opacity-55",
@@ -564,7 +567,11 @@ export function StartPage() {
       {/* One sheet, not a panel of panels. The two inputs are the same kind of thing —
           pick one from a short list — and giving each its own bordered box said they were
           two separate errands rather than two halves of one. */}
-      <section className={cn(sheet, "grid")} aria-label="Start a review">
+      {/* `minmax(0,1fr)`, not the implicit auto track: auto sizes to the widest child's
+          content, and one example pill longer than a phone screen was setting the width
+          of the entire sheet. A zero-minimum track makes the sheet the viewport's size
+          and leaves each child to truncate inside it. */}
+      <section className={cn(sheet, "grid grid-cols-[minmax(0,1fr)]")} aria-label="Start a review">
         {/* Both rails at once, which is what makes an example an example: a repository
             already parsed and a case already written, so the first run is a real one. */}
         <div
@@ -591,9 +598,12 @@ export function StartPage() {
               onClick={() => loadExample.mutate(example)}
               title={example.problem_statement}
             >
-              <span>{example.title}</span>
+              <span className="min-w-0 overflow-hidden text-ellipsis">{example.title}</span>
+              {/* The badge survives whole and the title gives way: "scored" is the fact
+                  that distinguishes this pill, and the title's tail is recoverable from
+                  the tooltip where a cut badge would just be a smudge. */}
               {example.has_expected_answers ? (
-                <Badge variant="accent" className="px-1.5 py-0">
+                <Badge variant="accent" className="flex-none px-1.5 py-0">
                   <FlaskConical size={11} aria-hidden /> scored
                 </Badge>
               ) : null}

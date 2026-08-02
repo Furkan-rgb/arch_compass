@@ -185,7 +185,11 @@ export function Shell({ children }: { children: ReactNode }) {
             </span>
             <b className="font-display text-ui font-semibold tracking-[-.01em]">Arch Compass</b>
           </NavLink>
-          <nav aria-label="Primary navigation" className="flex gap-0.5">
+          {/* On a phone the bar is dealt into three deliberate rows — brand and controls,
+              then navigation, then the model chip — via order, instead of letting wrap
+              deal them wherever each happens to fall. The theme control was landing on a
+              row of its own at the very bottom, which read as furniture someone forgot. */}
+          <nav aria-label="Primary navigation" className="flex gap-0.5 max-sm:order-5 max-sm:w-full">
             {navigation.map(({ to, label, end }) => (
               <NavLink
                 key={to}
@@ -216,16 +220,21 @@ export function Shell({ children }: { children: ReactNode }) {
               states itself rather than waiting to be asked: which model answered is the first
               thing a verdict's credibility depends on. Mono and unweighted, against the chip's
               own voice — this is a machine's name, not a judgement about anything. */}
-          {workspace.isError ? (
-            <Badge variant="material" className="min-w-0 gap-2 py-0.5 font-mono font-normal tracking-normal">
-              <span className="size-1.5 flex-none rounded-full bg-danger" />
-              <span className="overflow-hidden text-ellipsis whitespace-nowrap">
-                workspace unavailable
-              </span>
-            </Badge>
-          ) : (
-            <ModelChip workspace={workspace.data} />
-          )}
+          {/* The chip takes the third phone row whole rather than truncating beside the
+              brand: `google · gemini-3.6-flash · thinking` is the model's actual name,
+              and a name is the one thing on this bar that cannot lose its tail. */}
+          <div className="flex min-w-0 max-sm:order-6 max-sm:w-full">
+            {workspace.isError ? (
+              <Badge variant="material" className="min-w-0 gap-2 py-0.5 font-mono font-normal tracking-normal">
+                <span className="size-1.5 flex-none rounded-full bg-danger" />
+                <span className="overflow-hidden text-ellipsis whitespace-nowrap">
+                  workspace unavailable
+                </span>
+              </Badge>
+            ) : (
+              <ModelChip workspace={workspace.data} />
+            )}
+          </div>
           <ThemeControl />
         </div>
       </header>
