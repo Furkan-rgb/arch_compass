@@ -47,7 +47,7 @@ from archcompass.application.review_conversations import ReviewConversationServi
 from archcompass.application.review_source import ReviewSourceService
 from archcompass.application.reviews import ReviewService
 from archcompass.application.safety import (
-    validate_workspace_repository_separation,
+    validate_repository_directory,
 )
 from archcompass.configuration import (
     ReasoningModelConfig,
@@ -65,10 +65,15 @@ from archcompass.ports.repositories import (
 
 BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
 
+#: Everything a workspace holds that Arch Compass itself writes: the database, and the
+#: policies authored in it. Named once because it is also what an analysis of the workspace's
+#: own repository has to leave out.
+WORKSPACE_STATE_DIRECTORY = Path(".archcompass")
+
 #: Where a workspace keeps the policies written in it, beside the database it already keeps
 #: there. The one policy directory Arch Compass owns the files in: everything else in the
 #: corpus is somebody else's Markdown, read where it lies.
-AUTHORED_POLICY_DIRECTORY = Path(".archcompass") / "policies"
+AUTHORED_POLICY_DIRECTORY = WORKSPACE_STATE_DIRECTORY / "policies"
 
 
 @dataclass(frozen=True)
@@ -111,7 +116,7 @@ def build_runtime(
 ) -> Runtime:
     canonical_workspace = workspace.expanduser().resolve()
     if repository is not None:
-        validate_workspace_repository_separation(canonical_workspace, repository)
+        validate_repository_directory(repository)
     # Before any provider is constructed: a hosted provider reads its credential from
     # the environment, and a `.env` file is where an interactive run keeps it.
     load_provider_environment(canonical_workspace)
@@ -119,7 +124,7 @@ def build_runtime(
     # Which model this workspace reasons with is a row in this database, so it is opened
     # before anything asks. Nothing else here needs it.
     database = SQLiteDatabase(
-        canonical_workspace / ".archcompass" / "archcompass.db",
+        canonical_workspace / WORKSPACE_STATE_DIRECTORY / "archcompass.db",
         workspace=canonical_workspace,
     )
     if initialize:
@@ -136,7 +141,22 @@ def build_runtime(
     atlases = SQLiteAtlasRepository(database)
     reviews = SQLiteBoundaryReviewRepository(database)
     review_conversations = SQLiteReviewConversationRepository(database)
-    analyzer = PythonAstRepositoryAnalyzer(edge_resolver=build_edge_resolver())
+    # The workspace is left out of every snapshot, which is what allows a repository to be
+    # analysed with its own workspace inside it. What the workspace holds changes whenever a
+    # review runs, so indexing it would move the content fingerprint on every run and leave
+    # the atlas permanently stale.
+    #
+    # The state directory is named as well as the workspace, for the case this repository is
+    # itself: a workspace that *is* the analysed repository cannot be excluded whole without
+    # emptying the atlas, so what Arch Compass writes there is excluded instead.
+    excluded_roots = (
+        canonical_workspace,
+        canonical_workspace / WORKSPACE_STATE_DIRECTORY,
+    )
+    analyzer = PythonAstRepositoryAnalyzer(
+        edge_resolver=build_edge_resolver(excluded_roots),
+        excluded_roots=excluded_roots,
+    )
     freshness = AtlasFreshnessService(analyzer)
     source_reader = SafeSourceReader()
     queries = DeterministicAtlasQueryService(source_reader, freshness)
@@ -157,7 +177,6 @@ def build_runtime(
     )
     case_service = CaseService(cases)
     repository_service = RepositoryIndexService(
-        workspace=canonical_workspace,
         analyzer=analyzer,
         atlases=atlases,
     )
@@ -261,20 +280,24 @@ _ALL_PROVIDERS: Final[dict[str, ProviderDescriptor]] = {
 PROVIDERS_VARIABLE: Final = "ARCHCOMPASS_PROVIDERS"
 
 
-def build_edge_resolver() -> EdgeResolver | None:
+def build_edge_resolver(excluded_roots: tuple[Path, ...] = ()) -> EdgeResolver | None:
     """The type oracle, if this installation has one.
 
     Its backend is an optional extra (`uv sync --extra resolution`), so whether the import
     succeeds is the whole of the decision — there is no flag, and nothing above this module
     can be configured into asking for a resolver that is not installed. Absent, the atlas is
     exactly what it was before typed edges existed.
+
+    It is given the analyzer's excluded subtrees because it builds its own module list from
+    the repository rather than from the snapshot; without them a workspace inside the
+    repository would be type-checked even though the atlas has no nodes for it.
     """
 
     try:
         from archcompass.adapters.analysis.mypy_resolver import MypyEdgeResolver
     except ImportError:
         return None
-    return MypyEdgeResolver()
+    return MypyEdgeResolver(excluded_roots)
 
 
 def enabled_providers() -> dict[str, ProviderDescriptor]:

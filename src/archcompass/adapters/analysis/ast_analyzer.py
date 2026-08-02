@@ -17,7 +17,10 @@ from archcompass.adapters.analysis.ast_support import (
     ParsedModule,
     ast_for_node,
     build_edge,
+    canonical_roots,
+    excluded_within,
     lexical_nodes,
+    lies_within,
     module_name,
 )
 from archcompass.adapters.analysis.boundary_signals import (
@@ -159,8 +162,18 @@ class PythonAstRepositoryAnalyzer:
     what makes the extra optional rather than a fork of the analyzer.
     """
 
-    def __init__(self, edge_resolver: EdgeResolver | None = None) -> None:
+    def __init__(
+        self,
+        edge_resolver: EdgeResolver | None = None,
+        *,
+        excluded_roots: tuple[Path, ...] = (),
+    ) -> None:
         self._edge_resolver = edge_resolver
+        # Canonicalized once, and never folded into the analysis config hash: an excluded
+        # root is where this machine happens to keep its workspace, exactly like `root_path`,
+        # and hashing it would make two machines analysing the same commit disagree about
+        # whether a stored atlas is stale.
+        self._excluded_roots = canonical_roots(excluded_roots)
 
     def analyze(self, root: Path) -> Atlas:
         snapshot = self._snapshot(root)
@@ -326,8 +339,13 @@ class PythonAstRepositoryAnalyzer:
             raise PathValidationError(f"Repository path is not a directory: {root}")
         return canonical
 
-    @staticmethod
-    def _discover_files(root: Path) -> tuple[list[Path], list[Path]]:
+    def _discover_files(self, root: Path) -> tuple[list[Path], list[Path]]:
+        # What an ArchCompass workspace holds — its database, its authored policies, its run
+        # outputs — changes whenever a review runs. A workspace inside the analysed
+        # repository would therefore move the content fingerprint on every run, leaving the
+        # atlas permanently stale and filling it with the tool's own state, so it is left out
+        # exactly like an ignored directory.
+        excluded = excluded_within(root, self._excluded_roots)
         python_files: list[Path] = []
         config_files: list[Path] = []
         for path in root.rglob("*"):
@@ -335,6 +353,8 @@ class PythonAstRepositoryAnalyzer:
             if any(part in IGNORED_DIRECTORIES for part in relative_parts):
                 continue
             if path.is_symlink() or not path.is_file():
+                continue
+            if lies_within(path, excluded):
                 continue
             if path.suffix == ".py":
                 python_files.append(path)

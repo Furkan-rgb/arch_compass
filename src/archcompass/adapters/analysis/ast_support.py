@@ -1,8 +1,12 @@
-"""Shared AST helpers for Python repository analysis.
+"""Shared AST and file-selection helpers for Python repository analysis.
 
 The analyzer core and the boundary-preparation detectors both need to walk one
 lexical body, find the syntax behind an Atlas node, and mint an edge. Keeping these
 here lets the detectors live in their own module without either importing the other.
+
+The subtree-exclusion pair is here for the same reason: the analyzer and the type
+resolver each build their own file list, and they have to leave out the same files or
+the resolver would answer about code the atlas has no nodes for.
 """
 
 from __future__ import annotations
@@ -42,6 +46,43 @@ def module_name(relative_path: str) -> str:
     if parts[-1] == "__init__":
         parts = parts[:-1]
     return ".".join(parts) or "__root__"
+
+
+def canonical_roots(roots: Iterable[Path]) -> tuple[Path, ...]:
+    """Excluded subtrees as absolute, symlink-free paths, resolved once."""
+
+    return tuple(sorted(root.expanduser().resolve() for root in roots))
+
+
+def excluded_within(root: Path, excluded_roots: tuple[Path, ...]) -> tuple[Path, ...]:
+    """The excluded subtrees that lie strictly inside this repository.
+
+    A root equal to or containing the repository is dropped rather than honoured. The
+    ArchCompass workspace is excluded so that a repository holding one can still be
+    analysed; a workspace that *is* the repository, or that has the repository inside it,
+    would exclude every file and leave an empty atlas — which is a worse answer than
+    indexing the tool's own state, and not the question the caller asked.
+    """
+
+    return tuple(
+        excluded
+        for excluded in excluded_roots
+        if excluded != root and excluded.is_relative_to(root)
+    )
+
+
+def lies_within(path: Path, roots: tuple[Path, ...]) -> bool:
+    """Whether a file sits under one of these subtrees, symlinked parents included.
+
+    Resolved rather than compared as written, so a subtree reached through a symlinked
+    parent is still recognised. Only reached when something is excluded, because it costs a
+    syscall per file.
+    """
+
+    if not roots:
+        return False
+    canonical = path.resolve()
+    return any(canonical.is_relative_to(root) for root in roots)
 
 
 def lexical_nodes(syntax: ast.AST) -> Iterable[ast.AST]:

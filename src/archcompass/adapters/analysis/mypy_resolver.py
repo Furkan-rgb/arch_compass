@@ -47,7 +47,12 @@ from mypy.types import (
 )
 from mypy.version import __version__ as MYPY_VERSION
 
-from archcompass.adapters.analysis.ast_support import module_name
+from archcompass.adapters.analysis.ast_support import (
+    canonical_roots,
+    excluded_within,
+    lies_within,
+    module_name,
+)
 from archcompass.ports.atlas import (
     ConformanceQuestion,
     ConformanceVerdict,
@@ -98,7 +103,17 @@ class MypyEdgeResolver:
     cache above this is the only cache.
     """
 
+    def __init__(self, excluded_roots: tuple[Path, ...] = ()) -> None:
+        #: The same subtrees the analyzer leaves out of its snapshot — an ArchCompass
+        #: workspace inside the analysed repository, above all. Fed to mypy they would be
+        #: type-checked at cost for code the atlas has no nodes for, and a stray module there
+        #: could collide with a real one on its dotted name.
+        self._excluded_roots = canonical_roots(excluded_roots)
+
     def fingerprint(self) -> Mapping[str, str]:
+        # No excluded roots: they say where this machine keeps its workspace, and the
+        # fingerprint is folded into the analysis config hash, which has to name the same
+        # analysis on every machine.
         return {
             "backend": "mypy",
             "backend_version": MYPY_VERSION,
@@ -109,7 +124,7 @@ class MypyEdgeResolver:
         if request.is_empty():
             return EdgeResolutionResult()
         try:
-            view = _RepositoryTypes.build(root)
+            view = _RepositoryTypes.build(root, self._excluded_roots)
         except CompileError:
             # A repository mypy cannot get through at all yields no typed edges rather than
             # no atlas. The parse already produced one, and indexing a repository must not
@@ -141,13 +156,15 @@ class _RepositoryTypes:
         self._expressions: dict[str, dict[tuple[int, str], Expression]] = {}
 
     @classmethod
-    def build(cls, root: Path) -> _RepositoryTypes:
+    def build(cls, root: Path, excluded_roots: tuple[Path, ...] = ()) -> _RepositoryTypes:
+        excluded = excluded_within(root, excluded_roots)
         modules = {
             path.relative_to(root).as_posix(): module_name(path.relative_to(root).as_posix())
             for path in sorted(root.rglob("*.py"))
             if not any(part in _IGNORED_DIRECTORIES for part in path.relative_to(root).parts)
             and not path.is_symlink()
             and path.is_file()
+            and not lies_within(path, excluded)
         }
         sources = [
             # The dotted name is explicit because mypy otherwise infers it from the file

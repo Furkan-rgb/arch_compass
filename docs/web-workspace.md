@@ -73,8 +73,8 @@ verbatim — it names the field and what it needed, which is more than a paraphr
 say.
 
 Repository paths are validated and indexed through the same application service the CLI
-uses, and every workspace/repository separation, symlink, traversal and atlas-freshness
-rule remains in force.
+uses, and every workspace-exclusion, symlink, traversal and atlas-freshness rule remains in
+force.
 
 **Reviews** is the workspace's own record, at `/reviews`. It is grouped by case rather than
 listed flat: revising a case and reviewing again is the loop this tool is built around, so
