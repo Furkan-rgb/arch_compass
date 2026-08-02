@@ -85,6 +85,16 @@ class AtlasEdge(DomainModel):
     edge_type: EdgeType
     confidence: float = Field(ge=0, le=1)
     location: SourceLocation | None = None
+    #: Which pass named both endpoints. `parse` is the static AST resolution that always
+    #: runs; `types` is the optional type-aware resolver. Defaulted rather than required, so
+    #: an atlas stored before this field existed reads back as exactly what it was — every
+    #: edge in it came from the parse.
+    resolved_by: Literal["parse", "types"] = "parse"
+    #: Which conformance rule admitted this edge, on typed `IMPLEMENTS` edges only. `strict`
+    #: is the type checker's own subtyping question; `structural` is the relaxed rule that
+    #: credits an adapter narrowing a parameter. Absent everywhere else, because a parse
+    #: edge was never judged by either rule and recording a default would claim it was.
+    conformance: Literal["strict", "structural"] | None = None
 
 
 class LocalStructuralMetrics(DomainModel):
