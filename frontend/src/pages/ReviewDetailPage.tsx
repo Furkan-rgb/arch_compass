@@ -344,7 +344,7 @@ function Unfinished({ review }: { review: BoundaryReview }) {
         parent={{ to: "/reviews", label: "Reviews" }}
         meta={<Badge>case rev {review.case_revision}</Badge>}
       />
-      <div className={cn(sheet, "grid max-w-[76ch] gap-3.5")}>
+      <div className={cn(sheet, "grid max-w-[76ch] gap-3.5 p-[var(--card-pad)]")}>
         {/* Cancelling records no reason, because there is none to record beyond the choice
             itself. Only what ArchCompass wrote for a person to read reaches this list; an
             unexpected failure is recorded without its text. */}
@@ -411,7 +411,7 @@ export function ReviewUnavailable({
         title={gone ? "This review is no longer here" : "This review could not be read"}
         parent={{ to: "/reviews", label: "Reviews" }}
       />
-      <div className={cn(sheet, "grid max-w-[76ch] gap-3.5")}>
+      <div className={cn(sheet, "grid max-w-[76ch] gap-3.5 p-[var(--card-pad)]")}>
         {/* Nothing to retry on a review that has been deleted: the request would succeed at
             fetching the same absence, and a control that cannot change its own outcome is
             worse than no control. */}
