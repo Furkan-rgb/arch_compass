@@ -860,11 +860,14 @@ accept, and the part to keep.
 - [ ] A shallow module: a wide interface with little hidden behind it
       (`prefer-deep-modules`, `keep-interfaces-simple`).
 
-**Fidelity — research:**
+**Fidelity — research (the next move, before any new detector):**
 
 - [ ] Evaluate a type checker (pyright/mypy) as an edge-resolution backend, to cut
       unresolved static calls and lift every detector at once. A linter or type checker may
       inform detection, never a verdict, and its rule identity never reaches the model.
+      Depth before breadth: a fourth detector would be blind in the same ways as the three
+      that exist, while better edges make all three righter — planned in
+      [docs/plans/edge-resolution.md](docs/plans/edge-resolution.md).
 
 **Known blind spots — harder, and noisier:**
 
