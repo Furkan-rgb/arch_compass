@@ -373,7 +373,10 @@ def test_a_review_runs_against_a_repository_with_no_case_written(runtime: Runtim
     runtime.repository_service.index(REPOSITORY)
     revision = runtime.case_service.start_from_repository(REPOSITORY)
 
-    assert revision.snapshot.title == "Boundaries in repository"
+    # Named for the project, not the layout: the bundled examples all keep their code in
+    # a directory literally called `repository`, and four cases sharing that title made
+    # the reviews history unreadable.
+    assert revision.snapshot.title == "Boundaries in warehouse-sync"
     # Empty, not pre-filled. A placeholder problem statement would be read by the judging
     # stage as intent the user never expressed (invariant 23).
     assert revision.snapshot.problem_statement == ""

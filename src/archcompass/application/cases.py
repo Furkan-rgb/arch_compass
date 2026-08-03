@@ -40,17 +40,28 @@ class WrittenAnswer(DomainModel):
     recorded_text: str = Field(min_length=1)
 
 
+#: Leaf names that name a layout rather than a project. Every bundled example lives at
+#: `eval/cases/<name>/repository`, so titling by the leaf alone gave four loaded examples
+#: four cases all called "Boundaries in repository" — one history, unreadable.
+_LAYOUT_NAMES = frozenset({"repository", "repo", "src", "source", "code"})
+
+
 def _title_for(root: Path) -> str:
     """A name for a case nobody has named, taken from the repository it is about.
 
     Derived rather than invented, and that distinction is the whole of why this is allowed.
     A repository's own directory name is a fact about what is being reviewed; a problem
     statement written on the user's behalf would be intent they never stated, which the case
-    exists to hold and only they can supply (invariant 23).
+    exists to hold and only they can supply (invariant 23). A leaf that names a layout
+    rather than a project is skipped for the same reason it would fail as a title: it is a
+    fact about directory convention, not about what is being reviewed.
     """
 
-    name = root.expanduser().resolve().name or str(root)
-    return f"Boundaries in {name}"
+    resolved = root.expanduser().resolve()
+    for part in reversed(resolved.parts):
+        if part and part.casefold() not in _LAYOUT_NAMES:
+            return f"Boundaries in {part}"
+    return f"Boundaries in {resolved.name or root}"
 
 
 class CaseService:
