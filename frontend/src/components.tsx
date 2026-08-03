@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Compass, Monitor, Moon, RotateCw, Sun } from "lucide-react";
+import { Compass, Github, Monitor, Moon, RotateCw, Sun } from "lucide-react";
 import { Link, NavLink } from "react-router-dom";
 import { type ReactNode } from "react";
 
@@ -13,6 +13,9 @@ import { api, ApiError, UNREACHABLE_CODE } from "./api";
 import { CommandPalette } from "./command-palette";
 import { ModelChip, ModelPickerProvider } from "./model-picker";
 import { isThemePreference, useTheme, type ThemePreference } from "./theme";
+
+/** Where this project's source lives — the one address the bar and the footer share. */
+const REPOSITORY_URL = "https://github.com/Furkan-rgb/arch_compass";
 
 const themeOptions: Array<{
   value: ThemePreference;
@@ -241,10 +244,40 @@ export function Shell({ children }: { children: ReactNode }) {
               <ModelChip workspace={workspace.data} />
             )}
           </div>
+          {/* Icon only, because on this bar the name is the tooltip's job: the reader
+              deciding whether to trust a verdict wants the method (About) and the source
+              (here), and a labelled link would fight the navigation for the same words. */}
+          <a
+            href={REPOSITORY_URL}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Arch Compass on GitHub"
+            title="Arch Compass on GitHub"
+            className="grid size-7 flex-none place-items-center rounded-sm text-ink-2 hover:bg-sunken hover:text-ink"
+          >
+            <Github size={16} aria-hidden />
+          </a>
           <ThemeControl />
         </div>
       </header>
       <main className="min-h-[calc(100vh-52px)]">{children}</main>
+      {/* One line of provenance at the foot of every page: what this is and where its
+          source lives. A portfolio piece is read as much as it is used, and the reader
+          who scrolled to the end is exactly the one deciding whether to open the code. */}
+      <footer className="border-t border-rule py-5">
+        <div className="mx-auto flex w-[min(1400px,100%)] flex-wrap items-center gap-x-4 gap-y-1.5 px-[var(--gutter)] text-meta text-ink-3">
+          <span>Arch Compass — architecture reviews grounded in code and policy.</span>
+          <a
+            href={REPOSITORY_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="ml-auto inline-flex items-center gap-1.5 text-ink-2 hover:text-ink hover:underline"
+          >
+            <Github size={14} aria-hidden />
+            Furkan-rgb/arch_compass
+          </a>
+        </div>
+      </footer>
     </div>
     </ModelPickerProvider>
   );
