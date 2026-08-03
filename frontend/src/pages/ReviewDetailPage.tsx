@@ -840,7 +840,11 @@ export function ReviewDetailPage() {
       reviewId={reviewId}
       questions={openQuestions}
       nextRevision={caseRevision === undefined ? null : caseRevision + 1}
-      pending={answer.isPending}
+      // The run as well as the POST: the mutation settles the moment the answers are
+      // recorded, but the reader is still on this page until the second pass announces
+      // itself and navigation happens. A button that re-enabled in that stretch took a
+      // second click against a case revision the first click had already advanced.
+      pending={answer.isPending || run.running}
       disabled={!repositoryRoot}
       error={answer.error}
       // `mutateAsync` rather than `mutate`, so the surface hears that the workspace took the
