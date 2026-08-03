@@ -244,20 +244,25 @@ export function Shell({ children }: { children: ReactNode }) {
               <ModelChip workspace={workspace.data} />
             )}
           </div>
-          {/* Icon only, because on this bar the name is the tooltip's job: the reader
-              deciding whether to trust a verdict wants the method (About) and the source
-              (here), and a labelled link would fight the navigation for the same words. */}
+          <ThemeControl />
+          {/* The source, at the bar's right end the way the footer states it. The name
+              rides along only where the bar has room for it — below 1280px the mark alone
+              carries the link, with the name in the tooltip. A breakpoint rather than
+              measurement, because the one thing this label must never do is push the
+              model chip's name off its row. On a phone it is not here at all: the first
+              row is full, and an icon wrapped onto its own line reads as furniture — the
+              footer states the same link on every page, so nothing is lost. */}
           <a
             href={REPOSITORY_URL}
             target="_blank"
             rel="noreferrer"
             aria-label="Arch Compass on GitHub"
             title="Arch Compass on GitHub"
-            className="grid size-7 flex-none place-items-center rounded-sm text-ink-2 hover:bg-sunken hover:text-ink"
+            className="inline-flex h-7 flex-none items-center gap-1.5 rounded-sm px-1.5 text-ui text-ink-2 max-sm:hidden hover:bg-sunken hover:text-ink"
           >
             <Github size={16} aria-hidden />
+            <span className="max-[1279px]:hidden">Furkan-rgb/arch_compass</span>
           </a>
-          <ThemeControl />
         </div>
       </header>
       <main className="min-h-[calc(100vh-52px)]">{children}</main>
