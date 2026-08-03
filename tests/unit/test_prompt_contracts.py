@@ -32,7 +32,7 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
 
     expected_versions = {
         ReasoningTask.JUDGE_FINDING_CANDIDATE: 11,
-        ReasoningTask.ELICIT_QUESTIONS: 3,
+        ReasoningTask.ELICIT_QUESTIONS: 4,
         ReasoningTask.SUMMARISE_REVIEW: 7,
         ReasoningTask.ANSWER_REVIEW_QUESTION: 7,
         ReasoningTask.DISCUSS_OPEN_QUESTION: 1,

@@ -17,9 +17,17 @@ import json
 import math
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from typing import ClassVar, Literal, Protocol, TypeVar, cast, runtime_checkable
+from typing import (
+    Annotated,
+    ClassVar,
+    Literal,
+    Protocol,
+    TypeVar,
+    cast,
+    runtime_checkable,
+)
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 from archcompass.adapters.models.prompt_contracts import STAGE_PROMPTS
 from archcompass.configuration import ReasoningModelConfig
@@ -118,6 +126,25 @@ def opening_capital(value: str) -> str:
     return value[0].upper() + value[1:]
 
 
+def _offered_options(proposed: list[str]) -> list[str]:
+    """Tidy an offered option set: collapse whitespace, drop blanks, drop repeats.
+
+    Distinctness is the one constraint the response schema cannot state, so it is repaired
+    here rather than refused. Nothing in this list binds by position — an option is a
+    suggestion the reader may take or ignore, and no record ever names one — so dropping a
+    repeat re-attributes nothing, which is why this is the same treatment a blank hinge gets
+    rather than the loud failure a short list of flags gets. The cap and the per-option
+    minimum stay in the grammar, where a breach is a real breach.
+    """
+
+    offered: list[str] = []
+    for option in proposed:
+        text = opening_capital(" ".join(option.split()))
+        if text and text not in offered:
+            offered.append(text)
+    return offered
+
+
 def _grounded_questions(
     proposed: list[ProposedOpenQuestion],
     boundaries: list[ReviewedBoundary],
@@ -134,7 +161,8 @@ def _grounded_questions(
     ungrounded theme is. It is not a question about this repository at all: every real one
     traces to a verdict that admitted it turned on something.
 
-    It is also where the four prose fields get their opening capital. This is already the one
+    It is also where the four prose fields, and any offered answer options, get their opening
+    capital. This is already the one
     place a question is normalized and numbered, so the strip and the capital belong together:
     both are the application tidying text on its way into a record, and neither is a judgement
     a model should be asked to make. See `opening_capital` for why it does no more than that.
@@ -156,6 +184,7 @@ def _grounded_questions(
                 unknown=opening_capital(item.unknown.strip()),
                 why_it_matters=opening_capital(item.why_it_matters.strip()),
                 question=opening_capital(item.question.strip()),
+                answer_options=_offered_options(item.answer_options),
                 answer_belongs_in=item.answer_belongs_in,
                 supporting_references=references,
             )
@@ -401,6 +430,16 @@ class ProposedOpenQuestion(BaseModel):
     #: and these flags are that same statement in the form the application can resolve.
     supported_by: list[bool]
     question: str = Field(min_length=1)
+    #: After the question, because an option is one answer to a question that must already
+    #: exist; written first, the question would be composed to fit the options.
+    #:
+    #: The cap and the per-option minimum are stated here rather than in the request, so a
+    #: fifth option is ungrammatical rather than discouraged. What the grammar cannot state —
+    #: whether the answers to *this* question enumerate at all — is what the request explains,
+    #: and an empty list is the ordinary reply.
+    answer_options: list[Annotated[str, StringConstraints(min_length=1)]] = Field(
+        default_factory=list[str], max_length=4
+    )
     answer_belongs_in: CaseField
 
 

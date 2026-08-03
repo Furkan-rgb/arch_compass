@@ -134,6 +134,13 @@ class CaseService:
         question nobody asked, or give it a weight its question never named, and there would
         be no way afterwards to tell that from a question that did.
 
+        An answer is free text and nothing here checks it against anything. Where the question
+        offered `answer_options`, a reader who picked one sent its text and nothing else: it
+        arrives indistinguishable from an answer they typed, no record says which option was
+        taken, and no code branches on one. That is deliberate — an option is model-written, so
+        keying anything off it would break §12.0 in the one place it would be hardest to see,
+        and validating an answer against the set would turn an offer into a menu.
+
         Both halves are kept together as a `Clarification` rather than composed into a line in
         one of the five deciding lists. The composition existed because the case had no shape
         for a pair, and it was paid for twice: the reader was shown an answer that restated

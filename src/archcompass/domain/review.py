@@ -16,9 +16,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Final, Literal, cast
+from typing import Annotated, Final, Literal, cast
 
-from pydantic import Field, computed_field, model_validator
+from pydantic import Field, StringConstraints, computed_field, model_validator
 
 from archcompass.domain.atlas import FindingCandidate, FindingPattern, SourceLocation
 from archcompass.domain.base import DomainModel, new_id, utc_now
@@ -298,9 +298,43 @@ class OpenQuestion(DomainModel):
     #: Phrased so the user can answer it from what they know. A question they cannot settle
     #: is the model returning its own uncertainty to sender rather than asking for anything.
     question: str = Field(min_length=1)
+    #: Plausible answers, each stated as the reader would state it — "A second vendor is
+    #: planned this year", "No second vendor is coming".
+    #:
+    #: An option set is an offer, never a constraint. The answer path takes free text and
+    #: never checks what it is given against this list; a chosen option arrives as its own
+    #: text, indistinguishable from one that was typed. Nothing keys off an option either,
+    #: because every one of them is model-written (12.0).
+    #:
+    #: Empty is the correct shape for a genuinely open-ended question and stays the common
+    #: one: a question asking the reader to describe how something is used has no enumerable
+    #: answers, and four guesses at them would narrow the reply to what was guessed.
+    #:
+    #: Capped at four. A longer list is a reader studying a menu instead of answering, and
+    #: the box beside it is faster than the fifth option.
+    answer_options: list[Annotated[str, StringConstraints(min_length=1)]] = Field(
+        default_factory=list[str], max_length=4
+    )
     #: Which case field the answer belongs in, chosen from a closed set — the model picks a
     #: slot, never names one.
     answer_belongs_in: CaseField
+
+    @model_validator(mode="after")
+    def offered_options_are_distinct_and_say_something(self) -> OpenQuestion:
+        """Two options a reader cannot tell apart are one offer, presented as a choice.
+
+        Compared with whitespace collapsed, because the difference between "no second vendor"
+        and "no  second vendor" is nothing a reader can see and a duplicate they can see is
+        the whole defect. Nothing further is normalized here: casing and punctuation are how
+        these read as sentences, and folding them would call two real alternatives one.
+        """
+
+        collapsed = [" ".join(option.split()) for option in self.answer_options]
+        if any(not option for option in collapsed):
+            raise ValueError("An answer option must state an answer")
+        if len(collapsed) != len(set(collapsed)):
+            raise ValueError("Answer options must be mutually distinct")
+        return self
     #: `BR-nnn`, attached by the application from positional flags. A question resting on no
     #: boundary is discarded rather than recorded, exactly as an ungrounded theme is.
     supporting_references: list[str] = Field(min_length=1)

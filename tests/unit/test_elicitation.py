@@ -15,6 +15,7 @@ from typing import cast
 
 import pytest
 
+from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
 from archcompass.adapters.models.structured import (
     ChatMessage,
     ProposedCandidateVerdict,
@@ -470,6 +471,167 @@ def test_the_destination_is_a_closed_set_the_model_chooses_from() -> None:
     assert sorted(cast(dict[str, object], definitions["CaseField"])["enum"]) == sorted(
         field.value for field in CaseField
     )
+
+
+def _with_options(options: list[str]) -> OpenQuestion:
+    """One recorded question carrying the given options, and otherwise ordinary."""
+
+    return OpenQuestion(
+        reference="Q-1",
+        what_the_review_saw="Speech and Voice both wrap one implementation.",
+        unknown="Whether a second vendor is contracted",
+        why_it_matters="Two verdicts move.",
+        question="Is a second vendor contracted?",
+        answer_options=options,
+        answer_belongs_in=CaseField.EXPECTED_FUTURE_CHANGES,
+        supporting_references=["BR-001"],
+    )
+
+
+def _elicitation_reply_with_options(options: list[str]) -> str:
+    return json.dumps(
+        {
+            "open_questions": [
+                {
+                    "what_the_review_saw": "Speech and Voice both wrap one implementation.",
+                    "unknown": "whether a second vendor is contracted",
+                    "why_it_matters": "Two verdicts move.",
+                    "supported_by": [True, False, True],
+                    "question": "Is a second vendor contracted?",
+                    "answer_options": options,
+                    "answer_belongs_in": "expected_future_changes",
+                }
+            ],
+        }
+    )
+
+
+def test_a_question_may_offer_answers_and_usually_offers_none() -> None:
+    """Empty is the shape of a genuinely open question, and it must stay ordinary.
+
+    Both assertions are the feature. A question that enumerates gets its options; the far
+    more common one — anything asking the reader to describe something — gets none, and the
+    absence is a default rather than something the reply has to say.
+    """
+
+    provider, _ = _provider(
+        _elicitation_reply_with_options(
+            ["A second vendor is planned this year", "No second vendor is coming"]
+        )
+    )
+
+    offered = provider.elicit_questions(_case(), BOUNDARIES)
+    assert offered[0].answer_options == [
+        "A second vendor is planned this year",
+        "No second vendor is coming",
+    ]
+
+    provider, _ = _provider(
+        _elicitation_reply(("Is a second vendor contracted?", [True, False, True]))
+    )
+    assert provider.elicit_questions(_case(), BOUNDARIES)[0].answer_options == []
+
+
+def test_options_are_capped_and_bounded_by_the_grammar_the_provider_is_given() -> None:
+    """Schema over prompt: a fifth option is ungrammatical rather than discouraged."""
+
+    provider, transport = _provider(_elicitation_reply_with_options(["Yes", "No"]))
+
+    provider.elicit_questions(_case(), BOUNDARIES)
+
+    schema = cast(dict[str, object], transport.requests[0]["schema"])
+    definitions = cast(dict[str, object], schema["$defs"])
+    question = cast(dict[str, object], definitions["ProposedOpenQuestion"])
+    properties = cast(dict[str, object], question["properties"])
+    options = cast(dict[str, object], properties["answer_options"])
+    assert options["maxItems"] == 4
+    assert cast(dict[str, object], options["items"])["minLength"] == 1
+    # Not required: offering nothing is the ordinary reply, and a required list would make
+    # every open-ended question say so explicitly.
+    assert "answer_options" not in cast(list[str], question["required"])
+    # After the question, because an option is an answer to a question that must already
+    # exist — the same field-order rule that puts the rationale before the verdict.
+    order = list(properties)
+    assert order.index("question") < order.index("answer_options")
+
+
+def test_repeated_options_are_tidied_rather_than_failing_a_whole_elicitation() -> None:
+    """Distinctness is the one constraint the schema cannot state, so it is repaired here.
+
+    Nothing in this list binds by position, so dropping a repeat re-attributes nothing —
+    unlike a short list of grounding flags, which still fails loudly.
+    """
+
+    provider, _ = _provider(
+        _elicitation_reply_with_options(
+            [
+                "no second vendor is coming",
+                "No  second   vendor is coming",
+                "   ",
+                "A second vendor is planned this year",
+            ]
+        )
+    )
+
+    questions = provider.elicit_questions(_case(), BOUNDARIES)
+
+    assert questions[0].answer_options == [
+        "No second vendor is coming",
+        "A second vendor is planned this year",
+    ]
+
+
+def test_the_domain_refuses_an_option_set_a_reader_cannot_choose_from() -> None:
+    """The cap, the repeat and the option that says nothing, defended without an adapter."""
+
+    with pytest.raises(ValueError, match="at most 4"):
+        _with_options(["One", "Two", "Three", "Four", "Five"])
+    with pytest.raises(ValueError, match="mutually distinct"):
+        _with_options(["No second vendor is coming", "No  second vendor is coming"])
+    with pytest.raises(ValueError, match="must state an answer"):
+        _with_options(["A second vendor is planned", " "])
+    # And the ordinary shapes: none offered, and four offered.
+    assert _with_options([]).answer_options == []
+    assert len(_with_options(["One", "Two", "Three", "Four"]).answer_options) == 4
+
+
+def test_a_review_stored_before_options_existed_reads_back_without_them() -> None:
+    """The field widens the schema, so ADR 0002's refusal of shims does not apply.
+
+    A stored review is one JSON document in one column, so this is the storage round trip:
+    what is written is what is read, and a document written before the field existed parses
+    with the default rather than failing.
+    """
+
+    question = _with_options(["A second vendor is planned this year"])
+    written = _report([question]).model_dump_json()
+
+    assert BoundaryReviewReport.model_validate_json(written).overview.open_questions[0] == (
+        question
+    )
+
+    older = json.loads(written)
+    for entry in older["overview"]["open_questions"]:
+        del entry["answer_options"]
+    reloaded = BoundaryReviewReport.model_validate(older)
+    assert reloaded.overview.open_questions[0].answer_options == []
+
+
+def test_the_deterministic_provider_asks_in_both_shapes() -> None:
+    """Downstream needs a review carrying an offered set and an unoffered one."""
+
+    other = VerdictHinge(
+        unknown="The case does not say whether the label format is fixed.",
+        if_confirmed="The formatter stays.",
+        if_denied="The formatter is one caller's concern.",
+    )
+    boundaries = [*BOUNDARIES, _boundary("BR-004", "Label", hinge=other)]
+
+    questions = DeterministicReasoningProvider().elicit_questions(_case(), boundaries)
+
+    assert len(questions) == 2
+    assert questions[0].answer_options
+    assert questions[1].answer_options == []
 
 
 def test_the_summarising_stage_has_no_way_to_ask_anything() -> None:

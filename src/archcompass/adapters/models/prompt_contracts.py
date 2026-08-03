@@ -557,7 +557,13 @@ ELICIT_QUESTIONS: Final = PromptContract(
     # explained `unknown` as the subject of that line. The pair is stored whole now, so
     # `answer_belongs_in` names the force an answer carries rather than a list it is filed in,
     # and this stage is told to read the answers already recorded instead of re-asking them.
-    version=3,
+    #
+    # v4 adds answer_options. The reply may now offer up to four phrasings of an answer where
+    # the answer space genuinely enumerates, and the request says when it does not — the cap
+    # and the per-option minimum are in the grammar, and only the judgement of enumerability
+    # can be asked for in prose. Nothing downstream reads an option as a key or checks an
+    # answer against the set, so the guidance is about the reader's time rather than validity.
+    version=4,
     stage_contract=_text(
         """
         Every boundary in one repository has now been judged separately, and you are shown
@@ -654,6 +660,21 @@ ELICIT_QUESTIONS: Final = PromptContract(
 
         Do not answer your own question, and do not assume an answer while writing it. The
         point is to ask.
+
+        Then answer_options, and leave it empty unless the answers to your question genuinely
+        enumerate — a yes and a no that lead different ways, or a small set of futures one of
+        which is theirs. Where they do, write each option as the reader would say it: "A
+        second speech vendor is contracted for this year", "No second vendor is coming", "It
+        is being evaluated and nothing is decided". Four at the most.
+
+        Offer nothing for a question that asks the reader to describe something — how a
+        component is used, why a choice was made, what a constraint actually is. There the
+        answers do not enumerate, and four guesses at them narrow a reply that was worth
+        having to whichever of your guesses was closest.
+
+        An empty list costs the reader nothing. The box they type in is there either way, and
+        the options are a suggestion they may edit or ignore, never the answers they are
+        allowed to give.
 
         Last, set answer_belongs_in to the force the answer would carry. The answer is
         recorded in the case as a question-and-answer pair — your question, verbatim, beside what

@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from archcompass.adapters.models.deterministic import DETERMINISTIC_MODEL
@@ -128,7 +129,34 @@ def test_cli_commands_cover_local_workflow(tmp_path: Path) -> None:
     )
 
     repository = Path("eval/cases/boundary-review/repository").resolve()
-    case_path = Path("eval/cases/boundary-review/case.yaml").resolve()
+    # Written here rather than taken from the example, which ships a repository and no case:
+    # `case create --from` is for someone who has already authored one, and the file it
+    # reads has to come from somewhere that is not the product's own flow.
+    case_path = tmp_path / "case.yaml"
+    case_path.write_text(
+        yaml.safe_dump(
+            {
+                "title": "Task scheduler boundary review",
+                "problem_statement": (
+                    "A small task scheduler declares six boundaries and has exactly one "
+                    "implementation behind each. Decide which are earning their place."
+                ),
+                "desired_outcome": (
+                    "A verdict per boundary, including the verdict that nothing needs to "
+                    "change."
+                ),
+                "technical_constraints": [
+                    "Python with SQLite for storage and SMTP for delivery.",
+                ],
+                "expected_future_changes": [
+                    "SMS reminders are scheduled for the next release.",
+                ],
+                "non_goals": ["Alternative label formats or output renderings."],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
     created = runner.invoke(app, [*common, "case", "create", "--from", str(case_path)])
     assert created.exit_code == 0, created.output
     case_id = json.loads(created.output)["case_id"]
