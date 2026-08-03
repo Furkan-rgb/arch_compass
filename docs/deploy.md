@@ -104,3 +104,33 @@ gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body \
 | `ARCHCOMPASS_GLOBAL_DAILY_RUNS` | `250` | The same, per instance, for everyone. |
 
 The container's `PORT` is honoured, defaulting to 8080, which is what Cloud Run supplies.
+
+## The billing backstop
+
+A GCP budget only ever notifies — nothing Google offers stops spending by itself. The
+backstop is therefore a function of last resort: the budget publishes to Pub/Sub topic
+`billing-cap`, and `infra/billing-cap` detaches billing from the project when billed
+cost reaches the budget's full amount. Cloud Run then stops serving — the demo goes
+dark instead of charging anyone. Billing data lags real usage by up to a few hours, so
+the cap is approximate to that lag; at one max instance the overshoot is cents.
+
+One-time setup, after the function itself is deployed (deploy command in
+`infra/billing-cap/main.py`). Both of these act on billing and need an account holder:
+
+```bash
+# The function's service account must be allowed to detach billing.
+gcloud projects add-iam-policy-binding arch-compass \
+  --member=serviceAccount:99312935671-compute@developer.gserviceaccount.com \
+  --role=roles/billing.projectManager --condition=None
+
+# The budget: warn at 50% and 90%, publish every notification to the topic.
+gcloud billing budgets create --billing-account=017485-E8D21C-47029F \
+  --display-name="arch-compass hard cap" --budget-amount=5EUR \
+  --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 \
+  --notifications-rule-pubsub-topic=projects/arch-compass/topics/billing-cap
+```
+
+Firing is one-way by design: re-attaching billing is a decision made by a person in the
+console, never by code. The Artifact Registry repository the deploys build into keeps
+its three newest images and deletes the rest after a week, so image storage cannot
+creep past the free tier either.
