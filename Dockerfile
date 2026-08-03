@@ -25,8 +25,8 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src/ src/
 # Locked and without the dev group: the image runs the server, and pyright, pytest and
 # playwright have no business in it. The project itself is installed from `src/` in place,
-# which is what lets the two directories copied below be found at run time — the bundled
-# cases and the built bundle are both located relative to the package's own file.
+# which is what lets the two directories copied below be found at run time — the example
+# repositories and the built bundle are both located relative to the package's own file.
 # `--extra resolution` installs mypy, which the analyzer asks for typed edges: structural
 # protocol conformance judged by a type checker rather than guessed from names. The hosted
 # demo is the one place a visitor sees the atlas without choosing what went into it, so it

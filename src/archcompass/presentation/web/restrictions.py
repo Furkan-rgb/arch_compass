@@ -73,8 +73,8 @@ class HostedRestrictions:
         if not self.hosted:
             return canonical
         bundled = [
-            Path(case.repository_root).resolve(strict=False)
-            for case in runtime.bundled_case_service.list()
+            Path(example.repository_root).resolve(strict=False)
+            for example in runtime.bundled_example_service.list()
         ]
         if any(canonical == item or canonical.is_relative_to(item) for item in bundled):
             return canonical

@@ -1,0 +1,8 @@
+# A manifest, not a case. It says what to call this repository in the workspace and
+# nothing about what a review should conclude: the case is written by answering the
+# questions a run comes back with, so anything stated here would be answers nobody gave.
+
+title: A second narration voice, and a settled text pipeline
+description: >-
+  A local tool that turns books into audiobooks in two steps: a language model rewrites
+  each chapter into speakable passages, then a text-to-speech backend narrates them.

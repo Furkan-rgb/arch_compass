@@ -35,8 +35,8 @@ HOME — the flow's front door
 │         │                         or revise a previous one
 │         │                             │
 │         └────────────┬────────────────┘
-│                      │   (a bundled example fills both
-│                      │    rails with one click)
+│                      │   (an example repository fills
+│                      │    the left rail with one click)
 │                      ▼
 │              Run the review
 │              "judging boundary k of n" — a countable
@@ -76,9 +76,9 @@ the run ended, the listing does not.
 
 One front door with one job: start a review.
 
-- The start step presents the two rails side by side, order-free, with bundled examples
-  as one-click fills of both rails (kept prominent — they remain the shortest path to a
-  first review, and the one with an answer key is how the tool proves itself offline).
+- The start step presents the two rails side by side, order-free, with the example
+  repositories as one-click fills of the repository rail (kept prominent — they remain the
+  shortest path to a first review, and the review asks for the rest).
 - The hero cards, the `/new` links, and the aggregate stat tiles go. Workspace readiness
   (model, provider) collapses into the sidebar footer where it already lives.
 

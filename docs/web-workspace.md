@@ -28,10 +28,10 @@ single indexed repository is pre-selected: the atlas is substrate (§9.2) and on
 is not a choice. The case is never pre-selected however few exist, because it is the input
 that decides the answer.
 
-A **bundled example** fills both rails in one click — each ships a written case and a
-repository to run it against, so a new workspace can produce a real review without a case
-being written first. Loading one indexes the repository and creates the case in a single
-step, then leaves the run to the user.
+An **example repository** fills the repository rail in one click. Each ships as a
+repository and nothing else: loading one indexes it and opens a case with nothing written
+in it, which is the same thing pointing at your own code does. What the review needs to
+know it asks for, and the answers write the case.
 
 **Cases are authored in the browser as a form.** The case rail opens a full-width form
 whose labels are the questions the fields answer and whose hints say why the answers matter.

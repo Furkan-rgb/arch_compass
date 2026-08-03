@@ -1,0 +1,8 @@
+# A manifest, not a case. It says what to call this repository in the workspace and
+# nothing about what a review should conclude: the case is written by answering the
+# questions a run comes back with, so anything stated here would be answers nobody gave.
+
+title: Keeping stock in step with the warehouse
+description: >-
+  A service that reconciles the stock levels a shop believes it has against what the
+  warehouse reports, and mails the operator a digest of what changed overnight.

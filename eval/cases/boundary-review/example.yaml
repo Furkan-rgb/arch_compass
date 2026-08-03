@@ -1,0 +1,8 @@
+# A manifest, not a case. It says what to call this repository in the workspace and
+# nothing about what a review should conclude: the case is written by answering the
+# questions a run comes back with, so anything stated here would be answers nobody gave.
+
+title: Task scheduler boundary review
+description: >-
+  A small task scheduler that declares six boundaries and has exactly one implementation
+  behind each.

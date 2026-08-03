@@ -1,6 +1,6 @@
 # Everything the image does not run. `eval/cases` is deliberately absent from this list:
-# the bundled examples are the only repositories the hosted demo will index, so they are
-# part of the product rather than test data.
+# the example repositories are the only ones the hosted demo will index, so they are part
+# of the product rather than test data.
 .git
 .github
 .venv

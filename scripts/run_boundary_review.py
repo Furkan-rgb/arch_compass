@@ -1,28 +1,22 @@
-"""Run the advisory path against the bundled examples and score what has answers.
+"""Run the advisory path against the example repositories, against a live model.
 
-The `boundary-review` fixture exists so there is always something to try the tool against
-with a known right answer. Six boundaries, all identical to the detector; the case makes
-three of them justified and three not. A run that clears all six is an abstraction
-generator, a run that condemns all six is an abstraction destroyer, and the score separates
-those from an advisor.
+Each example is a repository and nothing else: no case is written before the run, which is
+what a first-time user has (master plan §6C.1). The run judges every boundary from the code
+alone and comes back with the questions that would settle them, and this script prints both
+as they land. Nothing is scored — the examples ship no answer key, because the behaviour
+worth watching is what a run asks, and there is no key for that which does not first settle
+the question the example is built to leave open.
 
-`--all` adds two more. `speech-vendor` is the same shape asking a harder question: there
-every boundary stands in front of a change the case says is coming, so clearing all six is
-the plausible mistake rather than the lazy one, and what separates them is whether each
-seam is at the edge the change arrives at. `audiobook-studio` is harder again, and the only
-one that exercises all three detectors — under each repetition detector one instance is a
-real finding and one is not, so a run that has learned "duplication is bad" scores no better
-than one that has learned nothing.
+Two failures pull opposite ways and are the reason to read the output rather than a number:
+condemning every boundary because an unwritten case justified none of them, and clearing
+every boundary while flagging nothing, which reads as approval nobody earned.
 
-Read the scores separately — a total across all three hides which failure mode is live.
+`--all` runs every example. It stays a script rather than a workspace button: it is tens of
+model calls, and the browser deliberately has no queue for work that long (master plan §18).
+Run it against the local model — a metered free tier cannot serve it.
 
-Running them all is the closest thing to a regression suite for judgement quality. It stays a
-script rather than a workspace button: it is tens of model calls, and the browser
-deliberately has no queue for work that long (master plan §18). Run it against the local
-model — a metered free tier cannot serve it.
-
-Needs a live model. Builds a throwaway workspace so nothing is left behind, and prints one
-line per boundary as each verdict lands rather than after all of them.
+Builds a throwaway workspace so nothing is left behind, and prints one line per boundary as
+each verdict lands rather than after all of them.
 """
 
 from __future__ import annotations
@@ -32,194 +26,68 @@ import json
 import sys
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
-import yaml
-
 from archcompass.application.reviews import JudgedCandidate
 from archcompass.bootstrap import Runtime, build_runtime, pinned_model
-from archcompass.domain.case import ArchitectureCase
 
-CASES = Path(__file__).resolve().parent.parent / "eval" / "cases"
+EXAMPLES = Path(__file__).resolve().parent.parent / "eval" / "cases"
 DEFAULT_EXAMPLE = "boundary-review"
 
 
 @dataclass(frozen=True)
 class Example:
-    """One bundled case with a repository to run it against."""
+    """One example repository, as this script needs it."""
 
     name: str
-    case: Path
     repository: Path
-    #: Present only where the example ships an answer key. Without one a run can be read
-    #: but not graded, which is reported as unscored rather than counted as a pass.
-    expected: Path | None
-    #: Present only where the example grades elicitation: which verdicts should say they
-    #: rest on something the case withholds, and how many questions those should merge into.
-    #: A separate file from `expected.yaml` on purpose — an example may grade where the
-    #: silence was noticed without asserting a verdict for a boundary that genuinely turns
-    #: on it, which is the whole shape of `warehouse-sync`.
-    elicitation: Path | None
-
-    @property
-    def answers(self) -> dict[str, dict[str, str | bool]]:
-        if self.expected is None:
-            return {}
-        document = yaml.safe_load(self.expected.read_text(encoding="utf-8"))
-        return {item["abstraction"]: item for item in document["boundaries"]}
-
-    @property
-    def hinge_key(self) -> tuple[dict[str, bool], int | None]:
-        """Which abstractions should carry a hinge, and how many questions they merge into.
-
-        Returns an empty mapping where the example does not grade elicitation, so a caller
-        can tell "no expectation" from "expected none".
-        """
-
-        if self.elicitation is None:
-            return {}, None
-        document = yaml.safe_load(self.elicitation.read_text(encoding="utf-8"))
-        expected = {
-            str(item["abstraction"]): True for item in document.get("hinged", []) or []
-        }
-        expected.update(
-            {str(item["abstraction"]): False for item in document.get("not_hinged", []) or []}
-        )
-        questions = document.get("questions")
-        return expected, None if questions is None else int(questions)
 
 
 @dataclass
 class Outcome:
-    """What one example produced, and how much of it could be graded."""
+    """What one example produced."""
 
     example: str
     boundaries: int
     material: int
-    scored: int
-    correct: int
-    unknown: list[str]
     seconds: float
     review_id: str
-    #: How many boundaries carried a hinge, always. Reported even where nothing grades it,
-    #: because "every verdict rests on something" is the failure mode worth seeing at a
-    #: glance and it does not need a key to be visible.
-    hinged: int = 0
-    questions: int = 0
-    #: Populated only where the example ships `elicitation.yaml`.
-    hinge_scored: int = 0
-    hinge_correct: int = 0
-    hinge_wrong: list[str] = field(default_factory=list)
-    expected_questions: int | None = None
-
-    @property
-    def graded(self) -> bool:
-        return self.scored > 0
-
-    @property
-    def hinge_graded(self) -> bool:
-        return self.hinge_scored > 0
-
-    @property
-    def passed(self) -> bool:
-        return not self.unknown and (not self.graded or self.correct == self.scored)
+    #: How many verdicts said they rest on something the case does not settle, and how many
+    #: questions those merged into. The pair is the measurement: hinges with no question is
+    #: a consolidation failure, and a question per hinge is noise.
+    hinged: int
+    questions: int
 
 
-def brownfield_examples() -> list[Example]:
-    """Every example the review path can run: a case with a repository beside it.
+def example_repositories() -> list[Example]:
+    """Every example the review path can run: a manifest with a repository beside it."""
 
-    A case without a repository is skipped rather than failed. Candidates stated in a case
-    instead of parsed from code are master plan §4.1, and until that exists there is nothing
-    there for the detector to sweep.
-    """
-
-    found: list[Example] = []
-    for directory in sorted(CASES.iterdir()):
-        case = directory / "case.yaml"
-        repository = directory / "repository"
-        if not case.is_file() or not repository.is_dir():
-            continue
-        expected = directory / "expected.yaml"
-        elicitation = directory / "elicitation.yaml"
-        found.append(
-            Example(
-                name=directory.name,
-                case=case,
-                repository=repository.resolve(),
-                expected=expected if expected.is_file() else None,
-                elicitation=elicitation if elicitation.is_file() else None,
-            )
-        )
-    return found
+    return [
+        Example(name=directory.name, repository=(directory / "repository").resolve())
+        for directory in sorted(EXAMPLES.iterdir())
+        if (directory / "example.yaml").is_file() and (directory / "repository").is_dir()
+    ]
 
 
-def run_example(
-    runtime: Runtime,
-    example: Example,
-    sink: TextIO | None,
-    *,
-    no_case: bool = False,
-) -> Outcome:
-    answers = example.answers
-    hinge_key, expected_questions = example.hinge_key
+def run_example(runtime: Runtime, example: Example, sink: TextIO | None) -> Outcome:
     runtime.repository_service.index(example.repository)
-    if no_case:
-        # The example's repository with its case thrown away — what a first-time user gets
-        # by pointing at their own code (master plan §6C.1). Two failures live here and pull
-        # opposite ways: condemning every boundary because an unwritten case justified none
-        # of them, and clearing every boundary without flagging what was never stated, which
-        # reads as approval nobody earned. Neither the verdict key nor the hinge key applies
-        # — both were written for the case as authored — so this run reports rather than
-        # scores, and the numbers to watch are how many were condemned and how many hinged.
-        answers = {}
-        hinge_key, expected_questions = {}, None
-        revision = runtime.case_service.start_from_repository(example.repository)
-    else:
-        case = ArchitectureCase.model_validate(
-            yaml.safe_load(example.case.read_text(encoding="utf-8"))
-        )
-        revision = runtime.case_repository.create(case, actor="evaluation")
+    revision = runtime.case_service.start_from_repository(example.repository)
 
-    correct = 0
-    unknown: list[str] = []
     started = time.monotonic()
     total_started = started
 
     def report(item: JudgedCandidate, position: int, total: int) -> None:
-        nonlocal correct, started
+        nonlocal started
         name = item.candidate.participants[0].qualified_name
-        key = answers.get(name)
-        if not answers:
-            mark = "·"
-        elif key is None:
-            unknown.append(name)
-            mark = "?"
-        elif key["material"] == item.verdict.material:
-            correct += 1
-            mark = "✓"
-        else:
-            mark = "✗"
         said = "material" if item.verdict.material else "not material"
-        want = "—" if key is None else ("material" if key["material"] else "not material")
         elapsed = time.monotonic() - started
         started = time.monotonic()
-        # A second mark for elicitation, in its own column. Kept apart from the verdict's
-        # because they are different questions about the same boundary — a verdict can be
-        # right while resting on an unknown that was never named, and a run that scores well
-        # on one and badly on the other is the thing worth seeing.
         hinge = item.verdict.hinge
-        wanted_hinge = hinge_key.get(name)
-        if wanted_hinge is None:
-            hinge_mark = "?" if hinge else " "
-        elif wanted_hinge == (hinge is not None):
-            hinge_mark = "✓"
-        else:
-            hinge_mark = "✗"
         print(
-            f"  {mark} [{position}/{total}] {name:<32} "
-            f"said {said:<13} expected {want:<13} {elapsed:.0f}s  hinge {hinge_mark}",
+            f"  [{position}/{total}] {name:<32} said {said:<13} {elapsed:.0f}s  "
+            f"hinge {'yes' if hinge else '—'}",
             flush=True,
         )
         if hinge is not None:
@@ -230,9 +98,6 @@ def run_example(
                     {
                         "example": example.name,
                         "abstraction": name,
-                        "correct": mark == "✓",
-                        "expected": None if key is None else key["material"],
-                        "expected_because": None if key is None else key["because"],
                         "verdict": item.verdict.model_dump(mode="json"),
                     }
                 )
@@ -240,9 +105,9 @@ def run_example(
             )
             sink.flush()
 
-    # A first pass, deliberately. This harness measures what one pass reaches from one case,
-    # which is exactly the thing the two-pass flow holds back from the reader — a run that
-    # stops to ask is the outcome under measurement, not a failure to complete.
+    # A first pass, deliberately. This harness measures what one pass reaches from a case
+    # nobody has written — a run that stops to ask is the outcome under measurement, not a
+    # failure to complete.
     review = runtime.review_service.review(
         revision.case_id,
         repository_root=example.repository,
@@ -280,99 +145,43 @@ def run_example(
         # a consolidation failure rather than a quiet success.
         print(f"\n  {len(hinged)} verdicts rest on something, and nothing was asked.")
 
-    hinge_correct = 0
-    hinge_wrong: list[str] = []
-    for item in report_body.reviewed:
-        name = item.candidate.participants[0].qualified_name
-        wanted = hinge_key.get(name)
-        if wanted is None:
-            continue
-        if wanted == (item.hinge is not None):
-            hinge_correct += 1
-        else:
-            hinge_wrong.append(f"{name} ({'expected a hinge' if wanted else 'should not hinge'})")
-
     return Outcome(
         example=example.name,
         boundaries=len(report_body.reviewed),
         material=len(report_body.material),
-        scored=0 if not answers else len(report_body.reviewed) - len(unknown),
-        correct=correct,
-        unknown=unknown,
         seconds=time.monotonic() - total_started,
         review_id=review.review_id,
         hinged=len(hinged),
         questions=len(overview.open_questions),
-        hinge_scored=sum(
-            1
-            for item in report_body.reviewed
-            if item.candidate.participants[0].qualified_name in hinge_key
-        ),
-        hinge_correct=hinge_correct,
-        hinge_wrong=hinge_wrong,
-        expected_questions=expected_questions,
     )
 
 
 def print_table(outcomes: list[Outcome]) -> None:
     print(
-        f"\n{'example':<28} {'boundaries':>10} {'material':>9} {'score':>9} "
-        f"{'hinged':>7} {'asked':>6} {'hinge':>9}  time"
+        f"\n{'example':<28} {'boundaries':>10} {'material':>9} {'hinged':>7} "
+        f"{'asked':>6}  time"
     )
     for outcome in outcomes:
-        score = f"{outcome.correct}/{outcome.scored}" if outcome.graded else "unscored"
-        hinge = (
-            f"{outcome.hinge_correct}/{outcome.hinge_scored}"
-            if outcome.hinge_graded
-            else "—"
-        )
         print(
             f"{outcome.example:<28} {outcome.boundaries:>10} {outcome.material:>9} "
-            f"{score:>9} {outcome.hinged:>7} {outcome.questions:>6} {hinge:>9}  "
-            f"{outcome.seconds:.0f}s"
-        )
-    graded = [outcome for outcome in outcomes if outcome.graded]
-    if graded:
-        correct = sum(outcome.correct for outcome in graded)
-        scored = sum(outcome.scored for outcome in graded)
-        print(f"\n{correct}/{scored} correct across {len(graded)} scored example(s)")
-    hinge_graded = [outcome for outcome in outcomes if outcome.hinge_graded]
-    if hinge_graded:
-        correct = sum(outcome.hinge_correct for outcome in hinge_graded)
-        scored = sum(outcome.hinge_scored for outcome in hinge_graded)
-        print(
-            f"{correct}/{scored} boundaries hinged where they should across "
-            f"{len(hinge_graded)} example(s)"
+            f"{outcome.hinged:>7} {outcome.questions:>6}  {outcome.seconds:.0f}s"
         )
     for outcome in outcomes:
-        for wrong in outcome.hinge_wrong:
-            print(f"HINGE WRONG in {outcome.example}: {wrong}")
-        if outcome.expected_questions is not None and (
-            outcome.questions != outcome.expected_questions
-        ):
-            # A count rather than a wording, because what is being graded is whether the
-            # overview merged hinges that rest on one fact — asking twice about the same
-            # thing is the failure, and no phrasing check is needed to see it.
-            print(
-                f"QUESTIONS in {outcome.example}: asked {outcome.questions}, "
-                f"expected {outcome.expected_questions}"
-            )
-    for outcome in outcomes:
-        if outcome.unknown:
-            # Never silently exclude: an abstraction the key does not cover is a fixture
-            # that drifted from its own scoring, and a score over the remainder would look
-            # like a result while measuring less than it claims.
-            print(
-                f"NOT SCORED in {outcome.example} (absent from expected.yaml): "
-                f"{', '.join(sorted(outcome.unknown))}"
-            )
+        if outcome.boundaries and outcome.material == outcome.boundaries:
+            print(f"CONDEMNED EVERYTHING in {outcome.example}")
+        if outcome.hinged and not outcome.questions:
+            print(f"HINGED WITHOUT ASKING in {outcome.example}")
+        if not outcome.hinged:
+            # An unwritten case cannot settle everything, so nothing hinging means the run
+            # spent the silence without noticing it.
+            print(f"NOTHING RESTED ON ANYTHING in {outcome.example}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    # Pinned rather than left to whatever the workspace last chose: this run reports a score
-    # against an answer key, and a score is meaningless without saying which model produced
-    # it. The workspace here is a temporary directory anyway, so there is nothing to choose.
+    # Pinned rather than left to whatever the workspace last chose: what this prints is only
+    # readable alongside which model produced it. The workspace here is a temporary
+    # directory anyway, so there is nothing to choose.
     parser.add_argument(
         "--provider",
         default="ollama",
@@ -395,23 +204,14 @@ def main() -> int:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="Run every brownfield example rather than only the scored fixture.",
+        help="Run every example rather than only the standing one.",
     )
     parser.add_argument(
-        "--case",
+        "--example",
         default=DEFAULT_EXAMPLE,
         help=(
-            "Which example to run. Working on one example's wording means running it and "
-            "reading it repeatedly, and the other one has nothing to say about that edit."
-        ),
-    )
-    parser.add_argument(
-        "--no-case",
-        action="store_true",
-        help=(
-            "Throw the example's case away and review its repository alone, as a first-time "
-            "user does. Reports rather than scores: neither key applies to a case nobody "
-            "wrote."
+            "Which example to run. Working on one example means running it and reading it "
+            "repeatedly, and the others have nothing to say about that edit."
         ),
     )
     parser.add_argument(
@@ -419,38 +219,37 @@ def main() -> int:
         type=Path,
         default=None,
         help=(
-            "Write every verdict as JSON lines. A score says how often the advisor was "
-            "right; only the reasoning says why it was wrong."
+            "Write every verdict as JSON lines. The table says what a run did; only the "
+            "reasoning says why."
         ),
     )
     arguments = parser.parse_args()
 
-    examples = brownfield_examples()
+    examples = example_repositories()
     if not arguments.all:
-        examples = [item for item in examples if item.name == arguments.case]
+        examples = [item for item in examples if item.name == arguments.example]
     if not examples:
-        known = ", ".join(item.name for item in brownfield_examples()) or "none"
-        print(f"No example named {arguments.case!r} under {CASES}. Found: {known}")
+        known = ", ".join(item.name for item in example_repositories()) or "none"
+        print(f"No example named {arguments.example!r} under {EXAMPLES}. Found: {known}")
         return 1
 
     sink = arguments.out.open("w", encoding="utf-8") if arguments.out else None
     outcomes: list[Outcome] = []
     try:
-        with tempfile.TemporaryDirectory(prefix="archcompass-evaluation-") as directory:
+        with tempfile.TemporaryDirectory(prefix="archcompass-example-") as directory:
             runtime = build_runtime(
                 Path(directory),
                 pin=pinned_model(arguments.provider, arguments.model, arguments.thinking),
             )
             for example in examples:
-                marker = "" if example.expected else "  (no answer key)"
-                print(f"\n{example.name}{marker}", flush=True)
-                outcomes.append(run_example(runtime, example, sink, no_case=arguments.no_case))
+                print(f"\n{example.name}", flush=True)
+                outcomes.append(run_example(runtime, example, sink))
     finally:
         if sink is not None:
             sink.close()
 
     print_table(outcomes)
-    return 0 if all(outcome.passed for outcome in outcomes) else 1
+    return 0
 
 
 if __name__ == "__main__":

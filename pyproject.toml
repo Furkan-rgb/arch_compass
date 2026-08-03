@@ -54,7 +54,7 @@ addopts = '-q --strict-config --strict-markers -m "not ollama and not google and
 testpaths = ["tests"]
 norecursedirs = ["tests/fixtures"]
 markers = [
-  "evaluation: deterministic workflow and evidence-integrity evaluation",
+  "evaluation: offline checks that the shipped example repositories still present the shapes a review is demonstrated on",
   "ollama: optional evaluation requiring a locally running Ollama service",
   "google: optional evaluation requiring a Google AI Studio API key and quota",
   "browser: drives the built workspace in a real browser; needs `make frontend-build` and Playwright",

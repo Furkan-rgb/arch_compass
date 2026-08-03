@@ -38,7 +38,7 @@ from archcompass.adapters.retrieval import (
 )
 from archcompass.application.atlas_freshness import AtlasFreshnessService
 from archcompass.application.atlas_queries import AtlasService
-from archcompass.application.bundled_cases import BundledCaseService
+from archcompass.application.bundled_examples import BundledExampleService
 from archcompass.application.cases import CaseService
 from archcompass.application.model_catalog import ModelCatalogService, reasoning_config
 from archcompass.application.policies import PolicyService
@@ -93,7 +93,7 @@ class Runtime:
     review_repository: BoundaryReviewRepository
     review_conversation_service: ReviewConversationService
     review_source_service: ReviewSourceService
-    bundled_case_service: BundledCaseService
+    bundled_example_service: BundledExampleService
     analyzer: RepositoryAnalyzer
     query_service: AtlasQueryService
     policy_sources: tuple[Path, ...]
@@ -185,8 +185,7 @@ def build_runtime(
         queries=queries,
         freshness=freshness,
     )
-    bundled_case_service = BundledCaseService(
-        cases=cases,
+    bundled_example_service = BundledExampleService(
         repositories=repository_service,
     )
     review_source_service = ReviewSourceService(
@@ -220,7 +219,7 @@ def build_runtime(
         review_repository=reviews,
         review_conversation_service=review_conversation_service,
         review_source_service=review_source_service,
-        bundled_case_service=bundled_case_service,
+        bundled_example_service=bundled_example_service,
         analyzer=analyzer,
         query_service=queries,
         policy_sources=configured_policy_sources,
