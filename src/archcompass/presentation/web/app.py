@@ -42,6 +42,7 @@ from archcompass.domain.errors import (
     ConversationRetrievalError,
     ConversationRevisionConflictError,
     ConversationValidationError,
+    ExampleNotFoundError,
     ModelOutputValidationError,
     NoReasoningModelSelectedError,
     PathValidationError,
@@ -274,19 +275,18 @@ class DirectoryListing(APIModel):
     directories: list[DirectoryEntry]
 
 
-class BundledCase(APIModel):
-    """One example case shipped with ArchCompass, ready to load into the workspace.
+class BundledExample(APIModel):
+    """One example repository shipped with ArchCompass, ready to review.
 
-    Exists so the tool can be exercised without hand-writing a case first. The repository
-    path is absolute and resolved on the server, because the browser cannot know where the
-    package was installed.
+    A repository and a name for it, and deliberately no case: the review asks what it needs
+    to know, and the answers write the case. The repository path is absolute and resolved
+    on the server, because the browser cannot know where the package was installed.
     """
 
     name: str
     title: str
-    problem_statement: str
+    description: str
     repository_root: str
-    has_expected_answers: bool
 
 
 class ReviewStarted(APIModel):
@@ -729,8 +729,8 @@ def create_app(
 
         The whole of the first step for someone who has not authored a case. Both halves
         happen here so the flow either produces something reviewable or fails outright,
-        rather than leaving a case pointing at an atlas that was never built — the same
-        ordering, and the same reason, as loading a bundled example.
+        rather than leaving a case pointing at an atlas that was never built. A bundled
+        example arrives here too, once its repository has been indexed.
         """
 
         root = hosted_mode.repository_root(Path(request.root_path), runtime)
@@ -843,26 +843,32 @@ def create_app(
         hosted_mode.browsing()
         return _directory_listing(Path(path) if path else Path.home())
 
-    @app.get("/api/bundled-cases")
-    def list_bundled_cases(runtime: RuntimeDep) -> list[BundledCase]:
+    @app.get("/api/examples")
+    def list_examples(runtime: RuntimeDep) -> list[BundledExample]:
         return [
-            BundledCase(
+            BundledExample(
                 name=item.name,
                 title=item.title,
-                problem_statement=item.problem_statement,
+                description=item.description,
                 repository_root=item.repository_root,
-                has_expected_answers=item.has_expected_answers,
             )
-            for item in runtime.bundled_case_service.list()
+            for item in runtime.bundled_example_service.list()
         ]
 
     @app.post(
-        "/api/bundled-cases/{name}/load",
+        "/api/examples/{name}/load",
         status_code=201,
         responses=_problem_responses(404, 422),
     )
-    def load_bundled_case(runtime: RuntimeDep, name: str) -> CaseRevision:
-        return runtime.bundled_case_service.load(name)
+    def load_example(runtime: RuntimeDep, name: str) -> AtlasVersion:
+        """Index the example's repository so it can be started from like any other.
+
+        No case comes back, because none is shipped. The caller continues through
+        `/api/repositories/start` with the root this answers with, which is the same path a
+        repository chosen in the folder picker takes.
+        """
+
+        return runtime.bundled_example_service.load(name)
 
     @app.post(
         "/api/reviews",
@@ -1536,6 +1542,7 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
         error,
         (
             CaseNotFoundError,
+            ExampleNotFoundError,
             AtlasNotFoundError,
             ReviewNotFoundError,
             PolicyNotFoundError,

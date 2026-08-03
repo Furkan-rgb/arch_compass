@@ -31,6 +31,15 @@ class CaseNotFoundError(ArchCompassError):
     pass
 
 
+class ExampleNotFoundError(ArchCompassError):
+    """No bundled example goes by that name.
+
+    Its own type rather than `CaseNotFoundError` or `AtlasNotFoundError`: an example is
+    neither until it has been loaded, so this is about the set the package ships rather
+    than about anything in this workspace.
+    """
+
+
 class CaseValidationError(ArchCompassError):
     """A case cannot be written as asked — a reference that does not resolve, a blank answer.
 

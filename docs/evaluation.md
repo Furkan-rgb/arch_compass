@@ -64,131 +64,95 @@ the pinned Atlas, and long conversations with summary revisions. The exact
 “Additional repository evidence retrieved during conversation” heading is part of the rendered
 contract.
 
-## Architectural-quality benchmark cases
+## Example repositories
 
-Two cases live under `eval/cases/<case>/`, each a written case beside the repository it is
-about and the answers it should reach. They are the whole set on purpose: a bundled example
-is something a person will open and be shown the tool through, and an example nobody has
-graded teaches whatever the model happened to say that day.
+Four repositories live under `eval/cases/<name>/`, each with an `example.yaml` naming it and
+nothing else. There is no case beside them and no answer key. That is deliberate: an example
+is what a visitor is shown the tool through, and the tool is a review that judges from code,
+asks what it could not weigh, and concludes once it has been told. Shipping a written case
+would hand over the answers and skip the flow; shipping expected verdicts would settle in a
+key the questions the examples exist to raise.
 
-Both present the detector with the same shape six times — an abstraction with exactly one
-implementation — so nothing in the structure separates the boundaries and only the case can.
-They differ in what the case has to be read *for*, and a run can pass one while failing the
-other.
+What each one is for is a property of the repository, and the offline checks under
+`tests/evaluation/` defend exactly that much: the shapes are still there, and nothing in
+them is decidable by counting.
 
 ### Task scheduler boundary review — `boundary-review`
 
-Does this boundary absorb any variation at all? Three of the six sit in front of a change the
-case says is coming (a second delivery channel, a hosted database, a substituted clock) and
-three sit in front of one the case rules out — a format fixed by a downstream system, an
-identifier fixed by contract, a settled configuration decision. A run that clears all six is
-an abstraction generator; one that condemns all six is an abstraction destroyer. Neither is an
-advisor, and the score tells them apart.
+Six boundaries, each an abstraction with exactly one implementation, so the detector cannot
+separate them at all. Whether any of them absorbs variation depends entirely on
+circumstances nobody has written down — a second delivery channel, a hosted database, a
+substituted clock, a format fixed by a downstream system — which is what a run has to ask
+about.
 
 ### Adding a second speech vendor — `speech-vendor`
 
-Is this boundary in the right *place*? Here every boundary sits in front of variation that is
-genuinely coming — a second speech vendor is under contract — so the reading that scored well
-above clears all six. Three of them are drawn at the edge the change arrives at. The other
-three are vendor-shaped seams cut into the web layer, the pre-flight checks and the narration
-planner, each answering a question the case says belongs to whichever vendor is configured, so
-each is a further place the second vendor has to be applied.
+The same six-of-a-shape, asking about *placement* rather than existence. Three seams are at
+the edge a second vendor would arrive at; three are vendor-shaped holes cut into the web
+layer, the pre-flight checks and the narration planner, each answering a question that
+belongs to whichever vendor is configured. The repository also carries the leak it is named
+for: one voice list written into four modules, with a copy that has already drifted out of
+step — *repetition without ownership*, master plan §8A.3.
 
-The case is written to give none of that away: it states the decision, the contracted change,
-the constraints and the qualities that matter, and never names a defect, a fix, or the classes
-the verdicts are about. `tests/evaluation/test_speech_vendor_fixture.py` fails if that
-vocabulary reappears, because a case that states the finding grades the model on reading
-rather than on judgement.
+### A second narration voice — `audiobook-studio`
 
-The repository also carries the leak the fixture is named for: one voice list written into
-four modules, with a copy that has already drifted out of step. Nothing scores that today —
-it is *repetition without ownership* (master plan §8A.3), the half of the detector catalogue
-that is not built — and it is there so the fixture is ready the day it is.
+The only example that exercises all three detectors, and the hardest. Under each repetition
+detector one instance is a real finding and one is not, so nothing here can be settled by
+learning that duplication is bad. Its adapters conform structurally rather than inheriting,
+return concrete types where their ports declare abstract ones and widen signatures the ports
+leave narrow — every shape that once made a real repository's boundaries vanish from the
+sweep.
 
 ### Keeping stock in step with the warehouse — `warehouse-sync`
 
-*Did the advisor notice what the case does not say?* This example grades elicitation
-(master plan §6C) rather than verdicts, and it is the only one whose case is deliberately
-incomplete. It is detailed about how the service is bound and silent about exactly one
-thing — whether a second warehouse is coming. Two of its five boundaries turn on that
-silence, and the answer moves them in *opposite* directions: a second warehouse justifies
-the feed port and condemns the vendor name that leaked into the operator's digest. The
-other three are decidable from what the case already states.
+Five boundaries in a two-year-old service, and one fact that moves two of them in opposite
+directions: a second warehouse would justify the feed port and condemn the vendor name that
+leaked into the operator's digest. It is the example the elicitation loop is tested over,
+because consolidation is visible in it — two boundaries resting on one unknown are one
+question, not two.
 
-A run that hinges all five has learned to hedge and tells a reader nothing about where to
-look. A run that hinges none has spent the silence without noticing it. Both are failures,
-and separating them from an advisor is what this example is for.
+`tests/integration/test_elicitation_loop.py` holds the offline half: that the questions reach
+the report grounded and numbered, that they render, and that answering one produces a second
+review with nothing left open.
 
-It grades through `elicitation.yaml`, not `expected.yaml`, and ships no verdict key at all.
-Two of its verdicts are contingent by construction, so a scored answer for them would settle
-in a key the exact question the case refuses to settle. What can be graded without doing
-that is where the silence was noticed, plus one count: the two hinged boundaries rest on one
-fact, so a run that consolidates asks once.
+### What a live run is read for
 
-`tests/integration/test_elicitation_loop.py` holds the offline half — that the questions
-reach the report grounded and numbered, that they render, and that answering one produces a
-second review with nothing left open. It also asserts the fixture's own premise, so an
-example edited to read better cannot quietly stop measuring anything.
-
-Recorded so a later change has something to beat, on `gemma4:26b`, one run per
-configuration:
-
-| judge prompt | hinged | correct | asked (1 is right) |
-| --- | --- | --- | --- |
-| v8 | 5 of 5 | 2/5 | 5 |
-| v9 | 4 of 5 | 3/5 | 3 |
-
-v9 named two ways a stage hedges after it has read the case. One landed: hinging on whether
-a *stated* constraint is permanent stopped. The other did not — both duplicated-constant
-boundaries still hand back "are these one fact or two", which is the question the stage
-exists to answer. Read these as one run each and not as a measurement of the difference:
-the direction matches what v9 targeted, but nothing here separates a real gain from
-run-to-run variance.
-
-#### The same repository with no case at all
-
-`--no-case` throws the example's case away and reviews its repository alone, which is what
-a first-time user gets by pointing at their own code. Neither key applies — both were
-written for the case as authored — so this reports rather than scores, and two opposite
-failures are what it is watching for.
+Nothing is scored. Two failures pull in opposite directions, and the output is read for both:
 
 **Condemning everything.** An unwritten case justifies no boundary, and read as evidence
 that means every boundary is unjustified. Measured before it was allowed: a thin
-`speech-vendor` run condemned `AudioSink`, `SpeechProvider` and `BookStore`, three
-boundaries the written case justifies. That is §3.1's failure shipped as the first thing a
-new user sees, and judge prompt v10 exists to prevent it.
+`speech-vendor` run condemned `AudioSink`, `SpeechProvider` and `BookStore`. That is §3.1's
+failure shipped as the first thing a new user sees, and judge prompt v10 exists to prevent
+it.
 
 **Clearing everything.** The mirror image. One `warehouse-sync` run with no case condemned
-**0 of 5** and hinged **2 of 5**, and this was written up as v10 having overshot into
-clearing everything. That claim was not supported: a second run of the identical
-repository, model and prompt gave **2 condemned and 4 hinged**. What the pair actually
-shows is run-to-run variance large enough to swamp the effect, so no conclusion about v10's
-direction can be drawn from either. It is recorded here as a failure mode worth watching
-for — a review that clears everything on the strength of a case nobody wrote reads as
-approval nobody earned, which is what §3.1 says about a problems-only report from the other
-side — and not as something measured.
+**0 of 5** and hinged **2 of 5**, and this was written up as v10 having overshot. That claim
+was not supported: a second run of the identical repository, model and prompt gave **2
+condemned and 4 hinged**. What the pair shows is run-to-run variance large enough to swamp
+the effect. It is recorded as a failure mode worth watching for — a review that clears
+everything on the strength of a case nobody wrote reads as approval nobody earned — and not
+as something measured.
 
 The tension behind it is real and worth stating rather than tuning away: v9 says a hinge on
-every boundary is worthless, and v10 says silence is an unknown. Both are right for the case
-they were written against, and an empty case is where they pull hardest — nearly every
-verdict genuinely does turn on something unstated, so *hinging widely and condemning little*
-is the honest shape there, with the questions consolidating those hinges into a few.
+every boundary is worthless, and v10 says silence is an unknown. Both are right for what they
+were written against, and an unwritten case is where they pull hardest — nearly every verdict
+genuinely does turn on something unstated, so *hinging widely and condemning little* is the
+honest shape there, with the questions consolidating those hinges into a few.
 
-That variance is also the strongest argument for the two-pass flow (ADR 0010): a no-case
-pass is unstable enough that its verdicts should not be reported as findings at all. On this
-same example, answering the questions moved **four of five** verdicts.
+That variance is also the strongest argument for the two-pass flow (ADR 0010): a first pass
+is unstable enough that its verdicts are not reported as findings at all. On `warehouse-sync`,
+answering the questions moved **four of five** verdicts.
 
-One failure survives every version from v8 to v10: both duplicated-constant boundaries hand
-back "are these one fact or two" rather than deciding it, with the evidence in the code in
-front of them. Three prompt revisions have not moved it, which points at a capability limit
-on `gemma4:26b` for that discrimination rather than at wording.
+One failure survives every judge-prompt version from v8 to v10: both duplicated-constant
+boundaries hand back "are these one fact or two" rather than deciding it, with the evidence
+in the code in front of them. Three revisions have not moved it, which points at a capability
+limit on `gemma4:26b` for that discrimination rather than at wording. Measurements recorded
+here are one run per configuration and are not differences.
 
-These are architectural-quality benchmarks only when a real reasoning model's output is
-assessed against them. Running the deterministic double over the same fixtures is an integrity
-test and nothing more. Automated structural assertions such as valid citations are necessary,
-but exact keyword matches are not sufficient evidence of architectural quality. Tests that
-perform an optional quality run should use the `ollama` or `google` marker and record the
-model, prompt identities, configuration, and case revision used.
+These repositories say something about architectural quality only when a real reasoning
+model's output is read against them. Running the deterministic double over them is an
+integrity check and nothing more. Tests that perform an optional quality run should use the
+`ollama` or `google` marker and record the model, prompt identities and configuration used.
 
 ## Recorded replay tier
 
@@ -241,23 +205,21 @@ make full
 Continuous integration intentionally runs no Ollama tests. It verifies locked installs,
 deterministic checks, frontend tests, and the production/package build.
 
-## Scoring every example at once
+## Running every example at once
 
 ```bash
-make eval-local        # both examples, on the local model
+make demo-all          # every example, on the local model
 make demo-local        # boundary-review only
 make demo              # boundary-review, on Google
 ```
 
-`make eval-local` runs each bundled case, prints one line per boundary as its verdict lands,
-then a table of per-example scores. An example without an `expected.yaml` is reported as
-unscored rather than counted as a pass, and an abstraction the key does not cover fails the
-run: a fixture that has drifted from its own answers would otherwise produce a score that
-looks complete while measuring less than it claims.
+Each run indexes an example's repository, starts a case with nothing in it, judges every
+boundary and prints the verdicts as they land, followed by what the run came back asking.
+The table at the end counts boundaries, material verdicts, hinges and questions — never a
+score, because no example ships answers to score against. Three lines are printed under it
+where they apply: every boundary condemned, hinges that became no question, and nothing
+hinging at all. Each is a failure mode rather than a number.
 
-Read both scores, never their sum. The two examples ask different questions, and 9/12 across
-the pair hides which of the two failure modes is live.
-
-It is a script, not a workspace button. Twelve boundaries plus two summaries is fourteen model
-calls, the browser has no queue for work that long by design (master plan §18), and a metered
-free tier cannot serve it.
+It is a script, not a workspace button. Twenty-odd boundaries plus their summaries is tens of
+model calls, the browser has no queue for work that long by design (master plan §18), and a
+metered free tier cannot serve it.

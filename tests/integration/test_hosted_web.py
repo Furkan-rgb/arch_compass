@@ -87,11 +87,15 @@ def test_a_first_visit_is_given_a_session_and_says_it_is_hosted() -> None:
 def test_two_visitors_share_nothing() -> None:
     with _client() as mine, _client() as theirs:
         _choose_the_deterministic_model(mine)
-        loaded = mine.post(f"/api/bundled-cases/{FIXTURE}/load")
+        loaded = mine.post(f"/api/examples/{FIXTURE}/load")
         assert loaded.status_code == 201, loaded.text
+        started = mine.post(
+            "/api/repositories/start", json={"root_path": loaded.json()["root_path"]}
+        )
+        assert started.status_code == 201, started.text
 
         assert [item["case_id"] for item in mine.get("/api/cases").json()] == [
-            loaded.json()["case_id"]
+            started.json()["case_id"]
         ]
         assert theirs.get("/api/cases").json() == []
         assert theirs.get("/api/workspace").json()["models"]["reasoning"] is None
@@ -113,7 +117,7 @@ def test_only_the_repositories_the_demo_ships_with_can_be_indexed(tmp_path: Path
     elsewhere = tmp_path / "somebody-elses-code"
     elsewhere.mkdir()
     with _client() as client:
-        bundled = {item["name"]: item for item in client.get("/api/bundled-cases").json()}
+        bundled = {item["name"]: item for item in client.get("/api/examples").json()}
 
         refused = client.post(
             "/api/repositories/index", json={"root_path": str(elsewhere)}
@@ -157,13 +161,12 @@ def test_the_daily_budget_refuses_the_run_past_the_cap(
     monkeypatch.setenv("ARCHCOMPASS_SESSION_DAILY_RUNS", "1")
     with _client() as client:
         _choose_the_deterministic_model(client)
-        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
+        loaded = client.post(f"/api/examples/{FIXTURE}/load")
         assert loaded.status_code == 201, loaded.text
-        bundled = {item["name"]: item for item in client.get("/api/bundled-cases").json()}
-        request = {
-            "case_id": loaded.json()["case_id"],
-            "repository_root": bundled[FIXTURE]["repository_root"],
-        }
+        root = loaded.json()["root_path"]
+        started = client.post("/api/repositories/start", json={"root_path": root})
+        assert started.status_code == 201, started.text
+        request = {"case_id": started.json()["case_id"], "repository_root": root}
 
         assert client.post("/api/reviews", json=request).status_code == 201
         refused = client.post("/api/reviews", json=request)

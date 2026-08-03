@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from archcompass.application.safety import (
-    validate_workspace_repository_separation,
-)
 from archcompass.domain.atlas import AtlasVersion
 from archcompass.domain.workspace import RepositorySummary
 from archcompass.ports.atlas import RepositoryAnalyzer
@@ -17,20 +14,17 @@ class RepositoryIndexService:
     def __init__(
         self,
         *,
-        workspace: Path,
         analyzer: RepositoryAnalyzer,
         atlases: AtlasRepository,
     ) -> None:
-        self._workspace = workspace
         self._analyzer = analyzer
         self._atlases = atlases
 
     def index(self, repository: Path) -> AtlasVersion:
-        _, canonical_repository = validate_workspace_repository_separation(
-            self._workspace,
-            repository,
-        )
-        atlas = self._analyzer.analyze(canonical_repository)
+        # The analyzer canonicalizes and validates the root, and excludes whatever subtrees
+        # it was built to leave out; stating either again here would be a second copy of a
+        # rule that has to hold in one place.
+        atlas = self._analyzer.analyze(repository)
         self._atlases.save(atlas)
         return atlas.version
 

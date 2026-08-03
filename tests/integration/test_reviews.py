@@ -13,6 +13,7 @@ import pytest
 from typer.testing import CliRunner
 
 from archcompass.adapters.models.deterministic import DETERMINISTIC_MODEL
+from archcompass.application.cases import WrittenAnswer
 from archcompass.application.review_rendering import render_review
 from archcompass.bootstrap import Runtime
 from archcompass.domain.atlas import FindingPattern, NodeType
@@ -230,6 +231,46 @@ def test_a_thin_case_is_reviewed_and_asked_about(runtime: Runtime) -> None:
     markdown = render_review(review)
     assert "What it needs to know" in markdown
     assert questions[0].question in markdown
+
+
+def test_offered_options_are_stored_and_never_constrain_the_answer(
+    runtime: Runtime,
+) -> None:
+    """An option set is an offer: it survives the store, and the answer path ignores it.
+
+    The two halves are one property. A reader is shown phrasings they may take, and what they
+    send is text — including text no option suggested — which is recorded verbatim with
+    nothing marking whether an option was taken. Anything that checked an answer against the
+    set, or keyed off which one was chosen, would be trusting a string a model wrote (§12.0).
+    """
+
+    atlas = runtime.analyzer.analyze(FIXTURE)
+    runtime.atlas_repository.save(atlas)
+    thin = _case(FIXTURE).model_copy(update={"expected_future_changes": []})
+    case_id = runtime.case_repository.create(thin, actor="test").case_id
+
+    review = runtime.review_service.review(case_id, repository_root=FIXTURE)
+
+    report = review.report
+    assert report is not None
+    question = report.overview.open_questions[0]
+    assert question.answer_options, "the substitute offers a set on its first question"
+
+    stored = runtime.review_repository.get(review.review_id)
+    assert stored.report is not None
+    assert stored.report.overview.open_questions[0].answer_options == (
+        question.answer_options
+    )
+
+    typed = "A second vendor is being evaluated but nothing is signed."
+    assert typed not in question.answer_options
+    revision = runtime.case_service.answer(
+        review, [WrittenAnswer(question_reference=question.reference, recorded_text=typed)]
+    )
+
+    recorded = revision.snapshot.clarifications
+    assert [item.answer for item in recorded] == [typed]
+    assert [item.question for item in recorded] == [question.question]
 
 
 def test_a_case_that_answers_the_question_is_not_asked_it_again(runtime: Runtime) -> None:

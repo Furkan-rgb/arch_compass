@@ -209,6 +209,20 @@ class DeterministicReasoningProvider:
                     "Is any of that variation actually coming, or is the current shape "
                     "what this repository will keep?"
                 ),
+                # Offered on the first question and on no other. In a whole run through
+                # this substitute the guard never fires: the hinge's `unknown` is one
+                # constant, so consolidation yields exactly one question, and it carries
+                # options. The empty set — the shape most questions really have — is met
+                # by the unit tests that build questions directly, not by driving a page
+                # through this provider.
+                answer_options=(
+                    [
+                        "That variation is coming.",
+                        "The current shape is what this repository will keep.",
+                    ]
+                    if position == 1
+                    else []
+                ),
                 answer_belongs_in=CaseField.EXPECTED_FUTURE_CHANGES,
                 supporting_references=[item.reference for item in sharing],
             )

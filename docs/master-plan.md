@@ -1028,13 +1028,14 @@ The review path exists end to end:
 - Markdown policy parsing, validation and source management.
 - Configurable providers — local Ollama, hosted Google AI Studio — plus deterministic
   substitutes so the whole suite runs without a model.
-- CLI commands for the full path and a browser workspace: bundled examples, the review
+- CLI commands for the full path and a browser workspace: example repositories, the review
   report with its question dock, and an atlas graph view.
-- Three scored examples with known answers. `boundary-review` asks whether a boundary
-  absorbs any variation at all; `speech-vendor` asks whether it is in the right place,
-  and its case is written to state no finding; `audiobook-studio` exercises all three
-  detectors at once, with both verdicts appearing under each repetition detector. `make
-  demo` grades a live run against the first, `make eval-local` against all three.
+- Four example repositories, shipped without cases and without answer keys. `boundary-review`
+  asks whether a boundary absorbs any variation at all; `speech-vendor` asks whether it is in
+  the right place; `audiobook-studio` exercises all three detectors at once, with both
+  directions appearing under each repetition detector; `warehouse-sync` is the one the
+  elicitation loop is read over. `make demo` runs the first against a live model, `make
+  demo-all` runs them all.
 
 The broad dependency architecture is correct:
 
@@ -1097,7 +1098,7 @@ of getting started at all.
 ## Phase 1 — The review path (delivered)
 
 Deterministic candidates, per-candidate judgement against the whole corpus, immutable
-reviews, grounded conversations, scored evaluation.
+reviews, grounded conversations.
 
 ## Phase 2 — The review-centred workspace (delivered)
 

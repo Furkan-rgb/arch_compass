@@ -1,0 +1,8 @@
+# A manifest, not a case. It says what to call this repository in the workspace and
+# nothing about what a review should conclude: the case is written by answering the
+# questions a run comes back with, so anything stated here would be answers nobody gave.
+
+title: Adding a second speech vendor
+description: >-
+  A narration service that has run on one speech vendor since it was written, reached over
+  HTTP with its books in SQLite.

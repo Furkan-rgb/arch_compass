@@ -44,11 +44,22 @@ VERDICT = "[data-slot='verdict-text']"
 OVERVIEW = "[data-slot='overview']"
 REVIEW_ATLAS = "[data-slot='review-atlas']"
 COMMIT = "[data-slot='commit']"
-# The sentence over the run button names the repository and the case, so two `strong`s in it
-# is the page stating that both rails are filled.
-COMMIT_FILLED = (
-    "document.querySelectorAll('[data-slot=\"commit\"] p strong').length === 2"
+# The sentence over the run button names the repository it is about to judge, so one `strong`
+# in it is the page stating that the one thing this step asks for has been chosen. There is no
+# second rail to fill any more: the review writes the case from the reader's answers.
+COMMIT_READY = (
+    "document.querySelectorAll('[data-slot=\"commit\"] p strong').length === 1"
 )
+# What the second pass reads back: the reader's own answer under the question it was given
+# for. Named by the section's label rather than a slot, because that label is what a screen
+# reader is told it is.
+ANSWERS_RECORDED = "section[aria-label='Answers already recorded']"
+# Nobody names a case any more, so the one every run of this example belongs to is the
+# one the workspace derived from the repository's location — the project's name, not the
+# layout's: bundled code lives at `eval/cases/<name>/repository`, and the leaf `repository`
+# names a convention, so the title comes from the example. It is what the listing groups
+# under.
+CASE_TITLE = "Boundaries in boundary-review"
 
 def _free_port() -> int:
     with socket.socket() as probe:
@@ -107,33 +118,45 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
         browser = driver.chromium.launch()
         page = browser.new_page(viewport={"width": 1280, "height": 900})
         try:
-            page.goto(workspace_url, wait_until="networkidle")
+            # `/start` rather than `/`, which is the showcase: the workbench is a step a
+            # reader arrives at from there, and it is the one this test is about.
+            page.goto(f"{workspace_url}/start", wait_until="networkidle")
 
-            # 1. The bundled examples are offered on the front door, scored one marked.
-            page.wait_for_selector("text=Task scheduler boundary review", timeout=20_000)
-            assert page.locator("text=scored").count() >= 1
+            # 1. The start step asks one question: which code. What is offered is a shelf of
+            #    example repositories — a name, and under the pointer a sentence saying what
+            #    the repository is. Never what a review of it will find: that is the run's to
+            #    say, and a shelf that said it first would be handing over the answer.
+            page.wait_for_selector("[data-slot='examples']", timeout=20_000)
+            example = page.get_by_role("button", name="Task scheduler boundary review")
+            example.wait_for(state="visible", timeout=20_000)
+            assert "six boundaries" in (example.get_attribute("title") or "")
+            # One column, because there is one thing to choose. A case is not an input here
+            # any more — the review writes it from the answers below — so there is nothing on
+            # this step that authors one.
+            assert page.locator("[data-slot='start-column']").count() == 1
+            assert page.get_by_role("button", name="New case", exact=True).count() == 0
 
             # 2. Nothing can run yet: the flow states what is missing rather than
             #    offering a button that fails.
             run = page.get_by_role("button", name="Run review")
             assert run.is_disabled()
 
-            # 3. One example click fills both rails — its repository is indexed and its
-            #    case created — and then the run is the user's to start.
+            # 3. One example click indexes its repository and selects it, and then the run is
+            #    the user's to start. An example takes the identical path a folder-picked
+            #    project takes from here on, which is the whole reason it is only a
+            #    repository.
             #
-            #    Both rails are one sheet of two columns now, so "filled" is read off the
-            #    columns themselves — each has exactly one chosen entry — and off the
-            #    sentence beside the run button, which names the repository and the case it
-            #    is about to judge. That sentence is the assertion worth keeping: it is the
-            #    page stating what the click actually did, in the place the run is started.
-            page.get_by_role("button", name="Task scheduler boundary review").click()
-            page.wait_for_function(COMMIT_FILLED, timeout=60_000)
-            chosen = (
-                "[data-slot='start-column']:nth-child(%d)"
-                ' [data-slot="pick"] button[aria-pressed="true"]'
-            )
-            assert page.locator(chosen % 1).count() == 1
-            assert page.locator(chosen % 2).count() == 1
+            #    "Selected" is read off the one column — exactly one chosen entry — and off
+            #    the sentence beside the run button. That sentence is the assertion worth
+            #    keeping: it is the page stating what the click actually did, in the place the
+            #    run is started, and what it states is that nothing but the code is going in.
+            example.click()
+            page.wait_for_function(COMMIT_READY, timeout=60_000)
+            chosen = "[data-slot='start-column'] [data-slot='pick'] button[aria-pressed='true']"
+            assert page.locator(chosen).count() == 1
+            commit = page.inner_text(COMMIT)
+            assert "on the code alone" in commit, commit
+            assert "no case written" in commit, commit
             run.click()
             # Starting a run goes to the review, not to a copy of it drawn on the start
             # step. The stream announces the review's identity before the first model call,
@@ -144,12 +167,80 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             # before React commits the new page, so any text shared with the start step
             # would match the old DOM and pass for the wrong reason.
             page.wait_for_selector(REVIEW_PAGE, timeout=60_000)
-            # And it becomes the review without being asked to. Whether the in-progress
-            # panel is ever visible here is the substitute's business — it answers faster
-            # than a browser can look — so that surface is proved on its own below.
-            page.wait_for_selector(OVERVIEW, timeout=120_000)
+            first_pass = page.url
 
-            # 4. The page leads with what the verdicts amount to, and every claim in it
+            # 4. The first pass judges every boundary and then holds, because a review of code
+            #    with nothing written about it cannot settle what the code does not say. It
+            #    says so on the review's own page and offers the one thing there is to do.
+            #
+            #    No conclusion is drawn while it holds. That is the point of the state rather
+            #    than a decoration of it: the verdicts it reached rest on a case that does not
+            #    yet answer the question below, so presenting them as findings would lead with
+            #    conclusions it is about to revise.
+            answer_them = page.get_by_role("button", name="Answer 1 question")
+            answer_them.wait_for(state="visible", timeout=120_000)
+            assert page.locator(OVERVIEW).count() == 0
+            answer_them.click()
+
+            # 5. A question the review could enumerate the answers to offers them, as things
+            #    to press rather than a list to read. Pressing one is the reader's act and
+            #    nothing else's: it fills the box below with that option's own words, and the
+            #    box stays theirs to edit. Nothing is selected until they press, which is what
+            #    keeps the rule that only what the reader wrote enters the case.
+            offered = "That variation is coming."
+            page.get_by_role("group", name="Offered answers").wait_for(
+                state="visible", timeout=20_000
+            )
+            option = page.get_by_role("button", name=offered)
+            box = page.get_by_label("Or write your own")
+            assert box.input_value() == ""
+            assert option.get_attribute("aria-pressed") == "false"
+            option.click()
+            assert box.input_value() == offered
+            # Marked from the box rather than from a second piece of state, so the pill and
+            # the answer can never disagree about what is about to be recorded.
+            assert option.get_attribute("aria-pressed") == "true"
+
+            # The box is the standing "other", so free text is not a second surface: typing
+            # over an offer makes the answer the reader's own again and the offer stops being
+            # taken. Proved here rather than on a second question because this fixture asks
+            # exactly one — it consolidates every boundary that turns on the same unknown into
+            # one question — so a question carrying no options is not reachable in a browser
+            # at all, and that shape is held in `review-questions.test.tsx`.
+            box.fill("Both, in different places.")
+            assert option.get_attribute("aria-pressed") == "false"
+            option.click()
+            assert box.input_value() == offered
+
+            # 6. Carrying on records the answer as a revision of the case and starts the
+            #    second pass, which is a review of its own beside the first rather than a
+            #    correction of it — a new identity, reached before the first model call.
+            page.get_by_role("button", name="Review what will be recorded").click()
+            page.get_by_role("button", name="Continue the review").click()
+            page.wait_for_function(
+                "url => window.location.href !== url", arg=first_pass, timeout=120_000
+            )
+            page.wait_for_selector(REVIEW_PAGE, timeout=60_000)
+            # And this one concludes. Whether the in-progress panel is ever visible here is
+            # the substitute's business — it answers faster than a browser can look — so that
+            # surface is proved on its own below.
+            page.wait_for_selector(OVERVIEW, timeout=120_000)
+            second_pass = page.url
+            assert second_pass != first_pass
+            header = page.locator("[data-slot='page-header']").inner_text().lower()
+            assert "case rev 2" in header, header
+
+            # 6a. What was recorded is what was pressed, word for word. The option was a way
+            #     of writing the answer, not a code the case stores instead of it, so the pass
+            #     that judged against it reads back the reader's sentence under the review's
+            #     question.
+            page.get_by_role("tab", name="Questions").click()
+            page.wait_for_selector(ANSWERS_RECORDED, timeout=20_000)
+            assert offered in page.inner_text(ANSWERS_RECORDED)
+            page.get_by_role("tab", name="Findings").click()
+            page.wait_for_selector(LEDGER, timeout=20_000)
+
+            # 7. The page leads with what the verdicts amount to, and every claim in it
             #    names the boundaries it rests on.
             overview = page.locator(OVERVIEW)
             assert overview.count() == 1
@@ -158,7 +249,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             citations = overview.locator("[data-slot='citation']")
             assert citations.count() >= 1, overview.inner_text()
 
-            # 5. A citation is a link into the evidence: clicking one lands on that
+            # 8. A citation is a link into the evidence: clicking one lands on that
             #    boundary, which is the whole reason the overview is allowed to generalise.
             #    The row it names opens with it — landing on a collapsed line would be
             #    citing evidence and then not showing it.
@@ -167,7 +258,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.wait_for_selector(f"#{cited}:target", timeout=10_000)
             page.wait_for_selector(f"#{cited}[data-state='open']", timeout=10_000)
 
-            # 6. Every boundary is on the page, cleared ones included. A report that
+            # 9. Every boundary is on the page, cleared ones included. A report that
             #    listed only problems would look identical whether the advisor examined
             #    six boundaries or none.
             assert page.locator(ITEM).count() == 6, page.content()[:2000]
@@ -179,10 +270,10 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             assert words.count() == 6, words.all_inner_texts()
             assert all(text.strip() for text in words.all_inner_texts())
 
-            # 7. Detection limits are stated on each boundary, not once in a footer.
+            # 10. Detection limits are stated on each boundary, not once in a footer.
             assert page.locator("[data-slot='finding-limits']").count() == 6
 
-            # 8. A follow-up question is answered and its grounding shown.
+            # 11. A follow-up question is answered and its grounding shown.
             #
             #    Asking is a panel the reader opens rather than a dock riding the foot of
             #    every review, so the first step is asking for it. Everything below is about
@@ -208,7 +299,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             grounding = page.locator(f"{recorded} [data-slot='grounding']").first.inner_text()
             assert "BR-" in grounding, grounding
 
-            # 9. Threads are durable and plural: a second one is kept apart from the
+            # 12. Threads are durable and plural: a second one is kept apart from the
             #     first, and both stay reachable.
             page.get_by_role("button", name="New thread").click()
             page.get_by_label("Question about this review").fill("What should I do first?")
@@ -228,7 +319,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.wait_for_selector("[data-slot='ask-log'] > li", timeout=10_000)
             assert "TaskFormatter" in page.locator("[data-slot='ask-log']").inner_text()
 
-            # 10b. The panel is beside the review, not over it. What the dock's two heights
+            # 13b. The panel is beside the review, not over it. What the dock's two heights
             #      were for — never covering the thing the question is about, and never
             #      leaving the reader without an input to type into — the panel gets by
             #      construction, and these are the same two guarantees read off the new
@@ -250,7 +341,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.wait_for_selector("#BR-002[data-state='open']", timeout=10_000)
             assert page.locator(ASK_PANEL).is_visible()
 
-            # 10c. And the two cannot fight each other. This is what made the dock stick:
+            # 13c. And the two cannot fight each other. This is what made the dock stick:
             #      its height was measured from how close the reader was to the end of the
             #      page, and growing it moved that end — which un-made the condition that
             #      grew it, so a pixel of jitter on the boundary flipped it back and forth
@@ -278,7 +369,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.get_by_role("button", name="Close the question panel").click()
             page.wait_for_selector(ASK_PANEL, state="hidden", timeout=10_000)
 
-            # 10a. A bearing card is as tall as its own sentence. They shared a class with
+            # 13a. A bearing card is as tall as its own sentence. They shared a class with
             #      the Policies page cards, and so inherited a 255px floor, a hover lift and
             #      a pointer cursor — a card of two lines stood a quarter of a screen tall.
             #      Measured in an open row, because that is the only place they are drawn.
@@ -305,9 +396,14 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
                 ).gridTemplateColumns.split(' ').filter(size => size !== '0px')"""
             )
             assert 0 < len(tracks) <= cards.count(), (tracks, cards.count())
-            assert len(set(tracks)) == 1, tracks
+            # Compared as numbers with a pixel of slack, for the same reason the canvas
+            # further down is: an even split of a fractional width lands on 64ths of a pixel,
+            # so three equal tracks are three unequal strings. What is asserted is that no
+            # track is a different size, not that Chromium divides exactly.
+            widths = [float(size.removesuffix("px")) for size in tracks]
+            assert max(widths) - min(widths) <= 1, tracks
 
-            # 10. The review carries its own atlas, drawn around the boundaries it examined
+            # 13. The review carries its own atlas, drawn around the boundaries it examined
             #     and marked with their verdicts. Which verdict appears here is the
             #     substitute's business — it condemns every boundary nothing depends on, so
             #     this fixture has no cleared node to find. That both verdicts reach the
@@ -321,7 +417,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.wait_for_selector(f"{REVIEW_ATLAS} .atlas-canvas", timeout=30_000)
             page.wait_for_selector(f"{REVIEW_ATLAS} .atlas-node--hotspot", timeout=30_000)
 
-            # 11a. The canvas fills its viewport. It used to keep a fixed height while the
+            # 14a. The canvas fills its viewport. It used to keep a fixed height while the
             #      viewport stretched to match the taller detail column beside it, leaving
             #      a band of dead background under the graph.
             filled = page.evaluate(
@@ -339,12 +435,12 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             # One pixel of slack for sub-pixel layout rounding, not for a missing rule.
             assert abs(filled[0] - filled[1]) <= 1, filled
 
-            # 11. A finding shows its boundary on that map, without leaving the review.
+            # 14. A finding shows its boundary on that map, without leaving the review.
             #     The question and the answer are one reading, so this selects the node in
             #     place rather than opening a second page to hold it. The control lives in
             #     the finding's own reasoning, so the row is opened to reach it — which is
             #     also the reading it belongs to.
-            # 11b. A section is mounted on first visit and kept mounted after. The map is the
+            # 14b. A section is mounted on first visit and kept mounted after. The map is the
             #      reason: it inspects every boundary it draws, so leaving the tab must not
             #      throw that away and coming back must not pay for it again — the reader's
             #      exploration of it survives the trip too. Read off the DOM rather than off
@@ -363,7 +459,7 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             # Still on the review: nothing navigated away.
             assert page.locator(REVIEW_PAGE).count() == 1
 
-            # 12a. Clicking a node answers where the click was made. It used to set the
+            # 15a. Clicking a node answers where the click was made. It used to set the
             #      location hash, which threw the reader back up to the finding, and to
             #      re-centre the canvas, which dragged the graph out from under the pointer.
             node = page.locator(f"{REVIEW_ATLAS} [data-atlas-node-id]").first
@@ -393,21 +489,19 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             # in the URL, and what matters is that selecting a node does not write one.
             assert page.url == url_before
 
-            # 12. Past reviews are a standing record with their own place, grouped by the
-            #     case each judged, and reopen from there. The front door keeps a pointer,
-            #     not a listing that grows without limit under the start step.
-            page.goto(workspace_url, wait_until="networkidle")
+            # 15. Past reviews are a standing record with their own place, grouped by the
+            #     case each judged, and reopen from there. The start step keeps a pointer,
+            #     not a listing that grows without limit under it.
+            page.goto(f"{workspace_url}/start", wait_until="networkidle")
             page.wait_for_selector(COMMIT, timeout=20_000)
             assert page.locator(REVIEW_ROW).count() == 0
             # Substring, because the count and its plural are both part of the label.
             page.get_by_role("link", name="in this workspace").click()
             page.wait_for_url("**/reviews", timeout=20_000)
             page.wait_for_selector(REVIEW_ROW, timeout=20_000)
-            # Grouped by the case each judged, and the group is headed by that case: two
-            # runs of one case are one history rather than two unrelated results.
-            assert "Task scheduler boundary review" in page.locator(
-                "[data-slot='ledger-bar']"
-            ).first.inner_text()
+            # Grouped by the case each judged, and the group is headed by that case: the two
+            # passes of one review are one history rather than two unrelated results.
+            assert CASE_TITLE in page.locator("[data-slot='ledger-bar']").first.inner_text()
             # The row says what the review came to: every run this workspace has started is
             # listed, so the outcome is what tells them apart. A run still in progress says
             # so instead — proved against the repository, since the substitute answers
@@ -417,30 +511,40 @@ def test_a_person_can_review_an_example_and_ask_about_it(workspace_url: str) -> 
             page.locator(REVIEW_LINK).first.click()
             page.wait_for_selector(REVIEW_PAGE, timeout=20_000)
 
-            # 13. The standalone atlas explorer is gone entirely. The only map is the one
+            # 16. The standalone atlas explorer is gone entirely. The only map is the one
             #     inside a review, where a boundary is already the question being asked.
-            page.goto(workspace_url, wait_until="networkidle")
+            page.goto(f"{workspace_url}/start", wait_until="networkidle")
             assert page.get_by_role("link", name="Policies").count() == 1
             assert page.get_by_role("link", name="Repositories").count() == 0
             assert page.get_by_role("link", name="Explore this atlas").count() == 0
 
-            # 14. Neither superseded path 404s; both land on the flow.
-            page.goto(f"{workspace_url}/cases", wait_until="networkidle")
-            page.wait_for_selector("text=Start a review", timeout=20_000)
-            page.goto(f"{workspace_url}/repositories", wait_until="networkidle")
-            page.wait_for_selector("text=Start a review", timeout=20_000)
+            # 17. Neither superseded path 404s; both land on the step that replaced them.
+            #     Waited on by URL and by the sheet that only this step draws — the showcase
+            #     at `/` carries a "Start a review" of its own, so the words alone would pass
+            #     for a redirect that had gone nowhere.
+            for superseded in ("cases", "repositories"):
+                page.goto(f"{workspace_url}/{superseded}", wait_until="networkidle")
+                page.wait_for_url("**/start", timeout=20_000)
+                page.wait_for_selector(COMMIT, timeout=20_000)
         finally:
             browser.close()
 
 
-def test_a_person_can_write_a_case_in_the_browser_and_review_with_it(
-    workspace_url: str,
-) -> None:
-    """The second rail, without a CLI detour.
+def test_the_two_passes_of_one_case_are_one_history(workspace_url: str) -> None:
+    """A second pass stands beside the first rather than correcting it.
 
-    Runs after the example test in file order and depends on the repository that test
-    indexed — deliberately, because the point being proved is that only the case is
-    authored here: the same repository, a different case, a different review.
+    Depends on the walkthrough above, which is the point: what is proved here is that the two
+    passes it produced — the one that held, and the one that concluded against the reader's
+    answer — are one history under the case they both judged, and that both still open from
+    there.
+
+    Nothing here authors or revises a case, because nothing in the browser does any more.
+    Answering the questions is what writes a case now, so the revision this reads back is the
+    one the answer above produced. Revising is not driven from the review being read either:
+    that page used to carry a "revise and review again" button and a pair of arrows to the
+    neighbouring passes, and navigating by case revision landed a reader on the in-progress
+    screen of a review that was not there. The listing is what replaced them — every run of
+    one case under that case, the newest marked, in the place that holds every other run too.
     """
 
     playwright = pytest.importorskip("playwright.sync_api")
@@ -449,195 +553,51 @@ def test_a_person_can_write_a_case_in_the_browser_and_review_with_it(
         browser = driver.chromium.launch()
         page = browser.new_page(viewport={"width": 1280, "height": 900})
         try:
-            page.goto(workspace_url, wait_until="networkidle")
-            page.wait_for_selector("[data-slot='start-column']", timeout=20_000)
-
-            # 1. The form asks questions rather than presenting a schema, and marks the
-            #    three fields that decide verdicts as the ones that do.
-            page.get_by_role("button", name="New case", exact=True).click()
-            page.wait_for_selector("[data-slot='case-form']", timeout=20_000)
-            assert page.locator("[data-slot='case-decisive']").count() == 1
-            # Both examples on the fields that can be answered emptily. Shown only the good
-            # one, a reader takes it for a formatting convention and writes "we might need
-            # X one day" anyway; the pair is what lets them see which theirs resembles.
-            assert page.locator("[data-slot='case-example'][data-tone='good']").count() >= 3
-            assert page.locator("[data-slot='case-example'][data-tone='bad']").count() >= 3
-            page.get_by_label("Name for this case").fill(
-                "Formatter boundary, authored in the browser"
-            )
-            page.get_by_label("What decision are you facing?").fill(
-                "One formatter port with a single implementation, and a label format fixed "
-                "by a downstream reporting system that parses it."
-            )
-            page.get_by_label("What would a good answer give you?").fill(
-                "A verdict on whether the formatter boundary is earning its place."
-            )
-            page.get_by_label("What changes are actually coming?").fill(
-                "Reminder delivery over SMS is scheduled for the next release."
-            )
-            page.get_by_label("What have you decided against?").fill(
-                "Any alternative label format or output rendering."
-            )
-            page.get_by_label("What is settled, and why?").fill(
-                "The label format is fixed by a downstream parser and no change is planned."
-            )
-
-            # 2. The case is created, selected in the rail, and ready to run: the sentence
-            #    over the run button names both the repository and this case.
-            page.get_by_role("button", name="Create the case").click()
-            page.wait_for_selector(
-                "text=Formatter boundary, authored in the browser", timeout=20_000
-            )
-            page.wait_for_function(COMMIT_FILLED, timeout=20_000)
-            assert "Formatter boundary, authored in the browser" in page.inner_text(COMMIT)
-
-            # 3. The YAML escape hatch is still there, and the server is still the only
-            #    validator: its complaint is shown rather than paraphrased.
-            #
-            #    A case with no title, because that is what the domain still requires. Every
-            #    other field became optional when a review stopped needing a case at all —
-            #    a run now writes one from the reader's answers — and `title` stayed, because
-            #    it is how a case is picked out of a listing.
-            page.get_by_role("button", name="Paste YAML").click()
-            page.get_by_label("Case YAML").fill(
-                "problem_statement: A case with no name.\n"
-            )
-            page.get_by_role("button", name="Create the case").click()
-            page.wait_for_selector("[data-slot='error-strip']", timeout=20_000)
-            assert "title" in page.locator("[data-slot='error-strip']").inner_text()
-            page.get_by_role("button", name="Close the editor").click()
-
-            # 4. The stored case reads back as the same format the escape hatch takes.
-            page.get_by_role("button", name="View", exact=True).click()
-            page.wait_for_selector("[data-slot='case-yaml']", timeout=20_000)
-            written = page.locator("[data-slot='case-yaml']").inner_text()
-            assert "expected_future_changes" in written
-            assert "case_id" not in written, written
-            page.get_by_role("button", name="Close the case").click()
-
-            # 5. The whole flow, completed in the browser: authored case, indexed
-            #    repository, one review.
-            page.get_by_role("button", name="Run review").click()
-            page.wait_for_url("**/reviews/rev_*", timeout=120_000)
-            page.wait_for_selector(REVIEW_PAGE, timeout=60_000)
-            assert "Formatter boundary, authored in the browser" in page.inner_text(
-                REVIEW_PAGE
-            )
-            # The page is reached while the run is still going, so the report is waited for
-            # rather than assumed. Closing the browser before it lands would leave the run
-            # to finish on its own — true, and useless to assert against.
-            page.wait_for_selector(OVERVIEW, timeout=120_000)
-            assert page.locator(ITEM).count() == 6
-        finally:
-            browser.close()
-
-
-def test_a_person_can_revise_the_case_and_review_again(workspace_url: str) -> None:
-    """The iterate loop: a changed case is a new question, not a corrected answer.
-
-    Depends on the reviews the tests above produced, which is the point: what is proved
-    here is that a second review of the same case exists alongside the first and that the
-    two can be walked between.
-
-    Revising is done where cases are chosen rather than from the review being read. The
-    review page used to carry a "revise and review again" button and a pair of arrows to
-    the neighbouring passes; both are gone, because navigating by case revision landed a
-    reader on the in-progress screen of a review that was not there. What replaced them is
-    the listing, which groups every run of one case under that case and marks the newest —
-    so the two passes are still one history and still walked between, in the place that
-    holds every other run too.
-    """
-
-    playwright = pytest.importorskip("playwright.sync_api")
-
-    with playwright.sync_playwright() as driver:
-        browser = driver.chromium.launch()
-        page = browser.new_page(viewport={"width": 1280, "height": 900})
-        try:
+            # 1. Two rows under one case, each saying which revision it ran against and which
+            #    of them is the latest. Derived from the reviews of that case rather than
+            #    stored on either of them, which is why answering once produces a history
+            #    without anything having to link the two.
             page.goto(f"{workspace_url}/reviews", wait_until="networkidle")
             page.wait_for_selector(REVIEW_ROW, timeout=20_000)
-            # The newest row is the one to open, once it is a review rather than a run: the
-            # listing follows a run while there is one, so this is a wait rather than a
-            # retry. A running review has its own page, which is what the test above proves.
-            page.wait_for_function(
-                "() => Array.from(document.querySelectorAll('[data-slot=\"review-link\"]'))"
-                ".every(node => !/judging|sweeping/i.test(node.textContent || ''))",
-                timeout=120_000,
-            )
-            page.locator(REVIEW_LINK).first.click()
-            page.wait_for_selector(OVERVIEW, timeout=20_000)
-            first = page.url
-
-            # 1. What the review is pinned to is printed, not implied — on the band that
-            #    leads the page, beside the verdicts it produced. The labels are uppercased
-            #    by the stylesheet, so compare against rendered text.
-            assert "case rev 1" in page.locator("[data-slot='page-header']").inner_text().lower()
-            pinned = page.locator("[data-slot='band-facts']").inner_text().lower()
-            assert "atlas" in pinned, pinned
-            assert "policies" in pinned, pinned
-            assert "model" in pinned, pinned
-
-            # 2. The case is revised where cases are chosen, and the action says what it
-            #    will do before it is confirmed: a new revision, with every review that has
-            #    already run left alone.
-            page.goto(workspace_url, wait_until="networkidle")
-            page.wait_for_selector("[data-slot='pick'][data-prose='true'] button", timeout=20_000)
-            page.get_by_role(
-                "button", name="Formatter boundary, authored in the browser"
-            ).click()
-            page.get_by_role("button", name="Revise", exact=True).click()
-            page.wait_for_selector("[data-slot='case-form']", timeout=20_000)
-            warning = page.locator("[data-slot='case-warning']").inner_text()
-            assert "Earlier reviews are not affected" in warning, warning
-            assert "revision 2" in warning, warning
-
-            # 3. The stored case opens prefilled — not empty — and a real edit is submitted
-            #    as a new revision rather than over the one the first review judged.
-            expected = page.get_by_label("What changes are actually coming?")
-            existing = expected.input_value()
-            assert existing.strip(), "the form must open with the stored case's answers"
-            expected.fill(existing + "\nA second delivery channel is committed.")
-            page.get_by_role("button", name="Save as a new revision").click()
-            page.wait_for_selector("[data-slot='case-form']", state="detached", timeout=20_000)
-            page.wait_for_function(COMMIT_FILLED, timeout=20_000)
-
-            # 4. A second review, at the next case revision, and this is a different one.
-            #    Running takes the reader to the new review as soon as it has an identity,
-            #    before the first model call.
-            page.get_by_role("button", name="Run review").click()
-            page.wait_for_url("**/reviews/rev_*", timeout=120_000)
-            page.wait_for_function(
-                "url => window.location.href !== url", arg=first, timeout=120_000
-            )
-            page.wait_for_selector(REVIEW_PAGE, timeout=60_000)
-            second = page.url
-            assert second != first
-            page.wait_for_selector(OVERVIEW, timeout=120_000)
-            # Pinned to the revision it judged, which is the one just written.
-            assert "case rev 2" in page.locator("[data-slot='page-header']").inner_text().lower()
-
-            # 5. The two are one history: derived from the reviews of this case rather than
-            #    stored on either of them, grouped under the case both judged, the newer one
-            #    marked as such — and both still open from there.
-            page.goto(f"{workspace_url}/reviews", wait_until="networkidle")
-            page.wait_for_selector(REVIEW_ROW, timeout=20_000)
-            group = page.locator("[data-slot='case-history']").filter(
-                has_text="Formatter boundary, authored in the browser"
-            )
+            group = page.locator("[data-slot='case-history']").filter(has_text=CASE_TITLE)
             rows = group.locator(REVIEW_LINK)
             assert rows.count() == 2, rows.all_inner_texts()
             assert "case rev 2" in rows.first.inner_text().lower()
             assert "latest" in rows.first.inner_text().lower()
             assert "case rev 1" in rows.last.inner_text().lower()
+
+            # 2. The first pass is kept exactly as it stood: still holding, still without a
+            #    conclusion. Answering it produced the pass beside it rather than filling this
+            #    one in, so what the reader's answer changed stays checkable against what was
+            #    judged before it.
             rows.last.click()
-            page.wait_for_url(first, timeout=20_000)
+            # Waited on rather than read once: the page header is drawn while the review is
+            # still being read back, so the banner is the first thing on it that can only mean
+            # the record arrived and says it is holding. Reading the absence of a conclusion
+            # before that would be reading an empty page.
+            page.get_by_role("button", name="Answer 1 question").wait_for(
+                state="visible", timeout=20_000
+            )
+            held = page.url
+            assert page.locator(OVERVIEW).count() == 0
+
+            # 3. The second is the one with a conclusion, and it prints what it is pinned to
+            #    rather than implying it — the case revision on the band that leads the page,
+            #    beside the atlas, the policies and the model the verdicts were reached with.
+            #    The labels are uppercased by the stylesheet, so compare against rendered text.
             page.go_back()
             page.wait_for_selector(REVIEW_ROW, timeout=20_000)
-            page.locator("[data-slot='case-history']")\
-                .filter(has_text="Formatter boundary, authored in the browser")\
-                .locator(REVIEW_LINK)\
-                .first.click()
-            page.wait_for_url(second, timeout=20_000)
+            page.locator("[data-slot='case-history']").filter(has_text=CASE_TITLE).locator(
+                REVIEW_LINK
+            ).first.click()
+            page.wait_for_selector(OVERVIEW, timeout=20_000)
+            assert page.url != held
+            header = page.locator("[data-slot='page-header']").inner_text().lower()
+            assert "case rev 2" in header, header
+            pinned = page.locator("[data-slot='band-facts']").inner_text().lower()
+            assert "atlas" in pinned, pinned
+            assert "policies" in pinned, pinned
+            assert "model" in pinned, pinned
         finally:
             browser.close()
 

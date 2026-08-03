@@ -1,4 +1,4 @@
-.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build test-ollama test-google eval eval-local check build full demo demo-local test-browser web web-google docker-build
+.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build test-ollama test-google eval check build full demo demo-local demo-all test-browser web web-google docker-build
 
 sync:
 	uv sync --locked
@@ -36,11 +36,13 @@ test-ollama:
 test-google:
 	uv run pytest -m "google"
 
+# Offline checks that the example repositories still present the shapes the review path is
+# demonstrated on. No model, no answer key — the examples ship neither.
 eval:
 	uv run pytest -m "evaluation and not ollama"
 
-# The standing example. Six boundaries the detector cannot tell apart and a case that
-# makes three of them justified; prints one verdict per boundary against the known answer.
+# The standing example, run the way a visitor gets it: a repository with no case, judged in
+# full, followed by the questions it came back with. Nothing is scored.
 #
 # Runs against Google by default: it finishes in about two and a half minutes where the
 # local model takes four or five, which is the difference between a check you run on every
@@ -52,10 +54,9 @@ demo:
 demo-local:
 	uv run python scripts/run_boundary_review.py --provider ollama --model gemma4:26b
 
-# Every brownfield example, scored where one ships answers. Tens of model calls, so it
-# runs on the local model: a metered free tier cannot serve it, and the workspace has no
-# queue for work this long by design.
-eval-local:
+# Every example repository. Tens of model calls, so it runs on the local model: a metered
+# free tier cannot serve it, and the workspace has no queue for work this long by design.
+demo-all:
 	uv run python scripts/run_boundary_review.py --all --provider ollama --model gemma4:26b
 
 # `web` opens the workspace and lets it choose its own model, which is what a reader of

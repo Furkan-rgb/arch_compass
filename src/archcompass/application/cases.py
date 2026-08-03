@@ -40,17 +40,28 @@ class WrittenAnswer(DomainModel):
     recorded_text: str = Field(min_length=1)
 
 
+#: Leaf names that name a layout rather than a project. Every bundled example lives at
+#: `eval/cases/<name>/repository`, so titling by the leaf alone gave four loaded examples
+#: four cases all called "Boundaries in repository" — one history, unreadable.
+_LAYOUT_NAMES = frozenset({"repository", "repo", "src", "source", "code"})
+
+
 def _title_for(root: Path) -> str:
     """A name for a case nobody has named, taken from the repository it is about.
 
     Derived rather than invented, and that distinction is the whole of why this is allowed.
     A repository's own directory name is a fact about what is being reviewed; a problem
     statement written on the user's behalf would be intent they never stated, which the case
-    exists to hold and only they can supply (invariant 23).
+    exists to hold and only they can supply (invariant 23). A leaf that names a layout
+    rather than a project is skipped for the same reason it would fail as a title: it is a
+    fact about directory convention, not about what is being reviewed.
     """
 
-    name = root.expanduser().resolve().name or str(root)
-    return f"Boundaries in {name}"
+    resolved = root.expanduser().resolve()
+    for part in reversed(resolved.parts):
+        if part and part.casefold() not in _LAYOUT_NAMES:
+            return f"Boundaries in {part}"
+    return f"Boundaries in {resolved.name or root}"
 
 
 class CaseService:
@@ -133,6 +144,13 @@ class CaseService:
         answer carries — a client that could supply either could pair an answer with a
         question nobody asked, or give it a weight its question never named, and there would
         be no way afterwards to tell that from a question that did.
+
+        An answer is free text and nothing here checks it against anything. Where the question
+        offered `answer_options`, a reader who picked one sent its text and nothing else: it
+        arrives indistinguishable from an answer they typed, no record says which option was
+        taken, and no code branches on one. That is deliberate — an option is model-written, so
+        keying anything off it would break §12.0 in the one place it would be hardest to see,
+        and validating an answer against the set would turn an offer into a menu.
 
         Both halves are kept together as a `Clarification` rather than composed into a line in
         one of the five deciding lists. The composition existed because the case had no shape

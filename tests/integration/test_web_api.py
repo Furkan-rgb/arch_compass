@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -18,6 +19,46 @@ from archcompass.presentation.web import create_app
 FIXTURE = "boundary-review"
 
 
+def _example(client: TestClient) -> tuple[str, str]:
+    """An example chosen in the workspace: repository indexed, and a case about it.
+
+    Two calls because the browser makes two. An example ships no case — loading it hands
+    back a repository, which is then started from like any repository a user picks.
+    """
+
+    loaded = client.post(f"/api/examples/{FIXTURE}/load")
+    assert loaded.status_code == 201, loaded.text
+    root = loaded.json()["root_path"]
+    started = client.post("/api/repositories/start", json={"root_path": root})
+    assert started.status_code == 201, started.text
+    return started.json()["case_id"], root
+
+
+def _reviewed(client: TestClient) -> dict[str, Any]:
+    """A review that reached a conclusion, which is always the second of two passes.
+
+    The first pass on an unwritten case asks rather than concludes, so every surface that
+    shows a finished review is looking at a second pass — with or without an answer having
+    been written between them.
+    """
+
+    case_id, root = _example(client)
+    first = client.post(
+        "/api/reviews", json={"case_id": case_id, "repository_root": root}
+    )
+    assert first.status_code == 201, first.text
+    second = client.post(
+        "/api/reviews",
+        json={
+            "case_id": case_id,
+            "repository_root": root,
+            "elicited_from": first.json()["review_id"],
+        },
+    )
+    assert second.status_code == 201, second.text
+    return cast("dict[str, Any]", second.json())
+
+
 def test_the_api_covers_the_whole_review_loop(runtime: Runtime) -> None:
     """Pick an example, review it, read it back, ask about it — in one client session."""
 
@@ -26,25 +67,16 @@ def test_the_api_covers_the_whole_review_loop(runtime: Runtime) -> None:
         assert workspace.status_code == 200
         assert workspace.json()["models"]["reasoning"]["provider"] == "fake"
 
-        examples = client.get("/api/bundled-cases")
+        examples = client.get("/api/examples")
         assert examples.status_code == 200
         listed = {item["name"]: item for item in examples.json()}
         assert FIXTURE in listed
-        # The flag says the example ships an answer key, which is what the offline harness
-        # measures against. Nothing in the workspace grades a review, so this is a property
-        # of the example rather than a promise about what the review will show.
-        assert listed[FIXTURE]["has_expected_answers"] is True
+        # A name and a sentence about the repository, and no case: what the review needs to
+        # know it asks for, which is the flow a visitor is here to see.
+        assert listed[FIXTURE]["title"]
+        assert listed[FIXTURE]["description"]
 
-        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
-        assert loaded.status_code == 201, loaded.text
-        case_id = loaded.json()["case_id"]
-
-        created = client.post(
-            "/api/reviews",
-            json={"case_id": case_id, "repository_root": listed[FIXTURE]["repository_root"]},
-        )
-        assert created.status_code == 201, created.text
-        review = created.json()
+        review = _reviewed(client)
         review_id = review["review_id"]
         assert review["status"] == "succeeded"
         assert review["report"]["reviewed"]
@@ -56,7 +88,13 @@ def test_the_api_covers_the_whole_review_loop(runtime: Runtime) -> None:
 
         summaries = client.get("/api/reviews")
         assert summaries.status_code == 200
-        assert [item["review_id"] for item in summaries.json()] == [review_id]
+        # Both passes are listed. The first one asked and is kept as it was; nothing is
+        # replaced by the run that answered it.
+        assert review_id in {item["review_id"] for item in summaries.json()}
+        assert sorted(item["status"] for item in summaries.json()) == [
+            "awaiting_answers",
+            "succeeded",
+        ]
 
         conversation = client.post(
             "/api/review-conversations", json={"review_id": review_id}
@@ -81,6 +119,54 @@ def test_the_api_covers_the_whole_review_loop(runtime: Runtime) -> None:
         assert len(history.json()["messages"]) == 1
 
 
+def test_every_shipped_example_is_a_repository_with_a_name_and_no_case(
+    runtime: Runtime,
+) -> None:
+    """What the front door offers: repositories to point at, described in one line each.
+
+    A case shipped beside one would answer the questions before a visitor was asked them,
+    and the first pass would conclude instead of eliciting — so the absence is asserted on
+    disk rather than trusted to stay absent.
+    """
+
+    with TestClient(create_app(runtime)) as client:
+        listed = client.get("/api/examples").json()
+
+    assert len(listed) >= 2
+    for example in listed:
+        assert set(example) == {"name", "title", "description", "repository_root"}
+        assert example["title"] and example["description"]
+        root = Path(example["repository_root"])
+        assert root.is_dir()
+        assert (root.parent / "example.yaml").is_file()
+        assert not (root.parent / "case.yaml").exists()
+        assert not (root.parent / "expected.yaml").exists()
+
+
+def test_loading_an_example_indexes_it_and_creates_nothing_else(runtime: Runtime) -> None:
+    """The load is an indexing step, so what comes back is the atlas and not a case.
+
+    The route exists because the hosted demo has no folder picker: it is how a repository
+    the visitor may index gets named. Everything after it is the ordinary path.
+    """
+
+    with TestClient(create_app(runtime)) as client:
+        loaded = client.post(f"/api/examples/{FIXTURE}/load")
+
+        assert loaded.status_code == 201, loaded.text
+        version = loaded.json()
+        assert Path(version["root_path"]).is_dir()
+        assert version["version_id"]
+        assert [item["root_path"] for item in client.get("/api/repositories").json()] == [
+            version["root_path"]
+        ]
+        assert client.get("/api/cases").json() == []
+
+        missing = client.post("/api/examples/no-such-example/load")
+        assert missing.status_code == 404, missing.text
+        assert missing.json()["code"] == "not_found"
+
+
 def test_a_streamed_review_counts_its_boundaries_before_judging_them(
     runtime: Runtime,
 ) -> None:
@@ -92,16 +178,22 @@ def test_a_streamed_review_counts_its_boundaries_before_judging_them(
     """
 
     with TestClient(create_app(runtime)) as client:
-        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
-        case_id = loaded.json()["case_id"]
-        repository_root = {
-            item["name"]: item for item in client.get("/api/bundled-cases").json()
-        }[FIXTURE]["repository_root"]
+        case_id, repository_root = _example(client)
+        # The pass that concludes, because that is the one whose last line carries a
+        # finished review. The first pass is watched the same way and ends by asking.
+        first = client.post(
+            "/api/reviews", json={"case_id": case_id, "repository_root": repository_root}
+        )
+        assert first.status_code == 201, first.text
 
         with client.stream(
             "POST",
             "/api/reviews/stream",
-            json={"case_id": case_id, "repository_root": repository_root},
+            json={
+                "case_id": case_id,
+                "repository_root": repository_root,
+                "elicited_from": first.json()["review_id"],
+            },
         ) as response:
             assert response.status_code == 200, response.read()
             assert response.headers["content-type"].startswith("application/x-ndjson")
@@ -333,16 +425,7 @@ def test_a_finished_review_downloads_as_the_markdown_it_was_written_as(
     """
 
     with TestClient(create_app(runtime)) as client:
-        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
-        repository_root = {
-            item["name"]: item for item in client.get("/api/bundled-cases").json()
-        }[FIXTURE]["repository_root"]
-        created = client.post(
-            "/api/reviews",
-            json={"case_id": loaded.json()["case_id"], "repository_root": repository_root},
-        )
-        assert created.status_code == 201, created.text
-        review = created.json()
+        review = _reviewed(client)
         review_id = review["review_id"]
 
         exported = client.get(f"/api/reviews/{review_id}/report")
@@ -369,14 +452,7 @@ def test_a_review_with_no_report_refuses_the_download_rather_than_serving_nothin
     with TestClient(create_app(runtime)) as client:
         assert client.get("/api/reviews/rev_missing/report").status_code == 404
 
-        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
-        finished = client.post(
-            "/api/reviews",
-            json={
-                "case_id": loaded.json()["case_id"],
-                "repository_root": client.get("/api/repositories").json()[0]["root_path"],
-            },
-        ).json()
+        finished = _reviewed(client)
         # Written into the store rather than raced against a real run: the substitute
         # provider finishes faster than a request can be made against a running review.
         running = runtime.review_repository.get(finished["review_id"]).model_copy(
@@ -493,15 +569,7 @@ def test_a_streamed_answer_ends_in_the_message_that_was_appended(runtime: Runtim
     """
 
     with TestClient(create_app(runtime)) as client:
-        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
-        case_id = loaded.json()["case_id"]
-        repository_root = {
-            item["name"]: item for item in client.get("/api/bundled-cases").json()
-        }[FIXTURE]["repository_root"]
-        review = client.post(
-            "/api/reviews",
-            json={"case_id": case_id, "repository_root": repository_root},
-        ).json()
+        review = _reviewed(client)
         conversation = client.post(
             "/api/review-conversations", json={"review_id": review["review_id"]}
         )
@@ -616,7 +684,7 @@ def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> N
     assert document.status_code == 200
     paths = document.json()["paths"]
     for route in (
-        "/api/bundled-cases",
+        "/api/examples",
         "/api/reviews",
         "/api/reviews/stream",
         "/api/reviews/{review_id}",
@@ -650,15 +718,7 @@ def test_cancelling_and_deleting_a_review_over_the_api(runtime: Runtime) -> None
     """Both refusals and both successes, in the order a person meets them."""
 
     with TestClient(create_app(runtime)) as client:
-        loaded = client.post(f"/api/bundled-cases/{FIXTURE}/load")
-        case_id = loaded.json()["case_id"]
-        repository_root = client.get("/api/repositories").json()[0]["root_path"]
-        review = client.post(
-            "/api/reviews",
-            json={"case_id": case_id, "repository_root": repository_root},
-        )
-        assert review.status_code == 201, review.text
-        review_id = review.json()["review_id"]
+        review_id = _reviewed(client)["review_id"]
 
         # Cancelling something that already finished is a conflict, not a quiet success:
         # a client told "cancelled" would report a stop that never happened.
@@ -677,7 +737,11 @@ def test_cancelling_and_deleting_a_review_over_the_api(runtime: Runtime) -> None
         removed = client.delete(f"/api/reviews/{review_id}")
         assert removed.status_code == 204, removed.text
         assert client.get(f"/api/reviews/{review_id}").status_code == 404
-        assert client.get("/api/reviews").json() == []
+        # Only this one. The first pass it answered is a review in its own right and is
+        # not swept up by deleting the run that concluded.
+        assert review_id not in {
+            item["review_id"] for item in client.get("/api/reviews").json()
+        }
         # The threads went with it: one whose review is gone has nothing to be about.
         assert (
             client.get(

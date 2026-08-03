@@ -227,8 +227,8 @@ describe("an unreachable workspace", () => {
   });
 
   it("passes a real refusal through verbatim on the routes that do not use `request`", async () => {
-    // `deleteReview` and `importCase` read their own responses — a 204 has no body to parse,
-    // and a case document is YAML going out. Both still have to report the server's own words.
+    // `deleteReview` reads its own response — a 204 has no body to parse — and still has
+    // to report the server's own words when the answer is a refusal instead.
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -241,9 +241,6 @@ describe("an unreachable workspace", () => {
 
     await expect(api.deleteReview("rev-1")).rejects.toMatchObject({
       code: "review_running",
-      message: "that review is still running",
-    });
-    await expect(api.importCase("title: x")).rejects.toMatchObject({
       message: "that review is still running",
     });
   });

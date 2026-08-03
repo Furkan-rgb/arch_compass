@@ -41,11 +41,12 @@ before reading code. A mismatch raises `StaleAtlasError` and instructs the calle
 `archcompass repo index <repository>`; old versions are usable only while their evidence identity
 still matches.
 
-The selected ArchCompass workspace must not equal or be contained by the analysed repository.
-Explicit repository arguments are checked before runtime construction, and every atlas root
-resolved from a case or persisted version is checked again before use. This prevents SQLite state
-or reports from being written into the repository. Indexing, queries, and advice never modify the
-analysed repository.
+The workspace may sit inside the analysed repository — indexing ArchCompass itself from its own
+workspace is the ordinary case — because the analyzer excludes the workspace subtree from every
+snapshot. Its files are absent from the atlas and, since a review writes to the workspace on every
+run, absent from the content fingerprint too; without the exclusion the atlas would be stale the
+moment it was built. Explicit repository arguments are still checked to exist and be a directory
+before runtime construction. Indexing, queries, and advice never modify the analysed repository.
 
 ## Query model
 

@@ -34,8 +34,9 @@ revision atomically. Once a valid input case is loaded, a terminal workflow fail
 failed run with its partial audit data and never advances the case.
 
 ArchCompass state defaults to `<workspace>/.archcompass/archcompass.db`; analysed repositories are
-never used as persistence destinations by indexing or advice commands. The workspace may not
-equal or be contained by an analysed repository. Database and report paths are revalidated inside
+never used as persistence destinations by indexing or advice commands. A workspace inside an
+analysed repository is allowed and excluded from that repository's snapshot, so state written here
+never enters the atlas or its fingerprint. Database and report paths are revalidated inside
 the workspace and reject traversal or symlink escapes.
 
 Migration `002_policy_source_registrations.sql` adds the source registry without replacing

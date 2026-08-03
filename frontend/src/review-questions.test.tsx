@@ -32,6 +32,11 @@ const VENDOR: OpenQuestion = {
   supporting_references: ["BR-001", "BR-005"],
 };
 
+const WITH_OPTIONS: OpenQuestion = {
+  ...VENDOR,
+  answer_options: ["A second warehouse is planned this year", "No second warehouse is coming"],
+};
+
 const CONSTANTS: OpenQuestion = {
   reference: "Q-2",
   what_the_review_saw: "BATCH_SIZE is declared in two modules with the same value.",
@@ -379,5 +384,61 @@ describe("OpenQuestions and what has been typed but not yet saved", () => {
     // A question opened and left blank is a question skipped, which is a normal way to use
     // this — and it leaves nothing behind to be restored or cleaned up.
     expect(window.localStorage.getItem(draftKey(ANSWER_DRAFTS, "rev-1"))).toBeNull();
+  });
+});
+
+describe("OpenQuestions and the answers a review can offer", () => {
+  it("shows options only where the review offered them", () => {
+    renderQuestions({ questions: [WITH_OPTIONS, CONSTANTS] });
+
+    expect(screen.getByRole("group", { name: "Offered answers" })).toBeTruthy();
+    goTo(2);
+    expect(screen.queryByRole("group", { name: "Offered answers" })).toBeNull();
+  });
+
+  it("records a pressed option as the reader's own text, editable to the last moment", () => {
+    const onSubmit = renderQuestions({ questions: [WITH_OPTIONS] });
+
+    fireEvent.click(screen.getByRole("button", { name: "No second warehouse is coming" }));
+    expect(answerBox().value).toBe("No second warehouse is coming");
+
+    goToReview();
+    fireEvent.click(screen.getByRole("button", { name: /^Continue/ }));
+    expect(onSubmit).toHaveBeenCalledWith([
+      { question_reference: "Q-1", recorded_text: "No second warehouse is coming" },
+    ]);
+  });
+
+  it("lets an offer be declined by pressing it again", () => {
+    renderQuestions({ questions: [WITH_OPTIONS] });
+    const option = screen.getByRole("button", { name: "No second warehouse is coming" });
+
+    fireEvent.click(option);
+    expect(option.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(option);
+    expect(option.getAttribute("aria-pressed")).toBe("false");
+    expect(answerBox().value).toBe("");
+  });
+
+  it("treats an edited option as the reader's words, no longer any option's", () => {
+    renderQuestions({ questions: [WITH_OPTIONS] });
+    const option = screen.getByRole("button", { name: "No second warehouse is coming" });
+
+    fireEvent.click(option);
+    fireEvent.change(answerBox(), {
+      target: { value: "No second warehouse is coming, and none is being evaluated." },
+    });
+
+    expect(option.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("never selects an option the reader has not pressed", () => {
+    renderQuestions({ questions: [WITH_OPTIONS] });
+
+    for (const name of WITH_OPTIONS.answer_options!) {
+      expect(screen.getByRole("button", { name }).getAttribute("aria-pressed")).toBe("false");
+    }
+    expect(answerBox().value).toBe("");
   });
 });

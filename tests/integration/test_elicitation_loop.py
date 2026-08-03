@@ -1,19 +1,17 @@
 """Elicitation end to end, over the `warehouse-sync` example (master plan §6C).
 
-The example is built for this: its case is detailed about how the service is bound and
-silent about exactly one thing — whether a second warehouse is coming — and two of its five
-boundaries turn on that silence while three are decidable from what the case already says.
-`elicitation.yaml` beside it records which is which, and is read here rather than restated,
-so the fixture and the test cannot drift apart into two different claims about the same
-repository.
+The example is built for this: five boundaries in a service nobody has written a case
+about, so every verdict is reached from the code alone and the run has something to ask
+about all of it. That is not a special mode — it is what every example gives a visitor,
+because none of them ships a case.
 
 What is defended is the path and the loop, not what a model concludes. These run against
 the deterministic substitute, so the assertions hold whatever the reasoning provider says:
 the questions reach the report, they are grounded in boundaries of that review, they are
 numbered by the application, they render, and answering one produces a review with nothing
-left open. Whether a *model* notices the right silence is measured by
-`scripts/run_boundary_review.py` against a live provider, which is a different question and
-cannot be asserted offline.
+left open. Whether a *model* asks about the right silence is what
+`scripts/run_boundary_review.py` shows against a live provider, which is a different
+question and cannot be asserted offline.
 """
 
 from __future__ import annotations
@@ -22,7 +20,6 @@ import shutil
 from pathlib import Path
 
 import pytest
-import yaml
 
 from archcompass.application.cases import WrittenAnswer
 from archcompass.application.review_rendering import render_review
@@ -48,35 +45,67 @@ ROOT = Path(__file__).resolve().parent.parent.parent / "eval" / "cases" / EXAMPL
 REPOSITORY = (ROOT / "repository").resolve()
 
 
-def _elicitation_key() -> dict[str, object]:
-    return yaml.safe_load((ROOT / "elicitation.yaml").read_text(encoding="utf-8"))
+#: The boundaries this repository is written around. Stated here rather than counted from
+#: the atlas, so a repository that quietly stopped presenting one fails the tests below by
+#: name instead of by an assertion about five of something.
+BOUNDARIES = {
+    "sync.ports.WarehouseFeed",
+    "sync.ports.StockLedger",
+    "warehouse.northwind",
+    "reporting.digest.BATCH_SIZE",
+    "reporting.digest.RETRY_LIMIT",
+}
 
 
 def _loaded(runtime: Runtime) -> str:
-    """The example as the workspace loads it: indexed, and a case created from its YAML."""
+    """The example as the workspace loads it: indexed, then a case with nothing in it.
 
-    return runtime.bundled_case_service.load(EXAMPLE).case_id
+    Two calls because that is what the browser makes — the example route indexes, and the
+    case is started from the repository like any other. A helper that took a shortcut would
+    stop testing the path a visitor actually walks.
+    """
+
+    runtime.bundled_example_service.load(EXAMPLE)
+    return runtime.case_service.start_from_repository(REPOSITORY).case_id
 
 
 def test_the_example_is_offered_by_the_workspace(runtime: Runtime) -> None:
     """It has to be pickable in the browser, which means it has to be discovered."""
 
-    offered = {item.name: item for item in runtime.bundled_case_service.list()}
+    offered = {item.name: item for item in runtime.bundled_example_service.list()}
 
     assert EXAMPLE in offered, "the example must appear beside the others in the workspace"
     summary = offered[EXAMPLE]
     assert summary.title == "Keeping stock in step with the warehouse"
-    # No verdict key on purpose: two of its verdicts are contingent by construction, so a
-    # scored answer for them would settle the question the case refuses to settle.
-    assert summary.has_expected_answers is False
+    assert summary.description, "the pill needs a sentence saying what the repository is"
+    assert Path(summary.repository_root) == REPOSITORY
 
 
-def test_the_example_still_produces_the_five_boundaries_it_grades(runtime: Runtime) -> None:
-    """The key names abstractions; if detection drifts, the key silently grades nothing.
+def test_loading_the_example_indexes_its_repository_and_writes_no_case(
+    runtime: Runtime,
+) -> None:
+    """What loading an example is now: an atlas, and nothing said on the reader's behalf.
 
-    Checked against the detector rather than a review, because this is a property of the
-    repository and the catalogue and must fail here — loudly, and without a model — rather
-    than as an unexplained gap in a live run's score weeks later.
+    A shipped case would answer the questions before they were asked, and the first pass
+    would conclude instead of eliciting — which is the whole flow this product is.
+    """
+
+    version = runtime.bundled_example_service.load(EXAMPLE)
+
+    assert Path(version.root_path) == REPOSITORY
+    assert [item.root_path for item in runtime.repository_service.list()] == [
+        str(REPOSITORY)
+    ]
+    assert runtime.case_repository.list() == []
+    assert not (ROOT / "case.yaml").exists(), "an example is a repository, not a case"
+
+
+def test_the_example_still_produces_the_boundaries_it_was_written_around(
+    runtime: Runtime,
+) -> None:
+    """Checked against the detector rather than a review, because it is a property of the
+    repository and the catalogue: it must fail here, loudly and without a model, rather than
+    as an unexplained gap in a live run weeks later.
     """
 
     atlas = runtime.analyzer.analyze(REPOSITORY)
@@ -84,17 +113,8 @@ def test_the_example_still_produces_the_five_boundaries_it_grades(runtime: Runti
         candidate.participants[0].qualified_name
         for candidate in detect_finding_candidates(atlas)
     }
-    key = _elicitation_key()
-    named = {item["abstraction"] for item in key["hinged"]} | {
-        item["abstraction"] for item in key["not_hinged"]
-    }
 
-    assert named <= found, (
-        f"elicitation.yaml names boundaries the detector no longer finds: {named - found}"
-    )
-    assert found == named, (
-        f"the repository grew a boundary the key does not cover: {found - named}"
-    )
+    assert found == BOUNDARIES
 
 
 def test_a_thin_case_is_judged_in_full_and_then_holds(runtime: Runtime) -> None:
@@ -342,45 +362,6 @@ def test_a_review_waiting_on_answers_survives_the_workspace_stopping(
     assert stored == review, "nothing about it changed, including the questions it asked"
 
 
-def test_the_case_ships_silent_on_the_fact_its_key_says_is_missing(runtime: Runtime) -> None:
-    """The fixture's premise, asserted rather than trusted.
-
-    If someone later fills in `expected_future_changes` to make the example read better,
-    every test above still passes against the substitute while the example quietly stops
-    measuring anything. This is the one assertion that catches that.
-    """
-
-    del runtime
-    case = ArchitectureCase.model_validate(
-        yaml.safe_load((ROOT / "case.yaml").read_text(encoding="utf-8"))
-    )
-
-    assert case.expected_future_changes == [], (
-        "the example is built on this silence; stating a future change removes what it measures"
-    )
-    stated = " ".join(
-        [
-            case.problem_statement,
-            case.desired_outcome,
-            *case.technical_constraints,
-            *case.non_goals,
-            *(item.text for item in case.confirmed_facts),
-        ]
-    ).casefold()
-    assert "second warehouse" not in stated, "the withheld fact must not leak in elsewhere"
-
-
-@pytest.mark.parametrize("field", ["hinged", "not_hinged"])
-def test_the_key_explains_every_boundary_it_grades(field: str) -> None:
-    """A key entry without a reason is a claim nobody can check or argue with."""
-
-    for entry in _elicitation_key()[field]:
-        assert entry["abstraction"].strip()
-        assert len(entry["because"].split()) > 15, (
-            f"{entry['abstraction']} is graded without saying why"
-        )
-
-
 def test_a_review_runs_against_a_repository_with_no_case_written(runtime: Runtime) -> None:
     """The entry for someone who has not written a case (master plan §6C.1).
 
@@ -392,7 +373,10 @@ def test_a_review_runs_against_a_repository_with_no_case_written(runtime: Runtim
     runtime.repository_service.index(REPOSITORY)
     revision = runtime.case_service.start_from_repository(REPOSITORY)
 
-    assert revision.snapshot.title == "Boundaries in repository"
+    # Named for the project, not the layout: the bundled examples all keep their code in
+    # a directory literally called `repository`, and four cases sharing that title made
+    # the reviews history unreadable.
+    assert revision.snapshot.title == "Boundaries in warehouse-sync"
     # Empty, not pre-filled. A placeholder problem statement would be read by the judging
     # stage as intent the user never expressed (invariant 23).
     assert revision.snapshot.problem_statement == ""

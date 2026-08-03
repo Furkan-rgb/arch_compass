@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from archcompass.application.review_rendering import render_review
 from archcompass.application.safety import (
-    validate_workspace_repository_separation,
+    validate_repository_directory,
 )
 from archcompass.bootstrap import (
     Runtime,
@@ -65,7 +65,7 @@ class CLIState:
                 repository=repository,
             )
         else:
-            validate_workspace_repository_separation(self.workspace, repository)
+            validate_repository_directory(repository)
         return self._runtime
 
     def set_runtime(self, runtime: Runtime) -> None:

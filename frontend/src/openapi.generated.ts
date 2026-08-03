@@ -51,6 +51,8 @@ export interface components {
     "edge_type": components["schemas"]["EdgeType"];
     "confidence": number;
     "location"?: components["schemas"]["SourceLocation"] | null;
+    "resolved_by"?: "parse" | "types";
+    "conformance"?: "strict" | "structural" | null;
   };
     "AtlasExploreRequest": {
     "root_path": string;
@@ -160,12 +162,11 @@ export interface components {
     "case_title"?: string | null;
     "elicited_from"?: string | null;
   };
-    "BundledCase": {
+    "BundledExample": {
     "name": string;
     "title": string;
-    "problem_statement": string;
+    "description": string;
     "repository_root": string;
-    "has_expected_answers": boolean;
   };
     "CaseAlternative": {
     "id"?: string;
@@ -317,6 +318,7 @@ export interface components {
     "unknown": string;
     "why_it_matters": string;
     "question": string;
+    "answer_options"?: Array<string>;
     "answer_belongs_in": components["schemas"]["CaseField"];
     "supporting_references": Array<string>;
   };
@@ -864,19 +866,6 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
-  "list_bundled_cases_api_bundled_cases_get": {
-    parameters: {
-      query: never;
-      path: never;
-      header: never;
-      cookie: never;
-    };
-    requestBody?: never;
-    responses: {
-      "200": Array<components["schemas"]["BundledCase"]>;
-      "422": components["schemas"]["ProblemDetail"];
-    };
-  };
   "list_cases_api_cases_get": {
     parameters: {
       query: {
@@ -904,6 +893,19 @@ export interface operations {
     requestBody?: never;
     responses: {
       "200": components["schemas"]["DirectoryListing"];
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "list_examples_api_examples_get": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": Array<components["schemas"]["BundledExample"]>;
       "422": components["schemas"]["ProblemDetail"];
     };
   };
@@ -982,7 +984,7 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
-  "load_bundled_case_api_bundled_cases__name__load_post": {
+  "load_example_api_examples__name__load_post": {
     parameters: {
       query: never;
       path: {
@@ -993,7 +995,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      "201": components["schemas"]["CaseRevision"];
+      "201": components["schemas"]["AtlasVersion"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
     };
@@ -1242,12 +1244,6 @@ export interface operations {
 }
 
 export interface paths {
-  "/api/bundled-cases": {
-    get: operations["list_bundled_cases_api_bundled_cases_get"];
-  };
-  "/api/bundled-cases/{name}/load": {
-    post: operations["load_bundled_case_api_bundled_cases__name__load_post"];
-  };
   "/api/cases": {
     get: operations["list_cases_api_cases_get"];
     post: operations["create_case_api_cases_post"];
@@ -1261,6 +1257,12 @@ export interface paths {
   };
   "/api/cases/{case_id}/history": {
     get: operations["case_history_api_cases__case_id__history_get"];
+  };
+  "/api/examples": {
+    get: operations["list_examples_api_examples_get"];
+  };
+  "/api/examples/{name}/load": {
+    post: operations["load_example_api_examples__name__load_post"];
   };
   "/api/filesystem/directories": {
     get: operations["list_directories_api_filesystem_directories_get"];

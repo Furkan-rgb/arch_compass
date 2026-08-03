@@ -3,7 +3,7 @@
 **Context-aware software architecture advice grounded in requirements, repository evidence, design policy and expected change.**
 
 **[Try the live demo →](https://archcompass-99312935671.europe-west1.run.app)** — no signup;
-pick a bundled example, run a review, ask it questions. Every visitor gets their own
+pick an example repository, run a review, answer what it asks. Every visitor gets their own
 workspace, and the model calls are rationed, so if a run is refused, the day's shared
 budget is spent — come back tomorrow or run it locally.
 
@@ -418,13 +418,15 @@ archcompass reviews show <review-id>
 - Markdown policy parsing and validation.
 - Configurable providers: local Ollama or hosted Google AI Studio, plus deterministic
   substitutes so the whole suite runs without a model.
-- A browser workspace: pick a bundled example, read the review, ask about it, and explore
-  the atlas graph.
-- Three scored examples with known answers. `boundary-review` asks whether a boundary
-  absorbs any variation at all; `speech-vendor` asks whether it is in the right place; and
-  `audiobook-studio` exercises all three detectors at once, with both verdicts appearing
-  under each repetition detector. `make demo` grades a live run against the first,
-  `make eval-local` against all three.
+- A browser workspace: pick an example repository, read the review, answer what it asks,
+  and explore the atlas graph.
+- Four example repositories, shipped as repositories and nothing else. `boundary-review`
+  asks whether a boundary absorbs any variation at all; `speech-vendor` asks whether it is
+  in the right place; `audiobook-studio` exercises all three detectors at once, with both
+  directions appearing under each repetition detector; `warehouse-sync` is a service nobody
+  has written anything down about. None ships a case, because being asked for one is the
+  thing worth seeing. `make demo` runs the first against a live model, `make demo-all`
+  runs them all.
 
 Experimental. One limit is worth stating plainly rather than discovering:
 
@@ -486,9 +488,11 @@ so a reasoning selection is given the larger of the two budgets; on a tight one 
 structured answer is truncated, which fails validation rather than returning something
 wrong.
 
-The three are not two. Measured on `gemma4:26b` against the scored example: `true` took 510s
-and scored 4/6, `false` took 40s and scored 3/6, and `null` took about 250s and scored 5-6/6.
-That is why the models that do not genuinely offer a mode are not offered in it.
+The three are not two. Measured on `gemma4:26b` against `boundary-review` while the example
+still shipped a written case and an answer key: `true` took 510s and scored 4/6, `false` took
+40s and scored 3/6, and `null` took about 250s and scored 5-6/6. Nothing is scored any more —
+the examples ship no answers — but the timings are why a model that does not genuinely offer
+a mode is not offered in it.
 
 The provider's `context_window_tokens` controls Ollama's total context window (`num_ctx`),
 including input and generated output. `max_output_tokens` separately caps generated output.
@@ -550,10 +554,12 @@ State is stored locally under:
 
 ## Quick Start
 
-### The fastest path: a bundled example
+### The fastest path: an example repository
 
-Every bundled example ships a written case and a repository to run it against, so a fresh
-workspace can produce a real review without writing a case first.
+Each example under `eval/cases/` is a repository and nothing else — no case is written for
+you, because being asked is the flow. Pick one, and the review judges every boundary from
+the code and comes back with the questions that would settle them; your answers write the
+case, and the second pass concludes.
 
 In the browser workspace:
 
@@ -561,36 +567,39 @@ In the browser workspace:
 uv run archcompass web
 ```
 
-Open **Reviews**, pick an example, and it indexes the repository, creates the case, judges
-every boundary, and shows the report with a box to ask questions about it.
+Open **Reviews**, pick an example, and it indexes the repository, judges every boundary,
+and asks for what it could not weigh.
 
-Or grade a run against known answers:
+Or watch the same thing from the terminal, against a live model:
 
 ```bash
 make demo          # Google, about two minutes
 make demo-local    # Ollama
-make eval-local    # all three examples, on Ollama
+make demo-all      # every example, on Ollama
 ```
 
-`eval/cases/boundary-review` has six boundaries the detector cannot tell apart and a case
-that makes three of them justified. A run that clears all six is an abstraction generator;
-one that condemns all six is an abstraction destroyer. The score separates those from an
-advisor.
+Nothing is scored. Two failures pull opposite ways and are what the output is read for:
+condemning every boundary because nothing justified any of them, and clearing every
+boundary while flagging nothing, which reads as approval nobody earned.
+
+`eval/cases/boundary-review` has six boundaries the detector cannot tell apart, so nothing
+about them is decidable by counting.
 
 `eval/cases/speech-vendor` is the harder half. Every one of its six boundaries stands in
-front of a change that is genuinely coming — a second speech vendor is under contract — so
-clearing all six is the *plausible* mistake there. Three are drawn at the vendor edge; three
-are vendor-shaped seams cut into modules that have no other reason to know a vendor exists.
-Its case names no defect, no fix and none of the classes at issue, so the score measures
-judgement rather than reading.
+front of a change that is genuinely coming, so clearing all six is the *plausible* mistake
+there. Three are drawn at the vendor edge; three are vendor-shaped seams cut into modules
+that have no other reason to know a vendor exists.
 
 `eval/cases/audiobook-studio` is the hardest, and the only one that exercises all three
-detectors together. Both verdicts appear under each repetition detector: for a duplicated
-constant and for a scattered vendor name alike, one instance is a real finding and one is
-not, and only the case says which. Its adapters conform structurally rather than
-inheriting and widen the signatures their ports leave narrow, so a detector that reads a
-port by the spelling of its base class finds nothing here and reports it as a clean bill
-of health.
+detectors together. Under each repetition detector — a duplicated constant, a scattered
+vendor name — one instance is a real finding and one is not, and only circumstances say
+which. Its adapters conform structurally rather than inheriting and widen the signatures
+their ports leave narrow, so a detector that reads a port by the spelling of its base class
+finds nothing here and reports it as a clean bill of health.
+
+`eval/cases/warehouse-sync` is a two-year-old service its maintainer has never looked at
+properly: five boundaries, and one unstated fact that moves two of them in opposite
+directions.
 
 ### Review your own repository
 
@@ -708,7 +717,7 @@ The main responsibilities are:
   detectors, which are pure derivations over an atlas rather than ports.
 - `ports/` — interfaces for persistence, repository analysis, retrieval and reasoning.
 - `application/` — one module per job: `reviews`, `review_conversations`,
-  `review_rendering`, `cases`, `bundled_cases`, `repository_index`, `atlas_queries`,
+  `review_rendering`, `cases`, `bundled_examples`, `repository_index`, `atlas_queries`,
   `atlas_freshness`, `policies`.
 - `adapters/persistence/` — SQLite storage and migrations.
 - `adapters/analysis/` — AST analysis, graph metrics and deterministic queries.
@@ -747,7 +756,7 @@ make test-browser
 Other targets:
 
 ```bash
-make eval          # fixture checks, no model
+make eval          # example-repository checks, no model
 make test-ollama   # live local-model tests
 make test-google   # live hosted tests; spends free-tier quota
 make build

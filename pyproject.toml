@@ -20,8 +20,20 @@ dependencies = [
 [project.scripts]
 archcompass = "archcompass.presentation.cli.app:main"
 
+# Type-aware edge resolution. Optional because the atlas is complete without it — the
+# parser's own edges — and because a pinned type checker is a heavy thing to make every
+# install carry. The pin is load-bearing: the adapter reads mypy internals that carry no
+# stability guarantee, and the version is folded into the analysis config hash, so moving
+# it is a decision about the edge set rather than a routine upgrade.
+[project.optional-dependencies]
+resolution = ["mypy==2.3.0"]
+
 [dependency-groups]
 dev = [
+  # The same pin as the `resolution` extra, held here as well so `make typecheck` can see
+  # the one adapter that imports it. Pyright reads `src/` whole, and a module whose imports
+  # are missing reports a hundred unknown types rather than the nothing it should.
+  "mypy==2.3.0",
   "playwright>=1.61.0",
   "pyright>=1.1.390",
   "pytest>=8.3",
@@ -42,7 +54,7 @@ addopts = '-q --strict-config --strict-markers -m "not ollama and not google and
 testpaths = ["tests"]
 norecursedirs = ["tests/fixtures"]
 markers = [
-  "evaluation: deterministic workflow and evidence-integrity evaluation",
+  "evaluation: offline checks that the shipped example repositories still present the shapes a review is demonstrated on",
   "ollama: optional evaluation requiring a locally running Ollama service",
   "google: optional evaluation requiring a Google AI Studio API key and quota",
   "browser: drives the built workspace in a real browser; needs `make frontend-build` and Playwright",

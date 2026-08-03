@@ -27,16 +27,19 @@ def _enabled_providers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ARCHCOMPASS_OLLAMA_URL", "http://127.0.0.1:1")
 
 
-def _review_request(client: TestClient) -> dict[str, str]:
-    """The loaded example, as a review request. Its repository ships beside the case."""
+def _load_the_example(client: TestClient) -> dict[str, str]:
+    """The example as a review request: its repository indexed, and a case about it.
 
-    example = next(
-        item
-        for item in client.get("/api/bundled-cases").json()
-        if item["name"] == "boundary-review"
-    )
-    case_id = client.get("/api/cases").json()[0]["case_id"]
-    return {"case_id": case_id, "repository_root": example["repository_root"]}
+    An example ships no case, so the case is started from the repository the same way one a
+    user picked would be.
+    """
+
+    loaded = client.post("/api/examples/boundary-review/load")
+    assert loaded.status_code == 201, loaded.text
+    root = loaded.json()["root_path"]
+    started = client.post("/api/repositories/start", json={"root_path": root})
+    assert started.status_code == 201, started.text
+    return {"case_id": started.json()["case_id"], "repository_root": root}
 
 
 def _unpinned(tmp_path: Path) -> Runtime:
@@ -79,10 +82,9 @@ def test_a_review_asked_for_without_a_model_is_refused_by_name(tmp_path: Path) -
     runtime = _unpinned(tmp_path)
 
     with TestClient(create_app(runtime)) as client:
-        loaded = client.post("/api/bundled-cases/boundary-review/load")
-        assert loaded.status_code == 201, loaded.text
+        request = _load_the_example(client)
 
-        refusal = client.post("/api/reviews", json=_review_request(client))
+        refusal = client.post("/api/reviews", json=request)
 
         assert refusal.status_code == 409, refusal.text
         problem = refusal.json()
@@ -139,8 +141,7 @@ def test_a_chosen_model_reviews_and_the_review_records_which_one(tmp_path: Path)
     runtime = _unpinned(tmp_path)
 
     with TestClient(create_app(runtime)) as client:
-        client.post("/api/bundled-cases/boundary-review/load")
-        request = _review_request(client)
+        request = _load_the_example(client)
         client.put(
             "/api/models/selection",
             json={"provider": "fake", "model": DETERMINISTIC_MODEL},

@@ -691,27 +691,6 @@ html body[data-scroll-locked] {
 }
 .mono-path { overflow-wrap: anywhere; color: var(--ink-2); font-size: var(--s-body); }
 
-/* The stored case, read back exactly as it would be pasted in: the same box the
-   editor's own field is, sunk and capped in height because it is read rather than
-   written. Here rather than in utilities for the same reason the excerpt's box is
-   at the foot of this sheet — this is a `pre`, and the unlayered `pre` rule below
-   outranks every utility whatever its specificity. */
-[data-slot="case-yaml"] {
-  min-height: 420px;
-  max-height: 520px;
-  margin: 0;
-  overflow: auto;
-  padding: 12px 16px;
-  border: 1px solid var(--rule);
-  border-radius: var(--r-control);
-  background: var(--sunken);
-  color: var(--ink);
-  font-size: var(--s-ui);
-  line-height: 1.6;
-  tab-size: 2;
-  white-space: pre;
-}
-
 .markdown { color: var(--ink); font-size: var(--s-body); line-height: var(--leading-reading); }
 .markdown h1, .markdown h2, .markdown h3 { margin-top: 1.5em; color: var(--ink); font-weight: 650; letter-spacing: -0.015em; }
 .markdown h1 { font-size: var(--s-head); }
