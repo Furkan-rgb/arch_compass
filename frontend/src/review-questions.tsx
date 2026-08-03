@@ -266,11 +266,52 @@ export function OpenQuestions({
             <span>{current.why_it_matters}</span>
             {renderCitations(current.supporting_references || [])}
           </p>
+          {/* Offered answers, when the review could enumerate them. Pressing one is the
+              reader's act — it fills the box below, still editable, and nothing is selected
+              until they press. The box is the standing "other": a typed answer needs no
+              option to exist, and an edited option stops matching and reads as their own.
+              `aria-pressed` compares against the box, not a second piece of state, so the
+              two can never disagree about what will be recorded. */}
+          {(current.answer_options?.length ?? 0) > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Offered answers">
+              {current.answer_options!.map((option) => {
+                const taken = (answers[current.reference] ?? "").trim() === option;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    disabled={disabled || pending}
+                    aria-pressed={taken}
+                    className={cn(
+                      "cursor-pointer rounded-pill border border-accent-rule bg-surface px-3 py-1.5",
+                      "text-left text-ui leading-[1.4] text-ink hover:bg-accent-soft",
+                      "aria-pressed:border-accent-ink aria-pressed:bg-accent-soft aria-pressed:text-accent-ink",
+                      "disabled:cursor-not-allowed disabled:opacity-55",
+                    )}
+                    onClick={() => {
+                      setAnswers((existing) => ({
+                        ...existing,
+                        // Pressing the taken one again empties the box: an offer can be
+                        // declined, and the reader is back to their own words.
+                        [current.reference]: taken ? "" : option,
+                      }));
+                      if (!taken) answerRef.current?.focus();
+                    }}
+                  >
+                    {option}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
           {/* The box is the component. A question the reader cannot answer in place is a
               question that sends them somewhere else to find the right field. */}
           <label className="mt-2 block">
             <span className="mb-1 block text-meta text-ink-3 [&_code]:text-meta">
-              Your answer — {FIELD_LABEL[current.answer_belongs_in]} (
+              {(current.answer_options?.length ?? 0) > 0
+                ? "Or write your own — "
+                : "Your answer — "}
+              {FIELD_LABEL[current.answer_belongs_in]} (
               <code>{current.answer_belongs_in}</code>)
             </span>
             <Textarea

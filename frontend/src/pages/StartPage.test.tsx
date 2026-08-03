@@ -50,9 +50,8 @@ function workspace(repositories: RepositorySummary[] = []) {
   const listed = { current: repositories };
   chosenModel({ provider: "fake", model: "deterministic-architecture-v4" });
   vi.spyOn(api, "repositories").mockImplementation(async () => listed.current);
-  vi.spyOn(api, "cases").mockResolvedValue([]);
   vi.spyOn(api, "reviews").mockResolvedValue([]);
-  vi.spyOn(api, "bundledCases").mockResolvedValue([]);
+  vi.spyOn(api, "examples").mockResolvedValue([]);
   vi.spyOn(api, "directories").mockImplementation(async (path?: string) =>
     path === "/home/dev/warehouse" ? WAREHOUSE : HOME,
   );

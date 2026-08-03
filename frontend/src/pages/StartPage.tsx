@@ -28,7 +28,7 @@ import { useModelPicker } from "../model-picker";
 import { latestPerRepository } from "../repositories";
 import { useRun } from "../run";
 import { isReady, runIntent, type StartSelection } from "../start-selection";
-import type { BundledCase } from "../types";
+import type { BundledExample } from "../types";
 
 /* A short list of things to pick from, at the density of a list rather than of a card wall:
    name, one fact about it, and the path that tells two of them apart. `aria-pressed` is
@@ -249,10 +249,6 @@ function FolderPicker({
 export function StartPage() {
   const client = useQueryClient();
   const [repositoryRoot, setRepositoryRoot] = useState<string | null>(null);
-  // The one way a case is chosen here is an example, which knows its own title — carried
-  // in state so the run bar can name what the run will judge against without a query for
-  // a list this page no longer shows.
-  const [chosen, setChosen] = useState<{ caseId: string; title: string } | null>(null);
   const [path, setPath] = useState("");
   // Held here rather than inside the picker: a successful index is what closes it, and the
   // mutation is this page's.
@@ -260,7 +256,7 @@ export function StartPage() {
 
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: () => api.reviews() });
-  const examples = useQuery({ queryKey: ["bundled-cases"], queryFn: api.bundledCases });
+  const examples = useQuery({ queryKey: ["examples"], queryFn: api.examples });
 
   const indexed = useMemo(
     () => latestPerRepository(repositories.data || []),
@@ -290,18 +286,17 @@ export function StartPage() {
     },
   });
 
+  // An example brings a repository and nothing else. It takes the identical path a
+  // folder-picked project takes from here on: run, be asked, answer — which is the flow
+  // the examples exist to show.
   const loadExample = useMutation({
-    mutationFn: async (example: BundledCase) => {
-      const revision = await api.loadBundledCase(example.name);
-      return { caseId: revision.case_id, title: example.title, root: example.repository_root };
+    mutationFn: async (example: BundledExample) => {
+      const version = await api.loadExample(example.name);
+      return { root: version.root_path };
     },
-    onSuccess: async (filled) => {
-      setChosen({ caseId: filled.caseId, title: filled.title });
-      setRepositoryRoot(filled.root);
-      await Promise.all([
-        client.invalidateQueries({ queryKey: ["cases"] }),
-        client.invalidateQueries({ queryKey: ["repositories"] }),
-      ]);
+    onSuccess: async (indexed) => {
+      setRepositoryRoot(indexed.root);
+      await client.invalidateQueries({ queryKey: ["repositories"] });
     },
   });
 
@@ -333,18 +328,9 @@ export function StartPage() {
     },
   });
 
-  // What a choice fills, what it leaves alone, and what Run then does all live in
-  // `start-selection`, where they are checkable without rendering anything. This component
-  // holds the state and applies the result; it decides none of the rules.
-  const selection: StartSelection = { repositoryRoot, caseId: chosen?.caseId ?? null, path };
-
-  // A repository chosen by hand breaks the pairing an example made: the case was written
-  // about the example's code, and silently judging some other repository against it would
-  // put a verdict behind a mismatch nobody chose. Same root, no change.
-  const chooseRepository = (root: string) => {
-    if (root !== repositoryRoot) setChosen(null);
-    setRepositoryRoot(root);
-  };
+  // What Run does with the selection lives in `start-selection`, checkable without
+  // rendering anything. This component holds the state; it decides none of the rules.
+  const selection: StartSelection = { repositoryRoot, path };
 
   // The two lists this screen reads come from one server, so when it stops answering they
   // stop together. Reported once, above the columns, rather than as the same sentence
@@ -386,14 +372,15 @@ export function StartPage() {
           of the entire sheet. A zero-minimum track makes the sheet the viewport's size
           and leaves each child to truncate inside it. */}
       <section className={cn(sheet, "grid grid-cols-[minmax(0,1fr)]")} aria-label="Start a review">
-        {/* A repository already parsed and a case already written, so the first run is a
-            real one — and the only place a ready-made case enters this page. */}
+        {/* Repositories to try, nothing more: an example enters the same flow as any
+            folder-picked project — run, be asked, answer — because the asking is what
+            these exist to show. */}
         <div
           data-slot="examples"
           className="flex flex-wrap items-center gap-2.5 border-b border-rule-soft px-[var(--card-pad-x)] py-4"
         >
           <span className="text-micro font-[650] tracking-[.08em] uppercase text-ink-3">
-            Examples — repository and case in one
+            Example repositories
           </span>
           {examples.isLoading ? (
             // One row, at the width of a pill rather than of a table row.
@@ -410,23 +397,13 @@ export function StartPage() {
               className={examplePill}
               disabled={busy}
               onClick={() => loadExample.mutate(example)}
-              title={example.problem_statement}
+              title={example.description}
             >
               <span className="min-w-0 overflow-hidden text-ellipsis">{example.title}</span>
-              {/* The badge survives whole and the title gives way: "scored" is the fact
-                  that distinguishes this pill, and the title's tail is recoverable from
-                  the tooltip where a cut badge would just be a smudge. */}
-              {example.has_expected_answers ? (
-                <Badge variant="accent" className="flex-none px-1.5 py-0">
-                  <FlaskConical size={11} aria-hidden /> scored
-                </Badge>
-              ) : null}
             </button>
           ))}
           {loadExample.isPending ? (
-            <span className="text-meta text-accent-ink">
-              Indexing its repository and creating its case…
-            </span>
+            <span className="text-meta text-accent-ink">Indexing its repository…</span>
           ) : null}
         </div>
         {reading ? (
@@ -476,7 +453,7 @@ export function StartPage() {
                     type="button"
                     className={pickButton}
                     aria-pressed={repositoryRoot === repository.root_path}
-                    onClick={() => chooseRepository(repository.root_path)}
+                    onClick={() => setRepositoryRoot(repository.root_path)}
                   >
                     <b className={pickName}>
                       {repository.root_path.split("/").at(-1)}
@@ -539,13 +516,6 @@ export function StartPage() {
                 </button>{" "}
                 to run — only models a reachable provider currently has are offered.
               </>
-            ) : chosen ? (
-              <>
-                Judging every boundary in{" "}
-                <strong>{repositoryRoot?.split("/").at(-1)}</strong> against{" "}
-                <strong>{chosen.title}</strong>. This opens the review and follows it
-                there.
-              </>
             ) : (
               <>
                 Judging every boundary in{" "}
@@ -560,16 +530,9 @@ export function StartPage() {
             variant="primary"
             disabled={!ready || busy}
             onClick={() => {
-              // One run, two ways in, decided in one place rather than re-derived here: a
-              // chosen case is reviewed against, and no case opens an empty one about this
-              // repository first.
               const intent = runIntent(selection, hasModel);
               if (intent === null) return;
-              if (intent.kind === "against-case") {
-                run.start(intent.caseId, intent.repositoryRoot);
-              } else {
-                reviewRepository.mutate(intent.repositoryRoot);
-              }
+              reviewRepository.mutate(intent.repositoryRoot);
             }}
           >
             <Play size={15} aria-hidden />

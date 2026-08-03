@@ -13,7 +13,7 @@ import type {
   ProblemDetail,
   BoundaryReview,
   BoundaryReviewSummary,
-  BundledCase,
+  BundledExample,
   ReviewConversation,
   ReviewMessage,
   ReviewProgress,
@@ -180,9 +180,11 @@ export const api = {
   clearModelSelection: () =>
     request<void>("/api/models/selection", { method: "DELETE" }),
 
-  bundledCases: () => request<BundledCase[]>("/api/bundled-cases"),
-  loadBundledCase: (name: string) =>
-    request<CaseRevision>(`/api/bundled-cases/${encodeURIComponent(name)}/load`, {
+  examples: () => request<BundledExample[]>("/api/examples"),
+  // Indexes the example's repository and nothing else: no case exists until the review's
+  // questions write one, exactly as for a folder-picked repository.
+  loadExample: (name: string) =>
+    request<AtlasVersion>(`/api/examples/${encodeURIComponent(name)}/load`, {
       method: "POST",
     }),
 
