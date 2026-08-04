@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Protocol
 
 from archcompass.domain.atlas import Atlas
+from archcompass.domain.baseline import BaselineEntry
 from archcompass.domain.case import AnsweredQuestions, ArchitectureCase, CaseRevision
 from archcompass.domain.lineage import BranchLineage, RepositoryLineage
 from archcompass.domain.review import BoundaryReview
@@ -102,6 +104,24 @@ class VerdictCacheRepository(Protocol):
     def get(self, cache_key: str) -> CachedVerdict | None: ...
 
     def put(self, cached: CachedVerdict) -> None: ...
+
+
+class BaselineRepository(Protocol):
+    """Storage for the boundaries a branch has already seen.
+
+    Last-writer-wins per `(branch_id, boundary_fingerprint)`, unlike the write-once verdict
+    cache: an entry is a claim about the present, and re-baselining a branch is that claim
+    being made again. Removal is explicit and never a side effect of a run — a baseline
+    shrinks only when someone says so (migration 027).
+    """
+
+    def put_all(self, entries: Iterable[BaselineEntry]) -> int: ...
+
+    def for_branch(self, branch_id: str) -> dict[str, BaselineEntry]: ...
+
+    def remove(self, branch_id: str, boundary_fingerprint: str) -> bool: ...
+
+    def count_for_branch(self, branch_id: str) -> int: ...
 
 
 class LineageRepository(Protocol):

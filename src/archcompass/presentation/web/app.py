@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from queue import Queue
@@ -26,15 +26,22 @@ from pydantic import (
     model_validator,
 )
 
+from archcompass.application.baseline import BaselineOutcome
 from archcompass.application.cases import WrittenAnswer
 from archcompass.application.review_source import MAX_CONTEXT_LINES
 from archcompass.application.reviews import JudgedCandidate
 from archcompass.bootstrap import Runtime
 from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion, FindingCandidate
+from archcompass.domain.baseline import (
+    BaselineEntry,
+    BoundaryDisposition,
+    disposition_of,
+)
 from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
 from archcompass.domain.errors import (
     ArchCompassError,
     AtlasNotFoundError,
+    BaselineEntryNotFoundError,
     CaseNotFoundError,
     CaseRevisionConflictError,
     CaseValidationError,
@@ -51,7 +58,9 @@ from archcompass.domain.errors import (
     PolicyFormatError,
     PolicyNotFoundError,
     ProviderError,
+    ReviewHasNoBranchError,
     ReviewHasNoReportError,
+    ReviewNotBaselineableError,
     ReviewNotCancellableError,
     ReviewNotFoundError,
     ReviewStillRunningError,
@@ -63,7 +72,13 @@ from archcompass.domain.policy import (
     PolicyDraft,
     PolicySourceRegistration,
 )
-from archcompass.domain.review import BoundaryExcerpt, BoundaryReview, ReviewStatus
+from archcompass.domain.review import (
+    BoundaryExcerpt,
+    BoundaryReview,
+    BoundaryReviewReport,
+    ReviewedBoundary,
+    ReviewStatus,
+)
 from archcompass.domain.review_conversation import ReviewConversation, ReviewMessage
 from archcompass.domain.workspace import (
     BoundaryReviewSummary,
@@ -478,6 +493,61 @@ class ModelSelectionRequest(APIModel):
 
 class PolicySourceRemovalResponse(APIModel):
     removed: bool
+
+
+class ReviewedBoundaryDetail(ReviewedBoundary):
+    """One reviewed boundary, plus where it stands against its branch's baseline.
+
+    A subclass of the stored boundary rather than a shape beside it, so a reader of this
+    response gets everything the review actually recorded and one more field — and so the
+    extra field cannot drift from what the review says, because it is not a copy of it.
+    """
+
+    #: `null` where the question does not arise: a review with no branch lineage has no
+    #: baseline to be measured against, and a boundary with no fingerprint has no identity to
+    #: look up. Both are honest absences and neither is `new`, which would be a claim that
+    #: something was checked.
+    disposition: BoundaryDisposition | None = None
+
+
+class BoundaryReviewReportDetail(BoundaryReviewReport):
+    # Narrowing an inherited field, which pyright rejects on principle because a mutable
+    # attribute is invariant. These models are frozen, so the substitution it is protecting
+    # against — writing a plain boundary into a list the subclass promised — cannot happen.
+    reviewed: list[ReviewedBoundaryDetail] = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
+        default_factory=list[ReviewedBoundaryDetail]
+    )
+
+
+class BaselineSummary(APIModel):
+    """How this run's boundaries divide against what the branch has already seen."""
+
+    new: int = 0
+    changed: int = 0
+    known: int = 0
+
+
+class ReviewDetailResponse(BoundaryReview):
+    """A stored review as it is read, with the baseline comparison attached.
+
+    The comparison is computed here, at read time, and never stored on the review. A review
+    is an immutable record of one run; where its boundaries stand relative to a baseline is
+    a fact about *now*, and it changes the moment someone baselines or un-baselines
+    something. Writing it into the review would freeze an answer that is supposed to move.
+    """
+
+    report: BoundaryReviewReportDetail | None = None  # pyright: ignore[reportIncompatibleVariableOverride]
+    #: `null` when the review has no branch lineage, for the same reason each boundary's
+    #: disposition is: there is nothing to have compared against.
+    baseline_summary: BaselineSummary | None = None
+
+
+class BranchBaselineResponse(APIModel):
+    """Everything one branch has declared itself to have seen."""
+
+    branch_id: str
+    entries: list[BaselineEntry]
+    count: int
 
 
 def _acquire_runtime(request: Request) -> Runtime:
@@ -938,8 +1008,22 @@ def create_app(
         "/api/reviews/{review_id}",
         responses=_problem_responses(404, 422),
     )
-    def get_review(runtime: RuntimeDep, review_id: str) -> BoundaryReview:
-        return runtime.review_repository.get(review_id)
+    def get_review(runtime: RuntimeDep, review_id: str) -> ReviewDetailResponse:
+        """The stored review, plus where each of its boundaries stands today.
+
+        The comparison happens on the way out rather than at write time. A review is fixed
+        and its relationship to a baseline is not: baselining a boundary changes how this
+        run reads without changing anything the run said, and a stored disposition would go
+        stale the first time someone used the feature.
+        """
+
+        review = runtime.review_repository.get(review_id)
+        baseline = (
+            runtime.baseline_service.for_branch(review.branch_id)
+            if review.branch_id is not None
+            else None
+        )
+        return _with_dispositions(review, baseline)
 
     @app.get(
         "/api/reviews/{review_id}/source",
@@ -1084,6 +1168,59 @@ def create_app(
         """
 
         runtime.review_repository.delete(review_id)
+        return Response(status_code=204)
+
+    @app.post(
+        "/api/reviews/{review_id}/baseline",
+        status_code=201,
+        responses=_problem_responses(404, 409),
+    )
+    def baseline_review(runtime: RuntimeDep, review_id: str) -> BaselineOutcome:
+        """Declare every boundary this review found as seen, on the branch it ran against.
+
+        One request for the whole review, because adopting a repository is one decision. A
+        per-boundary endpoint would make the ordinary first act — "we have looked at all of
+        this" — a hundred requests, and would suggest that baselining is a judgement about
+        each boundary rather than an administrative act over all of them.
+
+        201 rather than 200: the first call creates a branch's baseline. Repeating it is
+        harmless and reports the same size, which is what makes the button safe to press
+        twice.
+        """
+
+        return runtime.baseline_service.baseline_review(review_id)
+
+    @app.get("/api/branches/{branch_id}/baseline")
+    def branch_baseline(runtime: RuntimeDep, branch_id: str) -> BranchBaselineResponse:
+        """What this branch has already seen, oldest entry first.
+
+        A branch nobody has baselined answers with an empty list rather than a 404. It is a
+        true and useful answer — the baseline is empty, so every boundary is new — and a
+        branch id is derived rather than allocated, so asking about one that has never been
+        baselined is the ordinary first call, not a mistake.
+        """
+
+        entries = list(runtime.baseline_service.for_branch(branch_id).values())
+        return BranchBaselineResponse(
+            branch_id=branch_id, entries=entries, count=len(entries)
+        )
+
+    @app.delete(
+        "/api/branches/{branch_id}/baseline/{boundary_fingerprint}",
+        status_code=204,
+        responses=_problem_responses(404),
+    )
+    def remove_baseline_entry(
+        runtime: RuntimeDep, branch_id: str, boundary_fingerprint: str
+    ) -> Response:
+        """Stop treating one boundary as seen, so the next run surfaces it again.
+
+        The one way a baseline shrinks by hand, and a 404 when the branch never held that
+        fingerprint: a caller told "removed" about something that is still baselined would
+        go on believing the boundary will come back.
+        """
+
+        runtime.baseline_service.remove_entry(branch_id, boundary_fingerprint)
         return Response(status_code=204)
 
     @app.post(
@@ -1549,6 +1686,43 @@ def _answer_progress_lines(
         yield f"{line}\n"
 
 
+def _with_dispositions(
+    review: BoundaryReview, baseline: Mapping[str, BaselineEntry] | None
+) -> ReviewDetailResponse:
+    """Attach each boundary's standing against a branch baseline, and the totals.
+
+    A review with no branch, or with no report, carries neither: the response is the stored
+    document with two nulls rather than with zeroes, because "nothing was compared" and
+    "nothing was found to differ" are different statements and only one of them is true.
+
+    The summary counts boundaries that could be classified. A boundary with no fingerprint
+    is in no count for the same reason it has no disposition — it has no identity to look
+    up — so the three numbers can add to fewer than the boundaries reviewed, which only ever
+    happens on a review stored before fingerprints existed.
+    """
+
+    payload = review.model_dump()
+    report = review.report
+    if report is None or baseline is None:
+        return ReviewDetailResponse.model_validate(payload)
+    counts = dict.fromkeys(BoundaryDisposition, 0)
+    reviewed: list[dict[str, Any]] = []
+    for boundary in report.reviewed:
+        entry = boundary.model_dump()
+        if boundary.fingerprint is None:
+            entry["disposition"] = None
+        else:
+            disposition = disposition_of(boundary, baseline)
+            counts[disposition] += 1
+            entry["disposition"] = disposition
+        reviewed.append(entry)
+    payload["report"] = {**cast("dict[str, Any]", payload["report"]), "reviewed": reviewed}
+    payload["baseline_summary"] = {
+        disposition.value: total for disposition, total in counts.items()
+    }
+    return ReviewDetailResponse.model_validate(payload)
+
+
 def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
     if isinstance(
         error,
@@ -1559,6 +1733,7 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
             ReviewNotFoundError,
             PolicyNotFoundError,
             ConversationNotFoundError,
+            BaselineEntryNotFoundError,
         ),
     ):
         return 404, "not_found", False
@@ -1568,7 +1743,9 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
             CaseRevisionConflictError,
             ConversationRevisionConflictError,
             PolicyConflictError,
+            ReviewHasNoBranchError,
             ReviewHasNoReportError,
+            ReviewNotBaselineableError,
             ReviewNotCancellableError,
             ReviewStillRunningError,
             StaleAtlasError,

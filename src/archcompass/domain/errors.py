@@ -123,6 +123,28 @@ class ReviewHasNoReportError(ArchCompassError):
     """
 
 
+class ReviewNotBaselineableError(ArchCompassError):
+    """The review reached no verdicts, so there is nothing in it to declare seen.
+
+    A state conflict rather than a malformed request: the review exists and the request is
+    right about everything except what that review is. Repeating it fails identically —
+    a failed or cancelled run never acquires a report — so the cure is another run.
+    """
+
+
+class ReviewHasNoBranchError(ArchCompassError):
+    """The review has no branch lineage, and the thing being asked for lives on a branch.
+
+    Its own type because its cure is unusual and specific: re-index the repository so the
+    atlas carries a lineage, then run the review again. Nothing about the request is wrong,
+    and nothing about the review is broken — it simply predates the identity model.
+    """
+
+
+class BaselineEntryNotFoundError(ArchCompassError):
+    """This branch has no baselined boundary under that fingerprint."""
+
+
 class ProviderError(ArchCompassError):
     pass
 
