@@ -156,6 +156,15 @@ class EvidenceReferenceError(ArchCompassError):
     pass
 
 
+class BranchNotFoundError(ArchCompassError):
+    """This workspace has never seen that line of work.
+
+    Its own type rather than a validation error: the request is well formed and the branch id
+    is a hash nobody types by hand, so reaching this almost always means the workspace has not
+    indexed the repository yet — which is a thing to do, not a thing to fix in the request.
+    """
+
+
 class ConversationNotFoundError(ArchCompassError):
     pass
 

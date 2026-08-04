@@ -117,6 +117,12 @@ export interface components {
     "output_token_limit"?: number | null;
     "is_selected"?: boolean;
   };
+    "BoundaryDisposition": {
+    "reference": string;
+    "fingerprint": string;
+    "decision"?: components["schemas"]["JoinedDecision"] | null;
+    "comment_count"?: number;
+  };
     "BoundaryExcerpt": {
     "reference": string;
     "qualified_name": string;
@@ -169,6 +175,13 @@ export interface components {
     "elicited_from"?: string | null;
     "repo_id"?: string | null;
     "branch_id"?: string | null;
+  };
+    "BranchDecisionsResponse": {
+    "branch_id": string;
+    "decisions": Array<components["schemas"]["StandingDecision"]>;
+    "comment_counts": {
+    [key: string]: number;
+  };
   };
     "BranchLineage": {
     "branch_id": string;
@@ -245,6 +258,32 @@ export interface components {
     "kind": "cyclic_components";
     "limit"?: number;
   };
+    "DecisionComment": {
+    "schema_version"?: 1;
+    "comment_id"?: string;
+    "branch_id": string;
+    "boundary_fingerprint": string;
+    "author": string;
+    "body": string;
+    "created_at"?: string;
+    "ordinal"?: number;
+  };
+    "DecisionCommentRequest": {
+    "author": string;
+    "body": string;
+  };
+    "DecisionRequest": {
+    "branch_id": string;
+    "boundary_fingerprint": string;
+    "state": components["schemas"]["DecisionState"];
+    "author": string;
+    "reason"?: string | null;
+    "review_id": string;
+    "boundary_reference": string;
+    "material": boolean;
+    "verdict_label": string;
+  };
+    "DecisionState": "accepted" | "waived" | "parked";
     "DirectoryEntry": {
     "name": string;
     "path": string;
@@ -289,6 +328,14 @@ export interface components {
     "kind": "hotspots";
     "metric": string;
     "limit"?: number;
+  };
+    "JoinedDecision": {
+    "decision_id": string;
+    "state": components["schemas"]["DecisionState"];
+    "author": string;
+    "reason"?: string | null;
+    "decided_at": string;
+    "taken_on_current_verdict": boolean;
   };
     "MetricNature": "objective_measurement" | "structural_proxy";
     "MetricScope": "lexical_node" | "owning_module" | "reverse_static_impact_neighbourhood" | "bounded_resolved_call_chain";
@@ -490,6 +537,26 @@ export interface components {
     "title"?: string | null;
     "question_reference"?: string | null;
   };
+    "ReviewDetailResponse": {
+    "schema_version"?: 1;
+    "review_id"?: string;
+    "status": components["schemas"]["ReviewStatus"];
+    "case_id": string;
+    "case_revision": number;
+    "atlas_version_id": string;
+    "reasoning_model": string;
+    "prompt_identity": string;
+    "elicited_from"?: string | null;
+    "repo_id"?: string | null;
+    "branch_id"?: string | null;
+    "report"?: components["schemas"]["BoundaryReviewReport"] | null;
+    "markdown_report"?: string | null;
+    "duration_seconds"?: number;
+    "sanitized_errors"?: Array<string>;
+    "failure_diagnostics"?: Array<components["schemas"]["FailureDiagnostic"]>;
+    "created_at"?: string;
+    "boundary_dispositions"?: Array<components["schemas"]["BoundaryDisposition"]>;
+  };
     "ReviewDetected": {
     "event"?: "detected";
     "total": number;
@@ -587,6 +654,20 @@ export interface components {
     "start_line": number;
     "end_line": number;
   };
+    "StandingDecision": {
+    "schema_version"?: 1;
+    "decision_id"?: string;
+    "branch_id": string;
+    "boundary_fingerprint": string;
+    "state": components["schemas"]["DecisionState"];
+    "author": string;
+    "reason"?: string | null;
+    "decided_at"?: string;
+    "review_id": string;
+    "boundary_reference": string;
+    "material": boolean;
+    "verdict_label": string;
+  };
     "StatementKind": "fact" | "derived_constraint" | "assumption" | "question" | "force";
     "SubmittedAnswer": {
     "question_reference": string;
@@ -616,6 +697,23 @@ export interface components {
 }
 
 export interface operations {
+  "add_decision_comment_api_decisions__branch_id___fingerprint__comments_post": {
+    parameters: {
+      query: never;
+      path: {
+      "branch_id": string;
+      "fingerprint": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["DecisionCommentRequest"];
+    responses: {
+      "201": components["schemas"]["DecisionComment"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
   "add_policy_source_api_policies_sources_post": {
     parameters: {
       query: never;
@@ -662,6 +760,22 @@ export interface operations {
       "404": components["schemas"]["ProblemDetail"];
       "409": components["schemas"]["ProblemDetail"];
       "503": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "branch_decisions_api_branches__branch_id__decisions_get": {
+    parameters: {
+      query: never;
+      path: {
+      "branch_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": components["schemas"]["BranchDecisionsResponse"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
     };
   };
   "cancel_review_api_reviews__review_id__cancel_post": {
@@ -765,6 +879,40 @@ export interface operations {
       "404": components["schemas"]["ProblemDetail"];
     };
   };
+  "decision_comments_api_decisions__branch_id___fingerprint__comments_get": {
+    parameters: {
+      query: never;
+      path: {
+      "branch_id": string;
+      "fingerprint": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": Array<components["schemas"]["DecisionComment"]>;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "decision_history_api_decisions__branch_id___fingerprint__history_get": {
+    parameters: {
+      query: never;
+      path: {
+      "branch_id": string;
+      "fingerprint": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": Array<components["schemas"]["StandingDecision"]>;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
   "delete_policy_api_policies__policy_id__delete": {
     parameters: {
       query: never;
@@ -845,7 +993,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      "200": components["schemas"]["BoundaryReview"];
+      "200": components["schemas"]["ReviewDetailResponse"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
     };
@@ -1050,6 +1198,20 @@ export interface operations {
     responses: {
       "200": components["schemas"]["ModelCatalogResponse"];
       "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "record_decision_api_decisions_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["DecisionRequest"];
+    responses: {
+      "201": components["schemas"]["StandingDecision"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
     };
   };
   "remove_policy_source_api_policies_sources_delete": {
@@ -1286,6 +1448,9 @@ export interface paths {
   "/api/branches": {
     get: operations["list_branches_api_branches_get"];
   };
+  "/api/branches/{branch_id}/decisions": {
+    get: operations["branch_decisions_api_branches__branch_id__decisions_get"];
+  };
   "/api/cases": {
     get: operations["list_cases_api_cases_get"];
     post: operations["create_case_api_cases_post"];
@@ -1299,6 +1464,16 @@ export interface paths {
   };
   "/api/cases/{case_id}/history": {
     get: operations["case_history_api_cases__case_id__history_get"];
+  };
+  "/api/decisions": {
+    post: operations["record_decision_api_decisions_post"];
+  };
+  "/api/decisions/{branch_id}/{fingerprint}/comments": {
+    get: operations["decision_comments_api_decisions__branch_id___fingerprint__comments_get"];
+    post: operations["add_decision_comment_api_decisions__branch_id___fingerprint__comments_post"];
+  };
+  "/api/decisions/{branch_id}/{fingerprint}/history": {
+    get: operations["decision_history_api_decisions__branch_id___fingerprint__history_get"];
   };
   "/api/examples": {
     get: operations["list_examples_api_examples_get"];

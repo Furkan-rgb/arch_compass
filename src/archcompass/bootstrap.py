@@ -31,6 +31,7 @@ from archcompass.adapters.persistence import (
     SQLitePolicySourceRepository,
     SQLiteReasoningModelSelectionRepository,
     SQLiteReviewConversationRepository,
+    SQLiteStandingDecisionRepository,
 )
 from archcompass.adapters.retrieval import (
     MarkdownPolicySourceInspector,
@@ -50,6 +51,7 @@ from archcompass.application.reviews import ReviewService
 from archcompass.application.safety import (
     validate_repository_directory,
 )
+from archcompass.application.triage import TriageService
 from archcompass.configuration import (
     ReasoningModelConfig,
     load_provider_environment,
@@ -105,6 +107,7 @@ class Runtime:
     repository_service: RepositoryIndexService
     atlas_service: AtlasService
     review_service: ReviewService
+    triage_service: TriageService
     freshness_service: AtlasFreshnessService
     model_catalog_service: ModelCatalogService
 
@@ -145,6 +148,7 @@ def build_runtime(
     lineages = SQLiteLineageRepository(database)
     reviews = SQLiteBoundaryReviewRepository(database)
     review_conversations = SQLiteReviewConversationRepository(database)
+    standing_decisions = SQLiteStandingDecisionRepository(database)
     # The workspace is left out of every snapshot, which is what allows a repository to be
     # analysed with its own workspace inside it. What the workspace holds changes whenever a
     # review runs, so indexing it would move the content fingerprint on every run and leave
@@ -216,6 +220,10 @@ def build_runtime(
         reasoner=reasoning,
         source=review_source_service,
     )
+    triage_service = TriageService(
+        decisions=standing_decisions,
+        lineages=lineages,
+    )
     return Runtime(
         workspace=canonical_workspace,
         database=database,
@@ -234,6 +242,7 @@ def build_runtime(
         repository_service=repository_service,
         atlas_service=atlas_service,
         review_service=review_service,
+        triage_service=triage_service,
         freshness_service=freshness,
         model_catalog_service=model_catalog_service,
     )

@@ -10,6 +10,7 @@ from archcompass.domain.case import AnsweredQuestions, ArchitectureCase, CaseRev
 from archcompass.domain.lineage import BranchLineage, RepositoryLineage
 from archcompass.domain.review import BoundaryReview
 from archcompass.domain.review_conversation import ReviewConversation
+from archcompass.domain.triage import DecisionComment, StandingDecision
 from archcompass.domain.workspace import (
     BoundaryReviewSummary,
     CaseSummary,
@@ -108,6 +109,36 @@ class LineageRepository(Protocol):
     def list_repositories(self, *, limit: int = 100) -> list[RepositoryLineage]: ...
 
     def list_branches(self, repo_id: str | None = None) -> list[BranchLineage]: ...
+
+
+class StandingDecisionRepository(Protocol):
+    """Append-only storage for what a team decided about a boundary, and what it said about it.
+
+    Both halves key on `(branch_id, boundary_fingerprint)` and neither has an update or a
+    delete: a decision is superseded by appending another, and the thread is a history rather
+    than a document. Absence of a decision is the unreviewed state and is reported as absence
+    — `current_for` returns `None`, and `current_for_branch` omits the boundary entirely.
+    """
+
+    def append_decision(self, decision: StandingDecision) -> StandingDecision: ...
+
+    def current_for_branch(self, branch_id: str) -> list[StandingDecision]: ...
+
+    def current_for(
+        self, branch_id: str, boundary_fingerprint: str
+    ) -> StandingDecision | None: ...
+
+    def history(
+        self, branch_id: str, boundary_fingerprint: str
+    ) -> list[StandingDecision]: ...
+
+    def append_comment(self, comment: DecisionComment) -> DecisionComment: ...
+
+    def comments_for(
+        self, branch_id: str, boundary_fingerprint: str
+    ) -> list[DecisionComment]: ...
+
+    def comment_counts_for_branch(self, branch_id: str) -> dict[str, int]: ...
 
 
 class AtlasRepository(Protocol):

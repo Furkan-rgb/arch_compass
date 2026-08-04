@@ -35,6 +35,7 @@ from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
 from archcompass.domain.errors import (
     ArchCompassError,
     AtlasNotFoundError,
+    BranchNotFoundError,
     CaseNotFoundError,
     CaseRevisionConflictError,
     CaseValidationError,
@@ -57,14 +58,21 @@ from archcompass.domain.errors import (
     ReviewStillRunningError,
     StaleAtlasError,
 )
+from archcompass.domain.fingerprint import boundary_fingerprint
 from archcompass.domain.lineage import RepositoryBranch
 from archcompass.domain.policy import (
     PolicyDocument,
     PolicyDraft,
     PolicySourceRegistration,
 )
-from archcompass.domain.review import BoundaryExcerpt, BoundaryReview, ReviewStatus
+from archcompass.domain.review import (
+    BoundaryExcerpt,
+    BoundaryReview,
+    ReviewedBoundary,
+    ReviewStatus,
+)
 from archcompass.domain.review_conversation import ReviewConversation, ReviewMessage
+from archcompass.domain.triage import DecisionComment, DecisionState, StandingDecision
 from archcompass.domain.workspace import (
     BoundaryReviewSummary,
     CaseSummary,
@@ -210,6 +218,124 @@ class ReviewConversationCreateRequest(APIModel):
 
 class ReviewQuestionRequest(APIModel):
     question: str = Field(min_length=1, max_length=4000)
+
+
+class DecisionRequest(APIModel):
+    """A disposition somebody took, together with the verdict they took it against.
+
+    The verdict context is sent by the client rather than looked up here, and that is the
+    point of it: it records what was actually on the reader's screen. Resolving it server-side
+    from the review would record what the server believes now, which is the one thing the
+    field exists to be able to disagree with.
+    """
+
+    branch_id: str = Field(min_length=1)
+    boundary_fingerprint: str = Field(min_length=1)
+    state: DecisionState
+    author: str = Field(min_length=1)
+    #: Required when waiving, and the request is refused without it rather than stored as a
+    #: silent waiver.
+    reason: str | None = None
+    review_id: str = Field(min_length=1)
+    boundary_reference: str = Field(pattern=r"^BR-[0-9]{3}$")
+    material: bool
+    verdict_label: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def valid_as_a_decision(self) -> DecisionRequest:
+        """Refuse here whatever the domain would refuse, using the domain to decide.
+
+        Building the aggregate is the check. Restating its rules in this model would be two
+        places for one invariant, and the one that drifts is always the copy — while this way
+        a body that cannot become a `StandingDecision` fails as a 422 naming the field, rather
+        than as a 500 raised on the line that tried.
+        """
+
+        self.as_decision()
+        return self
+
+    def as_decision(self) -> StandingDecision:
+        return StandingDecision(
+            branch_id=self.branch_id,
+            boundary_fingerprint=self.boundary_fingerprint,
+            state=self.state,
+            author=self.author,
+            reason=self.reason,
+            review_id=self.review_id,
+            boundary_reference=self.boundary_reference,
+            material=self.material,
+            verdict_label=self.verdict_label,
+        )
+
+
+class DecisionCommentRequest(APIModel):
+    """One remark in a boundary's thread. Its position is assigned by the server."""
+
+    author: str = Field(min_length=1)
+    body: str = Field(min_length=1)
+
+
+class BranchDecisionsResponse(APIModel):
+    """Everything one branch currently thinks about the boundaries it has opinions on.
+
+    Comment counts are reported separately from decisions rather than beside them, because
+    the two sets differ: a boundary can be argued about before anyone decides anything, and a
+    count folded into the decision list would have nowhere to put that thread. A fingerprint
+    missing from either map is the honest absence — undecided, or undiscussed.
+    """
+
+    branch_id: str
+    #: One per boundary this branch has decided on, latest decision only.
+    decisions: list[StandingDecision]
+    #: Fingerprint to number of comments, for every discussed boundary on the branch.
+    comment_counts: dict[str, int]
+
+
+class JoinedDecision(APIModel):
+    """The current decision as a review's reader needs to see it."""
+
+    decision_id: str
+    state: DecisionState
+    author: str
+    reason: str | None = None
+    decided_at: datetime
+    #: False when this run's verdict for the boundary differs from the one the decision was
+    #: taken against. Not an expiry — the decision still stands — but the reader is told the
+    #: ground moved, and re-affirming it is a human act.
+    taken_on_current_verdict: bool
+
+
+class BoundaryDisposition(APIModel):
+    """What triage knows about one boundary of one review.
+
+    Carried beside the report rather than inside it: a `ReviewedBoundary` is part of an
+    immutable judgement, and joining a team's later opinion into that document would make the
+    review look like it had changed its mind.
+    """
+
+    #: The `BR-nnn` this boundary has in this review — how a client matches it to the report.
+    reference: str
+    #: Its structural identity, which is what a decision is actually filed under.
+    fingerprint: str
+    #: Absent where nobody has decided, and for every review that predates branch lineages:
+    #: with no branch there is nothing to look the decision up on.
+    decision: JoinedDecision | None = None
+    comment_count: int = 0
+
+
+class ReviewDetailResponse(BoundaryReview):
+    """The stored review, unchanged, plus what the team has since made of it.
+
+    A subclass rather than a wrapper so the document a client already reads keeps its shape:
+    every field of `BoundaryReview` is where it was, and `boundary_dispositions` is added
+    beside them.
+    """
+
+    #: One entry per reviewed boundary, in report order. Empty for a review that reached no
+    #: verdicts and so has no boundaries to dispose of.
+    boundary_dispositions: list[BoundaryDisposition] = Field(
+        default_factory=list[BoundaryDisposition]
+    )
 
 
 class AnswerProse(APIModel):
@@ -938,8 +1064,18 @@ def create_app(
         "/api/reviews/{review_id}",
         responses=_problem_responses(404, 422),
     )
-    def get_review(runtime: RuntimeDep, review_id: str) -> BoundaryReview:
-        return runtime.review_repository.get(review_id)
+    def get_review(runtime: RuntimeDep, review_id: str) -> ReviewDetailResponse:
+        """The stored review, with whatever the team has since decided about its boundaries.
+
+        The join happens here and nowhere deeper. `ReviewService` never reads decisions —
+        that is the one invariant of the triage design — so a disposition can never reach the
+        reasoning that produced a verdict, in this release or any later one. What a reader
+        sees together was assembled at the last possible moment, out of two records that
+        stayed apart.
+        """
+
+        review = runtime.review_repository.get(review_id)
+        return _with_dispositions(runtime, review)
 
     @app.get(
         "/api/reviews/{review_id}/source",
@@ -1159,6 +1295,84 @@ def create_app(
         return NDJSONStreamingResponse(
             _answer_progress_lines(runtime, conversation_id, request.question),
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
+
+    @app.get(
+        "/api/branches/{branch_id}/decisions",
+        responses=_problem_responses(404),
+    )
+    def branch_decisions(runtime: RuntimeDep, branch_id: str) -> BranchDecisionsResponse:
+        """What this branch currently thinks, across every boundary anyone has triaged.
+
+        One row per boundary with an opinion, not one per boundary that exists: the
+        unreviewed state is absence, and a listing that invented rows for it would be
+        asserting that somebody had looked.
+        """
+
+        return BranchDecisionsResponse(
+            branch_id=branch_id,
+            decisions=runtime.triage_service.decisions_for_branch(branch_id),
+            comment_counts=runtime.triage_service.comment_counts(branch_id),
+        )
+
+    @app.post(
+        "/api/decisions",
+        status_code=201,
+        responses=_problem_responses(404, 422),
+    )
+    def record_decision(runtime: RuntimeDep, request: DecisionRequest) -> StandingDecision:
+        """Record a disposition toward one boundary, and return what now stands.
+
+        Always an append, including when it contradicts what the same author said an hour
+        ago. The previous decision stays readable through the history route, because "we
+        accepted this in March and waived it in August" is the sentence a team most needs
+        to be able to reconstruct.
+        """
+
+        return runtime.triage_service.decide(request.as_decision())
+
+    @app.get(
+        "/api/decisions/{branch_id}/{fingerprint}/history",
+        responses=_problem_responses(404),
+    )
+    def decision_history(
+        runtime: RuntimeDep, branch_id: str, fingerprint: str
+    ) -> list[StandingDecision]:
+        """Every disposition ever recorded for this boundary, oldest first."""
+
+        return runtime.triage_service.history(branch_id, fingerprint)
+
+    @app.get(
+        "/api/decisions/{branch_id}/{fingerprint}/comments",
+        responses=_problem_responses(404),
+    )
+    def decision_comments(
+        runtime: RuntimeDep, branch_id: str, fingerprint: str
+    ) -> list[DecisionComment]:
+        """The thread on this boundary, in the order it was written."""
+
+        return runtime.triage_service.comments(branch_id, fingerprint)
+
+    @app.post(
+        "/api/decisions/{branch_id}/{fingerprint}/comments",
+        status_code=201,
+        responses=_problem_responses(404, 422),
+    )
+    def add_decision_comment(
+        runtime: RuntimeDep,
+        branch_id: str,
+        fingerprint: str,
+        request: DecisionCommentRequest,
+    ) -> DecisionComment:
+        """Append one remark. No decision has to exist first, and none is implied by it."""
+
+        return runtime.triage_service.comment(
+            DecisionComment(
+                branch_id=branch_id,
+                boundary_fingerprint=fingerprint,
+                author=request.author,
+                body=request.body,
+            )
         )
 
     @app.get("/api/policies")
@@ -1549,6 +1763,63 @@ def _answer_progress_lines(
         yield f"{line}\n"
 
 
+def _with_dispositions(runtime: Runtime, review: BoundaryReview) -> ReviewDetailResponse:
+    """Join what the team decided onto the review a reader is about to look at.
+
+    Every reviewed boundary gets an entry, whether or not anyone has decided anything: the
+    fingerprint alone is what a client needs to post a decision, and a boundary is not going
+    to be triaged by a page that cannot name it.
+
+    A review from before branch lineages existed carries no `branch_id`, and therefore no
+    decisions. That is stated by leaving them absent rather than by guessing a branch — a
+    decision filed under a guess would be attributed to a team that never took it.
+    """
+
+    if review.report is None:
+        return ReviewDetailResponse.model_validate(review.model_dump())
+    fingerprints = [
+        boundary_fingerprint(item.candidate) for item in review.report.reviewed
+    ]
+    decisions: dict[str, StandingDecision] = {}
+    counts: dict[str, int] = {}
+    if review.branch_id is not None:
+        decisions = {
+            item.boundary_fingerprint: item
+            for item in runtime.triage_service.decisions_for_branch(review.branch_id)
+        }
+        counts = runtime.triage_service.comment_counts(review.branch_id)
+    dispositions = [
+        BoundaryDisposition(
+            reference=boundary.reference,
+            fingerprint=fingerprint,
+            decision=_joined(decisions.get(fingerprint), boundary),
+            comment_count=counts.get(fingerprint, 0),
+        )
+        for boundary, fingerprint in zip(review.report.reviewed, fingerprints, strict=True)
+    ]
+    return ReviewDetailResponse.model_validate(
+        {**review.model_dump(), "boundary_dispositions": dispositions}
+    )
+
+
+def _joined(
+    decision: StandingDecision | None, boundary: ReviewedBoundary
+) -> JoinedDecision | None:
+    if decision is None:
+        return None
+    return JoinedDecision(
+        decision_id=decision.decision_id,
+        state=decision.state,
+        author=decision.author,
+        reason=decision.reason,
+        decided_at=decision.decided_at,
+        taken_on_current_verdict=decision.taken_on(
+            material=boundary.material,
+            verdict_label=boundary.verdict_label,
+        ),
+    )
+
+
 def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
     if isinstance(
         error,
@@ -1559,6 +1830,7 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
             ReviewNotFoundError,
             PolicyNotFoundError,
             ConversationNotFoundError,
+            BranchNotFoundError,
         ),
     ):
         return 404, "not_found", False
