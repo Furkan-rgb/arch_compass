@@ -169,7 +169,7 @@ def _reviewed_through_the_api(client: TestClient) -> dict[str, Any]:
 def _first_boundary(client: TestClient, review_id: str) -> dict[str, Any]:
     detail = client.get(f"/api/reviews/{review_id}")
     assert detail.status_code == 200, detail.text
-    dispositions = detail.json()["boundary_dispositions"]
+    dispositions = detail.json()["boundary_triage"]
     assert dispositions, "the example review reaches at least one boundary"
     return cast("dict[str, Any]", dispositions[0])
 
@@ -398,7 +398,7 @@ def test_a_review_without_a_branch_is_shown_its_boundaries_and_no_decisions(
         detail = client.get(f"/api/reviews/{review['review_id']}")
 
         assert detail.status_code == 200, detail.text
-        dispositions = detail.json()["boundary_dispositions"]
+        dispositions = detail.json()["boundary_triage"]
         assert dispositions
         assert all(item["decision"] is None for item in dispositions)
         assert all(item["fingerprint"].startswith("bdry_") for item in dispositions)

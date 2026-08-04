@@ -24,6 +24,7 @@ from archcompass.adapters.models import (
 )
 from archcompass.adapters.persistence import (
     SQLiteAtlasRepository,
+    SQLiteBaselineRepository,
     SQLiteBoundaryReviewRepository,
     SQLiteCaseRepository,
     SQLiteDatabase,
@@ -41,6 +42,7 @@ from archcompass.adapters.retrieval import (
 )
 from archcompass.application.atlas_freshness import AtlasFreshnessService
 from archcompass.application.atlas_queries import AtlasService
+from archcompass.application.baseline import BaselineService
 from archcompass.application.bundled_examples import BundledExampleService
 from archcompass.application.cases import CaseService
 from archcompass.application.model_catalog import ModelCatalogService, reasoning_config
@@ -63,6 +65,7 @@ from archcompass.ports.model_catalog import ProviderDescriptor
 from archcompass.ports.reasoning import FocusedReasoningProvider
 from archcompass.ports.repositories import (
     AtlasRepository,
+    BaselineRepository,
     BoundaryReviewRepository,
     CaseRepository,
     LineageRepository,
@@ -99,6 +102,7 @@ class Runtime:
     lineage_repository: LineageRepository
     review_repository: BoundaryReviewRepository
     verdict_cache_repository: VerdictCacheRepository
+    baseline_repository: BaselineRepository
     review_conversation_service: ReviewConversationService
     review_source_service: ReviewSourceService
     bundled_example_service: BundledExampleService
@@ -111,6 +115,7 @@ class Runtime:
     atlas_service: AtlasService
     review_service: ReviewService
     triage_service: TriageService
+    baseline_service: BaselineService
     freshness_service: AtlasFreshnessService
     model_catalog_service: ModelCatalogService
 
@@ -151,6 +156,7 @@ def build_runtime(
     lineages = SQLiteLineageRepository(database)
     reviews = SQLiteBoundaryReviewRepository(database)
     verdict_cache = SQLiteVerdictCacheRepository(database)
+    baselines = SQLiteBaselineRepository(database)
     review_conversations = SQLiteReviewConversationRepository(database)
     standing_decisions = SQLiteStandingDecisionRepository(database)
     # The workspace is left out of every snapshot, which is what allows a repository to be
@@ -229,6 +235,7 @@ def build_runtime(
         decisions=standing_decisions,
         lineages=lineages,
     )
+    baseline_service = BaselineService(reviews=reviews, baselines=baselines)
     return Runtime(
         workspace=canonical_workspace,
         database=database,
@@ -237,6 +244,7 @@ def build_runtime(
         lineage_repository=lineages,
         review_repository=reviews,
         verdict_cache_repository=verdict_cache,
+        baseline_repository=baselines,
         review_conversation_service=review_conversation_service,
         review_source_service=review_source_service,
         bundled_example_service=bundled_example_service,
@@ -249,6 +257,7 @@ def build_runtime(
         atlas_service=atlas_service,
         review_service=review_service,
         triage_service=triage_service,
+        baseline_service=baseline_service,
         freshness_service=freshness,
         model_catalog_service=model_catalog_service,
     )
