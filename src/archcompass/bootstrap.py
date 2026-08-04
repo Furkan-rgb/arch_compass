@@ -45,6 +45,7 @@ from archcompass.application.atlas_queries import AtlasService
 from archcompass.application.baseline import BaselineService
 from archcompass.application.bundled_examples import BundledExampleService
 from archcompass.application.cases import CaseService
+from archcompass.application.ci import CiRunService
 from archcompass.application.model_catalog import ModelCatalogService, reasoning_config
 from archcompass.application.policies import PolicyService
 from archcompass.application.repository_index import RepositoryIndexService
@@ -116,6 +117,7 @@ class Runtime:
     review_service: ReviewService
     triage_service: TriageService
     baseline_service: BaselineService
+    ci_service: CiRunService
     freshness_service: AtlasFreshnessService
     model_catalog_service: ModelCatalogService
 
@@ -236,6 +238,13 @@ def build_runtime(
         lineages=lineages,
     )
     baseline_service = BaselineService(reviews=reviews, baselines=baselines)
+    ci_service = CiRunService(
+        repositories=repository_service,
+        reviews=review_service,
+        baselines=baseline_service,
+        triage=triage_service,
+        lineages=lineages,
+    )
     return Runtime(
         workspace=canonical_workspace,
         database=database,
@@ -258,6 +267,7 @@ def build_runtime(
         review_service=review_service,
         triage_service=triage_service,
         baseline_service=baseline_service,
+        ci_service=ci_service,
         freshness_service=freshness,
         model_catalog_service=model_catalog_service,
     )

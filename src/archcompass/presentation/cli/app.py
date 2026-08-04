@@ -10,6 +10,8 @@ import typer
 import yaml
 from pydantic import ValidationError
 
+from archcompass.application.ci import FailOn
+from archcompass.application.ci_rendering import render_ci_comment, render_ci_summary
 from archcompass.application.review_rendering import render_review
 from archcompass.application.safety import (
     validate_repository_directory,
@@ -25,6 +27,7 @@ from archcompass.bootstrap import (
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.case import ArchitectureCase, CaseUpdate
 from archcompass.domain.errors import ArchCompassError
+from archcompass.domain.lineage import DEFAULT_BRANCH_NAME
 
 app = typer.Typer(
     name="archcompass",
@@ -360,6 +363,100 @@ def review(
             f"then carry the review on with `archcompass review {case_id} --repo {repo} "
             f"--answers {stored.review_id}`."
         )
+
+
+@app.command("ci")
+def ci(
+    context: typer.Context,
+    case_id: str,
+    repo: Annotated[
+        Path,
+        typer.Option("--repo", help="The checkout to index and review."),
+    ],
+    base_branch: Annotated[
+        str,
+        typer.Option(
+            "--base-branch",
+            help=(
+                "The branch whose baseline and standing decisions this run is measured "
+                "against. A pull request branch starts with an empty baseline of its own."
+            ),
+        ),
+    ] = DEFAULT_BRANCH_NAME,
+    branch: Annotated[
+        str | None,
+        typer.Option(
+            "--branch",
+            help=(
+                "The branch this checkout is on. Worth stating in CI, where the checkout is "
+                "detached and only the environment knows which branch it came from."
+            ),
+        ),
+    ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Print the machine document instead of the summary."),
+    ] = False,
+    comment_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--comment-file",
+            help="Write the sticky pull-request comment, as Markdown, to this path.",
+            dir_okay=False,
+        ),
+    ] = None,
+    workspace_url: Annotated[
+        str | None,
+        typer.Option(
+            "--workspace-url",
+            help=(
+                "Where this workspace is reachable, so the comment can link each boundary "
+                "to it. Omitted, the comment names boundaries without linking them."
+            ),
+        ),
+    ] = None,
+    fail_on: Annotated[
+        FailOn,
+        typer.Option(
+            "--fail-on",
+            help=(
+                "What this run exits nonzero for. `nothing` reports everything and fails "
+                "for none of it, which is how a team adopts the check before agreeing "
+                "with it."
+            ),
+        ),
+    ] = FailOn.NEW_MATERIAL,
+) -> None:
+    """Review this checkout without asking anyone anything, and exit on what is new.
+
+    The disciplined sibling of `review`: one pass, no questions, and a summary that leads
+    with how much of what it found was already known. A run that would have asked reports
+    the held verdicts with their questions and does not block on them — nobody is here to
+    answer, and failing a pull request over an unasked question is how a check gets
+    switched off.
+
+    Exit codes: 0 when nothing new needs accounting for, 1 when something does, 2 for a run
+    that could not happen at all.
+    """
+
+    state = _state(context)
+    document = state.runtime_for_repository(repo).ci_service.run(
+        case_id,
+        repository_root=repo,
+        base_branch=base_branch,
+        branch_name=branch,
+        fail_on=fail_on,
+    )
+    if comment_file is not None:
+        comment_file.parent.mkdir(parents=True, exist_ok=True)
+        comment_file.write_text(
+            render_ci_comment(document, workspace_url=workspace_url),
+            encoding="utf-8",
+        )
+    typer.echo(
+        document.model_dump_json(indent=2) if as_json else render_ci_summary(document)
+    )
+    raise typer.Exit(code=document.exit_code)
 
 
 @reviews_app.command("show")
