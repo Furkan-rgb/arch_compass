@@ -31,7 +31,8 @@ import { cn } from "@/lib/utils";
 
 import { FindingSource } from "./finding-source";
 import type { RunState } from "./run-progress";
-import type { ReviewedBoundary } from "./types";
+import { DecisionMark, DispositionChip, StandingFooter } from "./triage";
+import type { BoundaryTriage, ReviewedBoundary, ReviewedBoundaryDetail } from "./types";
 
 /**
  * The verdicts as a ledger: one row per boundary, opened for the reasoning behind it.
@@ -211,13 +212,26 @@ export function VerdictBand({
   );
 }
 
-type Filter = "all" | "material" | "cleared";
+type Filter = "all" | "material" | "cleared" | "attention" | "unreviewed";
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "material", label: "Should change" },
   { id: "cleared", label: "Earns its place" },
 ];
+
+/* Two more filters, each shown only where its question can be asked: the partition needs
+   a baseline to have been compared against, and "unreviewed" needs a branch for
+   decisions to be filed under. A filter for a question with no answer is a control that
+   teaches the reader to distrust the bar. */
+const ATTENTION_FILTER: { id: Filter; label: string } = {
+  id: "attention",
+  label: "New & changed",
+};
+const UNREVIEWED_FILTER: { id: Filter; label: string } = {
+  id: "unreviewed",
+  label: "Unreviewed",
+};
 
 /* The reasoning behind one verdict, at reading width and reading leading — the one passage
    on this page written to be read rather than scanned. Everything around it is 78ch, which
@@ -244,8 +258,10 @@ function LedgerRow({
   onOpen,
   onShowInAtlas,
   reviewId,
+  triage,
+  branchId,
 }: {
-  item: ReviewedBoundary;
+  item: ReviewedBoundaryDetail;
   policyCount: number;
   /** Which verdict is the exception on this page, from `loudVerdict`. */
   loud: boolean | null;
@@ -253,6 +269,10 @@ function LedgerRow({
   onOpen: (reference: string | null) => void;
   onShowInAtlas: ((nodeId: string) => void) | null;
   reviewId: string;
+  /** This boundary's fingerprint and standing decision, joined on by the server. Absent
+      while a run is watched live — triage waits for the record. */
+  triage: BoundaryTriage | undefined;
+  branchId: string | null;
 }) {
   const bearings = item.policy_bearings || [];
   const abstraction = item.candidate.participants[0];
@@ -296,6 +316,12 @@ function LedgerRow({
           <span className={rowMeta} title={`${bearings.length} of ${policyCount} policies`}>
             {bearings.length}/{policyCount}
           </span>
+          {/* Baseline standing, then the team's decision, then the verdict — reading
+              order matches authority order: what changed, what we said, what it judged.
+              A `known` boundary and an undecided one are silent here; quiet is the
+              resting state of a ledger the team is on top of. */}
+          <DispositionChip disposition={item.disposition} />
+          <DecisionMark triage={triage} />
           {/* Words, not only a coloured rail: a reader scanning for "what was the answer"
               should not have to learn a colour convention first. The exception wears the
               chip and the majority is quiet text, so the odd one out is what the eye finds.
@@ -453,6 +479,18 @@ function LedgerRow({
               <Network size={14} aria-hidden /> Show {item.reference} in the atlas
             </button>
           ) : null}
+
+          {/* Last, like a signature after a letter: the verdict and its evidence are
+              read first, and what the team made of them is recorded underneath. Absent
+              while the record has no triage join to offer (a live run). */}
+          {triage ? (
+            <StandingFooter
+              boundary={item}
+              triage={triage}
+              branchId={branchId}
+              reviewId={reviewId}
+            />
+          ) : null}
         </CollapsibleContent>
       </LedgerItem>
     </Collapsible>
@@ -472,8 +510,10 @@ export function FindingsLedger({
   open,
   onOpen,
   onShowInAtlas,
+  triage,
+  branchId = null,
 }: {
-  reviewed: ReviewedBoundary[];
+  reviewed: ReviewedBoundaryDetail[];
   policyCount: number;
   reviewId: string;
   /** The reference whose reasoning is showing, if any. Held by the page, because a citation
@@ -481,13 +521,33 @@ export function FindingsLedger({
   open: string | null;
   onOpen: (reference: string | null) => void;
   onShowInAtlas: ((nodeId: string) => void) | null;
+  /** Reference → the server's triage join for that boundary. Absent entirely on surfaces
+      that watch a live run — triage reads the record, not the stream. */
+  triage?: Map<string, BoundaryTriage>;
+  branchId?: string | null;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const loud = loudVerdict(reviewed);
-  const shown = reviewed.filter(
-    (item) =>
-      filter === "all" || (filter === "material" ? item.material : !item.material),
-  );
+  const compared = reviewed.some((item) => item.disposition != null);
+  const filters = [
+    ...FILTERS,
+    ...(compared ? [ATTENTION_FILTER] : []),
+    ...(branchId && triage ? [UNREVIEWED_FILTER] : []),
+  ];
+  const shown = reviewed.filter((item) => {
+    switch (filter) {
+      case "material":
+        return item.material;
+      case "cleared":
+        return !item.material;
+      case "attention":
+        return item.disposition === "new" || item.disposition === "changed";
+      case "unreviewed":
+        return !triage?.get(item.reference)?.decision;
+      default:
+        return true;
+    }
+  });
 
   return (
     <section className={ledgerSheet} aria-label="Boundaries examined">
@@ -509,7 +569,7 @@ export function FindingsLedger({
           className="overflow-x-auto max-[620px]:w-full"
           aria-label="Filter by verdict"
         >
-          {FILTERS.map(({ id, label }) => (
+          {filters.map(({ id, label }) => (
             <ToggleGroupItem key={id} value={id}>
               {label}
             </ToggleGroupItem>
@@ -531,6 +591,8 @@ export function FindingsLedger({
             onOpen={onOpen}
             onShowInAtlas={onShowInAtlas}
             reviewId={reviewId}
+            triage={triage?.get(item.reference)}
+            branchId={branchId ?? null}
           />
         ))}
       </Ledger>

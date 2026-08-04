@@ -1,0 +1,410 @@
+/**
+ * Triage: what the team makes of a verdict, recorded where the verdict is read.
+ *
+ * Everything here is deliberately ink rather than colour. The verdict families — material,
+ * cleared — belong to the model's judgement, and a page where the team's opinion wore the
+ * same colours would blur the one line this product will not blur: the model judges, the
+ * team disposes. A decision is therefore typography — small caps, the author's name, a
+ * date, a reason — and the only time triage raises its voice is when the ground moved
+ * under a decision, which is a fact about honesty rather than about judgement.
+ */
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { MessageSquareText } from "lucide-react";
+import { useState } from "react";
+
+import { api } from "@/api";
+import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { formatDate } from "@/components";
+import { cn } from "@/lib/utils";
+import type {
+  BoundaryTriage,
+  DecisionState,
+  ReviewedBoundaryDetail,
+} from "@/types";
+
+/** The last name decisions and remarks were signed with, kept on this browser.
+    Self-report, honestly labelled: there is no identity here yet, only a field that
+    remembers what it was told. */
+const AUTHOR_KEY = "archcompass.triage.author";
+
+export function rememberedAuthor(): string {
+  try {
+    return localStorage.getItem(AUTHOR_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberAuthor(name: string) {
+  try {
+    localStorage.setItem(AUTHOR_KEY, name);
+  } catch {
+    // A browser that refuses storage refuses the convenience, not the decision.
+  }
+}
+
+const STATE_WORDS: Record<DecisionState, string> = {
+  accepted: "Accepted",
+  waived: "Waived",
+  parked: "Parked",
+};
+
+/** What each state claims, spelled out where the choice is made rather than in a doc. */
+const STATE_MEANINGS: Record<DecisionState, string> = {
+  accepted: "We agree with this verdict and intend to act on it.",
+  waived: "We disagree, or accept the debt. Says why, and stands until re-affirmed.",
+  parked: "Seen, undecided. Keeps the boundary from reading as unreviewed.",
+};
+
+/**
+ * The decision mark a collapsed row carries: one word of small caps, or nothing.
+ *
+ * Nothing is the design — an unreviewed boundary is silent, so the ledger reads exactly
+ * like it did before triage existed until somebody decides something. The one exception
+ * to quiet: a decision taken against a verdict this run no longer gives is underlined in
+ * the material hue, because inherited approval of a moved verdict is the one lie this
+ * mark could otherwise tell.
+ */
+export function DecisionMark({ triage }: { triage: BoundaryTriage | undefined }) {
+  const decision = triage?.decision;
+  if (!decision) return null;
+  const stale = !decision.taken_on_current_verdict;
+  return (
+    <span
+      className={cn(
+        "text-micro font-[650] tracking-[.09em] whitespace-nowrap text-ink-3 uppercase",
+        stale && "underline decoration-material decoration-2 underline-offset-4",
+      )}
+      title={
+        stale
+          ? `${STATE_WORDS[decision.state]} by ${decision.author} — against an earlier verdict. Review again.`
+          : `${STATE_WORDS[decision.state]} by ${decision.author}`
+      }
+    >
+      {STATE_WORDS[decision.state]}
+    </span>
+  );
+}
+
+/**
+ * Where one boundary stands against its branch's baseline: NEW and CHANGED speak,
+ * `known` is silent. A baselined boundary is the ledger's resting state — marking all
+ * of them would make run two exactly as loud as run one, which is what the baseline
+ * exists to prevent.
+ */
+export function DispositionChip({
+  disposition,
+}: {
+  disposition: ReviewedBoundaryDetail["disposition"];
+}) {
+  if (disposition !== "new" && disposition !== "changed") return null;
+  return (
+    <span
+      className={cn(
+        "rounded-pill px-2 py-0.5 text-micro font-[650] tracking-[.06em] whitespace-nowrap uppercase",
+        disposition === "new"
+          ? "bg-accent-soft text-accent-ink"
+          : "bg-material-soft text-material",
+      )}
+      title={
+        disposition === "new"
+          ? "Not in this branch's baseline: first time this structure has been seen."
+          : "In the baseline, but the verdict moved since it was recorded."
+      }
+    >
+      {disposition}
+    </span>
+  );
+}
+
+/**
+ * The standing footer of an open row: the decision as it stands, the control to change
+ * it, and the discussion under both.
+ *
+ * Lives at the bottom of the detail on purpose — the verdict, its reasoning and its
+ * evidence come first, and what the team made of them is read after them, the way a
+ * signature follows a letter.
+ */
+export function StandingFooter({
+  boundary,
+  triage,
+  branchId,
+  reviewId,
+}: {
+  boundary: ReviewedBoundaryDetail;
+  triage: BoundaryTriage | undefined;
+  /** Absent on a review from before branch lineages: with no branch there is nothing to
+      file a decision under, and the footer says so instead of guessing. */
+  branchId: string | null;
+  reviewId: string;
+}) {
+  const client = useQueryClient();
+  const decision = triage?.decision ?? null;
+  const [state, setState] = useState<DecisionState | "">("");
+  const [author, setAuthor] = useState(rememberedAuthor);
+  const [reason, setReason] = useState("");
+
+  const decide = useMutation({
+    mutationFn: (next: DecisionState) => {
+      if (!branchId || !triage) throw new Error("This boundary has no branch to decide on.");
+      rememberAuthor(author.trim());
+      return api.postDecision({
+        branch_id: branchId,
+        boundary_fingerprint: triage.fingerprint,
+        state: next,
+        author: author.trim(),
+        reason: reason.trim() ? reason.trim() : null,
+        review_id: reviewId,
+        boundary_reference: boundary.reference,
+        material: boundary.material,
+        verdict_label: boundary.verdict_label,
+      });
+    },
+    onSuccess: async () => {
+      setState("");
+      setReason("");
+      await client.invalidateQueries({ queryKey: ["review", reviewId] });
+    },
+  });
+
+  if (!branchId) {
+    return (
+      <div data-slot="standing" className="mt-4">
+        <p className={triageSubhead}>Standing</p>
+        <p className="max-w-[78ch] text-meta leading-[1.5] text-ink-3">
+          This review predates branch lineages, so there is no branch to record a decision
+          on. Re-index the repository and run a new review to triage its boundaries.
+        </p>
+      </div>
+    );
+  }
+
+  const needsReason = state === "waived" && !reason.trim();
+  const ready = state !== "" && author.trim() !== "" && !needsReason;
+
+  return (
+    <div data-slot="standing" className="mt-4">
+      <p className={triageSubhead}>Standing</p>
+
+      {decision ? (
+        <p className="mb-3 max-w-[78ch] text-ui leading-[1.6] text-ink-2">
+          <strong className="text-ink">
+            {STATE_WORDS[decision.state]} by {decision.author}
+          </strong>{" "}
+          · {formatDate(decision.decided_at)}
+          {decision.reason ? <> — {decision.reason}</> : null}
+          {!decision.taken_on_current_verdict ? (
+            <span className="mt-1 block border-l-2 border-material pl-3 text-material">
+              Decided against an earlier verdict — the run in front of you says something
+              different. Review it again; re-affirming is a human act.
+            </span>
+          ) : null}
+        </p>
+      ) : (
+        <p className="mb-3 max-w-[78ch] text-ui text-ink-3">
+          Nobody has decided anything about this boundary yet.
+        </p>
+      )}
+
+      <div className="flex max-w-[78ch] flex-wrap items-center gap-2">
+        <ToggleGroup
+          type="single"
+          value={state}
+          onValueChange={(value) => setState(value as DecisionState | "")}
+          aria-label="Disposition"
+        >
+          {(Object.keys(STATE_WORDS) as DecisionState[]).map((key) => (
+            <ToggleGroupItem key={key} value={key} title={STATE_MEANINGS[key]}>
+              {key === "accepted" ? "Accept" : key === "waived" ? "Waive" : "Park"}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <Input
+          value={author}
+          onChange={(event) => setAuthor(event.target.value)}
+          placeholder="Your name"
+          aria-label="Decided by"
+          className="w-40"
+        />
+        <Button
+          type="button"
+          disabled={!ready || decide.isPending}
+          onClick={() => state && decide.mutate(state)}
+        >
+          {decide.isPending ? "Recording…" : decision ? "Change decision" : "Record"}
+        </Button>
+      </div>
+
+      {state ? (
+        <div className="mt-2 max-w-[78ch]">
+          <Textarea
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            rows={2}
+            placeholder={
+              state === "waived"
+                ? "Why this verdict does not bind — a waiver without a reason is refused."
+                : "Why, for whoever reads this later. Optional."
+            }
+            aria-label="Reason"
+            aria-required={state === "waived"}
+          />
+          {needsReason ? (
+            <p className="mt-1 text-meta text-ink-3">A waiver has to say why.</p>
+          ) : null}
+        </div>
+      ) : null}
+      {decide.isError ? (
+        <p role="alert" className="mt-2 max-w-[78ch] text-meta text-material">
+          {decide.error instanceof Error
+            ? decide.error.message
+            : "The decision was not recorded."}
+        </p>
+      ) : null}
+
+      <Discussion
+        branchId={branchId}
+        fingerprint={triage?.fingerprint ?? null}
+        count={triage?.comment_count ?? 0}
+        reviewId={reviewId}
+        author={author}
+        onAuthor={setAuthor}
+      />
+    </div>
+  );
+}
+
+/* The same small-caps rule every other section of a row detail draws over itself. */
+const triageSubhead =
+  "mt-0 mb-2 flex items-center gap-2 text-micro font-[650] tracking-[.09em] text-ink-3 uppercase after:h-px after:flex-1 after:bg-rule-soft after:content-['']";
+
+/**
+ * The append-only thread under a decision — or under nothing, because argument is
+ * allowed to precede any decision. Closed by default and loaded only when opened: most
+ * boundaries are never discussed, and a page that fetched every empty thread would ask
+ * the workspace dozens of questions to learn silence.
+ */
+function Discussion({
+  branchId,
+  fingerprint,
+  count,
+  reviewId,
+  author,
+  onAuthor,
+}: {
+  branchId: string;
+  fingerprint: string | null;
+  count: number;
+  reviewId: string;
+  author: string;
+  onAuthor: (name: string) => void;
+}) {
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [remark, setRemark] = useState("");
+
+  const thread = useQuery({
+    queryKey: ["decision-comments", branchId, fingerprint],
+    queryFn: () => api.decisionComments(branchId, fingerprint!),
+    enabled: open && Boolean(fingerprint),
+  });
+
+  const post = useMutation({
+    mutationFn: () => {
+      rememberAuthor(author.trim());
+      return api.postDecisionComment(branchId, fingerprint!, {
+        author: author.trim(),
+        body: remark.trim(),
+      });
+    },
+    onSuccess: async () => {
+      setRemark("");
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["decision-comments", branchId, fingerprint] }),
+        client.invalidateQueries({ queryKey: ["review", reviewId] }),
+      ]);
+    },
+  });
+
+  if (!fingerprint) return null;
+  const comments = thread.data ?? [];
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="mt-3 max-w-[78ch]">
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-ui text-accent-ink hover:underline"
+        >
+          <MessageSquareText size={14} aria-hidden />
+          {count > 0
+            ? `Discussion — ${count} ${count === 1 ? "remark" : "remarks"}`
+            : "Discuss this boundary"}
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-2">
+        {thread.isPending && open ? (
+          <p className="text-meta text-ink-3">Opening the thread…</p>
+        ) : (
+          <ul aria-live="polite" className="m-0 flex list-none flex-col gap-2 p-0">
+            {comments.map((comment) => (
+              <li
+                key={comment.comment_id}
+                className="rounded-control [border:var(--sheet-border)] bg-sunken px-3.5 py-2.5"
+              >
+                <p className="m-0 text-micro font-[650] tracking-[.05em] text-ink-3 uppercase">
+                  {comment.author} · {formatDate(comment.created_at)}
+                </p>
+                <p className="m-0 mt-1 text-ui leading-[1.55] text-ink-2">{comment.body}</p>
+              </li>
+            ))}
+            {comments.length === 0 && !thread.isPending ? (
+              <li className="text-meta text-ink-3">
+                Nothing yet. Remarks are permanent — the thread is a history, not a
+                document.
+              </li>
+            ) : null}
+          </ul>
+        )}
+        <div className="mt-2 flex flex-wrap items-start gap-2">
+          <Input
+            value={author}
+            onChange={(event) => onAuthor(event.target.value)}
+            placeholder="Your name"
+            aria-label="Remark author"
+            className="w-40"
+          />
+          <Textarea
+            value={remark}
+            onChange={(event) => setRemark(event.target.value)}
+            rows={1}
+            placeholder="Say it here rather than in a channel that forgets."
+            aria-label="Remark"
+            className="min-w-56 flex-1"
+          />
+          <Button
+            type="button"
+            disabled={!author.trim() || !remark.trim() || post.isPending}
+            onClick={() => post.mutate()}
+          >
+            {post.isPending ? "Adding…" : "Add remark"}
+          </Button>
+        </div>
+        {post.isError ? (
+          <p role="alert" className="mt-2 text-meta text-material">
+            {post.error instanceof Error ? post.error.message : "The remark was not added."}
+          </p>
+        ) : null}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
