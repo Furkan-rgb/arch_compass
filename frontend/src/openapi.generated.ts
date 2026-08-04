@@ -549,6 +549,8 @@ export interface components {
     "ReviewedBoundary": {
     "reference": string;
     "candidate": components["schemas"]["FindingCandidate"];
+    "fingerprint"?: string | null;
+    "verdict_reused_from"?: string | null;
     "material": boolean;
     "rationale": string;
     "policy_bearings"?: Array<components["schemas"]["PolicyBearing"]>;

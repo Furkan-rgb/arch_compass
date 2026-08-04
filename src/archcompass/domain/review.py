@@ -14,6 +14,7 @@ genuinely knows and declaring nothing it does not.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Final, Literal, cast
@@ -24,6 +25,7 @@ from archcompass.domain.atlas import FindingCandidate, FindingPattern, SourceLoc
 from archcompass.domain.base import DomainModel, new_id, utc_now
 from archcompass.domain.case import ArchitectureCase, CaseField
 from archcompass.domain.diagnostics import FailureDiagnostic
+from archcompass.domain.fingerprint import boundary_fingerprint
 
 
 class PolicyBearing(DomainModel):
@@ -189,6 +191,21 @@ class ReviewedBoundary(DomainModel):
     #: "BR-003" in a follow-up question; nothing in the model's reply is ever this value.
     reference: str = Field(pattern=r"^BR-[0-9]{3}$")
     candidate: FindingCandidate
+    #: The structural identity of this boundary, which — unlike `reference` — is the same
+    #: value on every run that sees the same structure. Stamped by the application from the
+    #: candidate, so a stored review can be matched against a baseline or a standing
+    #: decision without re-deriving anything from its prose.
+    #:
+    #: Optional with a default because a stored review is validated against the current
+    #: schema and nothing shims it (ADR 0002): a review written before fingerprints existed
+    #: has to remain readable, and it carries `None` rather than a value invented for it.
+    fingerprint: str | None = None
+    #: The review that first reached this verdict, when it was reused rather than reached
+    #: again. `None` is the ordinary case and means the model was asked about this boundary
+    #: during this run. Named here rather than only counted, because "the same conclusion as
+    #: last time" and "the same conclusion, reached again" are different claims and only one
+    #: of them is evidence that anything was looked at twice.
+    verdict_reused_from: str | None = None
     material: bool
     rationale: str = Field(min_length=1)
     policy_bearings: list[PolicyBearing] = Field(default_factory=list[PolicyBearing])
@@ -695,18 +712,31 @@ class ReviewEvidence(DomainModel):
 
 def reviewed_boundaries(
     verdicts: list[tuple[FindingCandidate, CandidateVerdict]],
+    *,
+    reused_from: Mapping[str, str] | None = None,
 ) -> list[ReviewedBoundary]:
-    """Number the judged candidates in detection order.
+    """Number the judged candidates in detection order, and stamp what outlives the run.
 
     References are assigned here, from position, because the application owns every
     identifier a reader will later cite (master plan 12.0). Detection is deterministic, so
-    re-running the same atlas gives the same boundary the same reference.
+    re-running the same atlas gives the same boundary the same reference. The fingerprint
+    is stamped in the same place and for the opposite reason: the reference is what a
+    reader cites *within* one review, and the fingerprint is what anything outside one
+    matches on.
+
+    `reused_from` names, by `candidate_id`, the review a verdict was carried forward from,
+    for the candidates whose verdicts were not reached again. Keyed rather than positional
+    so that adding it cannot silently re-attribute a boundary the way a mismatched parallel
+    list would.
     """
 
+    carried = reused_from or {}
     return [
         ReviewedBoundary(
             reference=f"BR-{ordinal:03d}",
             candidate=candidate,
+            fingerprint=boundary_fingerprint(candidate),
+            verdict_reused_from=carried.get(candidate.candidate_id),
             material=verdict.material,
             rationale=verdict.rationale,
             policy_bearings=verdict.policy_bearings,

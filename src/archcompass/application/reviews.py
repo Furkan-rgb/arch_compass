@@ -28,6 +28,8 @@ from archcompass.domain.errors import (
     ReviewCancelledError,
 )
 from archcompass.domain.finding_detectors import detect_finding_candidates
+from archcompass.domain.fingerprint import boundary_fingerprint
+from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
     BoundaryReview,
     BoundaryReviewReport,
@@ -39,12 +41,18 @@ from archcompass.domain.review import (
     first_pass_overview,
     reviewed_boundaries,
 )
+from archcompass.domain.verdict_cache import (
+    CachedVerdict,
+    policy_corpus_fingerprint,
+    verdict_cache_key,
+)
 from archcompass.ports.atlas import AtlasFreshnessChecker
 from archcompass.ports.reasoning import FocusedReasoningProvider, ReasoningTask
 from archcompass.ports.repositories import (
     AtlasRepository,
     BoundaryReviewRepository,
     CaseRepository,
+    VerdictCacheRepository,
 )
 
 #: What a report says the case was for when the case says nothing. A review may run against
@@ -86,6 +94,7 @@ class ReviewService:
         policies: PolicyService,
         reasoner: FocusedReasoningProvider,
         source: ReviewSourceService,
+        verdict_cache: VerdictCacheRepository,
     ) -> None:
         self._cases = cases
         self._atlases = atlases
@@ -94,6 +103,7 @@ class ReviewService:
         self._policies = policies
         self._reasoner = reasoner
         self._source = source
+        self._verdict_cache = verdict_cache
 
     def review(
         self,
@@ -214,20 +224,29 @@ class ReviewService:
         self._reviews.record_progress(running.review_id, detected=len(candidates))
         if on_detected is not None:
             on_detected(candidates)
+        # Computed once, outside the loop: the corpus is the same question for every
+        # candidate in the run, and it is half of what makes a cached verdict still apply.
+        corpus = policy_corpus_fingerprint(policies)
         judged: list[JudgedCandidate] = []
+        reused_from: dict[str, str] = {}
         material = 0
         for position, candidate in enumerate(candidates, start=1):
             self._stop_if_cancelled(running.review_id)
-            item = JudgedCandidate(
-                candidate=candidate,
-                verdict=self._reasoner.judge_finding_candidate(
-                    revision.snapshot,
-                    candidate,
-                    policies,
-                ),
+            item, origin = self._verdict_for(
+                candidate,
+                running=running,
+                revision=revision,
+                policies=policies,
+                corpus=corpus,
             )
+            if origin is not None:
+                reused_from[candidate.candidate_id] = origin
             judged.append(item)
             material += 1 if item.verdict.material else 0
+            # Reported exactly as a fresh verdict is. A cached run and a judged run are the
+            # same run to anyone watching — same events, same counts, same order — and the
+            # difference is recorded on the boundary for a reader to see rather than shown
+            # as a gap in the progress of the run.
             self._reviews.record_progress(
                 running.review_id,
                 reviewed=position,
@@ -235,7 +254,10 @@ class ReviewService:
             )
             if on_verdict is not None:
                 on_verdict(item, position, len(candidates))
-        boundaries = reviewed_boundaries([(item.candidate, item.verdict) for item in judged])
+        boundaries = reviewed_boundaries(
+            [(item.candidate, item.verdict) for item in judged],
+            reused_from=reused_from,
+        )
         # Checked once more before the last call, which is the longest single wait in the
         # run: cancelling just as the verdicts land should not still cost a summarisation.
         self._stop_if_cancelled(running.review_id)
@@ -273,6 +295,64 @@ class ReviewService:
         self._reviews.complete(review)
         return review
 
+    def _verdict_for(
+        self,
+        candidate: FindingCandidate,
+        *,
+        running: BoundaryReview,
+        revision: CaseRevision,
+        policies: list[PolicyDocument],
+        corpus: str,
+    ) -> tuple[JudgedCandidate, str | None]:
+        """This candidate's verdict, and the earlier review it was carried forward from.
+
+        The lookup is unconditional. Every component of the key is a value this run already
+        holds before it calls anything — the candidate's own structure, the corpus it is
+        about to present, the case revision it loaded, and the model and prompt identities
+        the record was opened with — so there is no half-determined key and no case where
+        the cache has to be stepped around. Notably absent: the repository and branch ids,
+        which may be `None` on an atlas indexed before lineages existed. They are not in the
+        key, so that absence changes nothing here.
+
+        A miss writes through under *this* review's id, so the next run can say where the
+        verdict came from. The write is not conditional on the run finishing: the verdict
+        was genuinely reached, and a cancelled or failed run that already paid for a model
+        call should not make the next run pay for it again.
+        """
+
+        key = verdict_cache_key(
+            boundary=boundary_fingerprint(candidate),
+            policy_corpus=corpus,
+            case_id=revision.case_id,
+            case_revision=revision.revision,
+            model_identity=running.reasoning_model,
+            prompt_identity=running.prompt_identity,
+        )
+        cached = self._verdict_cache.get(key)
+        if cached is not None:
+            # Re-pointed at this run's candidate. A verdict names the candidate it was about
+            # by `candidate_id`, and that id is minted fresh at every detection — carrying
+            # the stored one forward would leave this review's boundary citing a candidate
+            # that only ever existed in an earlier run.
+            carried = cached.verdict.model_copy(
+                update={"candidate_id": candidate.candidate_id}
+            )
+            return JudgedCandidate(candidate=candidate, verdict=carried), cached.review_id
+        verdict = self._reasoner.judge_finding_candidate(
+            revision.snapshot,
+            candidate,
+            policies,
+        )
+        self._verdict_cache.put(
+            CachedVerdict(
+                cache_key=key,
+                boundary_fingerprint=boundary_fingerprint(candidate),
+                verdict=verdict,
+                review_id=running.review_id,
+            )
+        )
+        return JudgedCandidate(candidate=candidate, verdict=verdict), None
+
     def _read_the_set(
         self,
         *,
@@ -297,6 +377,15 @@ class ReviewService:
         Neither call is made when there are no verdicts. A sweep that found nothing has
         nothing to ask about and nothing to synthesise, and either call would be asking a
         model to invent the content of its own input.
+
+        Neither call consults the verdict cache, which has one visible consequence worth
+        naming: a first pass re-run over a wholly unchanged case reuses every verdict and
+        then asks the same questions again, because the questions are composed from the
+        verdict set rather than looked up. That is left alone here. It is one call rather
+        than one per boundary, and caching an elicitation is a different decision from
+        caching a verdict — an unanswered question is not a settled answer, and a run that
+        skipped asking would have to decide what it means to still be awaiting answers to
+        questions it did not put.
         """
 
         if not boundaries:

@@ -10,6 +10,7 @@ from archcompass.domain.case import AnsweredQuestions, ArchitectureCase, CaseRev
 from archcompass.domain.lineage import BranchLineage, RepositoryLineage
 from archcompass.domain.review import BoundaryReview
 from archcompass.domain.review_conversation import ReviewConversation
+from archcompass.domain.verdict_cache import CachedVerdict
 from archcompass.domain.workspace import (
     BoundaryReviewSummary,
     CaseSummary,
@@ -87,6 +88,20 @@ class ReviewConversationRepository(Protocol):
     def append(self, conversation: ReviewConversation) -> ReviewConversation: ...
 
     def list(self, *, review_id: str) -> list[ReviewConversation]: ...
+
+
+class VerdictCacheRepository(Protocol):
+    """Storage for verdicts already reached, keyed by the question that produced them.
+
+    Write-once per key: `put` on a key that already has a verdict leaves the stored one
+    standing, because an unchanged question returning an unchanged answer is the guarantee
+    this exists to make. Nothing removes rows — a cached verdict outlives the review that
+    reached it on purpose (migration 025).
+    """
+
+    def get(self, cache_key: str) -> CachedVerdict | None: ...
+
+    def put(self, cached: CachedVerdict) -> None: ...
 
 
 class LineageRepository(Protocol):

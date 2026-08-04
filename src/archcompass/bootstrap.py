@@ -31,6 +31,7 @@ from archcompass.adapters.persistence import (
     SQLitePolicySourceRepository,
     SQLiteReasoningModelSelectionRepository,
     SQLiteReviewConversationRepository,
+    SQLiteVerdictCacheRepository,
 )
 from archcompass.adapters.retrieval import (
     MarkdownPolicySourceInspector,
@@ -63,6 +64,7 @@ from archcompass.ports.repositories import (
     BoundaryReviewRepository,
     CaseRepository,
     LineageRepository,
+    VerdictCacheRepository,
 )
 
 BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
@@ -94,6 +96,7 @@ class Runtime:
     atlas_repository: AtlasRepository
     lineage_repository: LineageRepository
     review_repository: BoundaryReviewRepository
+    verdict_cache_repository: VerdictCacheRepository
     review_conversation_service: ReviewConversationService
     review_source_service: ReviewSourceService
     bundled_example_service: BundledExampleService
@@ -144,6 +147,7 @@ def build_runtime(
     atlases = SQLiteAtlasRepository(database)
     lineages = SQLiteLineageRepository(database)
     reviews = SQLiteBoundaryReviewRepository(database)
+    verdict_cache = SQLiteVerdictCacheRepository(database)
     review_conversations = SQLiteReviewConversationRepository(database)
     # The workspace is left out of every snapshot, which is what allows a repository to be
     # analysed with its own workspace inside it. What the workspace holds changes whenever a
@@ -215,6 +219,7 @@ def build_runtime(
         policies=policy_service,
         reasoner=reasoning,
         source=review_source_service,
+        verdict_cache=verdict_cache,
     )
     return Runtime(
         workspace=canonical_workspace,
@@ -223,6 +228,7 @@ def build_runtime(
         atlas_repository=atlases,
         lineage_repository=lineages,
         review_repository=reviews,
+        verdict_cache_repository=verdict_cache,
         review_conversation_service=review_conversation_service,
         review_source_service=review_source_service,
         bundled_example_service=bundled_example_service,
