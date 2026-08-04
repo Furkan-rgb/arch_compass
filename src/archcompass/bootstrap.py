@@ -27,6 +27,7 @@ from archcompass.adapters.persistence import (
     SQLiteBoundaryReviewRepository,
     SQLiteCaseRepository,
     SQLiteDatabase,
+    SQLiteLineageRepository,
     SQLitePolicySourceRepository,
     SQLiteReasoningModelSelectionRepository,
     SQLiteReviewConversationRepository,
@@ -61,6 +62,7 @@ from archcompass.ports.repositories import (
     AtlasRepository,
     BoundaryReviewRepository,
     CaseRepository,
+    LineageRepository,
 )
 
 BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
@@ -90,6 +92,7 @@ class Runtime:
     database: SQLiteDatabase
     case_repository: CaseRepository
     atlas_repository: AtlasRepository
+    lineage_repository: LineageRepository
     review_repository: BoundaryReviewRepository
     review_conversation_service: ReviewConversationService
     review_source_service: ReviewSourceService
@@ -139,6 +142,7 @@ def build_runtime(
     reasoning = SelectedModelReasoner(model_catalog_service, _build_reasoner)
     cases = SQLiteCaseRepository(database)
     atlases = SQLiteAtlasRepository(database)
+    lineages = SQLiteLineageRepository(database)
     reviews = SQLiteBoundaryReviewRepository(database)
     review_conversations = SQLiteReviewConversationRepository(database)
     # The workspace is left out of every snapshot, which is what allows a repository to be
@@ -179,6 +183,7 @@ def build_runtime(
     repository_service = RepositoryIndexService(
         analyzer=analyzer,
         atlases=atlases,
+        lineages=lineages,
     )
     atlas_service = AtlasService(
         atlases=atlases,
@@ -216,6 +221,7 @@ def build_runtime(
         database=database,
         case_repository=cases,
         atlas_repository=atlases,
+        lineage_repository=lineages,
         review_repository=reviews,
         review_conversation_service=review_conversation_service,
         review_source_service=review_source_service,

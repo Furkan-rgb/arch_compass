@@ -141,6 +141,14 @@ class ReviewService:
             case_id=revision.case_id,
             case_revision=revision.revision,
             atlas_version_id=atlas.version.version_id,
+            # Copied from the atlas rather than resolved again. The atlas is what was judged,
+            # and asking git a second time here could file the run under a different branch
+            # than the one its evidence was built on — someone switching branch mid-run is
+            # unusual, and a run that lied about which line of work it was about would be
+            # worse than unusual. An atlas indexed before lineages existed carries neither,
+            # and the review says so by carrying neither too.
+            repo_id=atlas.version.repo_id,
+            branch_id=atlas.version.branch_id,
             elicited_from=elicited_from,
             reasoning_model=self._reasoner.model_identity,
             prompt_identity=self._reasoner.prompt_identity(

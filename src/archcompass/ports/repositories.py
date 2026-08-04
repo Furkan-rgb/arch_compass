@@ -7,6 +7,7 @@ from typing import Protocol
 
 from archcompass.domain.atlas import Atlas
 from archcompass.domain.case import AnsweredQuestions, ArchitectureCase, CaseRevision
+from archcompass.domain.lineage import BranchLineage, RepositoryLineage
 from archcompass.domain.review import BoundaryReview
 from archcompass.domain.review_conversation import ReviewConversation
 from archcompass.domain.workspace import (
@@ -86,6 +87,27 @@ class ReviewConversationRepository(Protocol):
     def append(self, conversation: ReviewConversation) -> ReviewConversation: ...
 
     def list(self, *, review_id: str) -> list[ReviewConversation]: ...
+
+
+class LineageRepository(Protocol):
+    """Storage for the identities a repository and its branches keep across checkouts.
+
+    Both ids are derived from facts rather than allocated, so writing is get-or-create: the
+    same repository indexed twice computes the same `repo_id` both times, and the row that
+    already exists is the answer rather than a conflict.
+    """
+
+    def get_or_create_repository(self, lineage: RepositoryLineage) -> RepositoryLineage: ...
+
+    def get_or_create_branch(self, lineage: BranchLineage) -> BranchLineage: ...
+
+    def repository(self, repo_id: str) -> RepositoryLineage | None: ...
+
+    def get_branch(self, branch_id: str) -> BranchLineage | None: ...
+
+    def list_repositories(self, *, limit: int = 100) -> list[RepositoryLineage]: ...
+
+    def list_branches(self, repo_id: str | None = None) -> list[BranchLineage]: ...
 
 
 class AtlasRepository(Protocol):

@@ -42,13 +42,23 @@ class BoundaryReviewSummary(DomainModel):
     #: pair the two rather than guessing from adjacency, and the waiting page uses it in
     #: reverse to ask whether anyone has carried on from it yet.
     elicited_from: str | None = None
+    #: Which repository and branch lineage this run was about. Absent on a review of an atlas
+    #: indexed before lineages existed, and on nothing else.
+    repo_id: str | None = None
+    branch_id: str | None = None
 
 
 class RepositorySummary(DomainModel):
     version_id: str
+    #: Where this checkout is. Kept as the location it has always been, beside the durable
+    #: identity below rather than replaced by it.
     repository_identity: str
     root_path: str
     git_commit_sha: str | None = None
+    #: The repository this checkout belongs to, and the branch lineage the run attached to.
+    #: Both absent on an atlas indexed before lineages existed; re-indexing fills them.
+    repo_id: str | None = None
+    branch_name: str | None = None
     created_at: datetime
     node_count: int = 0
     edge_count: int = 0

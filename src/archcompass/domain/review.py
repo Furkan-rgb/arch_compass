@@ -507,6 +507,17 @@ class BoundaryReview(DomainModel):
     #: An optional field with a default, so every stored document still parses; ADR 0002
     #: refuses shims for a *narrowed* schema, and this widens.
     elicited_from: str | None = None
+    #: The durable repository and branch this run was about, copied from the atlas it judged.
+    #: The atlas version already pins *which checkout at which commit*; this says which line
+    #: of work that commit belongs to, which is the level baselines and standing decisions
+    #: will attach to.
+    #:
+    #: Optional with a default for the same reason `elicited_from` is: a stored document is
+    #: validated against the current schema and nothing shims it, so every field added after
+    #: the fact has to be one an older document can be missing. Absent on a review of an atlas
+    #: indexed before lineages existed; re-indexing and re-running fills it.
+    repo_id: str | None = None
+    branch_id: str | None = None
     report: BoundaryReviewReport | None = None
     markdown_report: str | None = None
     duration_seconds: float = Field(default=0.0, ge=0)

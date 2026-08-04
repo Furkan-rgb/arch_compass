@@ -3,6 +3,7 @@
 from archcompass.adapters.persistence.atlas_repository import SQLiteAtlasRepository
 from archcompass.adapters.persistence.case_repository import SQLiteCaseRepository
 from archcompass.adapters.persistence.database import SQLiteDatabase
+from archcompass.adapters.persistence.lineage_repository import SQLiteLineageRepository
 from archcompass.adapters.persistence.model_selection_repository import (
     SQLiteReasoningModelSelectionRepository,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "SQLiteBoundaryReviewRepository",
     "SQLiteCaseRepository",
     "SQLiteDatabase",
+    "SQLiteLineageRepository",
     "SQLitePolicySourceRepository",
     "SQLiteReasoningModelSelectionRepository",
     "SQLiteReviewConversationRepository",

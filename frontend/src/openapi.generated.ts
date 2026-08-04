@@ -99,6 +99,10 @@ export interface components {
     "repository_identity": string;
     "root_path": string;
     "git_commit_sha"?: string | null;
+    "root_commit_sha"?: string | null;
+    "branch_name"?: string | null;
+    "repo_id"?: string | null;
+    "branch_id"?: string | null;
     "content_fingerprint": string;
     "parser_version": string;
     "analysis_config_hash": string;
@@ -131,6 +135,8 @@ export interface components {
     "reasoning_model": string;
     "prompt_identity": string;
     "elicited_from"?: string | null;
+    "repo_id"?: string | null;
+    "branch_id"?: string | null;
     "report"?: components["schemas"]["BoundaryReviewReport"] | null;
     "markdown_report"?: string | null;
     "duration_seconds"?: number;
@@ -161,6 +167,14 @@ export interface components {
     "updated_at": string;
     "case_title"?: string | null;
     "elicited_from"?: string | null;
+    "repo_id"?: string | null;
+    "branch_id"?: string | null;
+  };
+    "BranchLineage": {
+    "branch_id": string;
+    "repo_id": string;
+    "branch_name": string;
+    "first_seen_at"?: string;
   };
     "BundledExample": {
     "name": string;
@@ -405,6 +419,16 @@ export interface components {
     "node_id": string;
     "limit"?: number;
   };
+    "RepositoryBranch": {
+    "repository": components["schemas"]["RepositoryLineage"];
+    "branch": components["schemas"]["BranchLineage"];
+  };
+    "RepositoryLineage": {
+    "repo_id": string;
+    "root_commit_sha"?: string | null;
+    "canonical_root": string;
+    "first_seen_at"?: string;
+  };
     "RepositoryPathRequest": {
     "root_path": string;
   };
@@ -417,6 +441,8 @@ export interface components {
     "repository_identity": string;
     "root_path": string;
     "git_commit_sha"?: string | null;
+    "repo_id"?: string | null;
+    "branch_name"?: string | null;
     "created_at": string;
     "node_count"?: number;
     "edge_count"?: number;
@@ -866,6 +892,19 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "list_branches_api_branches_get": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": Array<components["schemas"]["RepositoryBranch"]>;
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
   "list_cases_api_cases_get": {
     parameters: {
       query: {
@@ -1244,6 +1283,9 @@ export interface operations {
 }
 
 export interface paths {
+  "/api/branches": {
+    get: operations["list_branches_api_branches_get"];
+  };
   "/api/cases": {
     get: operations["list_cases_api_cases_get"];
     post: operations["create_case_api_cases_post"];

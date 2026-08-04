@@ -12,7 +12,7 @@ from archcompass.domain.workspace import BoundaryReviewSummary
 _LISTING_COLUMNS = """
     review_id, case_id, case_revision, atlas_version_id, status,
     boundaries_detected, boundaries_reviewed, boundaries_material,
-    created_at, updated_at, case_title, elicited_from
+    created_at, updated_at, case_title, elicited_from, repo_id, branch_id
 """
 
 
@@ -37,8 +37,8 @@ class SQLiteBoundaryReviewRepository:
                     review_id, case_id, case_revision, atlas_version_id, status,
                     reasoning_model, boundaries_detected, boundaries_reviewed,
                     boundaries_material, created_at, updated_at, case_title,
-                    elicited_from, review_json
-                ) VALUES (?, ?, ?, ?, ?, ?, NULL, 0, 0, ?, ?, NULL, ?, ?)
+                    elicited_from, repo_id, branch_id, review_json
+                ) VALUES (?, ?, ?, ?, ?, ?, NULL, 0, 0, ?, ?, NULL, ?, ?, ?, ?)
                 """,
                 (
                     review.review_id,
@@ -53,6 +53,10 @@ class SQLiteBoundaryReviewRepository:
                     # settled before the first model call, and a listing has to be able to
                     # pair the two passes while the second is still going.
                     review.elicited_from,
+                    # Columns as well as the document, because the next stages ask "what has
+                    # run on this branch" of the listing rather than of every stored report.
+                    review.repo_id,
+                    review.branch_id,
                     review.model_dump_json(),
                 ),
             )
@@ -311,6 +315,8 @@ class SQLiteBoundaryReviewRepository:
                 elicited_from=(
                     None if row["elicited_from"] is None else str(row["elicited_from"])
                 ),
+                repo_id=(None if row["repo_id"] is None else str(row["repo_id"])),
+                branch_id=(None if row["branch_id"] is None else str(row["branch_id"])),
             )
             for row in rows
         ]

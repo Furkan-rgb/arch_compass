@@ -57,6 +57,7 @@ from archcompass.domain.errors import (
     ReviewStillRunningError,
     StaleAtlasError,
 )
+from archcompass.domain.lineage import RepositoryBranch
 from archcompass.domain.policy import (
     PolicyDocument,
     PolicyDraft,
@@ -704,6 +705,17 @@ def create_app(
         limit: Annotated[int, Query(ge=1, le=500)] = 100,
     ) -> list[RepositorySummary]:
         return runtime.repository_service.list(limit=limit)
+
+    @app.get("/api/branches")
+    def list_branches(runtime: RuntimeDep) -> list[RepositoryBranch]:
+        """Every branch lineage this workspace has seen, with the repository it belongs to.
+
+        The listing above answers "which checkouts have been indexed", which is a question
+        about this machine. This one answers "which repositories and lines of work does this
+        workspace know about", which is the question that survives the checkout moving.
+        """
+
+        return runtime.repository_service.branches()
 
     @app.post("/api/repositories/index", status_code=201)
     def index_repository(
