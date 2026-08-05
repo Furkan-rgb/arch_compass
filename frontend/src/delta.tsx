@@ -99,7 +99,7 @@ export function AddressedLedger({
           >
             <code className="font-mono text-meta font-[550] text-ink">{item.title}</code>
             <span className="text-ink-3">
-              was {item.material ? "still to change" : "earning its place"} — the code no
+              was {item.material ? "still to change" : "sound"} — the code no
               longer has this boundary.
             </span>
             <VerdictText verdict="cleared">line closed</VerdictText>

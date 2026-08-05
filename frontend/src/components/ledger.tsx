@@ -240,10 +240,13 @@ export const VERDICT_FILL = {
 
 export const VERDICT_INK = { material: "text-material", cleared: "text-cleared" } as const;
 
-/** The words this product uses for the two verdicts, wherever it counts or marks them. */
+/** The words this product uses for the two verdicts, wherever it counts or marks them.
+    "Sound" replaced "earns its place" on the surface: one stampable word, read in a
+    column. The method's own question — is this boundary earning its place — keeps its
+    phrasing in the prompts and the domain, where it is a question and not a stamp. */
 export const VERDICT_WORDS = {
   material: "should change",
-  cleared: "earns its place",
+  cleared: "sound",
 } as const;
 
 export type Stripe = keyof typeof VERDICT_FILL;

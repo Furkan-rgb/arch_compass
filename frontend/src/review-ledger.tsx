@@ -76,24 +76,6 @@ export function Citations({ references }: { references: string[] }) {
   );
 }
 
-/**
- * Which verdict is the exception here, and therefore the one that wears the loud mark.
- *
- * Every row carrying a filled chip is a page where nothing is emphasised, because the eye
- * cannot pick an exception out of a column of identical badges. So the majority verdict is
- * quiet text in its own hue and the minority wears the chip — on a report where five of six
- * boundaries should change, the one that earned its place is the thing worth seeing.
- *
- * `null` where the two are level: neither is the exception then, and picking one would be
- * inventing an emphasis the set does not have.
- */
-export function loudVerdict(reviewed: ReviewedBoundary[]): boolean | null {
-  const material = reviewed.filter((item) => item.material).length;
-  const cleared = reviewed.length - material;
-  if (material === cleared) return null;
-  return material < cleared;
-}
-
 export type BandFact = { label: string; value: ReactNode; title?: string };
 
 /* The counts are the product's material and its whole answer, so they are the one number on
@@ -251,7 +233,6 @@ const subhead =
 function LedgerRow({
   item,
   policyCount,
-  loud,
   open,
   onOpen,
   onShowInAtlas,
@@ -261,8 +242,6 @@ function LedgerRow({
 }: {
   item: ReviewedBoundary;
   policyCount: number;
-  /** Which verdict is the exception on this page, from `loudVerdict`. */
-  loud: boolean | null;
   open: boolean;
   onOpen: (reference: string | null) => void;
   onShowInAtlas: ((nodeId: string) => void) | null;
@@ -324,18 +303,12 @@ function LedgerRow({
             <DeltaMark boundary={item} />
             <DecisionMark triage={triage} />
             {/* Words, not only a coloured rail: a reader scanning for "what was the answer"
-                should not have to learn a colour convention first. The exception wears the
-                chip and the majority is quiet text, so the odd one out is what the eye
-                finds. The chip is the badge's verdict variant — the one place in this
-                design a chip is allowed to be loud is on a verdict, which is exactly
-                this. */}
-            {loud === item.material ? (
-              <Badge variant={verdict} className="font-[650] tracking-[.04em]">
-                {word}
-              </Badge>
-            ) : (
-              <VerdictText verdict={verdict}>{word}</VerdictText>
-            )}
+                should not have to learn a colour convention first. Every verdict wears the
+                label — the hue still separates them at a glance, and two boundaries with
+                two answers read as two stamps rather than one stamp and a whisper. */}
+            <Badge variant={verdict} className="font-[650] tracking-[.04em]">
+              {word}
+            </Badge>
           </span>
         </CollapsibleTrigger>
 
@@ -530,7 +503,6 @@ export function FindingsLedger({
   branchId?: string | null;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
-  const loud = loudVerdict(reviewed);
   const filters = [
     ...FILTERS,
     ...(branchId && triage ? [UNREVIEWED_FILTER] : []),
@@ -585,7 +557,6 @@ export function FindingsLedger({
             key={item.reference}
             item={item}
             policyCount={policyCount}
-            loud={loud}
             open={open === item.reference}
             onOpen={onOpen}
             onShowInAtlas={onShowInAtlas}

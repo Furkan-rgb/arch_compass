@@ -14,6 +14,7 @@ import { MessageSquareText } from "lucide-react";
 import { useState } from "react";
 
 import { api } from "@/api";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -88,10 +89,15 @@ export function DecisionMark({ triage }: { triage: BoundaryTriage | undefined })
   if (!decision) return null;
   const stale = !decision.taken_on_current_verdict;
   return (
-    <span
+    // A label, cut like the verdict chips beside it but in the team's neutral ink — the
+    // two layers stay tellable apart by hue while reading as one vocabulary of stamps.
+    // A decision taken against an earlier verdict wears a dashed warning edge: it is
+    // still the team's word, and the dashes say the ground under it moved.
+    <Badge
+      variant="neutral"
       className={cn(
-        "text-micro font-[650] tracking-[.09em] whitespace-nowrap text-ink-3 uppercase",
-        stale && "underline decoration-material decoration-2 underline-offset-4",
+        "font-[650] tracking-[.05em] uppercase",
+        stale && "border-dashed border-danger-rule text-material",
       )}
       title={
         stale
@@ -100,7 +106,7 @@ export function DecisionMark({ triage }: { triage: BoundaryTriage | undefined })
       }
     >
       {STATE_WORDS[decision.state]}
-    </span>
+    </Badge>
   );
 }
 
