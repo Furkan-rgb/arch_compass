@@ -348,24 +348,48 @@ export function groupByRepository(
     const key = review.repo_id ?? null;
     groups.set(key, [...(groups.get(key) || []), review]);
   }
-  return [...groups.entries()]
+  const sections = [...groups.entries()]
     // The unplaced section reads last: it is history, not the working set.
     .sort(([a], [b]) => Number(a === null) - Number(b === null))
     .map(([repoId, items]) => {
       const indexed = repoId
         ? repositories.find((item) => item.repo_id === repoId)
         : undefined;
+      const segments = indexed?.root_path.split("/").filter(Boolean) ?? [];
       return {
         repoId,
         // The directory's own basename — what the person who picked it calls it. The
         // hashed id stays in the tooltip for the day two checkouts disagree.
-        name: indexed?.root_path.split("/").filter(Boolean).pop() ?? null,
+        name: segments.at(-1) ?? null,
+        segments,
         branchName: indexed?.branch_name ?? null,
         rootPath: indexed?.root_path ?? null,
         cases: groupByCase(items),
         count: items.length,
       };
     });
+  // Two projects can end in the same folder name — every bundled example's root is a
+  // directory literally called "repository". A colliding name grows leftward one segment
+  // at a time until it says which project it is; unique names stay short.
+  for (let width = 2; width <= 6; width += 1) {
+    const counts = new Map<string, number>();
+    for (const section of sections) {
+      if (section.name) counts.set(section.name, (counts.get(section.name) ?? 0) + 1);
+    }
+    let widened = false;
+    for (const section of sections) {
+      if (
+        section.name &&
+        (counts.get(section.name) ?? 0) > 1 &&
+        section.segments.length >= width
+      ) {
+        section.name = section.segments.slice(-width).join("/");
+        widened = true;
+      }
+    }
+    if (!widened) break;
+  }
+  return sections;
 }
 
 export function ReviewsPage() {

@@ -34,6 +34,22 @@ def test_a_directory_outside_git_falls_back_to_its_path() -> None:
     assert first == derive_repo_id(None, "/home/one/project")
 
 
+def test_a_folder_that_is_not_its_own_repository_is_identified_by_where_it_is() -> None:
+    """The reviewed folder is the project, and a folder inside a repository is not it.
+
+    The analyzer withholds the sha for a root that is not the git top level, so two projects
+    of one monorepo arrive here as two paths rather than as one history — which is the whole
+    difference between two projects and one. Stated at this level because the price is paid
+    here: such a folder is identified by where it is, and moving it loses that.
+    """
+
+    enclosing = derive_repo_id(SHA, "/monorepo")
+    billing = derive_repo_id(None, "/monorepo/packages/billing")
+    search = derive_repo_id(None, "/monorepo/packages/search")
+
+    assert len({enclosing, billing, search}) == 3
+
+
 def test_the_fallback_cannot_collide_with_a_real_history() -> None:
     """A path is hashed under an extra part, so no path can impersonate a root commit."""
 

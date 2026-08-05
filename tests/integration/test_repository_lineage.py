@@ -39,6 +39,14 @@ def _git(repository: Path, *arguments: str) -> str:
     return result.stdout.strip()
 
 
+def _commit_everything(root: Path, *, branch: str) -> None:
+    _git(root, "init", "-b", branch)
+    _git(root, "config", "user.email", "test@example.invalid")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "first")
+
+
 def _committed_repository(root: Path, *, branch: str = "work") -> Path:
     root.mkdir(parents=True, exist_ok=True)
     # Named after the directory, so two repositories built in the same second are two
@@ -46,11 +54,18 @@ def _committed_repository(root: Path, *, branch: str = "work") -> Path:
     # same commit — git is content-addressed too — and the collision would look exactly like
     # the bug these tests are about.
     (root / "store.py").write_text(f"# {root.name}\n{MODULE}", encoding="utf-8")
-    _git(root, "init", "-b", branch)
-    _git(root, "config", "user.email", "test@example.invalid")
-    _git(root, "config", "user.name", "Test")
-    _git(root, "add", ".")
-    _git(root, "commit", "-m", "first")
+    _commit_everything(root, branch=branch)
+    return root
+
+
+def _monorepo(root: Path, *projects: str, branch: str = "work") -> Path:
+    """One history holding several projects, which is how a monorepo arrives."""
+
+    for project in projects:
+        directory = root / project
+        directory.mkdir(parents=True)
+        (directory / "store.py").write_text(f"# {project}\n{MODULE}", encoding="utf-8")
+    _commit_everything(root, branch=branch)
     return root
 
 
@@ -132,6 +147,53 @@ def test_two_repositories_are_two_lineages(
         one.repo_id,
         two.repo_id,
     }
+
+
+def test_a_project_inside_a_repository_is_not_the_repository(
+    tmp_path: Path, workspace_runtime: Runtime
+) -> None:
+    """The folder put up for review is the project, whatever it happens to be sitting in.
+
+    Keyed on the enclosing root commit, every project of a monorepo — and every example
+    bundled under this checkout — was one repository: one grouping in the listing, one
+    baseline over all of them.
+    """
+
+    monorepo = _monorepo(tmp_path / "monorepo", "packages/billing", "packages/search")
+
+    enclosing = workspace_runtime.repository_service.index(monorepo)
+    billing = workspace_runtime.repository_service.index(monorepo / "packages" / "billing")
+    search = workspace_runtime.repository_service.index(monorepo / "packages" / "search")
+
+    # Neither the enclosing history nor its branch reaches a project inside it.
+    assert billing.root_commit_sha is None
+    assert billing.branch_name is None
+    assert billing.repo_id == derive_repo_id(None, billing.root_path)
+    assert len({enclosing.repo_id, billing.repo_id, search.repo_id}) == 3
+    assert enclosing.root_commit_sha == _git(monorepo, "rev-list", "--max-parents=0", "HEAD")
+    branch = workspace_runtime.lineage_repository.get_branch(billing.branch_id or "")
+    assert branch is not None
+    assert branch.branch_name == DEFAULT_BRANCH_NAME
+    assert branch.branch_id != enclosing.branch_id
+
+
+def test_a_project_inside_a_repository_still_reads_its_own_commit(
+    tmp_path: Path, workspace_runtime: Runtime
+) -> None:
+    """Identity stops at the folder; freshness does not, and never did.
+
+    `git_commit_sha` answers "have these files moved since the atlas was built", which is a
+    question about the folder rather than about whose repository it is in — so a nested
+    project still gets the last commit that touched it.
+    """
+
+    monorepo = _monorepo(tmp_path / "monorepo", "packages/billing")
+
+    version = workspace_runtime.repository_service.index(monorepo / "packages" / "billing")
+
+    assert version.git_commit_sha == _git(
+        monorepo, "log", "-1", "--format=%H", "--", "packages/billing"
+    )
 
 
 def test_a_directory_outside_git_falls_back_to_its_path(

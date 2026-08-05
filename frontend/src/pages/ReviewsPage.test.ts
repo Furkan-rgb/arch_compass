@@ -128,4 +128,27 @@ describe("groupByRepository", () => {
     expect(grouped[0].repoId).toBe("repoid_gone");
     expect(grouped[0].name).toBeNull();
   });
+
+  it("widens colliding folder names until they say which project they are", () => {
+    // Every bundled example's root is a directory called "repository"; two of them in
+    // one listing must not wear the same name. Unique names stay short.
+    const grouped = groupByRepository(
+      [
+        review({ review_id: "rev_1", repo_id: "repoid_a" }),
+        review({ review_id: "rev_2", repo_id: "repoid_b", case_id: "case_b" }),
+        review({ review_id: "rev_3", repo_id: "repoid_c", case_id: "case_c" }),
+      ],
+      [
+        repository("repoid_a", "/x/eval/cases/warehouse-sync/repository", "main"),
+        repository("repoid_b", "/x/eval/cases/audiobook-studio/repository", "main"),
+        repository("repoid_c", "/home/demo/billing-service", "main"),
+      ],
+    );
+
+    expect(grouped.map((section) => section.name)).toEqual([
+      "warehouse-sync/repository",
+      "audiobook-studio/repository",
+      "billing-service",
+    ]);
+  });
 });

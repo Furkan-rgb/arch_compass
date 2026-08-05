@@ -137,9 +137,11 @@ class GitFacts:
 
     commit_sha: str | None = None
     #: The first commit of the history. What `repo_id` is derived from, because it is the one
-    #: identifier that survives a clone.
+    #: identifier that survives a clone. Reported only for a root that is the top level of its
+    #: repository — see `_git_facts` for why a nested root reports neither this nor the branch.
     root_commit_sha: str | None = None
-    #: The branch the working tree is on, or `None` when HEAD is detached.
+    #: The branch the working tree is on, or `None` when HEAD is detached — or when the root
+    #: is nested inside a repository whose branch is not this project's to claim.
     branch_name: str | None = None
 
 
@@ -409,11 +411,27 @@ class PythonAstRepositoryAnalyzer:
         subprocess with a short budget, and any failure is `None` rather than an exception.
         A repository is optional — a directory someone points at may simply not be one — so
         "git could not say" has to be an ordinary answer rather than a broken run.
+
+        The history facts — the root commit and the branch — are reported only when the
+        analysed root *is* the top level of the repository. The folder put up for review is
+        the project, and a folder that merely sits inside some larger repository does not
+        inherit that repository's identity: reported, the enclosing root commit would make
+        every project under one checkout the same repository, so their reviews would group
+        together and one project's baseline would stand over another's boundaries (see
+        `domain.lineage.derive_repo_id`). Such a root is treated exactly like a folder outside
+        git, which is what it is as far as identity goes.
+
+        `commit_sha` is the exception and stays what it always was, including the `git log -1`
+        against a subdirectory below. It answers a different question — has this folder's own
+        content moved since the atlas was built — and freshness is about these files, not
+        about whose repository they are in.
         """
 
         top_level = cls._git_top_level(root)
         if top_level is None:
             return GitFacts()
+        if top_level != root:
+            return GitFacts(commit_sha=cls._git_sha(root, top_level))
         return GitFacts(
             commit_sha=cls._git_sha(root, top_level),
             root_commit_sha=cls._git_root_commit_sha(top_level),

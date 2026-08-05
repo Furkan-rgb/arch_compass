@@ -40,8 +40,9 @@ class RepositoryLineage(DomainModel):
     """
 
     repo_id: str = Field(min_length=1)
-    #: The first commit of the history, when there is one. Absent for a directory that is not
-    #: a git repository, where the path is all there is to go on.
+    #: The first commit of the history, when this folder is one. Absent for a folder that is
+    #: not the top level of a git repository — one nested inside another repository as much as
+    #: one outside git altogether — where the path is all there is to go on.
     root_commit_sha: str | None = None
     canonical_root: str = Field(min_length=1)
     first_seen_at: datetime = Field(default_factory=utc_now)
@@ -77,8 +78,20 @@ def derive_repo_id(root_commit_sha: str | None, canonical_root: str) -> str:
     alternative and is worse — remotes get renamed, a repository can have several, and a
     checkout can have none.
 
-    A directory that is not a git repository falls back to its canonical path, which is not
-    durable and does not pretend to be: it is the only thing such a directory has. The
+    The sha is only ever passed for a folder that *is* the top level of its repository. The
+    folder put up for review is the project, and that is the whole of the scope: a folder
+    nested inside some larger repository is its own project, not a corner of that
+    repository's, and it borrows neither the enclosing history's identity nor its branch.
+    Without that rule the sha alone answers for everything under one checkout — every project
+    of a monorepo, and every bundled example in this one — so their reviews group together
+    and one project's baseline stands over another's boundaries.
+
+    A nested folder therefore lands in the same place as a folder outside git altogether: the
+    canonical path, which is not durable and does not pretend to be, because it is the only
+    thing such a folder has. The price is that moving such a folder loses what was attached
+    to it, and it is accepted rather than worked around — reading identity out of the
+    enclosing repository is exactly the confusion above, and no cheaper signal distinguishes
+    "a project that happens to live in a repository" from "a subdirectory of a project". The
     fallback is spelled with an extra `path` part so the two derivations can never collide,
     even for the pathological input where a path happens to read like a sha.
 
