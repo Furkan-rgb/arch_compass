@@ -877,7 +877,21 @@ export function ReviewDetailPage() {
     ? (progress?.verdicts.filter((item) => item !== null).length ?? 0)
     : reviewed.length;
 
+  // The directory's own name, with the branch beside it: what a reader calls the repo,
+  // where the atlas id below is what the workspace calls one snapshot of it.
+  const repositoryName = repositoryRoot?.split("/").filter(Boolean).pop() ?? null;
   const facts: BandFact[] = [
+    ...(repositoryName
+      ? [
+          {
+            label: "Repository",
+            value: `${repositoryName}${
+              indexedAtlas?.branch_name ? ` · ${indexedAtlas.branch_name}` : ""
+            }`,
+            title: repositoryRoot ?? undefined,
+          },
+        ]
+      : []),
     {
       label: "Atlas",
       value: `${shortId(atlasVersionId || "—")}${indexedAtlas ? " · indexed" : ""}`,

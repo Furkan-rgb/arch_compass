@@ -58,16 +58,9 @@ export type ModelCandidate = OpenAPIComponents["schemas"]["AvailableModelRespons
 export type ProviderAvailability =
   OpenAPIComponents["schemas"]["ProviderAvailabilityResponse"];
 
-export interface RepositorySummary {
-  version_id: string;
-  repository_identity: string;
-  root_path: string;
-  git_commit_sha?: string | null;
-  created_at: string;
-  node_count: number;
-  edge_count: number;
-  signal_count: number;
-}
+/** Aliased, not restated: the hand-written mirror of this one silently dropped
+    `repo_id` and `branch_name` the day the server learned them. */
+export type RepositorySummary = OpenAPIComponents["schemas"]["RepositorySummary"];
 
 export interface SourceLocation {
   path: string;

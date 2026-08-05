@@ -38,7 +38,7 @@ import {
   shortId,
 } from "../components";
 import { deletion } from "../review-capabilities";
-import type { BoundaryReviewSummary } from "../types";
+import type { BoundaryReviewSummary, RepositorySummary } from "../types";
 
 /** True while any listed review is still being produced. */
 export function anyRunning(reviews: BoundaryReviewSummary[]) {
@@ -329,6 +329,45 @@ export function groupByCase(reviews: BoundaryReviewSummary[]) {
   }));
 }
 
+/**
+ * The listing's outer shape: one section per repository, cases grouped inside it,
+ * newest run first throughout.
+ *
+ * The repository became the natural container the day reviews learned which one they
+ * belong to — a `repo_id` derived from the root commit, so two runs on the same history
+ * land in the same section whatever directory it was checked out in. Reviews from before
+ * that identity existed carry no `repo_id` and are gathered honestly at the end under
+ * their own heading rather than being guessed into a section.
+ */
+export function groupByRepository(
+  reviews: BoundaryReviewSummary[],
+  repositories: RepositorySummary[],
+) {
+  const groups = new Map<string | null, BoundaryReviewSummary[]>();
+  for (const review of reviews) {
+    const key = review.repo_id ?? null;
+    groups.set(key, [...(groups.get(key) || []), review]);
+  }
+  return [...groups.entries()]
+    // The unplaced section reads last: it is history, not the working set.
+    .sort(([a], [b]) => Number(a === null) - Number(b === null))
+    .map(([repoId, items]) => {
+      const indexed = repoId
+        ? repositories.find((item) => item.repo_id === repoId)
+        : undefined;
+      return {
+        repoId,
+        // The directory's own basename — what the person who picked it calls it. The
+        // hashed id stays in the tooltip for the day two checkouts disagree.
+        name: indexed?.root_path.split("/").filter(Boolean).pop() ?? null,
+        branchName: indexed?.branch_name ?? null,
+        rootPath: indexed?.root_path ?? null,
+        cases: groupByCase(items),
+        count: items.length,
+      };
+    });
+}
+
 export function ReviewsPage() {
   const client = useQueryClient();
   const reviews = useQuery({
@@ -340,7 +379,16 @@ export function ReviewsPage() {
     // busy answering a question whose answer cannot change.
     refetchInterval: (query) => (anyRunning(query.state.data || []) ? 2000 : false),
   });
-  const grouped = useMemo(() => groupByCase(reviews.data || []), [reviews.data]);
+  // Names for the repo sections. The listing rows carry only the hashed id; the indexed
+  // repositories are what turn it back into a directory a reader recognises.
+  const repositories = useQuery({
+    queryKey: ["repositories"],
+    queryFn: api.repositories,
+  });
+  const grouped = useMemo(
+    () => groupByRepository(reviews.data || [], repositories.data || []),
+    [reviews.data, repositories.data],
+  );
 
   const refresh = () => client.invalidateQueries({ queryKey: ["reviews"] });
   const cancel = useMutation({ mutationFn: api.cancelReview, onSuccess: refresh });
@@ -355,7 +403,7 @@ export function ReviewsPage() {
           reviews.data?.length ? (
             <Badge>
               {reviews.data.length} across {grouped.length}{" "}
-              {grouped.length === 1 ? "case" : "cases"}
+              {grouped.length === 1 ? "repository" : "repositories"}
             </Badge>
           ) : undefined
         }
@@ -420,16 +468,50 @@ export function ReviewsPage() {
         />
       ) : null}
 
-      {grouped.map((group) => (
-        <CaseHistory
-          key={group.caseId}
-          caseId={group.caseId}
-          title={group.title}
-          reviews={group.reviews}
-          busy={busy}
-          onCancel={(reviewId) => cancel.mutate(reviewId)}
-          onDelete={(reviewId) => remove.mutate(reviewId)}
-        />
+      {grouped.map((section) => (
+        <section
+          key={section.repoId ?? "unplaced"}
+          aria-label={section.name ?? "Reviews from before repository identity"}
+        >
+          {/* The section heading is the repository, worn the way the rows wear their
+              facts: the directory's name in the mono face, the branch beside it, and the
+              count at the end of the line. Sections from before repo identity say so
+              rather than pretending to be one. */}
+          <h2 className="mt-6 mb-2 flex flex-wrap items-baseline gap-x-2 text-sub font-[650] text-ink first:mt-0">
+            {section.name ? (
+              <>
+                <code className="font-mono" title={section.rootPath ?? undefined}>
+                  {section.name}
+                </code>
+                {section.branchName ? (
+                  <span className="text-meta font-normal text-ink-3">
+                    {section.branchName}
+                  </span>
+                ) : null}
+              </>
+            ) : section.repoId ? (
+              <code className="font-mono text-meta" title={section.repoId}>
+                {shortId(section.repoId)}
+              </code>
+            ) : (
+              <span>Before repository identity</span>
+            )}
+            <span className="ml-auto text-meta font-normal text-ink-3">
+              {section.count} {section.count === 1 ? "review" : "reviews"}
+            </span>
+          </h2>
+          {section.cases.map((group) => (
+            <CaseHistory
+              key={group.caseId}
+              caseId={group.caseId}
+              title={group.title}
+              reviews={group.reviews}
+              busy={busy}
+              onCancel={(reviewId) => cancel.mutate(reviewId)}
+              onDelete={(reviewId) => remove.mutate(reviewId)}
+            />
+          ))}
+        </section>
       ))}
     </div>
   );
