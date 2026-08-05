@@ -316,24 +316,29 @@ function LedgerRow({
           <span className={rowMeta} title={`${bearings.length} of ${policyCount} policies`}>
             {bearings.length}/{policyCount}
           </span>
-          {/* Baseline standing, then the team's decision, then the verdict — reading
-              order matches authority order: what changed, what we said, what it judged.
-              A `known` boundary and an undecided one are silent here; quiet is the
+          {/* One grid cell, not three: the row's geometry is a six-column contract with
+              `rowVariants`, and every extra child would wrap the tail onto a second line.
+              Inside it, baseline standing, then the team's decision, then the verdict —
+              reading order matches authority order: what changed, what we said, what it
+              judged. A `known` boundary and an undecided one are silent; quiet is the
               resting state of a ledger the team is on top of. */}
-          <DispositionChip disposition={item.disposition} />
-          <DecisionMark triage={triage} />
-          {/* Words, not only a coloured rail: a reader scanning for "what was the answer"
-              should not have to learn a colour convention first. The exception wears the
-              chip and the majority is quiet text, so the odd one out is what the eye finds.
-              The chip is the badge's verdict variant — the one place in this design a chip
-              is allowed to be loud is on a verdict, which is exactly this. */}
-          {loud === item.material ? (
-            <Badge variant={verdict} className="font-[650] tracking-[.04em]">
-              {word}
-            </Badge>
-          ) : (
-            <VerdictText verdict={verdict}>{word}</VerdictText>
-          )}
+          <span className="flex items-center gap-2 justify-self-end">
+            <DispositionChip disposition={item.disposition} />
+            <DecisionMark triage={triage} />
+            {/* Words, not only a coloured rail: a reader scanning for "what was the answer"
+                should not have to learn a colour convention first. The exception wears the
+                chip and the majority is quiet text, so the odd one out is what the eye
+                finds. The chip is the badge's verdict variant — the one place in this
+                design a chip is allowed to be loud is on a verdict, which is exactly
+                this. */}
+            {loud === item.material ? (
+              <Badge variant={verdict} className="font-[650] tracking-[.04em]">
+                {word}
+              </Badge>
+            ) : (
+              <VerdictText verdict={verdict}>{word}</VerdictText>
+            )}
+          </span>
         </CollapsibleTrigger>
 
         {/* `forceMount`, so every row carries its detail whether or not it is showing: a
