@@ -15,6 +15,7 @@ import { useState } from "react";
 
 import { api } from "@/api";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Collapsible,
   CollapsibleContent,
@@ -498,7 +499,13 @@ export function BulkDecide({
               disabled={!ready || decide.isPending}
               onClick={() => decide.mutate()}
             >
-              {decide.isPending ? "Recording…" : `Record ${boundaries.length} decisions`}
+              {decide.isPending ? (
+                <>
+                  <Spinner /> Recording…
+                </>
+              ) : (
+                `Record ${boundaries.length} decisions`
+              )}
             </Button>
           </div>
         </div>

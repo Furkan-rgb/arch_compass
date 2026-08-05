@@ -3,6 +3,7 @@ import { ArrowRight, ChevronDown, Download, GitBranch, Play } from "lucide-react
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -265,7 +266,8 @@ function RevisionStrip({
         onClick={onNewRevision}
         title="Re-analyse the code and judge what changed. Unchanged boundaries carry; only what moved can be asked about."
       >
-        <Play size={13} aria-hidden /> {starting ? "Starting…" : "New revision"}
+        {starting ? <Spinner /> : <Play size={13} aria-hidden />}{" "}
+        {starting ? "Starting…" : "New revision"}
       </Button>
       {startError ? (
         <p role="alert" className="m-0 w-full text-meta text-material">

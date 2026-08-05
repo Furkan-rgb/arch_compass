@@ -10,6 +10,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -213,7 +214,13 @@ function FolderBrowser({
             disabled={fetching}
             onClick={() => onCheckout(typed.trim(), branch.trim() || null)}
           >
-            {fetching ? "Fetching…" : "Check out and index"}
+            {fetching ? (
+              <>
+                <Spinner /> Fetching…
+              </>
+            ) : (
+              "Check out and index"
+            )}
           </Button>
         ) : (
           <Button
@@ -223,7 +230,13 @@ function FolderBrowser({
             disabled={!here || indexing}
             onClick={() => here && onIndex(here)}
           >
-            {indexing ? "Indexing…" : "Index this folder"}
+            {indexing ? (
+              <>
+                <Spinner /> Indexing…
+              </>
+            ) : (
+              "Index this folder"
+            )}
           </Button>
         )}
       </div>
@@ -538,7 +551,13 @@ export function StartPage() {
                 spellCheck={false}
               />
               <Button type="submit" variant="primary" disabled={!path.trim() || busy}>
-                {checkout.isPending || index.isPending ? "Adding…" : "Add"}
+                {checkout.isPending || index.isPending ? (
+                  <>
+                    <Spinner /> Adding…
+                  </>
+                ) : (
+                  "Add"
+                )}
               </Button>
               <FolderPicker
                 open={picking}
@@ -639,7 +658,7 @@ export function StartPage() {
               reviewRepository.mutate(intent.repositoryRoot);
             }}
           >
-            <Play size={15} aria-hidden />
+            {busy ? <Spinner /> : <Play size={15} aria-hidden />}
             {busy ? "Starting…" : "Run review"}
           </Button>
           {/* A failure before the stream opens never reaches the review's page, because
