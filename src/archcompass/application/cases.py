@@ -16,10 +16,10 @@ from archcompass.domain.case import (
     RecordedAnswer,
     RepositoryReference,
 )
-from archcompass.domain.errors import CaseValidationError
+from archcompass.domain.errors import CaseNotFoundError, CaseValidationError
 from archcompass.domain.review import BoundaryReview
 from archcompass.domain.workspace import CaseSummary
-from archcompass.ports.repositories import CaseRepository
+from archcompass.ports.repositories import BoundaryReviewRepository, CaseRepository
 
 
 class WrittenAnswer(DomainModel):
@@ -65,8 +65,9 @@ def _title_for(root: Path) -> str:
 
 
 class CaseService:
-    def __init__(self, repository: CaseRepository) -> None:
+    def __init__(self, repository: CaseRepository, reviews: BoundaryReviewRepository) -> None:
         self._repository = repository
+        self._reviews = reviews
 
     def create(self, case: ArchitectureCase, *, actor: str = "user") -> CaseRevision:
         normalized = case.model_copy(update={"revision": 1})
@@ -97,6 +98,50 @@ class CaseService:
             ),
             actor=actor,
         )
+
+    def continue_from_repository(
+        self,
+        root: Path,
+        *,
+        repo_id: str | None,
+        actor: str = "user",
+    ) -> CaseRevision:
+        """The case a repeat visit to this repository carries on with, or a first one.
+
+        A review is a conversation, not a transaction. The first pass asks what the code
+        cannot settle, the reader answers, and the answers become clarifications on the case
+        — so a second visit that composed a fresh case would throw all of that away and ask
+        the very questions it had already been given answers to. Worse, silently: the reader
+        sees the same five questions and no sign that anything they typed was kept.
+
+        So the newest case reviewed on this repository is reused, at whatever revision it has
+        reached. Everything else then follows from machinery that already exists: the verdict
+        cache keys on the case and its revision, so an unchanged repository re-judged against
+        an unchanged case pays for no model call; and the elicitation stage, reading a case
+        that now holds the answers, finds nothing left unstated and the run concludes in one
+        pass instead of stopping to ask. Nothing in the review had to learn about any of this
+        — a run is still one case, one atlas — which is why continuity belongs here and not
+        in a branch inside the run.
+
+        Reviews rather than cases are what is searched, and `repo_id` rather than the path.
+        A case nobody ever reviewed is one somebody started and left, and stepping into it
+        would resume a conversation that never happened; the repository's durable identity is
+        what makes the continuation survive the checkout being moved or cloned again.
+
+        A repository with no lineage, or one nothing has been run on, starts a case exactly as
+        a first visit does — as does a run whose case has since gone. There is no error to
+        report in any of those: the reader asked to review a repository, and a first case is
+        the honest answer to that.
+        """
+
+        if repo_id is not None:
+            continuing = self._reviews.latest_case_for_repository(repo_id)
+            if continuing is not None:
+                try:
+                    return self._repository.get(continuing)
+                except CaseNotFoundError:
+                    pass
+        return self.start_from_repository(root, actor=actor)
 
     def show(self, case_id: str, revision: int | None = None) -> CaseRevision:
         return self._repository.get(case_id, revision)

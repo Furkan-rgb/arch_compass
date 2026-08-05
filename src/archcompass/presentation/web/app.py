@@ -137,6 +137,20 @@ class RepositoryPathRequest(APIModel):
     root_path: str = Field(min_length=1)
 
 
+class StartFromRepositoryRequest(APIModel):
+    """Which repository to open, and whether to carry on from where it was left.
+
+    Continuing is the default because a repeat visit almost always means the same
+    conversation: the questions the last run asked and the answers the reader gave are on
+    that case, and starting beside them would ask for them again. Starting clean is the
+    stated exception — a different question about the same code — and it has to be stated
+    rather than reached by deleting something.
+    """
+
+    root_path: str = Field(min_length=1)
+    start_clean: bool = False
+
+
 class AtlasExploreRequest(APIModel):
     root_path: str = Field(min_length=1)
     operation: Literal[
@@ -908,27 +922,40 @@ def create_app(
             hosted_mode.repository_root(Path(request.root_path), runtime)
         )
 
+    # 200 rather than 201: this route stopped always creating something the moment a repeat
+    # visit began continuing the case it already had, and a client told "created" about a case
+    # written last week has been told the wrong thing about the only fact it could act on.
     @app.post(
         "/api/repositories/start",
-        status_code=201,
         responses=_problem_responses(404, 422),
     )
     def start_from_repository(
         runtime: RuntimeDep,
         hosted_mode: RestrictionsDep,
-        request: RepositoryPathRequest,
+        request: StartFromRepositoryRequest,
     ) -> CaseRevision:
-        """Index a repository and open a case about it, with nothing written in it yet.
+        """Index a repository and answer with the case to review it against.
 
         The whole of the first step for someone who has not authored a case. Both halves
         happen here so the flow either produces something reviewable or fails outright,
         rather than leaving a case pointing at an atlas that was never built. A bundled
         example arrives here too, once its repository has been indexed.
+
+        A first visit opens a case with nothing written in it yet. A repeat visit continues
+        the newest case reviewed on this repository, so the answers the reader has already
+        given are still there to be judged against — `start_clean: true` is how they say the
+        next run is about a different question and should begin with an empty case again.
+
+        Which case that is, is the application's to decide and not the client's: a browser
+        that picked one would be reading the review history to guess at the case that history
+        is about, and two clients would guess differently.
         """
 
         root = hosted_mode.repository_root(Path(request.root_path), runtime)
-        runtime.repository_service.index(root)
-        return runtime.case_service.start_from_repository(root)
+        version = runtime.repository_service.index(root)
+        if request.start_clean:
+            return runtime.case_service.start_from_repository(root)
+        return runtime.case_service.continue_from_repository(root, repo_id=version.repo_id)
 
     @app.get("/api/repositories/summary")
     def repository_summary(runtime: RuntimeDep, root_path: str) -> AtlasQueryResult:

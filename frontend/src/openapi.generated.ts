@@ -719,6 +719,10 @@ export interface components {
     "material": boolean;
     "verdict_label": string;
   };
+    "StartFromRepositoryRequest": {
+    "root_path": string;
+    "start_clean"?: boolean;
+  };
     "StatementKind": "fact" | "derived_constraint" | "assumption" | "question" | "force";
     "SubmittedAnswer": {
     "question_reference": string;
@@ -1459,9 +1463,9 @@ export interface operations {
       header: never;
       cookie: never;
     };
-    requestBody: components["schemas"]["RepositoryPathRequest"];
+    requestBody: components["schemas"]["StartFromRepositoryRequest"];
     responses: {
-      "201": components["schemas"]["CaseRevision"];
+      "200": components["schemas"]["CaseRevision"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
     };

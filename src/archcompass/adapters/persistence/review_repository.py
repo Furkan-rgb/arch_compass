@@ -320,3 +320,28 @@ class SQLiteBoundaryReviewRepository:
             )
             for row in rows
         ]
+
+    def latest_case_for_repository(self, repo_id: str) -> str | None:
+        """The case the most recent run on this repository was about, if there was one.
+
+        `repo_id` rather than the checkout path, so the answer survives the clone being moved
+        or made again somewhere else — the same reason the column exists. Every status counts:
+        a run that failed, was cancelled, or is still waiting on answers was still a run about
+        a case, and the one waiting on answers is exactly the case a repeat visit means to
+        carry on with.
+
+        Ordered as the listing is, so "the newest" here and the row a reader sees at the top
+        of the history are the same row.
+        """
+
+        with self._database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT case_id FROM boundary_reviews
+                WHERE repo_id = ?
+                ORDER BY created_at DESC, review_id
+                LIMIT 1
+                """,
+                (repo_id,),
+            ).fetchone()
+        return None if row is None else str(row["case_id"])

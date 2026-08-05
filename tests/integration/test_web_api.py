@@ -30,7 +30,7 @@ def _example(client: TestClient) -> tuple[str, str]:
     assert loaded.status_code == 201, loaded.text
     root = loaded.json()["root_path"]
     started = client.post("/api/repositories/start", json={"root_path": root})
-    assert started.status_code == 201, started.text
+    assert started.status_code == 200, started.text
     return started.json()["case_id"], root
 
 
@@ -242,7 +242,7 @@ def test_the_api_walks_both_passes_of_an_elicitation(runtime: Runtime) -> None:
 
     with TestClient(create_app(runtime)) as client:
         started = client.post("/api/repositories/start", json={"root_path": repository})
-        assert started.status_code == 201, started.text
+        assert started.status_code == 200, started.text
         case_id = started.json()["case_id"]
         # Nothing written: the entry for someone who has a repository and no case.
         assert started.json()["snapshot"]["problem_statement"] == ""
@@ -371,7 +371,7 @@ def test_the_api_serves_the_code_a_finding_was_measured_from(runtime: Runtime) -
 
     with TestClient(create_app(runtime)) as client:
         started = client.post("/api/repositories/start", json={"root_path": repository})
-        assert started.status_code == 201, started.text
+        assert started.status_code == 200, started.text
         created = client.post(
             "/api/reviews",
             json={"case_id": started.json()["case_id"], "repository_root": repository},

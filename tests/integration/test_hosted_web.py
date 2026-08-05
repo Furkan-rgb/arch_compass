@@ -92,7 +92,7 @@ def test_two_visitors_share_nothing() -> None:
         started = mine.post(
             "/api/repositories/start", json={"root_path": loaded.json()["root_path"]}
         )
-        assert started.status_code == 201, started.text
+        assert started.status_code == 200, started.text
 
         assert [item["case_id"] for item in mine.get("/api/cases").json()] == [
             started.json()["case_id"]
@@ -165,7 +165,7 @@ def test_the_daily_budget_refuses_the_run_past_the_cap(
         assert loaded.status_code == 201, loaded.text
         root = loaded.json()["root_path"]
         started = client.post("/api/repositories/start", json={"root_path": root})
-        assert started.status_code == 201, started.text
+        assert started.status_code == 200, started.text
         request = {"case_id": started.json()["case_id"], "repository_root": root}
 
         assert client.post("/api/reviews", json=request).status_code == 201

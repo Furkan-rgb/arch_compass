@@ -80,6 +80,8 @@ class BoundaryReviewRepository(Protocol):
         limit: int = 100,
     ) -> list[BoundaryReviewSummary]: ...
 
+    def latest_case_for_repository(self, repo_id: str) -> str | None: ...
+
 
 class ReviewConversationRepository(Protocol):
     """Ordered, append-only question history about one review."""

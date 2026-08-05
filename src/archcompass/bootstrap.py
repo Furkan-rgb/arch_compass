@@ -195,7 +195,7 @@ def build_runtime(
         authored_source=canonical_workspace / AUTHORED_POLICY_DIRECTORY,
         policy_store=MarkdownPolicyStore(),
     )
-    case_service = CaseService(cases)
+    case_service = CaseService(cases, reviews)
     repository_service = RepositoryIndexService(
         analyzer=analyzer,
         atlases=atlases,
