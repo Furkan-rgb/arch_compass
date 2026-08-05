@@ -206,6 +206,44 @@ Still open: questions 2 (verdict stability — the standing lean is C: verdicts 
 when inputs move, which case continuity mostly delivers) and 5 (model upgrades), plus the
 implementation order for the repository → branch → revisions restructure.
 
+### The iterative model, consolidated (2026-08-05, third round)
+
+The user named the centre: **the ArchitectureCase — composed through questions, iterated
+on — is the backbone of context throughout.** That settles open question 1: the case
+belongs to the **branch**, living; a revision pins the case revision it judged against.
+
+**The delta-review rule** *(decided in intent)*: a new revision re-analyses the code and
+then judges only the delta. A boundary whose inputs are unchanged is **not re-reviewed** —
+its verdict, standing, and silence all carry. A boundary that changed (or appeared) is
+judged, and only such a boundary may earn a question. Questions therefore only ever ask
+about what moved; the answers accrete into the case; re-asking a settled thing becomes
+structurally impossible rather than merely cached away. This *is* direction C adopted:
+verdicts move only when inputs move. It also independently re-derives decision 4 — with
+quiet meaning "carried or decided", the baseline button has no job.
+
+Two sharpenings the rule needs to be honest *(proposed)*:
+
+- **"Changed" has a content dimension.** A boundary's identity is its shape (the
+  fingerprint), but its *inputs* must include a content fingerprint of the participants'
+  source. Same shape + same content + same case/corpus/model → carried without a model
+  call. Same shape, content moved → re-judged (a question possible). Shape moved →
+  succession matching, then judged. Without the content term, a rewrite that keeps names
+  would carry a stale verdict for ever — the current cache key has exactly this gap.
+- **A branch reads through to its base.** A fully isolated branch scope would make every
+  boundary NEW on a fresh feature branch, and PR CI would block on history the team
+  settled on main long ago. A branch inherits its base branch's standings and case where
+  it has none of its own, diverging only where it explicitly decides differently — so a
+  PR revision says only "this branch changed these boundaries".
+
+**UI consequences** *(agreed direction)*:
+
+- The branch's review page gains **"New revision"**: refresh the checkout when managed,
+  re-index, judge the delta, ask only about the delta. The start step's job shrinks to
+  *adding* repositories.
+- The review page gains a **branch dropdown** — each branch is its own scope (revisions,
+  case, standings), and the dropdown switches which scope is on show.
+- The revision picker with its `latest` tag, per the shape already recorded above.
+
 ### Open questions
 
 1. Who owns the case — the run, the repository, or the branch?
