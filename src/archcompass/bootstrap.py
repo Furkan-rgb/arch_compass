@@ -25,6 +25,7 @@ from archcompass.adapters.models import (
 from archcompass.adapters.persistence import (
     SQLiteAtlasRepository,
     SQLiteBaselineRepository,
+    SQLiteBoundaryLineRepository,
     SQLiteBoundaryReviewRepository,
     SQLiteCaseRepository,
     SQLiteDatabase,
@@ -69,6 +70,7 @@ from archcompass.ports.reasoning import FocusedReasoningProvider
 from archcompass.ports.repositories import (
     AtlasRepository,
     BaselineRepository,
+    BoundaryLineRepository,
     BoundaryReviewRepository,
     CaseRepository,
     LineageRepository,
@@ -112,6 +114,7 @@ class Runtime:
     review_repository: BoundaryReviewRepository
     verdict_cache_repository: VerdictCacheRepository
     baseline_repository: BaselineRepository
+    boundary_line_repository: BoundaryLineRepository
     review_conversation_service: ReviewConversationService
     review_source_service: ReviewSourceService
     bundled_example_service: BundledExampleService
@@ -168,6 +171,7 @@ def build_runtime(
     reviews = SQLiteBoundaryReviewRepository(database)
     verdict_cache = SQLiteVerdictCacheRepository(database)
     baselines = SQLiteBaselineRepository(database)
+    boundary_lines = SQLiteBoundaryLineRepository(database)
     review_conversations = SQLiteReviewConversationRepository(database)
     standing_decisions = SQLiteStandingDecisionRepository(database)
     # The workspace is left out of every snapshot, which is what allows a repository to be
@@ -204,7 +208,7 @@ def build_runtime(
         authored_source=canonical_workspace / AUTHORED_POLICY_DIRECTORY,
         policy_store=MarkdownPolicyStore(),
     )
-    case_service = CaseService(cases)
+    case_service = CaseService(cases, reviews)
     repository_service = RepositoryIndexService(
         analyzer=analyzer,
         atlases=atlases,
@@ -241,6 +245,7 @@ def build_runtime(
         reasoner=reasoning,
         source=review_source_service,
         verdict_cache=verdict_cache,
+        boundary_lines=boundary_lines,
     )
     triage_service = TriageService(
         decisions=standing_decisions,
@@ -267,6 +272,7 @@ def build_runtime(
         review_repository=reviews,
         verdict_cache_repository=verdict_cache,
         baseline_repository=baselines,
+        boundary_line_repository=boundary_lines,
         review_conversation_service=review_conversation_service,
         review_source_service=review_source_service,
         bundled_example_service=bundled_example_service,

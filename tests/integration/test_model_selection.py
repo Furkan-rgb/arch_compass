@@ -38,7 +38,7 @@ def _load_the_example(client: TestClient) -> dict[str, str]:
     assert loaded.status_code == 201, loaded.text
     root = loaded.json()["root_path"]
     started = client.post("/api/repositories/start", json={"root_path": root})
-    assert started.status_code == 201, started.text
+    assert started.status_code == 200, started.text
     return {"case_id": started.json()["case_id"], "repository_root": root}
 
 

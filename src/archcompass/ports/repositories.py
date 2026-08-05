@@ -9,6 +9,7 @@ from typing import Protocol
 from archcompass.domain.atlas import Atlas
 from archcompass.domain.baseline import BaselineEntry
 from archcompass.domain.case import AnsweredQuestions, ArchitectureCase, CaseRevision
+from archcompass.domain.delta import BoundaryLineEvent
 from archcompass.domain.lineage import BranchLineage, RepositoryLineage
 from archcompass.domain.review import BoundaryReview
 from archcompass.domain.review_conversation import ReviewConversation
@@ -81,6 +82,12 @@ class BoundaryReviewRepository(Protocol):
         limit: int = 100,
     ) -> list[BoundaryReviewSummary]: ...
 
+    def latest_case_for_branch(self, branch_id: str) -> str | None: ...
+
+    def previous_revision_for_branch(
+        self, branch_id: str, *, excluding_review_id: str
+    ) -> BoundaryReview | None: ...
+
 
 class ReviewConversationRepository(Protocol):
     """Ordered, append-only question history about one review."""
@@ -124,6 +131,27 @@ class BaselineRepository(Protocol):
     def remove(self, branch_id: str, boundary_fingerprint: str) -> bool: ...
 
     def count_for_branch(self, branch_id: str) -> int: ...
+
+
+class BoundaryLineRepository(Protocol):
+    """Append-only storage for what happened to a boundary's line across revisions.
+
+    Successions, closures and resurrections, keyed on `(branch_id, boundary_fingerprint)` —
+    the same pair a standing decision and its discussion thread key on. Nothing updates and
+    nothing deletes: a line's state is read as its latest event, so a closure that turns out
+    to have been premature is answered by appending the resurrection rather than by removing
+    the closure (migration 029).
+    """
+
+    def append_all(self, events: Iterable[BoundaryLineEvent]) -> int: ...
+
+    def latest_for(
+        self, branch_id: str, fingerprints: Iterable[str]
+    ) -> dict[str, BoundaryLineEvent]: ...
+
+    def history(
+        self, branch_id: str, boundary_fingerprint: str
+    ) -> list[BoundaryLineEvent]: ...
 
 
 class LineageRepository(Protocol):

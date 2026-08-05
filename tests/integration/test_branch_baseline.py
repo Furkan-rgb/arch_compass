@@ -40,7 +40,7 @@ def _reviewed(client: TestClient) -> tuple[str, str]:
     assert loaded.status_code == 201, loaded.text
     root = cast("str", loaded.json()["root_path"])
     started = client.post("/api/repositories/start", json={"root_path": root})
-    assert started.status_code == 201, started.text
+    assert started.status_code == 200, started.text
     return cast("str", started.json()["case_id"]), root
 
 

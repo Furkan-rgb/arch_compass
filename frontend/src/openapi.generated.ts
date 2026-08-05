@@ -6,6 +6,15 @@
 
 export interface components {
   schemas: {
+    "AddressedBoundary": {
+    "fingerprint": string;
+    "pattern": components["schemas"]["FindingPattern"];
+    "title": string;
+    "material": boolean;
+    "verdict_label": string;
+    "last_seen_in_review": string;
+    "last_reference": string;
+  };
     "AnswerProgress": components["schemas"]["AnswerProse"] | components["schemas"]["QuestionAnswered"] | components["schemas"]["QuestionFailed"];
     "AnswerProse": {
     "event"?: "prose";
@@ -173,6 +182,7 @@ export interface components {
     "overview": components["schemas"]["ReviewOverview"];
     "policies_presented"?: Array<string>;
     "excerpts"?: Array<components["schemas"]["BoundaryExcerpt"]>;
+    "delta"?: components["schemas"]["RevisionDelta"] | null;
   };
     "BoundaryReviewReportDetail": {
     "schema_version"?: 3;
@@ -183,6 +193,7 @@ export interface components {
     "overview": components["schemas"]["ReviewOverview"];
     "policies_presented"?: Array<string>;
     "excerpts"?: Array<components["schemas"]["BoundaryExcerpt"]>;
+    "delta"?: components["schemas"]["RevisionDelta"] | null;
   };
     "BoundaryReviewSummary": {
     "review_id": string;
@@ -201,6 +212,7 @@ export interface components {
     "repo_id"?: string | null;
     "branch_id"?: string | null;
   };
+    "BoundaryState": "carried" | "judged" | "succeeded" | "addressed";
     "BoundaryTriage": {
     "reference": string;
     "fingerprint": string;
@@ -373,6 +385,7 @@ export interface components {
     "decided_at": string;
     "taken_on_current_verdict": boolean;
   };
+    "JudgedBecause": "new" | "content" | "shape" | "case" | "policies" | "model" | "prompt" | "resurfaced";
     "MetricNature": "objective_measurement" | "structural_proxy";
     "MetricScope": "lexical_node" | "owning_module" | "reverse_static_impact_neighbourhood" | "bounded_resolved_call_chain";
     "ModelCatalogResponse": {
@@ -666,7 +679,13 @@ export interface components {
     "reference": string;
     "candidate": components["schemas"]["FindingCandidate"];
     "fingerprint"?: string | null;
+    "content_fingerprint"?: string | null;
+    "inputs_identity"?: string | null;
     "verdict_reused_from"?: string | null;
+    "delta_state"?: components["schemas"]["BoundaryState"] | null;
+    "judged_because"?: components["schemas"]["JudgedBecause"] | null;
+    "succeeds"?: string | null;
+    "resurfaced_from_review"?: string | null;
     "material": boolean;
     "rationale": string;
     "policy_bearings"?: Array<components["schemas"]["PolicyBearing"]>;
@@ -678,7 +697,13 @@ export interface components {
     "reference": string;
     "candidate": components["schemas"]["FindingCandidate"];
     "fingerprint"?: string | null;
+    "content_fingerprint"?: string | null;
+    "inputs_identity"?: string | null;
     "verdict_reused_from"?: string | null;
+    "delta_state"?: components["schemas"]["BoundaryState"] | null;
+    "judged_because"?: components["schemas"]["JudgedBecause"] | null;
+    "succeeds"?: string | null;
+    "resurfaced_from_review"?: string | null;
     "material": boolean;
     "rationale": string;
     "policy_bearings"?: Array<components["schemas"]["PolicyBearing"]>;
@@ -686,6 +711,16 @@ export interface components {
     "recommended_response"?: string;
     "disposition"?: components["schemas"]["BoundaryDisposition"] | null;
     "verdict_label": string;
+  };
+    "RevisionDelta": {
+    "previous_review_id"?: string | null;
+    "first_revision"?: boolean;
+    "carried"?: number;
+    "judged"?: number;
+    "succeeded"?: number;
+    "addressed"?: number;
+    "resurfaced"?: number;
+    "addressed_boundaries"?: Array<components["schemas"]["AddressedBoundary"]>;
   };
     "SearchNodesQuery": {
     "kind": "search_nodes";
@@ -731,6 +766,10 @@ export interface components {
     "boundary_reference": string;
     "material": boolean;
     "verdict_label": string;
+  };
+    "StartFromRepositoryRequest": {
+    "root_path": string;
+    "start_clean"?: boolean;
   };
     "StatementKind": "fact" | "derived_constraint" | "assumption" | "question" | "force";
     "SubmittedAnswer": {
@@ -1486,9 +1525,9 @@ export interface operations {
       header: never;
       cookie: never;
     };
-    requestBody: components["schemas"]["RepositoryPathRequest"];
+    requestBody: components["schemas"]["StartFromRepositoryRequest"];
     responses: {
-      "201": components["schemas"]["CaseRevision"];
+      "200": components["schemas"]["CaseRevision"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
     };
