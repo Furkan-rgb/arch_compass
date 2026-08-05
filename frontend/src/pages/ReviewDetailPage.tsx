@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ChevronDown, Download, GitBranch, Play, X } from "lucide-react";
+import { ArrowRight, ChevronDown, Download, GitBranch, Info, Play, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
@@ -173,8 +173,12 @@ function NoChangeNotice({ onDismiss }: { onDismiss: () => void }) {
       )}
       onClick={leave}
     >
-      <AlertTitle className="flex items-start justify-between gap-3">
-        Nothing has changed
+      <Info aria-hidden className="text-accent-ink" />
+      <AlertTitle>Nothing has changed</AlertTitle>
+      <AlertDescription className="text-ink-2">
+        The code is the same as this revision — checked just now.
+      </AlertDescription>
+      <AlertAction>
         <button
           type="button"
           aria-label="Dismiss"
@@ -183,10 +187,7 @@ function NoChangeNotice({ onDismiss }: { onDismiss: () => void }) {
         >
           <X size={14} aria-hidden />
         </button>
-      </AlertTitle>
-      <AlertDescription className="text-ink-2">
-        …since this revision — checked just now.
-      </AlertDescription>
+      </AlertAction>
     </Alert>
   );
 }
