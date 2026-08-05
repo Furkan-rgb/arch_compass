@@ -27,6 +27,17 @@ class PathValidationError(ArchCompassError):
     pass
 
 
+class RepositoryCheckoutError(ArchCompassError):
+    """A repository was named and could not be made available to review.
+
+    Its own type rather than a `PathValidationError`, which is what a malformed request gets:
+    everything here is a well-formed request about a repository that will not cooperate — an
+    unreachable remote, a branch it does not have, a working copy that is somebody else's to
+    move. The message is the whole of the remedy, so it names what to do rather than what
+    failed.
+    """
+
+
 class CaseNotFoundError(ArchCompassError):
     pass
 

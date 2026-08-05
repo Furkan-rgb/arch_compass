@@ -38,6 +38,7 @@ from archcompass.domain.baseline import (
     disposition_of,
 )
 from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
+from archcompass.domain.checkout import RepositoryCheckout
 from archcompass.domain.errors import (
     ArchCompassError,
     AtlasNotFoundError,
@@ -59,6 +60,7 @@ from archcompass.domain.errors import (
     PolicyFormatError,
     PolicyNotFoundError,
     ProviderError,
+    RepositoryCheckoutError,
     ReviewHasNoBranchError,
     ReviewHasNoReportError,
     ReviewNotBaselineableError,
@@ -135,6 +137,20 @@ def _problem_responses(
 
 class RepositoryPathRequest(APIModel):
     root_path: str = Field(min_length=1)
+
+
+class RepositoryCheckoutRequest(APIModel):
+    """A repository named by address, or by a path on this machine.
+
+    One field for both because they are one question — "which repository" — and asking the
+    caller to say which kind they are holding would only make them classify a string the
+    service classifies better.
+    """
+
+    url: str = Field(min_length=1)
+    #: The branch to review. Left out, the remote's own default is used, which is what
+    #: someone pasting an address without further thought means.
+    branch: str | None = None
 
 
 class AtlasExploreRequest(APIModel):
@@ -907,6 +923,29 @@ def create_app(
         return runtime.repository_service.index(
             hosted_mode.repository_root(Path(request.root_path), runtime)
         )
+
+    @app.post(
+        "/api/repositories/checkout",
+        status_code=201,
+        responses=_problem_responses(409, 422),
+    )
+    def checkout_repository(
+        runtime: RuntimeDep,
+        hosted_mode: RestrictionsDep,
+        request: RepositoryCheckoutRequest,
+    ) -> RepositoryCheckout:
+        """Make the named repository available on this machine, and say where it landed.
+
+        Nothing is indexed here. The answer is a folder, which is what `/api/repositories/index`
+        and `/api/repositories/start` have always taken — so a repository pasted as a URL joins
+        the existing flow at exactly the point a repository chosen with the picker does.
+
+        201 for a checkout that was updated as much as for one that was cloned: something was
+        written to disk either way, and `created` says which of the two happened.
+        """
+
+        hosted_mode.checkout()
+        return runtime.checkout_service.checkout(request.url, branch=request.branch)
 
     @app.post(
         "/api/repositories/start",
@@ -2013,6 +2052,11 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
         ),
     ):
         return 422, "validation_error", False
+    if isinstance(error, RepositoryCheckoutError):
+        # Not 422: the request is well formed and this is a true statement about the
+        # repository. Retryable, because most of what reaches here is a remote that was
+        # unreachable at the moment it was asked.
+        return 409, "checkout_failed", True
     if isinstance(error, NoReasoningModelSelectedError):
         # 409 rather than 503: nothing is unavailable, and nothing about the request is
         # malformed — the workspace simply has not chosen yet.

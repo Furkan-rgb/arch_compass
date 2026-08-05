@@ -213,6 +213,21 @@ def test_a_hosted_instance_with_no_reachable_provider_refuses_to_start(
         create_hosted_app()
 
 
+@pytest.mark.usefixtures("hosted_environment")
+def test_the_hosted_demo_will_not_clone_a_repository_a_visitor_names() -> None:
+    """A URL a visitor chooses is a request this server would make on their behalf."""
+
+    with _client() as client:
+        refused = client.post(
+            "/api/repositories/checkout",
+            json={"url": "https://example.invalid/somebody/code.git"},
+        )
+
+        assert refused.status_code == 403
+        assert refused.json()["code"] == "hosted_restriction"
+        assert "will not clone" in refused.json()["message"]
+
+
 def test_a_local_workspace_is_untouched_by_any_of_it(runtime: Runtime) -> None:
     """The same app object, built the way the CLI builds it: no session, no restrictions."""
 
