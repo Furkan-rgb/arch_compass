@@ -20,7 +20,7 @@ import re
 from hashlib import sha256
 from pathlib import Path
 
-from archcompass.domain.checkout import RepositoryCheckout
+from archcompass.domain.checkout import CheckoutRefresh, RepositoryCheckout
 from archcompass.domain.errors import PathValidationError, RepositoryCheckoutError
 from archcompass.ports.vcs import GitClient
 
@@ -132,16 +132,84 @@ class RepositoryCheckoutService:
         created = described is None or described.top_level != destination
         if created:
             self._git.clone(url, destination)
+            target = branch or self._git.default_branch(destination)
+            self._git.force_checkout(destination, target)
         else:
-            self._git.fetch(destination)
-        target = branch or self._git.default_branch(destination)
-        self._git.force_checkout(destination, target)
+            target = self._onto_remote_tip(destination, branch)
         return RepositoryCheckout(
             root_path=str(destination),
             branch_name=target,
             created=created,
             managed=True,
         )
+
+    def refresh(self, root_path: str) -> CheckoutRefresh:
+        """Bring the folder at `root_path` up to its remote, if it is ours to bring.
+
+        The same update a repeat checkout performs, reached from the other end: a review page
+        holds a directory and not the address it was cloned from, so the address is read back
+        out of the checkout rather than asked for. Which means this can only ever act on a
+        clone Arch Compass made — for anything else there is no `origin` of ours to trust,
+        and the answer is that the folder was reviewed in place and left alone.
+
+        The managed-directory test comes first and is about the path, not about what is in it.
+        A directory somewhere else may well be a clone with a remote and be perfectly
+        fetchable, and fetching it would still be wrong: it is somebody's working copy, a hard
+        reset would take their uncommitted work with it, and no button labelled "new revision"
+        is worth that.
+        """
+
+        requested = root_path.strip()
+        if not requested:
+            raise PathValidationError("Name a folder to refresh.")
+        path = Path(requested).expanduser()
+        if not path.is_dir():
+            raise PathValidationError(
+                f"There is no folder at {requested}, so there is nothing to refresh."
+            )
+        if not self._is_managed(path.resolve()):
+            return CheckoutRefresh(root_path=requested, managed=False)
+        if self._git.remote_url(path) is None:
+            raise RepositoryCheckoutError(
+                f"{requested} is in Arch Compass's checkouts directory but has no remote to "
+                "update from. Delete it and check the repository out again by its address."
+            )
+        # Read before the fetch and again after the reset, because that is what "new" means
+        # here: not whether the remote had anything to send, but whether the code this review
+        # would run against is different code from last time.
+        before = self._git.head_commit(path)
+        described = self._git.describe(path)
+        target = self._onto_remote_tip(path, described.branch_name if described else None)
+        return CheckoutRefresh(
+            root_path=requested,
+            managed=True,
+            updated=self._git.head_commit(path) != before,
+            branch_name=target,
+        )
+
+    def _onto_remote_tip(self, checkout: Path, branch: str | None) -> str:
+        """Fetch, then make the working tree be the remote's tip of `branch`.
+
+        The mirror rule of `_managed_checkout`, in the one place both callers reach it: a
+        directory Arch Compass owns holds what the remote holds, so the update discards local
+        modifications rather than merging or refusing them.
+        """
+
+        self._git.fetch(checkout)
+        target = branch or self._git.default_branch(checkout)
+        self._git.force_checkout(checkout, target)
+        return target
+
+    def _is_managed(self, path: Path) -> bool:
+        """Whether this resolved path is one of our own checkouts.
+
+        Compared as resolved paths rather than as strings, since `..` and a symlink both make
+        a prefix test say yes about a directory that is somewhere else. The root itself is not
+        a checkout, only the directories in it are.
+        """
+
+        root = self._checkouts_root.expanduser().resolve(strict=False)
+        return path != root and path.is_relative_to(root)
 
     @staticmethod
     def _local_source(source: str) -> Path | None:

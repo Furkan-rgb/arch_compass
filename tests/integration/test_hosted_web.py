@@ -227,6 +227,15 @@ def test_the_hosted_demo_will_not_clone_a_repository_a_visitor_names() -> None:
         assert refused.json()["code"] == "hosted_restriction"
         assert "will not clone" in refused.json()["message"]
 
+        # And will not fetch into one either. There are no managed checkouts here for it to
+        # be about, so the refusal costs a visitor nothing and needs no second explanation.
+        stale = client.post(
+            "/api/repositories/refresh", json={"root_path": "/tmp/somebody/code"}
+        )
+
+        assert stale.status_code == 403
+        assert stale.json()["code"] == "hosted_restriction"
+
 
 def test_a_local_workspace_is_untouched_by_any_of_it(runtime: Runtime) -> None:
     """The same app object, built the way the CLI builds it: no session, no restrictions."""

@@ -28,3 +28,25 @@ class RepositoryCheckout(DomainModel):
     #: Whether Arch Compass owns this directory. False for a local repository reviewed where
     #: it lies, which is somebody's working copy and is never written to.
     managed: bool = False
+
+
+class CheckoutRefresh(DomainModel):
+    """What asking a folder to catch up with its remote did, if anything.
+
+    The answer to "review this again, with whatever has landed since" for a folder that is
+    all the caller has — a review page knows the directory it ran against and not the address
+    that directory was cloned from. Two of the three fields are about what did *not* happen:
+    `managed` is false for somebody's own working copy, which is read and never written, and
+    `updated` is false for a mirror that was already on the remote's tip. Both are ordinary
+    outcomes, and a caller that treats either as a failure is wrong about them.
+    """
+
+    root_path: str = Field(min_length=1)
+    #: Whether this directory is one of Arch Compass's own checkouts. False means nothing was
+    #: touched: the folder is reviewed where it lies, and moving it is its owner's business.
+    managed: bool = False
+    #: Whether the tip moved. False for a checkout that was already current — the fetch still
+    #: happened, it just had nothing to bring back.
+    updated: bool = False
+    #: The branch the checkout is now on, or `None` when nothing was refreshed.
+    branch_name: str | None = None

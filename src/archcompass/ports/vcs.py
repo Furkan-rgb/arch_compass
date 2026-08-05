@@ -1,6 +1,7 @@
 """What a version control system is asked, so that an application can be pointed at one.
 
-Narrow on purpose: five questions, each of which git answers with one command. The decisions
+Narrow on purpose: a handful of questions, each of which git answers with one command. The
+decisions
 — where a managed checkout lives, when a directory is reused rather than cloned again, what a
 local path is allowed to be — are the application's, and stay out of here. This port only
 knows how to make a remote's history appear on disk and how to say what is already there.
@@ -44,6 +45,20 @@ class GitClient(Protocol):
         ...
 
     def fetch(self, checkout: Path) -> None: ...
+
+    def remote_url(self, checkout: Path) -> str | None:
+        """The address `origin` points at, or `None` when there is no such remote.
+
+        `None` rather than an error, because "this directory has no remote" is an ordinary
+        answer: a repository initialised on this machine and never pushed has none, and the
+        caller deciding whether a directory can be brought up to date needs to be told that
+        rather than to catch it.
+        """
+        ...
+
+    def head_commit(self, checkout: Path) -> str | None:
+        """The commit the working tree is on, or `None` when there is not one yet."""
+        ...
 
     def default_branch(self, checkout: Path) -> str:
         """What the remote says its own default is, as a plain branch name."""

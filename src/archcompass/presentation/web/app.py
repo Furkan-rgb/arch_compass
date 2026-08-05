@@ -33,7 +33,7 @@ from archcompass.application.standings import standing_for
 from archcompass.bootstrap import Runtime
 from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion, FindingCandidate
 from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
-from archcompass.domain.checkout import RepositoryCheckout
+from archcompass.domain.checkout import CheckoutRefresh, RepositoryCheckout
 from archcompass.domain.errors import (
     ArchCompassError,
     AtlasNotFoundError,
@@ -1001,6 +1001,33 @@ def create_app(
 
         hosted_mode.checkout()
         return runtime.checkout_service.checkout(request.url, branch=request.branch)
+
+    @app.post(
+        "/api/repositories/refresh",
+        responses=_problem_responses(409, 422),
+    )
+    def refresh_repository(
+        runtime: RuntimeDep,
+        hosted_mode: RestrictionsDep,
+        request: RepositoryPathRequest,
+    ) -> CheckoutRefresh:
+        """Pull whatever has landed on the remote since, for a folder Arch Compass cloned.
+
+        Takes a path rather than an address because a path is what a page reviewing a
+        repository has: the URL was typed once, at the start, and nothing downstream of that
+        carries it. The address is read back out of the checkout instead.
+
+        A folder that is not one of ours answers rather than refuses — `managed: false`, and
+        nothing written. That is the ordinary case for a repository reviewed where it lies,
+        and the caller is meant to carry on and run its review against what is on disk.
+
+        The hosted restriction is the checkout one, unchanged: a demo that will not clone a
+        repository will not fetch into one either, and it has no managed checkouts for this
+        to be about in the first place.
+        """
+
+        hosted_mode.checkout()
+        return runtime.checkout_service.refresh(request.root_path)
 
     @app.post(
         "/api/repositories/start",

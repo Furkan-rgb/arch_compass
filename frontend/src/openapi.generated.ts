@@ -280,6 +280,12 @@ export interface components {
     "reversal_conditions"?: Array<string> | null;
     "revisit_triggers"?: Array<string> | null;
   };
+    "CheckoutRefresh": {
+    "root_path": string;
+    "managed"?: boolean;
+    "updated"?: boolean;
+    "branch_name"?: string | null;
+  };
     "Clarification": {
     "id"?: string;
     "question": string;
@@ -1309,6 +1315,20 @@ export interface operations {
       "404": components["schemas"]["ProblemDetail"];
     };
   };
+  "refresh_repository_api_repositories_refresh_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["RepositoryPathRequest"];
+    responses: {
+      "200": components["schemas"]["CheckoutRefresh"];
+      "422": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
+    };
+  };
   "remove_policy_source_api_policies_sources_delete": {
     parameters: {
       query: {
@@ -1620,6 +1640,9 @@ export interface paths {
   };
   "/api/repositories/inspect": {
     get: operations["repository_inspect_api_repositories_inspect_get"];
+  };
+  "/api/repositories/refresh": {
+    post: operations["refresh_repository_api_repositories_refresh_post"];
   };
   "/api/repositories/review-context": {
     post: operations["repository_review_context_api_repositories_review_context_post"];

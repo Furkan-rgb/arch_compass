@@ -163,6 +163,102 @@ def test_a_branch_the_remote_does_not_have_is_refused_by_name(
         workspace_runtime.checkout_service.checkout(_url(remote), branch="nowhere")
 
 
+def test_refreshing_a_managed_checkout_picks_up_a_new_remote_commit(
+    tmp_path: Path, workspace_runtime: Runtime
+) -> None:
+    """The button on the review page holds a folder, not the address it was cloned from."""
+
+    remote = _committed_repository(tmp_path / "remote")
+    checkout = workspace_runtime.checkout_service.checkout(_url(remote))
+    head = _commit(remote, "later.py", "second")
+
+    refreshed = workspace_runtime.checkout_service.refresh(checkout.root_path)
+
+    assert refreshed.managed is True
+    assert refreshed.updated is True
+    assert refreshed.branch_name == "main"
+    assert refreshed.root_path == checkout.root_path
+    assert _git(Path(checkout.root_path), "rev-parse", "HEAD") == head
+    assert (Path(checkout.root_path) / "later.py").exists()
+
+
+def test_refreshing_a_checkout_that_is_already_current_says_nothing_moved(
+    tmp_path: Path, workspace_runtime: Runtime
+) -> None:
+    remote = _committed_repository(tmp_path / "remote")
+    checkout = workspace_runtime.checkout_service.checkout(_url(remote))
+
+    refreshed = workspace_runtime.checkout_service.refresh(checkout.root_path)
+
+    assert refreshed.managed is True
+    assert refreshed.updated is False
+    assert refreshed.branch_name == "main"
+    assert _git(Path(checkout.root_path), "rev-parse", "HEAD") == _git(
+        remote, "rev-parse", "HEAD"
+    )
+
+
+def test_refreshing_a_checkout_stays_on_the_branch_it_was_put_on(
+    tmp_path: Path, workspace_runtime: Runtime
+) -> None:
+    """A named branch is not forgotten by a refresh, which never sees the original request."""
+
+    remote = _committed_repository(tmp_path / "remote")
+    _git(remote, "checkout", "-b", "feature")
+    _commit(remote, "feature.py", "on the feature branch")
+    _git(remote, "checkout", "main")
+    checkout = workspace_runtime.checkout_service.checkout(_url(remote), branch="feature")
+    _git(remote, "checkout", "feature")
+    head = _commit(remote, "more.py", "more on the feature branch")
+
+    refreshed = workspace_runtime.checkout_service.refresh(checkout.root_path)
+
+    assert refreshed.branch_name == "feature"
+    assert refreshed.updated is True
+    assert _git(Path(checkout.root_path), "rev-parse", "HEAD") == head
+
+
+def test_refreshing_somebody_elses_working_copy_touches_nothing(
+    tmp_path: Path, workspace_runtime: Runtime
+) -> None:
+    """Refusing by not acting: a folder outside our checkouts is read and left as it was."""
+
+    repository = _committed_repository(tmp_path / "local", branch="work")
+    (repository / "store.py").write_text("# uncommitted work\n", encoding="utf-8")
+    before = (repository / "store.py").stat().st_mtime_ns
+    head = _git(repository, "rev-parse", "HEAD")
+
+    refreshed = workspace_runtime.checkout_service.refresh(str(repository))
+
+    assert refreshed.managed is False
+    assert refreshed.updated is False
+    assert refreshed.branch_name is None
+    assert refreshed.root_path == str(repository)
+    assert (repository / "store.py").read_text(encoding="utf-8") == "# uncommitted work\n"
+    assert (repository / "store.py").stat().st_mtime_ns == before
+    assert _git(repository, "rev-parse", "HEAD") == head
+    assert _git(repository, "rev-parse", "--abbrev-ref", "HEAD") == "work"
+
+
+def test_refreshing_a_folder_that_is_not_there_says_so(
+    tmp_path: Path, workspace_runtime: Runtime
+) -> None:
+    with pytest.raises(PathValidationError, match="nothing to refresh"):
+        workspace_runtime.checkout_service.refresh(str(tmp_path / "gone"))
+
+
+def test_a_managed_directory_with_no_remote_is_refused_by_name(
+    workspace_runtime: Runtime,
+) -> None:
+    """Ours by its address, and not a clone: the one case that is a fault rather than a no."""
+
+    stray = workspace_runtime.workspace / CHECKOUT_DIRECTORY / "stray-000000000000"
+    _committed_repository(stray)
+
+    with pytest.raises(RepositoryCheckoutError, match="no remote to update from"):
+        workspace_runtime.checkout_service.refresh(str(stray))
+
+
 def test_a_local_repository_root_is_reviewed_where_it_lies(
     tmp_path: Path, workspace_runtime: Runtime
 ) -> None:

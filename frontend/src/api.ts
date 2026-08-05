@@ -6,6 +6,7 @@ import type {
   AtlasVersion,
   CaseRevision,
   CaseSummary,
+  CheckoutRefresh,
   DirectoryListing,
   Policy,
   PolicyDraft,
@@ -441,6 +442,14 @@ export const api = {
     request<RepositoryCheckout>("/api/repositories/checkout", {
       method: "POST",
       body: JSON.stringify({ url, branch }),
+    }),
+  // Catches a checkout Arch Compass made up with its remote, given only the folder — which
+  // is all a page reviewing a repository holds. A folder that is not ours comes back
+  // `managed: false` and untouched, so this is safe to call before any review.
+  refreshRepository: (rootPath: string) =>
+    request<CheckoutRefresh>("/api/repositories/refresh", {
+      method: "POST",
+      body: JSON.stringify({ root_path: rootPath }),
     }),
   repositorySummary: (rootPath: string) =>
     request<AtlasQueryResult>(
