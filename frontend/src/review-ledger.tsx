@@ -32,8 +32,8 @@ import { cn } from "@/lib/utils";
 
 import { FindingSource } from "./finding-source";
 import type { RunState } from "./run-progress";
-import { DecisionMark, DispositionChip, StandingFooter } from "./triage";
-import type { BoundaryTriage, ReviewedBoundary, ReviewedBoundaryDetail } from "./types";
+import { DecisionMark, StandingFooter } from "./triage";
+import type { BoundaryTriage, ReviewedBoundary } from "./types";
 
 /**
  * The verdicts as a ledger: one row per boundary, opened for the reasoning behind it.
@@ -213,7 +213,7 @@ export function VerdictBand({
   );
 }
 
-type Filter = "all" | "material" | "cleared" | "attention" | "unreviewed";
+type Filter = "all" | "material" | "cleared" | "unreviewed";
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
@@ -221,14 +221,10 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "cleared", label: "Earns its place" },
 ];
 
-/* Two more filters, each shown only where its question can be asked: the partition needs
-   a baseline to have been compared against, and "unreviewed" needs a branch for
-   decisions to be filed under. A filter for a question with no answer is a control that
-   teaches the reader to distrust the bar. */
-const ATTENTION_FILTER: { id: Filter; label: string } = {
-  id: "attention",
-  label: "New & changed",
-};
+/* One more filter, shown only where its question can be asked: "unreviewed" needs a branch
+   for decisions to be filed under. A filter for a question with no answer is a control that
+   teaches the reader to distrust the bar. The "new & changed" filter that used to sit beside
+   it went with the baseline that gave those words their meaning. */
 const UNREVIEWED_FILTER: { id: Filter; label: string } = {
   id: "unreviewed",
   label: "Unreviewed",
@@ -262,7 +258,7 @@ function LedgerRow({
   triage,
   branchId,
 }: {
-  item: ReviewedBoundaryDetail;
+  item: ReviewedBoundary;
   policyCount: number;
   /** Which verdict is the exception on this page, from `loudVerdict`. */
   loud: boolean | null;
@@ -317,14 +313,14 @@ function LedgerRow({
           <span className={rowMeta} title={`${bearings.length} of ${policyCount} policies`}>
             {bearings.length}/{policyCount}
           </span>
-          {/* One grid cell, not three: the row's geometry is a six-column contract with
+          {/* One grid cell, not two: the row's geometry is a six-column contract with
               `rowVariants`, and every extra child would wrap the tail onto a second line.
-              Inside it, baseline standing, then the team's decision, then the verdict —
-              reading order matches authority order: what changed, what we said, what it
-              judged. A `known` boundary and an undecided one are silent; quiet is the
-              resting state of a ledger the team is on top of. */}
+              Inside it, the team's decision, then the verdict — reading order matches
+              authority order: what we said, then what the model judged. An undecided
+              boundary is silent; quiet is the resting state of a ledger the team is on top
+              of. Where the boundary stands against the previous revision is the partition's
+              job and is not drawn here yet. */}
           <span className="flex items-center gap-2 justify-self-end">
-            <DispositionChip disposition={item.disposition} />
             <DecisionMark triage={triage} />
             {/* Words, not only a coloured rail: a reader scanning for "what was the answer"
                 should not have to learn a colour convention first. The exception wears the
@@ -519,7 +515,7 @@ export function FindingsLedger({
   triage,
   branchId = null,
 }: {
-  reviewed: ReviewedBoundaryDetail[];
+  reviewed: ReviewedBoundary[];
   policyCount: number;
   reviewId: string;
   /** The reference whose reasoning is showing, if any. Held by the page, because a citation
@@ -534,10 +530,8 @@ export function FindingsLedger({
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const loud = loudVerdict(reviewed);
-  const compared = reviewed.some((item) => item.disposition != null);
   const filters = [
     ...FILTERS,
-    ...(compared ? [ATTENTION_FILTER] : []),
     ...(branchId && triage ? [UNREVIEWED_FILTER] : []),
   ];
   const shown = reviewed.filter((item) => {
@@ -546,8 +540,6 @@ export function FindingsLedger({
         return item.material;
       case "cleared":
         return !item.material;
-      case "attention":
-        return item.disposition === "new" || item.disposition === "changed";
       case "unreviewed":
         return !triage?.get(item.reference)?.decision;
       default:

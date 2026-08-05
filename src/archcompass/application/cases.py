@@ -6,6 +6,7 @@ from pathlib import Path
 
 from pydantic import Field
 
+from archcompass.application.standings import branch_chain
 from archcompass.domain.base import DomainModel, utc_now
 from archcompass.domain.case import (
     AnsweredQuestions,
@@ -19,7 +20,11 @@ from archcompass.domain.case import (
 from archcompass.domain.errors import CaseNotFoundError, CaseValidationError
 from archcompass.domain.review import BoundaryReview
 from archcompass.domain.workspace import CaseSummary
-from archcompass.ports.repositories import BoundaryReviewRepository, CaseRepository
+from archcompass.ports.repositories import (
+    BoundaryReviewRepository,
+    CaseRepository,
+    LineageRepository,
+)
 
 
 class WrittenAnswer(DomainModel):
@@ -65,9 +70,15 @@ def _title_for(root: Path) -> str:
 
 
 class CaseService:
-    def __init__(self, repository: CaseRepository, reviews: BoundaryReviewRepository) -> None:
+    def __init__(
+        self,
+        repository: CaseRepository,
+        reviews: BoundaryReviewRepository,
+        lineages: LineageRepository,
+    ) -> None:
         self._repository = repository
         self._reviews = reviews
+        self._lineages = lineages
 
     def create(self, case: ArchitectureCase, *, actor: str = "user") -> CaseRevision:
         normalized = case.model_copy(update={"revision": 1})
@@ -125,30 +136,40 @@ class CaseService:
 
         The **branch** rather than the repository, because a branch is the scope everything
         durable already lives in: its standing decisions, its line of revisions, and now its
-        case. Two branches of one repository are two pieces of work, and continuing a feature
-        branch into `main`'s case would hand it a backbone full of answers about code the
-        branch has not written. It is also what makes a branch's own delta legible: a revision
-        compares against the previous revision *on this branch*, and a case shared across
-        branches would have the two lines of work moving each other's inputs.
+        case. Two branches of one repository are two pieces of work, and one of them must not
+        be able to append answers to the other's backbone.
+
+        A branch with nothing of its own reads through to the branch it came from, which is the
+        same rule the standings follow and is here for the same reason. A feature branch cut
+        from `main` this morning is not a repository nobody has ever discussed: the answers on
+        `main`'s case are about this code, and starting blank would ask the reader every
+        question their colleagues already answered. What the branch does *not* do is write back
+        — the first review on it appends a revision under its own branch, so the two lines
+        diverge from the moment either has something to say, and `main`'s case is never edited
+        by a pull request.
 
         Reviews rather than cases are what is searched, and a durable id rather than the path.
         A case nobody ever reviewed is one somebody started and left, and stepping into it
         would resume a conversation that never happened; the branch's durable identity is what
         makes the continuation survive the checkout being moved or cloned again.
 
-        A checkout with no lineage, or a branch nothing has been run on, starts a case exactly
+        A checkout with no lineage, or a chain nothing has been run on, starts a case exactly
         as a first visit does — as does a run whose case has since gone. There is no error to
         report in any of those: the reader asked to review a repository, and a first case is
         the honest answer to that.
         """
 
-        if branch_id is not None:
-            continuing = self._reviews.latest_case_for_branch(branch_id)
-            if continuing is not None:
-                try:
-                    return self._repository.get(continuing)
-                except CaseNotFoundError:
-                    pass
+        for candidate in branch_chain(self._lineages, branch_id):
+            continuing = self._reviews.latest_case_for_branch(candidate)
+            if continuing is None:
+                continue
+            try:
+                return self._repository.get(continuing)
+            except CaseNotFoundError:
+                # The case this branch was reviewing has been deleted. The base may still
+                # have one worth continuing, so the walk goes on rather than falling straight
+                # through to a blank case.
+                continue
         return self.start_from_repository(root, actor=actor)
 
     def show(self, case_id: str, revision: int | None = None) -> CaseRevision:

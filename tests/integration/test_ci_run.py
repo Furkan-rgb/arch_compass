@@ -2,8 +2,8 @@
 
 Real git repositories in `tmp_path`, because the whole of this feature turns on identity
 that git supplies: a `repo_id` from the root commit, a branch named by the caller because the
-checkout is detached, and a base branch whose baseline the run reads instead of its own. A
-stubbed git would prove the stub.
+checkout is detached, and a base branch whose standings the run reads through to. A stubbed
+git would prove the stub.
 
 What is asserted is the loop and the exit code, never the judgement. The deterministic
 substitute reaches the verdicts, so what the advisor says is fixed by construction and the
@@ -25,6 +25,7 @@ from archcompass.adapters.models.deterministic import DETERMINISTIC_MODEL
 from archcompass.application.ci import CiRun
 from archcompass.application.ci_rendering import COMMENT_MARKER
 from archcompass.bootstrap import Runtime, build_runtime, pinned_model
+from archcompass.domain.delta import BoundaryState
 from archcompass.domain.lineage import derive_branch_id
 from archcompass.domain.triage import DecisionState, StandingDecision
 from archcompass.presentation.cli.app import app
@@ -149,49 +150,108 @@ def thin(tmp_path: Path) -> Harness:
     return _harness(tmp_path, dict(_THIN_CASE))
 
 
-def test_a_first_run_on_an_unadopted_repository_reports_everything_as_new(
+def _adopt(harness: Harness, run: CiRun, branch_id: str) -> int:
+    """Decide, in one act with one author, on everything this run says needs attention.
+
+    The replacement for bulk baselining, and the shape a team adopting a legacy repository
+    actually uses. Every boundary gets a real standing decision rather than a row saying
+    somebody looked at a list.
+    """
+
+    return len(
+        harness.runtime().triage_service.decide_many(
+            [
+                StandingDecision(
+                    branch_id=branch_id,
+                    boundary_fingerprint=str(item.fingerprint),
+                    state=DecisionState.ACCEPTED,
+                    author="Deniz",
+                    review_id=run.review_id,
+                    boundary_reference=item.reference,
+                    material=item.material,
+                    verdict_label=item.verdict_label,
+                )
+                for item in run.boundaries
+                if item.needs_attention
+            ]
+        )
+    )
+
+
+def test_a_first_run_on_an_unadopted_repository_judges_everything(
     settled: Harness,
 ) -> None:
-    """Nothing has been baselined, so nothing is known, and the material findings block."""
+    """No previous revision, so nothing carries, and the undecided material findings block."""
 
     code, document = settled.document()
 
-    assert document.counts.known == 0
-    assert document.counts.changed == 0
-    assert document.counts.new == len(document.boundaries)
-    assert document.baseline_size == 0
-    assert [item.disposition.value for item in document.boundaries] == ["new"] * len(
-        document.boundaries
-    )
+    assert document.first_revision is True
+    assert document.previous_review_id is None
+    assert document.counts.carried == 0
+    assert document.counts.judged == len(document.boundaries)
+    assert [item.delta_state for item in document.boundaries] == [
+        BoundaryState.JUDGED
+    ] * len(document.boundaries)
     blocking = [item.reference for item in document.boundaries if item.material]
-    assert document.blocking == blocking, "every new material boundary is unaccounted for"
+    assert document.blocking == blocking, "every material boundary is unaccounted for"
+    assert document.counts.attention == len(blocking)
     assert blocking, "the example is here to produce something to account for"
     assert code == 1
     assert document.exit_code == 1
 
 
-def test_baselining_the_first_run_makes_the_next_one_clean(settled: Harness) -> None:
-    """Run two is quieter than run one, and only because somebody said so."""
+def test_a_second_run_over_untouched_code_carries_everything_and_is_clean(
+    settled: Harness,
+) -> None:
+    """Run two is quieter than run one, and not because anybody pressed a button.
+
+    The boundaries are still material and still undecided — nobody has agreed with anything —
+    and the check passes because nothing about them moved. That is the delta replacing the
+    baseline: quiet by knowing, rather than quiet by declaration.
+    """
 
     first_code, first = settled.document()
     assert first_code == 1
 
-    runtime = settled.runtime()
-    outcome = runtime.baseline_service.baseline_review(first.review_id)
-    assert outcome.branch_id == first.branch_id
-    assert outcome.baseline_size == len(first.boundaries)
-
     code, document = settled.document()
 
-    assert document.counts.new == 0
-    assert document.counts.changed == 0
-    assert document.counts.known == len(document.boundaries)
-    assert document.baseline_size == len(document.boundaries)
+    assert document.first_revision is False
+    assert document.previous_review_id == first.review_id
+    assert document.counts.judged == 0
+    assert document.counts.carried == len(document.boundaries)
     assert document.blocking == []
     assert code == 0
     # The verdicts were not reached a second time. Nothing in the repository moved, so the
     # cache answered and the document says so rather than implying a fresh judgement.
     assert document.counts.verdicts_reused == document.counts.verdicts_total
+
+
+def test_adopting_a_repository_by_deciding_in_bulk_makes_the_check_clean(
+    settled: Harness,
+) -> None:
+    """The replacement for bulk baselining, asserted where it matters: through the check.
+
+    Every boundary the first run blocked on is accepted in one act with one author, and the
+    next run has nothing to account for — with a name behind every silence, which is what the
+    baseline could never supply.
+    """
+
+    _, first = settled.document()
+    assert first.blocking
+    assert first.branch_id is not None
+
+    assert _adopt(settled, first, first.branch_id) == first.counts.attention
+
+    code, document = settled.document()
+
+    assert document.counts.attention == 0
+    assert document.blocking == []
+    assert code == 0
+    assert all(
+        item.decision is not None and item.decision.author == "Deniz"
+        for item in document.boundaries
+        if item.material
+    ), "the silence names who bought it"
 
 
 def test_a_waiver_on_the_base_branch_silences_a_new_boundary_without_hiding_it(
@@ -222,7 +282,7 @@ def test_a_waiver_on_the_base_branch_silences_a_new_boundary_without_hiding_it(
     code, document = settled.document()
 
     after = next(item for item in document.boundaries if item.reference == waived)
-    assert after.disposition.value == "new", "a waiver is not a baseline"
+    assert after.needs_attention is False, "a decision is what makes a boundary quiet"
     assert after.blocking is False
     assert waived not in document.blocking
     assert after.decision is not None
@@ -274,7 +334,11 @@ def test_the_comment_file_carries_the_marker_and_the_verdicts_verbatim(
     assert code == 1
     comment = comment_path.read_text(encoding="utf-8")
     assert comment.splitlines()[0] == COMMENT_MARKER
-    surfaced = [item for item in document.boundaries if item.disposition.value != "known"]
+    surfaced = [
+        item
+        for item in document.boundaries
+        if item.delta_state is not BoundaryState.CARRIED
+    ]
     for item in surfaced:
         assert item.verdict_label in comment
     assert document.review_id in comment
@@ -305,16 +369,23 @@ def test_the_run_is_filed_under_the_branch_it_was_told_it_is_on(settled: Harness
     assert code == 1
 
 
-def test_a_pull_request_branch_reads_the_base_branch_baseline(settled: Harness) -> None:
-    """The point of naming a base branch: a fresh lineage is not a fresh repository."""
+def test_a_pull_request_branch_reads_the_base_branch_standings(settled: Harness) -> None:
+    """The point of the read-through: a fresh lineage is not a fresh repository.
+
+    The feature branch has decided nothing and has no previous revision of its own, so every
+    boundary is judged on it — and none of them blocks, because what `main` accepted applies
+    here until this branch says otherwise.
+    """
 
     _, first = settled.document()
-    settled.runtime().baseline_service.baseline_review(first.review_id)
+    assert first.branch_id is not None
+    _adopt(settled, first, first.branch_id)
 
     code, document = settled.document("--branch", "feature/split")
 
     assert document.branch_id != document.base_branch_id
-    assert document.counts.known == len(document.boundaries)
+    assert document.first_revision is True, "the branch's own line starts here"
+    assert document.counts.attention == 0
     assert document.blocking == []
     assert code == 0
 
@@ -326,5 +397,6 @@ def test_the_human_summary_leads_with_the_partition(settled: Harness) -> None:
     code, output = settled.ci()
 
     assert code == 1
-    assert "new, 0 changed, 0 known" in output
+    assert "0 carried, " in output
+    assert "needing attention" in output
     assert "held on an open question" in output

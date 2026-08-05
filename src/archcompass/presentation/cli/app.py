@@ -378,8 +378,9 @@ def ci(
         typer.Option(
             "--base-branch",
             help=(
-                "The branch whose baseline and standing decisions this run is measured "
-                "against. A pull request branch starts with an empty baseline of its own."
+                "The branch whose standing decisions this run also reads. Worth naming when "
+                "the workspace has never indexed the branch this one was cut from, which is "
+                "the ordinary shape of a pull request checked out by a pipeline."
             ),
         ),
     ] = DEFAULT_BRANCH_NAME,
@@ -427,16 +428,19 @@ def ci(
         ),
     ] = FailOn.NEW_MATERIAL,
 ) -> None:
-    """Review this checkout without asking anyone anything, and exit on what is new.
+    """Review this checkout without asking anyone anything, and exit on what needs attention.
 
     The disciplined sibling of `review`: one pass, no questions, and a summary that leads
-    with how much of what it found was already known. A run that would have asked reports
-    the held verdicts with their questions and does not block on them — nobody is here to
-    answer, and failing a pull request over an unasked question is how a check gets
-    switched off.
+    with the revision partition — how much carried untouched, how much this revision judged,
+    what closed. A run that would have asked reports the held verdicts with their questions
+    and does not block on them: nobody is here to answer, and failing a pull request over an
+    unasked question is how a check gets switched off.
 
-    Exit codes: 0 when nothing new needs accounting for, 1 when something does, 2 for a run
-    that could not happen at all.
+    What blocks is a boundary this revision judged that is material and that nobody has
+    decided about — accepted, waived or parked — read through the branch this one came from.
+
+    Exit codes: 0 when nothing needs accounting for, 1 when something does, 2 for a run that
+    could not happen at all.
     """
 
     state = _state(context)

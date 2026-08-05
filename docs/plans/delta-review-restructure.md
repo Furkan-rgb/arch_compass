@@ -56,6 +56,35 @@ read through to the base branch; CI blocks on exactly that.
 5. CI blocks on material + undecided (through read-through) and speaks the partition
    (attention / quiet / succeeded / addressed) in its comment.
 
+### Phase B, as built — the choices the doc did not make
+
+Five, recorded here because mechanics forced them and the architecture doc is silent:
+
+1. **The default branch is the name, not a lookup.** A branch lineage's base is set to
+   `DEFAULT_BRANCH_NAME` (`main`) when both lineages exist, resolved lazily on every index
+   rather than only at creation, so "index main first" and "index the feature branch first"
+   reach the same place. `origin/HEAD` was rejected: it is a local cache of a remote's
+   opinion, absent from most clones and from every checkout with no remote, and attaching a
+   team's inheritance to the wrong branch is worse than attaching it to none. A team on
+   `trunk` or `develop` therefore inherits nothing until a branch's base is something a
+   person can state.
+2. **Parking silences.** `needs_attention = material AND no standing decision` is taken
+   literally, so accepted, waived *and* parked all make a boundary quiet — decision 4's own
+   list. This reverses the old CI rule, where parked still blocked.
+3. **The standing lookup follows a succession.** A boundary reads its own fingerprint first
+   and then the fingerprint it `succeeds`. Without it, renaming a participant would re-open a
+   decided boundary, and "the standing carries across" would be recorded and never applied.
+4. **A succeeded boundary never blocks**, for the same reason a carried one does not: the
+   rename is not what this change introduced, and the succession lookup above is what stops
+   that being a way to dodge the check.
+5. **The case reads through, the delta does not.** A branch inherits its base's case (the
+   backbone — re-asking answered questions is the failure continuity exists to prevent) and
+   never its line of revisions. `test_two_branches_of_one_repository_are_two_lines` was
+   written in Phase A asserting the opposite about the case and is updated here.
+
+Also: the CI document is `schema_version: 2`. `new`/`changed`/`known` and `baseline_size`
+were not renamed, they stopped being true.
+
 ## Phase C — frontend (main session, after A and B)
 
 Repositories-first navigation: a repositories surface; a repository page with branch

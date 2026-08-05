@@ -14,14 +14,21 @@ blocking. The clarifications already on the case are what carries an answered qu
 forward — nothing here re-asks, and nothing here answers on anybody's behalf.
 
 *A branch is measured against the branch it came from.* A pull request opens a fresh lineage
-with an empty baseline, so measuring it against itself would call every boundary in the
-repository new on every pull request — the wall of noise the baseline exists to prevent. The
-comparison is against an explicitly named base branch, and its standing decisions are read
-the same way, because a boundary waived on `main` was waived for the pull request too.
+that has decided nothing, so measuring it against itself would re-open every boundary the
+repository settled on `main` years ago. The standings are read through the base chain, and
+through the branch this run was told to compare against, because a boundary waived on `main`
+was waived for the pull request too.
 
-*Only new adverse boundaries fail the check.* Everything else is information. A team must be
-able to switch this on before it has agreed with anything the tool says, which is what
-`FailOn.NOTHING` is for, and ratchet it to blocking once it has.
+*Only boundaries this revision put on the table can fail the check.* Everything else is
+information. A team must be able to switch this on before it has agreed with anything the tool
+says, which is what `FailOn.NOTHING` is for, and ratchet it to blocking once it has.
+
+The document speaks the partition rather than a baseline comparison. `new`, `changed` and
+`known` are gone with the baseline that gave them their meaning: a revision reports what it
+carried, what it judged, what it matched across a rename, and what closed — and, cutting
+across all of that, which boundaries still need somebody's attention. That last number is the
+one a pipeline acts on, and it is defined once, in `application/standings.py`, so the check and
+the workspace cannot disagree about what is outstanding.
 """
 
 from __future__ import annotations
@@ -33,12 +40,12 @@ from typing import Literal
 
 from pydantic import Field
 
-from archcompass.application.baseline import BaselineService
 from archcompass.application.repository_index import RepositoryIndexService
 from archcompass.application.reviews import ReviewService
+from archcompass.application.standings import needs_attention, standing_for
 from archcompass.application.triage import TriageService
 from archcompass.domain.base import DomainModel
-from archcompass.domain.baseline import BaselineEntry, BoundaryDisposition, disposition_of
+from archcompass.domain.delta import AddressedBoundary, BoundaryState, JudgedBecause
 from archcompass.domain.errors import ReviewHasNoReportError
 from archcompass.domain.lineage import DEFAULT_BRANCH_NAME, derive_branch_id
 from archcompass.domain.review import (
@@ -48,11 +55,6 @@ from archcompass.domain.review import (
     ReviewStatus,
 )
 from archcompass.domain.triage import DecisionState, StandingDecision
-from archcompass.ports.repositories import LineageRepository
-
-#: The two dispositions that make a boundary its own team's problem. Anything else has been
-#: seen before under this exact structure, and re-raising it is what makes a check ignorable.
-_SILENCING = frozenset({DecisionState.ACCEPTED, DecisionState.WAIVED})
 
 #: Exit codes, named once. `2` is the CLI's existing convention for an operational failure and
 #: is never produced here — a document that got far enough to exist reports 0 or 1, and 2 is
@@ -69,8 +71,8 @@ class FailOn(StrEnum):
     check to be tuned instead of the code being fixed.
     """
 
-    #: New, material, undecided and settled: a boundary nobody has seen, the advisor thinks
-    #: is costing more than it earns, and no answer is outstanding on.
+    #: A boundary this revision judged, that the advisor thinks is costing more than it earns,
+    #: that nobody has decided about, and that is not resting on an unanswered question.
     NEW_MATERIAL = "new-material"
     #: Report everything, fail for nothing. Adoption mode, and the honest way to start.
     NOTHING = "nothing"
@@ -89,7 +91,8 @@ class CiDecision(DomainModel):
     state: DecisionState
     author: str
     reason: str | None = None
-    #: The branch the decision is held on, which is the base branch rather than this run's.
+    #: The branch the decision is held on, which may be a base branch rather than this run's:
+    #: an inherited decision names where it was actually taken.
     branch_id: str
     #: Whether the decision was taken against a verdict saying what this run's verdict says.
     taken_on_this_verdict: bool
@@ -121,7 +124,16 @@ class CiBoundary(DomainModel):
     #: Absent only on a review stored before fingerprints existed, which a CI run cannot
     #: produce. Carried as optional because the boundary it is copied from carries it that way.
     fingerprint: str | None = None
-    disposition: BoundaryDisposition
+    #: Where this boundary stands against the branch's previous revision, copied off the
+    #: stored review rather than recomputed. `None` on a run that had nothing to compare with —
+    #: no branch lineage — which is not the same as having compared and found no difference.
+    delta_state: BoundaryState | None = None
+    #: Which input moved, where this revision did not carry the boundary. Named rather than
+    #: left as "changed", so a reader is never told their code moved when the model did.
+    judged_because: JudgedBecause | None = None
+    #: The fingerprint this boundary succeeded, where a rename was matched. What the standing
+    #: was carried across from.
+    succeeds: str | None = None
     material: bool
     verdict_label: str
     rationale: str
@@ -132,6 +144,10 @@ class CiBoundary(DomainModel):
     #: The questions whose answers would settle this verdict. Empty unless holding.
     questions: list[CiQuestion] = Field(default_factory=list[CiQuestion])
     decision: CiDecision | None = None
+    #: Material and undecided: the boundary is still asking something of the team. Reported
+    #: separately from `blocking`, because a held boundary needs attention and cannot fail a
+    #: pipeline, and telling a reader those are the same thing would be false either way.
+    needs_attention: bool = False
     #: The review this verdict was first reached in, when it was reused rather than reached
     #: again. `None` means the model was asked about this boundary during this run.
     verdict_reused_from: str | None = None
@@ -140,14 +156,23 @@ class CiBoundary(DomainModel):
 
 
 class CiCounts(DomainModel):
-    """How this run's boundaries divide. `new + changed + known` is every boundary reviewed."""
+    """How this run's boundaries divide.
 
-    new: int = 0
-    changed: int = 0
-    known: int = 0
-    #: Boundaries whose verdict is held on an open question. Counted across the other three
-    #: rather than beside them: a held boundary is still new or known, and holding is a fact
-    #: about the verdict rather than a fourth place to stand.
+    `carried + judged + succeeded` is every boundary reviewed; `addressed` counts lines that
+    closed and therefore have no row in the report at all. `attention` and `holding` cut
+    across the rest rather than sitting beside them — a boundary that needs attention is still
+    carried or judged, and where it stands and whether anyone has answered it are two
+    different questions.
+    """
+
+    carried: int = 0
+    judged: int = 0
+    succeeded: int = 0
+    addressed: int = 0
+    #: How many of the judged boundaries are fingerprints this branch closed and that are back.
+    resurfaced: int = 0
+    #: Material and undecided, through the read-through. The number a team acts on.
+    attention: int = 0
     holding: int = 0
     #: How many verdicts were reused from an earlier run, and how many there were in total.
     #: The pair rather than a ratio, so a reader can see "3 of 47" and not a percentage.
@@ -158,13 +183,17 @@ class CiCounts(DomainModel):
 class CiRun(DomainModel):
     """What one headless run found, in the form a pipeline consumes it.
 
-    Stable by intent: this document is what an Action parses and what a team writes assertions
-    against, so fields are added and not re-meant. It is computed, never stored — the review
-    behind it is the record, and where its boundaries stand against a baseline is a fact about
-    now that changes the moment somebody baselines or waives something.
+    Version 2. The baseline is gone and the document that spoke in its vocabulary had to go
+    with it: `new`/`changed`/`known` and `baseline_size` are not renamed here, they stopped
+    being true. What replaces them is the revision partition, which is a statement about two
+    immutable revisions rather than about what somebody has pressed a button on since.
+
+    Computed, never stored — the review behind it is the record. The partition is read off
+    that record rather than recomputed; what is genuinely computed here is where each boundary
+    stands with the team, which is a fact about now.
     """
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     case_id: str
     case_title: str
     review_id: str
@@ -173,18 +202,22 @@ class CiRun(DomainModel):
     #: The lineage this run wrote to: the branch under review.
     branch_id: str | None = None
     branch_name: str | None = None
-    #: The lineage this run read from: the branch whose baseline and decisions it measured
-    #: against. `branch_id` when a run is on its own base branch, which is the ordinary shape
-    #: of a scheduled run on `main`.
+    #: The lineage this run also read standings from. `branch_id` when a run is on its own base
+    #: branch, which is the ordinary shape of a scheduled run on `main`.
     base_branch_name: str
     base_branch_id: str | None = None
     atlas_version_id: str
     reasoning_model: str
-    #: How many entries the base branch's baseline held when this run read it. Zero on a
-    #: repository nobody has adopted yet, which is why a first run reports everything as new.
-    baseline_size: int = 0
+    #: The revision this one was judged against, and whether there was one. A first revision
+    #: judges everything, and none of that means anything moved.
+    previous_review_id: str | None = None
+    first_revision: bool = True
     counts: CiCounts
     boundaries: list[CiBoundary] = Field(default_factory=list[CiBoundary])
+    #: The lines that closed: present in the previous revision, matched by nothing here. The
+    #: best news the tool has to deliver, and the only part of the partition with no row in
+    #: `boundaries` — an addressed boundary was not detected in this run.
+    addressed: list[AddressedBoundary] = Field(default_factory=list[AddressedBoundary])
     #: The references of every blocking boundary, in report order. Empty is the clean run.
     blocking: list[str] = Field(default_factory=list[str])
     fail_on: FailOn
@@ -192,18 +225,22 @@ class CiRun(DomainModel):
 
     @property
     def surfaced(self) -> list[CiBoundary]:
-        """New and changed boundaries, in report order: what this run is actually about.
+        """Everything this revision did not carry, in report order: what the run is about.
 
-        Known boundaries are counted and not listed. They are neither hidden nor repeated —
+        Carried boundaries are counted and not listed. They are neither hidden nor repeated —
         the count is a claim a reader can go and audit in the workspace — and a check that
         re-presented forty of them on every push would be read exactly once.
         """
 
         return [
-            item
-            for item in self.boundaries
-            if item.disposition is not BoundaryDisposition.KNOWN
+            item for item in self.boundaries if item.delta_state is not BoundaryState.CARRIED
         ]
+
+    @property
+    def attention(self) -> list[CiBoundary]:
+        """Material and undecided, wherever it stands in the partition."""
+
+        return [item for item in self.boundaries if item.needs_attention]
 
     @property
     def held(self) -> list[CiBoundary]:
@@ -218,15 +255,11 @@ class CiRunService:
         *,
         repositories: RepositoryIndexService,
         reviews: ReviewService,
-        baselines: BaselineService,
         triage: TriageService,
-        lineages: LineageRepository,
     ) -> None:
         self._repositories = repositories
         self._reviews = reviews
-        self._baselines = baselines
         self._triage = triage
-        self._lineages = lineages
 
     def run(
         self,
@@ -262,13 +295,13 @@ class CiRunService:
             if version.repo_id is not None
             else None
         )
-        baseline = self._baselines.for_branch(base_branch_id) if base_branch_id else {}
-        decisions = self._decisions_on(base_branch_id)
+        standings = self._standings(review.branch_id, base_branch_id)
         boundaries = [
-            _entry(item, baseline, decisions, questions=report.overview.open_questions)
+            _entry(item, standings, questions=report.overview.open_questions)
             for item in report.reviewed
         ]
         blocking = [item.reference for item in boundaries if item.blocking]
+        delta = report.delta
         return CiRun(
             case_id=review.case_id,
             case_title=report.case_title,
@@ -281,30 +314,34 @@ class CiRunService:
             base_branch_id=base_branch_id,
             atlas_version_id=review.atlas_version_id,
             reasoning_model=review.reasoning_model,
-            baseline_size=len(baseline),
+            previous_review_id=None if delta is None else delta.previous_review_id,
+            first_revision=True if delta is None else delta.first_revision,
             counts=_counts(boundaries, report),
             boundaries=boundaries,
+            addressed=[] if delta is None else list(delta.addressed_boundaries),
             blocking=blocking,
             fail_on=fail_on,
             exit_code=exit_code_for(blocking, fail_on),
         )
 
-    def _decisions_on(self, branch_id: str | None) -> dict[str, StandingDecision]:
-        """What the base branch currently thinks, keyed by boundary fingerprint.
+    def _standings(
+        self, branch_id: str | None, base_branch_id: str | None
+    ) -> dict[str, StandingDecision]:
+        """What governs this run's boundaries: the branch's own chain, over the named base's.
 
-        A base branch nobody has indexed in this workspace has no lineage row, and that is an
-        ordinary state rather than an error: the first pull request against a fresh repository
-        reaches this, and the honest answer is that nobody has decided anything. Asking the
-        triage service would raise instead, because a *write* to an unknown branch is a
-        mistake worth refusing and a read of one is not.
+        Two reads rather than one, because the two answers come from different places and both
+        are legitimate. The chain is what the workspace recorded — a branch pointed at the
+        branch it was cut from — and `--base-branch` is what the pipeline states, which is the
+        only signal available when the workspace has never seen the base branch at all. Where
+        they agree, which is the ordinary scheduled run on `main`, the merge is a no-op.
+
+        The run's own branch is applied last and therefore wins, which is the same rule the
+        chain follows internally: the nearest opinion governs.
         """
 
-        if branch_id is None or self._lineages.get_branch(branch_id) is None:
-            return {}
-        return {
-            decision.boundary_fingerprint: decision
-            for decision in self._triage.decisions_for_branch(branch_id)
-        }
+        standings = self._triage.standings_for_branch(base_branch_id)
+        standings.update(self._triage.standings_for_branch(branch_id))
+        return standings
 
 
 def exit_code_for(blocking: Sequence[str], fail_on: FailOn) -> int:
@@ -317,20 +354,19 @@ def exit_code_for(blocking: Sequence[str], fail_on: FailOn) -> int:
 
 def _entry(
     boundary: ReviewedBoundary,
-    baseline: Mapping[str, BaselineEntry],
-    decisions: Mapping[str, StandingDecision],
+    standings: Mapping[str, StandingDecision],
     *,
     questions: Sequence[OpenQuestion],
 ) -> CiBoundary:
-    disposition = disposition_of(boundary, baseline)
-    decision = (
-        decisions.get(boundary.fingerprint) if boundary.fingerprint is not None else None
-    )
+    decision = standing_for(boundary, standings)
     holding = boundary.hinge is not None
+    attention = needs_attention(boundary, standings)
     return CiBoundary(
         reference=boundary.reference,
         fingerprint=boundary.fingerprint,
-        disposition=disposition,
+        delta_state=boundary.delta_state,
+        judged_because=boundary.judged_because,
+        succeeds=boundary.succeeds,
         material=boundary.material,
         verdict_label=boundary.verdict_label,
         rationale=boundary.rationale,
@@ -346,41 +382,45 @@ def _entry(
             if holding and boundary.reference in question.supporting_references
         ],
         decision=_joined(decision, boundary),
+        needs_attention=attention,
         verdict_reused_from=boundary.verdict_reused_from,
         blocking=is_blocking(
-            disposition=disposition,
-            material=boundary.material,
+            delta_state=boundary.delta_state,
+            needs_attention=attention,
             holding=holding,
-            decision=decision,
         ),
     )
 
 
 def is_blocking(
     *,
-    disposition: BoundaryDisposition,
-    material: bool,
+    delta_state: BoundaryState | None,
+    needs_attention: bool,
     holding: bool,
-    decision: StandingDecision | None,
 ) -> bool:
     """Whether one boundary alone should fail the check.
 
-    Four conditions, and each excludes a different way of being unfair. *New*, because a
-    boundary the base branch has already seen is not something this change introduced.
-    *Material*, because a cleared verdict is evidence the advisor looked and not a finding.
-    *Undecided*, because a team that accepted or waived this exact structure has already
-    answered — a parked boundary has not, which is what parking means. *Settled*, because a
-    verdict resting on a question nobody was asked is not a basis for stopping anyone.
+    Three conditions, and each excludes a different way of being unfair. *This revision put it
+    on the table*, because a boundary that carried is one nothing has moved under since the
+    last run said its piece — and a boundary that carried its standing across a rename is not
+    something this change introduced either. *Needs attention*, which is material and undecided
+    read through the base branch: a cleared verdict is evidence the advisor looked rather than
+    a finding, and a team that accepted, waived or parked this structure has already answered.
+    *Settled*, because a verdict resting on a question nobody was asked is not a basis for
+    stopping anyone.
+
+    A boundary with no partition at all — a run whose atlas predates branch lineages, so there
+    was no previous revision to compare with — counts as judged. That is what the run itself
+    does with it: everything is on the table when nothing could be compared, which is exactly
+    the state a first run is in.
 
     Deliberately blind to `fail_on`: this says what the boundary is, and the run decides what
     to do about it. Mixing the two would make a boundary's own status depend on a flag.
     """
 
-    if disposition is not BoundaryDisposition.NEW:
+    if delta_state in (BoundaryState.CARRIED, BoundaryState.SUCCEEDED):
         return False
-    if not material or holding:
-        return False
-    return decision is None or decision.state not in _SILENCING
+    return needs_attention and not holding
 
 
 def _joined(decision: StandingDecision | None, boundary: ReviewedBoundary) -> CiDecision | None:
@@ -399,13 +439,19 @@ def _joined(decision: StandingDecision | None, boundary: ReviewedBoundary) -> Ci
 
 
 def _counts(boundaries: Sequence[CiBoundary], report: BoundaryReviewReport) -> CiCounts:
-    totals = dict.fromkeys(BoundaryDisposition, 0)
+    delta = report.delta
+    totals = dict.fromkeys(BoundaryState, 0)
     for item in boundaries:
-        totals[item.disposition] += 1
+        # `None` is the run that could not partition itself, and it is counted as judged for
+        # the reason `is_blocking` treats it as judged: everything was on the table.
+        totals[item.delta_state or BoundaryState.JUDGED] += 1
     return CiCounts(
-        new=totals[BoundaryDisposition.NEW],
-        changed=totals[BoundaryDisposition.CHANGED],
-        known=totals[BoundaryDisposition.KNOWN],
+        carried=totals[BoundaryState.CARRIED],
+        judged=totals[BoundaryState.JUDGED],
+        succeeded=totals[BoundaryState.SUCCEEDED],
+        addressed=0 if delta is None else delta.addressed,
+        resurfaced=0 if delta is None else delta.resurfaced,
+        attention=sum(1 for item in boundaries if item.needs_attention),
         holding=sum(1 for item in boundaries if item.holding),
         verdicts_reused=sum(
             1 for item in report.reviewed if item.verdict_reused_from is not None

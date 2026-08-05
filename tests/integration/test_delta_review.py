@@ -568,12 +568,18 @@ def test_elicitation_is_shown_only_the_boundaries_this_revision_judged(
 def test_two_branches_of_one_repository_are_two_lines(
     workspace: Runtime, repository: Path
 ) -> None:
-    """Continuity, standings and the delta all scope to the branch, so the partition must too.
+    """The delta scopes to the branch even where the case does not.
 
     A feature branch's first revision compares against nothing, however much has been reviewed
     on `main`. Comparing across would tell a branch that boundaries it never touched are its
     own carried work — and, the other way round, would let `main`'s history close lines the
     branch still has.
+
+    The case is the deliberate exception, and this is where the two rules sit side by side.
+    A branch reads through to the one it came from for the *backbone* — the answers on `main`
+    are about this code, and re-asking them would be the failure continuity exists to prevent
+    — while the line of revisions stays its own. What a branch inherits is context; what it
+    owns is its history.
     """
 
     on_main = workspace.repository_service.index(repository)
@@ -589,11 +595,11 @@ def test_two_branches_of_one_repository_are_two_lines(
     ).case_id
 
     assert on_feature.branch_id != on_main.branch_id
-    assert feature_case != main_case, "a new branch is a new conversation, not main's"
+    assert feature_case == main_case, "the branch reads main's case through, rather than blank"
     second = workspace.review_service.review(feature_case, repository_root=repository)
     delta = _report(second).delta
     assert delta is not None
-    assert delta.first_revision is True
+    assert delta.first_revision is True, "the branch's own line starts here"
     assert delta.previous_review_id is None
     assert delta.carried == 0
     assert first.branch_id == on_main.branch_id

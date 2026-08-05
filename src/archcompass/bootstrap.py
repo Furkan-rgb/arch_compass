@@ -24,7 +24,6 @@ from archcompass.adapters.models import (
 )
 from archcompass.adapters.persistence import (
     SQLiteAtlasRepository,
-    SQLiteBaselineRepository,
     SQLiteBoundaryLineRepository,
     SQLiteBoundaryReviewRepository,
     SQLiteCaseRepository,
@@ -44,7 +43,6 @@ from archcompass.adapters.retrieval import (
 from archcompass.adapters.vcs import GitCommandLineClient
 from archcompass.application.atlas_freshness import AtlasFreshnessService
 from archcompass.application.atlas_queries import AtlasService
-from archcompass.application.baseline import BaselineService
 from archcompass.application.bundled_examples import BundledExampleService
 from archcompass.application.cases import CaseService
 from archcompass.application.checkouts import RepositoryCheckoutService
@@ -69,7 +67,6 @@ from archcompass.ports.model_catalog import ProviderDescriptor
 from archcompass.ports.reasoning import FocusedReasoningProvider
 from archcompass.ports.repositories import (
     AtlasRepository,
-    BaselineRepository,
     BoundaryLineRepository,
     BoundaryReviewRepository,
     CaseRepository,
@@ -113,7 +110,6 @@ class Runtime:
     lineage_repository: LineageRepository
     review_repository: BoundaryReviewRepository
     verdict_cache_repository: VerdictCacheRepository
-    baseline_repository: BaselineRepository
     boundary_line_repository: BoundaryLineRepository
     review_conversation_service: ReviewConversationService
     review_source_service: ReviewSourceService
@@ -127,7 +123,6 @@ class Runtime:
     atlas_service: AtlasService
     review_service: ReviewService
     triage_service: TriageService
-    baseline_service: BaselineService
     ci_service: CiRunService
     checkout_service: RepositoryCheckoutService
     freshness_service: AtlasFreshnessService
@@ -170,7 +165,6 @@ def build_runtime(
     lineages = SQLiteLineageRepository(database)
     reviews = SQLiteBoundaryReviewRepository(database)
     verdict_cache = SQLiteVerdictCacheRepository(database)
-    baselines = SQLiteBaselineRepository(database)
     boundary_lines = SQLiteBoundaryLineRepository(database)
     review_conversations = SQLiteReviewConversationRepository(database)
     standing_decisions = SQLiteStandingDecisionRepository(database)
@@ -208,7 +202,7 @@ def build_runtime(
         authored_source=canonical_workspace / AUTHORED_POLICY_DIRECTORY,
         policy_store=MarkdownPolicyStore(),
     )
-    case_service = CaseService(cases, reviews)
+    case_service = CaseService(cases, reviews, lineages)
     repository_service = RepositoryIndexService(
         analyzer=analyzer,
         atlases=atlases,
@@ -251,13 +245,10 @@ def build_runtime(
         decisions=standing_decisions,
         lineages=lineages,
     )
-    baseline_service = BaselineService(reviews=reviews, baselines=baselines)
     ci_service = CiRunService(
         repositories=repository_service,
         reviews=review_service,
-        baselines=baseline_service,
         triage=triage_service,
-        lineages=lineages,
     )
     checkout_service = RepositoryCheckoutService(
         git=GitCommandLineClient(),
@@ -271,7 +262,6 @@ def build_runtime(
         lineage_repository=lineages,
         review_repository=reviews,
         verdict_cache_repository=verdict_cache,
-        baseline_repository=baselines,
         boundary_line_repository=boundary_lines,
         review_conversation_service=review_conversation_service,
         review_source_service=review_source_service,
@@ -285,7 +275,6 @@ def build_runtime(
         atlas_service=atlas_service,
         review_service=review_service,
         triage_service=triage_service,
-        baseline_service=baseline_service,
         ci_service=ci_service,
         checkout_service=checkout_service,
         freshness_service=freshness,

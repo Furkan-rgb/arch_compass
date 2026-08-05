@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 import type {
   BoundaryTriage,
   DecisionState,
-  ReviewedBoundaryDetail,
+  ReviewedBoundary,
 } from "@/types";
 
 /** The last name decisions and remarks were signed with, kept on this browser.
@@ -96,37 +96,6 @@ export function DecisionMark({ triage }: { triage: BoundaryTriage | undefined })
 }
 
 /**
- * Where one boundary stands against its branch's baseline: NEW and CHANGED speak,
- * `known` is silent. A baselined boundary is the ledger's resting state — marking all
- * of them would make run two exactly as loud as run one, which is what the baseline
- * exists to prevent.
- */
-export function DispositionChip({
-  disposition,
-}: {
-  disposition: ReviewedBoundaryDetail["disposition"];
-}) {
-  if (disposition !== "new" && disposition !== "changed") return null;
-  return (
-    <span
-      className={cn(
-        "rounded-pill px-2 py-0.5 text-micro font-[650] tracking-[.06em] whitespace-nowrap uppercase",
-        disposition === "new"
-          ? "bg-accent-soft text-accent-ink"
-          : "bg-material-soft text-material",
-      )}
-      title={
-        disposition === "new"
-          ? "Not in this branch's baseline: first time this structure has been seen."
-          : "In the baseline, but the verdict moved since it was recorded."
-      }
-    >
-      {disposition}
-    </span>
-  );
-}
-
-/**
  * The standing footer of an open row: the decision as it stands, the control to change
  * it, and the discussion under both.
  *
@@ -140,7 +109,7 @@ export function StandingFooter({
   branchId,
   reviewId,
 }: {
-  boundary: ReviewedBoundaryDetail;
+  boundary: ReviewedBoundary;
   triage: BoundaryTriage | undefined;
   /** Absent on a review from before branch lineages: with no branch there is nothing to
       file a decision under, and the footer says so instead of guessing. */

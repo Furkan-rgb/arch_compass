@@ -151,7 +151,7 @@ class CachedVerdict(DomainModel):
     cache_key: str = Field(min_length=1)
     #: Kept beside the key although the key already covers it. The key is a hash of six
     #: things and cannot be taken apart; this column is what lets everything a boundary has
-    #: ever been judged as be found — the baseline and triage work of §3 and §4 asks that
+    #: ever been judged as be found — the triage work of §4 asks that
     #: question, and a cache that could only be probed one full key at a time could not
     #: answer it.
     boundary_fingerprint: str = Field(min_length=1)

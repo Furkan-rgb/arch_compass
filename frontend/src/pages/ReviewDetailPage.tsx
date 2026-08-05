@@ -139,67 +139,6 @@ function PassesRail({
  * could produce, and it is also the thing a reader checks *after* seeing which boundaries it
  * is talking about — the citations lead back up into the rows.
  */
-/**
- * The branch's memory of this run, and the action that writes it.
- *
- * One sentence and one button. The counts name the partition the server computed — new,
- * changed, known — and the button declares everything here seen, which is the adoption
- * move that makes run two quieter than run one. The button is loud (primary) exactly once:
- * when nothing is known yet, which is the moment a team adopts a repository. After that
- * re-baselining is routine and the control goes quiet.
- */
-function BaselineBar({
-  review,
-  onBaseline,
-  pending,
-  error,
-}: {
-  review: ReviewDetail;
-  onBaseline: () => void;
-  pending: boolean;
-  error: Error | null;
-}) {
-  const summary = review.baseline_summary;
-  if (!review.branch_id || !summary) return null;
-  const adopting = summary.known === 0 && summary.changed === 0;
-  const parts = [
-    `${summary.new} new`,
-    `${summary.changed} changed`,
-    `${summary.known} known`,
-  ].join(" · ");
-  return (
-    <section
-      aria-label="Baseline"
-      className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-panel [border:var(--sheet-border)] bg-surface px-[var(--row-pad-x)] py-3"
-    >
-      <p className="m-0 text-ui text-ink-2">
-        <strong className="text-ink">{parts}</strong>{" "}
-        against this branch&apos;s baseline.
-        {adopting ? (
-          <span className="ml-1 text-ink-3">
-            Nothing is known yet — baselining this review is how run two gets quieter than
-            run one.
-          </span>
-        ) : null}
-      </p>
-      <Button
-        type="button"
-        variant={adopting ? "primary" : "default"}
-        className="ml-auto"
-        disabled={pending}
-        onClick={onBaseline}
-      >
-        {pending ? "Recording…" : "Baseline this review"}
-      </Button>
-      {error ? (
-        <p role="alert" className="m-0 w-full text-meta text-material">
-          {error.message}
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
 export function Overview({ overview }: { overview: ReviewOverview }) {
   const themes = overview.themes || [];
   const sequence = overview.recommended_sequence || [];
@@ -809,14 +748,6 @@ export function ReviewDetailPage() {
     (review.data?.boundary_triage ?? []).map((entry) => [entry.reference, entry]),
   );
 
-  // Declaring this run's boundaries seen is one call; the review is then re-read so every
-  // disposition and the summary move together rather than being patched locally.
-  const baseline = useMutation({
-    mutationFn: () => api.baselineReview(reviewId),
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ["review", reviewId] });
-    },
-  });
   const references = reviewed.map((item) => item.reference).join(" ");
 
   /**
@@ -1098,16 +1029,6 @@ export function ReviewDetailPage() {
                 total={reviewed.length}
                 questions={askedEarlier}
                 answered={answered}
-              />
-            ) : null}
-            {/* Between "what changed" and the rows it talks about: the branch's memory of
-                this run. Absent while running — the partition reads the record. */}
-            {review.data && !running ? (
-              <BaselineBar
-                review={review.data}
-                onBaseline={() => baseline.mutate()}
-                pending={baseline.isPending}
-                error={baseline.error instanceof Error ? baseline.error : null}
               />
             ) : null}
             {running ? (

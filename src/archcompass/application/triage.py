@@ -10,10 +10,19 @@ Nothing in this module is reachable from a review. `ReviewService` never reads d
 this never reads verdicts — the verdict context on a decision arrives as data from the caller
 who was looking at it. That separation is the design's one invariant: the model judges, the
 team disposes, and neither is allowed to move the other.
+
+Reading is where the standings stopped being thin. A branch answers with what it decided and,
+where it decided nothing, with what the branch it came from decided — the read-through that
+replaced the baseline as the reason a boundary is quiet. The walk itself is
+`application/standings.py`; what is here is the merge, in one place, so no caller can assemble
+a different answer to "what stands on this branch".
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
+from archcompass.application.standings import branch_chain
 from archcompass.domain.errors import BranchNotFoundError
 from archcompass.domain.triage import DecisionComment, StandingDecision
 from archcompass.ports.repositories import LineageRepository, StandingDecisionRepository
@@ -39,9 +48,60 @@ class TriageService:
         self._require_branch(decision.branch_id)
         return self._decisions.append_decision(decision)
 
+    def decide_many(
+        self, decisions: Sequence[StandingDecision]
+    ) -> list[StandingDecision]:
+        """Record one disposition over many boundaries, as many decisions, in one write.
+
+        The act a team adopting a legacy repository actually performs, and the replacement for
+        bulk baselining. The difference is the whole point: baselining silenced a list nobody
+        had to look at and recorded no author, while this writes a real decision per boundary
+        with a name on it — the same rows, the same history, the same append-only semantics as
+        deciding one at a time. Nothing here is a bulk *object*; there is no record that these
+        N decisions were taken together, because that is a fact about the afternoon rather than
+        about any boundary.
+
+        One transaction, so a partial adoption cannot exist. Half a branch decided and half not
+        would be indistinguishable from a team that had worked through half the list, and the
+        caller would have no way to find out which half.
+        """
+
+        for decision in decisions:
+            self._require_branch(decision.branch_id)
+        self._decisions.append_decisions(decisions)
+        return list(decisions)
+
+    def standings_for_branch(self, branch_id: str | None) -> dict[str, StandingDecision]:
+        """What governs this branch, keyed by fingerprint, read through to its base.
+
+        The branch's own decisions win; where it has none, the branch it came from answers.
+        Assembled by walking the chain furthest-first and letting each nearer branch overwrite,
+        which is "own always wins" expressed as an order rather than as a condition.
+
+        Tolerant of a branch nothing has stored, unlike every write here: the first pull
+        request against a fresh repository asks this about a lineage no run has ever produced,
+        and the honest answer is that nobody has decided anything. A *write* to an unknown
+        branch is a mistake worth refusing; a read of one is a question with an answer.
+        """
+
+        standings: dict[str, StandingDecision] = {}
+        for candidate in reversed(branch_chain(self._lineages, branch_id)):
+            for decision in self._decisions.current_for_branch(candidate):
+                standings[decision.boundary_fingerprint] = decision
+        return standings
+
     def decisions_for_branch(self, branch_id: str) -> list[StandingDecision]:
+        """Everything that stands on this branch, inherited entries included.
+
+        Sorted by fingerprint, as the storage layer sorts what it returns, so a listing has a
+        stable order whichever branch of the chain each row came from. An inherited decision
+        names its own `branch_id`, which is how a reader tells "we decided this" from "`main`
+        decided this and we have not disagreed".
+        """
+
         self._require_branch(branch_id)
-        return self._decisions.current_for_branch(branch_id)
+        standings = self.standings_for_branch(branch_id)
+        return [standings[key] for key in sorted(standings)]
 
     def comment_counts(self, branch_id: str) -> dict[str, int]:
         return self._decisions.comment_counts_for_branch(branch_id)

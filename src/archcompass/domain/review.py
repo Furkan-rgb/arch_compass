@@ -194,8 +194,8 @@ class ReviewedBoundary(DomainModel):
     candidate: FindingCandidate
     #: The structural identity of this boundary, which — unlike `reference` — is the same
     #: value on every run that sees the same structure. Stamped by the application from the
-    #: candidate, so a stored review can be matched against a baseline or a standing
-    #: decision without re-deriving anything from its prose.
+    #: candidate, so a stored review can be matched against a standing decision, a previous
+    #: revision or a cached verdict without re-deriving anything from its prose.
     #:
     #: Optional with a default because a stored review is validated against the current
     #: schema and nothing shims it (ADR 0002): a review written before fingerprints existed
@@ -567,8 +567,8 @@ class BoundaryReview(DomainModel):
     elicited_from: str | None = None
     #: The durable repository and branch this run was about, copied from the atlas it judged.
     #: The atlas version already pins *which checkout at which commit*; this says which line
-    #: of work that commit belongs to, which is the level baselines and standing decisions
-    #: will attach to.
+    #: of work that commit belongs to, which is the level standing decisions and the line of
+    #: revisions attach to.
     #:
     #: Optional with a default for the same reason `elicited_from` is: a stored document is
     #: validated against the current schema and nothing shims it, so every field added after

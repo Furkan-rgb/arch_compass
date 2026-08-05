@@ -26,23 +26,18 @@ export type BoundaryExcerpt = OpenAPIComponents["schemas"]["BoundaryExcerpt"];
 export type DirectoryListing = OpenAPIComponents["schemas"]["DirectoryListing"];
 
 /**
- * A review as the workspace reads it: the stored document plus what *now* knows about it —
- * each boundary's standing against its branch's baseline, and the team's decisions. Both
- * are joined on by the server at read time and never stored on the review.
+ * A review as the workspace reads it: the stored document plus the one thing *now* knows
+ * about it — the team's standing decisions, joined on by the server at read time and never
+ * stored on the review. Where each boundary stands against the previous revision is on the
+ * document itself, at `report.delta` and `report.reviewed[].delta_state`.
  */
 export type ReviewDetail = OpenAPIComponents["schemas"]["ReviewDetailResponse"];
-export type ReviewedBoundaryDetail =
-  OpenAPIComponents["schemas"]["ReviewedBoundaryDetail"];
 export type BoundaryTriage = OpenAPIComponents["schemas"]["BoundaryTriage"];
 export type JoinedDecision = OpenAPIComponents["schemas"]["JoinedDecision"];
 export type DecisionState = OpenAPIComponents["schemas"]["DecisionState"];
 export type StandingDecision = OpenAPIComponents["schemas"]["StandingDecision"];
 export type DecisionComment = OpenAPIComponents["schemas"]["DecisionComment"];
 export type DecisionRequest = OpenAPIComponents["schemas"]["DecisionRequest"];
-export type BaselineSummary = OpenAPIComponents["schemas"]["BaselineSummary"];
-export type BaselineOutcome = OpenAPIComponents["schemas"]["BaselineOutcome"];
-export type BoundaryDispositionKind =
-  OpenAPIComponents["schemas"]["BoundaryDisposition"];
 
 /**
  * What this workspace is pointed at, including being pointed at nothing.

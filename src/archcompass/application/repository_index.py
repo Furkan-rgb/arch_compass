@@ -6,7 +6,11 @@ from pathlib import Path
 
 from archcompass.domain.atlas import AtlasVersion
 from archcompass.domain.lineage import (
+    DEFAULT_BRANCH_NAME,
+    BranchLineage,
     RepositoryBranch,
+    RepositoryLineage,
+    derive_branch_id,
     resolve_branch_lineage,
     resolve_repository_lineage,
 )
@@ -51,10 +55,13 @@ class RepositoryIndexService:
                 canonical_root=version.root_path,
             )
         )
-        branch = self._lineages.get_or_create_branch(
-            resolve_branch_lineage(
-                repository_lineage, version.branch_name, branch_name=branch_name
-            )
+        branch = self._based(
+            repository_lineage,
+            self._lineages.get_or_create_branch(
+                resolve_branch_lineage(
+                    repository_lineage, version.branch_name, branch_name=branch_name
+                )
+            ),
         )
         stamped = atlas.model_copy(
             update={
@@ -68,6 +75,41 @@ class RepositoryIndexService:
         )
         self._atlases.save(stamped)
         return stamped.version
+
+    def _based(
+        self, repository: RepositoryLineage, branch: BranchLineage
+    ) -> BranchLineage:
+        """Point a branch at the repository's default branch, the first time both exist.
+
+        Lazy and in application code because a migration is pure SQL and neither half of this
+        can be computed there: the base is a derived id, and the branch it names may not have
+        been indexed in this workspace yet. So it is resolved at the one moment both facts are
+        in hand — a branch being written, with the default branch's lineage already stored.
+
+        The default branch is `DEFAULT_BRANCH_NAME` rather than something read out of git.
+        There is no cheap and honest way to ask a checkout what its repository's default branch
+        is: `origin/HEAD` is a local cache of a remote's opinion, is absent from most clones
+        and from every checkout with no remote, and being wrong here would attach a team's
+        inheritance to a branch nobody works on. The name is also exactly what the rest of the
+        system already falls back to when git will not name a branch, so one guess is made once
+        and in one place. A team on `trunk` or `develop` gets no inheritance rather than the
+        wrong inheritance, which is the failure worth having until a branch's base is something
+        a person can state.
+
+        Only ever fills a base in. A branch whose base is already recorded is left alone, and a
+        branch that *is* the default one is left with none — there is nothing behind it, and
+        pointing it at itself would be a cycle written down.
+        """
+
+        if branch.base_branch_id is not None or branch.branch_name == DEFAULT_BRANCH_NAME:
+            return branch
+        base_branch_id = derive_branch_id(repository.repo_id, DEFAULT_BRANCH_NAME)
+        if self._lineages.get_branch(base_branch_id) is None:
+            # The default branch has never been indexed here. Nothing is written, so the next
+            # index of this branch asks again — which is what makes "index main, then the
+            # feature branch" and the other order reach the same place.
+            return branch
+        return self._lineages.set_base_branch(branch.branch_id, base_branch_id)
 
     def list(self, *, limit: int = 100) -> list[RepositorySummary]:
         return self._atlases.list_versions(limit=limit)

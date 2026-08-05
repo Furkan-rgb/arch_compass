@@ -11,7 +11,6 @@ import type {
   PolicyDraft,
   PolicySource,
   ProblemDetail,
-  BaselineOutcome,
   BoundaryReview,
   BoundaryReviewSummary,
   BundledExample,
@@ -225,16 +224,6 @@ export const api = {
       `/api/decisions/${encodeURIComponent(branchId)}/${encodeURIComponent(fingerprint)}/comments`,
       { method: "POST", body: JSON.stringify(comment) },
     ),
-  /**
-   * Declare everything this review examined as seen by its branch.
-   *
-   * The adoption move: the next run over this branch leads with what is new or changed
-   * against this one, and the boundaries recorded here fold into the quiet section.
-   */
-  baselineReview: (reviewId: string) =>
-    request<BaselineOutcome>(`/api/reviews/${encodeURIComponent(reviewId)}/baseline`, {
-      method: "POST",
-    }),
   createReview: (caseId: string, repositoryRoot: string) =>
     request<BoundaryReview>("/api/reviews", {
       method: "POST",
