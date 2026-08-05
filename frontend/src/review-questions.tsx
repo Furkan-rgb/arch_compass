@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Questionnaire,
+  QuestionnaireChoice,
+  QuestionnaireChoices,
+  QuestionnaireDescription,
+  QuestionnaireItem,
+  QuestionnaireTitle,
+} from "@/components/ui/questionnaire";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
@@ -156,12 +164,18 @@ export function OpenQuestions({
 
   // One question on screen, and a last step that is the preview. Not a scroll of five
   // cards: each of these takes real thought about the reader's own project, and five at
-  // once is read as a form to get through rather than five separate decisions. Nothing is
-  // gated behind anything — every step is reachable from the row of numbers, and an answer
-  // stays exactly as typed while they move around, because revisiting is the point.
-  const reviewStep = questions.length;
+  // once is read as a form to get through rather than five separate decisions.
+  //
+  // The walk is the questionnaire primitive, held controlled: `item` follows the same
+  // state the numbered row writes, because every step must stay reachable in any order —
+  // revisiting is the point, and the primitive's own linear Previous/Skip/Next cannot
+  // offer that. Its structure is what is adopted: one fieldset per question with the
+  // question as its legend, and real radio semantics on the offered answers.
+  const REVIEW_STEP = "review-what-will-be-recorded";
   const [at, setAt] = useState(0);
+  const reviewStep = questions.length;
   const current = at < reviewStep ? questions[at] : undefined;
+  const itemName = current?.reference ?? REVIEW_STEP;
 
   /**
    * The answer box takes focus as this screen arrives, and again on each question.
@@ -244,117 +258,114 @@ export function OpenQuestions({
         </span>
       </nav>
 
-      {current ? (
-        <div
-          className="max-w-[82ch] rounded-panel border border-accent-rule bg-accent-soft p-[var(--card-pad)]"
-          key={current.reference}
-        >
-          <p className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-read leading-[1.5] font-semibold">
-            <code className="rounded-pill border border-accent-rule bg-surface px-2 py-px font-mono text-meta font-normal tracking-[.04em] text-accent-ink">
-              {current.reference}
-            </code>
-            {current.question}
-          </p>
-          {/* What was seen, not the question with its question mark removed. `unknown` is
-              no longer shown as prose: it said the same thing as the line above it and
-              spent a reader's attention to do it. It is still carried — it names what the
-              question is about, which is what titles a discussion of it. */}
-          <p className="mb-2 max-w-[78ch] text-body leading-[1.65] text-ink-2">
-            {current.what_the_review_saw}
-          </p>
-          <p className="mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-ui leading-[1.6] text-ink-2">
-            <span>{current.why_it_matters}</span>
-            {renderCitations(current.supporting_references || [])}
-          </p>
-          {/* Offered answers, when the review could enumerate them. Pressing one is the
-              reader's act — it fills the box below, still editable, and nothing is selected
-              until they press. The box is the standing "other": a typed answer needs no
-              option to exist, and an edited option stops matching and reads as their own.
-              `aria-pressed` compares against the box, not a second piece of state, so the
-              two can never disagree about what will be recorded. */}
-          {(current.answer_options?.length ?? 0) > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Offered answers">
-              {current.answer_options!.map((option) => {
-                const taken = (answers[current.reference] ?? "").trim() === option;
-                return (
-                  <button
+      <Questionnaire
+        item={itemName}
+        onItemChange={(name) => {
+          const index = questions.findIndex((item) => item.reference === name);
+          setAt(index === -1 ? reviewStep : index);
+        }}
+        items={[
+          ...questions.map((item) => ({ name: item.reference })),
+          { name: REVIEW_STEP },
+        ]}
+        // Answers batch through the button below, never through form submission: what is
+        // recorded must be exactly what the preview step showed.
+        onSubmit={(event) => event.preventDefault()}
+        className="max-w-[82ch]"
+      >
+        {questions.map((item) => (
+          <QuestionnaireItem
+            key={item.reference}
+            name={item.reference}
+            className="rounded-panel border border-accent-rule bg-accent-soft p-[var(--card-pad)]"
+          >
+            <QuestionnaireTitle className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-read leading-[1.5] font-semibold text-ink">
+              <code className="rounded-pill border border-accent-rule bg-surface px-2 py-px font-mono text-meta font-normal tracking-[.04em] text-accent-ink">
+                {item.reference}
+              </code>
+              {item.question}
+            </QuestionnaireTitle>
+            {/* What was seen, not the question with its question mark removed. `unknown` is
+                no longer shown as prose: it said the same thing as the line above it and
+                spent a reader's attention to do it. It is still carried — it names what the
+                question is about, which is what titles a discussion of it. */}
+            <QuestionnaireDescription className="mb-2 max-w-[78ch] text-body leading-[1.65] text-ink-2">
+              {item.what_the_review_saw}
+            </QuestionnaireDescription>
+            <p className="mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-ui leading-[1.6] text-ink-2">
+              <span>{item.why_it_matters}</span>
+              {renderCitations(item.supporting_references || [])}
+            </p>
+            {/* Offered answers, when the review could enumerate them: real radios now, so a
+                keyboard walks them and a screen reader announces one group. Checking one is
+                still the reader's act — it fills the box below, still editable, and the
+                checked state is compared against the box rather than kept separately, so the
+                two can never disagree about what will be recorded. An edited option stops
+                matching and reads as their own words; clearing the box declines the offer. */}
+            {(item.answer_options?.length ?? 0) > 0 ? (
+              <QuestionnaireChoices role="radiogroup" aria-label="Offered answers" className="mt-2">
+                {item.answer_options!.map((option) => (
+                  <QuestionnaireChoice
                     key={option}
-                    type="button"
+                    value={option}
                     disabled={disabled || pending}
-                    aria-pressed={taken}
-                    className={cn(
-                      "cursor-pointer rounded-pill border border-accent-rule bg-surface px-3 py-1.5",
-                      "text-left text-ui leading-[1.4] text-ink hover:bg-accent-soft",
-                      "aria-pressed:border-accent-ink aria-pressed:bg-accent-soft aria-pressed:text-accent-ink",
-                      "disabled:cursor-not-allowed disabled:opacity-55",
-                    )}
-                    onClick={() => {
+                    checked={(answers[item.reference] ?? "").trim() === option}
+                    onChange={() => {
                       setAnswers((existing) => ({
                         ...existing,
-                        // Pressing the taken one again empties the box: an offer can be
-                        // declined, and the reader is back to their own words.
-                        [current.reference]: taken ? "" : option,
+                        [item.reference]: option,
                       }));
-                      if (!taken) answerRef.current?.focus();
+                      answerRef.current?.focus();
+                    }}
+                    // A radio cannot un-choose itself, but an offer must stay declinable:
+                    // pressing the taken one again empties the box, and the reader is back
+                    // to their own words.
+                    onClick={() => {
+                      if ((answers[item.reference] ?? "").trim() === option) {
+                        setAnswers((existing) => ({ ...existing, [item.reference]: "" }));
+                      }
                     }}
                   >
                     {option}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-          {/* The box is the component. A question the reader cannot answer in place is a
-              question that sends them somewhere else to find the right field. */}
-          <label className="mt-2 block">
-            <span className="mb-1 block text-meta text-ink-3 [&_code]:text-meta">
-              {(current.answer_options?.length ?? 0) > 0
-                ? "Or write your own — "
-                : "Your answer — "}
-              {FIELD_LABEL[current.answer_belongs_in]} (
-              <code>{current.answer_belongs_in}</code>)
-            </span>
-            <Textarea
-              ref={answerRef}
-              rows={3}
-              className="text-body"
-              disabled={disabled || pending}
-              value={answers[current.reference] ?? ""}
-              placeholder={disabled ? "" : "Leave blank to skip this one."}
-              onChange={(event) => {
-                const { value } = event.target;
-                setAnswers((existing) => ({
-                  ...existing,
-                  [current.reference]: value,
-                }));
-              }}
-            />
-          </label>
-          {/* Below the box, not above it. Someone who knows their answer should be able to
-              type it and move on without reading past an invitation to discuss it first. */}
-          {renderDiscussion?.(current, (text) => {
-            setAnswers((existing) => ({ ...existing, [current.reference]: text }));
-          })}
-        </div>
-      ) : null}
+                  </QuestionnaireChoice>
+                ))}
+              </QuestionnaireChoices>
+            ) : null}
+            {/* The box is the component, and it is deliberately not the primitive's Input:
+                an answer about someone's own architecture is prose, and prose needs lines. */}
+            <label className="mt-2 block">
+              <span className="mb-1 block text-meta text-ink-3 [&_code]:text-meta">
+                {(item.answer_options?.length ?? 0) > 0
+                  ? "Or write your own — "
+                  : "Your answer — "}
+                {FIELD_LABEL[item.answer_belongs_in]} (
+                <code>{item.answer_belongs_in}</code>)
+              </span>
+              <Textarea
+                ref={item.reference === asking ? answerRef : undefined}
+                rows={3}
+                className="bg-surface text-body"
+                disabled={disabled || pending}
+                value={answers[item.reference] ?? ""}
+                placeholder={disabled ? "" : "Leave blank to skip this one."}
+                onChange={(event) => {
+                  const { value } = event.target;
+                  setAnswers((existing) => ({
+                    ...existing,
+                    [item.reference]: value,
+                  }));
+                }}
+              />
+            </label>
+            {/* Below the box, not above it. Someone who knows their answer should be able to
+                type it and move on without reading past an invitation to discuss it first. */}
+            {renderDiscussion?.(item, (text) => {
+              setAnswers((existing) => ({ ...existing, [item.reference]: text }));
+            })}
+          </QuestionnaireItem>
+        ))}
 
-      <div className="mt-3 flex max-w-[82ch] gap-2 [&_[data-slot=button]]:text-ui">
-        <Button
-          type="button"
-          disabled={at === 0}
-          onClick={() => setAt((position) => Math.max(0, position - 1))}
-        >
-          Back
-        </Button>
-        <Button
-          type="button"
-          disabled={at >= reviewStep}
-          onClick={() => setAt((position) => Math.min(reviewStep, position + 1))}
-        >
-          {at === reviewStep - 1 ? "Review what will be recorded" : "Next question"}
-        </Button>
-      </div>
-
+        <QuestionnaireItem name={REVIEW_STEP} className="gap-0">
       {/* Shown before it is saved, never after, and still editable here rather than
           read-only. Saving without the user seeing what enters their case is what §6C.4
           forbids, so this is what makes the button honest — and it is where someone who
@@ -366,10 +377,10 @@ export function OpenQuestions({
           box until the moment it saves. Nothing here restates the question in the reader's
           own words any more: that was the composed line, and it was the same sentence twice
           on one screen. */}
-      {at === reviewStep && answered.length > 0 ? (
+          {answered.length > 0 ? (
         <div
           data-slot="answer-preview"
-          className="mt-4 rounded-panel border border-dashed border-accent-rule bg-surface p-[var(--card-pad)]"
+          className="rounded-panel border border-dashed border-accent-rule bg-surface p-[var(--card-pad)]"
         >
           <p className="mb-2 text-ui font-semibold text-ink-2">
             {answered.length} of {questions.length} answered. Carrying on will record
@@ -433,13 +444,32 @@ export function OpenQuestions({
         </div>
       ) : null}
 
-      {at === reviewStep && answered.length === 0 ? (
-        <p className="mt-4 max-w-[78ch] text-ui leading-[1.6] text-ink-3">
-          Nothing is answered yet, so there is nothing to record. Go back to any question
-          above — answering one is enough to carry on, and skipping the rest is a normal way
-          to use this.
-        </p>
-      ) : null}
+          {answered.length === 0 ? (
+            <p className="max-w-[78ch] text-ui leading-[1.6] text-ink-3">
+              Nothing is answered yet, so there is nothing to record. Go back to any
+              question above — answering one is enough to carry on, and skipping the rest
+              is a normal way to use this.
+            </p>
+          ) : null}
+        </QuestionnaireItem>
+      </Questionnaire>
+
+      <div className="mt-3 flex max-w-[82ch] gap-2 [&_[data-slot=button]]:text-ui">
+        <Button
+          type="button"
+          disabled={at === 0}
+          onClick={() => setAt((position) => Math.max(0, position - 1))}
+        >
+          Back
+        </Button>
+        <Button
+          type="button"
+          disabled={at >= reviewStep}
+          onClick={() => setAt((position) => Math.min(reviewStep, position + 1))}
+        >
+          {at === reviewStep - 1 ? "Review what will be recorded" : "Next question"}
+        </Button>
+      </div>
 
       {/* The one error surface this app has, rather than a coloured sentence that happened
           to be written here: an answer the server refused is refused for a reason it names,
