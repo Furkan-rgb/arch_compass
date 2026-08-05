@@ -17,6 +17,7 @@ import {
   RowStripe,
   VerdictText,
   type Stripe,
+  rowCarried,
   rowJudging,
   rowMeta,
   rowName,
@@ -649,6 +650,7 @@ export function JudgingLedger({
   const total = progress?.total ?? 0;
   const named = progress?.boundaries ?? [];
   const judged = progress?.judged ?? 0;
+  const carried = progress?.carried ?? 0;
   const settled = progress?.eliciting || progress?.summarising || progress?.concluded;
 
   return (
@@ -657,11 +659,16 @@ export function JudgingLedger({
         <strong>Boundaries</strong>
         <LedgerCount>
           {judged} of {total} judged
+          {/* Said while it is happening rather than only on the finished review. A run that
+              carried most of its verdicts is over in seconds, and a count that stayed silent
+              about it would leave the reader to conclude the run had skipped the work. */}
+          {carried > 0 ? ` · ${carried} carried` : null}
         </LedgerCount>
       </LedgerBar>
       <Ledger>
         {Array.from({ length: total }, (_, index) => {
           const verdict = progress?.verdicts[index] ?? null;
+          const origin = progress?.carriedFrom?.[index] ?? null;
           const current = index === judged && !settled;
           const name = named[index];
           // "Queued" is not a verdict and gets no colour: the neutral rule is the row that
@@ -682,8 +689,19 @@ export function JudgingLedger({
                   <Skeleton className="h-2 w-[24ch] max-w-full" aria-hidden />
                 )}
                 <span className={rowWhere} />
-                <span className={rowMeta}>
-                  {verdict === null ? null : bearings?.[index]}
+                {/* Where a verdict was looked up rather than reached, the row says so in
+                    place of the count of what bore on it: nothing bore on it here. The
+                    origin run is in the title rather than the line, because a review id is
+                    longer than the column and a reader wants the fact, not the identifier. */}
+                <span
+                  className={origin === null ? rowMeta : rowCarried}
+                  title={origin === null ? undefined : `Carried from review ${origin}`}
+                >
+                  {origin !== null
+                    ? "carried from an earlier run"
+                    : verdict === null
+                      ? null
+                      : bearings?.[index]}
                 </span>
                 {verdict === null ? (
                   <span className={current ? rowJudging : rowQueued}>

@@ -30,6 +30,10 @@ class BoundaryReviewSummary(DomainModel):
     boundaries_detected: int | None
     boundaries_reviewed: int
     boundaries_material: int
+    #: How many of the reviewed verdicts were carried forward from an earlier run rather
+    #: than reached in this one. Defaults to zero, which is what every review stored before
+    #: the count existed reports and is also true of any run that judged everything itself.
+    boundaries_carried: int = 0
     created_at: str
     #: When the row last moved. On a finished review this is when it finished; on a running
     #: one it is when its last verdict landed, which is how long a reader can tell it has

@@ -307,6 +307,9 @@ export const rowMeta =
 export const rowJudging = "font-mono text-micro whitespace-nowrap text-accent-ink";
 export const rowQueued = "font-mono text-micro whitespace-nowrap text-ink-3";
 
+/** A record whose verdict was not reached here: looked up, not judged. As quiet as queued. */
+export const rowCarried = "font-mono text-micro whitespace-nowrap text-ink-3";
+
 /**
  * The verdict as a word.
  *

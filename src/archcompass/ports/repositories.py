@@ -59,6 +59,7 @@ class BoundaryReviewRepository(Protocol):
         detected: int | None = None,
         reviewed: int | None = None,
         material: int | None = None,
+        carried: int | None = None,
     ) -> None: ...
 
     def complete(self, review: BoundaryReview) -> None: ...

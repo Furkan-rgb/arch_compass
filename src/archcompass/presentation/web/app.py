@@ -467,6 +467,15 @@ class ReviewJudged(APIModel):
     total: int
     abstraction: str
     material: bool
+    #: The review this verdict was carried forward from, where it was not reached in this
+    #: run. Null on every verdict the run actually paid a model call for, and on every line
+    #: written before this field existed — so a client that sees nothing here is looking at
+    #: a judged boundary, which is what it assumed all along.
+    verdict_reused_from: str | None = None
+    #: How many verdicts have been carried so far, this one included. Sent rather than left
+    #: to the client to accumulate, so a watcher that joined the stream late — or dropped a
+    #: line — still has the run's own count instead of a tally of what it happened to see.
+    carried: int = 0
 
 
 class ReviewEliciting(APIModel):
@@ -1792,13 +1801,20 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
             )
         )
 
+    carried = 0
+
     def report_verdict(judged: JudgedCandidate, position: int, total: int) -> None:
+        nonlocal carried
+        if judged.reused_from is not None:
+            carried += 1
         emit(
             ReviewJudged(
                 position=position,
                 total=total,
                 abstraction=_abstraction_name(judged.candidate),
                 material=judged.verdict.material,
+                verdict_reused_from=judged.reused_from,
+                carried=carried,
             )
         )
 

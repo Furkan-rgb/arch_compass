@@ -193,6 +193,7 @@ export interface components {
     "boundaries_detected": number | null;
     "boundaries_reviewed": number;
     "boundaries_material": number;
+    "boundaries_carried"?: number;
     "created_at": string;
     "updated_at": string;
     "case_title"?: string | null;
@@ -622,6 +623,8 @@ export interface components {
     "total": number;
     "abstraction": string;
     "material": boolean;
+    "verdict_reused_from"?: string | null;
+    "carried"?: number;
   };
     "ReviewMessage": {
     "message_id"?: string;
