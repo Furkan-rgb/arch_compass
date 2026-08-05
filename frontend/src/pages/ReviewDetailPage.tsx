@@ -899,6 +899,10 @@ export function ReviewDetailPage() {
       if (!repositoryRoot) {
         throw new Error("This review's repository could not be resolved.");
       }
+      // A managed checkout is brought current first, so "re-analyse the code" means the
+      // repository's code, not whatever the clone last held. Anyone else's working copy
+      // comes back managed:false untouched, so this is safe to ask unconditionally.
+      await api.refreshRepository(repositoryRoot);
       const revision = await api.startFromRepository(repositoryRoot);
       if (!revision.case_id) {
         throw new Error("The workspace returned a case without an identifier.");
