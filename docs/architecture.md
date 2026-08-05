@@ -1,5 +1,126 @@
 # Architecture
 
+This file carries two things: the settled reference (dependency direction and information
+flow, further down), and — first — whatever is currently *under discussion*. The working
+rule: when a flow feels wrong, the reasoning lands here before any code changes. What is
+actually happening, why, and the options — discussed, then decided with a dated note.
+Superseded thinking stays visible rather than being rewritten away.
+
+## Under discussion: the subsequent-review flow, and what the product is organised around
+*(opened 2026-08-05 — nothing in this section is decided)*
+
+### The flow as built
+
+- A **run** starts from a case, an atlas of the repository, and the policy corpus. It
+  detects boundaries, judges each one, and then either **asks** (first pass, when verdicts
+  rest on unstated things → `awaiting_answers`) or **concludes** (second pass, or a first
+  pass with nothing to ask). Answers append a case revision; the second pass judges
+  against it. Reviews are immutable documents; the listing folds a run's passes into one
+  row.
+- **Identity ladder:** `repo_id` from the root commit (path hash when the folder is not a
+  git root) → `branch_id` → `boundary_fingerprint` (pattern + sorted participants), which
+  is what baselines, standing decisions, and the verdict cache all key on.
+- **Verdict cache:** key = boundary fingerprint + policy corpus fingerprint + **case_id +
+  case revision** + model + prompt. Hit → the verdict is carried verbatim.
+- **Baseline:** per branch, per fingerprint. Disposition in a new run: `new` (not in the
+  baseline), `changed` (**the material flag differs from the baselined one**), `known`.
+- **Cases:** every run started from the start step creates a **fresh case with a random
+  id** (`new_id("case")`) — including a re-run of the same repository or example.
+
+### What stays
+
+The per-boundary **standing decision** — accept / waive / park, with its append-only
+discussion, attached to (branch, boundary fingerprint) and never influencing verdicts —
+is the keeper. Whatever the flow becomes, decisions and their threads must survive it
+unchanged.
+
+### The two symptoms, traced
+
+**"It asks the same questions again."** A fresh case is empty, so elicitation sees the
+same unstated things. The answers given last run exist — on the previous run's case,
+which nothing connects to the new one.
+
+**"Something turns to `changed` without any code change."** Two causes stacking:
+
+1. The fresh `case_id` defeats the verdict cache — its key includes `case_id`, so a
+   re-run from the UI re-judges every boundary even when repository, policies, case
+   content, model and prompt are all identical.
+2. A re-judge is sampling a model, and judgements are not deterministic: a material flag
+   can flip with nothing having moved. The baseline cannot tell that flip from a real one
+   because **disposition is keyed on the verdict (an output), while the reader hears
+   "changed" as a statement about the inputs** (the code, the answers, the policies).
+
+Cause 1 is mechanical. Cause 2 is the architectural question, and it survives any fix to
+cause 1: it recurs whenever a *legitimate* re-judge happens (a policy edited, an answer
+added, a model upgraded).
+
+### The question to settle first
+
+> Is a verdict allowed to change when none of its inputs changed?
+
+A verdict's inputs are the cache key minus the case-identity accident: the boundary's
+shape, the policy corpus, what the case says, the model, the prompt. If **no**: the cache
+stops being an optimisation and becomes the **authority** — an unchanged question keeps
+its answered verdict, re-judging happens only when an input moved, and every `changed`
+can name the input that moved it. If **yes** (fresh judgement is a feature): instability
+must become a visible category of its own — "the verdict moved, nothing else did" — and
+must never wear the same word as a code change.
+
+### The grouping question
+
+The UI grew review-first: `/reviews` is the front page of results, and repositories were
+retrofitted as sections around the rows. But the durable objects are attached to the
+**repository and its branch** — baseline, standing decisions, the verdict history, and
+(if continuity wins above) the case itself. That suggests a repository-first shape:
+
+- A **repositories** surface: one entry per code base ArchCompass knows, named the way
+  the user names it (folder or git remote), branch visible only when real.
+- A **repository page** owning what belongs to the repo: its runs (newest first), its
+  baseline and what's unresolved against it, its standing decisions, its case.
+- A run's page stays what it is; `/reviews` as a flat cross-repo history either goes or
+  demotes to an archive view.
+
+How the user wants to *say* which code base a run is about (pick a folder, paste a git
+URL, re-pick a known repo in one click) is part of the same question — the start step and
+the grouping should agree on what a "repository" is.
+
+### Directions to weigh (they compose)
+
+- **A. Case continuity** — a re-run continues the repository's newest case (answers
+  included); "start clean" is explicit. Fixes re-asking directly and most of symptom 2 by
+  side effect (same case + revision → cache hits). *Built speculatively on branch
+  `w1-case-continuity`, deliberately unmerged pending this discussion.*
+- **B. The case belongs to the repository/branch outright** — the first-class version of
+  A: one living case per (repo, branch), runs pin its revisions, the start step edits
+  rather than creates it.
+- **C. Verdicts move only when inputs move** — replace `case_id` in the cache key with a
+  fingerprint of what the case says; carry-through becomes the rule; the re-judge
+  triggers are named explicitly (content, corpus, answers, model, or a person pressing
+  "re-judge").
+- **D. Split what `changed` can mean** — *code changed* / *answers changed* / *verdict
+  moved, nothing changed*; the last surfaced as instability, never as a red CHANGED chip,
+  and never blocking CI.
+- **E. Agreement before a flip counts** — where a genuine re-judge happens, a material
+  flip needs a second sample to agree before it earns `changed` (n=1 is not a
+  measurement).
+- **F. Repository-first UI** — the grouping question above, made the navigation model.
+
+### Open questions
+
+1. Who owns the case — the run, the repository, or the branch?
+2. Is a verdict allowed to move when no input moved? (Answer this first; C and D follow
+   from it.)
+3. What should block in CI? Today: new + material + no hinge + no decision. Should a
+   `changed` that traces to model instability ever block?
+4. Elicitation: asked once per repository (questions belong to the case), or does a
+   deliberate "start clean" earn fresh questions?
+5. When a model upgrade re-judges the world, what happens to the baseline — silent
+   re-partition, or an explicit "the model changed" adoption step?
+6. What does the repository page show as its headline: the latest run's verdicts, or the
+   standing state (baseline + decisions) with runs as evidence beneath it?
+
+---
+
 ## Dependency direction
 
 The domain contains validated application data, explicit errors, and pure derivations over
