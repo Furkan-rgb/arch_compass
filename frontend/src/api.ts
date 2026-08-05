@@ -22,6 +22,7 @@ import type {
   ReviewConversation,
   ReviewMessage,
   ReviewProgress,
+  RepositoryCheckout,
   RepositorySummary,
   ModelCatalog,
   WorkspaceSummary,
@@ -428,6 +429,15 @@ export const api = {
     request<CaseRevision>("/api/repositories/start", {
       method: "POST",
       body: JSON.stringify({ root_path: rootPath }),
+    }),
+  // Clones the address into the workspace's own checkouts directory — or, for a local
+  // path that is already a repository root, answers with that path reviewed in place.
+  // Either way the folder handed back is a git root, which is what makes the repository
+  // identity real rather than a path hash.
+  checkoutRepository: (url: string, branch: string | null) =>
+    request<RepositoryCheckout>("/api/repositories/checkout", {
+      method: "POST",
+      body: JSON.stringify({ url, branch }),
     }),
   repositorySummary: (rootPath: string) =>
     request<AtlasQueryResult>(

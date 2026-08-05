@@ -5,6 +5,7 @@ import {
   ChevronRight,
   FlaskConical,
   FolderOpen,
+  GitBranch,
   Play,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -246,6 +247,89 @@ function FolderPicker({
   );
 }
 
+/**
+ * Naming a repository by its address instead of walking to its folder.
+ *
+ * The workspace clones the address into its own checkouts directory and keeps that same
+ * checkout fresh on later visits — which is what makes every run of one address stack
+ * under one repository in the listings. A local path that is already a repository root is
+ * accepted too and reviewed where it lies.
+ *
+ * Field state lives here so the dialog unmounting resets it; what closes the dialog is
+ * only success, exactly as with the folder picker — a refusal stays on screen beside the
+ * address that earned it, in the server's own words.
+ */
+function CheckoutPicker({
+  open,
+  onOpenChange,
+  disabled,
+  fetching,
+  error,
+  onCheckout,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  disabled: boolean;
+  fetching: boolean;
+  error: unknown;
+  onCheckout: (url: string, branch: string | null) => void;
+}) {
+  const [url, setUrl] = useState("");
+  const [branch, setBranch] = useState("");
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogTrigger asChild>
+        <Button type="button" disabled={disabled}>
+          <GitBranch size={14} aria-hidden />
+          From a git address…
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-[560px]" overlayClassName="items-start py-[12vh]">
+        <DialogHeader>
+          <DialogTitle>Check out a repository</DialogTitle>
+          <DialogDescription>
+            Paste an address — https or ssh — and it is cloned into this workspace&apos;s
+            own checkouts folder, refreshed on every later visit. A local path that is
+            already a repository works too, in place.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="grid gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const asked = url.trim();
+            if (asked) onCheckout(asked, branch.trim() || null);
+          }}
+        >
+          <Input
+            className="font-mono text-meta"
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+            placeholder="https://github.com/owner/repository"
+            aria-label="Repository address"
+            spellCheck={false}
+            autoFocus
+          />
+          <Input
+            className="font-mono text-meta"
+            value={branch}
+            onChange={(event) => setBranch(event.target.value)}
+            placeholder="branch — empty means the default"
+            aria-label="Branch"
+            spellCheck={false}
+          />
+          {error ? <ErrorPanel error={error} /> : null}
+          <div className="flex items-center justify-end gap-x-4 border-t border-rule-soft pt-3.5">
+            <Button type="submit" variant="primary" disabled={!url.trim() || fetching}>
+              {fetching ? "Fetching…" : "Check out and index"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function StartPage() {
   const client = useQueryClient();
   const [repositoryRoot, setRepositoryRoot] = useState<string | null>(null);
@@ -253,6 +337,7 @@ export function StartPage() {
   // Held here rather than inside the picker: a successful index is what closes it, and the
   // mutation is this page's.
   const [picking, setPicking] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
 
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: () => api.reviews() });
@@ -281,6 +366,21 @@ export function StartPage() {
       // Only success closes the picker; a refusal leaves it open on the folder that failed.
       setPicking(false);
       setPath("");
+      setRepositoryRoot(version.root_path);
+      await client.invalidateQueries({ queryKey: ["repositories"] });
+    },
+  });
+
+  // Checking out is two steps worn as one: fetch the address, then index what landed.
+  // The reader asked to review a repository, not to perform the halves — and only the
+  // second half produces the atlas the rest of this page works from.
+  const checkout = useMutation({
+    mutationFn: async ({ url, branch }: { url: string; branch: string | null }) => {
+      const fetched = await api.checkoutRepository(url, branch);
+      return api.indexRepository(fetched.root_path);
+    },
+    onSuccess: async (version) => {
+      setCheckingOut(false);
       setRepositoryRoot(version.root_path);
       await client.invalidateQueries({ queryKey: ["repositories"] });
     },
@@ -353,7 +453,11 @@ export function StartPage() {
 
   const ready = isReady(selection, hasModel);
   const busy =
-    run.running || loadExample.isPending || index.isPending || reviewRepository.isPending;
+    run.running ||
+    loadExample.isPending ||
+    index.isPending ||
+    checkout.isPending ||
+    reviewRepository.isPending;
 
   return (
     <div className={page}>
@@ -490,6 +594,14 @@ export function StartPage() {
                 indexing={index.isPending}
                 error={index.error}
                 onIndex={(root) => index.mutate(root)}
+              />
+              <CheckoutPicker
+                open={checkingOut}
+                onOpenChange={setCheckingOut}
+                disabled={busy}
+                fetching={checkout.isPending}
+                error={checkout.error}
+                onCheckout={(url, branch) => checkout.mutate({ url, branch })}
               />
             </div>
           ) : null}

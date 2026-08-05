@@ -61,6 +61,7 @@ export type ProviderAvailability =
 /** Aliased, not restated: the hand-written mirror of this one silently dropped
     `repo_id` and `branch_name` the day the server learned them. */
 export type RepositorySummary = OpenAPIComponents["schemas"]["RepositorySummary"];
+export type RepositoryCheckout = OpenAPIComponents["schemas"]["RepositoryCheckout"];
 
 export interface SourceLocation {
   path: string;
