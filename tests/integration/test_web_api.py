@@ -1081,3 +1081,29 @@ def test_a_repository_is_checked_out_by_address_and_then_started_from(
         )
         assert nonsense.status_code == 422, nonsense.text
         assert nonsense.json()["code"] == "validation_error"
+
+        # The other end of the same directory: a page holding the folder asks for whatever
+        # has landed since, without ever having seen the address.
+        subprocess.run(
+            ["git", "-C", str(remote), "commit", "--allow-empty", "-m", "second"],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+        refreshed = client.post(
+            "/api/repositories/refresh", json={"root_path": checkout["root_path"]}
+        )
+        assert refreshed.status_code == 200, refreshed.text
+        assert refreshed.json() == {
+            "root_path": checkout["root_path"],
+            "managed": True,
+            "updated": True,
+            "branch_name": "main",
+        }
+
+        unmanaged = client.post(
+            "/api/repositories/refresh", json={"root_path": str(remote)}
+        )
+        assert unmanaged.status_code == 200, unmanaged.text
+        assert unmanaged.json()["managed"] is False
+        assert unmanaged.json()["updated"] is False

@@ -105,6 +105,21 @@ class GitCommandLineClient:
                 "have moved, or this machine may not be able to reach it right now."
             )
 
+    def remote_url(self, checkout: Path) -> str | None:
+        """Where this checkout came from, according to the checkout itself.
+
+        Asked of `origin` by name rather than of whatever remotes happen to be configured: a
+        clone Arch Compass made has exactly one, and a directory with some other arrangement
+        is not one of ours to update.
+        """
+
+        return self._ask(checkout, "remote", "get-url", "origin") or None
+
+    def head_commit(self, checkout: Path) -> str | None:
+        """The commit `HEAD` resolves to, or `None` before the first one exists."""
+
+        return self._ask(checkout, "rev-parse", "--verify", "--quiet", "HEAD") or None
+
     def default_branch(self, checkout: Path) -> str:
         """The branch the remote hands out to a caller who does not name one.
 
