@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, ChevronDown, Download, GitBranch, Info, Play, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
@@ -150,14 +150,14 @@ function PassesRail({
  * only the reader knows when they have read it. Reduced motion collapses both fades to a
  * cut.
  */
-function checkedAgo(seconds: number): string {
-  if (seconds < 10) return "checked seconds ago";
-  if (seconds < 60) return `checked ${seconds} seconds ago`;
+function checkedAgo(elapsedSeconds: number): string {
+  const count = (n: number, unit: string) =>
+    `checked ${n} ${unit}${n === 1 ? "" : "s"} ago`;
+  const seconds = Math.max(1, elapsedSeconds);
+  if (seconds < 60) return count(seconds, "second");
   const minutes = Math.floor(seconds / 60);
-  if (minutes === 1) return "checked a minute ago";
-  if (minutes < 60) return `checked ${minutes} minutes ago`;
-  const hours = Math.floor(minutes / 60);
-  return hours === 1 ? "checked an hour ago" : `checked ${hours} hours ago`;
+  if (minutes < 60) return count(minutes, "minute");
+  return count(Math.floor(minutes / 60), "hour");
 }
 
 function NoChangeNotice({ onDismiss }: { onDismiss: () => void }) {
@@ -182,7 +182,7 @@ function NoChangeNotice({ onDismiss }: { onDismiss: () => void }) {
     <Alert
       role="status"
       className={cn(
-        "fixed z-40 w-auto max-w-[420px] cursor-pointer border-accent-rule bg-surface text-ink shadow-float",
+        "fixed z-40 w-auto max-w-[420px] cursor-pointer border-accent-rule bg-surface pr-9 text-ink shadow-float",
         "top-14 right-[var(--gutter)]",
         "max-sm:inset-x-3 max-sm:right-3 max-sm:max-w-none",
         "transition-[opacity,translate] duration-200 motion-reduce:transition-none",
@@ -196,16 +196,16 @@ function NoChangeNotice({ onDismiss }: { onDismiss: () => void }) {
         The code is the same as this revision —{" "}
         {checkedAgo(Math.floor((now - checkedAt) / 1000))}.
       </AlertDescription>
-      <AlertAction>
-        <button
-          type="button"
-          aria-label="Dismiss"
-          className="cursor-pointer border-0 bg-transparent p-0 text-ink-3 hover:text-ink"
-          onClick={leave}
-        >
-          <X size={14} aria-hidden />
-        </button>
-      </AlertAction>
+      {/* Not AlertAction: that slot's CSS turns the alert `relative`, which would beat the
+          `fixed` above and drop the notice into the page flow. */}
+      <button
+        type="button"
+        aria-label="Dismiss"
+        className="absolute top-2.5 right-2.5 cursor-pointer border-0 bg-transparent p-0 text-ink-3 hover:text-ink"
+        onClick={leave}
+      >
+        <X size={14} aria-hidden />
+      </button>
     </Alert>
   );
 }
