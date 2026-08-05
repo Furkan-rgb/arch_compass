@@ -184,9 +184,13 @@ class SQLiteAtlasRepository:
                 # The lineage's name rather than the column beside it, which is what git
                 # happened to say: a detached checkout has no branch of its own and is
                 # attributed to one anyway, and the attribution is what a reader is looking at.
+                # But only where the identity is git-derived at all. A plain folder's lineage
+                # carries the same default name as a sentinel so branch ids can exist — showing
+                # it would print a branch for a project that has no repository, let alone one.
                 branch_name=(
                     str(row["lineage_branch_name"])
                     if row["lineage_branch_name"] is not None
+                    and row["root_commit_sha"] is not None
                     else None
                 ),
                 created_at=datetime.fromisoformat(str(row["created_at"])),

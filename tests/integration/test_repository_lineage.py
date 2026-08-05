@@ -211,6 +211,12 @@ def test_a_directory_outside_git_falls_back_to_its_path(
     branch = workspace_runtime.lineage_repository.get_branch(version.branch_id or "")
     assert branch is not None
     assert branch.branch_name == DEFAULT_BRANCH_NAME
+    # The lineage's default name is a sentinel, not a fact about the folder: the listing
+    # shows no branch for a project that has no repository.
+    listed = workspace_runtime.repository_service.list()
+    assert [(item.repo_id, item.branch_name) for item in listed] == [
+        (version.repo_id, None)
+    ]
 
 
 def test_a_detached_checkout_is_attributed_to_the_default_branch(
