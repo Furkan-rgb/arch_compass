@@ -140,6 +140,58 @@ function PassesRail({
 }
 
 /**
+ * The check's result, floating where the eye wandered while it waited.
+ *
+ * It fades in on arrival and out on dismissal — an element that pops into a corner reads
+ * as something breaking, and one that vanishes under the pointer reads as a misclick. The
+ * fade is two phases of one state rather than a mounted/unmounted pair, because the exit
+ * has to finish before the element may leave the tree. Dismissal is the only way out —
+ * "checked just now" stops being true the moment somebody edits a file, and only the
+ * reader knows when they have read it. Reduced motion collapses both fades to a cut.
+ */
+function NoChangeNotice({ onDismiss }: { onDismiss: () => void }) {
+  const [phase, setPhase] = useState<"entering" | "shown" | "leaving">("entering");
+  useEffect(() => {
+    // One frame late, so the browser paints the hidden state first and the transition has
+    // somewhere to start from.
+    const frame = requestAnimationFrame(() => setPhase("shown"));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  const leave = () => {
+    setPhase("leaving");
+    window.setTimeout(onDismiss, 200);
+  };
+  return (
+    <Alert
+      role="status"
+      className={cn(
+        "fixed z-40 w-auto max-w-[420px] cursor-pointer border-accent-rule bg-surface text-ink shadow-float",
+        "top-14 right-[var(--gutter)]",
+        "max-sm:inset-x-3 max-sm:right-3 max-sm:max-w-none",
+        "transition-[opacity,translate] duration-200 motion-reduce:transition-none",
+        phase !== "shown" && "-translate-y-1 opacity-0",
+      )}
+      onClick={leave}
+    >
+      <AlertTitle className="flex items-start justify-between gap-3">
+        Nothing has changed
+        <button
+          type="button"
+          aria-label="Dismiss"
+          className="cursor-pointer border-0 bg-transparent p-0 text-ink-3 hover:text-ink"
+          onClick={leave}
+        >
+          <X size={14} aria-hidden />
+        </button>
+      </AlertTitle>
+      <AlertDescription className="text-ink-2">
+        …since this revision — checked just now.
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/**
  * The branch and the revision this page is showing, and the way to make the next one.
  *
  * The repository model made visible where the reader stands: a branch carries one living
@@ -289,32 +341,7 @@ function RevisionStrip({
           alert, and quiet on purpose — the button did exactly what it promised. It stays
           until dismissed, because "checked just now" stops being true the moment somebody
           edits a file, and only the reader knows when they have read it. */}
-      {unchanged ? (
-        <Alert
-          role="status"
-          className={cn(
-            "fixed z-40 w-auto max-w-[420px] cursor-pointer border-accent-rule bg-surface text-ink shadow-float",
-            "top-14 right-[var(--gutter)]",
-            "max-sm:inset-x-3 max-sm:right-3 max-sm:max-w-none",
-          )}
-          onClick={onDismissUnchanged}
-        >
-          <AlertTitle className="flex items-start justify-between gap-3">
-            Nothing has changed
-            <button
-              type="button"
-              aria-label="Dismiss"
-              className="cursor-pointer border-0 bg-transparent p-0 text-ink-3 hover:text-ink"
-              onClick={onDismissUnchanged}
-            >
-              <X size={14} aria-hidden />
-            </button>
-          </AlertTitle>
-          <AlertDescription className="text-ink-2">
-            …since this revision — checked just now.
-          </AlertDescription>
-        </Alert>
-      ) : null}
+      {unchanged ? <NoChangeNotice onDismiss={onDismissUnchanged} /> : null}
     </div>
   );
 }
