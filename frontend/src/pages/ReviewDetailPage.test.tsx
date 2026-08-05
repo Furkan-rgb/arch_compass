@@ -620,7 +620,7 @@ describe("new revision, when nothing has changed", () => {
     fireEvent.click(await screen.findByRole("button", { name: /New revision/ }));
 
     const notice = await screen.findByRole("status");
-    expect(notice.textContent).toContain("Nothing has changed since this revision");
+    expect(notice.textContent).toContain("Nothing has changed");
     // The check is the whole of what the button did: no case was opened and no run began, so
     // the branch's line is exactly as long as it was.
     expect(started).not.toHaveBeenCalled();

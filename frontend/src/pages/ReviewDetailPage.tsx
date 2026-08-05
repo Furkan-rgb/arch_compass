@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ChevronDown, Download, GitBranch, Play } from "lucide-react";
+import { ArrowRight, ChevronDown, Download, GitBranch, Play, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
@@ -163,6 +164,7 @@ function RevisionStrip({
   starting,
   startError,
   unchanged,
+  onDismissUnchanged,
 }: {
   review: ReviewDetail;
   currentId: string;
@@ -173,6 +175,7 @@ function RevisionStrip({
   startError: Error | null;
   /** That the last check found nothing moved, so no revision was made. */
   unchanged: boolean;
+  onDismissUnchanged: () => void;
 }) {
   const navigate = useNavigate();
   const branchId = review.branch_id ?? null;
@@ -281,14 +284,36 @@ function RevisionStrip({
           {startError.message}
         </p>
       ) : null}
-      {/* A status rather than an alert, and quiet on purpose: the button did exactly what it
-          promised — it checked — and the result is that there was nothing to do. "Checked
-          just now" is the part that matters, because the sentence stops being true the
-          moment somebody edits a file. */}
+      {/* A floating notice rather than a line in the strip: the check's result should meet
+          the eye where it wandered while waiting, then get out of the way. A status, not an
+          alert, and quiet on purpose — the button did exactly what it promised. It stays
+          until dismissed, because "checked just now" stops being true the moment somebody
+          edits a file, and only the reader knows when they have read it. */}
       {unchanged ? (
-        <p role="status" className="m-0 w-full font-mono text-micro text-ink-2">
-          Nothing has changed since this revision — checked just now.
-        </p>
+        <Alert
+          role="status"
+          className={cn(
+            "fixed z-40 w-auto max-w-[420px] cursor-pointer border-accent-rule bg-surface text-ink shadow-float",
+            "top-14 right-[var(--gutter)]",
+            "max-sm:inset-x-3 max-sm:right-3 max-sm:max-w-none",
+          )}
+          onClick={onDismissUnchanged}
+        >
+          <AlertTitle className="flex items-start justify-between gap-3">
+            Nothing has changed
+            <button
+              type="button"
+              aria-label="Dismiss"
+              className="cursor-pointer border-0 bg-transparent p-0 text-ink-3 hover:text-ink"
+              onClick={onDismissUnchanged}
+            >
+              <X size={14} aria-hidden />
+            </button>
+          </AlertTitle>
+          <AlertDescription className="text-ink-2">
+            …since this revision — checked just now.
+          </AlertDescription>
+        </Alert>
       ) : null}
     </div>
   );
@@ -1356,6 +1381,7 @@ export function ReviewDetailPage() {
           starting={newRevision.isPending || run.running || running}
           startError={newRevision.error instanceof Error ? newRevision.error : null}
           unchanged={unchanged}
+          onDismissUnchanged={() => setUnchanged(false)}
         />
       ) : null}
       <PassesRail chain={chainAround(reviewId, siblings.data || [])} currentId={reviewId} />
