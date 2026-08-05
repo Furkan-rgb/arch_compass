@@ -159,6 +159,25 @@ class CaseService:
         the honest answer to that.
         """
 
+        continuing = self.continuing_case(branch_id=branch_id)
+        if continuing is not None:
+            return continuing
+        return self.start_from_repository(root, actor=actor)
+
+    def continuing_case(self, *, branch_id: str | None) -> CaseRevision | None:
+        """The case this branch would carry on with, or `None` if it would start one.
+
+        The lookup half of `continue_from_repository`, without the creation half, for a caller
+        that needs to know which case a run *would* use without a run having happened. The
+        pre-flight check is that caller: it works out whether a new revision would find
+        anything, and a check that opened a blank case on the way to answering "nothing has
+        changed" would have changed something itself.
+
+        `None` is therefore not an error and not a fallback — it is the answer that this
+        branch has nothing behind it, which is precisely what makes its next revision a first
+        one.
+        """
+
         for candidate in branch_chain(self._lineages, branch_id):
             continuing = self._reviews.latest_case_for_branch(candidate)
             if continuing is None:
@@ -170,7 +189,7 @@ class CaseService:
                 # have one worth continuing, so the walk goes on rather than falling straight
                 # through to a blank case.
                 continue
-        return self.start_from_repository(root, actor=actor)
+        return None
 
     def show(self, case_id: str, revision: int | None = None) -> CaseRevision:
         return self._repository.get(case_id, revision)

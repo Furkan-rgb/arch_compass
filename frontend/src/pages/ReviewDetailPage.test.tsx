@@ -8,17 +8,20 @@
  * code block would be worse than waiting.
  */
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { ApiError } from "../api";
+import { api, ApiError } from "../api";
+import { RunProvider } from "../run";
 import {
   AskAction,
   ExportAction,
   Overview,
+  ReviewDetailPage,
   ReviewUnavailable,
   answersBehind,
   chainAround,
@@ -30,6 +33,7 @@ import type {
   BoundaryReviewSummary,
   OpenQuestion,
   RecordedAnswer,
+  ReviewDetail,
   ReviewStatus,
   ReviewedBoundary,
 } from "../types";
@@ -528,5 +532,97 @@ describe("chainAround", () => {
   it("is empty for a review the listing has not caught up with", () => {
     // The siblings query lands after the review itself; the rail simply waits.
     expect(chainAround("rev_new", [])).toEqual([]);
+  });
+});
+
+/**
+ * Pressing New revision always runs the check; a check that finds nothing stops there.
+ *
+ * The whole page rather than the strip alone, because what is under test is the sequence the
+ * button sets off — refresh, check, and then either start a run or say why not. A test of the
+ * strip would prove the notice renders and prove nothing about the run that must not begin.
+ */
+describe("new revision, when nothing has changed", () => {
+  const REVIEW = {
+    review_id: "rev_1",
+    status: "succeeded" as ReviewStatus,
+    case_id: "case_a",
+    case_revision: 1,
+    atlas_version_id: "atlas_1",
+    reasoning_model: "fake:deterministic",
+    prompt_identity: "judge/1",
+    repo_id: "repo_1",
+    branch_id: "branch_1",
+    duration_seconds: 4,
+    report: {
+      case_title: "Where audio lives",
+      problem_and_desired_outcome: "Decide where the store abstraction earns its place.",
+      reviewed: [],
+      overview: {
+        situation: "Two boundaries, both settled.",
+        limits: "Nothing outside the indexed repository was read.",
+        open_questions: [],
+      },
+      policies_presented: [],
+    },
+  } as unknown as ReviewDetail;
+
+  /** Every read the page makes, with the repository resolved so the strip has its button. */
+  function workspace() {
+    vi.spyOn(api, "review").mockResolvedValue(REVIEW);
+    vi.spyOn(api, "reviews").mockResolvedValue([]);
+    vi.spyOn(api, "case").mockResolvedValue({} as never);
+    vi.spyOn(api, "branches").mockResolvedValue([
+      {
+        repository: { repo_id: "repo_1" },
+        branch: { branch_id: "branch_1", repo_id: "repo_1", branch_name: "main" },
+      },
+    ] as never);
+    vi.spyOn(api, "repositories").mockResolvedValue([
+      { version_id: "atlas_1", root_path: "/home/dev/warehouse" },
+    ] as never);
+    vi.spyOn(api, "refreshRepository").mockResolvedValue({ managed: false } as never);
+  }
+
+  function open() {
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <MemoryRouter initialEntries={["/reviews/rev_1"]}>
+          <RunProvider>
+            <TooltipProvider>
+              <Routes>
+                <Route path="/reviews/:reviewId" element={<ReviewDetailPage />} />
+              </Routes>
+            </TooltipProvider>
+          </RunProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("says so and starts nothing", async () => {
+    workspace();
+    vi.spyOn(api, "preflightRepository").mockResolvedValue({
+      changed: false,
+      current_against: "rev_1",
+      judged: 0,
+      addressed: 0,
+      resurfaced: 0,
+      succeeded: 0,
+    });
+    const started = vi.spyOn(api, "startFromRepository");
+
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: /New revision/ }));
+
+    const notice = await screen.findByRole("status");
+    expect(notice.textContent).toContain("Nothing has changed since this revision");
+    // The check is the whole of what the button did: no case was opened and no run began, so
+    // the branch's line is exactly as long as it was.
+    expect(started).not.toHaveBeenCalled();
   });
 });

@@ -146,6 +146,10 @@ function PassesRail({
  * only about that — which is why it lives here and not on the start step: a next revision
  * is something done *to this branch*, not a fresh errand.
  *
+ * It does not always append. The check runs first, and a repository nothing has touched
+ * since this revision earns a line saying so rather than a second revision repeating the
+ * first: the line is a history of what happened to the code, not of who pressed what.
+ *
  * A picker with one option renders as a plain label: a control that opens a menu of the
  * thing already on screen is furniture.
  */
@@ -157,6 +161,7 @@ function RevisionStrip({
   onNewRevision,
   starting,
   startError,
+  unchanged,
 }: {
   review: ReviewDetail;
   currentId: string;
@@ -165,6 +170,8 @@ function RevisionStrip({
   onNewRevision: () => void;
   starting: boolean;
   startError: Error | null;
+  /** That the last check found nothing moved, so no revision was made. */
+  unchanged: boolean;
 }) {
   const navigate = useNavigate();
   const branchId = review.branch_id ?? null;
@@ -270,6 +277,15 @@ function RevisionStrip({
       {startError ? (
         <p role="alert" className="m-0 w-full text-meta text-material">
           {startError.message}
+        </p>
+      ) : null}
+      {/* A status rather than an alert, and quiet on purpose: the button did exactly what it
+          promised — it checked — and the result is that there was nothing to do. "Checked
+          just now" is the part that matters, because the sentence stops being true the
+          moment somebody edits a file. */}
+      {unchanged ? (
+        <p role="status" className="m-0 w-full font-mono text-micro text-ink-2">
+          Nothing has changed since this revision — checked just now.
         </p>
       ) : null}
     </div>
@@ -794,6 +810,15 @@ export function ReviewDetailPage() {
    * this the new review opens on whichever tab the old one was left on, with a row expanded
    * that its ledger does not contain.
    */
+  /**
+   * That the last New revision found nothing to judge.
+   *
+   * A moment rather than a property of the review: it is the answer to a question the reader
+   * asked just now, and it stops being true the instant anyone edits a file. So it is state
+   * here and not something read back from the server, it says when it was checked, and it is
+   * cleared by anything that makes it stale — pressing the button again, or leaving the page.
+   */
+  const [unchanged, setUnchanged] = useState(false);
   const [shown, setShown] = useState(reviewId);
   if (shown !== reviewId) {
     setShown(reviewId);
@@ -801,6 +826,7 @@ export function ReviewDetailPage() {
     setVisited(["findings"]);
     setOpenRow(null);
     setAtlasNodeId(null);
+    setUnchanged(false);
     // A panel is about one review, so it does not follow the reader to the next one —
     // answering a held review navigates straight from that pass to the one it starts.
     setAsking(false);
@@ -903,6 +929,15 @@ export function ReviewDetailPage() {
       // repository's code, not whatever the clone last held. Anyone else's working copy
       // comes back managed:false untouched, so this is safe to ask unconditionally.
       await api.refreshRepository(repositoryRoot);
+      // The check always runs, and a revision that would move nothing is reported rather
+      // than recorded: the workspace has already worked out the whole partition by the time
+      // it answers, so this is the run's own first decision and not a guess at it. Nothing
+      // was written, which is why the button can leave the reader exactly where they are.
+      const preflight = await api.preflightRepository(repositoryRoot);
+      if (!preflight.changed) {
+        setUnchanged(true);
+        return;
+      }
       const revision = await api.startFromRepository(repositoryRoot);
       if (!revision.case_id) {
         throw new Error("The workspace returned a case without an identifier.");
@@ -1309,9 +1344,16 @@ export function ReviewDetailPage() {
           currentId={reviewId}
           reviews={allReviews.data || []}
           branches={branchLineages.data || []}
-          onNewRevision={() => newRevision.mutate()}
+          onNewRevision={() => {
+            // Cleared on the way in, not on the way out: the notice is about the check that
+            // just ran, and leaving the previous answer on screen while a new one is being
+            // worked out would date it by however long the check takes.
+            setUnchanged(false);
+            newRevision.mutate();
+          }}
           starting={newRevision.isPending || run.running || running}
           startError={newRevision.error instanceof Error ? newRevision.error : null}
+          unchanged={unchanged}
         />
       ) : null}
       <PassesRail chain={chainAround(reviewId, siblings.data || [])} currentId={reviewId} />

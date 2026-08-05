@@ -92,6 +92,37 @@ dropdown, revision picker (`latest` tag), **New revision** button (managed check
 refresh first), the partition as the page's headline, standings UI carried over, bulk
 decide, BaselineBar removed, carried-row restyle. `/reviews` demotes to history or goes.
 
+### Phase C, 2026-08-05 — a revision that would change nothing is reported, not recorded
+
+**New revision** always runs the check. When nothing would move — the same boundaries, every
+one of them carrying (shape fp + content fp + corpus + case + model + prompt all unchanged),
+none appearing, vanishing, succeeding or resurfacing — **no case revision and no review are
+created**. The client is told "nothing changed since revision N" and shows a quiet notice. A
+real delta proceeds exactly as before.
+
+The check is the run's own first decision, taken early: re-index, resolve the branch's
+would-be case *without creating one*, detect, and partition against the branch's latest
+revision. All of it is deterministic and local, so the answer is exact and costs no model
+call. `POST /api/repositories/preflight` {root_path} → {changed, current_against, judged,
+addressed, resurfaced, succeeded}. A branch with no prior review answers `changed: true`,
+`current_against: null` — a first revision is real by definition.
+
+Three choices the decision did not make:
+
+1. **The revision *number* stays client-side.** The response names the review the repository
+   is current against and not its position on the line; the page already computes "Revision
+   n" from the listing, and a second numbering computed server-side could disagree with the
+   one on screen.
+2. **Re-indexing still writes an atlas.** It is how the check knows what the code says now,
+   and it is a derived artefact of the code rather than a statement about the review. What is
+   read-only is everything the review path owns: no case revision, no review row, no
+   `boundary_lines` event.
+3. **A previous revision left `awaiting_answers` is not special-cased.** The rule is taken
+   literally, so pressing New revision over untouched code on a held branch now reports
+   "nothing changed" where it used to produce a concluding pass. Answering the questions is
+   the flow that moves that branch; if skipping them is meant to stay possible it needs its
+   own gesture rather than a side effect of this button.
+
 ## Ownership and merge order
 
 A and B are sequential (both live in reviews/app/persistence). The main session merges

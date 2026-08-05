@@ -27,6 +27,7 @@ import type {
   RepositoryBranch,
   RepositoryCheckout,
   RepositorySummary,
+  RevisionPreflight,
   ModelCatalog,
   WorkspaceSummary,
 } from "./types";
@@ -448,6 +449,16 @@ export const api = {
   // `managed: false` and untouched, so this is safe to call before any review.
   refreshRepository: (rootPath: string) =>
     request<CheckoutRefresh>("/api/repositories/refresh", {
+      method: "POST",
+      body: JSON.stringify({ root_path: rootPath }),
+    }),
+  // Whether a new revision would find anything, asked before one is created. The repository
+  // is re-indexed and the delta is worked out; `changed: false` means every boundary would
+  // carry, and in that case no case revision, no review and no ledger event were written —
+  // the caller has been told the answer instead of being handed a revision that repeats the
+  // one above it.
+  preflightRepository: (rootPath: string) =>
+    request<RevisionPreflight>("/api/repositories/preflight", {
       method: "POST",
       body: JSON.stringify({ root_path: rootPath }),
     }),
