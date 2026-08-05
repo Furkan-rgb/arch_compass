@@ -40,11 +40,13 @@ from archcompass.adapters.retrieval import (
     MarkdownPolicyStore,
     load_method_primer,
 )
+from archcompass.adapters.vcs import GitCommandLineClient
 from archcompass.application.atlas_freshness import AtlasFreshnessService
 from archcompass.application.atlas_queries import AtlasService
 from archcompass.application.baseline import BaselineService
 from archcompass.application.bundled_examples import BundledExampleService
 from archcompass.application.cases import CaseService
+from archcompass.application.checkouts import RepositoryCheckoutService
 from archcompass.application.ci import CiRunService
 from archcompass.application.model_catalog import ModelCatalogService, reasoning_config
 from archcompass.application.policies import PolicyService
@@ -79,6 +81,12 @@ BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
 #: policies authored in it. Named once because it is also what an analysis of the workspace's
 #: own repository has to leave out.
 WORKSPACE_STATE_DIRECTORY = Path(".archcompass")
+
+#: Where a workspace keeps the clones it was asked to make, beside the database and the
+#: policies. A checkout is state Arch Compass wrote and can throw away — deleting the
+#: directory loses nothing but the time to clone it again — so it belongs with the rest of
+#: what the workspace owns rather than somewhere in the user's home.
+CHECKOUT_DIRECTORY = WORKSPACE_STATE_DIRECTORY / "checkouts"
 
 #: Where a workspace keeps the policies written in it, beside the database it already keeps
 #: there. The one policy directory Arch Compass owns the files in: everything else in the
@@ -118,6 +126,7 @@ class Runtime:
     triage_service: TriageService
     baseline_service: BaselineService
     ci_service: CiRunService
+    checkout_service: RepositoryCheckoutService
     freshness_service: AtlasFreshnessService
     model_catalog_service: ModelCatalogService
 
@@ -245,6 +254,10 @@ def build_runtime(
         triage=triage_service,
         lineages=lineages,
     )
+    checkout_service = RepositoryCheckoutService(
+        git=GitCommandLineClient(),
+        checkouts_root=canonical_workspace / CHECKOUT_DIRECTORY,
+    )
     return Runtime(
         workspace=canonical_workspace,
         database=database,
@@ -268,6 +281,7 @@ def build_runtime(
         triage_service=triage_service,
         baseline_service=baseline_service,
         ci_service=ci_service,
+        checkout_service=checkout_service,
         freshness_service=freshness,
         model_catalog_service=model_catalog_service,
     )

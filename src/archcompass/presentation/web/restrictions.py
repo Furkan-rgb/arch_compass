@@ -36,7 +36,7 @@ class HostedRefusal(Exception):
 
 @dataclass(frozen=True)
 class HostedRestrictions:
-    """The three things a hosted instance will not do, asked one method per route."""
+    """What a hosted instance will not do, asked one method per route."""
 
     hosted: bool = False
 
@@ -49,6 +49,25 @@ class HostedRestrictions:
             "This is the hosted demo, so the folder picker is switched off: the server's "
             "filesystem is not yours to look through. Load one of the bundled examples "
             "instead, or run Arch Compass locally to review your own repository.",
+        )
+
+    def checkout(self) -> None:
+        """Cloning is refused outright on the demo, rather than narrowed to a safe list.
+
+        A URL the visitor chooses is a request this server makes on their behalf, to an
+        address only they picked — which is somebody else's bandwidth, this instance's disk,
+        and a reachability probe of whatever is behind it. There is no version of that worth
+        offering on a public demo, and the bundled examples are already the answer to what a
+        visitor is here to see.
+        """
+
+        if not self.hosted:
+            return
+        raise HostedRefusal(
+            403,
+            "hosted_restriction",
+            "This is the hosted demo, so it will not clone a repository: it reviews only the "
+            "examples it ships with. Run Arch Compass locally to point it at your own code.",
         )
 
     def policy_source(self) -> None:

@@ -505,6 +505,16 @@ export interface components {
     "repository": components["schemas"]["RepositoryLineage"];
     "branch": components["schemas"]["BranchLineage"];
   };
+    "RepositoryCheckout": {
+    "root_path": string;
+    "branch_name"?: string | null;
+    "created"?: boolean;
+    "managed"?: boolean;
+  };
+    "RepositoryCheckoutRequest": {
+    "url": string;
+    "branch"?: string | null;
+  };
     "RepositoryLineage": {
     "repo_id": string;
     "root_commit_sha"?: string | null;
@@ -891,6 +901,20 @@ export interface operations {
     responses: {
       "200": Array<components["schemas"]["CaseRevision"]>;
       "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "checkout_repository_api_repositories_checkout_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["RepositoryCheckoutRequest"];
+    responses: {
+      "201": components["schemas"]["RepositoryCheckout"];
+      "422": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
     };
   };
   "clear_model_selection_api_models_selection_delete": {
@@ -1613,6 +1637,9 @@ export interface paths {
   };
   "/api/repositories": {
     get: operations["list_repositories_api_repositories_get"];
+  };
+  "/api/repositories/checkout": {
+    post: operations["checkout_repository_api_repositories_checkout_post"];
   };
   "/api/repositories/explore": {
     post: operations["repository_explore_api_repositories_explore_post"];

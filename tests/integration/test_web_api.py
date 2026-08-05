@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any, cast
 
@@ -1016,3 +1017,67 @@ def test_a_policy_that_cannot_be_read_back_is_never_left_on_disk(
         assert broken.status_code == 422, broken.text
         assert written.read_text(encoding="utf-8") == before
         assert list(authored.glob("*.md.staged")) == []
+
+
+def test_a_repository_is_checked_out_by_address_and_then_started_from(
+    tmp_path: Path, runtime: Runtime
+) -> None:
+    """The route a pasted URL takes: clone, then join the flow a picked folder is already on.
+
+    A local directory stands in for the remote, so this asks git to do the real work over a
+    real transport without leaving the machine.
+    """
+
+    remote = tmp_path / "remote"
+    remote.mkdir()
+    (remote / "store.py").write_text("class Store:\n    pass\n", encoding="utf-8")
+    for arguments in (
+        ("init", "-b", "main"),
+        ("config", "user.email", "test@example.invalid"),
+        ("config", "user.name", "Test"),
+        ("add", "."),
+        ("commit", "-m", "first"),
+    ):
+        subprocess.run(
+            ["git", "-C", str(remote), *arguments],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+
+    with TestClient(create_app(runtime)) as client:
+        cloned = client.post(
+            "/api/repositories/checkout",
+            json={"url": f"file://{remote}", "branch": None},
+        )
+        assert cloned.status_code == 201, cloned.text
+        checkout = cloned.json()
+        assert checkout["created"] is True
+        assert checkout["branch_name"] == "main"
+        assert checkout["managed"] is True
+
+        started = client.post(
+            "/api/repositories/start", json={"root_path": checkout["root_path"]}
+        )
+        assert started.status_code == 201, started.text
+
+        again = client.post(
+            "/api/repositories/checkout", json={"url": f"file://{remote}"}
+        )
+        assert again.status_code == 201, again.text
+        assert again.json()["root_path"] == checkout["root_path"]
+        assert again.json()["created"] is False
+
+        missing = client.post(
+            "/api/repositories/checkout",
+            json={"url": f"file://{remote}", "branch": "nowhere"},
+        )
+        assert missing.status_code == 409, missing.text
+        assert missing.json()["code"] == "checkout_failed"
+        assert "no branch called nowhere" in missing.json()["message"]
+
+        nonsense = client.post(
+            "/api/repositories/checkout", json={"url": "not a repository"}
+        )
+        assert nonsense.status_code == 422, nonsense.text
+        assert nonsense.json()["code"] == "validation_error"
