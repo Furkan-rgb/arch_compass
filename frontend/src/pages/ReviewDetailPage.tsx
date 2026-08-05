@@ -37,6 +37,7 @@ import { QuestionDiscussion } from "../question-discussion";
 import { OpenQuestions, type SubmittedAnswer } from "../review-questions";
 import type {
   BoundaryReview,
+  BoundaryReviewSummary,
   BoundaryTriage,
   OpenQuestion,
   RecordedAnswer,
@@ -45,6 +46,85 @@ import type {
   ReviewStatus,
   ReviewedBoundary,
 } from "../types";
+
+/**
+ * The run this review is one pass of, oldest pass first.
+ *
+ * Walked in both directions from the review on show: back along `elicited_from` to the pass
+ * that asked, and forward to whichever pass answers this one. The listing of the case's
+ * reviews already holds both links, so nothing here is guessed — a pass that has been
+ * deleted simply ends the walk on that side.
+ */
+export function chainAround(
+  reviewId: string,
+  reviews: BoundaryReviewSummary[],
+): BoundaryReviewSummary[] {
+  const byId = new Map(reviews.map((item) => [item.review_id, item]));
+  const current = byId.get(reviewId);
+  if (!current) return [];
+  const chain = [current];
+  let earlier = current.elicited_from ? byId.get(current.elicited_from) : undefined;
+  while (earlier) {
+    chain.unshift(earlier);
+    earlier = earlier.elicited_from ? byId.get(earlier.elicited_from) : undefined;
+  }
+  let later = reviews.find((item) => item.elicited_from === reviewId);
+  while (later) {
+    chain.push(later);
+    const answeredId = later.review_id;
+    later = reviews.find((item) => item.elicited_from === answeredId);
+  }
+  return chain;
+}
+
+/** The word a pass wears in the rail: what it did, or what it is doing. */
+function passWord(status: BoundaryReviewSummary["status"]): string {
+  if (status === "awaiting_answers") return "asked";
+  if (status === "running") return "running";
+  if (status === "succeeded") return "judged";
+  return status;
+}
+
+/**
+ * The way between the passes of one run.
+ *
+ * The listing folds a run to its latest pass, so this rail is where the earlier ones remain
+ * reachable — the first pass holds the questions as they were asked, and the second holds
+ * what the answers changed. Absent on a run of one pass: a rail with one stop is furniture.
+ */
+function PassesRail({
+  chain,
+  currentId,
+}: {
+  chain: BoundaryReviewSummary[];
+  currentId: string;
+}) {
+  if (chain.length < 2) return null;
+  return (
+    <nav
+      aria-label="Passes of this run"
+      className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-micro"
+    >
+      <span className="tracking-[.09em] uppercase text-ink-3">Passes</span>
+      {chain.map((pass, index) => {
+        const label = `${index + 1} · ${passWord(pass.status)}`;
+        return pass.review_id === currentId ? (
+          <span key={pass.review_id} aria-current="page" className="font-[650] text-ink">
+            {label}
+          </span>
+        ) : (
+          <Link
+            key={pass.review_id}
+            to={`/reviews/${pass.review_id}`}
+            className="text-accent-ink"
+          >
+            {label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
 
 /**
  * What the verdicts amount to, read as a set.
@@ -656,10 +736,10 @@ export function ReviewDetailPage() {
    * The listing entry for this review, which is where a running review's counts live — the
    * review document has no room for how far it has got.
    *
-   * It also used to feed links to the neighbouring reviews of this case. Those are gone:
-   * they navigated by case revision, and following one to a first pass landed the reader on
-   * the in-progress screen, which is not where that review is. Moving between the passes of
-   * a case is worth having and will be built as its own thing rather than as two arrows.
+   * It also feeds the passes rail: the case's other reviews carry the `elicited_from`
+   * links, and the rail is the walk along them. It once fed arrows that navigated by case
+   * revision instead, which landed readers on the in-progress screen of a pass that was
+   * never run — the rail names each pass by what it did, which is the difference.
    */
   const siblings = useQuery({
     queryKey: ["reviews", caseId],
@@ -1107,6 +1187,8 @@ export function ReviewDetailPage() {
           </>
         }
       />
+
+      <PassesRail chain={chainAround(reviewId, siblings.data || [])} currentId={reviewId} />
 
       {holding ? (
         <HoldBanner

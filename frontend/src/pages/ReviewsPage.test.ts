@@ -1,4 +1,4 @@
-import { anyRunning, groupByCase, groupByRepository } from "./ReviewsPage";
+import { anyRunning, groupIntoChains, groupByRepository } from "./ReviewsPage";
 import type { BoundaryReviewSummary } from "../types";
 
 function review(fields: Partial<BoundaryReviewSummary>): BoundaryReviewSummary {
@@ -14,40 +14,63 @@ function review(fields: Partial<BoundaryReviewSummary>): BoundaryReviewSummary {
     updated_at: "2026-07-26T10:00:00Z",
     boundaries_detected: 6,
     case_title: "Task scheduler",
+    elicited_from: null,
     ...fields,
   };
 }
 
-describe("groupByCase", () => {
-  it("keeps the order the listing arrived in, for cases and for rows", () => {
-    // The API answers newest first, so insertion order is already the order to render:
-    // a group's first row is its latest review, and the first group is the case reviewed
-    // most recently.
-    const grouped = groupByCase([
-      review({ review_id: "rev_3", case_id: "case_b" }),
-      review({ review_id: "rev_2", case_id: "case_a", case_revision: 2 }),
-      review({ review_id: "rev_1", case_id: "case_a", case_revision: 1 }),
+describe("groupIntoChains", () => {
+  it("folds a first pass behind the second pass that answered it", () => {
+    // One run, one row. The first pass would otherwise sit in the listing "waiting on
+    // your answers" for ever, over questions that were answered minutes later.
+    const chains = groupIntoChains([
+      review({ review_id: "rev_2", case_revision: 2, elicited_from: "rev_1" }),
+      review({ review_id: "rev_1", status: "awaiting_answers" }),
     ]);
 
-    expect(grouped.map((group) => group.caseId)).toEqual(["case_b", "case_a"]);
-    expect(grouped[1].reviews.map((item) => item.review_id)).toEqual(["rev_2", "rev_1"]);
+    expect(chains).toHaveLength(1);
+    expect(chains[0].tip.review_id).toBe("rev_2");
+    expect(chains[0].passes.map((item) => item.review_id)).toEqual(["rev_2", "rev_1"]);
   });
 
-  it("takes the title from whichever review recorded one", () => {
-    // A review that failed before composing a report has no title to carry, and an older
-    // row of the same case is a better answer than a placeholder.
-    const grouped = groupByCase([
-      review({ review_id: "rev_2", case_title: null }),
+  it("keeps a first pass with no second pass as its own row", () => {
+    // Still waiting on answers is exactly what this row should say.
+    const chains = groupIntoChains([review({ status: "awaiting_answers" })]);
+
+    expect(chains).toHaveLength(1);
+    expect(chains[0].passes).toHaveLength(1);
+  });
+
+  it("takes the title from whichever pass recorded one", () => {
+    // A second pass still running has no title yet; the first pass's is a better answer
+    // than a placeholder.
+    const chains = groupIntoChains([
+      review({ review_id: "rev_2", case_title: null, elicited_from: "rev_1" }),
       review({ review_id: "rev_1", case_title: "Task scheduler" }),
     ]);
 
-    expect(grouped[0].title).toBe("Task scheduler");
+    expect(chains[0].title).toBe("Task scheduler");
   });
 
-  it("has no title when no review of the case recorded one", () => {
-    const grouped = groupByCase([review({ case_title: null })]);
+  it("keeps arrival order between runs", () => {
+    // The listing arrives newest first, and each run keeps the position of its tip.
+    const chains = groupIntoChains([
+      review({ review_id: "rev_b", case_id: "case_b" }),
+      review({ review_id: "rev_a2", elicited_from: "rev_a1" }),
+      review({ review_id: "rev_a1", status: "awaiting_answers" }),
+    ]);
 
-    expect(grouped[0].title).toBeNull();
+    expect(chains.map((chain) => chain.tip.review_id)).toEqual(["rev_b", "rev_a2"]);
+  });
+
+  it("lists a pass whose predecessor was deleted", () => {
+    // The walk ends where the record does; the chain is whatever survives.
+    const chains = groupIntoChains([
+      review({ review_id: "rev_2", elicited_from: "rev_gone" }),
+    ]);
+
+    expect(chains).toHaveLength(1);
+    expect(chains[0].passes.map((item) => item.review_id)).toEqual(["rev_2"]);
   });
 });
 
@@ -99,7 +122,7 @@ describe("groupByRepository", () => {
       "audiobook-studio",
     ]);
     expect(grouped[0].branchName).toBe("main");
-    expect(grouped[0].cases[0].reviews.map((item) => item.review_id)).toEqual([
+    expect(grouped[0].chains.map((chain) => chain.tip.review_id)).toEqual([
       "rev_3",
       "rev_2",
     ]);

@@ -21,11 +21,13 @@ import {
   Overview,
   ReviewUnavailable,
   answersBehind,
+  chainAround,
   findingForNode,
   verdictChanges,
 } from "./ReviewDetailPage";
 import { AnswerProse } from "../markdown";
 import type {
+  BoundaryReviewSummary,
   OpenQuestion,
   RecordedAnswer,
   ReviewStatus,
@@ -477,5 +479,54 @@ describe("ReviewUnavailable", () => {
     expect(screen.getByText("This review could not be read")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Read it again" }));
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("chainAround", () => {
+  const pass = (fields: Partial<BoundaryReviewSummary>): BoundaryReviewSummary => ({
+    review_id: "rev_1",
+    case_id: "case_a",
+    case_revision: 1,
+    atlas_version_id: "atlas_1",
+    status: "succeeded",
+    boundaries_reviewed: 6,
+    boundaries_material: 2,
+    boundaries_detected: 6,
+    created_at: "2026-08-05T10:00:00Z",
+    updated_at: "2026-08-05T10:00:00Z",
+    case_title: "Task scheduler",
+    elicited_from: null,
+    ...fields,
+  });
+
+  it("walks to the whole run from either pass, oldest first", () => {
+    // The rail must read the same whichever pass the reader is standing on.
+    const listing = [
+      pass({ review_id: "rev_2", case_revision: 2, elicited_from: "rev_1" }),
+      pass({ review_id: "rev_1", status: "awaiting_answers" }),
+    ];
+
+    expect(chainAround("rev_1", listing).map((item) => item.review_id)).toEqual([
+      "rev_1",
+      "rev_2",
+    ]);
+    expect(chainAround("rev_2", listing).map((item) => item.review_id)).toEqual([
+      "rev_1",
+      "rev_2",
+    ]);
+  });
+
+  it("is just the review itself when nothing links to it", () => {
+    expect(chainAround("rev_1", [pass({})])).toHaveLength(1);
+  });
+
+  it("ends the walk where a deleted pass leaves a gap", () => {
+    const listing = [pass({ review_id: "rev_2", elicited_from: "rev_gone" })];
+    expect(chainAround("rev_2", listing).map((item) => item.review_id)).toEqual(["rev_2"]);
+  });
+
+  it("is empty for a review the listing has not caught up with", () => {
+    // The siblings query lands after the review itself; the rail simply waits.
+    expect(chainAround("rev_new", [])).toEqual([]);
   });
 });
