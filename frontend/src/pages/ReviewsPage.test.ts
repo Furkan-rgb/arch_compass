@@ -1,4 +1,4 @@
-import { anyRunning, groupIntoChains, groupByRepository } from "./ReviewsPage";
+import { anyRunning, foldToLines, groupIntoChains, groupByRepository } from "./ReviewsPage";
 import type { BoundaryReviewSummary } from "../types";
 
 function review(fields: Partial<BoundaryReviewSummary>): BoundaryReviewSummary {
@@ -173,5 +173,24 @@ describe("groupByRepository", () => {
       "audiobook-studio/repository",
       "billing-service",
     ]);
+  });
+});
+
+describe("foldToLines", () => {
+  it("folds a branch's runs into one row wearing the branch name and depth", () => {
+    const chains = groupIntoChains([
+      review({ review_id: "rev_3", branch_id: "branch_a" }),
+      review({ review_id: "rev_2", branch_id: "branch_a", case_id: "case_b" }),
+      review({ review_id: "rev_1", branch_id: "branch_b", case_id: "case_c" }),
+    ]);
+    const lines = foldToLines(chains, new Map([["branch_a", "main"]]));
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0].tip.review_id).toBe("rev_3");
+    expect(lines[0].branchName).toBe("main");
+    expect(lines[0].revisions).toBe(2);
+    // A branch whose lineage is not indexed still gets its row, honestly unnamed.
+    expect(lines[1].branchName).toBeNull();
+    expect(lines[1].revisions).toBe(1);
   });
 });

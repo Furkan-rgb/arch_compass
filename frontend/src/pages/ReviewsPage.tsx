@@ -322,10 +322,19 @@ export function RunLedger({
                 <span className={rowName}>
                   {chain.title || <code>{shortId(chain.tip.case_id)}</code>}
                 </span>
-                <span className={rowWhere}>{formatDate(chain.tip.created_at)}</span>
-                {/* That a run took two passes is worth a word — it says answers were given
-                    and judged — but the passes themselves live on the review's own page. */}
-                {chain.passes.length > 1 ? (
+                <span className={rowWhere}>
+                  {"branchName" in chain && (chain as LedgerLine).branchName
+                    ? `${(chain as LedgerLine).branchName} · `
+                    : ""}
+                  {formatDate(chain.tip.created_at)}
+                </span>
+                {/* The line's depth is worth a word; the revisions themselves live on the
+                    page, behind its picker. */}
+                {"revisions" in chain && (chain as LedgerLine).revisions > 1 ? (
+                  <span className="font-mono text-micro tracking-[.06em] text-ink-3 max-[860px]:hidden">
+                    {(chain as LedgerLine).revisions} revisions
+                  </span>
+                ) : chain.passes.length > 1 ? (
                   <span className="font-mono text-micro tracking-[.06em] text-ink-3 max-[860px]:hidden">
                     {chain.passes.length} passes
                   </span>
@@ -388,9 +397,10 @@ export function groupByRepository(
       const chains = groupIntoChains(items);
       return {
         repoId,
-        // The directory's own basename — what the person who picked it calls it. The
-        // hashed id stays in the tooltip for the day two checkouts disagree.
-        name: segments.at(-1) ?? null,
+        // The directory's own basename, minus the content hash a managed checkout's
+        // folder carries — the person pasted "audiobook_studio", not the digest. The
+        // full path stays in the tooltip.
+        name: segments.at(-1)?.replace(/-[0-9a-f]{12}$/, "") ?? null,
         segments,
         branchName: indexed?.branch_name ?? null,
         rootPath: indexed?.root_path ?? null,
@@ -422,14 +432,32 @@ export function groupByRepository(
   return sections;
 }
 
-/** A repository section's runs, split by the branch each line lives on; arrival order kept. */
-export function groupByBranch(chains: ReviewChain[]) {
-  const lines = new Map<string | null, ReviewChain[]>();
+/**
+ * One row per branch: the branch's line, worn as its newest run.
+ *
+ * A branch carries one living review, so listing every revision here would repeat the
+ * revision picker as clutter — the row is the line's current state, the branch's name
+ * rides inside the row, and older revisions are one click away on the page itself.
+ */
+export type LedgerLine = ReviewChain & {
+  branchName: string | null;
+  revisions: number;
+};
+
+export function foldToLines(
+  chains: ReviewChain[],
+  branchNames: Map<string, string>,
+): LedgerLine[] {
+  const byBranch = new Map<string | null, ReviewChain[]>();
   for (const chain of chains) {
     const key = chain.tip.branch_id ?? null;
-    lines.set(key, [...(lines.get(key) || []), chain]);
+    byBranch.set(key, [...(byBranch.get(key) || []), chain]);
   }
-  return [...lines.entries()].map(([branchId, items]) => ({ branchId, chains: items }));
+  return [...byBranch.entries()].map(([branchId, items]) => ({
+    ...items[0],
+    branchName: (branchId && branchNames.get(branchId)) || null,
+    revisions: items.length,
+  }));
 }
 
 export function ReviewsPage() {
@@ -561,11 +589,7 @@ export function ReviewsPage() {
                 <code className="font-mono" title={section.rootPath ?? undefined}>
                   {section.name}
                 </code>
-                {section.branchName ? (
-                  <span className="text-meta font-normal text-ink-3">
-                    {section.branchName}
-                  </span>
-                ) : null}
+
               </>
             ) : section.repoId ? (
               <code className="font-mono text-meta" title={section.repoId}>
@@ -578,24 +602,12 @@ export function ReviewsPage() {
               {section.count} {section.count === 1 ? "run" : "runs"}
             </span>
           </h2>
-          {/* One ledger per branch when the runs span more than one: each branch is its
-              own line — its own case, standings and revisions — and rows from two lines
-              interleaved by date read as one history that does not exist. */}
-          {groupByBranch(section.chains).map((line) => (
-            <div key={line.branchId ?? "unplaced"}>
-              {section.chains.some((chain) => chain.tip.branch_id !== line.branchId) ? (
-                <h3 className="mt-2 mb-1 font-mono text-micro font-[650] tracking-[.06em] text-ink-3">
-                  {(line.branchId && branchNames.get(line.branchId)) || "before branch identity"}
-                </h3>
-              ) : null}
-              <RunLedger
-                chains={line.chains}
-                busy={busy}
-                onCancel={(reviewId) => cancel.mutate(reviewId)}
-                onDelete={(reviewIds) => remove.mutate(reviewIds)}
-              />
-            </div>
-          ))}
+          <RunLedger
+            chains={foldToLines(section.chains, branchNames)}
+            busy={busy}
+            onCancel={(reviewId) => cancel.mutate(reviewId)}
+            onDelete={(reviewIds) => remove.mutate(reviewIds)}
+          />
         </section>
       ))}
     </div>
