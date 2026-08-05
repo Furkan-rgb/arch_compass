@@ -20,6 +20,14 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -375,5 +383,126 @@ function Discussion({
         ) : null}
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+/**
+ * One decision over everything still undecided — the gesture that adopts a repository.
+ *
+ * The bulk baseline used to do this with a button that silenced boundaries nobody looked
+ * at; this reaches the same quiet with an author and one recorded decision per boundary,
+ * which is the difference between silence and sign-off. Offered only when there is a
+ * plural to decide: a single boundary has its own footer, and a bar restating it would
+ * be furniture.
+ */
+export function BulkDecide({
+  boundaries,
+  branchId,
+  reviewId,
+}: {
+  /** The undecided material boundaries this would decide, with their fingerprints. */
+  boundaries: ReviewedBoundary[];
+  branchId: string;
+  reviewId: string;
+}) {
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<DecisionState | "">("");
+  const [author, setAuthor] = useState(rememberedAuthor);
+  const [reason, setReason] = useState("");
+  const decide = useMutation({
+    mutationFn: () => {
+      if (!state) throw new Error("Choose what the decision is first.");
+      rememberAuthor(author.trim());
+      return api.postBulkDecisions({
+        branch_id: branchId,
+        state,
+        author: author.trim(),
+        reason: reason.trim() ? reason.trim() : null,
+        review_id: reviewId,
+        boundaries: boundaries
+          .filter((item) => item.fingerprint)
+          .map((item) => ({
+            boundary_fingerprint: item.fingerprint!,
+            boundary_reference: item.reference,
+            material: item.material,
+            verdict_label: item.verdict_label,
+          })),
+      });
+    },
+    onSuccess: async () => {
+      setOpen(false);
+      setState("");
+      setReason("");
+      await client.invalidateQueries({ queryKey: ["review", reviewId] });
+    },
+  });
+  const ready =
+    state !== "" && author.trim() !== "" && (state !== "waived" || reason.trim() !== "");
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-panel [border:var(--sheet-border)] bg-surface px-[var(--row-pad-x)] py-3">
+        <p className="m-0 text-ui text-ink-2">
+          <strong className="text-ink">{boundaries.length} boundaries</strong> are material
+          with no standing decision. Deciding them is what makes the next revision quiet.
+        </p>
+        <DialogTrigger asChild>
+          <Button type="button" className="ml-auto">
+            Decide all {boundaries.length}…
+          </Button>
+        </DialogTrigger>
+      </div>
+      <DialogContent className="max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>One decision, {boundaries.length} boundaries</DialogTitle>
+          <DialogDescription>
+            Each gets its own recorded decision under your name — the same standing a
+            one-at-a-time decision has, and each can be revisited individually later.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2">
+          <ToggleGroup
+            type="single"
+            value={state}
+            onValueChange={(next) => setState((next as DecisionState) || "")}
+            aria-label="The decision"
+          >
+            <ToggleGroupItem value="accepted">Accept</ToggleGroupItem>
+            <ToggleGroupItem value="waived">Waive</ToggleGroupItem>
+            <ToggleGroupItem value="parked">Park</ToggleGroupItem>
+          </ToggleGroup>
+          <Input
+            value={author}
+            onChange={(event) => setAuthor(event.target.value)}
+            placeholder="Your name"
+            aria-label="Author"
+          />
+          <Textarea
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder={
+              state === "waived" ? "Why this debt is being waived — required" : "Reason (optional)"
+            }
+            aria-label="Reason"
+          />
+          {decide.error instanceof Error ? (
+            <p role="alert" className="m-0 text-meta text-material">
+              {decide.error.message}
+            </p>
+          ) : null}
+          <div className="flex justify-end border-t border-rule-soft pt-3">
+            <Button
+              type="button"
+              variant="primary"
+              disabled={!ready || decide.isPending}
+              onClick={() => decide.mutate()}
+            >
+              {decide.isPending ? "Recording…" : `Record ${boundaries.length} decisions`}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

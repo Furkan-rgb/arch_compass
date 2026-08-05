@@ -38,6 +38,8 @@ export type DecisionState = OpenAPIComponents["schemas"]["DecisionState"];
 export type StandingDecision = OpenAPIComponents["schemas"]["StandingDecision"];
 export type DecisionComment = OpenAPIComponents["schemas"]["DecisionComment"];
 export type DecisionRequest = OpenAPIComponents["schemas"]["DecisionRequest"];
+export type BulkDecisionRequest = OpenAPIComponents["schemas"]["BulkDecisionRequest"];
+export type BulkDecisionResponse = OpenAPIComponents["schemas"]["BulkDecisionResponse"];
 
 /**
  * What this workspace is pointed at, including being pointed at nothing.

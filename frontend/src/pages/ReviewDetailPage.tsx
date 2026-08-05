@@ -43,6 +43,7 @@ import {
 } from "../review-ledger";
 import { useRun } from "../run";
 import { QuestionDiscussion } from "../question-discussion";
+import { BulkDecide } from "../triage";
 import { OpenQuestions, type SubmittedAnswer } from "../review-questions";
 import type {
   BoundaryReview,
@@ -916,6 +917,13 @@ export function ReviewDetailPage() {
   );
 
   const references = reviewed.map((item) => item.reference).join(" ");
+  // Material with nobody's name on it — what the bulk gesture would decide.
+  const undecided = reviewed.filter(
+    (item) =>
+      item.material &&
+      item.fingerprint &&
+      !triageByReference.get(item.reference)?.decision,
+  );
 
   /**
    * A citation opens the row it names, in the tab that holds it.
@@ -1200,6 +1208,12 @@ export function ReviewDetailPage() {
                 questions={askedEarlier}
                 answered={answered}
               />
+            ) : null}
+            {/* Adoption, when there is a plural to adopt: everything material and
+                undecided, one recorded decision each. What used to be the baseline
+                button, with an author attached. */}
+            {!running && !holding && branchId && undecided.length > 1 ? (
+              <BulkDecide boundaries={undecided} branchId={branchId} reviewId={reviewId} />
             ) : null}
             {/* The boundaries this revision closed, above the ledger of the ones it still
                 has: the best news first, and it has no row of its own to live in. */}

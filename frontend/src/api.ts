@@ -14,6 +14,8 @@ import type {
   BoundaryReview,
   BoundaryReviewSummary,
   BundledExample,
+  BulkDecisionRequest,
+  BulkDecisionResponse,
   DecisionComment,
   DecisionRequest,
   ReviewDetail,
@@ -207,6 +209,14 @@ export const api = {
    * decision permanently names what the team actually looked at, and a later run whose
    * verdict differs can say the ground moved rather than silently inheriting approval.
    */
+  // Many boundaries, one decision, one transaction — the gesture that adopts a legacy
+  // repository. Individual standing decisions are recorded, each with the same author,
+  // which is the difference between sign-off and silence.
+  postBulkDecisions: (decisions: BulkDecisionRequest) =>
+    request<BulkDecisionResponse>("/api/decisions/bulk", {
+      method: "POST",
+      body: JSON.stringify(decisions),
+    }),
   postDecision: (decision: DecisionRequest) =>
     request<StandingDecision>("/api/decisions", {
       method: "POST",

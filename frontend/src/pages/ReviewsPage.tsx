@@ -422,6 +422,16 @@ export function groupByRepository(
   return sections;
 }
 
+/** A repository section's runs, split by the branch each line lives on; arrival order kept. */
+export function groupByBranch(chains: ReviewChain[]) {
+  const lines = new Map<string | null, ReviewChain[]>();
+  for (const chain of chains) {
+    const key = chain.tip.branch_id ?? null;
+    lines.set(key, [...(lines.get(key) || []), chain]);
+  }
+  return [...lines.entries()].map(([branchId, items]) => ({ branchId, chains: items }));
+}
+
 export function ReviewsPage() {
   const client = useQueryClient();
   const reviews = useQuery({
@@ -439,6 +449,12 @@ export function ReviewsPage() {
     queryKey: ["repositories"],
     queryFn: api.repositories,
   });
+  // Branch names for the sub-headings. Only consulted when a repository's runs span more
+  // than one branch — the common single-branch section stays exactly as it was.
+  const branchLineages = useQuery({ queryKey: ["branches"], queryFn: api.branches });
+  const branchNames = new Map(
+    (branchLineages.data || []).map((item) => [item.branch.branch_id, item.branch.branch_name]),
+  );
   const grouped = useMemo(
     () => groupByRepository(reviews.data || [], repositories.data || []),
     [reviews.data, repositories.data],
@@ -562,12 +578,24 @@ export function ReviewsPage() {
               {section.count} {section.count === 1 ? "run" : "runs"}
             </span>
           </h2>
-          <RunLedger
-            chains={section.chains}
-            busy={busy}
-            onCancel={(reviewId) => cancel.mutate(reviewId)}
-            onDelete={(reviewIds) => remove.mutate(reviewIds)}
-          />
+          {/* One ledger per branch when the runs span more than one: each branch is its
+              own line — its own case, standings and revisions — and rows from two lines
+              interleaved by date read as one history that does not exist. */}
+          {groupByBranch(section.chains).map((line) => (
+            <div key={line.branchId ?? "unplaced"}>
+              {section.chains.some((chain) => chain.tip.branch_id !== line.branchId) ? (
+                <h3 className="mt-2 mb-1 font-mono text-micro font-[650] tracking-[.06em] text-ink-3">
+                  {(line.branchId && branchNames.get(line.branchId)) || "before branch identity"}
+                </h3>
+              ) : null}
+              <RunLedger
+                chains={line.chains}
+                busy={busy}
+                onCancel={(reviewId) => cancel.mutate(reviewId)}
+                onDelete={(reviewIds) => remove.mutate(reviewIds)}
+              />
+            </div>
+          ))}
         </section>
       ))}
     </div>
