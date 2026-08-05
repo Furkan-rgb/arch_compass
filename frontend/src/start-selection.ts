@@ -50,3 +50,18 @@ export function runIntent(selection: StartSelection, hasModel: boolean): RunInte
   if (!repositoryRoot || !hasModel) return null;
   return { kind: "from-repository", repositoryRoot };
 }
+
+/**
+ * Whether one pasted line names a repository by address rather than by folder.
+ *
+ * The start step has a single field for "the project": a path walks the filesystem, an
+ * address is checked out. The reader should never have to say which one they pasted —
+ * this is the recognition, and it is deliberately narrow: URL schemes git itself clones
+ * from, plus the scp-style `git@host:owner/repo` that hosting providers put on the
+ * clipboard. A bare local path to a repository is not an address — it is a folder, and
+ * indexing reviews it in place, which is the right treatment for it.
+ */
+export function looksLikeGitAddress(text: string): boolean {
+  const line = text.trim();
+  return /^(https?|ssh|git):\/\/\S+$/.test(line) || /^git@[^\s:]+:\S+$/.test(line);
+}

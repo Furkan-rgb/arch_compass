@@ -5,7 +5,6 @@ import {
   ChevronRight,
   FlaskConical,
   FolderOpen,
-  GitBranch,
   Play,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -28,7 +27,7 @@ import { EmptyLine, ErrorPanel, Loading, PageHeader, page, sheet } from "../comp
 import { useModelPicker } from "../model-picker";
 import { latestPerRepository } from "../repositories";
 import { useRun } from "../run";
-import { isReady, runIntent, type StartSelection } from "../start-selection";
+import { isReady, looksLikeGitAddress, runIntent, type StartSelection } from "../start-selection";
 import type { BundledExample } from "../types";
 
 /* A short list of things to pick from, at the density of a list rather than of a card wall:
@@ -71,15 +70,24 @@ function FolderBrowser({
   indexing,
   error,
   onIndex,
+  fetching,
+  checkoutError,
+  onCheckout,
 }: {
   /** Where to open: a repository some case named, or the home folder where `null` lands. */
   start: string | null;
   indexing: boolean;
   error: unknown;
   onIndex: (root: string) => void;
+  fetching: boolean;
+  checkoutError: unknown;
+  onCheckout: (url: string, branch: string | null) => void;
 }) {
   const [at, setAt] = useState<string | null>(start);
   const [typed, setTyped] = useState(start ?? "");
+  const [branch, setBranch] = useState("");
+  // One field for "the project": recognised from what was pasted, never asked about.
+  const address = looksLikeGitAddress(typed);
   // The field follows the walk until anybody edits it, so a listing that lands a beat later
   // cannot eat a path half way through being pasted.
   const [edited, setEdited] = useState(false);
@@ -118,7 +126,12 @@ function FolderBrowser({
         className="flex gap-2"
         onSubmit={(event) => {
           event.preventDefault();
-          go();
+          // Enter does what the line says: an address is fetched, a path is walked to.
+          if (address) {
+            if (!fetching) onCheckout(typed.trim(), branch.trim() || null);
+          } else {
+            go();
+          }
         }}
       >
         <Button
@@ -127,7 +140,7 @@ function FolderBrowser({
           aria-label="Go up to the parent folder"
           // A null parent is the server saying there is nowhere above this; nothing here
           // counts slashes to work that out.
-          disabled={!listing.data?.parent}
+          disabled={address || !listing.data?.parent}
           onClick={() => walk(listing.data?.parent ?? null)}
         >
           <ArrowUp size={14} aria-hidden />
@@ -139,23 +152,38 @@ function FolderBrowser({
             setEdited(true);
             setTyped(event.target.value);
           }}
-          aria-label="Folder path"
+          aria-label="Folder path or git address"
           spellCheck={false}
         />
-        <Button type="submit" disabled={!typed.trim()}>
-          Go
-        </Button>
+        {address ? null : (
+          <Button type="submit" disabled={!typed.trim()}>
+            Go
+          </Button>
+        )}
       </form>
 
-      {listing.isLoading ? <Loading label="Reading folders…" rows={3} /> : null}
-      {listing.error ? (
+      {address ? (
+        // The line named a repository elsewhere, so the walk yields to the fetch: a branch
+        // to ask for, and nothing else — the folder list below is about this machine.
+        <Input
+          className="font-mono text-meta"
+          value={branch}
+          onChange={(event) => setBranch(event.target.value)}
+          placeholder="branch — empty means the default"
+          aria-label="Branch"
+          spellCheck={false}
+        />
+      ) : null}
+
+      {!address && listing.isLoading ? <Loading label="Reading folders…" rows={3} /> : null}
+      {!address && listing.error ? (
         <ErrorPanel
           error={listing.error}
           onRetry={() => void listing.refetch()}
           retrying={listing.isFetching}
         />
       ) : null}
-      {listing.data?.directories.length ? (
+      {address ? null : listing.data?.directories.length ? (
         <ul data-slot="pick" className={cn(pick, "max-h-[280px]")}>
           {listing.data.directories.map((folder) => (
             <li key={folder.path}>
@@ -175,17 +203,29 @@ function FolderBrowser({
       )}
 
       {error ? <ErrorPanel error={error} /> : null}
+      {address && checkoutError ? <ErrorPanel error={checkoutError} /> : null}
 
       <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 border-t border-rule-soft pt-3.5">
-        <Button
-          type="button"
-          variant="primary"
-          // Indexes the folder whose contents are on screen, never a half-typed line.
-          disabled={!here || indexing}
-          onClick={() => here && onIndex(here)}
-        >
-          {indexing ? "Indexing…" : "Index this folder"}
-        </Button>
+        {address ? (
+          <Button
+            type="button"
+            variant="primary"
+            disabled={fetching}
+            onClick={() => onCheckout(typed.trim(), branch.trim() || null)}
+          >
+            {fetching ? "Fetching…" : "Check out and index"}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="primary"
+            // Indexes the folder whose contents are on screen, never a half-typed line.
+            disabled={!here || indexing}
+            onClick={() => here && onIndex(here)}
+          >
+            {indexing ? "Indexing…" : "Index this folder"}
+          </Button>
+        )}
       </div>
     </>
   );
@@ -206,6 +246,9 @@ function FolderPicker({
   indexing,
   error,
   onIndex,
+  fetching,
+  checkoutError,
+  onCheckout,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -214,13 +257,16 @@ function FolderPicker({
   indexing: boolean;
   error: unknown;
   onIndex: (root: string) => void;
+  fetching: boolean;
+  checkoutError: unknown;
+  onCheckout: (url: string, branch: string | null) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
         <Button type="button" disabled={disabled}>
           <FolderOpen size={14} aria-hidden />
-          Index a folder…
+          Add a repository…
         </Button>
       </DialogTrigger>
       <DialogContent
@@ -230,10 +276,11 @@ function FolderPicker({
         overlayClassName="items-start py-[12vh]"
       >
         <DialogHeader>
-          <DialogTitle>Index a folder</DialogTitle>
+          <DialogTitle>Add a repository</DialogTitle>
           <DialogDescription>
-            Browse to the root of a local Python project, or paste its path. Parsing reads
-            the code without importing or modifying it.
+            Browse to a local Python project — or paste a path, or a git address. An
+            address is cloned into this workspace and kept fresh on later visits; parsing
+            reads the code without importing or modifying it.
           </DialogDescription>
         </DialogHeader>
         <FolderBrowser
@@ -241,90 +288,10 @@ function FolderPicker({
           indexing={indexing}
           error={error}
           onIndex={onIndex}
+          fetching={fetching}
+          checkoutError={checkoutError}
+          onCheckout={onCheckout}
         />
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/**
- * Naming a repository by its address instead of walking to its folder.
- *
- * The workspace clones the address into its own checkouts directory and keeps that same
- * checkout fresh on later visits — which is what makes every run of one address stack
- * under one repository in the listings. A local path that is already a repository root is
- * accepted too and reviewed where it lies.
- *
- * Field state lives here so the dialog unmounting resets it; what closes the dialog is
- * only success, exactly as with the folder picker — a refusal stays on screen beside the
- * address that earned it, in the server's own words.
- */
-function CheckoutPicker({
-  open,
-  onOpenChange,
-  disabled,
-  fetching,
-  error,
-  onCheckout,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  disabled: boolean;
-  fetching: boolean;
-  error: unknown;
-  onCheckout: (url: string, branch: string | null) => void;
-}) {
-  const [url, setUrl] = useState("");
-  const [branch, setBranch] = useState("");
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>
-        <Button type="button" disabled={disabled}>
-          <GitBranch size={14} aria-hidden />
-          From a git address…
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-[560px]" overlayClassName="items-start py-[12vh]">
-        <DialogHeader>
-          <DialogTitle>Check out a repository</DialogTitle>
-          <DialogDescription>
-            Paste an address — https or ssh — and it is cloned into this workspace&apos;s
-            own checkouts folder, refreshed on every later visit. A local path that is
-            already a repository works too, in place.
-          </DialogDescription>
-        </DialogHeader>
-        <form
-          className="grid gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const asked = url.trim();
-            if (asked) onCheckout(asked, branch.trim() || null);
-          }}
-        >
-          <Input
-            className="font-mono text-meta"
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            placeholder="https://github.com/owner/repository"
-            aria-label="Repository address"
-            spellCheck={false}
-            autoFocus
-          />
-          <Input
-            className="font-mono text-meta"
-            value={branch}
-            onChange={(event) => setBranch(event.target.value)}
-            placeholder="branch — empty means the default"
-            aria-label="Branch"
-            spellCheck={false}
-          />
-          {error ? <ErrorPanel error={error} /> : null}
-          <div className="flex items-center justify-end gap-x-4 border-t border-rule-soft pt-3.5">
-            <Button type="submit" variant="primary" disabled={!url.trim() || fetching}>
-              {fetching ? "Fetching…" : "Check out and index"}
-            </Button>
-          </div>
-        </form>
       </DialogContent>
     </Dialog>
   );
@@ -337,7 +304,6 @@ export function StartPage() {
   // Held here rather than inside the picker: a successful index is what closes it, and the
   // mutation is this page's.
   const [picking, setPicking] = useState(false);
-  const [checkingOut, setCheckingOut] = useState(false);
 
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: () => api.reviews() });
@@ -380,7 +346,7 @@ export function StartPage() {
       return api.indexRepository(fetched.root_path);
     },
     onSuccess: async (version) => {
-      setCheckingOut(false);
+      setPicking(false);
       setRepositoryRoot(version.root_path);
       await client.invalidateQueries({ queryKey: ["repositories"] });
     },
@@ -594,13 +560,8 @@ export function StartPage() {
                 indexing={index.isPending}
                 error={index.error}
                 onIndex={(root) => index.mutate(root)}
-              />
-              <CheckoutPicker
-                open={checkingOut}
-                onOpenChange={setCheckingOut}
-                disabled={busy}
                 fetching={checkout.isPending}
-                error={checkout.error}
+                checkoutError={checkout.error}
                 onCheckout={(url, branch) => checkout.mutate({ url, branch })}
               />
             </div>
