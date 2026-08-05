@@ -145,17 +145,34 @@ function PassesRail({
  * It fades in on arrival and out on dismissal — an element that pops into a corner reads
  * as something breaking, and one that vanishes under the pointer reads as a misclick. The
  * fade is two phases of one state rather than a mounted/unmounted pair, because the exit
- * has to finish before the element may leave the tree. Dismissal is the only way out —
- * "checked just now" stops being true the moment somebody edits a file, and only the
- * reader knows when they have read it. Reduced motion collapses both fades to a cut.
+ * has to finish before the element may leave the tree. Dismissal is the only way out, so
+ * the timestamp ages in place — a check grows stale the moment somebody edits a file, and
+ * only the reader knows when they have read it. Reduced motion collapses both fades to a
+ * cut.
  */
+function checkedAgo(seconds: number): string {
+  if (seconds < 10) return "checked seconds ago";
+  if (seconds < 60) return `checked ${seconds} seconds ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes === 1) return "checked a minute ago";
+  if (minutes < 60) return `checked ${minutes} minutes ago`;
+  const hours = Math.floor(minutes / 60);
+  return hours === 1 ? "checked an hour ago" : `checked ${hours} hours ago`;
+}
+
 function NoChangeNotice({ onDismiss }: { onDismiss: () => void }) {
   const [phase, setPhase] = useState<"entering" | "shown" | "leaving">("entering");
+  const [checkedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(checkedAt);
   useEffect(() => {
     // One frame late, so the browser paints the hidden state first and the transition has
     // somewhere to start from.
     const frame = requestAnimationFrame(() => setPhase("shown"));
-    return () => cancelAnimationFrame(frame);
+    const tick = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearInterval(tick);
+    };
   }, []);
   const leave = () => {
     setPhase("leaving");
@@ -176,7 +193,8 @@ function NoChangeNotice({ onDismiss }: { onDismiss: () => void }) {
       <Info aria-hidden className="text-accent-ink" />
       <AlertTitle>Nothing has changed</AlertTitle>
       <AlertDescription className="text-ink-2">
-        The code is the same as this revision — checked just now.
+        The code is the same as this revision —{" "}
+        {checkedAgo(Math.floor((now - checkedAt) / 1000))}.
       </AlertDescription>
       <AlertAction>
         <button
