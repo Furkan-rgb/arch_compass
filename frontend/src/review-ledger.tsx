@@ -30,6 +30,7 @@ import {
 } from "@/components/ledger";
 import { cn } from "@/lib/utils";
 
+import { DeltaMark } from "./delta";
 import { FindingSource } from "./finding-source";
 import type { RunState } from "./run-progress";
 import { DecisionMark, StandingFooter } from "./triage";
@@ -315,12 +316,12 @@ function LedgerRow({
           </span>
           {/* One grid cell, not two: the row's geometry is a six-column contract with
               `rowVariants`, and every extra child would wrap the tail onto a second line.
-              Inside it, the team's decision, then the verdict — reading order matches
-              authority order: what we said, then what the model judged. An undecided
-              boundary is silent; quiet is the resting state of a ledger the team is on top
-              of. Where the boundary stands against the previous revision is the partition's
-              job and is not drawn here yet. */}
+              Inside it, reading order matches authority order: where the revision put the
+              boundary, what the team said, what the model judged. Quiet is the resting
+              state — carried and re-judged boundaries wear no delta mark, undecided ones
+              no standing mark. */}
           <span className="flex items-center gap-2 justify-self-end">
+            <DeltaMark boundary={item} />
             <DecisionMark triage={triage} />
             {/* Words, not only a coloured rail: a reader scanning for "what was the answer"
                 should not have to learn a colour convention first. The exception wears the

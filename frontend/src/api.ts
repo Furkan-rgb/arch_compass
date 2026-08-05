@@ -21,6 +21,7 @@ import type {
   ReviewConversation,
   ReviewMessage,
   ReviewProgress,
+  RepositoryBranch,
   RepositoryCheckout,
   RepositorySummary,
   ModelCatalog,
@@ -403,6 +404,9 @@ export const api = {
       `/api/filesystem/directories${path ? `?path=${encodeURIComponent(path)}` : ""}`,
     ),
   repositories: () => request<RepositorySummary[]>("/api/repositories"),
+  // Every branch the workspace has a lineage for, with the repository it belongs to —
+  // what turns a review's branch_id into a name, and the options a branch switch offers.
+  branches: () => request<RepositoryBranch[]>("/api/branches"),
   // Indexing answers with the atlas version it created, not a repository summary: the
   // node and edge counts belong to the listing, and claiming them here would be a type
   // that promises fields the response does not carry.

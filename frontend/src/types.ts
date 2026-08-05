@@ -57,6 +57,7 @@ export type ProviderAvailability =
     `repo_id` and `branch_name` the day the server learned them. */
 export type RepositorySummary = OpenAPIComponents["schemas"]["RepositorySummary"];
 export type RepositoryCheckout = OpenAPIComponents["schemas"]["RepositoryCheckout"];
+export type RepositoryBranch = OpenAPIComponents["schemas"]["RepositoryBranch"];
 
 export interface SourceLocation {
   path: string;
