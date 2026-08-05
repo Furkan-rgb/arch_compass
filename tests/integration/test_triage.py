@@ -150,7 +150,7 @@ def _reviewed_through_the_api(client: TestClient) -> dict[str, Any]:
     assert loaded.status_code == 201, loaded.text
     root = loaded.json()["root_path"]
     started = client.post("/api/repositories/start", json={"root_path": root})
-    assert started.status_code == 201, started.text
+    assert started.status_code == 200, started.text
     case_id = started.json()["case_id"]
     first = client.post("/api/reviews", json={"case_id": case_id, "repository_root": root})
     assert first.status_code == 201, first.text

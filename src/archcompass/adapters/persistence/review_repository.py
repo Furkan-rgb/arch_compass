@@ -333,3 +333,77 @@ class SQLiteBoundaryReviewRepository:
             )
             for row in rows
         ]
+
+    def latest_case_for_branch(self, branch_id: str) -> str | None:
+        """The case the most recent run on this branch was about, if there was one.
+
+        `branch_id` rather than `repo_id`, because a branch is the scope a review lives in: it
+        owns its case, its standing decisions and its line of revisions, and two branches of
+        one repository are two conversations. Continuing a feature branch into `main`'s case
+        would carry answers about work the branch has not done and hand a PR the wrong
+        backbone. Both ids are durable — derived from the root commit and the branch name —
+        so this survives the clone being moved or made again somewhere else, which is the
+        reason the columns exist at all.
+
+        Every status counts: a run that failed, was cancelled, or is still waiting on answers
+        was still a run about a case, and the one waiting on answers is exactly the case a
+        repeat visit means to carry on with.
+
+        Ordered as the listing is, so "the newest" here and the row a reader sees at the top
+        of the history are the same row.
+        """
+
+        with self._database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT case_id FROM boundary_reviews
+                WHERE branch_id = ?
+                ORDER BY created_at DESC, review_id
+                LIMIT 1
+                """,
+                (branch_id,),
+            ).fetchone()
+        return None if row is None else str(row["case_id"])
+
+    def previous_revision_for_branch(
+        self, branch_id: str, *, excluding_review_id: str
+    ) -> BoundaryReview | None:
+        """The revision a run judges its delta against: this branch's latest earlier review.
+
+        Only a review that reached verdicts qualifies. A failed or cancelled run has no report
+        and therefore no boundaries, so comparing against it would report every boundary in
+        the repository as new — the loudest possible answer to a run that said nothing. A pass
+        still waiting on answers does count: it judged everything, and its verdicts are the
+        most recent statement about this branch's boundaries.
+
+        The run asking is excluded by id rather than by time. Its own row is written before
+        the first model call, so it is already the newest row on the branch by the moment this
+        is asked, and a comparison against itself would find every boundary unchanged.
+
+        Ordered as the listing is, so "the previous revision" and the row above this one in
+        the history a reader is looking at are the same row.
+        """
+
+        with self._database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT review_json FROM boundary_reviews
+                WHERE branch_id = ?
+                  AND review_id <> ?
+                  AND status IN ('succeeded', 'awaiting_answers')
+                ORDER BY created_at DESC, review_id
+                LIMIT 1
+                """,
+                (branch_id, excluding_review_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return decode_stored_json(
+            BoundaryReview,
+            row["review_json"],
+            description=f"The previous revision on branch {branch_id}",
+            remedy=(
+                "A review is derived from a case and an atlas, so run the review again "
+                "from the case it names."
+            ),
+        )

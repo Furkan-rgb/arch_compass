@@ -17,9 +17,23 @@ What is deliberately left out:
 - Measurements. Metrics move with almost every edit; a fingerprint that includes them
   would never survive long enough to be worth storing.
 - Anything a model wrote. Roles, summaries and rationales are prose; identity is not.
+
+Identity is not the whole of what a verdict rests on, and the second function here is the
+other half. The shape says *which* boundary this is; the content fingerprint says whether the
+code under it is the code that was judged. Two boundaries with the same shape and different
+content are the same question asked about different code, and answering the second from the
+first is exactly the stale-verdict gap the delta rule exists to close: rewrite a class body
+without renaming anything and the shape does not move at all.
+
+So the shape is identity and the content is an input. Nothing keys on the content
+fingerprint except the verdict cache — a standing decision, a discussion thread and the line
+through revisions all attach to the shape, because a team's opinion about a boundary is not
+undone by somebody editing it.
 """
 
 from __future__ import annotations
+
+from collections.abc import Iterable
 
 from archcompass.domain.atlas import FindingCandidate
 from archcompass.domain.base import stable_id
@@ -35,4 +49,24 @@ def boundary_fingerprint(candidate: FindingCandidate) -> str:
         "bdry",
         candidate.pattern.value,
         *sorted(participant.qualified_name for participant in candidate.participants),
+    )
+
+
+def content_fingerprint(sources: Iterable[tuple[str, str]]) -> str:
+    """Identify the code under one boundary, by what it says rather than where it sits.
+
+    Each pair is one participant's qualified name and the source at its recorded span. Sorted
+    by name for the same reason the shape sorts its participants: which order a detector
+    happened to list them in is a presentation choice and must not reach identity.
+
+    A participant whose span could not be read contributes an empty text, so an unreadable
+    file gives a stable answer rather than a different one each time. That is deliberately
+    optimistic in one direction — an unreadable boundary carries rather than being re-judged
+    for ever — and the check that matters happens elsewhere: a review runs only against a
+    repository that has just been confirmed fresh.
+    """
+
+    return stable_id(
+        "cont",
+        *[f"{name}\n{text}" for name, text in sorted(sources)],
     )

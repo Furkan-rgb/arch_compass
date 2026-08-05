@@ -131,6 +131,7 @@ class SourceReader(Protocol):
         end_line: int,
         *,
         max_lines: int,
+        numbered: bool = True,
     ) -> str: ...
 
 

@@ -14,7 +14,7 @@ genuinely knows and declaring nothing it does not.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Final, Literal, cast
@@ -24,6 +24,7 @@ from pydantic import Field, StringConstraints, computed_field, model_validator
 from archcompass.domain.atlas import FindingCandidate, FindingPattern, SourceLocation
 from archcompass.domain.base import DomainModel, new_id, utc_now
 from archcompass.domain.case import ArchitectureCase, CaseField
+from archcompass.domain.delta import BoundaryState, JudgedBecause, RevisionDelta
 from archcompass.domain.diagnostics import FailureDiagnostic
 from archcompass.domain.fingerprint import boundary_fingerprint
 
@@ -200,12 +201,44 @@ class ReviewedBoundary(DomainModel):
     #: schema and nothing shims it (ADR 0002): a review written before fingerprints existed
     #: has to remain readable, and it carries `None` rather than a value invented for it.
     fingerprint: str | None = None
+    #: The code under this boundary when it was judged, hashed. The shape above is identity;
+    #: this is an input, and the two are separate because a rewrite that renames nothing does
+    #: not move the shape at all — which is how a stale verdict used to carry for ever.
+    #:
+    #: Optional with a default for the reason `fingerprint` is: a stored review is validated
+    #: against the current schema and nothing shims it, so a review written before this
+    #: existed carries `None` rather than a value invented for it. `None` is never equal to
+    #: anything, so such a boundary is re-judged rather than carried, which is the right way
+    #: round for an absence.
+    content_fingerprint: str | None = None
+    #: Everything this verdict rests on, in one value: shape, content, policy corpus, case,
+    #: model and prompt. The verdict cache keys on it, and the next revision compares against
+    #: it to decide in one equality whether this boundary carries or is judged again.
+    inputs_identity: str | None = None
     #: The review that first reached this verdict, when it was reused rather than reached
     #: again. `None` is the ordinary case and means the model was asked about this boundary
     #: during this run. Named here rather than only counted, because "the same conclusion as
     #: last time" and "the same conclusion, reached again" are different claims and only one
     #: of them is evidence that anything was looked at twice.
     verdict_reused_from: str | None = None
+    #: Where this boundary stands against the branch's previous revision. `None` on a review
+    #: written before the delta existed, and on one whose atlas predates branch lineages —
+    #: there was no previous revision to compare with, which is not the same as having
+    #: compared and found nothing.
+    delta_state: BoundaryState | None = None
+    #: Which input moved, for a boundary this revision did not carry. `None` exactly when the
+    #: boundary carried, since a carried boundary is one nothing moved under.
+    judged_because: JudgedBecause | None = None
+    #: The fingerprint this boundary succeeded, when the shape moved and a predecessor was
+    #: matched. What the "carried across a change — still holds?" mark is drawn from: the
+    #: standing decision on that fingerprint applies here, and the reader is told so rather
+    #: than having it applied silently.
+    succeeds: str | None = None
+    #: The revision that closed this fingerprint as addressed, when it has come back. The
+    #: standing and its discussion were never deleted, so they apply again — this is what
+    #: lets the page say "addressed in an earlier revision, back now" instead of presenting
+    #: a boundary with history as though it were new.
+    resurfaced_from_review: str | None = None
     material: bool
     rationale: str = Field(min_length=1)
     policy_bearings: list[PolicyBearing] = Field(default_factory=list[PolicyBearing])
@@ -420,6 +453,14 @@ class BoundaryReviewReport(DomainModel):
     #: review stored before this existed, or one whose repository could not be read when it
     #: finished. Both are answered the same way — by trying the repository now.
     excerpts: list[BoundaryExcerpt] = Field(default_factory=list[BoundaryExcerpt])
+    #: What this revision changed against the branch's previous one, counted, plus the
+    #: boundaries that closed — the only part of the partition with nowhere else to live,
+    #: since an addressed boundary was not detected here and has no row in `reviewed`.
+    #:
+    #: Optional with a default, and widening rather than narrowing, so a review stored before
+    #: the delta existed reads back with none. `None` says the comparison was not made; it
+    #: never says the comparison was made and found nothing.
+    delta: RevisionDelta | None = None
 
     @model_validator(mode="after")
     def require_unique_references(self) -> BoundaryReviewReport:
@@ -710,11 +751,28 @@ class ReviewEvidence(DomainModel):
     answers_were_recorded: bool = False
 
 
-def reviewed_boundaries(
-    verdicts: list[tuple[FindingCandidate, CandidateVerdict]],
-    *,
-    reused_from: Mapping[str, str] | None = None,
-) -> list[ReviewedBoundary]:
+class JudgedBoundary(DomainModel):
+    """One candidate, its verdict, and everything the run learned about its line.
+
+    A value rather than six parallel maps keyed by `candidate_id`. Each of these facts was
+    discovered at a different point in the run — the content when the spans were read, the
+    reuse when the cache answered, the state and the succession when the partition was
+    computed — and a parallel map per fact is the shape where one of them silently lands on
+    the wrong boundary. They arrive together or the boundary is wrong.
+    """
+
+    candidate: FindingCandidate
+    verdict: CandidateVerdict
+    content_fingerprint: str = Field(min_length=1)
+    inputs_identity: str = Field(min_length=1)
+    verdict_reused_from: str | None = None
+    delta_state: BoundaryState | None = None
+    judged_because: JudgedBecause | None = None
+    succeeds: str | None = None
+    resurfaced_from_review: str | None = None
+
+
+def reviewed_boundaries(judged: Sequence[JudgedBoundary]) -> list[ReviewedBoundary]:
     """Number the judged candidates in detection order, and stamp what outlives the run.
 
     References are assigned here, from position, because the application owns every
@@ -722,26 +780,29 @@ def reviewed_boundaries(
     re-running the same atlas gives the same boundary the same reference. The fingerprint
     is stamped in the same place and for the opposite reason: the reference is what a
     reader cites *within* one review, and the fingerprint is what anything outside one
-    matches on.
-
-    `reused_from` names, by `candidate_id`, the review a verdict was carried forward from,
-    for the candidates whose verdicts were not reached again. Keyed rather than positional
-    so that adding it cannot silently re-attribute a boundary the way a mismatched parallel
-    list would.
+    matches on — the standing decision, the line through revisions, and the next revision
+    deciding whether this boundary is news.
     """
 
-    carried = reused_from or {}
     return [
         ReviewedBoundary(
             reference=f"BR-{ordinal:03d}",
-            candidate=candidate,
-            fingerprint=boundary_fingerprint(candidate),
-            verdict_reused_from=carried.get(candidate.candidate_id),
-            material=verdict.material,
-            rationale=verdict.rationale,
-            policy_bearings=verdict.policy_bearings,
-            hinge=verdict.hinge,
-            recommended_response=verdict.recommended_response if verdict.material else "",
+            candidate=item.candidate,
+            fingerprint=boundary_fingerprint(item.candidate),
+            content_fingerprint=item.content_fingerprint,
+            inputs_identity=item.inputs_identity,
+            verdict_reused_from=item.verdict_reused_from,
+            delta_state=item.delta_state,
+            judged_because=item.judged_because,
+            succeeds=item.succeeds,
+            resurfaced_from_review=item.resurfaced_from_review,
+            material=item.verdict.material,
+            rationale=item.verdict.rationale,
+            policy_bearings=item.verdict.policy_bearings,
+            hinge=item.verdict.hinge,
+            recommended_response=(
+                item.verdict.recommended_response if item.verdict.material else ""
+            ),
         )
-        for ordinal, (candidate, verdict) in enumerate(verdicts, start=1)
+        for ordinal, item in enumerate(judged, start=1)
     ]

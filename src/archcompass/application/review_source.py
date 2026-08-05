@@ -17,23 +17,29 @@ survive contact with a repository being worked on: one comment appended to a fil
 cited took a six-boundary review from sixteen excerpts to none, because freshness is a single
 repository-wide fingerprint. A review is supposed to be readable for as long as it is kept.
 
-So this module does two things that look alike and are not. `for_boundaries` reads the
+So this module does three things that look alike and are not. `for_boundaries` reads the
 repository — the one place text is produced, used when the review completes and when a reader
 asks to unfold surrounding lines. `for_review` serves what the review already holds, and
 reads only when it holds nothing, which is a review stored before excerpts were pinned.
+`content_fingerprints` reads the same spans through the same reader for a different purpose
+entirely: nobody sees the text, and what comes back decides whether a boundary's verdict has
+to be reached again at all. It lives here because there should be exactly one path that reads
+source out of an analysed repository, not because it is about presentation.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from archcompass.application.atlas_freshness import AtlasFreshnessService
-from archcompass.domain.atlas import FindingParticipant, SourceLocation
+from archcompass.domain.atlas import FindingCandidate, FindingParticipant, SourceLocation
 from archcompass.domain.errors import (
     ArchCompassError,
     AtlasNotFoundError,
     PathValidationError,
 )
+from archcompass.domain.fingerprint import content_fingerprint
 from archcompass.domain.review import BoundaryExcerpt, BoundaryReview, ReviewedBoundary
 from archcompass.ports.atlas import SourceReader
 from archcompass.ports.repositories import AtlasRepository
@@ -47,6 +53,22 @@ MAX_EXCERPT_LINES = 60
 #: request unchecked: the request says how much context is wanted, and this says how much
 #: the workspace will read whatever it asks for.
 MAX_CONTEXT_LINES = 20
+
+#: How far into a file a fingerprinted span may reach. Far larger than an excerpt, because
+#: nothing is being shown to anybody: this is a ceiling on how much of a generated or vendored
+#: file is hashed, not a budget on how much a reader is asked to look at.
+MAX_FINGERPRINTED_LINES = 20_000
+
+
+def _span(text: str, location: SourceLocation) -> str:
+    """The recorded lines out of a file already read, as the code says them.
+
+    Sliced here rather than read per participant: several participants routinely sit in one
+    module, and a read per span would open the same file once for each of them.
+    """
+
+    lines = text.splitlines()
+    return "\n".join(lines[location.start_line - 1 : location.end_line])
 
 
 class ReviewSourceService:
@@ -119,6 +141,84 @@ class ReviewSourceService:
                 )
             ]
         return self._read_boundaries(review, wanted, context)
+
+    def content_fingerprints(
+        self,
+        candidates: Sequence[FindingCandidate],
+        *,
+        root: Path,
+    ) -> dict[str, str]:
+        """What the code under each candidate says, hashed, keyed by `candidate_id`.
+
+        The other half of a boundary's inputs identity, and the term the verdict cache used to
+        be missing. A shape fingerprint is a pattern and some participant names, so rewriting
+        a class body without renaming anything left the key identical and carried the previous
+        verdict for ever — the advisor confidently reporting a judgement about code that no
+        longer existed.
+
+        Read through the same safe reader that produces the excerpts, at the same spans, for
+        the same reason: it is the one path that cannot escape the analysed repository, and a
+        second way of reading source would be a second thing to get wrong. What is different
+        is the moment. Excerpts are read when the review completes, because they are evidence
+        for a reader; this is read at detection time, before the first model call, because it
+        decides whether there is a model call to make.
+
+        Files are read once, not once per participant. Several participants of several
+        candidates routinely sit in one module — that is what a duplicated constant *is* — and
+        a per-participant read would open the same file a dozen times to answer one question.
+
+        A span that cannot be read contributes nothing rather than raising. The repository was
+        confirmed fresh before this runs, so an unreadable file here is an unusual failure and
+        not a stale review; refusing to judge would be a worse answer than judging with one
+        participant's text missing, and the absence is stable, so it does not manufacture a
+        different fingerprint on every run.
+        """
+
+        texts: dict[str, str] = {}
+        fingerprints: dict[str, str] = {}
+        for candidate in candidates:
+            sources: list[tuple[str, str]] = []
+            for participant in candidate.participants:
+                location = participant.location
+                if location is None:
+                    # A participant with no span — a proposed boundary, or a node the parser
+                    # could not place. There is no code to have changed, and saying so with an
+                    # empty text is stable across runs.
+                    sources.append((participant.qualified_name, ""))
+                    continue
+                if location.path not in texts:
+                    texts[location.path] = self._whole_file(root, location.path)
+                sources.append(
+                    (
+                        participant.qualified_name,
+                        _span(texts[location.path], location),
+                    )
+                )
+            fingerprints[candidate.candidate_id] = content_fingerprint(sources)
+        return fingerprints
+
+    def _whole_file(self, root: Path, relative_path: str) -> str:
+        """One participant's file, through the reader that cannot leave the repository.
+
+        `MAX_FINGERPRINTED_LINES` rather than the excerpt ceiling, because this is not an
+        excerpt: a class near the end of a long module has to be reachable, and a bound that
+        stopped short would give every boundary past it the same fingerprint whatever its
+        code said. The bound is still there — a generated file of a million lines should not
+        be hashed whole — and a span beyond it is treated as unreadable, which re-judges the
+        boundary rather than carrying it on a fingerprint that no longer means anything.
+        """
+
+        try:
+            return self._source_reader.excerpt(
+                root=root,
+                relative_path=relative_path,
+                start_line=1,
+                end_line=MAX_FINGERPRINTED_LINES,
+                max_lines=MAX_FINGERPRINTED_LINES,
+                numbered=False,
+            )
+        except (PathValidationError, OSError, UnicodeDecodeError):
+            return ""
 
     def for_boundaries(
         self,
