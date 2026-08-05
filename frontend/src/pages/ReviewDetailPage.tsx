@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Download, MessageCircleQuestion } from "lucide-react";
+import { ArrowRight, Download } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 
 import { ApiError, api } from "../api";
+import { AiChatIcon } from "../ai-icon";
 import { AskPanel } from "../ask-panel";
 import {
   ErrorPanel,
@@ -616,7 +617,7 @@ export function AskAction({
       disabled={refusal !== null}
       onClick={refusal ? undefined : onToggle}
     >
-      <MessageCircleQuestion size={14} aria-hidden /> Ask about this review
+      <AiChatIcon size={14} /> Ask about this review
     </Button>
   );
   if (!refusal) return button;

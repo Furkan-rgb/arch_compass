@@ -1,4 +1,6 @@
-import { MessagesSquare, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
+
+import { AiChatIcon } from "./ai-icon";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -110,7 +112,7 @@ export function QuestionDiscussion({
         disabled={disabled}
         onClick={() => setOpen(true)}
       >
-        <MessagesSquare size={14} aria-hidden />
+        <AiChatIcon size={14} />
         {messages.length > 0
           ? `Continue discussing this question (${messages.length})`
           : "Not sure what this is asking? Discuss it"}
