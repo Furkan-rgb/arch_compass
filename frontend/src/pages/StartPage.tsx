@@ -264,9 +264,14 @@ function FolderPicker({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" disabled={disabled}>
+        <Button
+          type="button"
+          size="icon"
+          disabled={disabled}
+          aria-label="Browse local folders"
+          title="Browse local folders"
+        >
           <FolderOpen size={14} aria-hidden />
-          Add a repository…
         </Button>
       </DialogTrigger>
       <DialogContent
@@ -507,6 +512,51 @@ export function StartPage() {
           <div className={startHead}>
             <h3 className="m-0 text-ui font-[650]">Repository</h3>
           </div>
+          {/* The way in, first: paste the repository — an address is cloned, a path is
+              indexed in place — with browsing kept behind the folder button for the day
+              the path isn't on the clipboard. */}
+          {!hosted ? (
+            <form
+              className="flex gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const line = path.trim();
+                if (!line || busy) return;
+                if (looksLikeGitAddress(line)) {
+                  checkout.mutate({ url: line, branch: null });
+                } else {
+                  index.mutate(line);
+                }
+              }}
+            >
+              <Input
+                className="min-w-0 flex-1 font-mono text-meta"
+                value={path}
+                onChange={(event) => setPath(event.target.value)}
+                placeholder="https://github.com/owner/repository — or a local path"
+                aria-label="Repository address or path"
+                spellCheck={false}
+              />
+              <Button type="submit" variant="primary" disabled={!path.trim() || busy}>
+                {checkout.isPending || index.isPending ? "Adding…" : "Add"}
+              </Button>
+              <FolderPicker
+                open={picking}
+                onOpenChange={setPicking}
+                disabled={busy}
+                start={path.trim() || null}
+                indexing={index.isPending}
+                error={index.error}
+                onIndex={(root) => index.mutate(root)}
+                fetching={checkout.isPending}
+                checkoutError={checkout.error}
+                onCheckout={(url, branch) => checkout.mutate({ url, branch })}
+              />
+            </form>
+          ) : null}
+          {!hosted && (checkout.error || index.error) && !picking ? (
+            <ErrorPanel error={checkout.error || index.error} />
+          ) : null}
           <p className={hint}>
             Python is parsed without being imported or modified. Indexing the same path
             again is cheap; freshness is checked before every review.
@@ -547,25 +597,6 @@ export function StartPage() {
             </EmptyLine>
           )}
 
-          {!hosted ? (
-            <div className="flex flex-wrap gap-2">
-              <FolderPicker
-                open={picking}
-                onOpenChange={setPicking}
-                disabled={busy}
-                // A repository some case named that nothing has parsed yet: the picker
-                // opens there so the reader confirms the folder rather than finding it
-                // again.
-                start={path.trim() || null}
-                indexing={index.isPending}
-                error={index.error}
-                onIndex={(root) => index.mutate(root)}
-                fetching={checkout.isPending}
-                checkoutError={checkout.error}
-                onCheckout={(url, branch) => checkout.mutate({ url, branch })}
-              />
-            </div>
-          ) : null}
         </div>
 
         {/* Pinned to the foot of the sheet and never scrolled away from: the one control

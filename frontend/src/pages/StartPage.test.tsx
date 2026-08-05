@@ -72,7 +72,7 @@ function open() {
   );
 }
 
-const browse = () => fireEvent.click(screen.getByRole("button", { name: /Add a repository/ }));
+const browse = () => fireEvent.click(screen.getByRole("button", { name: /Browse local folders/ }));
 
 afterEach(() => vi.restoreAllMocks());
 
