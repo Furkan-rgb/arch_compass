@@ -105,6 +105,65 @@ the grouping should agree on what a "repository" is.
   measurement).
 - **F. Repository-first UI** — the grouping question above, made the navigation model.
 
+### The shape the user described (2026-08-05, later the same day)
+
+Settled in intent, not yet in mechanics:
+
+- **Every code base is a git repository.** Reviewing a bare folder stays possible but is
+  the degraded case, not a peer; pasting an address is a first-class way in (shipped:
+  `POST /api/repositories/checkout` + the start-page picker).
+- **Repository → branch → one living review.** The repository is the parent section.
+  Each branch is its own scope — its own baseline, standing decisions, case. A branch has
+  *one* review with numbered **revisions**: a new run appends a revision, the review page
+  offers a revision picker with a `latest` tag, and older revisions stay readable. (This
+  is directions B + F; it also dissolves the reviews-page grouping question — the page
+  becomes repositories, each holding branches, each holding one review.)
+
+The named hard part: **keeping a line through revisions while the code itself changes** —
+baselines and accept/waive/park decisions must follow a boundary across runs, but a
+boundary is identified by its fingerprint (pattern + participant names), and code changes
+can move, rename, or dissolve the participants.
+
+**Three layers, worth separating, because they change at different speeds:**
+
+1. the **question** — "does this boundary earn its place?", identified by fingerprint;
+2. the **verdict** — what the model said about it in one revision;
+3. the **standing** — what the team decided about it (accept / waive / park), which today
+   survives runs via (branch, fingerprint) and must keep surviving.
+
+The exact fingerprint already carries layers 1 and 3 perfectly while the participants are
+untouched — most revisions, most boundaries. It breaks in exactly two ways, and each has
+an honest answer:
+
+- **Renamed or reshaped, still the same question.** A participant renamed → new
+  fingerprint → the standing silently orphans and the boundary reads as NEW. Proposal:
+  **succession matching** at revision time, like git's rename detection — a disappeared
+  fingerprint and an appeared one with the same pattern and majority-overlapping
+  participants are declared successor and predecessor. The standing carries across
+  wearing a visible mark ("carried across a change — still holds?"), never silently; the
+  succession edge is recorded so the line is auditable.
+- **Gone, with no successor.** Today it just vanishes from the run, which wastes the best
+  news the tool can deliver. Proposal: the revision diff reports it as **addressed** —
+  the user's word, and the right one: a material boundary that no longer exists after a
+  code change is the loop closing. `addressed` becomes a terminal state on the standing's
+  line (alongside accept/waive/park, which stay exactly as they are); its discussion
+  thread is archived with it rather than deleted.
+
+So a revision's report against the previous one partitions every boundary into:
+**same** (fingerprint match — everything carries silently) · **succeeded** (carried with
+a mark) · **addressed** (gone, celebrated, line closed) · **new**. That partition — not
+the raw verdict list — is what a revision is *about*, and what CI should speak in.
+
+Sub-questions this opens:
+
+- Does succession need a human confirm, or is majority-participant-overlap safe enough
+  with the visible mark as the safety valve? (Lean: auto-carry with the mark; a wrong
+  carry is one click to undo, a missed carry is a silently lost decision.)
+- Is `addressed` automatic when no successor matches, or offered for confirmation when
+  the vanished boundary carried an open material verdict?
+- Baseline mechanics under the new shape: does the explicit "baseline this review" button
+  survive, or does adopting revision N's partition become the act that closes it?
+
 ### Open questions
 
 1. Who owns the case — the run, the repository, or the branch?
