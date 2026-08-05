@@ -28,6 +28,11 @@ is deleted, so a fingerprint that comes back resurfaces with its standing and it
 intact. All three are recorded as events on the branch's ledger, and the partition itself is
 stored on the review: it is a fact about two immutable revisions, so recomputing it later
 could only produce the same answer or a wrong one.
+
+Because the partition is settled before the first model call, it can also be asked *instead*
+of a run: `preflight` takes the same steps and stops there, so a revision that would move
+nothing is reported rather than recorded. See `application.preflight` for why a branch's
+history is better off without it.
 """
 
 from __future__ import annotations
@@ -50,6 +55,7 @@ from archcompass.domain.delta import (
     BoundaryState,
     JudgedBecause,
     RevisionDelta,
+    RevisionPreflight,
     match_successions,
 )
 from archcompass.domain.errors import (
@@ -193,6 +199,28 @@ class _Delta:
     def first_revision(self) -> bool:
         return self.previous_review_id is None
 
+    def counted(self) -> RevisionDelta:
+        """This partition as the number of boundaries in each state.
+
+        Counted from the placement rather than from the verdicts that land on top of it,
+        which is what lets the same arithmetic answer two questions: what a finished revision
+        records, and what a revision that has not been created would have found. If those two
+        were counted separately they could disagree, and the disagreement would show up as a
+        pre-flight promising a quiet run that then reported four judged boundaries.
+        """
+
+        states = list(self.state.values())
+        return RevisionDelta(
+            previous_review_id=self.previous_review_id,
+            first_revision=self.first_revision,
+            carried=states.count(BoundaryState.CARRIED),
+            judged=states.count(BoundaryState.JUDGED),
+            succeeded=states.count(BoundaryState.SUCCEEDED),
+            addressed=len(self.addressed),
+            resurfaced=len(self.resurfaced_from),
+            addressed_boundaries=self.addressed,
+        )
+
 
 class ReviewService:
     def __init__(
@@ -311,6 +339,120 @@ class ReviewService:
             self._fail(running, "The review failed unexpectedly, and nothing was judged.", started)
             raise
 
+    def preflight(
+        self,
+        *,
+        repository_root: Path,
+        revision: CaseRevision | None,
+    ) -> RevisionPreflight:
+        """What a revision judged now would find, worked out without starting one.
+
+        The whole of a run up to the point where it would first cost something: the atlas is
+        read, the candidates are detected, the code under each of them is hashed, and the
+        partition is computed against the branch's latest revision. Every one of those steps
+        is deterministic and local — detection is a pure function of the atlas, and the
+        partition is a comparison of stored identities — so the answer is exact rather than a
+        guess, and it is reached with no model call.
+
+        **Nothing is written.** No case revision, no review row, no ledger event. The run this
+        describes is represented by a `BoundaryReview` that is constructed and never stored:
+        it is the carrier for the five inputs a partition needs to be about a particular
+        run — the case and its revision, the model, the prompt, the branch — and building the
+        real one is exactly what this exists to avoid. Its fresh id excludes no stored row,
+        so the "previous" revision it finds is the branch's current tip, which is what the
+        answer is *about*: the reader is being told what they are already up to date with.
+
+        `revision` is the case the run would judge against, or `None` where the branch has no
+        case yet. `None` answers changed straight away, and honestly: a branch nobody has
+        reviewed has nothing behind it, so its next revision is its first and a first revision
+        is real by definition.
+
+        Freshness is not checked. The caller has just re-indexed, so the atlas is the code on
+        disk; a staleness error here would be a way for a read-only check to fail at something
+        the run it is about would have to face anyway.
+        """
+
+        if revision is None:
+            return RevisionPreflight(changed=True)
+        atlas = self._load_atlas(repository_root)
+        policies = sorted(
+            self._policies.catalog(repository_root=repository_root),
+            key=lambda policy: policy.id,
+        )
+        candidates = detect_finding_candidates(atlas)
+        would_be = BoundaryReview(
+            status=ReviewStatus.RUNNING,
+            case_id=revision.case_id,
+            case_revision=revision.revision,
+            atlas_version_id=atlas.version.version_id,
+            repo_id=atlas.version.repo_id,
+            branch_id=atlas.version.branch_id,
+            reasoning_model=self._reasoner.model_identity,
+            prompt_identity=self._reasoner.prompt_identity(
+                ReasoningTask.JUDGE_FINDING_CANDIDATE
+            ),
+        )
+        contents, keys = self._inputs_identities(
+            would_be,
+            candidates=candidates,
+            revision=revision,
+            policies=policies,
+            repository_root=repository_root,
+        )
+        counted = self._partition(
+            would_be, candidates=candidates, contents=contents, keys=keys
+        ).counted()
+        return RevisionPreflight(
+            # A first revision is always a change, whatever the counts say. A repository with
+            # no boundaries at all would otherwise be `quiet` on its very first look and be
+            # told nothing had changed since a revision that does not exist.
+            changed=counted.first_revision or not counted.quiet,
+            current_against=counted.previous_review_id,
+            judged=counted.judged,
+            addressed=counted.addressed,
+            resurfaced=counted.resurfaced,
+            succeeded=counted.succeeded,
+        )
+
+    def _inputs_identities(
+        self,
+        running: BoundaryReview,
+        *,
+        candidates: Sequence[FindingCandidate],
+        revision: CaseRevision,
+        policies: list[PolicyDocument],
+        repository_root: Path,
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Each candidate's content fingerprint and its inputs identity, by `candidate_id`.
+
+        The corpus and the case are computed once rather than per candidate: they are the same
+        question for every boundary in the run, and together they are most of what makes a
+        stored verdict still apply.
+
+        The content fingerprints are read before the first model call, because this is what
+        decides whether there is one to make — the code under a boundary is half of its inputs
+        identity. Which is also why the pre-flight computes them through this same method: an
+        answer about whether anything moved is only worth having if the key it compares is the
+        key the run would have gone on to use.
+        """
+
+        corpus = policy_corpus_fingerprint(policies)
+        stated_case = case_fingerprint(revision.snapshot)
+        contents = self._source.content_fingerprints(candidates, root=repository_root)
+        keys = {
+            candidate.candidate_id: verdict_cache_key(
+                boundary=boundary_fingerprint(candidate),
+                content=contents[candidate.candidate_id],
+                policy_corpus=corpus,
+                case=stated_case,
+                case_revision=revision.revision,
+                model_identity=running.reasoning_model,
+                prompt_identity=running.prompt_identity,
+            )
+            for candidate in candidates
+        }
+        return contents, keys
+
     def _judge(
         self,
         running: BoundaryReview,
@@ -337,26 +479,13 @@ class ReviewService:
         self._reviews.record_progress(running.review_id, detected=len(candidates))
         if on_detected is not None:
             on_detected(candidates)
-        # Computed once, outside the loop: the corpus and the case are the same question for
-        # every candidate in the run, and together they are most of what makes a cached
-        # verdict still apply.
-        corpus = policy_corpus_fingerprint(policies)
-        stated_case = case_fingerprint(revision.snapshot)
-        # Read before the first model call, because this is what decides whether there is one
-        # to make: the code under a boundary is half of its inputs identity.
-        contents = self._source.content_fingerprints(candidates, root=repository_root)
-        keys = {
-            candidate.candidate_id: verdict_cache_key(
-                boundary=boundary_fingerprint(candidate),
-                content=contents[candidate.candidate_id],
-                policy_corpus=corpus,
-                case=stated_case,
-                case_revision=revision.revision,
-                model_identity=running.reasoning_model,
-                prompt_identity=running.prompt_identity,
-            )
-            for candidate in candidates
-        }
+        contents, keys = self._inputs_identities(
+            running,
+            candidates=candidates,
+            revision=revision,
+            policies=policies,
+            repository_root=repository_root,
+        )
         delta = self._partition(running, candidates=candidates, contents=contents, keys=keys)
         judged: list[JudgedCandidate] = []
         reused_from: dict[str, str] = {}
@@ -431,24 +560,7 @@ class ReviewService:
             on_summarising=on_summarising,
         )
         report = BoundaryReviewReport(
-            delta=RevisionDelta(
-                previous_review_id=delta.previous_review_id,
-                first_revision=delta.first_revision,
-                carried=sum(
-                    1 for item in boundaries if item.delta_state is BoundaryState.CARRIED
-                ),
-                judged=sum(
-                    1 for item in boundaries if item.delta_state is BoundaryState.JUDGED
-                ),
-                succeeded=sum(
-                    1 for item in boundaries if item.delta_state is BoundaryState.SUCCEEDED
-                ),
-                addressed=len(delta.addressed),
-                resurfaced=sum(
-                    1 for item in boundaries if item.resurfaced_from_review is not None
-                ),
-                addressed_boundaries=delta.addressed,
-            ),
+            delta=delta.counted(),
             case_title=revision.snapshot.title,
             problem_and_desired_outcome=_stated_case(revision.snapshot),
             reviewed=boundaries,

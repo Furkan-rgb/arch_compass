@@ -168,6 +168,46 @@ def test_loading_an_example_indexes_it_and_creates_nothing_else(runtime: Runtime
         assert missing.json()["code"] == "not_found"
 
 
+def test_the_preflight_route_answers_whether_a_new_revision_would_find_anything(
+    runtime: Runtime,
+) -> None:
+    """The contract the New revision button checks before it starts a run.
+
+    Both answers over HTTP: a repository nothing has been run on is always a real revision and
+    says so with nothing to be current against, and the same repository straight after a
+    review is current against that review and has nothing to look at. The second call is the
+    one that must leave the listings alone — a check that answered "nothing has changed" by
+    writing a review would be reporting on itself.
+    """
+
+    with TestClient(create_app(runtime)) as client:
+        loaded = client.post(f"/api/examples/{FIXTURE}/load")
+        assert loaded.status_code == 201, loaded.text
+        root = loaded.json()["root_path"]
+
+        first = client.post("/api/repositories/preflight", json={"root_path": root})
+        assert first.status_code == 200, first.text
+        assert first.json() == {
+            "changed": True,
+            "current_against": None,
+            "judged": 0,
+            "addressed": 0,
+            "resurfaced": 0,
+            "succeeded": 0,
+        }
+
+        review = _reviewed(client)
+        cases = client.get("/api/cases").json()
+        reviews = client.get("/api/reviews").json()
+
+        after = client.post("/api/repositories/preflight", json={"root_path": root})
+        assert after.status_code == 200, after.text
+        assert after.json()["changed"] is False
+        assert after.json()["current_against"] == review["review_id"]
+        assert client.get("/api/cases").json() == cases
+        assert client.get("/api/reviews").json() == reviews
+
+
 def test_a_streamed_review_counts_its_boundaries_before_judging_them(
     runtime: Runtime,
 ) -> None:

@@ -692,6 +692,14 @@ export interface components {
     "resurfaced"?: number;
     "addressed_boundaries"?: Array<components["schemas"]["AddressedBoundary"]>;
   };
+    "RevisionPreflight": {
+    "changed": boolean;
+    "current_against"?: string | null;
+    "judged"?: number;
+    "addressed"?: number;
+    "resurfaced"?: number;
+    "succeeded"?: number;
+  };
     "SearchNodesQuery": {
     "kind": "search_nodes";
     "terms": Array<string>;
@@ -1287,6 +1295,20 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "preflight_repository_api_repositories_preflight_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["RepositoryPathRequest"];
+    responses: {
+      "200": components["schemas"]["RevisionPreflight"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
   "record_decision_api_decisions_post": {
     parameters: {
       query: never;
@@ -1640,6 +1662,9 @@ export interface paths {
   };
   "/api/repositories/inspect": {
     get: operations["repository_inspect_api_repositories_inspect_get"];
+  };
+  "/api/repositories/preflight": {
+    post: operations["preflight_repository_api_repositories_preflight_post"];
   };
   "/api/repositories/refresh": {
     post: operations["refresh_repository_api_repositories_refresh_post"];

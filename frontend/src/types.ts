@@ -61,6 +61,8 @@ export type RepositorySummary = OpenAPIComponents["schemas"]["RepositorySummary"
 export type RepositoryCheckout = OpenAPIComponents["schemas"]["RepositoryCheckout"];
 export type CheckoutRefresh = OpenAPIComponents["schemas"]["CheckoutRefresh"];
 export type RepositoryBranch = OpenAPIComponents["schemas"]["RepositoryBranch"];
+/** What a new revision would find, asked before one is created. */
+export type RevisionPreflight = OpenAPIComponents["schemas"]["RevisionPreflight"];
 
 export interface SourceLocation {
   path: string;

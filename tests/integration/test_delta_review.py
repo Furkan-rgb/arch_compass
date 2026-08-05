@@ -565,6 +565,99 @@ def test_elicitation_is_shown_only_the_boundaries_this_revision_judged(
     }
 
 
+def _rows(workspace: Runtime) -> dict[str, int]:
+    """How much this workspace has written, in the three tables a revision appends to.
+
+    Counted from the tables rather than through the services, because what is being asserted
+    is the absence of writes and a service can only be asked what it would return. A row
+    count is the one reading that cannot be satisfied by a repository quietly answering from
+    somewhere else.
+    """
+
+    with workspace.database.connect() as connection:
+        return {
+            table: int(
+                connection.execute(f"SELECT count(*) AS total FROM {table}").fetchone()[
+                    "total"
+                ]
+            )
+            for table in ("case_revisions", "boundary_reviews", "boundary_lines")
+        }
+
+
+def test_a_preflight_over_an_untouched_repository_reports_and_records_nothing(
+    workspace: Runtime, reasoner: RecordingReasoner, case_id: str, repository: Path
+) -> None:
+    """Pressing New revision always checks; a check that finds nothing leaves nothing behind.
+
+    The reason the check is worth having at all: a branch's history is the line of what
+    happened to the code, and a revision whose whole content is that somebody pressed a button
+    is noise in the one place a reader goes for signal. So the partition runs, says every
+    boundary would carry, and the three tables a revision appends to are exactly as they were.
+    """
+
+    first = _review(workspace, case_id, repository)
+    before = _rows(workspace)
+    paid = reasoner.judgements
+
+    answer = workspace.preflight_service.check(repository)
+
+    assert answer.changed is False
+    assert answer.current_against == first.review_id, (
+        "the reader is told which revision they are already up to date with"
+    )
+    assert (answer.judged, answer.succeeded, answer.addressed, answer.resurfaced) == (
+        0,
+        0,
+        0,
+        0,
+    )
+    assert _rows(workspace) == before, (
+        "no case revision, no review row, and nothing on the branch's ledger"
+    )
+    assert reasoner.judgements == paid, "and nothing was put to a model to find that out"
+
+
+def test_an_edited_file_makes_the_preflight_say_the_revision_would_be_real(
+    workspace: Runtime, case_id: str, repository: Path
+) -> None:
+    """The other half: the check has to be able to say yes, and to say roughly why.
+
+    The same edit `test_a_rewrite_that_renames_nothing_is_judged_again` uses, so what the
+    pre-flight promises here and what the revision goes on to record are answers to the same
+    question — one judged boundary, the other carried — reached before and after the run.
+    """
+
+    _review(workspace, case_id, repository)
+    (repository / "disk.py").write_text(REWRITTEN_DISK, encoding="utf-8")
+
+    answer = workspace.preflight_service.check(repository)
+
+    assert answer.changed is True
+    assert answer.judged == 1, "the rewritten boundary, and only it"
+    assert (answer.succeeded, answer.addressed, answer.resurfaced) == (0, 0, 0)
+
+
+def test_a_branch_with_no_revisions_is_always_a_real_revision(
+    workspace: Runtime, repository: Path
+) -> None:
+    """A first revision cannot be the same as a revision that does not exist.
+
+    Nothing has been reviewed here, so there is no case to continue and nothing to compare
+    with. The honest answer is `changed` with nothing named — and it must arrive without a
+    case being opened on the way, which is the trap a read-only check that reuses the start
+    step's lookup walks into.
+    """
+
+    before = _rows(workspace)
+
+    answer = workspace.preflight_service.check(repository)
+
+    assert answer.changed is True
+    assert answer.current_against is None
+    assert _rows(workspace) == before, "asking cost the workspace no case of its own"
+
+
 def test_two_branches_of_one_repository_are_two_lines(
     workspace: Runtime, repository: Path
 ) -> None:

@@ -34,6 +34,7 @@ from archcompass.bootstrap import Runtime
 from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion, FindingCandidate
 from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
 from archcompass.domain.checkout import CheckoutRefresh, RepositoryCheckout
+from archcompass.domain.delta import RevisionPreflight
 from archcompass.domain.errors import (
     ArchCompassError,
     AtlasNotFoundError,
@@ -1028,6 +1029,37 @@ def create_app(
 
         hosted_mode.checkout()
         return runtime.checkout_service.refresh(request.root_path)
+
+    @app.post(
+        "/api/repositories/preflight",
+        responses=_problem_responses(404, 422),
+    )
+    def preflight_repository(
+        runtime: RuntimeDep,
+        hosted_mode: RestrictionsDep,
+        request: RepositoryPathRequest,
+    ) -> RevisionPreflight:
+        """Whether a new revision would find anything, without creating one.
+
+        What the **New revision** button asks before it starts anything. The repository is
+        re-indexed and the delta is worked out against the branch's latest revision; if every
+        boundary would carry, the caller is told so and no case revision, review or ledger
+        event is written. A real delta comes back as `changed`, and the caller goes on to
+        `/api/repositories/start` exactly as before.
+
+        A POST because it re-indexes: nothing about the review is written, but the atlas is,
+        and a GET that rebuilt an atlas would be a cache's worst nightmare. The path is in the
+        body for the same reason the routes around it take it that way.
+
+        `current_against` names the revision the repository is up to date with, and is `None`
+        only when there is nothing behind this branch — which is also the one case where
+        `changed` is true regardless of the counts, because a first revision cannot be the
+        same as a revision that does not exist.
+        """
+
+        return runtime.preflight_service.check(
+            hosted_mode.repository_root(Path(request.root_path), runtime)
+        )
 
     @app.post(
         "/api/repositories/start",
