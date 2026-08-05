@@ -210,6 +210,36 @@ describe("JudgingLedger", () => {
     expect(ledger).toHaveTextContent("queued");
   });
 
+  it("says which verdicts were carried, while the run is still going", () => {
+    // A carried verdict was looked up, not reached, and a row that said nothing about it
+    // would have the run claim a model call it never made. The count says the same thing
+    // about the run as a whole, which is what explains it finishing as fast as it does.
+    render(
+      <JudgingLedger
+        progress={{
+          total: 3,
+          boundaries: ["ports.Feed", "ports.Ledger", "ports.Digest"],
+          verdicts: [true, false, null],
+          carriedFrom: ["rev_earlier", null, null],
+          carried: 1,
+          judged: 2,
+          eliciting: false,
+          summarising: false,
+          concluded: false,
+        }}
+        bearings={["3/53", "2/53", "4/53"]}
+      />,
+    );
+
+    const rows = within(screen.getByLabelText("Boundaries examined")).getAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent("carried from an earlier run");
+    // In place of the bearings, which are a count of what bore on it here: nothing did.
+    expect(rows[0]).not.toHaveTextContent("3/53");
+    expect(rows[1]).toHaveTextContent("2/53");
+    expect(rows[1]).not.toHaveTextContent("carried");
+    expect(screen.getByLabelText("Boundaries examined")).toHaveTextContent("1 carried");
+  });
+
   it("draws unnamed rows for a run it is only reading the counts of", () => {
     // The detected order is known only to the run that swept for them, so a watcher reading
     // the stored record gets the shape of the answer rather than invented labels.

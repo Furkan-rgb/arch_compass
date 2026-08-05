@@ -33,6 +33,23 @@ export type RunState = {
   boundaries: string[];
   /** One entry per boundary, in detection order: `null` until that verdict lands. */
   verdicts: (boolean | null)[];
+  /**
+   * The earlier review each verdict was carried forward from, in the same order: `null`
+   * where the run reached the verdict itself, and `null` for a boundary not yet judged.
+   *
+   * A re-run over an unchanged repository, corpus and case reuses every verdict it can, and
+   * those settle as fast as the stream can write them. Without this the run would appear to
+   * have judged a repository faster than a model can answer, which reads as work skipped
+   * rather than work already done. Empty for a watcher reading the run's stored record: the
+   * columns carry the tally below and not which boundary each carried verdict came from.
+   *
+   * Optional, along with the tally: a run folded from the stream always has both, and a
+   * state built by hand — a replayed demo, a test — is saying nothing about carry-through
+   * rather than claiming there was none. Absent and empty read the same way here.
+   */
+  carriedFrom?: (string | null)[];
+  /** How many verdicts so far were carried rather than reached — known from both sources. */
+  carried?: number;
   judged: number;
   /** The first pass's last call: composing what it needs to ask. */
   eliciting: boolean;
@@ -54,6 +71,8 @@ export function applyProgress(current: RunState, event: ReviewProgress): RunStat
       total: event.total,
       boundaries: event.boundaries,
       verdicts: Array.from({ length: event.total }, () => null),
+      carriedFrom: Array.from({ length: event.total }, () => null),
+      carried: 0,
       judged: 0,
       eliciting: false,
       summarising: false,
@@ -65,7 +84,19 @@ export function applyProgress(current: RunState, event: ReviewProgress): RunStat
     // stream. Two boundaries can share a name; their positions cannot collide.
     const verdicts = [...current.verdicts];
     verdicts[event.position - 1] = event.material;
-    return { ...current, verdicts, judged: event.position };
+    const carriedFrom = [...(current.carriedFrom ?? [])];
+    const origin = event.verdict_reused_from ?? null;
+    carriedFrom[event.position - 1] = origin;
+    return {
+      ...current,
+      verdicts,
+      carriedFrom,
+      // The run's own tally where it sends one, so a watcher that missed a line still
+      // counts what the run counted. The fallback keeps a stream from an older build —
+      // which reports carry-through nowhere — from reading as a run that carried nothing.
+      carried: event.carried ?? (current.carried ?? 0) + (origin === null ? 0 : 1),
+      judged: event.position,
+    };
   }
   if (event.event === "eliciting" && current) {
     return { ...current, judged: event.total, eliciting: true };

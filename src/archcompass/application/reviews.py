@@ -81,6 +81,12 @@ class JudgedCandidate:
 
     candidate: FindingCandidate
     verdict: CandidateVerdict
+    #: The earlier review this verdict was carried forward from, where it was not reached
+    #: here. Carried on the judgement itself rather than kept in a map beside it, because
+    #: everyone who is told about a verdict as it lands — the run, the record, the stream —
+    #: needs to be able to say whether it was reached or looked up, and a watcher told only
+    #: that a boundary was judged would be watching the run claim work it did not do.
+    reused_from: str | None = None
 
 
 class ReviewService:
@@ -230,27 +236,32 @@ class ReviewService:
         judged: list[JudgedCandidate] = []
         reused_from: dict[str, str] = {}
         material = 0
+        carried = 0
         for position, candidate in enumerate(candidates, start=1):
             self._stop_if_cancelled(running.review_id)
-            item, origin = self._verdict_for(
+            item = self._verdict_for(
                 candidate,
                 running=running,
                 revision=revision,
                 policies=policies,
                 corpus=corpus,
             )
-            if origin is not None:
-                reused_from[candidate.candidate_id] = origin
+            if item.reused_from is not None:
+                reused_from[candidate.candidate_id] = item.reused_from
+                carried += 1
             judged.append(item)
             material += 1 if item.verdict.material else 0
-            # Reported exactly as a fresh verdict is. A cached run and a judged run are the
-            # same run to anyone watching — same events, same counts, same order — and the
-            # difference is recorded on the boundary for a reader to see rather than shown
-            # as a gap in the progress of the run.
+            # Reported in the same events and the same order as a fresh verdict, and said to
+            # be what it is. A cached run is not a quieter run — every boundary still lands,
+            # one at a time, in the detected order — but it is a faster one, and a stream
+            # that only counted them would have the run claim minutes of judgement it spent
+            # looking things up. The count travels with the record too, so a second tab or a
+            # reload, which has the columns and not the stream, can say the same thing.
             self._reviews.record_progress(
                 running.review_id,
                 reviewed=position,
                 material=material,
+                carried=carried,
             )
             if on_verdict is not None:
                 on_verdict(item, position, len(candidates))
@@ -303,8 +314,8 @@ class ReviewService:
         revision: CaseRevision,
         policies: list[PolicyDocument],
         corpus: str,
-    ) -> tuple[JudgedCandidate, str | None]:
-        """This candidate's verdict, and the earlier review it was carried forward from.
+    ) -> JudgedCandidate:
+        """This candidate's verdict, saying whether it was reached here or carried forward.
 
         The lookup is unconditional. Every component of the key is a value this run already
         holds before it calls anything — the candidate's own structure, the corpus it is
@@ -337,7 +348,11 @@ class ReviewService:
             carried = cached.verdict.model_copy(
                 update={"candidate_id": candidate.candidate_id}
             )
-            return JudgedCandidate(candidate=candidate, verdict=carried), cached.review_id
+            return JudgedCandidate(
+                candidate=candidate,
+                verdict=carried,
+                reused_from=cached.review_id,
+            )
         verdict = self._reasoner.judge_finding_candidate(
             revision.snapshot,
             candidate,
@@ -351,7 +366,7 @@ class ReviewService:
                 review_id=running.review_id,
             )
         )
-        return JudgedCandidate(candidate=candidate, verdict=verdict), None
+        return JudgedCandidate(candidate=candidate, verdict=verdict)
 
     def _read_the_set(
         self,

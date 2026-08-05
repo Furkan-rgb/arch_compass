@@ -37,6 +37,11 @@ export function progressFromSummary(
     // inventing labels here would be presenting a guess as evidence.
     boundaries: [],
     verdicts: Array.from({ length: total }, () => null),
+    // No origins either, and for the same reason as the names: the record keeps the tally
+    // and not which boundary each carried verdict came from. The tally is the part a reader
+    // watching from a second tab needs — it is what explains a run finishing in seconds.
+    carriedFrom: [],
+    carried: summary.boundaries_carried ?? 0,
     judged: summary.boundaries_reviewed,
     // Which of the two set-wide calls is running is not in the counts — the record knows
     // only that every verdict has landed. It is reported as the one this pass will make,

@@ -26,11 +26,27 @@ describe("progressFromSummary", () => {
       total: 6,
       boundaries: [],
       verdicts: [null, null, null, null, null, null],
+      carriedFrom: [],
+      carried: 0,
       judged: 2,
       eliciting: false,
       summarising: false,
       concluded: false,
     });
+  });
+
+  it("carries the tally of reused verdicts, which is why the run went so fast", () => {
+    // The record's half of carry-through. It cannot say which boundary each carried verdict
+    // came from — that is in the stream — but the count is the part that explains a run
+    // finishing in seconds, and a watcher with only the record still gets it.
+    const carried = progressFromSummary(
+      running({ boundaries_reviewed: 4, boundaries_carried: 3 }),
+    );
+
+    expect(carried?.carried).toBe(3);
+    expect(carried?.carriedFrom).toEqual([]);
+    // A review stored before the count existed says nothing rather than claiming a number.
+    expect(progressFromSummary(running({ boundaries_carried: undefined }))?.carried).toBe(0);
   });
 
   it("knows nothing before the sweep has finished", () => {

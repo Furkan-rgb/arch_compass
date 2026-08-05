@@ -29,6 +29,7 @@ from archcompass.domain.review import (
     ReviewOverview,
     ReviewStatus,
 )
+from archcompass.domain.workspace import BoundaryReviewSummary
 from archcompass.ports.reasoning import FocusedReasoningProvider, ReasoningTask
 
 FIXTURE = Path("eval/cases/speech-vendor/repository").resolve()
@@ -101,6 +102,14 @@ def case_id(runtime: Runtime) -> str:
         actor="test",
     )
     return revision.case_id
+
+
+def _summary(runtime: Runtime, review_id: str) -> BoundaryReviewSummary:
+    """The listing's row for one review — the counts a watcher without the stream reads."""
+
+    rows = [row for row in runtime.review_repository.list() if row.review_id == review_id]
+    assert len(rows) == 1
+    return rows[0]
 
 
 def _reviewed(review: BoundaryReview) -> list[ReviewedBoundary]:
@@ -259,3 +268,51 @@ def test_deleting_the_run_that_reached_a_verdict_does_not_unlearn_it(
     assert all(
         item.verdict_reused_from == first.review_id for item in _reviewed(second)
     ), "attribution names the run even though it is gone"
+
+
+def test_a_carried_verdict_says_so_while_the_run_is_still_going(
+    runtime: Runtime, case_id: str
+) -> None:
+    """Carry-through is reported as it happens, not only once the review can be opened.
+
+    A fully cached run finishes in seconds. Watched through the counts alone that is a run
+    that appears to have judged a repository faster than a model can answer, which reads as
+    a run that skipped the work rather than one that had already done it. So each verdict
+    names the run it came from as it lands, and the record carries the tally beside the
+    other counters — the two halves a reader can be watching through.
+    """
+
+    first = runtime.review_service.review(case_id, repository_root=FIXTURE)
+    assert _summary(runtime, first.review_id).boundaries_carried == 0, (
+        "a first run reached its own verdicts"
+    )
+
+    origins: list[str | None] = []
+    tallies: list[int] = []
+
+    def observe(item: JudgedCandidate, position: int, total: int) -> None:
+        del position, total
+        origins.append(item.reused_from)
+        # Read from the row rather than counted here: the point is that a reader who has
+        # only the record — a second tab, a reload — can already say how much was carried.
+        tallies.append(_summary(runtime, second_id[0]).boundaries_carried)
+
+    second_id: list[str] = []
+
+    def remember(review: BoundaryReview) -> None:
+        second_id.append(review.review_id)
+
+    second = runtime.review_service.review(
+        case_id,
+        repository_root=FIXTURE,
+        on_started=remember,
+        on_verdict=observe,
+    )
+
+    assert origins and all(origin == first.review_id for origin in origins), (
+        "every carried verdict names the run it was reached by, as it lands"
+    )
+    assert tallies == list(range(1, len(origins) + 1)), (
+        "and the record's tally moves with them"
+    )
+    assert _summary(runtime, second.review_id).boundaries_carried == len(origins)
