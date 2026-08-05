@@ -12,10 +12,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "./api";
-import { DecisionMark, DispositionChip, StandingFooter } from "./triage";
-import type { BoundaryTriage, ReviewedBoundaryDetail } from "./types";
+import { DecisionMark, StandingFooter } from "./triage";
+import type { BoundaryTriage, ReviewedBoundary } from "./types";
 
-const BOUNDARY: ReviewedBoundaryDetail = {
+const BOUNDARY: ReviewedBoundary = {
   reference: "BR-001",
   candidate: {
     pattern: "sole_implementation",
@@ -88,15 +88,6 @@ describe("DecisionMark", () => {
     render(<DecisionMark triage={decided(false)} />);
     const mark = screen.getByText("Waived");
     expect(mark.title).toMatch(/against an earlier verdict/i);
-  });
-});
-
-describe("DispositionChip", () => {
-  it("speaks only for new and changed — known is the quiet resting state", () => {
-    const { container, rerender } = render(<DispositionChip disposition="known" />);
-    expect(container).toBeEmptyDOMElement();
-    rerender(<DispositionChip disposition="new" />);
-    expect(screen.getByText("new")).toBeInTheDocument();
   });
 });
 

@@ -160,11 +160,17 @@ class LineageRepository(Protocol):
     Both ids are derived from facts rather than allocated, so writing is get-or-create: the
     same repository indexed twice computes the same `repo_id` both times, and the row that
     already exists is the answer rather than a conflict.
+
+    `set_base_branch` is the exception and is deliberately not an update: it fills in a base
+    that is not yet known and leaves a known one alone, because which branch a line of work
+    reads its standings through is not something a re-index should be able to move.
     """
 
     def get_or_create_repository(self, lineage: RepositoryLineage) -> RepositoryLineage: ...
 
     def get_or_create_branch(self, lineage: BranchLineage) -> BranchLineage: ...
+
+    def set_base_branch(self, branch_id: str, base_branch_id: str) -> BranchLineage: ...
 
     def repository(self, repo_id: str) -> RepositoryLineage | None: ...
 
@@ -185,6 +191,8 @@ class StandingDecisionRepository(Protocol):
     """
 
     def append_decision(self, decision: StandingDecision) -> StandingDecision: ...
+
+    def append_decisions(self, decisions: Iterable[StandingDecision]) -> int: ...
 
     def current_for_branch(self, branch_id: str) -> list[StandingDecision]: ...
 

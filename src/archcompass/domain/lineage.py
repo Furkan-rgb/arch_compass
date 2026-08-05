@@ -10,8 +10,8 @@ same code somewhere else on Tuesday.
 So there are two identities here, and they are not competing. The path-derived one stays
 exactly what it is, a checkout location. `repo_id` is the repository itself, and `branch_id`
 is one line of work in it — the level at which humans hold an opinion ("on main, this
-boundary is accepted"), which is why decisions and baselines will attach here rather than to
-any single run.
+boundary is accepted"), which is why standing decisions, the case and the line of revisions
+attach here rather than to any single run.
 """
 
 from __future__ import annotations
@@ -59,6 +59,14 @@ class BranchLineage(DomainModel):
     branch_id: str = Field(min_length=1)
     repo_id: str = Field(min_length=1)
     branch_name: str = Field(min_length=1)
+    #: The branch this one came from, whose standings and case it reads through to where it
+    #: has none of its own. `None` is an ordinary and honest value — the default branch of a
+    #: repository has nothing behind it, and so does a branch first seen before the default
+    #: one was ever indexed here — and it means the branch answers from its own records
+    #: alone. Filled by the application rather than derived, because which branch a line of
+    #: work came from is not a function of its name (see `application/standings.py` for how
+    #: the chain is walked, and `RepositoryIndexService` for where it is set).
+    base_branch_id: str | None = None
     first_seen_at: datetime = Field(default_factory=utc_now)
 
 
@@ -84,7 +92,7 @@ def derive_repo_id(root_commit_sha: str | None, canonical_root: str) -> str:
     repository's, and it borrows neither the enclosing history's identity nor its branch.
     Without that rule the sha alone answers for everything under one checkout — every project
     of a monorepo, and every bundled example in this one — so their reviews group together
-    and one project's baseline stands over another's boundaries.
+    and one project's standing decisions govern another's boundaries.
 
     A nested folder therefore lands in the same place as a folder outside git altogether: the
     canonical path, which is not durable and does not pretend to be, because it is the only

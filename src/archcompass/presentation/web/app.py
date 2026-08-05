@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Sequence
 from datetime import datetime
 from pathlib import Path
 from queue import Queue
@@ -26,23 +26,17 @@ from pydantic import (
     model_validator,
 )
 
-from archcompass.application.baseline import BaselineOutcome
 from archcompass.application.cases import WrittenAnswer
 from archcompass.application.review_source import MAX_CONTEXT_LINES
 from archcompass.application.reviews import JudgedCandidate
+from archcompass.application.standings import standing_for
 from archcompass.bootstrap import Runtime
 from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion, FindingCandidate
-from archcompass.domain.baseline import (
-    BaselineEntry,
-    BoundaryDisposition,
-    disposition_of,
-)
 from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
 from archcompass.domain.checkout import RepositoryCheckout
 from archcompass.domain.errors import (
     ArchCompassError,
     AtlasNotFoundError,
-    BaselineEntryNotFoundError,
     BranchNotFoundError,
     CaseNotFoundError,
     CaseRevisionConflictError,
@@ -61,9 +55,7 @@ from archcompass.domain.errors import (
     PolicyNotFoundError,
     ProviderError,
     RepositoryCheckoutError,
-    ReviewHasNoBranchError,
     ReviewHasNoReportError,
-    ReviewNotBaselineableError,
     ReviewNotCancellableError,
     ReviewNotFoundError,
     ReviewStillRunningError,
@@ -79,7 +71,6 @@ from archcompass.domain.policy import (
 from archcompass.domain.review import (
     BoundaryExcerpt,
     BoundaryReview,
-    BoundaryReviewReport,
     ReviewedBoundary,
     ReviewStatus,
 )
@@ -306,6 +297,79 @@ class DecisionRequest(APIModel):
             material=self.material,
             verdict_label=self.verdict_label,
         )
+
+
+class BulkDecisionBoundary(APIModel):
+    """One boundary in a bulk decision, with the verdict the reader took it against.
+
+    The verdict context is per boundary and cannot be hoisted onto the request, for the same
+    reason a single decision carries it: it records what was actually on screen. Forty
+    boundaries were forty different verdicts, and a single `material` on the envelope would be
+    a claim about all of them that is false for most.
+    """
+
+    boundary_fingerprint: str = Field(min_length=1)
+    boundary_reference: str = Field(pattern=r"^BR-[0-9]{3}$")
+    material: bool
+    verdict_label: str = Field(min_length=1)
+
+
+class BulkDecisionRequest(APIModel):
+    """One disposition, taken over many boundaries at once, by one person.
+
+    What replaced bulk baselining. The shape is deliberately the same shape as deciding one
+    boundary — a state, an author, a reason where one is required — repeated over a list,
+    because that is exactly what it does: it writes N standing decisions, each with a name on
+    it, rather than one administrative act that silences a list nobody read.
+    """
+
+    branch_id: str = Field(min_length=1)
+    state: DecisionState
+    author: str = Field(min_length=1)
+    #: Required when waiving, refused without it, exactly as a single decision is. A bulk
+    #: waiver with no reason would be the baseline coming back wearing an author's name.
+    reason: str | None = None
+    review_id: str = Field(min_length=1)
+    #: At least one: a bulk decision over nothing is a request that means nothing, and
+    #: answering it with a cheerful zero would hide a client that failed to build its list.
+    boundaries: list[BulkDecisionBoundary] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def valid_as_decisions(self) -> BulkDecisionRequest:
+        """Refuse here whatever the domain would refuse, using the domain to decide.
+
+        Building the aggregates is the check, as it is for a single decision. Every one of them
+        is built, not just the first: a list with a duplicate fingerprint or a malformed
+        reference in the fortieth entry has to fail as a 422 naming the field rather than as a
+        500 raised partway through the write.
+        """
+
+        self.as_decisions()
+        return self
+
+    def as_decisions(self) -> list[StandingDecision]:
+        return [
+            StandingDecision(
+                branch_id=self.branch_id,
+                boundary_fingerprint=item.boundary_fingerprint,
+                state=self.state,
+                author=self.author,
+                reason=self.reason,
+                review_id=self.review_id,
+                boundary_reference=item.boundary_reference,
+                material=item.material,
+                verdict_label=item.verdict_label,
+            )
+            for item in self.boundaries
+        ]
+
+
+class BulkDecisionResponse(APIModel):
+    """What one bulk decision wrote, and everything it now stands as."""
+
+    branch_id: str
+    recorded: int
+    decisions: list[StandingDecision]
 
 
 class DecisionCommentRequest(APIModel):
@@ -642,80 +706,27 @@ class PolicySourceRemovalResponse(APIModel):
     removed: bool
 
 
-class ReviewedBoundaryDetail(ReviewedBoundary):
-    """One reviewed boundary, plus where it stands against its branch's baseline.
-
-    A subclass of the stored boundary rather than a shape beside it, so a reader of this
-    response gets everything the review actually recorded and one more field — and so the
-    extra field cannot drift from what the review says, because it is not a copy of it.
-
-    The delta partition arrives through that inheritance rather than as anything added here.
-    `delta_state`, `judged_because`, `succeeds` and `resurfaced_from_review` are what the run
-    *recorded* about this boundary against the previous revision, so they belong on the stored
-    document and not in a read-time join — unlike `disposition` below, which is a fact about
-    now and moves the moment somebody baselines something.
-    """
-
-    #: `null` where the question does not arise: a review with no branch lineage has no
-    #: baseline to be measured against, and a boundary with no fingerprint has no identity to
-    #: look up. Both are honest absences and neither is `new`, which would be a claim that
-    #: something was checked.
-    disposition: BoundaryDisposition | None = None
-
-
-class BoundaryReviewReportDetail(BoundaryReviewReport):
-    # Narrowing an inherited field, which pyright rejects on principle because a mutable
-    # attribute is invariant. These models are frozen, so the substitution it is protecting
-    # against — writing a plain boundary into a list the subclass promised — cannot happen.
-    reviewed: list[ReviewedBoundaryDetail] = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
-        default_factory=list[ReviewedBoundaryDetail]
-    )
-
-
-class BaselineSummary(APIModel):
-    """How this run's boundaries divide against what the branch has already seen."""
-
-    new: int = 0
-    changed: int = 0
-    known: int = 0
-
-
 class ReviewDetailResponse(BoundaryReview):
-    """A stored review as it is read, with the baseline comparison attached.
+    """A stored review as it is read, with what the team has since made of it.
 
-    The comparison is computed here, at read time, and never stored on the review. A review
-    is an immutable record of one run; where its boundaries stand relative to a baseline is
-    a fact about *now*, and it changes the moment someone baselines or un-baselines
-    something. Writing it into the review would freeze an answer that is supposed to move.
+    One join, and it is the only one left. The baseline comparison used to sit here too — a
+    `new`/`changed`/`known` disposition per boundary, recomputed on every read — and it is gone
+    with the baseline itself. What replaced it was already on the document: the revision
+    partition, recorded when the run made the comparison. A client finds the summary at
+    `report.delta` — the counts, the revision it was compared with, and the boundaries that
+    closed — and each boundary's own state at `report.reviewed[].delta_state`. Nothing here
+    recomputes either, and nothing copies them to the top level: one path to a value is the
+    only way two paths cannot disagree.
 
-    The revision delta is the opposite case and so it is served the opposite way: it is a fact
-    about two immutable revisions, recorded when the run made the comparison and read straight
-    back off the document. A client finds the summary at `report.delta` — the counts, the
-    revision it was compared with, and the boundaries that closed — and each boundary's own
-    state at `report.reviewed[].delta_state`. Nothing here recomputes either, and nothing
-    copies them to the top level: one path to a value is the only way two paths cannot
-    disagree.
-
-    The baseline fields below are on their way out (the standings are the memory, and the
-    partition is what a revision is about) and stay for now, because removing them is a
-    different change from adding this one.
+    The distinction the removal turned on is worth keeping in view. A delta is a fact about two
+    immutable revisions, so it is stored. A standing decision is a fact about *now* — it moves
+    the moment somebody decides something — so it is joined at read time and never written into
+    the review, which would freeze an answer that is supposed to move.
     """
 
-    report: BoundaryReviewReportDetail | None = None  # pyright: ignore[reportIncompatibleVariableOverride]
-    #: `null` when the review has no branch lineage, for the same reason each boundary's
-    #: disposition is: there is nothing to have compared against.
-    baseline_summary: BaselineSummary | None = None
     #: One entry per reviewed boundary, in report order — the team's standing decisions and
     #: threads, joined on at read time. Empty for a review that reached no verdicts.
     boundary_triage: list[BoundaryTriage] = Field(default_factory=list[BoundaryTriage])
-
-
-class BranchBaselineResponse(APIModel):
-    """Everything one branch has declared itself to have seen."""
-
-    branch_id: str
-    entries: list[BaselineEntry]
-    count: int
 
 
 def _acquire_runtime(request: Request) -> Runtime:
@@ -1220,22 +1231,15 @@ def create_app(
         responses=_problem_responses(404, 422),
     )
     def get_review(runtime: RuntimeDep, review_id: str) -> ReviewDetailResponse:
-        """The stored review, plus everything the workspace has since made of it.
+        """The stored review, plus what the team has since decided about its boundaries.
 
-        Two joins, both on the way out and neither any deeper: where each boundary stands
-        against its branch's baseline, and what the team has decided about it.
-        `ReviewService` reads neither — that is the one invariant of the triage design — so
-        a disposition or a decision can never reach the reasoning that produced a verdict.
-        Both are facts about *now* joined onto a record that does not change.
+        One join, and no deeper: the standing decision on each boundary, read through the
+        branch this run was on and the branch that branch came from. `ReviewService` never
+        reads decisions — that is the one invariant of the triage design — so a decision can
+        never reach the reasoning that produced a verdict.
         """
 
-        review = runtime.review_repository.get(review_id)
-        baseline = (
-            runtime.baseline_service.for_branch(review.branch_id)
-            if review.branch_id is not None
-            else None
-        )
-        return _with_dispositions(runtime, review, baseline)
+        return _with_standings(runtime, runtime.review_repository.get(review_id))
 
     @app.get(
         "/api/reviews/{review_id}/source",
@@ -1383,59 +1387,6 @@ def create_app(
         return Response(status_code=204)
 
     @app.post(
-        "/api/reviews/{review_id}/baseline",
-        status_code=201,
-        responses=_problem_responses(404, 409),
-    )
-    def baseline_review(runtime: RuntimeDep, review_id: str) -> BaselineOutcome:
-        """Declare every boundary this review found as seen, on the branch it ran against.
-
-        One request for the whole review, because adopting a repository is one decision. A
-        per-boundary endpoint would make the ordinary first act — "we have looked at all of
-        this" — a hundred requests, and would suggest that baselining is a judgement about
-        each boundary rather than an administrative act over all of them.
-
-        201 rather than 200: the first call creates a branch's baseline. Repeating it is
-        harmless and reports the same size, which is what makes the button safe to press
-        twice.
-        """
-
-        return runtime.baseline_service.baseline_review(review_id)
-
-    @app.get("/api/branches/{branch_id}/baseline")
-    def branch_baseline(runtime: RuntimeDep, branch_id: str) -> BranchBaselineResponse:
-        """What this branch has already seen, oldest entry first.
-
-        A branch nobody has baselined answers with an empty list rather than a 404. It is a
-        true and useful answer — the baseline is empty, so every boundary is new — and a
-        branch id is derived rather than allocated, so asking about one that has never been
-        baselined is the ordinary first call, not a mistake.
-        """
-
-        entries = list(runtime.baseline_service.for_branch(branch_id).values())
-        return BranchBaselineResponse(
-            branch_id=branch_id, entries=entries, count=len(entries)
-        )
-
-    @app.delete(
-        "/api/branches/{branch_id}/baseline/{boundary_fingerprint}",
-        status_code=204,
-        responses=_problem_responses(404),
-    )
-    def remove_baseline_entry(
-        runtime: RuntimeDep, branch_id: str, boundary_fingerprint: str
-    ) -> Response:
-        """Stop treating one boundary as seen, so the next run surfaces it again.
-
-        The one way a baseline shrinks by hand, and a 404 when the branch never held that
-        fingerprint: a caller told "removed" about something that is still baselined would
-        go on believing the boundary will come back.
-        """
-
-        runtime.baseline_service.remove_entry(branch_id, boundary_fingerprint)
-        return Response(status_code=204)
-
-    @app.post(
         "/api/review-conversations",
         status_code=201,
         responses=_problem_responses(404, 422),
@@ -1543,6 +1494,36 @@ def create_app(
         """
 
         return runtime.triage_service.decide(request.as_decision())
+
+    @app.post(
+        "/api/decisions/bulk",
+        status_code=201,
+        responses=_problem_responses(404, 422),
+    )
+    def record_decisions(
+        runtime: RuntimeDep, request: BulkDecisionRequest
+    ) -> BulkDecisionResponse:
+        """Take one disposition over many boundaries, and record it as many decisions.
+
+        How a team adopts a legacy repository now that the baseline is gone. The first run over
+        a code base that has been alive for years lands dozens of boundaries, and asking for
+        dozens of requests would end with the tool closed — but the answer is not a button that
+        silences a list nobody read. It is this: select them, decide once, and every boundary
+        gets a real decision with an author, a date and a reason where one is required, all
+        written together so a half-adopted branch cannot exist.
+
+        201 because this creates records, and it is not idempotent: pressing it twice appends a
+        second decision per boundary, exactly as deciding twice by hand does. That is the
+        append-only rule and not an oversight — what a team thought in March stays readable
+        after they change their mind in August.
+        """
+
+        decisions = runtime.triage_service.decide_many(request.as_decisions())
+        return BulkDecisionResponse(
+            branch_id=request.branch_id,
+            recorded=len(decisions),
+            decisions=decisions,
+        )
 
     @app.get(
         "/api/decisions/{branch_id}/{fingerprint}/history",
@@ -1983,29 +1964,23 @@ def _answer_progress_lines(
         yield f"{line}\n"
 
 
-def _with_dispositions(
-    runtime: Runtime, review: BoundaryReview, baseline: Mapping[str, BaselineEntry] | None
-) -> ReviewDetailResponse:
-    """Attach what *now* knows about a review's boundaries: baseline standing and triage.
+def _with_standings(runtime: Runtime, review: BoundaryReview) -> ReviewDetailResponse:
+    """Attach what *now* knows about a review's boundaries: the standing decisions.
 
-    Both joins happen here, at read time, and never at write time. A review is an immutable
-    record of one run; where its boundaries stand against a baseline and what the team has
-    decided about them are facts about the present, and a stored copy of either would go
-    stale the first time someone used the feature.
+    The join happens here, at read time, and never at write time. A review is an immutable
+    record of one run; what the team has decided about its boundaries is a fact about the
+    present, and a stored copy of it would go stale the first time somebody used the feature.
 
-    A review with no branch, or with no report, carries no baseline comparison: the response
-    is the stored document with two nulls rather than with zeroes, because "nothing was
-    compared" and "nothing was found to differ" are different statements and only one of
-    them is true. The summary counts boundaries that could be classified — a boundary with
-    no fingerprint has no identity to look up, so the three numbers can add to fewer than
-    the boundaries reviewed, which only ever happens on a review stored before fingerprints
-    existed.
+    Read through the base branch, so a review on a feature branch shows what `main` already
+    settled rather than presenting every boundary as undecided. An inherited decision names the
+    branch it was actually taken on, which is what lets a page distinguish "we decided this"
+    from "we have not disagreed with `main`".
 
-    Triage entries exist for every reviewed boundary, decided or not: the fingerprint alone
-    is what a client needs to post a decision, and a boundary is not going to be triaged by
-    a page that cannot name it. A review from before branch lineages carries no decisions —
-    stated by leaving them absent rather than by guessing a branch, because a decision filed
-    under a guess would be attributed to a team that never took it.
+    Entries exist for every reviewed boundary, decided or not: the fingerprint alone is what a
+    client needs to post a decision, and a boundary is not going to be triaged by a page that
+    cannot name it. A review from before branch lineages carries no decisions — stated by
+    leaving them absent rather than by guessing a branch, because a decision filed under a
+    guess would be attributed to a team that never took it.
     """
 
     payload = review.model_dump()
@@ -2013,45 +1988,23 @@ def _with_dispositions(
     if report is None:
         return ReviewDetailResponse.model_validate(payload)
 
-    decisions: dict[str, StandingDecision] = {}
-    comment_counts: dict[str, int] = {}
-    if review.branch_id is not None:
-        decisions = {
-            item.boundary_fingerprint: item
-            for item in runtime.triage_service.decisions_for_branch(review.branch_id)
-        }
-        comment_counts = runtime.triage_service.comment_counts(review.branch_id)
+    standings = runtime.triage_service.standings_for_branch(review.branch_id)
+    comment_counts = (
+        {}
+        if review.branch_id is None
+        else runtime.triage_service.comment_counts(review.branch_id)
+    )
     triage = [
         BoundaryTriage(
             reference=boundary.reference,
             fingerprint=fingerprint,
-            decision=_joined(decisions.get(fingerprint), boundary),
+            decision=_joined(standing_for(boundary, standings), boundary),
             comment_count=comment_counts.get(fingerprint, 0),
         )
         for boundary in report.reviewed
         for fingerprint in (boundary.fingerprint or boundary_fingerprint(boundary.candidate),)
     ]
     payload["boundary_triage"] = [item.model_dump() for item in triage]
-
-    if baseline is not None:
-        counts = dict.fromkeys(BoundaryDisposition, 0)
-        reviewed: list[dict[str, Any]] = []
-        for boundary in report.reviewed:
-            entry = boundary.model_dump()
-            if boundary.fingerprint is None:
-                entry["disposition"] = None
-            else:
-                disposition = disposition_of(boundary, baseline)
-                counts[disposition] += 1
-                entry["disposition"] = disposition
-            reviewed.append(entry)
-        payload["report"] = {
-            **cast("dict[str, Any]", payload["report"]),
-            "reviewed": reviewed,
-        }
-        payload["baseline_summary"] = {
-            disposition.value: total for disposition, total in counts.items()
-        }
     return ReviewDetailResponse.model_validate(payload)
 
 
@@ -2083,7 +2036,6 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
             ReviewNotFoundError,
             PolicyNotFoundError,
             ConversationNotFoundError,
-            BaselineEntryNotFoundError,
             BranchNotFoundError,
         ),
     ):
@@ -2094,9 +2046,7 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
             CaseRevisionConflictError,
             ConversationRevisionConflictError,
             PolicyConflictError,
-            ReviewHasNoBranchError,
             ReviewHasNoReportError,
-            ReviewNotBaselineableError,
             ReviewNotCancellableError,
             ReviewStillRunningError,
             StaleAtlasError,

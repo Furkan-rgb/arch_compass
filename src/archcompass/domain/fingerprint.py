@@ -2,10 +2,10 @@
 
 A review numbers its boundaries BR-001, BR-002, … in detection order, and a candidate's
 ``candidate_id`` is a random UUID minted at detection time. Neither survives a re-run,
-so neither can anchor anything that has to outlive one — a cached verdict, a baseline
-entry, a standing decision. The fingerprint can: it is derived from what the boundary
-*is* — which detector recognised it and which named things participate in it — so the
-same structural situation produces the same fingerprint on every run that observes it.
+so neither can anchor anything that has to outlive one — a cached verdict, a standing
+decision, a boundary's line across revisions. The fingerprint can: it is derived from what
+the boundary *is* — which detector recognised it and which named things participate in it —
+so the same structural situation produces the same fingerprint on every run that observes it.
 
 What is deliberately left out:
 

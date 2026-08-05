@@ -12,9 +12,13 @@ The constraint comes from the plan (§5) and it is not stylistic: a comment that
 would be a second account of the review, published under the review's name, drifting from it
 with every wording change nobody notices.
 
-Known boundaries are counted and not listed in either. That is the baseline working — run two
-is quieter than run one — and the count stays visible so the silence is a claim rather than an
-omission.
+Carried boundaries are counted and not listed in either. That is the delta working — run two is
+quieter than run one because nothing moved under those boundaries, not because anybody declared
+them fine — and the count stays visible so the silence is a claim rather than an omission.
+
+Closures are the exception to "lead with the problem". A boundary that no longer exists is the
+loop closing, and it is named rather than counted, because it is the one thing here that is
+good news and the tool used to deliver it by going quiet.
 """
 
 from __future__ import annotations
@@ -74,30 +78,54 @@ def _carried_forward(run: CiRun) -> str:
     )
 
 
-def render_ci_summary(run: CiRun) -> str:
-    """The run as a log reader meets it: the counts, then only what is not already known.
-
-    Leads with the partition because that is the number that says whether the check is
-    working. A run reporting "3 new, 1 changed, 41 known" has been adopted; one reporting
-    "45 new" every time has not, and the difference should be visible without reading a
-    single finding.
-    """
+def _partition_line(run: CiRun) -> str:
+    """The revision in one line: what moved, and how much of it is still asking something."""
 
     counts = run.counts
+    return (
+        f"{counts.carried} carried, {counts.judged} judged, {counts.succeeded} succeeded, "
+        f"{counts.addressed} addressed — {counts.attention} needing attention, "
+        f"{counts.holding} held on an open question."
+    )
+
+
+def _compared_with(run: CiRun) -> str:
+    """Which revision this one is a delta against, so the counts above can be read at all."""
+
+    if run.first_revision or run.previous_review_id is None:
+        return (
+            f"First revision on {run.branch_name or 'this branch'}: nothing to compare with, "
+            "so every boundary is judged."
+        )
+    return f"Compared with revision {run.previous_review_id}."
+
+
+def render_ci_summary(run: CiRun) -> str:
+    """The run as a log reader meets it: the partition, then only what this revision moved.
+
+    Leads with the partition because that is what says whether the check is working. A run
+    reporting "41 carried, 2 judged" is one nobody has to read twice; one reporting "43 judged"
+    every time is a repository nothing is settled on, and the difference should be visible
+    without reading a single finding.
+    """
+
     lines = [
         f"Boundary check — {run.case_title}",
         "",
-        (
-            f"{counts.new} new, {counts.changed} changed, {counts.known} known, "
-            f"{counts.holding} held on an open question."
-        ),
-        f"Base branch {run.base_branch_name} has {run.baseline_size} boundaries baselined.",
+        _partition_line(run),
+        _compared_with(run),
     ]
+    for closed in run.addressed:
+        lines += [
+            "",
+            f"Addressed: {closed.title} "
+            f"({closed.last_reference}, {closed.pattern.value})",
+        ]
     surfaced = run.surfaced
     if not surfaced:
         lines += [
             "",
-            "Nothing new or changed on this branch.",
+            "Nothing on this branch moved since the previous revision.",
         ]
     for item in surfaced:
         lines += ["", *_summary_boundary(item)]
@@ -107,7 +135,7 @@ def render_ci_summary(run: CiRun) -> str:
 
 
 def _summary_boundary(item: CiBoundary) -> list[str]:
-    marks = [item.disposition.value]
+    marks = [*_state_marks(item)]
     if item.blocking:
         marks.append("blocking")
     if item.holding:
@@ -120,6 +148,20 @@ def _summary_boundary(item: CiBoundary) -> list[str]:
     for question in item.questions:
         lines.append(f"  Open: {question.question}")
     return lines
+
+
+def _state_marks(item: CiBoundary) -> list[str]:
+    """Where a boundary stands, and which input put it there.
+
+    Both, because they answer different questions and only together do they stop a reader
+    hearing "changed" as a statement about their code. `judged` says this revision put the
+    boundary back on the table; `because model` says which input moved it there.
+    """
+
+    state = item.delta_state.value if item.delta_state is not None else "judged"
+    if item.judged_because is None:
+        return [state]
+    return [state, f"because {item.judged_because.value}"]
 
 
 def _decision_line(item: CiBoundary) -> str:
@@ -140,15 +182,15 @@ def _decision_line(item: CiBoundary) -> str:
 
 def _verdict_line(run: CiRun) -> str:
     if not run.blocking:
-        return "No new material boundary is unaccounted for."
+        return "No material boundary this revision judged is unaccounted for."
     subject = "boundary" if len(run.blocking) == 1 else "boundaries"
     listed = ", ".join(run.blocking)
     if run.exit_code == 0:
         return (
-            f"{len(run.blocking)} new material {subject} ({listed}) — reported only, "
-            "because this check was asked to fail for nothing."
+            f"{len(run.blocking)} material {subject} ({listed}) nobody has decided on — "
+            "reported only, because this check was asked to fail for nothing."
         )
-    return f"{len(run.blocking)} new material {subject} to account for: {listed}."
+    return f"{len(run.blocking)} material {subject} to account for: {listed}."
 
 
 def render_ci_comment(run: CiRun, *, workspace_url: str | None = None) -> str:
@@ -171,13 +213,23 @@ def render_ci_comment(run: CiRun, *, workspace_url: str | None = None) -> str:
         f"## ArchCompass — {run.case_title}",
         "",
         (
-            f"**{counts.new} new · {counts.changed} changed · {counts.known} known · "
-            f"{counts.holding} held.** {_verdict_line(run)}"
+            f"**{counts.carried} carried · {counts.judged} judged · "
+            f"{counts.succeeded} succeeded · {counts.addressed} addressed · "
+            f"{counts.attention} needing attention.** {_verdict_line(run)}"
         ),
     ]
+    if run.addressed:
+        lines += ["", "### Addressed", ""]
+        lines += [
+            "These boundaries are gone. Nothing was deleted with them — if the same "
+            "structure comes back, its standing and its discussion come back with it.",
+            "",
+        ]
+        for closed in run.addressed:
+            lines.append(f"- **{closed.title}** — last seen as {closed.last_reference}.")
     surfaced = [item for item in run.surfaced if not item.holding]
     if surfaced:
-        lines += ["", "### New and changed", ""]
+        lines += ["", "### What this revision judged", ""]
         for item in surfaced:
             lines += _comment_boundary(
                 item, workspace_url=workspace_url, review_id=run.review_id
@@ -196,10 +248,10 @@ def render_ci_comment(run: CiRun, *, workspace_url: str | None = None) -> str:
         ]
         for item in held:
             lines += _comment_held(item, workspace_url=workspace_url, review_id=run.review_id)
-    if not surfaced and not held:
+    if not surfaced and not held and not run.addressed:
         lines += [
             "",
-            "Nothing new or changed on this branch.",
+            "Nothing on this branch moved since the previous revision.",
         ]
     lines += [
         "",
@@ -237,9 +289,13 @@ def _comment_held(
 
 
 def _marks(item: CiBoundary) -> str:
-    marks = [item.disposition.value]
+    marks = _state_marks(item)
     if item.blocking:
         marks.append("blocking")
+    elif item.needs_attention:
+        # Only where it is not already blocking, which says the same thing more loudly. Both
+        # would read as two separate problems with one boundary.
+        marks.append("needs attention")
     if item.verdict_reused_from is not None:
         marks.append("carried forward")
     return ", ".join(marks)

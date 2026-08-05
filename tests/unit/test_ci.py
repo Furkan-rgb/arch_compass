@@ -5,6 +5,10 @@ both are where a mistake is silent: a blocking rule that is one condition too lo
 pull request nobody could have prevented, and a comment renderer that paraphrases publishes a
 second version of the review under the review's name. Neither would be caught by an
 integration test that only asserts an exit code.
+
+The vocabulary here is the revision partition. `new`, `changed` and `known` are gone with the
+baseline that gave them their meaning, and what a boundary is now measured by is where this
+revision put it and whether anybody has decided about it.
 """
 
 from __future__ import annotations
@@ -26,8 +30,14 @@ from archcompass.application.ci_rendering import (
     render_ci_comment,
     render_ci_summary,
 )
-from archcompass.domain.baseline import BoundaryDisposition
-from archcompass.domain.review import ReviewStatus
+from archcompass.application.standings import needs_attention, standing_for
+from archcompass.domain.atlas import (
+    FindingCandidate,
+    FindingParticipant,
+    FindingPattern,
+)
+from archcompass.domain.delta import AddressedBoundary, BoundaryState, JudgedBecause
+from archcompass.domain.review import ReviewedBoundary, ReviewStatus
 from archcompass.domain.triage import DecisionState, StandingDecision
 
 RATIONALE = (
@@ -36,10 +46,10 @@ RATIONALE = (
 )
 
 
-def _decision(state: DecisionState) -> StandingDecision:
+def _decision(state: DecisionState, fingerprint: str = "bfp_1") -> StandingDecision:
     return StandingDecision(
         branch_id="branch_1",
-        boundary_fingerprint="bfp_1",
+        boundary_fingerprint=fingerprint,
         state=state,
         author="Deniz",
         reason="Intentional seam for the billing split.",
@@ -50,38 +60,64 @@ def _decision(state: DecisionState) -> StandingDecision:
     )
 
 
-def test_a_new_material_undecided_settled_boundary_blocks() -> None:
+def _reviewed(**overrides: object) -> ReviewedBoundary:
+    fields: dict[str, object] = {
+        "reference": "BR-001",
+        "candidate": FindingCandidate(
+            pattern=FindingPattern.SOLE_IMPLEMENTATION,
+            summary="package.Port is implemented only by package.Adapter.",
+            participants=[
+                FindingParticipant(
+                    node_id="port",
+                    qualified_name="package.Port",
+                    role="Declares the abstraction.",
+                )
+            ],
+            limitations="A static count cannot see runtime registration.",
+        ),
+        "fingerprint": "bfp_1",
+        "material": True,
+        "rationale": RATIONALE,
+    }
+    fields.update(overrides)
+    return ReviewedBoundary.model_validate(fields)
+
+
+def test_a_material_undecided_judged_boundary_blocks() -> None:
     assert is_blocking(
-        disposition=BoundaryDisposition.NEW,
-        material=True,
-        holding=False,
-        decision=None,
+        delta_state=BoundaryState.JUDGED, needs_attention=True, holding=False
     )
 
 
-@pytest.mark.parametrize(
-    "disposition",
-    [BoundaryDisposition.CHANGED, BoundaryDisposition.KNOWN],
-)
-def test_a_boundary_the_base_branch_has_seen_never_blocks(
-    disposition: BoundaryDisposition,
-) -> None:
-    """Including `changed`. The structure was there before this branch existed, so whatever
-    moved the verdict, this change did not introduce the boundary."""
+def test_a_boundary_this_revision_carried_never_blocks() -> None:
+    """Nothing moved under it since the previous revision said its piece."""
 
     assert not is_blocking(
-        disposition=disposition, material=True, holding=False, decision=None
+        delta_state=BoundaryState.CARRIED, needs_attention=True, holding=False
     )
 
 
-def test_a_cleared_verdict_never_blocks() -> None:
-    """Evidence that the advisor looked is not a finding."""
+def test_a_boundary_that_carried_its_standing_across_a_rename_never_blocks() -> None:
+    """A rename is not a change this pull request introduced, and it is not a way to hide
+    one either: the standing follows the succession, so the boundary is only quiet if it
+    was quiet before somebody moved it."""
 
     assert not is_blocking(
-        disposition=BoundaryDisposition.NEW,
-        material=False,
-        holding=False,
-        decision=None,
+        delta_state=BoundaryState.SUCCEEDED, needs_attention=True, holding=False
+    )
+
+
+def test_a_run_that_could_not_partition_itself_treats_everything_as_judged() -> None:
+    """No branch lineage means no previous revision, which is the state a first run is in."""
+
+    assert is_blocking(delta_state=None, needs_attention=True, holding=False)
+
+
+def test_a_boundary_nobody_needs_to_look_at_never_blocks() -> None:
+    """Cleared, or decided. `needs_attention` is where those two are told apart."""
+
+    assert not is_blocking(
+        delta_state=BoundaryState.JUDGED, needs_attention=False, holding=False
     )
 
 
@@ -89,35 +125,50 @@ def test_a_held_verdict_never_blocks() -> None:
     """It rests on a question nobody in a pipeline was in a position to answer."""
 
     assert not is_blocking(
-        disposition=BoundaryDisposition.NEW,
-        material=True,
-        holding=True,
-        decision=None,
+        delta_state=BoundaryState.JUDGED, needs_attention=True, holding=True
     )
+
+
+def test_a_cleared_verdict_never_needs_attention() -> None:
+    """Evidence that the advisor looked is not a finding."""
+
+    assert not needs_attention(_reviewed(material=False), {})
+
+
+def test_an_undecided_material_boundary_needs_attention() -> None:
+    assert needs_attention(_reviewed(), {})
 
 
 @pytest.mark.parametrize(
-    ("state", "blocks"),
-    [
-        (DecisionState.ACCEPTED, False),
-        (DecisionState.WAIVED, False),
-        # Parked is explicitly undecided: somebody looked and did not answer, which is not an
-        # answer. Treating it as one would make "I will think about it" silence the finding.
-        (DecisionState.PARKED, True),
-    ],
+    "state", [DecisionState.ACCEPTED, DecisionState.WAIVED, DecisionState.PARKED]
 )
-def test_only_an_accepted_or_waived_decision_silences_a_finding(
-    state: DecisionState, blocks: bool
-) -> None:
-    assert (
-        is_blocking(
-            disposition=BoundaryDisposition.NEW,
-            material=True,
-            holding=False,
-            decision=_decision(state),
-        )
-        is blocks
-    )
+def test_any_recorded_decision_silences_a_finding(state: DecisionState) -> None:
+    """Parking included. It is a decision a person took under their own name — "we have seen
+    this and it is not now" — and treating it as no answer would leave a team with no way to
+    say that except by accepting something they do not accept."""
+
+    assert not needs_attention(_reviewed(), {"bfp_1": _decision(state)})
+
+
+def test_a_decision_carries_across_a_succession_to_the_boundary_that_replaced_it() -> None:
+    """The rename case, read rather than merely recorded: the standing is filed under the
+    predecessor's fingerprint, and this is what makes it apply to the successor."""
+
+    standings = {"bfp_old": _decision(DecisionState.ACCEPTED, "bfp_old")}
+    renamed = _reviewed(fingerprint="bfp_new", succeeds="bfp_old")
+
+    assert standing_for(renamed, standings) is not None
+    assert not needs_attention(renamed, standings)
+
+
+def test_the_boundarys_own_decision_wins_over_the_one_it_succeeded() -> None:
+    own = _decision(DecisionState.PARKED, "bfp_new")
+    standings = {
+        "bfp_new": own,
+        "bfp_old": _decision(DecisionState.ACCEPTED, "bfp_old"),
+    }
+
+    assert standing_for(_reviewed(fingerprint="bfp_new", succeeds="bfp_old"), standings) is own
 
 
 @pytest.mark.parametrize(
@@ -139,10 +190,12 @@ def _boundary(**overrides: object) -> CiBoundary:
     fields: dict[str, object] = {
         "reference": "BR-001",
         "fingerprint": "bfp_1",
-        "disposition": BoundaryDisposition.NEW,
+        "delta_state": BoundaryState.JUDGED,
+        "judged_because": JudgedBecause.NEW,
         "material": True,
         "verdict_label": "not earning its place",
         "rationale": RATIONALE,
+        "needs_attention": True,
         "blocking": True,
     }
     fields.update(overrides)
@@ -162,11 +215,14 @@ def _run(*boundaries: CiBoundary, **overrides: object) -> CiRun:
         "base_branch_id": "branch_1",
         "atlas_version_id": "atlas_1",
         "reasoning_model": "fake:deterministic-substitute",
-        "baseline_size": 40,
+        "previous_review_id": "rev_0",
+        "first_revision": False,
         "counts": CiCounts(
-            new=1,
-            changed=0,
-            known=40,
+            carried=40,
+            judged=1,
+            succeeded=0,
+            addressed=0,
+            attention=1,
             holding=0,
             verdicts_reused=40,
             verdicts_total=41,
@@ -211,19 +267,44 @@ def test_a_long_rationale_is_cut_at_a_sentence_and_says_that_it_was() -> None:
     assert "Sentence number 11" not in comment
 
 
-def test_known_boundaries_are_counted_and_not_listed() -> None:
-    """The baseline working. The count stays visible so the silence is a claim."""
+def test_carried_boundaries_are_counted_and_not_listed() -> None:
+    """The delta working. The count stays visible so the silence is a claim."""
 
-    known = _boundary(
+    carried = _boundary(
         reference="BR-002",
-        disposition=BoundaryDisposition.KNOWN,
+        delta_state=BoundaryState.CARRIED,
+        judged_because=None,
+        needs_attention=False,
         blocking=False,
         rationale="A rationale nobody needs to read again.",
     )
-    comment = render_ci_comment(_run(_boundary(), known))
+    comment = render_ci_comment(_run(_boundary(), carried))
 
     assert "BR-002" not in comment
-    assert "40 known" in comment
+    assert "40 carried" in comment
+
+
+def test_a_closure_is_named_rather_than_counted() -> None:
+    """The one piece of good news the tool has, and it used to deliver it by going quiet."""
+
+    closed = AddressedBoundary(
+        fingerprint="bfp_gone",
+        pattern=FindingPattern.SOLE_IMPLEMENTATION,
+        title="package.Port is implemented only by package.Adapter.",
+        material=True,
+        verdict_label="not earning its place",
+        last_seen_in_review="rev_0",
+        last_reference="BR-004",
+    )
+    run = _run(_boundary(), addressed=[closed])
+
+    comment = render_ci_comment(run)
+    summary = render_ci_summary(run)
+
+    assert "### Addressed" in comment
+    assert "package.Port is implemented only by package.Adapter." in comment
+    assert "BR-004" in comment
+    assert "Addressed: package.Port is implemented only by package.Adapter." in summary
 
 
 def test_a_held_boundary_is_listed_with_the_question_that_would_settle_it() -> None:
@@ -250,6 +331,7 @@ def test_a_held_boundary_is_listed_with_the_question_that_would_settle_it() -> N
 def test_a_waiver_is_named_in_the_comment_rather_than_silently_removing_the_finding() -> None:
     decided = _boundary(
         blocking=False,
+        needs_attention=False,
         decision=CiDecision(
             decision_id="dec_1",
             state=DecisionState.WAIVED,
@@ -299,12 +381,17 @@ def test_no_link_is_invented_without_a_workspace_to_link_to() -> None:
     assert "[BR-001](https://compass.example/reviews/rev_1#BR-001)" in with_url
 
 
-def test_a_run_with_nothing_new_says_so_rather_than_showing_an_empty_section() -> None:
-    known = _boundary(disposition=BoundaryDisposition.KNOWN, blocking=False)
-    run = _run(known, blocking=[], exit_code=0)
+def test_a_revision_that_moved_nothing_says_so_rather_than_showing_an_empty_section() -> None:
+    carried = _boundary(
+        delta_state=BoundaryState.CARRIED,
+        judged_because=None,
+        needs_attention=False,
+        blocking=False,
+    )
+    run = _run(carried, blocking=[], exit_code=0)
 
-    assert "Nothing new or changed on this branch." in render_ci_comment(run)
-    assert "Nothing new or changed on this branch." in render_ci_summary(run)
+    assert "Nothing on this branch moved since the previous revision." in render_ci_comment(run)
+    assert "Nothing on this branch moved since the previous revision." in render_ci_summary(run)
 
 
 def test_the_summary_leads_with_the_partition_and_quotes_the_rationale_whole() -> None:
@@ -313,6 +400,30 @@ def test_the_summary_leads_with_the_partition_and_quotes_the_rationale_whole() -
 
     summary = render_ci_summary(_run(_boundary()))
 
-    assert summary.splitlines()[2].startswith("1 new, 0 changed, 40 known")
+    assert summary.splitlines()[2].startswith(
+        "40 carried, 1 judged, 0 succeeded, 0 addressed — 1 needing attention"
+    )
+    assert "Compared with revision rev_0." in summary
     assert RATIONALE in summary
-    assert "1 new material boundary to account for: BR-001." in summary
+    assert "1 material boundary to account for: BR-001." in summary
+
+
+def test_a_judged_boundary_names_the_input_that_moved_it() -> None:
+    """The whole reason `changed` was retired: a reader must never hear "your code moved"
+    when what moved was the model."""
+
+    moved = _boundary(judged_because=JudgedBecause.MODEL)
+
+    assert "because model" in render_ci_summary(_run(moved))
+    assert "because model" in render_ci_comment(_run(moved))
+
+
+def test_a_first_revision_says_it_had_nothing_to_compare_with() -> None:
+    """Two judged boundaries look identical whether this is revision one or a revision that
+    broke everything, unless the document says which."""
+
+    summary = render_ci_summary(
+        _run(_boundary(), first_revision=True, previous_review_id=None)
+    )
+
+    assert "First revision on feature/split" in summary

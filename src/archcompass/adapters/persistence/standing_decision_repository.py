@@ -11,9 +11,36 @@ tick still have an order, and the same order every time it is asked.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.adapters.persistence.stored_records import decode_stored_json
 from archcompass.domain.triage import DecisionComment, StandingDecision
+
+_INSERT_DECISION = """
+    INSERT INTO standing_decisions(
+        decision_id, branch_id, boundary_fingerprint, state, author, reason,
+        decided_at, review_id, boundary_reference, material, verdict_label,
+        decision_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+
+def _row(decision: StandingDecision) -> tuple[object, ...]:
+    return (
+        decision.decision_id,
+        decision.branch_id,
+        decision.boundary_fingerprint,
+        decision.state.value,
+        decision.author,
+        decision.reason,
+        decision.decided_at.isoformat(),
+        decision.review_id,
+        decision.boundary_reference,
+        int(decision.material),
+        decision.verdict_label,
+        decision.model_dump_json(),
+    )
 
 _DECISION_REMEDY = (
     "A decision is what somebody judged, and nothing can produce it again. Record the "
@@ -51,31 +78,27 @@ class SQLiteStandingDecisionRepository:
         """Record one disposition. Never replaces the one before it."""
 
         with self._database.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO standing_decisions(
-                    decision_id, branch_id, boundary_fingerprint, state, author, reason,
-                    decided_at, review_id, boundary_reference, material, verdict_label,
-                    decision_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    decision.decision_id,
-                    decision.branch_id,
-                    decision.boundary_fingerprint,
-                    decision.state.value,
-                    decision.author,
-                    decision.reason,
-                    decision.decided_at.isoformat(),
-                    decision.review_id,
-                    decision.boundary_reference,
-                    int(decision.material),
-                    decision.verdict_label,
-                    decision.model_dump_json(),
-                ),
-            )
+            connection.execute(_INSERT_DECISION, _row(decision))
             connection.commit()
         return decision
+
+    def append_decisions(self, decisions: Iterable[StandingDecision]) -> int:
+        """Record many dispositions in one transaction, and answer with how many.
+
+        Ordinary inserts, exactly as one at a time would be: this is not a bulk record, it is
+        N records written together. What the single commit buys is that a team adopting a
+        repository cannot end up half adopted — a failure halfway through would otherwise
+        leave a branch that looks as though somebody worked through the first eleven
+        boundaries and stopped.
+        """
+
+        rows = [_row(decision) for decision in decisions]
+        if not rows:
+            return 0
+        with self._database.connect() as connection:
+            connection.executemany(_INSERT_DECISION, rows)
+            connection.commit()
+        return len(rows)
 
     def current_for_branch(self, branch_id: str) -> list[StandingDecision]:
         """What this branch currently thinks, one decision per boundary it has an opinion on.
