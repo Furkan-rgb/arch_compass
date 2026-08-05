@@ -164,6 +164,48 @@ Sub-questions this opens:
 - Baseline mechanics under the new shape: does the explicit "baseline this review" button
   survive, or does adopting revision N's partition become the act that closes it?
 
+### Decisions (2026-08-05)
+
+Reasoned from the goal, which is worth stating once: **ArchCompass keeps an architectural
+line on a code base.** Each revision should tell the team only what deserves attention;
+everything already handled stays quiet; and every quiet row is quiet for a reason someone
+can point to. The analogue is a test suite's green — green because every case passes, not
+because someone pressed a button that declared the current output fine.
+
+1. **One field for the project** *(decided, shipped)*: the start step's "Add a
+   repository" line recognises what it holds — a path walks, an address is fetched. The
+   reader never says which one they pasted.
+2. **Succession auto-carries, visibly** *(decided)*: a renamed/reshaped boundary carries
+   its standing across with the "carried across a change — still holds?" mark. No
+   confirmation gate; the mark is the safety valve.
+3. **`addressed` is automatic, loud, and resurrectable** *(decided here — the user was
+   unsure, this is the call and the reasoning)*: when a boundary vanishes with no
+   successor, the revision reports it as addressed without asking. A confirmation would
+   ask the reader to do bookkeeping the tool can do, and offers no protection the design
+   doesn't already have: succession matching runs first, the closure is *reported*
+   prominently rather than buried, and if the same fingerprint ever reappears its
+   standing and discussion **resurface automatically** with their history ("addressed in
+   rev 5, back in rev 9") instead of starting blank. Nothing can be silently lost, so
+   there is nothing to confirm. That resurrection rule is the real protection and is part
+   of the decision.
+4. **The baseline dies as an object** *(decided)*: standing decisions are the memory.
+   A boundary is quiet because the model cleared it, or because a person decided it
+   (accept / waive / park); **needs attention = material + undecided**. The bulk act
+   survives as bulk *decide* (select all → accept), which reaches the same quiet with an
+   author and a record — no button that silences boundaries nobody looked at.
+   Consequences: `branch_baselines` and the "Baseline this review" button are superseded;
+   the new/changed/known partition is replaced by the revision partition below; existing
+   baseline rows in dev workspaces are dropped, not migrated.
+5. **A revision's report speaks the partition**: **attention** (new, or *reopened* — a
+   decided boundary whose verdict or shape moved since the decision, generalising
+   `taken_on_current_verdict`) · **quiet** (decided, or cleared and uncontested) ·
+   **succeeded** (carried, marked) · **addressed**. CI blocks on material + undecided —
+   `changed` as a blocking category disappears along with the baseline.
+
+Still open: questions 2 (verdict stability — the standing lean is C: verdicts move only
+when inputs move, which case continuity mostly delivers) and 5 (model upgrades), plus the
+implementation order for the repository → branch → revisions restructure.
+
 ### Open questions
 
 1. Who owns the case — the run, the repository, or the branch?
