@@ -207,12 +207,20 @@ def _analysis_config_hash(
 
 @dataclass(frozen=True)
 class SnapshotFile:
+    """One file of the repository, read when it is wanted rather than kept.
+
+    Held as a path and not as bytes. Every file of a repository read into memory at once and
+    kept there for the length of the run is a copy of the repository sitting beside the
+    parsed trees, and neither the fingerprint nor the parse needs it to be: the fingerprint
+    reads each file in turn and keeps only the digest, and the parse reads a file, turns it
+    into nodes, and has no further use for the text.
+    """
+
     path: Path
     relative_path: str
-    content: bytes
 
     def text(self) -> str:
-        """The file as text, with whatever is not UTF-8 replaced rather than raised.
+        """The file as text, read now, with whatever is not UTF-8 replaced rather than raised.
 
         A repository is allowed to contain a file that is not UTF-8 — a fixture of raw
         bytes under a `.json` suffix, a `.py` saved in a legacy encoding — and strict
@@ -222,7 +230,7 @@ class SnapshotFile:
         already reports as a signal rather than a failure.
         """
 
-        return self.content.decode("utf-8", errors="replace")
+        return self.path.read_bytes().decode("utf-8", errors="replace")
 
 
 @dataclass(frozen=True)
@@ -474,7 +482,6 @@ class PythonAstRepositoryAnalyzer:
             SnapshotFile(
                 path=path,
                 relative_path=path.relative_to(canonical_root).as_posix(),
-                content=path.read_bytes(),
             )
             for path in sorted([*python_paths, *config_paths])
         )
@@ -579,11 +586,18 @@ class PythonAstRepositoryAnalyzer:
 
     @staticmethod
     def _fingerprint(files: tuple[SnapshotFile, ...]) -> str:
+        """One digest over every file, read one at a time and kept none.
+
+        The order is the caller's — Python and configuration files interleaved by path — and
+        it is load-bearing: this digest is what tells a stored atlas from a stale one, so a
+        change to the order would mark every atlas in every workspace stale at once.
+        """
+
         digest = sha256()
         for source_file in files:
             digest.update(source_file.relative_path.encode("utf-8"))
             digest.update(b"\0")
-            digest.update(source_file.content)
+            digest.update(source_file.path.read_bytes())
             digest.update(b"\0")
         return digest.hexdigest()
 
