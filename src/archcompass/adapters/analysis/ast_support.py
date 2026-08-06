@@ -101,6 +101,48 @@ def lexical_nodes(syntax: ast.AST) -> Iterable[ast.AST]:
         stack.extend(reversed(list(ast.iter_child_nodes(node))))
 
 
+class DefinitionIndex:
+    """Every definition in a module, found by where it starts and what it is called.
+
+    The same answer `ast_for_node` gives, asked once per module instead of once per node.
+    That function walks the whole tree on every call, and it is called for each node in the
+    file — so a module with two hundred symbols walked its own tree two hundred times, and
+    the cost of a repository was the number of its symbols times the size of its trees.
+
+    First match in `ast.walk` order wins, exactly as the linear scan did: two definitions can
+    share a line and a name — a decorated function inside a conditional, most often — and
+    which one was returned is behaviour, not an accident to be tidied up.
+
+    Keyed by `id(module)`, which is only sound because an instance of this class lives inside
+    one call and every `ParsedModule` it sees is held alive for that whole call by the
+    caller's own map. An index promoted to instance or module scope would outlive the modules
+    it cached, and CPython would hand a recycled id to a different object: not a crash, but a
+    wrong answer, silently. Build one per analysis and let it go with the analysis.
+    """
+
+    def __init__(self) -> None:
+        self._by_module: dict[int, dict[tuple[int | None, str], ast.AST]] = {}
+
+    def get(self, module: ParsedModule | None, node: AtlasNode) -> ast.AST | None:
+        if module is None:
+            return None
+        if node.atlas_id == module.node.atlas_id:
+            return module.tree
+        return self._definitions(module).get((node.start_line, node.symbol_name))
+
+    def _definitions(self, module: ParsedModule) -> dict[tuple[int | None, str], ast.AST]:
+        cached = self._by_module.get(id(module))
+        if cached is not None:
+            return cached
+        found: dict[tuple[int | None, str], ast.AST] = {}
+        for item in ast.walk(module.tree):
+            if not isinstance(item, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            found.setdefault((item.lineno, item.name), item)
+        self._by_module[id(module)] = found
+        return found
+
+
 def ast_for_node(module: ParsedModule | None, node: AtlasNode) -> ast.AST | None:
     """The syntax an Atlas node was derived from, when it is still resolvable."""
 

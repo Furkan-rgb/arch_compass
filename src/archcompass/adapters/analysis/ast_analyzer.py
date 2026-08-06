@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from archcompass.adapters.analysis.ast_support import (
+    DefinitionIndex,
     ParsedModule,
     ast_for_node,
     build_edge,
@@ -213,6 +214,26 @@ class SnapshotFile:
 
 
 @dataclass(frozen=True)
+class _ModuleMetrics:
+    """What every node in one module shares, computed once for all of them.
+
+    Frozen, and holding frozensets rather than sets, because one instance is handed to every
+    node in its module: a caller that mutated what it was given would be editing the metrics
+    of every symbol in the file.
+    """
+
+    direct_dependencies: list[str]
+    direct_dependants: list[str]
+    forward: frozenset[str]
+    backward: frozenset[str]
+    affected: frozenset[str]
+    component: list[str]
+    depth: int
+    reverse_tests: frozenset[str]
+    crossed_interfaces: frozenset[str]
+
+
+@dataclass(frozen=True)
 class GitFacts:
     """What git says about a checkout, or nothing at all.
 
@@ -367,12 +388,16 @@ class PythonAstRepositoryAnalyzer:
             for module in modules
             for symbol in module.symbols.values()
         }
+        # Built once for the whole repository, not once per module: it is a view of every
+        # symbol there is, and rebuilding it per file would put back the cost it removes.
+        suffix_index = self._suffix_index(symbol_by_qualified)
         unresolved: list[UnresolvedSite] = []
         for module in modules:
             self._resolve_module_edges(
                 module,
                 module_by_name,
                 symbol_by_qualified,
+                suffix_index,
                 edges,
                 unresolved,
             )
@@ -938,6 +963,7 @@ class PythonAstRepositoryAnalyzer:
         module: ParsedModule,
         module_by_name: dict[str, ParsedModule],
         symbol_by_qualified: dict[str, AtlasNode],
+        suffix_index: dict[str, list[AtlasNode]],
         edges: list[AtlasEdge],
         unresolved: list[UnresolvedSite],
     ) -> None:
@@ -1040,7 +1066,7 @@ class PythonAstRepositoryAnalyzer:
                 if isinstance(item, ast.Call):
                     dotted = self._dotted(item.func)
                     target, confidence = self._resolve_symbol(
-                        dotted, source_node, module, symbol_by_qualified
+                        dotted, source_node, module, symbol_by_qualified, suffix_index
                     )
                     if target:
                         edges.append(
@@ -1081,7 +1107,7 @@ class PythonAstRepositoryAnalyzer:
                 for base in ast_node.bases:
                     dotted = self._dotted(base)
                     target, confidence = self._resolve_symbol(
-                        dotted, source_node, module, symbol_by_qualified
+                        dotted, source_node, module, symbol_by_qualified, suffix_index
                     )
                     if target:
                         edges.append(
@@ -1109,7 +1135,7 @@ class PythonAstRepositoryAnalyzer:
                 if not isinstance(item, ast.Name) or not isinstance(item.ctx, ast.Load):
                     continue
                 target, confidence = self._resolve_symbol(
-                    item.id, source_node, module, symbol_by_qualified
+                    item.id, source_node, module, symbol_by_qualified, suffix_index
                 )
                 if target is None:
                     unresolved.append(
@@ -1343,44 +1369,95 @@ class PythonAstRepositoryAnalyzer:
             elif edge.edge_type == EdgeType.CONFIGURES:
                 config_targets[edge.target_id].add(edge.source_id)
         parsed_by_path = {module.relative_path: module for module in modules}
+        definition_index = DefinitionIndex()
         profiles: list[MetricProfile] = []
+        # Everything a node's metrics need beyond the node itself is a property of the module
+        # it lives in — its dependencies, what it reaches, what reaches it, the interfaces
+        # crossed to get there. Computed once per module rather than once per node, because
+        # the two differ by a factor of the symbols in a file: a repository with fifty
+        # thousand nodes has under three thousand modules, and the edge scan behind
+        # `crossed_interfaces` was being repeated for every one of the fifty thousand.
+        #
+        # Memoised rather than restructured into a separate loop so the reading order of this
+        # function is unchanged. The cached sets are read and copied, never mutated, so
+        # handing the same object to every node in a module is safe.
+        by_module: dict[str | None, _ModuleMetrics] = {}
+
+        def module_metrics(owner: str | None) -> _ModuleMetrics:
+            cached = by_module.get(owner)
+            if cached is not None:
+                return cached
+            if owner is None:
+                # A node outside every module reaches nothing and is reached by nothing, so
+                # every one of these is empty by construction. Short-circuited rather than
+                # computed, which also spares the guaranteed-empty scan over all edges.
+                computed = _ModuleMetrics(
+                    direct_dependencies=[],
+                    direct_dependants=[],
+                    forward=frozenset(),
+                    backward=frozenset(),
+                    affected=frozenset(),
+                    component=[],
+                    depth=0,
+                    reverse_tests=frozenset(),
+                    crossed_interfaces=frozenset(),
+                )
+            else:
+                affected_here = reachable(impact_reverse, owner)
+                affected_modules = {*affected_here, owner}
+                computed = _ModuleMetrics(
+                    direct_dependencies=sorted(module_graph.get(owner, set())),
+                    direct_dependants=sorted(reverse.get(owner, set())),
+                    forward=frozenset(reachable(module_graph, owner)),
+                    backward=frozenset(reachable(reverse, owner)),
+                    affected=frozenset(affected_here),
+                    component=component_by_node.get(owner, []),
+                    depth=maximum_reachable_depth(module_graph, owner),
+                    reverse_tests=frozenset(
+                        candidate
+                        for candidate in affected_here
+                        if nodes[candidate].node_type == NodeType.TEST_MODULE
+                    ),
+                    crossed_interfaces=frozenset(
+                        edge.target_id
+                        for edge in edges
+                        if edge.edge_type == EdgeType.CALLS
+                        and self._owning_module(nodes[edge.source_id], module_for_path)
+                        in affected_modules
+                        and self._owning_module(nodes[edge.target_id], module_for_path)
+                        in affected_modules
+                        and nodes[edge.target_id].is_public
+                        and nodes[edge.target_id].node_type
+                        in {
+                            NodeType.CLASS,
+                            NodeType.FUNCTION,
+                            NodeType.INTERFACE,
+                            NodeType.METHOD,
+                        }
+                    ),
+                )
+            by_module[owner] = computed
+            return computed
+
         for node in nodes.values():
             parsed = parsed_by_path.get(node.path)
-            syntax = ast_for_node(parsed, node) if parsed else None
+            syntax = definition_index.get(parsed, node) if parsed else None
             owner = self._owning_module(node, module_for_path)
-            direct_dependencies = sorted(module_graph.get(owner or "", set()))
-            direct_dependants = sorted(reverse.get(owner or "", set()))
-            forward: set[str] = reachable(module_graph, owner) if owner else set[str]()
-            backward: set[str] = reachable(reverse, owner) if owner else set[str]()
-            affected: set[str] = reachable(impact_reverse, owner) if owner else set[str]()
-            component = component_by_node.get(owner or "", [])
+            shared = module_metrics(owner)
+            direct_dependencies = shared.direct_dependencies
+            direct_dependants = shared.direct_dependants
+            forward = shared.forward
+            backward = shared.backward
+            affected = shared.affected
+            component = shared.component
             associated_tests: set[str | None] = {
                 self._owning_module(nodes[test_id], module_for_path)
                 for test_id in test_targets.get(node.atlas_id, set())
             }
-            reverse_tests: set[str] = {
-                candidate
-                for candidate in affected
-                if nodes[candidate].node_type == NodeType.TEST_MODULE
-            }
+            reverse_tests = shared.reverse_tests
             local = self._local_metrics(node, syntax, parsed, call_outgoing, call_incoming)
             representative_path = self._representative_call_path(call_outgoing, node.atlas_id)
-            affected_modules = {*affected, *([owner] if owner else [])}
-            crossed_interfaces = {
-                edge.target_id
-                for edge in edges
-                if edge.edge_type == EdgeType.CALLS
-                and self._owning_module(nodes[edge.source_id], module_for_path) in affected_modules
-                and self._owning_module(nodes[edge.target_id], module_for_path) in affected_modules
-                and nodes[edge.target_id].is_public
-                and nodes[edge.target_id].node_type
-                in {
-                    NodeType.CLASS,
-                    NodeType.FUNCTION,
-                    NodeType.INTERFACE,
-                    NodeType.METHOD,
-                }
-            }
+            crossed_interfaces = shared.crossed_interfaces
             profiles.append(
                 MetricProfile(
                     node_id=node.atlas_id,
@@ -1392,9 +1469,7 @@ class PythonAstRepositoryAnalyzer:
                         direct_dependants=direct_dependants,
                         forward_dependency_reach=len(forward),
                         reverse_dependency_reach=len(backward),
-                        dependency_depth=maximum_reachable_depth(module_graph, owner)
-                        if owner
-                        else 0,
+                        dependency_depth=shared.depth,
                         strongly_connected_component=(
                             stable_id("scc", *component) if len(component) > 1 else None
                         ),
@@ -1688,11 +1763,35 @@ class PythonAstRepositoryAnalyzer:
         return ".".join(package)
 
     @staticmethod
+    def _suffix_index(symbols: dict[str, AtlasNode]) -> dict[str, list[AtlasNode]]:
+        """Every dotted tail a qualified name has, and what answers to it.
+
+        The last resort in `_resolve_symbol` is "one symbol in this repository ends with the
+        name that was written", and it used to be asked by scanning every symbol for every
+        reference. That is the size of the repository multiplied by the number of names in
+        it: on psf/black it was fifty-six million string comparisons and two thirds of the
+        whole analysis.
+
+        Asked instead of a table built once. A name has as many tails as it has segments —
+        `a.b.c` answers to `.b.c` and `.c` — so the table costs a few entries per symbol and
+        replaces the scan with a lookup. Only the tails matter, because the scan it replaces
+        matched on a leading dot: a reference never resolves against a partial segment.
+        """
+
+        index: dict[str, list[AtlasNode]] = {}
+        for qualified, node in symbols.items():
+            segments = qualified.split(".")
+            for start in range(1, len(segments)):
+                index.setdefault("." + ".".join(segments[start:]), []).append(node)
+        return index
+
+    @staticmethod
     def _resolve_symbol(
         dotted: str,
         source: AtlasNode,
         module: ParsedModule,
         symbols: dict[str, AtlasNode],
+        suffixes: dict[str, list[AtlasNode]],
     ) -> tuple[AtlasNode | None, float]:
         if not dotted:
             return None, 0
@@ -1709,8 +1808,10 @@ class PythonAstRepositoryAnalyzer:
         local = f"{module.qualified_name}.{dotted}"
         if local in symbols:
             return symbols[local], 1.0
-        suffix = f".{dotted}"
-        matches = [node for qname, node in symbols.items() if qname.endswith(suffix)]
+        # Unambiguous or nothing: a name that two symbols answer to is not evidence about
+        # either of them, which is why this asks for exactly one and is why the index can
+        # hold lists without needing them ordered.
+        matches = suffixes.get(f".{dotted}", ())
         if len(matches) == 1:
             return matches[0], 0.7
         return None, 0
