@@ -59,6 +59,10 @@ class HostedRestrictions:
         and a reachability probe of whatever is behind it. There is no version of that worth
         offering on a public demo, and the bundled examples are already the answer to what a
         visitor is here to see.
+
+        Reached only when this deployment named no hosts to fetch from. Where it did, the
+        route never gets here: it fetches an archive instead, over a path that has no git in
+        it and no address it did not decide on before making the request.
         """
 
         if not self.hosted:
@@ -91,6 +95,12 @@ class HostedRestrictions:
         canonical = root.expanduser().resolve(strict=False)
         if not self.hosted:
             return canonical
+        # A tree this workspace fetched for this visitor. `runtime` is the session's own, so
+        # its sources directory is the session's own too: one visitor cannot name another's
+        # by construction, rather than by a rule that has to get the comparison right.
+        source_service = runtime.source_service
+        if source_service is not None and source_service.holds(canonical):
+            return canonical
         bundled = [
             Path(example.repository_root).resolve(strict=False)
             for example in runtime.bundled_example_service.list()
@@ -100,32 +110,37 @@ class HostedRestrictions:
         raise HostedRefusal(
             403,
             "hosted_restriction",
-            "This is the hosted demo, so it only indexes the repositories it ships with. "
-            "Pick a bundled example, or run Arch Compass locally to point it at your own "
-            "code.",
+            "This is the hosted demo, so it only indexes repositories it fetched for you or "
+            "ships with. Pick a bundled example, or run Arch Compass locally to point it at "
+            "your own code.",
         )
 
 
-class RunBudget:
-    """Daily caps on the endpoints that spend model tokens.
+class _DailyBudget:
+    """Two daily caps — one per session, one for everyone — and the counting behind them.
 
-    The demo runs on a metered free tier, and one visitor holding down a button is enough to
-    spend the day's quota for everyone. Two caps rather than one: the per-session cap stops
-    that visitor, the global cap stops the day costing more than it is worth however many
+    Shared by the things a demo has to ration, because the rationing is the same shape every
+    time and only the sentence differs: the per-session cap stops one visitor holding down a
+    button, and the global cap stops the day costing more than it is worth however many
     visitors there are.
 
     Counters live in this process and nowhere else. A cold start forgets them, and two
     instances count separately — so the global cap is a ceiling per instance, not a
-    guarantee. That is the honest trade for a demo: the alternative is Redis, and the
-    failure mode here is a slightly generous day rather than a bill.
+    guarantee. That is the honest trade for a demo: the alternative is Redis, and the failure
+    mode here is a slightly generous day rather than a bill.
 
-    Counted on admission rather than on completion, because a run that fails halfway has
-    already spent the tokens it made.
+    Counted on admission rather than on completion, because work that fails halfway has
+    already spent what it spent.
     """
 
-    def __init__(self, *, session_daily_runs: int, global_daily_runs: int) -> None:
-        self._session_limit = session_daily_runs
-        self._global_limit = global_daily_runs
+    #: What is being rationed, said two ways: to everyone, and to the one visitor who has
+    #: used their share. `{limit}` is filled with the per-session cap.
+    exhausted_for_everyone = ""
+    exhausted_for_you = ""
+
+    def __init__(self, *, session_limit: int, global_limit: int) -> None:
+        self._session_limit = session_limit
+        self._global_limit = global_limit
         self._lock = Lock()
         self._day = _utc_day()
         self._sessions: dict[str, int] = {}
@@ -135,15 +150,11 @@ class RunBudget:
         with self._lock:
             self._roll_over()
             if self._total >= self._global_limit:
-                raise self._refusal(
-                    "This is a shared free-tier demo and it has spent today's model budget "
-                    "for everyone."
-                )
+                raise self._refusal(self.exhausted_for_everyone)
             spent = self._sessions.get(token, 0)
             if spent >= self._session_limit:
                 raise self._refusal(
-                    "This is a shared free-tier demo and you have used your share of "
-                    f"today's model budget ({self._session_limit} runs)."
+                    self.exhausted_for_you.format(limit=self._session_limit)
                 )
             self._sessions[token] = spent + 1
             self._total += 1
@@ -161,6 +172,44 @@ class RunBudget:
             "budget_exhausted",
             f"{reason} It resets at midnight UTC, {_next_reset().isoformat()}. Run Arch "
             "Compass locally against your own model to review without a budget.",
+        )
+
+
+class RunBudget(_DailyBudget):
+    """The cap on the endpoints that spend model tokens, on a metered free tier."""
+
+    exhausted_for_everyone = (
+        "This is a shared free-tier demo and it has spent today's model budget for everyone."
+    )
+    exhausted_for_you = (
+        "This is a shared free-tier demo and you have used your share of today's model "
+        "budget ({limit} runs)."
+    )
+
+    def __init__(self, *, session_daily_runs: int, global_daily_runs: int) -> None:
+        super().__init__(session_limit=session_daily_runs, global_limit=global_daily_runs)
+
+
+class FetchBudget(_DailyBudget):
+    """The cap on fetching a repository, which spends disk rather than tokens.
+
+    Its own budget rather than a share of the model one, because the two run out for
+    different reasons and at different rates: a fetch costs bandwidth and — on a container
+    whose writable filesystem is memory — the instance's headroom, while a review costs
+    somebody's quota. Rationing them together would mean one visitor's large repository
+    quietly buying fewer reviews for everybody.
+    """
+
+    exhausted_for_everyone = (
+        "This demo has fetched as many repositories as it will today, for everyone."
+    )
+    exhausted_for_you = (
+        "You have fetched as many repositories as this demo allows in a day ({limit})."
+    )
+
+    def __init__(self, *, session_daily_fetches: int, global_daily_fetches: int) -> None:
+        super().__init__(
+            session_limit=session_daily_fetches, global_limit=global_daily_fetches
         )
 
 

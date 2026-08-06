@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Final
 
 from archcompass.adapters.analysis import (
+    UNLIMITED_ANALYSIS,
+    AnalysisLimits,
     DeterministicAtlasQueryService,
     PythonAstRepositoryAnalyzer,
     SafeSourceReader,
@@ -40,6 +42,7 @@ from archcompass.adapters.retrieval import (
     MarkdownPolicyStore,
     load_method_primer,
 )
+from archcompass.adapters.sources import HttpsTarballFetcher
 from archcompass.adapters.vcs import GitCommandLineClient
 from archcompass.application.atlas_freshness import AtlasFreshnessService
 from archcompass.application.atlas_queries import AtlasService
@@ -56,6 +59,8 @@ from archcompass.application.reviews import ReviewService
 from archcompass.application.safety import (
     validate_repository_directory,
 )
+from archcompass.application.source_archives import SourceArchiveService
+from archcompass.application.source_storage import SourceStorage
 from archcompass.application.triage import TriageService
 from archcompass.configuration import (
     ReasoningModelConfig,
@@ -86,6 +91,14 @@ WORKSPACE_STATE_DIRECTORY = Path(".archcompass")
 #: directory loses nothing but the time to clone it again — so it belongs with the rest of
 #: what the workspace owns rather than somewhere in the user's home.
 CHECKOUT_DIRECTORY = WORKSPACE_STATE_DIRECTORY / "checkouts"
+
+#: Where a workspace keeps the source trees it fetched without git. Its own directory rather
+#: than a corner of the one above, because the difference is what `checkouts.refresh` tests
+#: for: a checkout can be brought up to date from the remote it remembers, and an extracted
+#: tree remembers nothing. Kept apart, a folder from here is simply not a managed checkout,
+#: and the unconditional refresh every run begins with stays the no-op it is for anybody
+#: else's working copy — rather than finding a directory it half recognises and failing.
+SOURCE_DIRECTORY = WORKSPACE_STATE_DIRECTORY / "sources"
 
 #: Where a workspace keeps the policies written in it, beside the database it already keeps
 #: there. The one policy directory Arch Compass owns the files in: everything else in the
@@ -125,6 +138,9 @@ class Runtime:
     triage_service: TriageService
     ci_service: CiRunService
     checkout_service: RepositoryCheckoutService
+    #: Present only where a deployment named hosts to fetch from. `None` means this
+    #: workspace puts repositories on disk with git, which is every local run.
+    source_service: SourceArchiveService | None
     freshness_service: AtlasFreshnessService
     model_catalog_service: ModelCatalogService
 
@@ -136,6 +152,11 @@ def build_runtime(
     policy_sources: list[Path] | None = None,
     repository: Path | None = None,
     initialize: bool = True,
+    source_hosts: frozenset[str] = frozenset(),
+    max_source_bytes: int = 0,
+    source_timeout: int = 0,
+    source_storage: SourceStorage | None = None,
+    analysis_limits: AnalysisLimits = UNLIMITED_ANALYSIS,
 ) -> Runtime:
     canonical_workspace = workspace.expanduser().resolve()
     if repository is not None:
@@ -183,6 +204,11 @@ def build_runtime(
     analyzer = PythonAstRepositoryAnalyzer(
         edge_resolver=build_edge_resolver(excluded_roots),
         excluded_roots=excluded_roots,
+        # A workspace that fetches repositories it was pointed at by strangers is the one
+        # that needs a ceiling on how much of one it will hold in memory. Everywhere else
+        # the directory was chosen by the person whose machine it is, and an analysis that
+        # quietly left half of it out would be the worse answer.
+        limits=analysis_limits,
     )
     freshness = AtlasFreshnessService(analyzer)
     source_reader = SafeSourceReader()
@@ -254,6 +280,24 @@ def build_runtime(
         git=GitCommandLineClient(),
         checkouts_root=canonical_workspace / CHECKOUT_DIRECTORY,
     )
+    # Only built when a deployment named the hosts it will fetch from. `None` everywhere
+    # else, which is what a workspace on somebody's own machine wants: it has git, and a
+    # clone gives it the history that a durable identity is derived from.
+    source_service = (
+        SourceArchiveService(
+            fetcher=HttpsTarballFetcher(
+                hosts=source_hosts,
+                max_bytes=max_source_bytes,
+                timeout=source_timeout,
+            ),
+            sources_root=canonical_workspace / SOURCE_DIRECTORY,
+            hosts=source_hosts,
+            storage=source_storage,
+            reserve_bytes=max_source_bytes,
+        )
+        if source_hosts
+        else None
+    )
     return Runtime(
         workspace=canonical_workspace,
         database=database,
@@ -277,6 +321,7 @@ def build_runtime(
         triage_service=triage_service,
         ci_service=ci_service,
         checkout_service=checkout_service,
+        source_service=source_service,
         freshness_service=freshness,
         model_catalog_service=model_catalog_service,
     )

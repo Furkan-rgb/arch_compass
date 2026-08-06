@@ -772,6 +772,7 @@ export interface components {
     "workspace": string;
     "models": components["schemas"]["WorkspaceModels"];
     "hosted"?: boolean;
+    "source_hosts"?: Array<string>;
   };
   };
 }

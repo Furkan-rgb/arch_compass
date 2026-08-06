@@ -20,6 +20,8 @@ from starlette.datastructures import Headers, MutableHeaders
 from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from archcompass.adapters.analysis import UNLIMITED_ANALYSIS, AnalysisLimits
+from archcompass.application.source_storage import SourceStorage
 from archcompass.bootstrap import Runtime, build_runtime
 
 #: The name a browser holds a session under. Opaque, and the only thing tying a visitor to
@@ -81,9 +83,27 @@ class SessionRuntimeProvider:
     mean knowing its token.
     """
 
-    def __init__(self, base_directory: Path, limit: int = 32) -> None:
+    def __init__(
+        self,
+        base_directory: Path,
+        limit: int = 32,
+        *,
+        source_hosts: frozenset[str] = frozenset(),
+        max_source_bytes: int = 0,
+        source_timeout: int = 0,
+        source_storage: SourceStorage | None = None,
+        analysis_limits: AnalysisLimits = UNLIMITED_ANALYSIS,
+    ) -> None:
         self._base_directory = base_directory.expanduser().resolve(strict=False)
         self._limit = limit
+        # Carried rather than read here: every session's workspace fetches from the same
+        # hosts under the same caps, because they are what the deployment is, not what a
+        # visitor chose.
+        self._source_hosts = source_hosts
+        self._max_source_bytes = max_source_bytes
+        self._source_timeout = source_timeout
+        self._source_storage = source_storage
+        self._analysis_limits = analysis_limits
         self._runtimes: OrderedDict[str, Runtime] = OrderedDict()
         # Held across the build of a new runtime, not only around the dictionary. Two
         # requests arriving together for the same new session would otherwise both open
@@ -110,7 +130,14 @@ class SessionRuntimeProvider:
             return runtime
 
     def _open(self, token: str) -> Runtime:
-        runtime = build_runtime(self._base_directory / token)
+        runtime = build_runtime(
+            self._base_directory / token,
+            source_hosts=self._source_hosts,
+            max_source_bytes=self._max_source_bytes,
+            source_timeout=self._source_timeout,
+            source_storage=self._source_storage,
+            analysis_limits=self._analysis_limits,
+        )
         _abandon_interrupted_reviews(runtime)
         return runtime
 

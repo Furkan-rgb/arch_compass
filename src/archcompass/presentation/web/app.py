@@ -10,7 +10,7 @@ from collections.abc import Iterator, Sequence
 from datetime import datetime
 from pathlib import Path
 from queue import Queue
-from threading import Thread
+from threading import BoundedSemaphore, Thread
 from typing import Annotated, Any, Literal, cast
 
 import yaml
@@ -83,6 +83,7 @@ from archcompass.domain.workspace import (
     RepositorySummary,
 )
 from archcompass.presentation.web.restrictions import (
+    FetchBudget,
     HostedRefusal,
     HostedRestrictions,
     RunBudget,
@@ -677,6 +678,11 @@ class WorkspaceSummaryResponse(APIModel):
     #: examples can be reviewed. Defaults to false, so a client written against a local
     #: workspace reads the same document it always did.
     hosted: bool = False
+    #: The hosts this workspace will fetch a repository from, when it fetches rather than
+    #: clones. Empty on a local workspace, which clones from anywhere its git can reach.
+    #: Sent so the start step can name them in the field rather than leave a reader to find
+    #: the list one refusal at a time.
+    source_hosts: list[str] = Field(default_factory=list)
 
 
 class AvailableModelResponse(APIModel):
@@ -777,11 +783,65 @@ def spend_model_budget(request: Request) -> None:
         budget.admit(session_token(request))
 
 
+def spend_fetch_budget(request: Request) -> None:
+    """Admit one repository fetch against this session's and this instance's daily budget.
+
+    Separate from the model budget because a fetch spends something else — bandwidth, and the
+    room a container has left on a filesystem that is usually memory. Nothing is metered in
+    local mode, where there is no budget object.
+    """
+
+    budget: FetchBudget | None = request.app.state.fetch_budget
+    if budget is not None:
+        budget.admit(session_token(request))
+
+
+#: How long a request waits for the one indexing slot before giving up. Long enough that an
+#: ordinary queue behind one repository clears, short enough that a caller is told rather
+#: than left holding a connection open for the whole of somebody else's analysis.
+INDEX_QUEUE_SECONDS = 90
+
+
+def serialise_indexing(request: Request) -> Iterator[None]:
+    """Let one analysis run at a time, where they share a machine.
+
+    Analysis is the expensive thing this server does — a repository at the hosted size limit
+    peaks in the hundreds of megabytes — and two of them overlapping is how a container sized
+    for one of them dies. Cloud Run's own concurrency setting cannot express this: it cannot
+    tell an index from somebody reading a stored review, and throttling both to protect one
+    would make the demo feel broken for everybody who is only reading.
+
+    Queued rather than refused, because the wait is seconds and the alternative is asking
+    somebody to press the button again. Nothing is serialised where there is no lock, which
+    is every local workspace: it has one user, who is not racing themselves.
+    """
+
+    lock: BoundedSemaphore | None = request.app.state.index_lock
+    if lock is None:
+        yield
+        return
+    if not lock.acquire(timeout=INDEX_QUEUE_SECONDS):
+        raise HostedRefusal(
+            503,
+            "busy",
+            "This demo is analysing another repository and only does one at a time. Try "
+            "again in a moment.",
+        )
+    try:
+        yield
+    finally:
+        lock.release()
+
+
 RuntimeDep = Annotated[Runtime, Depends(_acquire_runtime)]
 RestrictionsDep = Annotated[HostedRestrictions, Depends(_acquire_restrictions)]
 #: What the routes that spend model tokens carry. A dependency with no value, so it is
 #: declared beside the route's own decorator arguments rather than in its signature.
 SpendsModelBudget = Depends(spend_model_budget)
+#: The same, for the one route that puts a repository on this instance's disk.
+SpendsFetchBudget = Depends(spend_fetch_budget)
+#: What the routes that build an atlas carry, so two never build one at once.
+SerialisesIndexing = Depends(serialise_indexing)
 
 
 def create_app(
@@ -789,6 +849,7 @@ def create_app(
     *,
     hosted: bool = False,
     budget: RunBudget | None = None,
+    fetch_budget: FetchBudget | None = None,
 ) -> FastAPI:
     """The HTTP surface over one workspace, or over a provider that chooses one per request.
 
@@ -813,6 +874,11 @@ def create_app(
     app.state.runtimes = runtimes
     app.state.restrictions = HostedRestrictions(hosted=hosted)
     app.state.budget = budget
+    app.state.fetch_budget = fetch_budget
+    # One slot, and only where a machine is shared. `BoundedSemaphore` rather than a plain
+    # one so a release that was never acquired is an error here rather than a slow leak of
+    # permits that quietly stops serialising anything.
+    app.state.index_lock = BoundedSemaphore(1) if hosted else None
 
     @app.exception_handler(HostedRefusal)
     async def hosted_refusal(_request: Request, error: HostedRefusal) -> JSONResponse:
@@ -983,7 +1049,11 @@ def create_app(
 
         return runtime.repository_service.branches()
 
-    @app.post("/api/repositories/index", status_code=201)
+    @app.post(
+        "/api/repositories/index",
+        status_code=201,
+        dependencies=[SerialisesIndexing],
+    )
     def index_repository(
         runtime: RuntimeDep,
         hosted_mode: RestrictionsDep,
@@ -1000,6 +1070,7 @@ def create_app(
         "/api/repositories/checkout",
         status_code=201,
         responses=_problem_responses(409, 422),
+        dependencies=[SpendsFetchBudget],
     )
     def checkout_repository(
         runtime: RuntimeDep,
@@ -1016,6 +1087,14 @@ def create_app(
         written to disk either way, and `created` says which of the two happened.
         """
 
+        # A workspace that was given hosts to fetch from has no business running git: the
+        # whole reason it exists is that an extracted archive cannot carry hooks, submodules,
+        # filters, credentials or a transport nobody asked for. Checked here rather than
+        # inside the checkout service, because which of the two ways a repository arrives is
+        # a property of the deployment, and the deployment is what this layer knows.
+        source_service = runtime.source_service
+        if source_service is not None:
+            return source_service.fetch(request.url, branch=request.branch)
         hosted_mode.checkout()
         return runtime.checkout_service.checkout(request.url, branch=request.branch)
 
@@ -1043,12 +1122,21 @@ def create_app(
         to be about in the first place.
         """
 
+        # Nothing to bring up to date, and that is an answer rather than a refusal. Every run
+        # begins by asking for this unconditionally — it is how a managed checkout is made
+        # current before it is reviewed — so a workspace whose repositories are extracted
+        # archives has to say "nothing was touched" here, exactly as it does for somebody
+        # else's working copy. Refusing would fail every review on the way to its first
+        # model call. Asking for it again is what re-fetches: paste the address.
+        if runtime.source_service is not None:
+            return CheckoutRefresh(root_path=request.root_path, managed=False)
         hosted_mode.checkout()
         return runtime.checkout_service.refresh(request.root_path)
 
     @app.post(
         "/api/repositories/start",
         responses=_problem_responses(404, 422),
+        dependencies=[SerialisesIndexing],
     )
     def start_from_repository(
         runtime: RuntimeDep,
@@ -1205,6 +1293,7 @@ def create_app(
 
     @app.post(
         "/api/examples/{name}/load",
+        dependencies=[SerialisesIndexing],
         status_code=201,
         responses=_problem_responses(404, 422),
     )
@@ -1754,6 +1843,7 @@ def _summary(
             pinned=status.pinned,
         ),
         hosted=restrictions.hosted,
+        source_hosts=sorted(runtime.source_service.hosts) if runtime.source_service else [],
     )
 
 

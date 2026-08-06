@@ -100,8 +100,64 @@ gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body \
 | `GOOGLE_API_KEY` | — | Required when `google` is offered. Startup fails without it, rather than every visitor discovering it one click at a time. |
 | `ARCHCOMPASS_SESSION_ROOT` | `/tmp/archcompass-sessions` | Where session workspaces are written. |
 | `ARCHCOMPASS_SESSION_CACHE` | `32` | How many session runtimes stay open. Eviction loses no data — the workspace stays on disk and is reopened on the next request. |
-| `ARCHCOMPASS_SESSION_DAILY_RUNS` | `25` | Model-spending requests per session per UTC day. |
-| `ARCHCOMPASS_GLOBAL_DAILY_RUNS` | `250` | The same, per instance, for everyone. |
+| `ARCHCOMPASS_SESSION_DAILY_RUNS` | `10` | Model-spending requests per session per UTC day. |
+| `ARCHCOMPASS_GLOBAL_DAILY_RUNS` | `50` | The same, per instance, for everyone. Sized against the free tier: 180,000 vCPU-seconds a month is 6,000 a day, and a review holds its stream open for roughly two minutes. |
+| `ARCHCOMPASS_SOURCE_HOSTS` | — | Comma-separated hosts a visitor may name a repository on, e.g. `github.com`. Empty means the demo reviews only its bundled examples, which is what it does without this set. Values must be hosts the build knows an archive address for: `github.com`, `gitlab.com`, `codeberg.org`. |
+| `ARCHCOMPASS_MAX_SOURCE_MB` | `64` | How large one fetched repository may be. Counted as it arrives and again over what its archive says it unpacks to. |
+| `ARCHCOMPASS_MAX_TOTAL_SOURCE_MB` | `250` | How much every visitor's fetched code may occupy at once. Least-recently-used trees are deleted to stay under it. Raise with the container's memory, not on its own. |
+| `ARCHCOMPASS_SOURCE_TIMEOUT` | `120` | Seconds a fetch may take. |
+| `ARCHCOMPASS_SESSION_DAILY_FETCHES` | `5` | Repositories fetched per session per UTC day. |
+| `ARCHCOMPASS_GLOBAL_DAILY_FETCHES` | `100` | The same, per instance, for everyone. |
+| `ARCHCOMPASS_MAX_FILE_KB` | `2048` | Files larger than this are left out of the analysis. |
+| `ARCHCOMPASS_MAX_FILES` | `1200` | How many files one repository contributes to an atlas. |
+| `ARCHCOMPASS_MAX_PYTHON_MB` | `5` | How much Python one repository may bring. Repositories over this are refused rather than trimmed. |
+
+### Reviewing a repository a visitor names
+
+Off unless `ARCHCOMPASS_SOURCE_HOSTS` is set. With it set, the demo fetches a **source
+tarball over HTTPS** from those hosts and never runs `git`. That is the point of it rather
+than an implementation detail: an extracted archive cannot carry hooks, submodules,
+`.gitattributes` filters, credential helpers, an `ssh://` or `file://` transport, or a
+redirect to somewhere the server was not asked to go.
+
+The address is matched whole against a fixed pattern before any request is made — exact
+host, two path segments, nothing else — and because the host is compared literally and never
+resolved, there is no name to rebind between the check and the connection. Redirects are
+refused rather than followed. Extraction uses `tarfile`'s `data` filter, which refuses
+absolute paths, `..`, symlinks, hard links and device nodes.
+
+Fetched repositories are parsed, never executed: nothing installs their dependencies, reads
+their tool configuration, or imports them. `.env` files are excluded from the atlas on the
+demo, so a repository's secrets are not excerpted to the model provider.
+
+#### What it costs in memory
+
+Analysis, not fetching, is the expensive thing. Peak memory runs at roughly **48 MB per
+megabyte of Python**, measured: `pallets/flask` at 0.6 MB peaks at 142 MB, `psf/black` at
+5.2 MB peaks at 361 MB, and `django/django` at 30 MB passed 814 MB without finishing in
+twelve minutes. The cause is `_compute_metrics` in the AST analyzer, which is O(nodes ×
+edges) and holds every parsed tree while it runs; until that is fixed, `ARCHCOMPASS_MAX_PYTHON_MB`
+is what keeps the demo inside its container, and the hosted app analyses **one repository at
+a time** so two peaks cannot overlap.
+
+
+A container's `/tmp` is `tmpfs`, so a fetched repository is spending the same allowance the
+server runs in — the application is around 200 MB with an analysis in flight, against
+`--memory 1Gi`. Exhausting it kills the process rather than the fetch, and takes every
+session on the instance with it, so the size limits are memory limits and are enforced in
+three places:
+
+- `ARCHCOMPASS_MAX_SOURCE_MB` bounds one repository, while it downloads and again while it
+  unpacks.
+- A visitor holds **one** repository at a time; fetching another replaces it. The atlas of
+  the previous one is already stored, so what is dropped is a copy of code.
+- `ARCHCOMPASS_MAX_TOTAL_SOURCE_MB` bounds every visitor's code together, deleting
+  least-recently-used trees before each fetch. Someone who left a tab open may find their
+  repository gone and have to paste the address again — which costs seconds, where running
+  out of memory costs everyone their session.
+
+Nothing is written to a bucket or a persistent volume. Every workspace is gone when the
+instance recycles.
 
 The container's `PORT` is honoured, defaulting to 8080, which is what Cloud Run supplies.
 
