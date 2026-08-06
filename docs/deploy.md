@@ -110,7 +110,8 @@ gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body \
 | `ARCHCOMPASS_GLOBAL_DAILY_FETCHES` | `100` | The same, per instance, for everyone. |
 | `ARCHCOMPASS_MAX_FILE_KB` | `2048` | Files larger than this are left out of the analysis. |
 | `ARCHCOMPASS_MAX_FILES` | `1200` | How many files one repository contributes to an atlas. |
-| `ARCHCOMPASS_MAX_PYTHON_MB` | `5` | How much Python one repository may bring. Repositories over this are refused rather than trimmed. |
+| `ARCHCOMPASS_MAX_PYTHON_MB` | `8` | How much Python one repository may bring. Refused before a file is read, rather than trimmed. |
+| `ARCHCOMPASS_MAX_NODES` | `8000` | How many modules, classes and functions one repository may produce. Checked while parsing. Memory costs about 40 KB a node, and repository density varies fourfold, so this is the cap that measures what is actually spent. |
 
 ### Reviewing a repository a visitor names
 

@@ -177,3 +177,50 @@ def test_a_repository_within_the_cap_is_analysed_as_usual(tmp_path: Path) -> Non
     ).analyze(root)
 
     assert "app.py" in _paths(atlas)
+
+
+def test_a_repository_with_more_in_it_than_the_cap_is_refused(tmp_path: Path) -> None:
+    """Density, not size: the byte cap cannot see a small repository full of definitions."""
+
+    root = _repository(
+        tmp_path,
+        {
+            f"module_{index}.py": b"\n".join(
+                f"def function_{item}(): pass".encode() for item in range(20)
+            )
+            for index in range(20)
+        },
+    )
+
+    with pytest.raises(PathValidationError, match="more in it than"):
+        PythonAstRepositoryAnalyzer(limits=AnalysisLimits(max_nodes=50)).analyze(root)
+
+
+def test_the_node_cap_stops_before_the_whole_repository_is_parsed(tmp_path: Path) -> None:
+    """Checked between files, so the memory the cap protects is never spent."""
+
+    parsed: list[str] = []
+    root = _repository(
+        tmp_path, {f"module_{index}.py": b"class Thing: pass\n" for index in range(50)}
+    )
+    analyzer = PythonAstRepositoryAnalyzer(limits=AnalysisLimits(max_nodes=10))
+    original = analyzer._parse_module
+
+    def counting(*args, **kwargs):
+        result = original(*args, **kwargs)
+        parsed.append(result.relative_path)
+        return result
+
+    analyzer._parse_module = counting  # type: ignore[method-assign]
+    with pytest.raises(PathValidationError):
+        analyzer.analyze(root)
+
+    assert len(parsed) < 50, "every file was parsed before the cap was noticed"
+
+
+def test_a_repository_inside_the_node_cap_is_analysed(tmp_path: Path) -> None:
+    root = _repository(tmp_path, {"app.py": b"class Thing:\n    def run(self): pass\n"})
+
+    atlas = PythonAstRepositoryAnalyzer(limits=AnalysisLimits(max_nodes=1_000)).analyze(root)
+
+    assert "app.py" in _paths(atlas)

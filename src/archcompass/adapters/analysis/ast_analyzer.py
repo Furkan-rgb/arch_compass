@@ -110,6 +110,16 @@ class AnalysisLimits:
     max_file_bytes: int | None = None
     #: How many files are taken in total, Python and configuration together.
     max_files: int | None = None
+    #: How many atlas nodes one repository may produce. The cap that measures what is
+    #: actually being spent: memory runs at roughly forty kilobytes a node, and a node is a
+    #: module, a class, a function or a method rather than a megabyte of anything. Repository
+    #: density varies fourfold — psf/black carries about 430 nodes per megabyte of Python and
+    #: sqlalchemy about 1,975 — so the byte cap below cannot see the difference between a
+    #: repository that will fit and one four times heavier, and this one can.
+    #:
+    #: Checked while the parse runs rather than afterwards, because afterwards is after the
+    #: memory was spent.
+    max_nodes: int | None = None
     #: How much Python one repository may contribute, in bytes. The cap that matters most,
     #: and the one that is refused rather than trimmed: leaving half a repository out would
     #: produce an atlas with holes in it and a review confidently wrong about what is there.
@@ -135,6 +145,7 @@ class AnalysisLimits:
         return (
             self.max_file_bytes is not None
             or self.max_files is not None
+            or self.max_nodes is not None
             or self.max_python_bytes is not None
             or not self.include_environment_files
         )
@@ -187,6 +198,7 @@ def _analysis_config_hash(
         recorded["limits"] = {
             "max_file_bytes": limits.max_file_bytes,
             "max_files": limits.max_files,
+            "max_nodes": limits.max_nodes,
             "max_python_bytes": limits.max_python_bytes,
             "environment_files": limits.include_environment_files,
         }
@@ -361,6 +373,10 @@ class PythonAstRepositoryAnalyzer:
             for symbol in parsed.symbols.values():
                 nodes[symbol.atlas_id] = symbol
                 edges.append(build_edge(symbol.parent_id, symbol.atlas_id, EdgeType.CONTAINS))
+            # Between files rather than inside one: a module is the smallest thing this can
+            # stop at without leaving a half-read file behind, and one module is not what
+            # takes a run past the limit.
+            self._refuse_if_too_many_nodes(len(nodes))
 
         for source_file in config_files:
             path = source_file.path
@@ -475,6 +491,21 @@ class PythonAstRepositoryAnalyzer:
             root_commit_sha=git.root_commit_sha,
             branch_name=git.branch_name,
         )
+
+    def _refuse_if_too_many_nodes(self, counted: int) -> None:
+        """Stop while there is still memory to stop in.
+
+        Said in terms of what a reader can see — how much there is in the repository — rather
+        than in terms of nodes, which is this program's word for it and not theirs.
+        """
+
+        cap = self._limits.max_nodes
+        if cap is not None and counted > cap:
+            raise PathValidationError(
+                f"This repository has more in it than this workspace analyses: over {cap:,} "
+                "modules, classes and functions. Run Arch Compass locally to review a "
+                "repository this size."
+            )
 
     def _refuse_if_too_large(self, python_paths: list[Path]) -> None:
         """Say no before reading anything, when this is more than can be finished.
