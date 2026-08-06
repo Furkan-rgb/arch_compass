@@ -61,8 +61,15 @@ export type RepositorySummary = OpenAPIComponents["schemas"]["RepositorySummary"
 export type RepositoryCheckout = OpenAPIComponents["schemas"]["RepositoryCheckout"];
 export type CheckoutRefresh = OpenAPIComponents["schemas"]["CheckoutRefresh"];
 export type RepositoryBranch = OpenAPIComponents["schemas"]["RepositoryBranch"];
-/** What a new revision would find, asked before one is created. */
-export type RevisionPreflight = OpenAPIComponents["schemas"]["RevisionPreflight"];
+
+/**
+ * How a review run ended, as the stream said it: with a composed review, or with the
+ * workspace refusing a revision that would change nothing. Two shapes rather than a
+ * nullable review, so a caller has to say which ending it is handling.
+ */
+export type ReviewRunOutcome =
+  | { ended: "completed"; review: BoundaryReview }
+  | { ended: "unchanged" };
 
 export interface SourceLocation {
   path: string;

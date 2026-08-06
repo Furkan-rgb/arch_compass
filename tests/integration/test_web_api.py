@@ -168,44 +168,47 @@ def test_loading_an_example_indexes_it_and_creates_nothing_else(runtime: Runtime
         assert missing.json()["code"] == "not_found"
 
 
-def test_the_preflight_route_answers_whether_a_new_revision_would_find_anything(
+def test_a_review_over_an_untouched_repository_streams_unchanged_and_records_nothing(
     runtime: Runtime,
 ) -> None:
-    """The contract the New revision button checks before it starts a run.
+    """The refusal every caller now gets, whichever page or client started the run.
 
-    Both answers over HTTP: a repository nothing has been run on is always a real revision and
-    says so with nothing to be current against, and the same repository straight after a
-    review is current against that review and has nothing to look at. The second call is the
-    one that must leave the listings alone — a check that answered "nothing has changed" by
-    writing a review would be reporting on itself.
+    The check used to be a separate route only the New revision button called, so the start
+    page could record a revision the button would have refused. It lives in the run itself
+    now: the stream answers with one `unchanged` line naming the revision the repository is
+    already current against, and the listings are exactly as they were — a run that
+    answered "nothing has changed" by writing a review would be reporting on itself. The
+    non-streaming route says the same thing as a 409 with its own code.
     """
 
     with TestClient(create_app(runtime)) as client:
-        loaded = client.post(f"/api/examples/{FIXTURE}/load")
-        assert loaded.status_code == 201, loaded.text
-        root = loaded.json()["root_path"]
-
-        first = client.post("/api/repositories/preflight", json={"root_path": root})
-        assert first.status_code == 200, first.text
-        assert first.json() == {
-            "changed": True,
-            "current_against": None,
-            "judged": 0,
-            "addressed": 0,
-            "resurfaced": 0,
-            "succeeded": 0,
-        }
-
         review = _reviewed(client)
+        case_id = review["case_id"]
+        root = client.get("/api/repositories").json()[0]["root_path"]
         cases = client.get("/api/cases").json()
         reviews = client.get("/api/reviews").json()
 
-        after = client.post("/api/repositories/preflight", json={"root_path": root})
-        assert after.status_code == 200, after.text
-        assert after.json()["changed"] is False
-        assert after.json()["current_against"] == review["review_id"]
+        with client.stream(
+            "POST",
+            "/api/reviews/stream",
+            json={"case_id": case_id, "repository_root": root},
+        ) as response:
+            assert response.status_code == 200, response.read()
+            events = [json.loads(line) for line in response.iter_lines() if line.strip()]
+
+        assert [event["event"] for event in events] == ["unchanged"], (
+            "refusal happens before the run has a record, so no started line exists"
+        )
+        assert events[0]["current_against"] == review["review_id"]
+        assert "Nothing has changed" in events[0]["message"]
         assert client.get("/api/cases").json() == cases
         assert client.get("/api/reviews").json() == reviews
+
+        plain = client.post(
+            "/api/reviews", json={"case_id": case_id, "repository_root": root}
+        )
+        assert plain.status_code == 409, plain.text
+        assert plain.json()["code"] == "nothing_changed"
 
 
 def test_a_streamed_review_counts_its_boundaries_before_judging_them(

@@ -22,6 +22,7 @@ from typing import Annotated, Final, Literal, cast
 from pydantic import Field, StringConstraints, computed_field, model_validator
 
 from archcompass.domain.atlas import FindingCandidate, FindingPattern, SourceLocation
+from archcompass.domain.atlas_map import AtlasMap
 from archcompass.domain.base import DomainModel, new_id, utc_now
 from archcompass.domain.case import ArchitectureCase, CaseField
 from archcompass.domain.delta import BoundaryState, JudgedBecause, RevisionDelta
@@ -170,6 +171,18 @@ class BoundaryExcerpt(DomainModel):
     #: repository no longer holds the lines that were judged, and saying which is more use
     #: than an empty panel.
     unavailable: str = ""
+    #: The last line actually shown, when the excerpt ceiling cut the span short of its
+    #: recorded end. `None` is the ordinary case and means the text is the whole span. A
+    #: clipped excerpt used to be indistinguishable from a complete one, and a stage
+    #: reading half a function as though it were all of it answers confidently from the
+    #: half it saw.
+    truncated_after_line: int | None = None
+    #: Where this text stands relative to the repository now, when that needs saying —
+    #: "the repository has changed since the review ran; this is the code as it was
+    #: reviewed". Stamped at serve time when a pinned copy substitutes for a live read
+    #: that was refused; never stored with a value, because at pinning time the copy and
+    #: the repository are the same thing.
+    provenance: str = ""
 
     @model_validator(mode="after")
     def an_excerpt_has_text_or_says_why_not(self) -> BoundaryExcerpt:
@@ -749,6 +762,19 @@ class ReviewEvidence(DomainModel):
     #: to any of them — a distinction worth keeping, because "you skipped this" and "nobody
     #: wrote down what you said" are different things to tell a reader.
     answers_were_recorded: bool = False
+    #: The pinned atlas folded to modules, members and module-level coupling, so a question
+    #: about code no detector flagged is answerable at the structural level instead of with
+    #: "I was not shown that". A map, not evidence: it carries no verdicts and no code, so
+    #: it goes to every conversation stage, and nothing in an answer may cite it. `None`
+    #: means the assembling caller did not ask for one, which is itself stated to the stage.
+    atlas_map: AtlasMap | None = None
+    #: The later pass that answered this review's round and concluded, where one exists. A
+    #: review row never changes status — the pass that concludes the loop is a new review —
+    #: so a question-scoped conversation always pins a waiting first pass, while the reader
+    #: may have a conclusion from its successor on their page. Carried whole, like the case
+    #: and the corpus, so the discussion stage can show that conclusion and ground it back
+    #: onto the boundaries it was allowed to see. `None` while nobody has carried on.
+    concluded_by: BoundaryReview | None = None
 
 
 class JudgedBoundary(DomainModel):

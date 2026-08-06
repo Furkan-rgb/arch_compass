@@ -27,6 +27,7 @@ from archcompass.domain.review import (
     ReviewedBoundary,
     ReviewEvidence,
     ReviewOverview,
+    ReviewStatus,
     VerdictHinge,
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
@@ -53,6 +54,20 @@ def probe_deterministic(defaults: ProviderDefaults) -> ProbeResult:
         available=True,
         models=[AvailableModel(name=DETERMINISTIC_MODEL, label="deterministic substitute")],
     )
+
+
+def _atlas_map_marker(evidence: ReviewEvidence) -> str:
+    """The map counted, never rendered — the same treatment background gets.
+
+    A test can prove the pinned structure reached a stage, and which of its three states
+    it arrived in, without this substitute pretending to read a repository's shape.
+    """
+
+    if evidence.atlas_map is None:
+        return ""
+    if evidence.atlas_map.unavailable:
+        return " Atlas map unavailable."
+    return f" Atlas map: {len(evidence.atlas_map.modules)} modules."
 
 
 class DeterministicReasoningProvider:
@@ -338,10 +353,15 @@ class DeterministicReasoningProvider:
         # observable — a test can prove the whole corpus reached this stage — while leaving
         # `supporting_references` boundaries-only, which is the rule the real stage obeys.
         consulted = (
-            f" Background consulted: the method primer and {len(knowledge.policies)} "
-            "policies, whole."
-            if knowledge.method
-            else ""
+            f" Background consulted: the method primer; policy corpus unavailable: "
+            f"{knowledge.policy_corpus_unavailable}"
+            if knowledge.method and knowledge.policy_corpus_unavailable
+            else (
+                f" Background consulted: the method primer and {len(knowledge.policies)} "
+                "policies, whole."
+                if knowledge.method
+                else ""
+            )
         )
         # Counted rather than quoted, as the background already is: a test can then prove
         # the recorded spans reached this stage without the substitute pretending to reason
@@ -350,9 +370,17 @@ class DeterministicReasoningProvider:
             f" Source shown for "
             f"{len({x.reference for x in evidence.excerpts if x.text})} boundaries."
         )
+        # Same treatment for the detector's structure: counting the boundaries that carry
+        # recorded relationships proves the wiring without pretending to read edges.
+        structured = (
+            f" Structure shown for "
+            f"{len([x for x in report.reviewed if x.candidate.relationships])} boundaries "
+            "with recorded relationships."
+        )
+        atlas_map = _atlas_map_marker(evidence)
         return ReviewAnswer(
             answer=(
-                f"{report.headline}{shown} "
+                f"{report.headline}{shown}{structured}{atlas_map} "
                 + (
                     "The boundaries this question touches are: "
                     + "; ".join(item.candidate.summary for item in supporting)
@@ -400,10 +428,15 @@ class DeterministicReasoningProvider:
         cited = set(question.supporting_references)
         supporting = [item for item in report.reviewed if item.reference in cited]
         consulted = (
-            f" Background consulted: the method primer and {len(knowledge.policies)} "
-            "policies, whole."
-            if knowledge.method
-            else ""
+            f" Background consulted: the method primer; policy corpus unavailable: "
+            f"{knowledge.policy_corpus_unavailable}"
+            if knowledge.method and knowledge.policy_corpus_unavailable
+            else (
+                f" Background consulted: the method primer and {len(knowledge.policies)} "
+                "policies, whole."
+                if knowledge.method
+                else ""
+            )
         )
         # Suggested only once the reader has said something, and derived from what they
         # said rather than from a fixture. Before the first turn there is nothing they have
@@ -414,13 +447,27 @@ class DeterministicReasoningProvider:
         # the pinned revision reached this stage without the substitute pretending to reason
         # about what it says.
         stated = len(evidence.case.expected_future_changes) + len(evidence.case.assumptions)
+        structured = len([x for x in supporting if x.candidate.relationships])
+        atlas_map = _atlas_map_marker(evidence)
+        # Stated only where the real payload's gate would show one: the review's own when
+        # it concluded, the concluding successor's when the loop moved on without this row,
+        # and a stated withholding otherwise — so a test can pin all three.
+        if review.status is ReviewStatus.SUCCEEDED:
+            conclusion = " Conclusion in scope."
+        elif evidence.concluded_by is not None:
+            conclusion = " Conclusion in scope from the concluding pass."
+        else:
+            conclusion = " Conclusion withheld."
         return ReviewAnswer(
             answer=(
                 f"About {question.unknown} "
                 f"({len([x for x in evidence.excerpts if x.text])} excerpts) "
+                f"(structure shown for {structured} boundaries) "
                 f"(case states {stated}): "
                 + "; ".join(item.candidate.summary for item in supporting)
                 + consulted
+                + conclusion
+                + atlas_map
                 + f" (turn {len(history) + 1})"
             ),
             supporting_references=[item.reference for item in supporting],

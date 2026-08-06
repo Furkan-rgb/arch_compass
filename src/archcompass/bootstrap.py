@@ -49,7 +49,6 @@ from archcompass.application.checkouts import RepositoryCheckoutService
 from archcompass.application.ci import CiRunService
 from archcompass.application.model_catalog import ModelCatalogService, reasoning_config
 from archcompass.application.policies import PolicyService
-from archcompass.application.preflight import RevisionPreflightService
 from archcompass.application.repository_index import RepositoryIndexService
 from archcompass.application.review_conversations import ReviewConversationService
 from archcompass.application.review_source import ReviewSourceService
@@ -125,7 +124,6 @@ class Runtime:
     review_service: ReviewService
     triage_service: TriageService
     ci_service: CiRunService
-    preflight_service: RevisionPreflightService
     checkout_service: RepositoryCheckoutService
     freshness_service: AtlasFreshnessService
     model_catalog_service: ModelCatalogService
@@ -252,11 +250,6 @@ def build_runtime(
         reviews=review_service,
         triage=triage_service,
     )
-    preflight_service = RevisionPreflightService(
-        repositories=repository_service,
-        cases=case_service,
-        reviews=review_service,
-    )
     checkout_service = RepositoryCheckoutService(
         git=GitCommandLineClient(),
         checkouts_root=canonical_workspace / CHECKOUT_DIRECTORY,
@@ -283,7 +276,6 @@ def build_runtime(
         review_service=review_service,
         triage_service=triage_service,
         ci_service=ci_service,
-        preflight_service=preflight_service,
         checkout_service=checkout_service,
         freshness_service=freshness,
         model_catalog_service=model_catalog_service,

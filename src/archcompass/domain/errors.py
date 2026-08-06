@@ -117,6 +117,23 @@ class ReviewCancelledError(ArchCompassError):
     """
 
 
+class NothingToReviewError(ArchCompassError):
+    """A revision was asked for and nothing has moved since the branch's last one.
+
+    Raised before anything is written, which is the point: a revision that would change
+    nothing is reported, not recorded. The branch's line is a history of what happened to
+    the code, not of who pressed what.
+
+    Carries the revision the repository is current against, because "nothing has changed"
+    is a statement relative to something and a caller — CI reporting a standing, a page
+    offering the record — needs to be able to open that something.
+    """
+
+    def __init__(self, message: str, *, current_against: str) -> None:
+        super().__init__(message)
+        self.current_against = current_against
+
+
 class ReviewNotCancellableError(ArchCompassError):
     """The review is not running, so there is nothing to stop."""
 

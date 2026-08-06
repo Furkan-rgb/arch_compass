@@ -192,8 +192,16 @@ small { font-size: var(--s-meta); }
   --inference-soft: rgb(90 106 148 / 9%);
 
   --overlay: rgb(16 22 34 / 45%);
-  /* A code block is dark in both themes, so the syntax colours below are chosen once. */
-  --code-bg: #1c2028;
+  /* A code block is dark in both themes, so the syntax colours below are chosen once.
+
+     Graphite, not black. The ground is the same 264° blue-grey as every other surface in this
+     sheet — a warm ground under a cool palette (Monokai Pro's #2d2a2e is a mauve at 318°) reads
+     as a swatch borrowed from somewhere else, and pure black reads as a hole punched in the
+     page: 21:1 against porcelain, with the palette stretched to 16:1 and thin monospace glowing
+     at the edges. This sits a step up from where it started, near One Dark's value, which drops
+     the block-against-page step from 16.3:1 to 14.9:1 and the palette to 4.1:1–11.4:1. Still a
+     dark box on a white page; less of a cut-out. */
+  --code-bg: #232733;
   --code-ink: #dce2ea;
   --code-dim: #7e8795;
   --code-keyword: #9fb8f2;
@@ -202,12 +210,20 @@ small { font-size: var(--s-meta); }
      above: those three are most of the ink in a listing and are worth tuning against each
      theme's own code ground, while these land on a handful of tokens per screen and read the
      same on both. Named here anyway, because "every colour is in the token sheet" is either
-     true or it is not a rule. */
-  --code-number: #dcbc8a;
+     true or it is not a rule.
+
+     Muted, but separated: every colour here sits at least 30° of hue from the next, because a
+     palette this low in chroma has nothing else left to tell two categories apart. Two of them
+     used to fail that. A number was a gold ten degrees off the gold of a function call, so `3`
+     and `len` were one category; it is amber now. A property was #cbd5e1, which is `--code-ink`
+     with the lights slightly down — 1.1:1 against plain text, so every JSON key and attribute
+     name was highlighted into exactly the colour it already was; it leans cyan now, and stays
+     the quietest coloured token in the block by chroma rather than by giving up its hue. */
+  --code-number: #eab07d;
   --code-function: #e6d3a3;
   --code-builtin: #9fd0c8;
   --code-decorator: #a99ac9;
-  --code-property: #cbd5e1;
+  --code-property: #b3d2df;
   --code-operator: #93a1b2;
   --code-added: #9ad0a3;
   --code-removed: #dfa0a6;
@@ -332,6 +348,10 @@ small { font-size: var(--s-meta); }
   --inference: #96a3c4;
   --inference-soft: rgb(150 163 196 / 12%);
   --overlay: rgb(0 0 0 / 60%);
+  /* By night the block does not get the same lift. It is a well cut into the sheet — below
+     `--surface` and level with `--canvas` — and lifting it to the value the day theme uses
+     would put it above the sheet it sits in, turning the well into a raised slab. The depth
+     model decides this one, not the palette. */
   --code-bg: #0a0c10;
   --code-ink: #d7dde6;
   --code-dim: #5b636f;
@@ -999,10 +1019,12 @@ html body[data-scroll-locked] {
   background: var(--atlas-canvas-bg);
   cursor: grab;
   overscroll-behavior: contain;
-  scrollbar-color: var(--ink-3) var(--atlas-canvas-bg);
-  scrollbar-gutter: stable;
+  /* The canvas pans by drag and recentres from the minimap, so the scrollbars only
+     restate what those already show — and cost the map a gutter on each axis. */
+  scrollbar-width: none;
   touch-action: none;
 }
+.atlas-canvas::-webkit-scrollbar { display: none; }
 .atlas-minimap {
   position: absolute;
   right: 12px;
@@ -1528,10 +1550,22 @@ html body[data-scroll-locked] {
   keeps the look the rule above gives it and the palette comes to meet it.
 
   Derived from the standing palette rather than picked again, because "one palette" is the rule
-  worth keeping — each colour is its own hue mixed down towards the code ground until it carries
-  on paper (4.9:1 to 6.8:1). Comments go to `--ink-3` instead of a mix: on this ground they must
-  read *quieter* than the code around them, which is exactly what that token already is, and a
-  darkened `--code-dim` would have come out as the strongest ink in the box.
+  worth keeping — each colour keeps its own hue and is re-lit for paper: `oklch(from …)` takes the
+  hue, sets a lightness that carries on this ground, and lifts the chroma, since a wash that is
+  restrained on onyx is simply grey on porcelain.
+
+  Re-lit rather than mixed, and the difference is the whole point. Mixing towards the code ground
+  in sRGB was the first version, and it did two things wrong. It dragged every hue through the
+  same dark blue on the way down, so ten colours arrived at eight to fourteen percent saturation —
+  string, builtin and inserted were one grey-green, and the palette had quietly stopped saying
+  anything. And it carried the dark ground's lightness order over unchanged, which on paper is
+  backwards: bright means loud there and quiet here, so punctuation came out as the strongest ink
+  in the box (6.5:1) and function names the weakest (4.7:1). The hierarchy is stated here instead
+  of inherited — one lightness for the categories that should read (5.3:1 to 6.3:1), a lighter one
+  for the operators and punctuation that should not (4.1:1).
+
+  Comments go to `--ink-3` rather than through the same formula: on this ground they must read
+  quieter than the code around them, and that token already is exactly that.
 
   Light theme only, through `var(--excerpt-*, var(--code-*))`. By night `--sunken` is a wash over
   a dark surface, so the box is a dark code ground like every other and the standing palette is
@@ -1540,16 +1574,17 @@ html body[data-scroll-locked] {
 */
 :root:not([data-theme="dark"]) [data-slot="source-excerpt"] pre {
   --excerpt-dim: var(--ink-3);
-  --excerpt-keyword: color-mix(in srgb, var(--code-keyword) 40%, var(--code-bg));
-  --excerpt-string: color-mix(in srgb, var(--code-string) 40%, var(--code-bg));
-  --excerpt-number: color-mix(in srgb, var(--code-number) 40%, var(--code-bg));
-  --excerpt-function: color-mix(in srgb, var(--code-function) 40%, var(--code-bg));
-  --excerpt-builtin: color-mix(in srgb, var(--code-builtin) 40%, var(--code-bg));
-  --excerpt-decorator: color-mix(in srgb, var(--code-decorator) 40%, var(--code-bg));
-  --excerpt-property: color-mix(in srgb, var(--code-property) 40%, var(--code-bg));
-  --excerpt-operator: color-mix(in srgb, var(--code-operator) 40%, var(--code-bg));
-  --excerpt-added: color-mix(in srgb, var(--code-added) 40%, var(--code-bg));
-  --excerpt-removed: color-mix(in srgb, var(--code-removed) 40%, var(--code-bg));
+  --excerpt-keyword: oklch(from var(--code-keyword) 0.47 calc(c * 1.8) h);
+  --excerpt-string: oklch(from var(--code-string) 0.47 calc(c * 1.8) h);
+  --excerpt-number: oklch(from var(--code-number) 0.47 calc(c * 1.8) h);
+  --excerpt-function: oklch(from var(--code-function) 0.47 calc(c * 1.8) h);
+  --excerpt-builtin: oklch(from var(--code-builtin) 0.47 calc(c * 1.8) h);
+  --excerpt-decorator: oklch(from var(--code-decorator) 0.47 calc(c * 1.8) h);
+  --excerpt-property: oklch(from var(--code-property) 0.47 calc(c * 1.8) h);
+  --excerpt-added: oklch(from var(--code-added) 0.47 calc(c * 1.8) h);
+  --excerpt-removed: oklch(from var(--code-removed) 0.47 calc(c * 1.8) h);
+  /* The one that is deliberately lighter, and the reason the block has two formulas at all. */
+  --excerpt-operator: oklch(from var(--code-operator) 0.55 calc(c * 2) h);
 }
 
 /* Grouped exactly as the standing token rules are, so the two can be read side by side and a

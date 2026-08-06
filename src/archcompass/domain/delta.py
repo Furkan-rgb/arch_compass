@@ -163,36 +163,6 @@ class RevisionDelta(DomainModel):
         return self.judged == 0 and self.succeeded == 0 and self.addressed == 0
 
 
-class RevisionPreflight(DomainModel):
-    """What a new revision would find, answered without creating one.
-
-    The same partition as `RevisionDelta` and deliberately not the same object: a delta is a
-    fact about two revisions that both exist, and this is a fact about a revision that does
-    not. It carries no `carried` count and no closures, because what it is asked is a yes/no
-    — *would anything move* — and the counts it does carry are there to say what kind of
-    movement, not to be read as a report.
-
-    A revision that would change nothing is not worth recording. Recording it would append a
-    case revision, a review row and a line of ledger events that all say the same thing as
-    the revision before them, and the branch's history would fill with entries whose only
-    content is that somebody pressed a button. So the check runs, the answer comes back, and
-    only a real delta becomes a revision.
-    """
-
-    #: False only when the branch has a previous revision and every boundary would carry.
-    #: A branch with nothing behind it is always changed: a first revision is real by
-    #: definition, having nothing it could be the same as.
-    changed: bool
-    #: The revision this repository is currently up to date with, where it is up to date with
-    #: one. `None` when there is nothing behind this branch — which is why it can only appear
-    #: alongside `changed`.
-    current_against: str | None = None
-    judged: int = Field(default=0, ge=0)
-    addressed: int = Field(default=0, ge=0)
-    resurfaced: int = Field(default=0, ge=0)
-    succeeded: int = Field(default=0, ge=0)
-
-
 class BoundaryLineEventType(StrEnum):
     """The three things that can happen to a boundary's line, as opposed to its verdict."""
 

@@ -16,7 +16,7 @@ the evidence does not fit. Here it does.
 
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from archcompass.domain.base import DomainModel
 from archcompass.domain.policy import PolicyDocument
@@ -36,3 +36,16 @@ class MethodKnowledge(DomainModel):
     #: documents the judging stage sees, in the same order, so an answer about "what this
     #: policy says" cannot describe a policy the review was never shown.
     policies: list[PolicyDocument] = Field(default_factory=list[PolicyDocument])
+    #: Why the corpus is missing, in one sentence, when it is. An empty `policies` on its
+    #: own reads as "this workspace has no policies", and a stage told that would answer
+    #: policy questions with a confident nothing; a corpus that could not be *read* is a
+    #: different fact and the stage must be able to say which one it was handed.
+    policy_corpus_unavailable: str = ""
+
+    @model_validator(mode="after")
+    def a_reason_stands_in_for_the_corpus_it_explains(self) -> MethodKnowledge:
+        if self.policy_corpus_unavailable and self.policies:
+            raise ValueError(
+                "A reason the corpus is unavailable cannot sit beside a served corpus"
+            )
+        return self

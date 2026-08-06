@@ -140,77 +140,6 @@ function PassesRail({
 }
 
 /**
- * The check's result, floating where the eye wandered while it waited.
- *
- * It fades in on arrival and out on dismissal — an element that pops into a corner reads
- * as something breaking, and one that vanishes under the pointer reads as a misclick. The
- * fade is two phases of one state rather than a mounted/unmounted pair, because the exit
- * has to finish before the element may leave the tree. Dismissal is the only way out, so
- * the timestamp ages in place — a check grows stale the moment somebody edits a file, and
- * only the reader knows when they have read it. Reduced motion collapses both fades to a
- * cut.
- */
-function checkedAgo(elapsedSeconds: number): string {
-  const count = (n: number, unit: string) =>
-    `checked ${n} ${unit}${n === 1 ? "" : "s"} ago`;
-  const seconds = Math.max(1, elapsedSeconds);
-  if (seconds < 60) return count(seconds, "second");
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return count(minutes, "minute");
-  return count(Math.floor(minutes / 60), "hour");
-}
-
-function NoChangeNotice({ onDismiss }: { onDismiss: () => void }) {
-  const [phase, setPhase] = useState<"entering" | "shown" | "leaving">("entering");
-  const [checkedAt] = useState(() => Date.now());
-  const [now, setNow] = useState(checkedAt);
-  useEffect(() => {
-    // One frame late, so the browser paints the hidden state first and the transition has
-    // somewhere to start from.
-    const frame = requestAnimationFrame(() => setPhase("shown"));
-    const tick = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => {
-      cancelAnimationFrame(frame);
-      window.clearInterval(tick);
-    };
-  }, []);
-  const leave = () => {
-    setPhase("leaving");
-    window.setTimeout(onDismiss, 200);
-  };
-  return (
-    <Alert
-      role="status"
-      className={cn(
-        "fixed z-40 w-auto max-w-[420px] cursor-pointer border-accent-rule bg-surface pr-9 text-ink shadow-float",
-        "top-14 right-[var(--gutter)]",
-        "max-sm:inset-x-3 max-sm:right-3 max-sm:max-w-none",
-        "transition-[opacity,translate] duration-200 motion-reduce:transition-none",
-        phase !== "shown" && "-translate-y-1 opacity-0",
-      )}
-      onClick={leave}
-    >
-      <Info aria-hidden className="text-accent-ink" />
-      <AlertTitle>Nothing has changed</AlertTitle>
-      <AlertDescription className="text-ink-2">
-        The code is the same as this revision —{" "}
-        {checkedAgo(Math.floor((now - checkedAt) / 1000))}.
-      </AlertDescription>
-      {/* Not AlertAction: that slot's CSS turns the alert `relative`, which would beat the
-          `fixed` above and drop the notice into the page flow. */}
-      <button
-        type="button"
-        aria-label="Dismiss"
-        className="absolute top-2.5 right-2.5 cursor-pointer border-0 bg-transparent p-0 text-ink-3 hover:text-ink"
-        onClick={leave}
-      >
-        <X size={14} aria-hidden />
-      </button>
-    </Alert>
-  );
-}
-
-/**
  * The branch and the revision this page is showing, and the way to make the next one.
  *
  * The repository model made visible where the reader stands: a branch carries one living
@@ -219,9 +148,10 @@ function NoChangeNotice({ onDismiss }: { onDismiss: () => void }) {
  * only about that — which is why it lives here and not on the start step: a next revision
  * is something done *to this branch*, not a fresh errand.
  *
- * It does not always append. The check runs first, and a repository nothing has touched
- * since this revision earns a line saying so rather than a second revision repeating the
- * first: the line is a history of what happened to the code, not of who pressed what.
+ * It does not always append. The run itself refuses a revision that would change nothing —
+ * a repository nothing has touched since this revision earns a floating notice saying so,
+ * from the run's own holder, rather than a second revision repeating the first: the line is
+ * a history of what happened to the code, not of who pressed what.
  *
  * A picker with one option renders as a plain label: a control that opens a menu of the
  * thing already on screen is furniture.
@@ -234,8 +164,6 @@ function RevisionStrip({
   onNewRevision,
   starting,
   startError,
-  unchanged,
-  onDismissUnchanged,
 }: {
   review: ReviewDetail;
   currentId: string;
@@ -244,9 +172,6 @@ function RevisionStrip({
   onNewRevision: () => void;
   starting: boolean;
   startError: Error | null;
-  /** That the last check found nothing moved, so no revision was made. */
-  unchanged: boolean;
-  onDismissUnchanged: () => void;
 }) {
   const navigate = useNavigate();
   const branchId = review.branch_id ?? null;
@@ -355,12 +280,6 @@ function RevisionStrip({
           {startError.message}
         </p>
       ) : null}
-      {/* A floating notice rather than a line in the strip: the check's result should meet
-          the eye where it wandered while waiting, then get out of the way. A status, not an
-          alert, and quiet on purpose — the button did exactly what it promised. It stays
-          until dismissed, because "checked just now" stops being true the moment somebody
-          edits a file, and only the reader knows when they have read it. */}
-      {unchanged ? <NoChangeNotice onDismiss={onDismissUnchanged} /> : null}
     </div>
   );
 }
@@ -883,15 +802,6 @@ export function ReviewDetailPage() {
    * this the new review opens on whichever tab the old one was left on, with a row expanded
    * that its ledger does not contain.
    */
-  /**
-   * That the last New revision found nothing to judge.
-   *
-   * A moment rather than a property of the review: it is the answer to a question the reader
-   * asked just now, and it stops being true the instant anyone edits a file. So it is state
-   * here and not something read back from the server, it says when it was checked, and it is
-   * cleared by anything that makes it stale — pressing the button again, or leaving the page.
-   */
-  const [unchanged, setUnchanged] = useState(false);
   const [shown, setShown] = useState(reviewId);
   if (shown !== reviewId) {
     setShown(reviewId);
@@ -899,7 +809,6 @@ export function ReviewDetailPage() {
     setVisited(["findings"]);
     setOpenRow(null);
     setAtlasNodeId(null);
-    setUnchanged(false);
     // A panel is about one review, so it does not follow the reader to the next one —
     // answering a held review navigates straight from that pass to the one it starts.
     setAsking(false);
@@ -957,6 +866,22 @@ export function ReviewDetailPage() {
     enabled: Boolean(elicitedFrom),
   });
 
+  /**
+   * The review that asked the questions this revision answered, whichever review that was.
+   *
+   * Not the same thing as the pass this one answers. Only the answers are recorded on the
+   * case, by reference — the wording lives on the review that asked — and a third review
+   * judging the same answered revision was elicited from nobody. Reading the asking review
+   * off the revision itself is what lets it show the questions rather than a placeholder.
+   * The same id on a second pass, so react-query serves it from what `earlierPass` fetched.
+   */
+  const askedBy = pinnedCase.data?.answered?.review_id ?? null;
+  const askingPass = useQuery({
+    queryKey: ["review", askedBy],
+    queryFn: () => api.review(askedBy!),
+    enabled: Boolean(askedBy),
+  });
+
   // The atlas the review pinned answers where the repository is; a review carries the
   // version, and the listing is what turns a version into a path.
   const repositories = useQuery({
@@ -1002,15 +927,9 @@ export function ReviewDetailPage() {
       // repository's code, not whatever the clone last held. Anyone else's working copy
       // comes back managed:false untouched, so this is safe to ask unconditionally.
       await api.refreshRepository(repositoryRoot);
-      // The check always runs, and a revision that would move nothing is reported rather
-      // than recorded: the workspace has already worked out the whole partition by the time
-      // it answers, so this is the run's own first decision and not a guess at it. Nothing
-      // was written, which is why the button can leave the reader exactly where they are.
-      const preflight = await api.preflightRepository(repositoryRoot);
-      if (!preflight.changed) {
-        setUnchanged(true);
-        return;
-      }
+      // No check here: a revision that would move nothing is the run's own first decision,
+      // refused inside the service before anything is written, and the run's holder shows
+      // the notice wherever the reader is. This handler only starts the run.
       const revision = await api.startFromRepository(repositoryRoot);
       if (!revision.case_id) {
         throw new Error("The workspace returned a case without an identifier.");
@@ -1130,7 +1049,7 @@ export function ReviewDetailPage() {
   const cleared = reviewed.length - material;
   const openQuestions = report?.overview.open_questions || [];
   const answered = pinnedCase.data?.answered?.answers || [];
-  const askedEarlier = earlierPass.data?.report?.overview?.open_questions || [];
+  const askedEarlier = askingPass.data?.report?.overview?.open_questions || [];
   const title = report?.case_title || pinnedCase.data?.snapshot?.title || shortId(reviewId);
 
   // Both passes are stored, both judged the same atlas, and the only difference between them
@@ -1417,17 +1336,9 @@ export function ReviewDetailPage() {
           currentId={reviewId}
           reviews={allReviews.data || []}
           branches={branchLineages.data || []}
-          onNewRevision={() => {
-            // Cleared on the way in, not on the way out: the notice is about the check that
-            // just ran, and leaving the previous answer on screen while a new one is being
-            // worked out would date it by however long the check takes.
-            setUnchanged(false);
-            newRevision.mutate();
-          }}
+          onNewRevision={() => newRevision.mutate()}
           starting={newRevision.isPending || run.running || running}
           startError={newRevision.error instanceof Error ? newRevision.error : null}
-          unchanged={unchanged}
-          onDismissUnchanged={() => setUnchanged(false)}
         />
       ) : null}
       <PassesRail chain={chainAround(reviewId, siblings.data || [])} currentId={reviewId} />

@@ -11,6 +11,7 @@ from archcompass.domain.case import ArchitectureCase, RepositoryReference
 from archcompass.domain.errors import (
     ConversationNotFoundError,
     ConversationValidationError,
+    PolicyFormatError,
     ProviderError,
 )
 from archcompass.domain.review import BoundaryReview
@@ -146,6 +147,23 @@ def test_the_whole_corpus_and_primer_reach_the_answering_stage(
     assert (
         f"the method primer and {presented} policies, whole" in message.answer.answer
     ), message.answer.answer
+
+
+def test_the_pinned_atlas_map_reaches_the_answering_stage(runtime: Runtime) -> None:
+    """The structural answer to "what else is in this repository?" — counted by the
+    substitute, like background, to observe the wiring without model prose."""
+
+    review = _review(runtime)
+    conversation = runtime.review_conversation_service.create(review.review_id)
+
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id,
+        "What other modules import the one you flagged?",
+    )
+
+    assert message.answer is not None
+    assert "Atlas map: " in message.answer.answer, message.answer.answer
+    assert "Atlas map: 0 modules" not in message.answer.answer
 
 
 def test_prose_arrives_before_the_answer_does_and_matches_it(runtime: Runtime) -> None:
@@ -293,13 +311,18 @@ def test_a_question_is_still_answered_when_the_corpus_cannot_be_read(
     runtime: Runtime,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Background is an aid. Losing it must not take a working conversation off a person."""
+    """Background is an aid. Losing it must not take a working conversation off a person.
+
+    And the stage is told the corpus was unavailable rather than handed an empty one: "this
+    workspace has no policies" and "the policies could not be read" call for different
+    answers to a reader asking about policy.
+    """
 
     review = _review(runtime)
     conversation = runtime.review_conversation_service.create(review.review_id)
 
     def broken(*_: object, **__: object) -> None:
-        raise RuntimeError("the policy corpus could not be read")
+        raise PolicyFormatError("a workspace policy collides with a bundled one")
 
     monkeypatch.setattr(
         runtime.review_conversation_service._policies,
@@ -315,7 +338,34 @@ def test_a_question_is_still_answered_when_the_corpus_cannot_be_read(
     assert message.answer is not None
     # The primer is bundled and still there, so background degrades to it rather than
     # vanishing; what must not happen is the turn failing.
-    assert "the method primer and 0 policies, whole" in message.answer.answer
+    assert "policy corpus unavailable" in message.answer.answer
+    assert "a workspace policy collides with a bundled one" in message.answer.answer
+
+
+def test_an_unexpected_corpus_failure_is_not_swallowed(
+    runtime: Runtime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Degrading is for the failures a corpus actually has. A bug swallowed into "0
+    policies" would spend its whole life disguised as a workspace without policies."""
+
+    review = _review(runtime)
+    conversation = runtime.review_conversation_service.create(review.review_id)
+
+    def broken(*_: object, **__: object) -> None:
+        raise RuntimeError("a bug, not a corpus problem")
+
+    monkeypatch.setattr(
+        runtime.review_conversation_service._policies,
+        "catalog",
+        broken,
+    )
+
+    with pytest.raises(RuntimeError, match="a bug, not a corpus problem"):
+        runtime.review_conversation_service.ask(
+            conversation.conversation_id,
+            "What did you make of the TaskFormatter boundary?",
+        )
 
 
 def test_a_blank_or_oversized_question_is_refused(runtime: Runtime) -> None:

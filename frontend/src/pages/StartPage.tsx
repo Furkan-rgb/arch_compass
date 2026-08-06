@@ -395,6 +395,11 @@ export function StartPage() {
   // price ahead of the value.
   const reviewRepository = useMutation({
     mutationFn: async (root: string) => {
+      // A managed checkout is brought current first, exactly as the review page's New
+      // revision does: "run a review" means the repository's code, not whatever the clone
+      // last held. Anyone else's working copy comes back managed:false untouched, so this
+      // is safe to ask unconditionally.
+      await api.refreshRepository(root);
       const revision = await api.startFromRepository(root);
       if (!revision.case_id) {
         throw new Error("The workspace returned a case without an identifier.");

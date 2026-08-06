@@ -29,6 +29,7 @@ from archcompass.bootstrap import Runtime, build_runtime, pinned_model
 from archcompass.domain.atlas import FindingCandidate, FindingPattern
 from archcompass.domain.case import ArchitectureCase, RepositoryReference
 from archcompass.domain.delta import BoundaryLineEventType, BoundaryState, JudgedBecause
+from archcompass.domain.errors import NothingToReviewError
 from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
     BoundaryReview,
@@ -307,36 +308,34 @@ def test_a_first_revision_judges_everything_and_says_it_had_nothing_to_compare_w
     assert reasoner.judgements == 2, "and every one of them was paid for"
 
 
-def test_an_unchanged_rerun_carries_everything_and_asks_about_nothing(
+def test_an_unchanged_rerun_is_refused_before_anything_is_written(
     workspace: Runtime, reasoner: RecordingReasoner, case_id: str, repository: Path
 ) -> None:
-    """The headline promise: a revision over untouched code costs nothing and says nothing.
+    """The headline promise: a revision that would change nothing is reported, not recorded.
 
-    Not merely that the verdicts were cached — that was already true — but that the run had
-    no judged subset at all, so the elicitation stage was never reached. Re-asking a settled
-    question is impossible here rather than avoided, because there is nothing left in the run
-    to compose a question from.
+    Refused by the run itself rather than by whichever button asked — the service works out
+    the whole partition before the run has a record, so every caller gets the same answer,
+    and a branch's history stays a line of what happened to the code rather than of who
+    pressed what. The refusal names the revision the repository is already up to date with,
+    and the three tables a revision appends to are exactly as they were.
     """
 
-    _review(workspace, case_id, repository)
+    first = _review(workspace, case_id, repository)
+    before = _rows(workspace)
     paid = reasoner.judgements
     asked = len(reasoner.elicited)
 
-    second = _review(workspace, case_id, repository)
+    with pytest.raises(NothingToReviewError, match="Nothing has changed") as refusal:
+        _review(workspace, case_id, repository)
 
-    assert reasoner.judgements == paid, "no boundary was put to the model again"
+    assert refusal.value.current_against == first.review_id, (
+        "the reader is told which revision they are already up to date with"
+    )
+    assert _rows(workspace) == before, (
+        "no case revision, no review row, and nothing on the branch's ledger"
+    )
+    assert reasoner.judgements == paid, "no boundary was put to the model to find that out"
     assert len(reasoner.elicited) == asked, "and the asking stage was never reached"
-    report = _report(second)
-    assert report.overview.open_questions == []
-    assert second.status is ReviewStatus.SUCCEEDED
-    delta = report.delta
-    assert delta is not None
-    assert delta.first_revision is False
-    assert (delta.carried, delta.judged, delta.succeeded, delta.addressed) == (2, 0, 0, 0)
-    assert delta.quiet, "a revision that moved nothing has nothing for anyone to look at"
-    assert all(
-        item.judged_because is None for item in report.reviewed
-    ), "a carried boundary has no input that moved, so there is nothing to name"
 
 
 def test_a_rewrite_that_renames_nothing_is_judged_again(
@@ -585,77 +584,33 @@ def _rows(workspace: Runtime) -> dict[str, int]:
         }
 
 
-def test_a_preflight_over_an_untouched_repository_reports_and_records_nothing(
+def test_a_quiet_second_pass_is_still_recorded_because_it_closes_the_loop(
     workspace: Runtime, reasoner: RecordingReasoner, case_id: str, repository: Path
 ) -> None:
-    """Pressing New revision always checks; a check that finds nothing leaves nothing behind.
+    """The one caller the refusal must not touch: a second pass over untouched code.
 
-    The reason the check is worth having at all: a branch's history is the line of what
-    happened to the code, and a revision whose whole content is that somebody pressed a button
-    is noise in the one place a reader goes for signal. So the partition runs, says every
-    boundary would carry, and the three tables a revision appends to are exactly as they were.
+    A reader may answer nothing at all, and the loop still has to end — the second pass
+    concludes without asking again, which only works if it is allowed to run when every
+    boundary would carry. So the quiet gate applies to first passes alone, and this run
+    records a revision whose whole delta is carried verdicts: not noise, but the record
+    that the round was closed.
     """
 
     first = _review(workspace, case_id, repository)
-    before = _rows(workspace)
     paid = reasoner.judgements
 
-    answer = workspace.preflight_service.check(repository)
-
-    assert answer.changed is False
-    assert answer.current_against == first.review_id, (
-        "the reader is told which revision they are already up to date with"
+    second = workspace.review_service.review(
+        case_id, repository_root=repository, elicited_from=first.review_id
     )
-    assert (answer.judged, answer.succeeded, answer.addressed, answer.resurfaced) == (
-        0,
-        0,
-        0,
-        0,
-    )
-    assert _rows(workspace) == before, (
-        "no case revision, no review row, and nothing on the branch's ledger"
-    )
-    assert reasoner.judgements == paid, "and nothing was put to a model to find that out"
 
-
-def test_an_edited_file_makes_the_preflight_say_the_revision_would_be_real(
-    workspace: Runtime, case_id: str, repository: Path
-) -> None:
-    """The other half: the check has to be able to say yes, and to say roughly why.
-
-    The same edit `test_a_rewrite_that_renames_nothing_is_judged_again` uses, so what the
-    pre-flight promises here and what the revision goes on to record are answers to the same
-    question — one judged boundary, the other carried — reached before and after the run.
-    """
-
-    _review(workspace, case_id, repository)
-    (repository / "disk.py").write_text(REWRITTEN_DISK, encoding="utf-8")
-
-    answer = workspace.preflight_service.check(repository)
-
-    assert answer.changed is True
-    assert answer.judged == 1, "the rewritten boundary, and only it"
-    assert (answer.succeeded, answer.addressed, answer.resurfaced) == (0, 0, 0)
-
-
-def test_a_branch_with_no_revisions_is_always_a_real_revision(
-    workspace: Runtime, repository: Path
-) -> None:
-    """A first revision cannot be the same as a revision that does not exist.
-
-    Nothing has been reviewed here, so there is no case to continue and nothing to compare
-    with. The honest answer is `changed` with nothing named — and it must arrive without a
-    case being opened on the way, which is the trap a read-only check that reuses the start
-    step's lookup walks into.
-    """
-
-    before = _rows(workspace)
-
-    answer = workspace.preflight_service.check(repository)
-
-    assert answer.changed is True
-    assert answer.current_against is None
-    assert _rows(workspace) == before, "asking cost the workspace no case of its own"
+    assert second.status is ReviewStatus.SUCCEEDED
+    report = _report(second)
+    assert report.overview.open_questions == [], "a second pass never asks"
+    delta = report.delta
+    assert delta is not None
+    assert (delta.carried, delta.judged) == (2, 0)
+    assert delta.quiet
+    assert reasoner.judgements == paid, "every verdict was carried, none was paid for again"
 
 
 def test_two_branches_of_one_repository_are_two_lines(

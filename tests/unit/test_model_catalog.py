@@ -226,7 +226,7 @@ def test_budgets_are_clamped_down_to_the_chosen_model_and_never_up() -> None:
     Choosing a smaller model leaves them generous, which is the direction that lets an
     oversize request through to be truncated rather than refused. Choosing a larger one must
     not raise them: they are deliberately below what the vendor advertises, and
-    `max_output_tokens` is capped at 32768 by the schema anyway.
+    `max_output_tokens` is capped at 65536 by the schema anyway.
     """
 
     service = _service(
@@ -253,6 +253,40 @@ def test_budgets_are_clamped_down_to_the_chosen_model_and_never_up() -> None:
     large = service.current()
     assert large is not None
     assert (large.context_window_tokens, large.max_output_tokens) == (131072, 32768)
+
+
+def test_google_inherits_a_gemini_sized_context_window() -> None:
+    """The 131072 default in `ProviderDefaults` is sized for a self-hosted provider.
+
+    Gemini advertises ~1M input tokens, and holding it to the generic default made every
+    stage refuse requests the model would have taken comfortably. The probe-based clamp
+    still pulls the number down for a smaller model, so generosity here is safe.
+    """
+
+    from archcompass.adapters.models.google import DESCRIPTOR
+
+    assert DESCRIPTOR.defaults.context_window_tokens == 1_048_576
+
+    service = _service(
+        _descriptor(
+            "google",
+            _answering(
+                AvailableModel(name="gemini-huge"),
+                AvailableModel(name="gemini-small", input_token_limit=131072),
+            ),
+            DESCRIPTOR.defaults,
+        )
+    )
+
+    service.select("google", "gemini-huge", True)
+    unclamped = service.current()
+    assert unclamped is not None
+    assert unclamped.context_window_tokens == 1_048_576
+
+    service.select("google", "gemini-small", True)
+    clamped = service.current()
+    assert clamped is not None
+    assert clamped.context_window_tokens == 131072
 
 
 def test_the_catalog_reports_an_unreachable_provider_rather_than_hiding_it() -> None:

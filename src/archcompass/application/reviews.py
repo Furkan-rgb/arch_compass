@@ -55,12 +55,12 @@ from archcompass.domain.delta import (
     BoundaryState,
     JudgedBecause,
     RevisionDelta,
-    RevisionPreflight,
     match_successions,
 )
 from archcompass.domain.errors import (
     ArchCompassError,
     AtlasNotFoundError,
+    NothingToReviewError,
     ReviewCancelledError,
 )
 from archcompass.domain.finding_detectors import detect_finding_candidates
@@ -252,6 +252,7 @@ class ReviewService:
         *,
         repository_root: Path,
         elicited_from: str | None = None,
+        allow_unchanged: bool = False,
         on_started: Callable[[BoundaryReview], None] | None = None,
         on_detected: Callable[[Sequence[FindingCandidate]], None] | None = None,
         on_verdict: Callable[[JudgedCandidate, int, int], None] | None = None,
@@ -265,6 +266,14 @@ class ReviewService:
         that could not settle themselves, and stops there if it has anything to ask. Present,
         it names the first pass whose questions produced this case revision, and this run
         judges and concludes without asking again — which is what makes the loop terminate.
+
+        A first pass over a branch nothing has moved on is refused with
+        `NothingToReviewError` before anything is written: a revision that would change
+        nothing is reported, not recorded, and the refusal happens here so every caller —
+        either page, the CLI, the API — gets the same answer from the same arithmetic.
+        `allow_unchanged` is the stated exemption for a caller whose result *is* the delta:
+        a CI re-run over untouched code needs the carried partition to say nothing new
+        blocks, and has nothing to compute that from if the run refuses itself.
 
         `on_started` is called once the run has a record, which is the first moment it has
         an identity: everything that could refuse the run has passed, and the review can be
@@ -283,10 +292,6 @@ class ReviewService:
         revision = self._cases.get(case_id)
         atlas = self._load_atlas(repository_root)
         self._freshness.ensure_fresh(atlas)
-        # The run becomes a record here, before the first model call and after everything
-        # that could refuse it. Earlier would store runs that never began; later is the
-        # minutes-long gap this exists to close — a review nobody can find while it is being
-        # produced looks the same as one that was never started.
         running = BoundaryReview(
             status=ReviewStatus.RUNNING,
             case_id=revision.case_id,
@@ -306,6 +311,54 @@ class ReviewService:
                 ReasoningTask.JUDGE_FINDING_CANDIDATE
             ),
         )
+        # Everything deterministic and local happens before the run has a record: the
+        # policies are read, the candidates detected, the code under them hashed, and the
+        # partition computed. This is the same arithmetic the run itself goes on to use —
+        # one computation, so a refusal and a run can never disagree about whether anything
+        # moved.
+        #
+        # Ordered once, here, and passed to every judgement unchanged. The response binds
+        # to policies by position, so the order is part of the contract rather than a
+        # presentation detail: re-sorting between the request and the result would
+        # re-attribute every answer.
+        policies = sorted(
+            self._policies.catalog(repository_root=repository_root),
+            key=lambda policy: policy.id,
+        )
+        candidates = detect_finding_candidates(atlas)
+        contents, keys = self._inputs_identities(
+            running,
+            candidates=candidates,
+            revision=revision,
+            policies=policies,
+            repository_root=repository_root,
+        )
+        delta = self._partition(running, candidates=candidates, contents=contents, keys=keys)
+        # A revision that would change nothing is reported, not recorded — refused here,
+        # before anything is written, so every caller gets the same answer whichever button
+        # or client asked. Only a first pass refuses: a second pass whose reader answered
+        # nothing is quiet by the same arithmetic, and it must still run, because
+        # concluding without asking again is what terminates the loop. A first revision is
+        # never quiet whatever the counts say — a repository with no boundaries at all
+        # would otherwise be told nothing had changed since a revision that does not exist.
+        counted = delta.counted()
+        if (
+            not allow_unchanged
+            and elicited_from is None
+            and not counted.first_revision
+            and counted.quiet
+        ):
+            assert counted.previous_review_id is not None
+            raise NothingToReviewError(
+                "Nothing has changed since this branch's latest revision — the code, the "
+                "case and the policies are the same, so a new revision would repeat it. "
+                "Nothing was recorded.",
+                current_against=counted.previous_review_id,
+            )
+        # The run becomes a record here, before the first model call and after everything
+        # that could refuse it. Earlier would store runs that never began; later is the
+        # minutes-long gap this exists to close — a review nobody can find while it is being
+        # produced looks the same as one that was never started.
         self._reviews.begin(running)
         if on_started is not None:
             on_started(running)
@@ -313,9 +366,13 @@ class ReviewService:
             return self._judge(
                 running,
                 revision=revision,
-                atlas=atlas,
                 repository_root=repository_root,
                 started=started,
+                policies=policies,
+                candidates=candidates,
+                contents=contents,
+                keys=keys,
+                delta=delta,
                 on_detected=on_detected,
                 on_verdict=on_verdict,
                 on_eliciting=on_eliciting,
@@ -338,81 +395,6 @@ class ReviewService:
             # correct it.
             self._fail(running, "The review failed unexpectedly, and nothing was judged.", started)
             raise
-
-    def preflight(
-        self,
-        *,
-        repository_root: Path,
-        revision: CaseRevision | None,
-    ) -> RevisionPreflight:
-        """What a revision judged now would find, worked out without starting one.
-
-        The whole of a run up to the point where it would first cost something: the atlas is
-        read, the candidates are detected, the code under each of them is hashed, and the
-        partition is computed against the branch's latest revision. Every one of those steps
-        is deterministic and local — detection is a pure function of the atlas, and the
-        partition is a comparison of stored identities — so the answer is exact rather than a
-        guess, and it is reached with no model call.
-
-        **Nothing is written.** No case revision, no review row, no ledger event. The run this
-        describes is represented by a `BoundaryReview` that is constructed and never stored:
-        it is the carrier for the five inputs a partition needs to be about a particular
-        run — the case and its revision, the model, the prompt, the branch — and building the
-        real one is exactly what this exists to avoid. Its fresh id excludes no stored row,
-        so the "previous" revision it finds is the branch's current tip, which is what the
-        answer is *about*: the reader is being told what they are already up to date with.
-
-        `revision` is the case the run would judge against, or `None` where the branch has no
-        case yet. `None` answers changed straight away, and honestly: a branch nobody has
-        reviewed has nothing behind it, so its next revision is its first and a first revision
-        is real by definition.
-
-        Freshness is not checked. The caller has just re-indexed, so the atlas is the code on
-        disk; a staleness error here would be a way for a read-only check to fail at something
-        the run it is about would have to face anyway.
-        """
-
-        if revision is None:
-            return RevisionPreflight(changed=True)
-        atlas = self._load_atlas(repository_root)
-        policies = sorted(
-            self._policies.catalog(repository_root=repository_root),
-            key=lambda policy: policy.id,
-        )
-        candidates = detect_finding_candidates(atlas)
-        would_be = BoundaryReview(
-            status=ReviewStatus.RUNNING,
-            case_id=revision.case_id,
-            case_revision=revision.revision,
-            atlas_version_id=atlas.version.version_id,
-            repo_id=atlas.version.repo_id,
-            branch_id=atlas.version.branch_id,
-            reasoning_model=self._reasoner.model_identity,
-            prompt_identity=self._reasoner.prompt_identity(
-                ReasoningTask.JUDGE_FINDING_CANDIDATE
-            ),
-        )
-        contents, keys = self._inputs_identities(
-            would_be,
-            candidates=candidates,
-            revision=revision,
-            policies=policies,
-            repository_root=repository_root,
-        )
-        counted = self._partition(
-            would_be, candidates=candidates, contents=contents, keys=keys
-        ).counted()
-        return RevisionPreflight(
-            # A first revision is always a change, whatever the counts say. A repository with
-            # no boundaries at all would otherwise be `quiet` on its very first look and be
-            # told nothing had changed since a revision that does not exist.
-            changed=counted.first_revision or not counted.quiet,
-            current_against=counted.previous_review_id,
-            judged=counted.judged,
-            addressed=counted.addressed,
-            resurfaced=counted.resurfaced,
-            succeeded=counted.succeeded,
-        )
 
     def _inputs_identities(
         self,
@@ -458,35 +440,26 @@ class ReviewService:
         running: BoundaryReview,
         *,
         revision: CaseRevision,
-        atlas: Atlas,
         repository_root: Path,
         started: float,
+        policies: list[PolicyDocument],
+        candidates: Sequence[FindingCandidate],
+        contents: dict[str, str],
+        keys: dict[str, str],
+        delta: _Delta,
         on_detected: Callable[[Sequence[FindingCandidate]], None] | None,
         on_verdict: Callable[[JudgedCandidate, int, int], None] | None,
         on_eliciting: Callable[[], None] | None,
         on_summarising: Callable[[], None] | None,
     ) -> BoundaryReview:
-        # Ordered once, here, and passed to every judgement unchanged. The response binds
-        # to policies by position, so the order is part of the contract rather than a
-        # presentation detail: re-sorting between the request and the result would
-        # re-attribute every answer.
-        policies = sorted(
-            self._policies.catalog(repository_root=repository_root),
-            key=lambda policy: policy.id,
-        )
-        candidates = detect_finding_candidates(atlas)
+        # Detection, hashing and the partition happened in `review`, before the run had a
+        # record — they are what decides whether there is a run to record. What happens
+        # here is everything that costs or writes.
+        #
         # Now the run has a length, which is the one number a reader watching it needs.
         self._reviews.record_progress(running.review_id, detected=len(candidates))
         if on_detected is not None:
             on_detected(candidates)
-        contents, keys = self._inputs_identities(
-            running,
-            candidates=candidates,
-            revision=revision,
-            policies=policies,
-            repository_root=repository_root,
-        )
-        delta = self._partition(running, candidates=candidates, contents=contents, keys=keys)
         judged: list[JudgedCandidate] = []
         reused_from: dict[str, str] = {}
         material = 0

@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient
 from archcompass.adapters.models.deterministic import DETERMINISTIC_MODEL
 from archcompass.application.cases import WrittenAnswer
 from archcompass.bootstrap import Runtime, build_runtime, pinned_model
+from archcompass.domain.errors import NothingToReviewError
 from archcompass.domain.review import BoundaryReview, ReviewStatus
 from archcompass.presentation.web import create_app
 
@@ -99,16 +100,16 @@ def test_a_repeat_review_continues_the_answered_case_and_concludes_in_one_pass(
 ) -> None:
     """The headline: coming back to a repository resumes the case, and it shows.
 
-    Three runs, and the third is the one under test. One and two are the ordinary loop — ask,
-    answer, conclude — and they are here because they are what leaves something to continue
-    from. The third names no case at all, which is exactly what the browser sends when
-    somebody points at a repository they have reviewed before.
+    Three visits, and the third is the one under test. One and two are the ordinary loop —
+    ask, answer, conclude — and they are here because they are what leaves something to
+    continue from. The third names no case at all, which is exactly what the browser sends
+    when somebody points at a repository they have reviewed before.
 
-    Everything asserted about it falls out of reusing the case at the revision the answers
-    reached, and none of it out of a special path through the run: the cache keys on the case
-    and its revision, so every verdict is carried rather than reasoned again; and the
-    elicitation stage reads a case that now answers the question it used to ask, so a first
-    pass finds nothing unstated and concludes on the spot.
+    Continuity is what makes the third visit's answer honest: it resumes the same case at
+    the revision the answers reached, so the partition finds nothing moved — not the code,
+    not the case — and the run refuses to record a revision that would repeat the concluded
+    one. The reader is told which revision they are already current against instead of
+    being handed a copy of it, and not one model call is spent finding that out.
     """
 
     case_id = _started(workspace, repository)
@@ -128,22 +129,19 @@ def test_a_repeat_review_continues_the_answered_case_and_concludes_in_one_pass(
         "and it arrives holding the answers, which is the whole point of continuing it"
     )
 
-    third = workspace.review_service.review(continued, repository_root=repository)
+    with pytest.raises(NothingToReviewError) as refused:
+        workspace.review_service.review(continued, repository_root=repository)
 
-    # One pass. Nobody named a first pass for it to answer, and it still concluded, because
-    # there was nothing left to ask about.
-    assert third.elicited_from is None
-    assert third.status is ReviewStatus.SUCCEEDED
-    report = third.report
-    assert report is not None
-    assert report.overview.open_questions == []
-    assert [item.verdict_reused_from for item in report.reviewed] == [
-        second.review_id
-    ] * len(report.reviewed), "every verdict came from the cache, at no model's expense"
-    # And exactly one run in this repository's history ever stopped to ask.
+    assert refused.value.current_against == second.review_id, (
+        "the repeat visit is told it is already current with the concluded pass"
+    )
+    # The line still holds exactly the loop that ran: one pass that asked, one that
+    # concluded, and nothing appended by coming back to look.
+    recorded = workspace.review_repository.list(case_id=case_id)
+    assert {item.review_id for item in recorded} == {first.review_id, second.review_id}
     waiting = [
         item
-        for item in workspace.review_repository.list(case_id=case_id)
+        for item in recorded
         if item.status == ReviewStatus.AWAITING_ANSWERS.value
     ]
     assert [item.review_id for item in waiting] == [first.review_id]

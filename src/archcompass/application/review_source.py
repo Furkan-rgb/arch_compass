@@ -34,6 +34,7 @@ from pathlib import Path
 
 from archcompass.application.atlas_freshness import AtlasFreshnessService
 from archcompass.domain.atlas import FindingCandidate, FindingParticipant, SourceLocation
+from archcompass.domain.atlas_map import AtlasMap, compact_atlas_map
 from archcompass.domain.errors import (
     ArchCompassError,
     AtlasNotFoundError,
@@ -84,6 +85,10 @@ class ReviewSourceService:
         self._atlases = atlases
         self._source_reader = source_reader
         self._freshness = freshness
+        # One entry, keyed by atlas version. Conversation evidence is reassembled on every
+        # turn, and the atlas behind it is a full nodes-edges-metrics blob; a turn about
+        # the same review must not reload it to fold it to the same map.
+        self._map_cache: tuple[str, AtlasMap] | None = None
 
     def for_review(
         self,
@@ -132,15 +137,39 @@ class ReviewSourceService:
         if report.excerpts:
             # Unfolding was asked for. Read it now, and fall back to the pinned copy where
             # the repository can no longer answer — an excerpt that could not grow is a
-            # better result than one that disappeared.
+            # better result than one that disappeared. The substitute carries a provenance
+            # caption rather than passing as a live read: the reader is looking at the code
+            # as it was judged, and the difference is worth a sentence exactly when the
+            # repository has moved on.
             expanded = self._read_boundaries(review, wanted, context)
             return [
-                stored if not live.text and stored is not None else live
+                self._grown_or_pinned(live, stored)
                 for live, stored in zip(
                     expanded, self._pinned_for(report.excerpts, expanded), strict=True
                 )
             ]
         return self._read_boundaries(review, wanted, context)
+
+    def atlas_map_for(self, review: BoundaryReview) -> AtlasMap:
+        """The pinned atlas folded to a map a conversation stage can carry.
+
+        No freshness check, deliberately: the map describes the structure the review was
+        judged against, which is what a conversation pinned to that review should be shown
+        — the pinned copy is the right copy even when the repository has moved on. Only an
+        atlas the workspace no longer holds produces a map that says so instead.
+        """
+
+        if self._map_cache is not None and self._map_cache[0] == review.atlas_version_id:
+            return self._map_cache[1]
+        try:
+            atlas = self._atlases.get(review.atlas_version_id)
+        except (AtlasNotFoundError, ArchCompassError) as error:
+            return AtlasMap(
+                unavailable=f"The atlas this review pinned is no longer available: {error}"
+            )
+        folded = compact_atlas_map(atlas)
+        self._map_cache = (review.atlas_version_id, folded)
+        return folded
 
     def content_fingerprints(
         self,
@@ -243,6 +272,30 @@ class ReviewSourceService:
         ]
 
     @staticmethod
+    def _grown_or_pinned(
+        live: BoundaryExcerpt, stored: BoundaryExcerpt | None
+    ) -> BoundaryExcerpt:
+        """The expanded read when it worked, otherwise the pinned copy, captioned.
+
+        The caption belongs on exactly the substitution: a pinned copy served because the
+        live read was refused is code the repository no longer says, and a reader — and
+        the stage reading it aloud — must not take it for the code as it is now.
+        """
+
+        if live.text or stored is None:
+            return live
+        if not stored.text:
+            return stored
+        return stored.model_copy(
+            update={
+                "provenance": (
+                    "The repository has changed since this review ran; this is the "
+                    "code as it was when it was reviewed."
+                )
+            }
+        )
+
+    @staticmethod
     def _pinned_for(
         stored: list[BoundaryExcerpt],
         live: list[BoundaryExcerpt],
@@ -312,13 +365,15 @@ class ReviewSourceService:
         root: Path,
         context: int,
     ) -> BoundaryExcerpt:
+        first = max(1, location.start_line - context)
+        ceiling = MAX_EXCERPT_LINES + 2 * MAX_CONTEXT_LINES
         try:
             text = self._source_reader.excerpt(
                 root=root,
                 relative_path=location.path,
-                start_line=max(1, location.start_line - context),
+                start_line=first,
                 end_line=location.end_line + context,
-                max_lines=MAX_EXCERPT_LINES + 2 * MAX_CONTEXT_LINES,
+                max_lines=ceiling,
             )
         except (PathValidationError, OSError, UnicodeDecodeError) as error:
             return self._without_text(
@@ -337,12 +392,21 @@ class ReviewSourceService:
                 location,
                 "Those lines are no longer present in this file.",
             )
+        # The ceiling is decided here, so whether it clipped is known here — the reader
+        # only ever returns what it was allowed to. Marked on the excerpt rather than left
+        # silent: a stage shown half a span with no marker answers from the half it saw as
+        # though it were all there is. Hitting the ceiling exactly at end-of-file is
+        # indistinguishable from clipping and marks too, which errs on the honest side.
+        shown = len(text.splitlines())
+        last_shown = first + shown - 1
+        clipped = shown == ceiling and last_shown < location.end_line + context
         return BoundaryExcerpt(
             reference=reference,
             qualified_name=participant.qualified_name,
             role=participant.role,
             location=location,
             text=text,
+            truncated_after_line=last_shown if clipped else None,
         )
 
     @staticmethod

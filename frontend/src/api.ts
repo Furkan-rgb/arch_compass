@@ -24,10 +24,10 @@ import type {
   ReviewConversation,
   ReviewMessage,
   ReviewProgress,
+  ReviewRunOutcome,
   RepositoryBranch,
   RepositoryCheckout,
   RepositorySummary,
-  RevisionPreflight,
   ModelCatalog,
   WorkspaceSummary,
 } from "./types";
@@ -305,8 +305,9 @@ export const api = {
     onProgress: (event: ReviewProgress) => void,
     /** The review this run answers, where it is the second pass of an elicitation. */
     elicitedFrom?: string | null,
-  ): Promise<BoundaryReview> => {
+  ): Promise<ReviewRunOutcome> => {
     let review: BoundaryReview | null = null;
+    let unchanged = false;
     await streamLines<ReviewProgress>(
       "/api/reviews/stream",
       {
@@ -320,9 +321,15 @@ export const api = {
         if (event.event === "failed") {
           throw new ApiError(event.problem.message, 200, event.problem.code);
         }
+        // Terminal and not a failure: the workspace worked out the whole partition and
+        // refused a revision that would repeat the one before it. Nothing was recorded,
+        // so there is no review to resolve with — the caller is told which kind of
+        // ending it got rather than left to infer it from an absence.
+        if (event.event === "unchanged") unchanged = true;
         if (event.event === "completed") review = event.review;
       },
     );
+    if (unchanged) return { ended: "unchanged" };
     if (!review) {
       throw new ApiError(
         "The review ended without producing a result.",
@@ -330,7 +337,7 @@ export const api = {
         "incomplete_stream",
       );
     }
-    return review;
+    return { ended: "completed", review };
   },
 
   reviewConversations: (reviewId: string) =>
@@ -449,16 +456,6 @@ export const api = {
   // `managed: false` and untouched, so this is safe to call before any review.
   refreshRepository: (rootPath: string) =>
     request<CheckoutRefresh>("/api/repositories/refresh", {
-      method: "POST",
-      body: JSON.stringify({ root_path: rootPath }),
-    }),
-  // Whether a new revision would find anything, asked before one is created. The repository
-  // is re-indexed and the delta is worked out; `changed: false` means every boundary would
-  // carry, and in that case no case revision, no review and no ledger event were written —
-  // the caller has been told the answer instead of being handed a revision that repeats the
-  // one above it.
-  preflightRepository: (rootPath: string) =>
-    request<RevisionPreflight>("/api/repositories/preflight", {
       method: "POST",
       body: JSON.stringify({ root_path: rootPath }),
     }),

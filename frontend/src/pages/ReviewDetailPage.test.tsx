@@ -604,25 +604,123 @@ describe("new revision, when nothing has changed", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it("says so and starts nothing", async () => {
+  it("says so, from the run's own refusal", async () => {
     workspace();
-    vi.spyOn(api, "preflightRepository").mockResolvedValue({
-      changed: false,
-      current_against: "rev_1",
-      judged: 0,
-      addressed: 0,
-      resurfaced: 0,
-      succeeded: 0,
-    });
-    const started = vi.spyOn(api, "startFromRepository");
+    vi.spyOn(api, "startFromRepository").mockResolvedValue({
+      case_id: "case_a",
+    } as never);
+    // The refusal is the stream's: the service works out the partition before anything is
+    // written and answers with one `unchanged` line, so the same notice appears whichever
+    // page started the run — this button and the start page share the path.
+    const streamed = vi
+      .spyOn(api, "streamReview")
+      .mockResolvedValue({ ended: "unchanged" });
 
     open();
     fireEvent.click(await screen.findByRole("button", { name: /New revision/ }));
 
     const notice = await screen.findByRole("status");
     expect(notice.textContent).toContain("Nothing has changed");
-    // The check is the whole of what the button did: no case was opened and no run began, so
-    // the branch's line is exactly as long as it was.
-    expect(started).not.toHaveBeenCalled();
+    expect(streamed).toHaveBeenCalled();
+  });
+});
+
+/**
+ * The answered history reads its questions off the review that asked them, whichever that was.
+ *
+ * A second pass is elicited from the pass it answers, so following that link found the wording
+ * — until a third review judged the same answered revision. It was elicited from nobody, and
+ * every question printed as a placeholder beside a real answer. The case revision names the
+ * review that asked, so that is what this reads.
+ */
+describe("the questions behind a revision's answers", () => {
+  const ASKED = {
+    review_id: "rev_asked",
+    status: "awaiting_answers" as ReviewStatus,
+    case_id: "case_a",
+    case_revision: 1,
+    report: {
+      case_title: "Where narration lives",
+      reviewed: [],
+      overview: {
+        situation: "One supplier, two wrappers.",
+        limits: "Nothing outside the indexed repository was read.",
+        open_questions: [
+          {
+            reference: "Q-1",
+            what_the_review_saw: "One narration provider.",
+            unknown: "whether a second is coming",
+            why_it_matters: "A verdict moves.",
+            question: "Is a second narration provider actually planned?",
+            answer_belongs_in: "expected_future_changes",
+            supporting_references: ["BR-001"],
+          },
+        ],
+      },
+      policies_presented: [],
+    },
+  } as unknown as ReviewDetail;
+
+  // Judged against the answered revision, and elicited from nobody: a fresh review of the
+  // same case, which is the shape that lost the wording.
+  const LATER = {
+    ...ASKED,
+    review_id: "rev_later",
+    status: "succeeded" as ReviewStatus,
+    case_revision: 2,
+    elicited_from: null,
+    report: { ...ASKED.report, overview: { ...ASKED.report!.overview, open_questions: [] } },
+  } as unknown as ReviewDetail;
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("shows the question a recorded answer answered", async () => {
+    vi.spyOn(api, "review").mockImplementation(async (id: string) =>
+      id === "rev_asked" ? ASKED : LATER,
+    );
+    vi.spyOn(api, "reviews").mockResolvedValue([]);
+    vi.spyOn(api, "case").mockResolvedValue({
+      revision: 2,
+      answered: {
+        review_id: "rev_asked",
+        answers: [
+          {
+            question_reference: "Q-1",
+            answer_belongs_in: "expected_future_changes",
+            recorded_text: "For now no, but it could be in the future.",
+          },
+        ],
+      },
+    } as never);
+    vi.spyOn(api, "branches").mockResolvedValue([] as never);
+    vi.spyOn(api, "repositories").mockResolvedValue([] as never);
+
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <MemoryRouter initialEntries={["/reviews/rev_later"]}>
+          <RunProvider>
+            <TooltipProvider>
+              <Routes>
+                <Route path="/reviews/:reviewId" element={<ReviewDetailPage />} />
+              </Routes>
+            </TooltipProvider>
+          </RunProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const tab = await screen.findByRole("tab", { name: /Questions/ });
+    fireEvent.mouseDown(tab);
+    fireEvent.click(tab);
+
+    const history = await screen.findByLabelText("Answers already recorded");
+    await waitFor(() =>
+      expect(history.textContent).toContain(
+        "Is a second narration provider actually planned?",
+      ),
+    );
+    expect(history.textContent).toContain("For now no, but it could be in the future.");
   });
 });

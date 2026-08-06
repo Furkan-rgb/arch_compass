@@ -512,5 +512,12 @@ DESCRIPTOR: Final = ProviderDescriptor(
     name=PROVIDER_NAME,
     build=GoogleReasoningProvider,
     probe=probe_google,
-    defaults=ProviderDefaults(api_key_env="GOOGLE_API_KEY"),
+    defaults=ProviderDefaults(
+        api_key_env="GOOGLE_API_KEY",
+        # Gemini's own window. The generic 131072 default is sized for a self-hosted
+        # provider; a hosted Gemini model advertises ~1M input tokens and the catalog
+        # still clamps this downward to whatever limit the probe actually reported.
+        context_window_tokens=1_048_576,
+        max_output_tokens_thinking=65536,
+    ),
 )

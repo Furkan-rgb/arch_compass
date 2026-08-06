@@ -374,7 +374,17 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
     # questions are pinned in the first pass, the answers on the case revision this pass ran
     # against. Third time this stage truthfully reported an absence that was ours, which is
     # what `ReviewEvidence` exists to stop.
-    version=7,
+    #
+    # v8 closes the review of what reaches this stage against what a reader can ask. Four
+    # additions, each a fact the workspace held and the stage could not see: the pinned
+    # atlas folded to a map, so a question about a module no detector flagged gets a
+    # structural answer instead of "I was not shown that"; each boundary's participants and
+    # recorded relationships, so "what implements this?" no longer depends on the prose
+    # having restated it; captions on excerpts that were clipped short or served from the
+    # pinned copy of a repository that has moved on, so the stage stops answering from half
+    # a span as though it were whole; and a policy corpus that could not be read now says
+    # so, where an empty list read as "this workspace has no policies".
+    version=8,
     stage_contract=_text(
         """
         You are answering a question about a boundary review you have been shown in full.
@@ -430,11 +440,37 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
         repository out of the background alone, and never treat a policy passage as though
         the review had applied it to a boundary it did not.
 
+        Where the policy corpus is shown as unavailable, that is a failure to read it and
+        not an empty corpus: this workspace has policies that could not be loaded for this
+        conversation. Asked about policy, say that, rather than answering as though none
+        exist.
+
+        `pinned_atlas_map` is the structure of the whole repository as it was when the
+        review ran: every module, what each declares, and which module depends on which.
+        It is how a question about code outside the boundaries gets a real answer at the
+        structural level — what exists, where it lives, what imports it — instead of a
+        refusal. It carries no verdicts and no code: it can say that a module exists and
+        what depends on it, never whether it is sound, and it is never grounding — only a
+        boundary can be marked in supported_by. Where the map says something was omitted
+        to fit the budget, the omission is the map's and not the repository's: never
+        conclude from absence in a trimmed map that code does not exist.
+
+        Each boundary carries `participants` and `relationships`: the detector's own record
+        of which elements make the boundary up and which edges it recorded among them.
+        Where relationships says none were recorded, that is a fact about the detector and
+        not about the code — do not report the elements as unrelated.
+
         Each boundary carries `source`: the lines it was measured from, read from the
         repository this review pinned. That is the code, and it is there so that you can
         reason about what it shows — never answer that the review does not contain it. Where
         an entry carries `why_there_is_no_code` instead, that sentence is the answer: the
         repository has changed since the review ran, or the boundary was never written.
+
+        A source entry may carry a `note`, and the note bounds what the code can support.
+        One kind says the excerpt was cut short of its recorded span: reason only from the
+        lines shown and never claim the missing ones say nothing. The other says the code
+        is the pinned copy from review time because the repository has since changed: say
+        so when the reader asks about the code as it is now.
 
         **Do not reproduce those lines in your answer.** Every boundary you mark in
         supported_by is displayed to the reader with its code beside it, from the file, so a
@@ -451,7 +487,9 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
         and say which boundaries settle it. Where it does not, say plainly that the review
         does not answer it rather than reasoning past the evidence — a review that examined
         six boundaries cannot speak about a seventh, and the honest answer is that it was
-        never looked at.
+        never looked at. What the map above changes is the structural half of that answer:
+        "was it looked at" is still no, but what it is and where it sits in the repository
+        you can say, from the map, while judging it is exactly what nothing examined.
 
         That rule is about **claims concerning this repository**, and it is not a reason to
         refuse to help. Showing how to carry out a recommendation this review made is not a
@@ -841,7 +879,27 @@ DISCUSS_OPEN_QUESTION: Final = PromptContract(
     # while the review is still waiting, is shown a handful of boundaries instead of all of
     # them, and its reader is not asking what was found — they are stuck on a question and
     # cannot get a result until they are unstuck.
-    version=1,
+    #
+    # v2 answers a live reply that, asked "how do I know whether it's the same constant?",
+    # re-narrated the four fields of the question — what the review saw, the unknown, why
+    # it matters, what was asked — in order, and concluded nothing. Both worked examples
+    # were meaning-questions, so the primed move was explain-the-frame even when the reader
+    # was asking what the evidence shows. The restatement rule added below is only
+    # answerable because the evidence widened with it: the stage now receives the lines
+    # around each cited span, where before it saw the detector's own spans alone — for a
+    # duplicated constant, the opening line of a declaration and nothing it flows into.
+    #
+    # v2 also carries what the answering stage's v8 carries — the pinned atlas map, each
+    # boundary's participants and recorded relationships, captions on clipped or pinned
+    # excerpts, a corpus that says when it could not be read — and a conclusion where one
+    # exists for the reader to be looking at. A review row never changes status: the loop
+    # concludes in a *new* review, so a question thread's pinned pass stays waiting for
+    # ever while the reader has the successor's conclusion on their page. The payload shows
+    # that conclusion, marked as reached by the later pass, with its groundings matched
+    # back by boundary fingerprint; where nothing has concluded it is withheld, and says
+    # so. "How does this fit the recommendation?" deserved better than a stage that had
+    # never seen the recommendation.
+    version=2,
     stage_contract=_text(
         """
         A review of one repository judged its boundaries, found that some verdicts turned on
@@ -860,12 +918,52 @@ DISCUSS_OPEN_QUESTION: Final = PromptContract(
         asking me this at all?" are ordinary and important questions, and the background
         below is there so you can answer them.
 
+        Other messages ask the opposite: not what the question means but how to tell —
+        "how would I know whether these are the same thing?", "what would show which way
+        this goes?". These ask what the evidence shows, not what the question is, and a
+        reply that walks the reader through what they are being asked answers neither.
+        When the reader asks about their repository, never open by restating the question
+        or re-narrating what the review saw and why it matters: all of that is input you
+        were given, and handing it back adds nothing they can act on. Open with what the
+        code bears on it — each cited span arrives with the lines around it, and what
+        those lines show or fail to show is the substance of the reply: a value flowing
+        somewhere or nowhere, a neighbouring declaration of the same shape, an import
+        that is or is not there. Where the lines you are shown do not settle it, say that
+        plainly, then say what would settle it and where in their repository it lives —
+        which file to look in and what finding one thing or the other there would mean —
+        which is an answer they can act on.
+
         Answer about their repository from the boundaries you are shown, which carry the
         reasoning that reached each verdict, the measurements each was detected from, and
         what the detector says it could not see. You have a handful of boundaries and not the
         whole review: they are the ones this question would settle. A question about
         something outside them is one you cannot answer from evidence, and saying that
         plainly is better than reasoning past it.
+
+        Each boundary carries `participants` and `relationships` — the detector's own
+        record of which elements make it up and which edges it recorded among them; where
+        none were recorded, that is a fact about the detector, not a claim that the code
+        is unrelated. Each carries `source`, and an entry may carry a `note` that bounds
+        what the code can support: an excerpt cut short of its recorded span means the
+        missing lines may say anything, and a pinned copy of a repository that has since
+        changed means the code shown is the code as it was reviewed. `pinned_atlas_map` is
+        the whole repository's structure at review time — modules, what each declares,
+        what depends on what. It carries no verdicts, so it widens nothing this stage is
+        scoped against, and it is where "what else uses this?" gets a structural answer.
+        Where the policy corpus is shown as unavailable, it could not be read — this
+        workspace is not policy-less, and a reader asking about policy should be told so.
+
+        `conclusion` is present when a conclusion exists for the reader to be looking at:
+        this review's own once it concluded, or — where the field says it was reached by a
+        later pass — the conclusion of the pass that ran after this round's answers were
+        recorded. In that second case the verdicts shown above are still this round's own,
+        and a boundary may have been judged again since; where the two disagree, say both
+        and say why they can differ, rather than silently preferring either. While nothing
+        has concluded it is withheld, and the field says so — tell a reader who asks that
+        the review is still in progress, not that no conclusion exists. When present it is
+        the same index the reader has on their page and adds no fact: entries marked as
+        boundaries not shown in this discussion are outside this thread's scope and cannot
+        be cited — supported_by covers only the boundaries above.
 
         The reader is the authority on their own project and you are not. Whether a second
         vendor is coming, whether a constraint is real, what is deliberately ruled out —

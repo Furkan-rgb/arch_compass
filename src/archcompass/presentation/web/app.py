@@ -34,7 +34,6 @@ from archcompass.bootstrap import Runtime
 from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion, FindingCandidate
 from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
 from archcompass.domain.checkout import CheckoutRefresh, RepositoryCheckout
-from archcompass.domain.delta import RevisionPreflight
 from archcompass.domain.errors import (
     ArchCompassError,
     AtlasNotFoundError,
@@ -49,6 +48,7 @@ from archcompass.domain.errors import (
     ExampleNotFoundError,
     ModelOutputValidationError,
     NoReasoningModelSelectedError,
+    NothingToReviewError,
     PathValidationError,
     PersistenceError,
     PolicyConflictError,
@@ -583,6 +583,21 @@ class ReviewCompleted(APIModel):
     review: BoundaryReview
 
 
+class ReviewUnchanged(APIModel):
+    """The run refused itself: nothing has moved since the branch's latest revision.
+
+    A terminal line and not a failure — the workspace worked the whole partition out and
+    the answer was that a revision would repeat the one before it, so nothing was recorded.
+    Emitted before a `started` line could exist, because refusal happens before the run has
+    a record.
+    """
+
+    event: Literal["unchanged"] = "unchanged"
+    #: The revision this repository is already up to date with.
+    current_against: str
+    message: str
+
+
 class ReviewFailed(APIModel):
     """The run failed. Nothing was persisted; the case and atlas are untouched."""
 
@@ -597,6 +612,7 @@ ReviewProgressLine = Annotated[
     | ReviewEliciting
     | ReviewSummarising
     | ReviewCompleted
+    | ReviewUnchanged
     | ReviewFailed,
     Field(discriminator="event"),
 ]
@@ -1029,37 +1045,6 @@ def create_app(
 
         hosted_mode.checkout()
         return runtime.checkout_service.refresh(request.root_path)
-
-    @app.post(
-        "/api/repositories/preflight",
-        responses=_problem_responses(404, 422),
-    )
-    def preflight_repository(
-        runtime: RuntimeDep,
-        hosted_mode: RestrictionsDep,
-        request: RepositoryPathRequest,
-    ) -> RevisionPreflight:
-        """Whether a new revision would find anything, without creating one.
-
-        What the **New revision** button asks before it starts anything. The repository is
-        re-indexed and the delta is worked out against the branch's latest revision; if every
-        boundary would carry, the caller is told so and no case revision, review or ledger
-        event is written. A real delta comes back as `changed`, and the caller goes on to
-        `/api/repositories/start` exactly as before.
-
-        A POST because it re-indexes: nothing about the review is written, but the atlas is,
-        and a GET that rebuilt an atlas would be a cache's worst nightmare. The path is in the
-        body for the same reason the routes around it take it that way.
-
-        `current_against` names the revision the repository is up to date with, and is `None`
-        only when there is nothing behind this branch — which is also the one case where
-        `changed` is true regardless of the counts, because a first revision cannot be the
-        same as a revision that does not exist.
-        """
-
-        return runtime.preflight_service.check(
-            hosted_mode.repository_root(Path(request.root_path), runtime)
-        )
 
     @app.post(
         "/api/repositories/start",
@@ -1867,6 +1852,7 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
         | ReviewEliciting
         | ReviewSummarising
         | ReviewCompleted
+        | ReviewUnchanged
         | ReviewFailed,
     ) -> None:
         lines.put(event.model_dump_json())
@@ -1921,6 +1907,18 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
                 on_verdict=report_verdict,
                 on_eliciting=lambda: emit(ReviewEliciting(total=detected)),
                 on_summarising=lambda: emit(ReviewSummarising(total=detected)),
+            )
+        except NothingToReviewError as unchanged:
+            # Its own line, not a `failed` one: the run did exactly what it promised, and a
+            # client that showed this as an error would be scolding the reader for having
+            # an up-to-date repository. Every caller of this stream gets the same answer,
+            # whichever page or client started it — that is the point of refusing in the
+            # service rather than in a button.
+            emit(
+                ReviewUnchanged(
+                    current_against=unchanged.current_against,
+                    message=str(unchanged),
+                )
             )
         except ArchCompassError as error:
             # The status is deliberately dropped: the response is already a 200 by the time
@@ -2086,6 +2084,11 @@ def _joined(
 
 
 def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
+    if isinstance(error, NothingToReviewError):
+        # Its own code, because it is not a fault to fix: the request was understood and
+        # the answer is that there is nothing to do. A client can tell it apart from every
+        # conflict that asks the caller to change something.
+        return 409, "nothing_changed", False
     if isinstance(
         error,
         (

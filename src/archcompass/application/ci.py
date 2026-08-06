@@ -283,7 +283,14 @@ class CiRunService:
         """
 
         version = self._repositories.index(repository_root, branch_name=branch_name)
-        review = self._reviews.review(case_id, repository_root=repository_root)
+        # `allow_unchanged`: a pipeline re-run over untouched code still needs its verdict,
+        # and the verdict depends on the delta — carried material does not block under
+        # `new-material`, which is exactly the "quiet by knowing" the check promises. A
+        # refusal here would have nothing to compute that from, so CI is the one first-pass
+        # caller that records a quiet revision rather than being told not to bother.
+        review = self._reviews.review(
+            case_id, repository_root=repository_root, allow_unchanged=True
+        )
         report = review.report
         if report is None:
             raise ReviewHasNoReportError(

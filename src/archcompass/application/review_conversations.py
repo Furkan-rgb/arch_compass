@@ -1,7 +1,8 @@
 """Ask follow-up questions about one immutable boundary review.
 
-No budgets and no rolling summary. A review serialises to roughly 25,000 characters — about
-five per cent of a 128k input budget — so the whole thing goes into every turn along with
+No budgets and no rolling summary. A review serialises to roughly 25,000 characters — a few
+per cent of even the smallest provider's input budget — so the whole thing goes into every
+turn along with
 the history. The V1.2 report conversation needs 3,800 lines of retrieval machinery because
 a consultation's evidence does not fit; here it does, and building the same machinery
 anyway would be indirection in front of one concrete thing.
@@ -25,7 +26,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from archcompass.application.policies import PolicyService
-from archcompass.application.review_source import ReviewSourceService
+from archcompass.application.review_source import MAX_CONTEXT_LINES, ReviewSourceService
 from archcompass.domain.case import AnsweredQuestions
 from archcompass.domain.errors import (
     ArchCompassError,
@@ -258,13 +259,31 @@ class ReviewConversationService:
             # Only the boundaries this question cites, matching what the stage is shown of
             # the review itself: reading source for verdicts it is not allowed to see would
             # widen the input past the scope that makes it safe to run while waiting.
+            #
+            # But widened to surrounding lines *within* those boundaries, which breaches
+            # nothing — scope is which boundaries are read, not how many lines of each. A
+            # detector pins declaration spans, one line for a duplicated constant, and a
+            # discussion is exactly the place those lines are not enough: "how do I know
+            # whether these are the same constant?" is answered by what the value flows
+            # into, the declaration beside it, the import that is or is not there — all
+            # sitting just outside the span. A live reply had nothing but two opening
+            # lines and could only restate the question. The whole-review stage keeps the
+            # pinned spans alone: its reader is asking about verdicts and conclusions
+            # already on their page, not being asked to settle what code outside a span
+            # would settle.
             return ReviewEvidence(
                 case=revision.snapshot,
                 excerpts=[
                     excerpt
                     for reference in about_question.supporting_references
-                    for excerpt in self._source.for_review(review, reference=reference)
+                    for excerpt in self._source.for_review(
+                        review, reference=reference, context_lines=MAX_CONTEXT_LINES
+                    )
                 ],
+                # The map goes to the scoped stage too: it carries no verdicts and no
+                # code, so it widens nothing that the scoping above protects (§6C.6).
+                atlas_map=self._source.atlas_map_for(review),
+                concluded_by=self._concluding_pass(review),
             )
         # Every boundary, because a concluded review shows every boundary. The code follows
         # whatever the stage is already allowed to reason about.
@@ -274,7 +293,38 @@ class ReviewConversationService:
             excerpts=self._source.for_review(review),
             elicitation=elicitation,
             answers_were_recorded=recorded,
+            atlas_map=self._source.atlas_map_for(review),
         )
+
+    def _concluding_pass(self, review: BoundaryReview) -> BoundaryReview | None:
+        """The pass that answered this review's round and concluded, where one exists.
+
+        A review row never changes status: the loop concludes in a *new* review whose
+        `elicited_from` names this one. So while a question-scoped conversation stays
+        pinned to the waiting pass — its question and its verdicts live there — the reader
+        may meanwhile have a conclusion on their page, and "how does this fit the overall
+        recommendation?" is about that conclusion. The link is stored, not inferred: only
+        a successor that names this review counts, and the newest concluded one wins,
+        because that is the page the reader is looking at.
+
+        Withholding still holds where nothing has carried on: no successor, no conclusion.
+        """
+
+        if review.status is ReviewStatus.SUCCEEDED:
+            return None
+        successors = [
+            row
+            for row in self._reviews.list(case_id=review.case_id)
+            if row.elicited_from == review.review_id
+            and row.status == ReviewStatus.SUCCEEDED.value
+        ]
+        if not successors:
+            return None
+        newest = max(successors, key=lambda row: row.created_at)
+        try:
+            return self._reviews.get(newest.review_id)
+        except ArchCompassError:
+            return None
 
     def _elicitation(
         self,
@@ -337,6 +387,13 @@ class ReviewConversationService:
         itself carries the evidence and is already in the request, so a corpus that cannot
         be read answers the question without it rather than taking a working conversation
         off a person.
+
+        Degrading is for the failures a corpus actually has — a malformed policy file, a
+        repository whose own policies collide with the bundled ones, an unreadable disk —
+        and the stage is told the corpus was unavailable rather than handed an empty one,
+        because "this workspace has no policies" and "the policies could not be read" call
+        for different answers. Anything else propagates: a bug swallowed here would spend
+        its whole life disguised as a workspace without policies.
         """
 
         try:
@@ -344,8 +401,11 @@ class ReviewConversationService:
                 self._policies.catalog(repository_root=self._repository_root(review)),
                 key=lambda policy: policy.id,
             )
-        except Exception:
-            policies = []
+        except (ArchCompassError, OSError) as error:
+            return MethodKnowledge(
+                method=self._method_primer,
+                policy_corpus_unavailable=f"The policy corpus could not be read: {error}",
+            )
         return MethodKnowledge(method=self._method_primer, policies=policies)
 
     def _repository_root(self, review: BoundaryReview) -> Path | None:

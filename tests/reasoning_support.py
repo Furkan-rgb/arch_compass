@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 
 from archcompass.domain.atlas import (
+    AtlasEdge,
+    EdgeType,
     FindingCandidate,
     FindingMeasurement,
     FindingParticipant,
@@ -58,6 +60,18 @@ def candidate() -> FindingCandidate:
         ],
         measurements=[
             FindingMeasurement(name="implementations", value=1, unit="implementations")
+        ],
+        # One recorded edge, as the sole-implementation detector records them. The other
+        # builders leave relationships empty on purpose, so both presentations — edges as
+        # names, and an absence stated as the detector's — stay exercised.
+        relationships=[
+            AtlasEdge(
+                edge_id="adapter-implements-port",
+                source_id="adapter",
+                target_id="port",
+                edge_type=EdgeType.IMPLEMENTS,
+                confidence=1.0,
+            )
         ],
         limitations="Counted from one static snapshot.",
     )
