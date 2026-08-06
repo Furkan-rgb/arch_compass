@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any, cast
 
@@ -30,7 +31,7 @@ def _example(client: TestClient) -> tuple[str, str]:
     assert loaded.status_code == 201, loaded.text
     root = loaded.json()["root_path"]
     started = client.post("/api/repositories/start", json={"root_path": root})
-    assert started.status_code == 201, started.text
+    assert started.status_code == 200, started.text
     return started.json()["case_id"], root
 
 
@@ -167,6 +168,49 @@ def test_loading_an_example_indexes_it_and_creates_nothing_else(runtime: Runtime
         assert missing.json()["code"] == "not_found"
 
 
+def test_a_review_over_an_untouched_repository_streams_unchanged_and_records_nothing(
+    runtime: Runtime,
+) -> None:
+    """The refusal every caller now gets, whichever page or client started the run.
+
+    The check used to be a separate route only the New revision button called, so the start
+    page could record a revision the button would have refused. It lives in the run itself
+    now: the stream answers with one `unchanged` line naming the revision the repository is
+    already current against, and the listings are exactly as they were — a run that
+    answered "nothing has changed" by writing a review would be reporting on itself. The
+    non-streaming route says the same thing as a 409 with its own code.
+    """
+
+    with TestClient(create_app(runtime)) as client:
+        review = _reviewed(client)
+        case_id = review["case_id"]
+        root = client.get("/api/repositories").json()[0]["root_path"]
+        cases = client.get("/api/cases").json()
+        reviews = client.get("/api/reviews").json()
+
+        with client.stream(
+            "POST",
+            "/api/reviews/stream",
+            json={"case_id": case_id, "repository_root": root},
+        ) as response:
+            assert response.status_code == 200, response.read()
+            events = [json.loads(line) for line in response.iter_lines() if line.strip()]
+
+        assert [event["event"] for event in events] == ["unchanged"], (
+            "refusal happens before the run has a record, so no started line exists"
+        )
+        assert events[0]["current_against"] == review["review_id"]
+        assert "Nothing has changed" in events[0]["message"]
+        assert client.get("/api/cases").json() == cases
+        assert client.get("/api/reviews").json() == reviews
+
+        plain = client.post(
+            "/api/reviews", json={"case_id": case_id, "repository_root": root}
+        )
+        assert plain.status_code == 409, plain.text
+        assert plain.json()["code"] == "nothing_changed"
+
+
 def test_a_streamed_review_counts_its_boundaries_before_judging_them(
     runtime: Runtime,
 ) -> None:
@@ -242,7 +286,7 @@ def test_the_api_walks_both_passes_of_an_elicitation(runtime: Runtime) -> None:
 
     with TestClient(create_app(runtime)) as client:
         started = client.post("/api/repositories/start", json={"root_path": repository})
-        assert started.status_code == 201, started.text
+        assert started.status_code == 200, started.text
         case_id = started.json()["case_id"]
         # Nothing written: the entry for someone who has a repository and no case.
         assert started.json()["snapshot"]["problem_statement"] == ""
@@ -371,7 +415,7 @@ def test_the_api_serves_the_code_a_finding_was_measured_from(runtime: Runtime) -
 
     with TestClient(create_app(runtime)) as client:
         started = client.post("/api/repositories/start", json={"root_path": repository})
-        assert started.status_code == 201, started.text
+        assert started.status_code == 200, started.text
         created = client.post(
             "/api/reviews",
             json={"case_id": started.json()["case_id"], "repository_root": repository},
@@ -1016,3 +1060,93 @@ def test_a_policy_that_cannot_be_read_back_is_never_left_on_disk(
         assert broken.status_code == 422, broken.text
         assert written.read_text(encoding="utf-8") == before
         assert list(authored.glob("*.md.staged")) == []
+
+
+def test_a_repository_is_checked_out_by_address_and_then_started_from(
+    tmp_path: Path, runtime: Runtime
+) -> None:
+    """The route a pasted URL takes: clone, then join the flow a picked folder is already on.
+
+    A local directory stands in for the remote, so this asks git to do the real work over a
+    real transport without leaving the machine.
+    """
+
+    remote = tmp_path / "remote"
+    remote.mkdir()
+    (remote / "store.py").write_text("class Store:\n    pass\n", encoding="utf-8")
+    for arguments in (
+        ("init", "-b", "main"),
+        ("config", "user.email", "test@example.invalid"),
+        ("config", "user.name", "Test"),
+        ("add", "."),
+        ("commit", "-m", "first"),
+    ):
+        subprocess.run(
+            ["git", "-C", str(remote), *arguments],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+
+    with TestClient(create_app(runtime)) as client:
+        cloned = client.post(
+            "/api/repositories/checkout",
+            json={"url": f"file://{remote}", "branch": None},
+        )
+        assert cloned.status_code == 201, cloned.text
+        checkout = cloned.json()
+        assert checkout["created"] is True
+        assert checkout["branch_name"] == "main"
+        assert checkout["managed"] is True
+
+        started = client.post(
+            "/api/repositories/start", json={"root_path": checkout["root_path"]}
+        )
+        assert started.status_code == 200, started.text
+
+        again = client.post(
+            "/api/repositories/checkout", json={"url": f"file://{remote}"}
+        )
+        assert again.status_code == 201, again.text
+        assert again.json()["root_path"] == checkout["root_path"]
+        assert again.json()["created"] is False
+
+        missing = client.post(
+            "/api/repositories/checkout",
+            json={"url": f"file://{remote}", "branch": "nowhere"},
+        )
+        assert missing.status_code == 409, missing.text
+        assert missing.json()["code"] == "checkout_failed"
+        assert "no branch called nowhere" in missing.json()["message"]
+
+        nonsense = client.post(
+            "/api/repositories/checkout", json={"url": "not a repository"}
+        )
+        assert nonsense.status_code == 422, nonsense.text
+        assert nonsense.json()["code"] == "validation_error"
+
+        # The other end of the same directory: a page holding the folder asks for whatever
+        # has landed since, without ever having seen the address.
+        subprocess.run(
+            ["git", "-C", str(remote), "commit", "--allow-empty", "-m", "second"],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+        refreshed = client.post(
+            "/api/repositories/refresh", json={"root_path": checkout["root_path"]}
+        )
+        assert refreshed.status_code == 200, refreshed.text
+        assert refreshed.json() == {
+            "root_path": checkout["root_path"],
+            "managed": True,
+            "updated": True,
+            "branch_name": "main",
+        }
+
+        unmanaged = client.post(
+            "/api/repositories/refresh", json={"root_path": str(remote)}
+        )
+        assert unmanaged.status_code == 200, unmanaged.text
+        assert unmanaged.json()["managed"] is False
+        assert unmanaged.json()["updated"] is False

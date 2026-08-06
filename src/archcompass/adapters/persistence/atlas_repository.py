@@ -30,14 +30,22 @@ class SQLiteAtlasRepository:
                 """
                 INSERT INTO atlas_versions(
                     version_id, repository_identity, root_path, git_commit_sha,
+                    root_commit_sha, branch_name, repo_id, branch_id,
                     content_fingerprint, parser_version, analysis_config_hash, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     version.version_id,
                     version.repository_identity,
                     version.root_path,
                     version.git_commit_sha,
+                    version.root_commit_sha,
+                    version.branch_name,
+                    # Written with the row rather than stamped onto it afterwards: the lineage
+                    # is resolved before the atlas is stored, so there is no moment where a new
+                    # atlas exists without the lineage it belongs to.
+                    version.repo_id,
+                    version.branch_id,
                     version.content_fingerprint,
                     version.parser_version,
                     version.analysis_config_hash,
@@ -148,6 +156,7 @@ class SQLiteAtlasRepository:
                 """
                 SELECT
                     v.*,
+                    b.branch_name AS lineage_branch_name,
                     (SELECT COUNT(*) FROM atlas_nodes n
                      WHERE n.version_id = v.version_id) AS node_count,
                     (SELECT COUNT(*) FROM atlas_edges e
@@ -155,6 +164,7 @@ class SQLiteAtlasRepository:
                     (SELECT COUNT(*) FROM atlas_signals s
                      WHERE s.version_id = v.version_id) AS signal_count
                 FROM atlas_versions v
+                LEFT JOIN branch_lineages b ON b.branch_id = v.branch_id
                 ORDER BY v.created_at DESC, v.rowid DESC
                 LIMIT ?
                 """,
@@ -168,6 +178,19 @@ class SQLiteAtlasRepository:
                 git_commit_sha=(
                     str(row["git_commit_sha"])
                     if row["git_commit_sha"] is not None
+                    else None
+                ),
+                repo_id=(str(row["repo_id"]) if row["repo_id"] is not None else None),
+                # The lineage's name rather than the column beside it, which is what git
+                # happened to say: a detached checkout has no branch of its own and is
+                # attributed to one anyway, and the attribution is what a reader is looking at.
+                # But only where the identity is git-derived at all. A plain folder's lineage
+                # carries the same default name as a sentinel so branch ids can exist — showing
+                # it would print a branch for a project that has no repository, let alone one.
+                branch_name=(
+                    str(row["lineage_branch_name"])
+                    if row["lineage_branch_name"] is not None
+                    and row["root_commit_sha"] is not None
                     else None
                 ),
                 created_at=datetime.fromisoformat(str(row["created_at"])),

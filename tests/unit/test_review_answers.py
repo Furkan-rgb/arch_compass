@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from typing import cast
+from typing import Any, cast
 
 import pytest
-from tests.reasoning_support import review, reviewed_boundary
+from tests.reasoning_support import candidate, review, reviewed_boundary
 
 from archcompass.adapters.models.structured import (
     ChatMessage,
@@ -30,6 +30,7 @@ from archcompass.domain.atlas import (
     FindingPattern,
     SourceLocation,
 )
+from archcompass.domain.atlas_map import AtlasMap, AtlasMapModule, AtlasMapRelation
 from archcompass.domain.case import ArchitectureCase, CaseField
 from archcompass.domain.errors import ModelOutputValidationError
 from archcompass.domain.knowledge import MethodKnowledge
@@ -40,6 +41,7 @@ from archcompass.domain.review import (
     OverviewStatement,
     ReviewEvidence,
     ReviewOverview,
+    ReviewStatus,
 )
 from archcompass.ports.reasoning import ReasoningTask
 
@@ -207,6 +209,42 @@ def test_the_detectors_own_numbers_are_in_the_request() -> None:
     assert "duplicated_knowledge" in sent
 
 
+def test_an_unavailable_corpus_is_stated_in_the_request() -> None:
+    """"No policies" and "the policies could not be read" call for different answers, so
+    the stage is told which it was handed rather than shown an empty list for both."""
+
+    transport = _RecordingTransport(
+        json.dumps({"answer": "As the review has it.", "supported_by": [True, False, False]})
+    )
+    provider = StructuredReasoningProvider(
+        ReasoningModelConfig(
+            provider="fake",
+            model="fake-answerer",
+            timeout_seconds=30,
+            context_window_tokens=131072,
+            max_output_tokens=8192,
+        ),
+        transport,
+    )
+
+    provider.answer_review_question(
+        review(BOUNDARIES, overview=OVERVIEW),
+        ReviewEvidence(case=CASE, excerpts=EXCERPTS),
+        [],
+        "Which policies bear on this?",
+        MethodKnowledge(
+            method="What ArchCompass means by a boundary.",
+            policy_corpus_unavailable="The policy corpus could not be read: boom",
+        ),
+    )
+
+    sent = "\n".join(message["content"] for message in transport.messages)
+    payload = json.loads(sent.rsplit("\n\nInput:\n", maxsplit=1)[1])
+    assert payload["background_policy_corpus"] == (
+        "unavailable: The policy corpus could not be read: boom"
+    )
+
+
 def test_each_conclusion_entry_says_which_boundaries_it_was_built_from() -> None:
     """By position, so "tell me more about recommendation 3" has somewhere to go.
 
@@ -239,6 +277,141 @@ def test_each_conclusion_entry_says_which_boundaries_it_was_built_from() -> None
     # Positions index the boundaries actually supplied, so they resolve to a record.
     positions = {item["position"] for item in payload["boundaries"]}
     assert {1, 2} <= positions
+
+
+def test_the_pinned_atlas_map_reaches_the_stage_and_a_missing_atlas_is_stated() -> None:
+    """A question about a module no detector flagged is answerable at the structural level
+    only if the structure is in the request — and a map that could not be assembled must
+    say so rather than read as an empty repository."""
+
+    def _payload(atlas_map: AtlasMap | None) -> Any:
+        transport = _RecordingTransport(
+            json.dumps(
+                {"answer": "As the review has it.", "supported_by": [True, False, False]}
+            )
+        )
+        provider = StructuredReasoningProvider(
+            ReasoningModelConfig(
+                provider="fake",
+                model="fake-answerer",
+                timeout_seconds=30,
+                context_window_tokens=131072,
+                max_output_tokens=8192,
+            ),
+            transport,
+        )
+        provider.answer_review_question(
+            review(BOUNDARIES, overview=OVERVIEW),
+            ReviewEvidence(case=CASE, excerpts=EXCERPTS, atlas_map=atlas_map),
+            [],
+            "What else imports the voices module?",
+            MethodKnowledge(method="What ArchCompass means by a boundary.", policies=[]),
+        )
+        sent = "\n".join(message["content"] for message in transport.messages)
+        return json.loads(sent.rsplit("\n\nInput:\n", maxsplit=1)[1])
+
+    folded = AtlasMap(
+        modules=[
+            AtlasMapModule(
+                path="preflight/voices.py",
+                members=["class package.Voices"],
+                members_omitted=2,
+            )
+        ],
+        relations=[
+            AtlasMapRelation(
+                source_module="planning/schedule.py",
+                target_module="preflight/voices.py",
+                kinds="imports(1)",
+            )
+        ],
+        modules_omitted=3,
+    )
+    shown = _payload(folded)["pinned_atlas_map"]
+    assert shown["modules"] == [
+        {
+            "module": "preflight/voices.py",
+            "declares": ["class package.Voices"],
+            "declarations_omitted": (
+                "2 declarations omitted to fit the budget — absence from this list is "
+                "not absence from the module"
+            ),
+        }
+    ]
+    assert shown["module_relationships"] == [
+        "planning/schedule.py depends on preflight/voices.py: imports(1)"
+    ]
+    assert shown["modules_omitted"] == "3 modules omitted to fit the budget"
+
+    gone = _payload(AtlasMap(unavailable="The atlas this review pinned is gone."))
+    assert gone["pinned_atlas_map"] == (
+        "unavailable: The atlas this review pinned is gone."
+    )
+
+    unassembled = _payload(None)
+    assert unassembled["pinned_atlas_map"] == "not assembled for this stage"
+
+
+def test_each_boundary_carries_its_participants_and_relationships() -> None:
+    """What the judging stage always had and the talking stages lacked: which elements
+    make the boundary up, and the edges the detector recorded among them, as names."""
+
+    transport = _RecordingTransport(
+        json.dumps({"answer": "As the review has it.", "supported_by": [True]})
+    )
+    provider = StructuredReasoningProvider(
+        ReasoningModelConfig(
+            provider="fake",
+            model="fake-answerer",
+            timeout_seconds=30,
+            context_window_tokens=131072,
+            max_output_tokens=8192,
+        ),
+        transport,
+    )
+    connected = reviewed_boundary("BR-001", "Formatter", material=True).model_copy(
+        update={"candidate": candidate()}
+    )
+
+    provider.answer_review_question(
+        review([connected]),
+        ReviewEvidence(case=CASE, excerpts=[]),
+        [],
+        "What implements the port?",
+        MethodKnowledge(method="What ArchCompass means by a boundary.", policies=[]),
+    )
+
+    sent = "\n".join(message["content"] for message in transport.messages)
+    payload = json.loads(sent.rsplit("\n\nInput:\n", maxsplit=1)[1])
+    boundary = payload["boundaries"][0]
+
+    assert boundary["participants"] == [
+        {
+            "qualified_name": "package.Port",
+            "part_played": "Declares the abstraction.",
+            "where": "not recorded",
+        },
+        {
+            "qualified_name": "package.Adapter",
+            "part_played": "The only implementation of it in this repository.",
+            "where": "not recorded",
+        },
+    ]
+    assert boundary["relationships"] == ["package.Adapter —implements→ package.Port"]
+    # And the ids the edge was stored with never cross the wire.
+    assert '"adapter"' not in sent.rsplit("\n\nInput:\n", maxsplit=1)[1]
+
+
+def test_a_boundary_with_no_recorded_relationships_says_so_explicitly() -> None:
+    """An absent key reads as "not mentioned" and an empty list as "unrelated"; this is
+    neither — one detector records edges and the other two do not."""
+
+    sent, _ = _request()
+    payload = json.loads(sent.rsplit("\n\nInput:\n", maxsplit=1)[1])
+
+    for boundary in payload["boundaries"]:
+        assert "none recorded" in boundary["relationships"]
+        assert "detector" in boundary["relationships"]
 
 
 def test_no_boundary_reference_crosses_into_the_request() -> None:
@@ -324,6 +497,7 @@ def test_the_code_a_boundary_was_measured_from_reaches_the_stage() -> None:
             "what_it_contributes": "States BUILT_IN_VOICES at this location.",
             "code": '    9 | BUILT_IN_VOICES = ["serena", "ryan"]',
             "why_there_is_no_code": None,
+            "note": None,
         }
     ]
 
@@ -346,8 +520,55 @@ def test_a_boundary_whose_code_cannot_be_read_says_why_rather_than_vanishing() -
             "what_it_contributes": "Declares the abstraction.",
             "code": None,
             "why_there_is_no_code": "This repository has changed since the review ran.",
+            "note": None,
         }
     ]
+
+
+def test_a_clipped_or_pinned_excerpt_carries_its_caption_into_the_request() -> None:
+    """The caveats travel with the code. A clipped excerpt read as complete answers from
+    the half it saw; a pinned copy read as live claims code the repository no longer says."""
+
+    transport = _RecordingTransport(
+        json.dumps({"answer": "As the review has it.", "supported_by": [True, False, False]})
+    )
+    provider = StructuredReasoningProvider(
+        ReasoningModelConfig(
+            provider="fake",
+            model="fake-answerer",
+            timeout_seconds=30,
+            context_window_tokens=131072,
+            max_output_tokens=8192,
+        ),
+        transport,
+    )
+    captioned = [
+        BoundaryExcerpt(
+            reference="BR-002",
+            qualified_name="package.Voices",
+            role="States BUILT_IN_VOICES at this location.",
+            location=SourceLocation(path="preflight/voices.py", start_line=9, end_line=200),
+            text="    9 | BUILT_IN_VOICES = [",
+            truncated_after_line=108,
+            provenance="The repository has changed since this review ran; this is the "
+            "code as it was when it was reviewed.",
+        )
+    ]
+
+    provider.answer_review_question(
+        review(BOUNDARIES, overview=OVERVIEW),
+        ReviewEvidence(case=CASE, excerpts=captioned),
+        [],
+        "Show me the whole voice list.",
+        MethodKnowledge(method="What ArchCompass means by a boundary.", policies=[]),
+    )
+
+    sent = "\n".join(message["content"] for message in transport.messages)
+    payload = json.loads(sent.rsplit("\n\nInput:\n", maxsplit=1)[1])
+    entry = next(item for item in payload["boundaries"] if item["position"] == 2)["source"][0]
+    assert "changed since this review ran" in entry["note"]
+    assert "only lines up to 108 are shown" in entry["note"]
+    assert "runs to line 200" in entry["note"]
 
 
 def test_the_first_boundary_carries_no_source_when_none_was_recorded() -> None:
@@ -357,6 +578,177 @@ def test_the_first_boundary_carries_no_source_when_none_was_recorded() -> None:
     payload = json.loads(sent.rsplit("\n\nInput:\n", maxsplit=1)[1])
 
     assert next(item for item in payload["boundaries"] if item["position"] == 1)["source"] == []
+
+
+def _discussion(status: ReviewStatus) -> Any:
+    """One discuss-stage request about a question citing only the second boundary."""
+
+    transport = _RecordingTransport(
+        json.dumps(
+            {"answer": "About that.", "supported_by": [True], "suggested_answer": ""}
+        )
+    )
+    provider = StructuredReasoningProvider(
+        ReasoningModelConfig(
+            provider="fake",
+            model="fake-answerer",
+            timeout_seconds=30,
+            context_window_tokens=131072,
+            max_output_tokens=8192,
+        ),
+        transport,
+    )
+    pinned = review(BOUNDARIES, overview=OVERVIEW).model_copy(update={"status": status})
+    question = OpenQuestion(
+        reference="Q-1",
+        what_the_review_saw="Four modules state the voice list.",
+        unknown="whether the lists are one concept",
+        why_it_matters="If confirmed, the duplication is drift; if denied, it is benign.",
+        question="Are these the same list?",
+        answer_belongs_in=CaseField.CONFIRMED_FACTS,
+        supporting_references=["BR-002"],
+    )
+
+    provider.discuss_open_question(
+        pinned,
+        ReviewEvidence(case=CASE, excerpts=EXCERPTS),
+        question,
+        [],
+        "How do I know whether they are the same?",
+        MethodKnowledge(method="What ArchCompass means by a boundary.", policies=[]),
+    )
+
+    sent = "\n".join(message["content"] for message in transport.messages)
+    return json.loads(sent.rsplit("\n\nInput:\n", maxsplit=1)[1])
+
+
+def test_a_concluded_reviews_discussion_sees_the_conclusion_and_counts() -> None:
+    """"How does this fit the overall recommendation?" was unanswerable: the stage also
+    serves question-scoped conversations about reviews that have since concluded, and it
+    had never seen the recommendation already on the reader's page."""
+
+    payload = _discussion(ReviewStatus.SUCCEEDED)
+
+    assert "counts" in payload
+    conclusion = payload["conclusion"]
+    assert conclusion["situation"] == OVERVIEW.situation
+    assert conclusion["limits"] == OVERVIEW.limits
+    assert [item["text"] for item in conclusion["themes"]] == [OVERVIEW.themes[0].text]
+
+
+def test_conclusion_references_outside_the_cited_subset_are_named_not_numbered() -> None:
+    """The subset has its own position vocabulary; a full-set position would collide with
+    it and invite citing a boundary this discussion was never shown."""
+
+    payload = _discussion(ReviewStatus.SUCCEEDED)
+
+    # The theme rests on BR-001 and BR-002; only BR-002 is cited, and it is position 1
+    # of the subset. BR-001 appears by summary, marked as outside this discussion.
+    theme = payload["conclusion"]["themes"][0]
+    assert theme["rests_on"] == [
+        {
+            "boundary_not_shown_in_this_discussion": BOUNDARIES[0].candidate.summary
+        },
+        {"position": 1},
+    ]
+    assert payload["conclusion"]["recommended_sequence"][0]["rests_on"] == [
+        {"position": 1}
+    ]
+
+
+def test_a_superseded_discussion_sees_the_concluding_passes_conclusion() -> None:
+    """A review row never changes status — the loop concludes in a new review — so the
+    conclusion on the reader's page belongs to the successor. It arrives marked as the
+    later pass's, with groundings matched back onto the cited subset by fingerprint and
+    boundaries outside it named, not numbered."""
+
+    transport = _RecordingTransport(
+        json.dumps(
+            {"answer": "About that.", "supported_by": [True], "suggested_answer": ""}
+        )
+    )
+    provider = StructuredReasoningProvider(
+        ReasoningModelConfig(
+            provider="fake",
+            model="fake-answerer",
+            timeout_seconds=30,
+            context_window_tokens=131072,
+            max_output_tokens=8192,
+        ),
+        transport,
+    )
+    pinned_boundaries = [
+        BOUNDARIES[0],
+        BOUNDARIES[1].model_copy(update={"fingerprint": "fp-voices"}),
+        BOUNDARIES[2],
+    ]
+    pinned = review(pinned_boundaries, overview=OVERVIEW).model_copy(
+        update={"status": ReviewStatus.AWAITING_ANSWERS}
+    )
+    # The successor judged the same voice-list structure (same fingerprint, its own
+    # reference) plus a boundary this thread was never shown.
+    successor = review(
+        [
+            reviewed_boundary("BR-001", "Voices", material=True).model_copy(
+                update={"fingerprint": "fp-voices"}
+            ),
+            reviewed_boundary("BR-002", "Formatter", material=False),
+        ],
+        overview=ReviewOverview(
+            situation="The loop has concluded.",
+            themes=[
+                OverviewStatement(
+                    text="The voice list needs one owner.",
+                    supporting_references=["BR-001", "BR-002"],
+                )
+            ],
+            limits="One detector ran.",
+        ),
+    )
+    question = OpenQuestion(
+        reference="Q-1",
+        what_the_review_saw="Four modules state the voice list.",
+        unknown="whether the lists are one concept",
+        why_it_matters="If confirmed, the duplication is drift; if denied, it is benign.",
+        question="Are these the same list?",
+        answer_belongs_in=CaseField.CONFIRMED_FACTS,
+        supporting_references=["BR-002"],
+    )
+
+    provider.discuss_open_question(
+        pinned,
+        ReviewEvidence(case=CASE, excerpts=EXCERPTS, concluded_by=successor),
+        question,
+        [],
+        "How does this fit the overall recommendation?",
+        MethodKnowledge(method="What ArchCompass means by a boundary.", policies=[]),
+    )
+
+    sent = "\n".join(message["content"] for message in transport.messages)
+    payload = json.loads(sent.rsplit("\n\nInput:\n", maxsplit=1)[1])
+    conclusion = payload["conclusion"]
+
+    assert "later pass" in conclusion["reached_by"]
+    assert conclusion["situation"] == "The loop has concluded."
+    assert "counts" in payload
+    # The successor's first grounding resolves by fingerprint to the one shown boundary;
+    # its second names a boundary this thread was never shown.
+    theme = conclusion["themes"][0]
+    assert theme["rests_on"][0] == {"position": 1}
+    assert "boundary_not_shown_in_this_discussion" in theme["rests_on"][1]
+    # And no BR- reference of either review crosses the wire.
+    assert "BR-" not in sent.rsplit("\n\nInput:\n", maxsplit=1)[1]
+
+
+def test_a_waiting_reviews_discussion_states_the_conclusion_is_withheld() -> None:
+    """Mid-elicitation the overview summarises verdicts the reader has deliberately not
+    been shown, so it stays out — as a stated absence, not a missing key."""
+
+    payload = _discussion(ReviewStatus.AWAITING_ANSWERS)
+
+    assert "counts" not in payload
+    assert isinstance(payload["conclusion"], str)
+    assert payload["conclusion"].startswith("withheld")
 
 
 #: One round as the workspace really keeps it: the question pinned in the first pass, the

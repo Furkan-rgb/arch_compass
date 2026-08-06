@@ -106,33 +106,30 @@ def test_the_choice_table_carries_the_columns_the_repository_writes(
 def test_a_workspace_stopped_at_021_reaches_the_current_choice_table(tmp_path: Path) -> None:
     """The upgrade path this actually has to serve: a database created before 022 existed.
 
-    Built by hand at that older shape rather than by rewinding the shipped files, because a
-    test that edits a migration to prove migrations must not be edited would be arguing with
-    itself.
+    The 021-era database is built by running the shipped files up to 021 and recording them,
+    which is the one way to get that shape without asserting anything about it: reading the
+    migrations is not editing them, and a stub written by hand goes stale the moment a later
+    migration widens a table the stub left out — 024 widens two of them.
+
+    The version rows are written without a checksum on purpose. That is what a database of
+    this age has, and reaching the current schema from it is exactly what the grandfathering
+    in `_verify_unchanged` is for.
     """
 
     path = tmp_path / ".archcompass" / "db.sqlite"
     path.parent.mkdir(parents=True)
     connection = sqlite3.connect(path)
     connection.executescript(
-        """
-        CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-        CREATE TABLE reasoning_model_selection (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            profile_id TEXT NOT NULL,
-            provider TEXT NOT NULL,
-            model TEXT NOT NULL,
-            selected_at TEXT NOT NULL,
-            failed_at TEXT,
-            failure_detail TEXT NOT NULL DEFAULT ''
-        );
-        """
+        "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);"
     )
-    applied = sorted(
-        int(item.name.split("_", maxsplit=1)[0])
+    scripts = sorted(
+        (int(item.name.split("_", maxsplit=1)[0]), item)
         for item in MIGRATIONS.iterdir()
         if item.name.endswith(".sql") and int(item.name.split("_", maxsplit=1)[0]) <= 21
     )
+    for _, script in scripts:
+        connection.executescript(script.read_text(encoding="utf-8"))
+    applied = [version for version, _ in scripts]
     connection.executemany(
         "INSERT INTO schema_migrations(version, applied_at) VALUES (?, '2026-08-01T00:00:00Z')",
         [(version,) for version in applied],

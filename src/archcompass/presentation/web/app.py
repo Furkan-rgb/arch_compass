@@ -29,12 +29,15 @@ from pydantic import (
 from archcompass.application.cases import WrittenAnswer
 from archcompass.application.review_source import MAX_CONTEXT_LINES
 from archcompass.application.reviews import JudgedCandidate
+from archcompass.application.standings import standing_for
 from archcompass.bootstrap import Runtime
 from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion, FindingCandidate
 from archcompass.domain.case import ArchitectureCase, CaseRevision, CaseUpdate
+from archcompass.domain.checkout import CheckoutRefresh, RepositoryCheckout
 from archcompass.domain.errors import (
     ArchCompassError,
     AtlasNotFoundError,
+    BranchNotFoundError,
     CaseNotFoundError,
     CaseRevisionConflictError,
     CaseValidationError,
@@ -45,25 +48,35 @@ from archcompass.domain.errors import (
     ExampleNotFoundError,
     ModelOutputValidationError,
     NoReasoningModelSelectedError,
+    NothingToReviewError,
     PathValidationError,
     PersistenceError,
     PolicyConflictError,
     PolicyFormatError,
     PolicyNotFoundError,
     ProviderError,
+    RepositoryCheckoutError,
     ReviewHasNoReportError,
     ReviewNotCancellableError,
     ReviewNotFoundError,
     ReviewStillRunningError,
     StaleAtlasError,
 )
+from archcompass.domain.fingerprint import boundary_fingerprint
+from archcompass.domain.lineage import RepositoryBranch
 from archcompass.domain.policy import (
     PolicyDocument,
     PolicyDraft,
     PolicySourceRegistration,
 )
-from archcompass.domain.review import BoundaryExcerpt, BoundaryReview, ReviewStatus
+from archcompass.domain.review import (
+    BoundaryExcerpt,
+    BoundaryReview,
+    ReviewedBoundary,
+    ReviewStatus,
+)
 from archcompass.domain.review_conversation import ReviewConversation, ReviewMessage
+from archcompass.domain.triage import DecisionComment, DecisionState, StandingDecision
 from archcompass.domain.workspace import (
     BoundaryReviewSummary,
     CaseSummary,
@@ -116,6 +129,34 @@ def _problem_responses(
 
 class RepositoryPathRequest(APIModel):
     root_path: str = Field(min_length=1)
+
+
+class RepositoryCheckoutRequest(APIModel):
+    """A repository named by address, or by a path on this machine.
+
+    One field for both because they are one question — "which repository" — and asking the
+    caller to say which kind they are holding would only make them classify a string the
+    service classifies better.
+    """
+
+    url: str = Field(min_length=1)
+    #: The branch to review. Left out, the remote's own default is used, which is what
+    #: someone pasting an address without further thought means.
+    branch: str | None = None
+
+
+class StartFromRepositoryRequest(APIModel):
+    """Which repository to open, and whether to carry on from where it was left.
+
+    Continuing is the default because a repeat visit almost always means the same
+    conversation: the questions the last run asked and the answers the reader gave are on
+    that case, and starting beside them would ask for them again. Starting clean is the
+    stated exception — a different question about the same code — and it has to be stated
+    rather than reached by deleting something.
+    """
+
+    root_path: str = Field(min_length=1)
+    start_clean: bool = False
 
 
 class AtlasExploreRequest(APIModel):
@@ -209,6 +250,184 @@ class ReviewConversationCreateRequest(APIModel):
 
 class ReviewQuestionRequest(APIModel):
     question: str = Field(min_length=1, max_length=4000)
+
+
+class DecisionRequest(APIModel):
+    """A disposition somebody took, together with the verdict they took it against.
+
+    The verdict context is sent by the client rather than looked up here, and that is the
+    point of it: it records what was actually on the reader's screen. Resolving it server-side
+    from the review would record what the server believes now, which is the one thing the
+    field exists to be able to disagree with.
+    """
+
+    branch_id: str = Field(min_length=1)
+    boundary_fingerprint: str = Field(min_length=1)
+    state: DecisionState
+    author: str = Field(min_length=1)
+    #: Required when waiving, and the request is refused without it rather than stored as a
+    #: silent waiver.
+    reason: str | None = None
+    review_id: str = Field(min_length=1)
+    boundary_reference: str = Field(pattern=r"^BR-[0-9]{3}$")
+    material: bool
+    verdict_label: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def valid_as_a_decision(self) -> DecisionRequest:
+        """Refuse here whatever the domain would refuse, using the domain to decide.
+
+        Building the aggregate is the check. Restating its rules in this model would be two
+        places for one invariant, and the one that drifts is always the copy — while this way
+        a body that cannot become a `StandingDecision` fails as a 422 naming the field, rather
+        than as a 500 raised on the line that tried.
+        """
+
+        self.as_decision()
+        return self
+
+    def as_decision(self) -> StandingDecision:
+        return StandingDecision(
+            branch_id=self.branch_id,
+            boundary_fingerprint=self.boundary_fingerprint,
+            state=self.state,
+            author=self.author,
+            reason=self.reason,
+            review_id=self.review_id,
+            boundary_reference=self.boundary_reference,
+            material=self.material,
+            verdict_label=self.verdict_label,
+        )
+
+
+class BulkDecisionBoundary(APIModel):
+    """One boundary in a bulk decision, with the verdict the reader took it against.
+
+    The verdict context is per boundary and cannot be hoisted onto the request, for the same
+    reason a single decision carries it: it records what was actually on screen. Forty
+    boundaries were forty different verdicts, and a single `material` on the envelope would be
+    a claim about all of them that is false for most.
+    """
+
+    boundary_fingerprint: str = Field(min_length=1)
+    boundary_reference: str = Field(pattern=r"^BR-[0-9]{3}$")
+    material: bool
+    verdict_label: str = Field(min_length=1)
+
+
+class BulkDecisionRequest(APIModel):
+    """One disposition, taken over many boundaries at once, by one person.
+
+    What replaced bulk baselining. The shape is deliberately the same shape as deciding one
+    boundary — a state, an author, a reason where one is required — repeated over a list,
+    because that is exactly what it does: it writes N standing decisions, each with a name on
+    it, rather than one administrative act that silences a list nobody read.
+    """
+
+    branch_id: str = Field(min_length=1)
+    state: DecisionState
+    author: str = Field(min_length=1)
+    #: Required when waiving, refused without it, exactly as a single decision is. A bulk
+    #: waiver with no reason would be the baseline coming back wearing an author's name.
+    reason: str | None = None
+    review_id: str = Field(min_length=1)
+    #: At least one: a bulk decision over nothing is a request that means nothing, and
+    #: answering it with a cheerful zero would hide a client that failed to build its list.
+    boundaries: list[BulkDecisionBoundary] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def valid_as_decisions(self) -> BulkDecisionRequest:
+        """Refuse here whatever the domain would refuse, using the domain to decide.
+
+        Building the aggregates is the check, as it is for a single decision. Every one of them
+        is built, not just the first: a list with a duplicate fingerprint or a malformed
+        reference in the fortieth entry has to fail as a 422 naming the field rather than as a
+        500 raised partway through the write.
+        """
+
+        self.as_decisions()
+        return self
+
+    def as_decisions(self) -> list[StandingDecision]:
+        return [
+            StandingDecision(
+                branch_id=self.branch_id,
+                boundary_fingerprint=item.boundary_fingerprint,
+                state=self.state,
+                author=self.author,
+                reason=self.reason,
+                review_id=self.review_id,
+                boundary_reference=item.boundary_reference,
+                material=item.material,
+                verdict_label=item.verdict_label,
+            )
+            for item in self.boundaries
+        ]
+
+
+class BulkDecisionResponse(APIModel):
+    """What one bulk decision wrote, and everything it now stands as."""
+
+    branch_id: str
+    recorded: int
+    decisions: list[StandingDecision]
+
+
+class DecisionCommentRequest(APIModel):
+    """One remark in a boundary's thread. Its position is assigned by the server."""
+
+    author: str = Field(min_length=1)
+    body: str = Field(min_length=1)
+
+
+class BranchDecisionsResponse(APIModel):
+    """Everything one branch currently thinks about the boundaries it has opinions on.
+
+    Comment counts are reported separately from decisions rather than beside them, because
+    the two sets differ: a boundary can be argued about before anyone decides anything, and a
+    count folded into the decision list would have nowhere to put that thread. A fingerprint
+    missing from either map is the honest absence — undecided, or undiscussed.
+    """
+
+    branch_id: str
+    #: One per boundary this branch has decided on, latest decision only.
+    decisions: list[StandingDecision]
+    #: Fingerprint to number of comments, for every discussed boundary on the branch.
+    comment_counts: dict[str, int]
+
+
+class JoinedDecision(APIModel):
+    """The current decision as a review's reader needs to see it."""
+
+    decision_id: str
+    state: DecisionState
+    author: str
+    reason: str | None = None
+    decided_at: datetime
+    #: False when this run's verdict for the boundary differs from the one the decision was
+    #: taken against. Not an expiry — the decision still stands — but the reader is told the
+    #: ground moved, and re-affirming it is a human act.
+    taken_on_current_verdict: bool
+
+
+class BoundaryTriage(APIModel):
+    """What triage knows about one boundary of one review.
+
+    Carried beside the report rather than inside it: a `ReviewedBoundary` is part of an
+    immutable judgement, and joining a team's later opinion into that document would make the
+    review look like it had changed its mind.
+    """
+
+    #: The `BR-nnn` this boundary has in this review — how a client matches it to the report.
+    reference: str
+    #: Its structural identity, which is what a decision is actually filed under.
+    fingerprint: str
+    #: Absent where nobody has decided, and for every review that predates branch lineages:
+    #: with no branch there is nothing to look the decision up on.
+    decision: JoinedDecision | None = None
+    comment_count: int = 0
+
+
 
 
 class AnswerProse(APIModel):
@@ -327,6 +546,15 @@ class ReviewJudged(APIModel):
     total: int
     abstraction: str
     material: bool
+    #: The review this verdict was carried forward from, where it was not reached in this
+    #: run. Null on every verdict the run actually paid a model call for, and on every line
+    #: written before this field existed — so a client that sees nothing here is looking at
+    #: a judged boundary, which is what it assumed all along.
+    verdict_reused_from: str | None = None
+    #: How many verdicts have been carried so far, this one included. Sent rather than left
+    #: to the client to accumulate, so a watcher that joined the stream late — or dropped a
+    #: line — still has the run's own count instead of a tally of what it happened to see.
+    carried: int = 0
 
 
 class ReviewEliciting(APIModel):
@@ -355,6 +583,21 @@ class ReviewCompleted(APIModel):
     review: BoundaryReview
 
 
+class ReviewUnchanged(APIModel):
+    """The run refused itself: nothing has moved since the branch's latest revision.
+
+    A terminal line and not a failure — the workspace worked the whole partition out and
+    the answer was that a revision would repeat the one before it, so nothing was recorded.
+    Emitted before a `started` line could exist, because refusal happens before the run has
+    a record.
+    """
+
+    event: Literal["unchanged"] = "unchanged"
+    #: The revision this repository is already up to date with.
+    current_against: str
+    message: str
+
+
 class ReviewFailed(APIModel):
     """The run failed. Nothing was persisted; the case and atlas are untouched."""
 
@@ -369,6 +612,7 @@ ReviewProgressLine = Annotated[
     | ReviewEliciting
     | ReviewSummarising
     | ReviewCompleted
+    | ReviewUnchanged
     | ReviewFailed,
     Field(discriminator="event"),
 ]
@@ -477,6 +721,29 @@ class ModelSelectionRequest(APIModel):
 
 class PolicySourceRemovalResponse(APIModel):
     removed: bool
+
+
+class ReviewDetailResponse(BoundaryReview):
+    """A stored review as it is read, with what the team has since made of it.
+
+    One join, and it is the only one left. The baseline comparison used to sit here too — a
+    `new`/`changed`/`known` disposition per boundary, recomputed on every read — and it is gone
+    with the baseline itself. What replaced it was already on the document: the revision
+    partition, recorded when the run made the comparison. A client finds the summary at
+    `report.delta` — the counts, the revision it was compared with, and the boundaries that
+    closed — and each boundary's own state at `report.reviewed[].delta_state`. Nothing here
+    recomputes either, and nothing copies them to the top level: one path to a value is the
+    only way two paths cannot disagree.
+
+    The distinction the removal turned on is worth keeping in view. A delta is a fact about two
+    immutable revisions, so it is stored. A standing decision is a fact about *now* — it moves
+    the moment somebody decides something — so it is joined at read time and never written into
+    the review, which would freeze an answer that is supposed to move.
+    """
+
+    #: One entry per reviewed boundary, in report order — the team's standing decisions and
+    #: threads, joined on at read time. Empty for a review that reached no verdicts.
+    boundary_triage: list[BoundaryTriage] = Field(default_factory=list[BoundaryTriage])
 
 
 def _acquire_runtime(request: Request) -> Runtime:
@@ -705,6 +972,17 @@ def create_app(
     ) -> list[RepositorySummary]:
         return runtime.repository_service.list(limit=limit)
 
+    @app.get("/api/branches")
+    def list_branches(runtime: RuntimeDep) -> list[RepositoryBranch]:
+        """Every branch lineage this workspace has seen, with the repository it belongs to.
+
+        The listing above answers "which checkouts have been indexed", which is a question
+        about this machine. This one answers "which repositories and lines of work does this
+        workspace know about", which is the question that survives the checkout moving.
+        """
+
+        return runtime.repository_service.branches()
+
     @app.post("/api/repositories/index", status_code=201)
     def index_repository(
         runtime: RuntimeDep,
@@ -715,27 +993,97 @@ def create_app(
             hosted_mode.repository_root(Path(request.root_path), runtime)
         )
 
+    # 200 rather than 201: this route stopped always creating something the moment a repeat
+    # visit began continuing the case it already had, and a client told "created" about a case
+    # written last week has been told the wrong thing about the only fact it could act on.
+    @app.post(
+        "/api/repositories/checkout",
+        status_code=201,
+        responses=_problem_responses(409, 422),
+    )
+    def checkout_repository(
+        runtime: RuntimeDep,
+        hosted_mode: RestrictionsDep,
+        request: RepositoryCheckoutRequest,
+    ) -> RepositoryCheckout:
+        """Make the named repository available on this machine, and say where it landed.
+
+        Nothing is indexed here. The answer is a folder, which is what `/api/repositories/index`
+        and `/api/repositories/start` have always taken — so a repository pasted as a URL joins
+        the existing flow at exactly the point a repository chosen with the picker does.
+
+        201 for a checkout that was updated as much as for one that was cloned: something was
+        written to disk either way, and `created` says which of the two happened.
+        """
+
+        hosted_mode.checkout()
+        return runtime.checkout_service.checkout(request.url, branch=request.branch)
+
+    @app.post(
+        "/api/repositories/refresh",
+        responses=_problem_responses(409, 422),
+    )
+    def refresh_repository(
+        runtime: RuntimeDep,
+        hosted_mode: RestrictionsDep,
+        request: RepositoryPathRequest,
+    ) -> CheckoutRefresh:
+        """Pull whatever has landed on the remote since, for a folder Arch Compass cloned.
+
+        Takes a path rather than an address because a path is what a page reviewing a
+        repository has: the URL was typed once, at the start, and nothing downstream of that
+        carries it. The address is read back out of the checkout instead.
+
+        A folder that is not one of ours answers rather than refuses — `managed: false`, and
+        nothing written. That is the ordinary case for a repository reviewed where it lies,
+        and the caller is meant to carry on and run its review against what is on disk.
+
+        The hosted restriction is the checkout one, unchanged: a demo that will not clone a
+        repository will not fetch into one either, and it has no managed checkouts for this
+        to be about in the first place.
+        """
+
+        hosted_mode.checkout()
+        return runtime.checkout_service.refresh(request.root_path)
+
     @app.post(
         "/api/repositories/start",
-        status_code=201,
         responses=_problem_responses(404, 422),
     )
     def start_from_repository(
         runtime: RuntimeDep,
         hosted_mode: RestrictionsDep,
-        request: RepositoryPathRequest,
+        request: StartFromRepositoryRequest,
     ) -> CaseRevision:
-        """Index a repository and open a case about it, with nothing written in it yet.
+        """Index a repository and answer with the case to review it against.
 
         The whole of the first step for someone who has not authored a case. Both halves
         happen here so the flow either produces something reviewable or fails outright,
         rather than leaving a case pointing at an atlas that was never built. A bundled
         example arrives here too, once its repository has been indexed.
+
+        A first visit opens a case with nothing written in it yet. A repeat visit continues
+        the newest case reviewed on this **branch**, so the answers the reader has already
+        given are still there to be judged against — `start_clean: true` is how they say the
+        next run is about a different question and should begin with an empty case again.
+
+        The branch rather than the repository, because a branch is the scope everything
+        durable lives in: its standings, its revisions, and its case. Two branches of one
+        repository are two pieces of work, and a feature branch inheriting `main`'s case would
+        be handed answers about code it has not written.
+
+        Which case that is, is the application's to decide and not the client's: a browser
+        that picked one would be reading the review history to guess at the case that history
+        is about, and two clients would guess differently.
         """
 
         root = hosted_mode.repository_root(Path(request.root_path), runtime)
-        runtime.repository_service.index(root)
-        return runtime.case_service.start_from_repository(root)
+        version = runtime.repository_service.index(root)
+        if request.start_clean:
+            return runtime.case_service.start_from_repository(root)
+        return runtime.case_service.continue_from_repository(
+            root, branch_id=version.branch_id
+        )
 
     @app.get("/api/repositories/summary")
     def repository_summary(runtime: RuntimeDep, root_path: str) -> AtlasQueryResult:
@@ -926,8 +1274,16 @@ def create_app(
         "/api/reviews/{review_id}",
         responses=_problem_responses(404, 422),
     )
-    def get_review(runtime: RuntimeDep, review_id: str) -> BoundaryReview:
-        return runtime.review_repository.get(review_id)
+    def get_review(runtime: RuntimeDep, review_id: str) -> ReviewDetailResponse:
+        """The stored review, plus what the team has since decided about its boundaries.
+
+        One join, and no deeper: the standing decision on each boundary, read through the
+        branch this run was on and the branch that branch came from. `ReviewService` never
+        reads decisions — that is the one invariant of the triage design — so a decision can
+        never reach the reasoning that produced a verdict.
+        """
+
+        return _with_standings(runtime, runtime.review_repository.get(review_id))
 
     @app.get(
         "/api/reviews/{review_id}/source",
@@ -1147,6 +1503,114 @@ def create_app(
         return NDJSONStreamingResponse(
             _answer_progress_lines(runtime, conversation_id, request.question),
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
+
+    @app.get(
+        "/api/branches/{branch_id}/decisions",
+        responses=_problem_responses(404),
+    )
+    def branch_decisions(runtime: RuntimeDep, branch_id: str) -> BranchDecisionsResponse:
+        """What this branch currently thinks, across every boundary anyone has triaged.
+
+        One row per boundary with an opinion, not one per boundary that exists: the
+        unreviewed state is absence, and a listing that invented rows for it would be
+        asserting that somebody had looked.
+        """
+
+        return BranchDecisionsResponse(
+            branch_id=branch_id,
+            decisions=runtime.triage_service.decisions_for_branch(branch_id),
+            comment_counts=runtime.triage_service.comment_counts(branch_id),
+        )
+
+    @app.post(
+        "/api/decisions",
+        status_code=201,
+        responses=_problem_responses(404, 422),
+    )
+    def record_decision(runtime: RuntimeDep, request: DecisionRequest) -> StandingDecision:
+        """Record a disposition toward one boundary, and return what now stands.
+
+        Always an append, including when it contradicts what the same author said an hour
+        ago. The previous decision stays readable through the history route, because "we
+        accepted this in March and waived it in August" is the sentence a team most needs
+        to be able to reconstruct.
+        """
+
+        return runtime.triage_service.decide(request.as_decision())
+
+    @app.post(
+        "/api/decisions/bulk",
+        status_code=201,
+        responses=_problem_responses(404, 422),
+    )
+    def record_decisions(
+        runtime: RuntimeDep, request: BulkDecisionRequest
+    ) -> BulkDecisionResponse:
+        """Take one disposition over many boundaries, and record it as many decisions.
+
+        How a team adopts a legacy repository now that the baseline is gone. The first run over
+        a code base that has been alive for years lands dozens of boundaries, and asking for
+        dozens of requests would end with the tool closed — but the answer is not a button that
+        silences a list nobody read. It is this: select them, decide once, and every boundary
+        gets a real decision with an author, a date and a reason where one is required, all
+        written together so a half-adopted branch cannot exist.
+
+        201 because this creates records, and it is not idempotent: pressing it twice appends a
+        second decision per boundary, exactly as deciding twice by hand does. That is the
+        append-only rule and not an oversight — what a team thought in March stays readable
+        after they change their mind in August.
+        """
+
+        decisions = runtime.triage_service.decide_many(request.as_decisions())
+        return BulkDecisionResponse(
+            branch_id=request.branch_id,
+            recorded=len(decisions),
+            decisions=decisions,
+        )
+
+    @app.get(
+        "/api/decisions/{branch_id}/{fingerprint}/history",
+        responses=_problem_responses(404),
+    )
+    def decision_history(
+        runtime: RuntimeDep, branch_id: str, fingerprint: str
+    ) -> list[StandingDecision]:
+        """Every disposition ever recorded for this boundary, oldest first."""
+
+        return runtime.triage_service.history(branch_id, fingerprint)
+
+    @app.get(
+        "/api/decisions/{branch_id}/{fingerprint}/comments",
+        responses=_problem_responses(404),
+    )
+    def decision_comments(
+        runtime: RuntimeDep, branch_id: str, fingerprint: str
+    ) -> list[DecisionComment]:
+        """The thread on this boundary, in the order it was written."""
+
+        return runtime.triage_service.comments(branch_id, fingerprint)
+
+    @app.post(
+        "/api/decisions/{branch_id}/{fingerprint}/comments",
+        status_code=201,
+        responses=_problem_responses(404, 422),
+    )
+    def add_decision_comment(
+        runtime: RuntimeDep,
+        branch_id: str,
+        fingerprint: str,
+        request: DecisionCommentRequest,
+    ) -> DecisionComment:
+        """Append one remark. No decision has to exist first, and none is implied by it."""
+
+        return runtime.triage_service.comment(
+            DecisionComment(
+                branch_id=branch_id,
+                boundary_fingerprint=fingerprint,
+                author=request.author,
+                body=request.body,
+            )
         )
 
     @app.get("/api/policies")
@@ -1388,6 +1852,7 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
         | ReviewEliciting
         | ReviewSummarising
         | ReviewCompleted
+        | ReviewUnchanged
         | ReviewFailed,
     ) -> None:
         lines.put(event.model_dump_json())
@@ -1414,13 +1879,20 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
             )
         )
 
+    carried = 0
+
     def report_verdict(judged: JudgedCandidate, position: int, total: int) -> None:
+        nonlocal carried
+        if judged.reused_from is not None:
+            carried += 1
         emit(
             ReviewJudged(
                 position=position,
                 total=total,
                 abstraction=_abstraction_name(judged.candidate),
                 material=judged.verdict.material,
+                verdict_reused_from=judged.reused_from,
+                carried=carried,
             )
         )
 
@@ -1435,6 +1907,18 @@ def _review_progress_lines(runtime: Runtime, request: ReviewRequest) -> Iterator
                 on_verdict=report_verdict,
                 on_eliciting=lambda: emit(ReviewEliciting(total=detected)),
                 on_summarising=lambda: emit(ReviewSummarising(total=detected)),
+            )
+        except NothingToReviewError as unchanged:
+            # Its own line, not a `failed` one: the run did exactly what it promised, and a
+            # client that showed this as an error would be scolding the reader for having
+            # an up-to-date repository. Every caller of this stream gets the same answer,
+            # whichever page or client started it — that is the point of refusing in the
+            # service rather than in a button.
+            emit(
+                ReviewUnchanged(
+                    current_against=unchanged.current_against,
+                    message=str(unchanged),
+                )
             )
         except ArchCompassError as error:
             # The status is deliberately dropped: the response is already a 200 by the time
@@ -1537,7 +2021,74 @@ def _answer_progress_lines(
         yield f"{line}\n"
 
 
+def _with_standings(runtime: Runtime, review: BoundaryReview) -> ReviewDetailResponse:
+    """Attach what *now* knows about a review's boundaries: the standing decisions.
+
+    The join happens here, at read time, and never at write time. A review is an immutable
+    record of one run; what the team has decided about its boundaries is a fact about the
+    present, and a stored copy of it would go stale the first time somebody used the feature.
+
+    Read through the base branch, so a review on a feature branch shows what `main` already
+    settled rather than presenting every boundary as undecided. An inherited decision names the
+    branch it was actually taken on, which is what lets a page distinguish "we decided this"
+    from "we have not disagreed with `main`".
+
+    Entries exist for every reviewed boundary, decided or not: the fingerprint alone is what a
+    client needs to post a decision, and a boundary is not going to be triaged by a page that
+    cannot name it. A review from before branch lineages carries no decisions — stated by
+    leaving them absent rather than by guessing a branch, because a decision filed under a
+    guess would be attributed to a team that never took it.
+    """
+
+    payload = review.model_dump()
+    report = review.report
+    if report is None:
+        return ReviewDetailResponse.model_validate(payload)
+
+    standings = runtime.triage_service.standings_for_branch(review.branch_id)
+    comment_counts = (
+        {}
+        if review.branch_id is None
+        else runtime.triage_service.comment_counts(review.branch_id)
+    )
+    triage = [
+        BoundaryTriage(
+            reference=boundary.reference,
+            fingerprint=fingerprint,
+            decision=_joined(standing_for(boundary, standings), boundary),
+            comment_count=comment_counts.get(fingerprint, 0),
+        )
+        for boundary in report.reviewed
+        for fingerprint in (boundary.fingerprint or boundary_fingerprint(boundary.candidate),)
+    ]
+    payload["boundary_triage"] = [item.model_dump() for item in triage]
+    return ReviewDetailResponse.model_validate(payload)
+
+
+def _joined(
+    decision: StandingDecision | None, boundary: ReviewedBoundary
+) -> JoinedDecision | None:
+    if decision is None:
+        return None
+    return JoinedDecision(
+        decision_id=decision.decision_id,
+        state=decision.state,
+        author=decision.author,
+        reason=decision.reason,
+        decided_at=decision.decided_at,
+        taken_on_current_verdict=decision.taken_on(
+            material=boundary.material,
+            verdict_label=boundary.verdict_label,
+        ),
+    )
+
+
 def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
+    if isinstance(error, NothingToReviewError):
+        # Its own code, because it is not a fault to fix: the request was understood and
+        # the answer is that there is nothing to do. A client can tell it apart from every
+        # conflict that asks the caller to change something.
+        return 409, "nothing_changed", False
     if isinstance(
         error,
         (
@@ -1547,6 +2098,7 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
             ReviewNotFoundError,
             PolicyNotFoundError,
             ConversationNotFoundError,
+            BranchNotFoundError,
         ),
     ):
         return 404, "not_found", False
@@ -1580,6 +2132,11 @@ def _classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
         ),
     ):
         return 422, "validation_error", False
+    if isinstance(error, RepositoryCheckoutError):
+        # Not 422: the request is well formed and this is a true statement about the
+        # repository. Retryable, because most of what reaches here is a remote that was
+        # unreachable at the moment it was asked.
+        return 409, "checkout_failed", True
     if isinstance(error, NoReasoningModelSelectedError):
         # 409 rather than 503: nothing is unavailable, and nothing about the request is
         # malformed — the workspace simply has not chosen yet.

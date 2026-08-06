@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, Validation
 from archcompass.adapters.models.prompt_contracts import STAGE_PROMPTS
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.atlas import FindingCandidate
+from archcompass.domain.atlas_map import AtlasMap
 from archcompass.domain.base import canonical_json
 from archcompass.domain.case import ArchitectureCase, CaseField
 from archcompass.domain.errors import (
@@ -52,6 +53,7 @@ from archcompass.domain.review import (
     ReviewedBoundary,
     ReviewEvidence,
     ReviewOverview,
+    ReviewStatus,
     VerdictHinge,
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
@@ -857,6 +859,151 @@ class StructuredReasoningProvider:
         ]
 
     @staticmethod
+    def _structure_for(candidate: FindingCandidate) -> dict[str, object]:
+        """The detector's own record of what makes up this boundary, for both talking stages.
+
+        The judging stage always had this — which elements participate and which edges run
+        among them — and the stages a person actually talks to did not, so "what implements
+        this?" was answerable only from whatever the prose happened to restate. Participants
+        are named by qualified name and never by node id, for the reason nothing else
+        carries an id (12.0); edges are joined back through the participants so they read
+        as names too, and an endpoint the detector did not list among the participants is
+        said to be outside them rather than leaked as a raw id.
+
+        An empty edge list is stated as a fact about the detector, not about the code: only
+        one of the three patterns records edges, and a stage told nothing would report that
+        the elements are unrelated.
+        """
+
+        names = {item.node_id: item.qualified_name for item in candidate.participants}
+        outside = "an element outside this boundary's participants"
+        return {
+            "participants": [
+                {
+                    "qualified_name": item.qualified_name,
+                    "part_played": item.role,
+                    "where": (
+                        f"{item.location.path}:{item.location.start_line}"
+                        if item.location is not None
+                        else "not recorded"
+                    ),
+                }
+                for item in candidate.participants
+            ],
+            "relationships": (
+                [
+                    (
+                        f"{names.get(edge.source_id, outside)}"
+                        f" —{edge.edge_type.value}→ "
+                        f"{names.get(edge.target_id, outside)}"
+                    )
+                    for edge in candidate.relationships
+                ]
+                if candidate.relationships
+                else (
+                    "none recorded — the "
+                    f"{candidate.pattern.value} detector does not record edges between "
+                    "its participants, which says nothing about whether the code relates "
+                    "them"
+                )
+            ),
+        }
+
+    @staticmethod
+    def _excerpt_note(item: BoundaryExcerpt) -> str | None:
+        """Both captions an excerpt can carry, as one sentence or two, or nothing.
+
+        An excerpt can be a pinned copy of a repository that has moved on and be clipped
+        short of its recorded span at the same time; each caveat changes what the stage may
+        claim from the code, so neither may displace the other.
+        """
+
+        captions: list[str] = []
+        if item.provenance:
+            captions.append(item.provenance)
+        if item.truncated_after_line is not None and item.location is not None:
+            captions.append(
+                f"Truncated: the recorded span runs to line {item.location.end_line}, "
+                f"but only lines up to {item.truncated_after_line} are shown. Never "
+                "claim the lines past that point say nothing."
+            )
+        return " ".join(captions) or None
+
+    @staticmethod
+    def _atlas_map_payload(atlas_map: AtlasMap | None) -> object:
+        """The repository's structure at review time, or a statement of why it is absent.
+
+        Omitted counts render as sentences rather than bare numbers, because a trimmed map
+        must not read as a complete one: "3 modules omitted" is the difference between
+        "that module does not exist" and "that module was folded away for space".
+        """
+
+        if atlas_map is None:
+            return "not assembled for this stage"
+        if atlas_map.unavailable:
+            return f"unavailable: {atlas_map.unavailable}"
+        return {
+            "modules": [
+                {
+                    "module": module.path,
+                    "declares": module.members,
+                    **(
+                        {
+                            "declarations_omitted": (
+                                f"{module.members_omitted} declarations omitted to fit "
+                                "the budget — absence from this list is not absence from "
+                                "the module"
+                            )
+                        }
+                        if module.members_omitted
+                        else {}
+                    ),
+                }
+                for module in atlas_map.modules
+            ],
+            "module_relationships": [
+                f"{item.source_module} depends on {item.target_module}: {item.kinds}"
+                for item in atlas_map.relations
+            ],
+            **(
+                {
+                    "modules_omitted": (
+                        f"{atlas_map.modules_omitted} modules omitted to fit the budget"
+                    )
+                }
+                if atlas_map.modules_omitted
+                else {}
+            ),
+            **(
+                {
+                    "relationships_omitted": (
+                        f"{atlas_map.relations_omitted} module relationships omitted to "
+                        "fit the budget"
+                    )
+                }
+                if atlas_map.relations_omitted
+                else {}
+            ),
+        }
+
+    @staticmethod
+    def _policy_corpus_payload(knowledge: MethodKnowledge) -> object:
+        """The corpus as background, or the reason there is none.
+
+        The reason is presented instead of an empty list because the two mean different
+        things: an empty corpus is a workspace without policies, while an unreadable one is
+        a failure the stage should repeat to a reader who asks about policies rather than
+        answering as though none exist.
+        """
+
+        if knowledge.policy_corpus_unavailable:
+            return f"unavailable: {knowledge.policy_corpus_unavailable}"
+        return [
+            {"title": policy.title, "text": policy.body}
+            for policy in knowledge.policies
+        ]
+
+    @staticmethod
     def _source_for(
         excerpts: list[BoundaryExcerpt],
         reference: str,
@@ -884,6 +1031,11 @@ class StructuredReasoningProvider:
                 "what_it_contributes": item.role,
                 "code": item.text or None,
                 "why_there_is_no_code": item.unavailable or None,
+                # A caption about the text, when the text needs one — a pinned copy served
+                # because the repository has moved on, or a span the excerpt ceiling cut
+                # short. Carried beside the code rather than folded into it, so the stage
+                # can repeat the caveat without mistaking it for a line of the file.
+                "note": StructuredReasoningProvider._excerpt_note(item),
             }
             for item in excerpts
             if item.reference == reference
@@ -1080,6 +1232,12 @@ class StructuredReasoningProvider:
                 # changes — so an explanation that could not see them was explaining a
                 # conclusion from half its evidence.
                 "case": evidence.case.model_dump(mode="json"),
+                # The whole repository's structure as it was when the review ran — what
+                # exists and what depends on what, with no verdicts and no code. It is how
+                # a question about a module no detector flagged gets a structural answer
+                # instead of "I was not shown that", and nothing in a reply may cite it:
+                # grounding stays boundaries-only.
+                "pinned_atlas_map": self._atlas_map_payload(evidence.atlas_map),
                 "counts": report.headline,
                 # The round that produced this pass, both halves together. Asked "what were
                 # the questions and answers again?", this stage said the review holds no such
@@ -1128,10 +1286,7 @@ class StructuredReasoningProvider:
                 # is also why the policies keep their titles here, unlike in the judging
                 # stage where the reply must bind to them by position instead.
                 "background_how_archcompass_works": knowledge.method,
-                "background_policy_corpus": [
-                    {"title": policy.title, "text": policy.body}
-                    for policy in knowledge.policies
-                ],
+                "background_policy_corpus": self._policy_corpus_payload(knowledge),
                 # No reference codes. The model is shown the substance and answers by
                 # position; codes exist for the reader, not for the model to quote back.
                 "boundaries": [
@@ -1165,6 +1320,11 @@ class StructuredReasoningProvider:
                             for bearing in item.policy_bearings
                         ],
                         "detection_limits": item.candidate.limitations,
+                        # Which elements make this boundary up and which edges the detector
+                        # recorded among them — what the judging stage had and this one
+                        # lacked, so "what implements this?" no longer depends on the prose
+                        # having restated it.
+                        **self._structure_for(item.candidate),
                         # The lines this boundary was measured from, read from the repository
                         # it pinned. Without them a reader asking to see the leak was told
                         # the review "does not include the specific lines" — true of what
@@ -1269,6 +1429,111 @@ class StructuredReasoningProvider:
                 f"Question {question.reference} cites no boundary this review contains"
             )
         expected = len(boundaries)
+        # The conclusion is shown only once the review has concluded. Mid-elicitation the
+        # overview is composed from known facts with the themes left empty, and a stage
+        # that read it would be reading a summary of the set this reader has deliberately
+        # not been shown (§6C.6). But this stage also serves question-scoped conversations
+        # about reviews that have since concluded, where the conclusion is on the reader's
+        # page and "how does this fit the overall recommendation?" deserves a grounded
+        # answer rather than a stage that has never seen the recommendation.
+        #
+        # Its groundings need care: the conclusion's statements rest on the whole reviewed
+        # set while only the cited subset is numbered here, so a full-set position would
+        # collide with this payload's own vocabulary. A boundary in the subset is named by
+        # its position; one outside it is named by its summary — public on a concluded
+        # review — and marked as not shown, so nothing invites citing it.
+        concluded = review.status is ReviewStatus.SUCCEEDED
+        position_in_subset = {
+            item.reference: index for index, item in enumerate(boundaries, start=1)
+        }
+        summaries = {item.reference: item.candidate.summary for item in report.reviewed}
+
+        def resting(statement: OverviewStatement) -> list[dict[str, object]]:
+            return [
+                (
+                    {"position": position_in_subset[reference]}
+                    if reference in position_in_subset
+                    else {"boundary_not_shown_in_this_discussion": summaries[reference]}
+                )
+                for reference in statement.supporting_references
+                if reference in summaries
+            ]
+
+        # A waiting review may have been carried on from: the loop concludes in a *new*
+        # review, so the conclusion the reader has on their page lives on the successor the
+        # application looked up, not on the review this thread pins. Shown from there, with
+        # its groundings matched back onto the cited subset by boundary fingerprint — the
+        # structural identity that survives a re-run — and by summary where an older review
+        # carries no fingerprint.
+        successor = evidence.concluded_by.report if evidence.concluded_by else None
+
+        def resting_on_successor(statement: OverviewStatement) -> list[dict[str, object]]:
+            assert successor is not None
+            by_fingerprint = {
+                item.fingerprint: index
+                for index, item in enumerate(boundaries, start=1)
+                if item.fingerprint
+            }
+            by_summary = {
+                item.candidate.summary: index
+                for index, item in enumerate(boundaries, start=1)
+            }
+            entries: list[dict[str, object]] = []
+            for reference in statement.supporting_references:
+                match = next(
+                    (item for item in successor.reviewed if item.reference == reference),
+                    None,
+                )
+                if match is None:
+                    continue
+                position = (
+                    by_fingerprint.get(match.fingerprint) if match.fingerprint else None
+                ) or by_summary.get(match.candidate.summary)
+                entries.append(
+                    {"position": position}
+                    if position is not None
+                    else {"boundary_not_shown_in_this_discussion": match.candidate.summary}
+                )
+            return entries
+
+        def rendered(
+            overview: ReviewOverview,
+            grounding: Callable[[OverviewStatement], list[dict[str, object]]],
+        ) -> dict[str, object]:
+            return {
+                "situation": overview.situation,
+                "themes": [
+                    {"text": item.text, "rests_on": grounding(item)}
+                    for item in overview.themes
+                ],
+                "recommended_sequence": [
+                    {"number": number, "text": item.text, "rests_on": grounding(item)}
+                    for number, item in enumerate(overview.recommended_sequence, start=1)
+                ],
+                "limits": overview.limits,
+            }
+
+        conclusion: object
+        if concluded:
+            conclusion = rendered(report.overview, resting)
+        elif successor is not None:
+            conclusion = {
+                # Said in the payload, not only in the contract: the verdicts above are
+                # this round's, and the conclusion came from the pass that ran after the
+                # reader's answers — a re-judged boundary may have moved between the two.
+                "reached_by": (
+                    "a later pass that ran after this round's answers were recorded; the "
+                    "verdicts shown above are this round's own"
+                ),
+                **rendered(successor.overview, resting_on_successor),
+            }
+        else:
+            # Spelled out rather than omitted, as every absence here is: an absent key
+            # reads as "reviews have no conclusions", and this one has one on the way.
+            conclusion = (
+                "withheld — this review is still waiting on answers, so its conclusion "
+                "and the verdicts outside this question are not settled enough to show"
+            )
         proposed = self._complete(
             ReasoningTask.DISCUSS_OPEN_QUESTION,
             {
@@ -1284,10 +1549,15 @@ class StructuredReasoningProvider:
                 # change or delete, which is correct: an answer is not an answer until they
                 # save it.
                 "case": evidence.case.model_dump(mode="json"),
-                # No conclusion and no counts. A first pass has neither — its overview is
-                # composed from known facts with the themes left empty — and a stage that
-                # asked for them would be reading a summary of the set this reader has
-                # deliberately not been shown.
+                # As the answering stage carries it: structure only, no verdicts, so it
+                # widens nothing the cited-boundaries scope protects.
+                "pinned_atlas_map": self._atlas_map_payload(evidence.atlas_map),
+                **(
+                    {"counts": report.headline}
+                    if concluded
+                    else {"counts": successor.headline} if successor is not None else {}
+                ),
+                "conclusion": conclusion,
                 "the_question_being_discussed": {
                     "what_the_review_saw": question.what_the_review_saw,
                     "the_unknown": question.unknown,
@@ -1298,10 +1568,7 @@ class StructuredReasoningProvider:
                     ),
                 },
                 "background_how_archcompass_works": knowledge.method,
-                "background_policy_corpus": [
-                    {"title": policy.title, "text": policy.body}
-                    for policy in knowledge.policies
-                ],
+                "background_policy_corpus": self._policy_corpus_payload(knowledge),
                 # Presented as the answering stage presents them, minus the reference codes
                 # for the usual reason (12.0). The same fields, because a reader asking
                 # "why does this boundary make you ask that" needs what that stage needed.
@@ -1326,6 +1593,10 @@ class StructuredReasoningProvider:
                             for bearing in item.policy_bearings
                         ],
                         "detection_limits": item.candidate.limitations,
+                        # As the answering stage carries it, and for the same reason: the
+                        # reader being asked to settle what relates these elements needs
+                        # what the detector recorded about how they relate.
+                        **self._structure_for(item.candidate),
                         "source": self._source_for(evidence.excerpts, item.reference),
                         # What this verdict said it turned on, which is why this boundary is
                         # cited at all. Without it the reader can be told the verdict but not

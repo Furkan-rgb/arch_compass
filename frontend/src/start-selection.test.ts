@@ -14,6 +14,7 @@ import {
   isReady,
   runIntent,
   type StartSelection,
+  looksLikeGitAddress,
 } from "./start-selection";
 
 function selection(overrides: Partial<StartSelection> = {}): StartSelection {
@@ -56,5 +57,25 @@ describe("what pressing Run does", () => {
         expect(isReady(state, hasModel)).toBe(runIntent(state, hasModel) !== null);
       }
     }
+  });
+});
+
+describe("looksLikeGitAddress", () => {
+  it("recognises the addresses git itself clones from", () => {
+    expect(looksLikeGitAddress("https://github.com/owner/repo")).toBe(true);
+    expect(looksLikeGitAddress("https://github.com/owner/repo.git")).toBe(true);
+    expect(looksLikeGitAddress("ssh://git@host/owner/repo.git")).toBe(true);
+    expect(looksLikeGitAddress("git@github.com:owner/repo.git")).toBe(true);
+    expect(looksLikeGitAddress("  https://github.com/owner/repo  ")).toBe(true);
+  });
+
+  it("treats everything else as a folder, including local repositories", () => {
+    // A local path to a repository is a folder: indexing reviews it in place, which is
+    // the right treatment — no clone, no managed copy.
+    expect(looksLikeGitAddress("/home/demo/project")).toBe(false);
+    expect(looksLikeGitAddress("/home/demo/project.git")).toBe(false);
+    expect(looksLikeGitAddress("")).toBe(false);
+    expect(looksLikeGitAddress("git@")).toBe(false);
+    expect(looksLikeGitAddress("https://")).toBe(false);
   });
 });

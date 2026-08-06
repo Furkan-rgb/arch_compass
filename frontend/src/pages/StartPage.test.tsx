@@ -72,7 +72,7 @@ function open() {
   );
 }
 
-const browse = () => fireEvent.click(screen.getByRole("button", { name: /Index a folder/ }));
+const browse = () => fireEvent.click(screen.getByRole("button", { name: /Browse local folders/ }));
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -91,7 +91,7 @@ describe("indexing a repository by browsing to it", () => {
 
     await screen.findByRole("button", { name: /warehouse/ });
     fireEvent.click(screen.getByRole("button", { name: /warehouse/ }));
-    await waitFor(() => expect(screen.getByLabelText("Folder path")).toHaveValue(
+    await waitFor(() => expect(screen.getByLabelText("Folder path or git address")).toHaveValue(
       "/home/dev/warehouse",
     ));
 
@@ -99,7 +99,7 @@ describe("indexing a repository by browsing to it", () => {
 
     // The absolute path the server resolved, not a name the picker composed.
     await waitFor(() => expect(indexed).toHaveBeenCalledWith("/home/dev/warehouse"));
-    await waitFor(() => expect(screen.queryByLabelText("Folder path")).toBeNull());
+    await waitFor(() => expect(screen.queryByLabelText("Folder path or git address")).toBeNull());
     expect(
       await screen.findByText(/Judging every boundary in/),
     ).toHaveTextContent("warehouse");
@@ -113,11 +113,11 @@ describe("indexing a repository by browsing to it", () => {
 
     open();
     browse();
-    await screen.findByLabelText("Folder path");
+    await screen.findByLabelText("Folder path or git address");
 
     // Pasted before the home listing has landed: the field stops following the walk the
     // moment it is edited, so the arriving listing must not eat it.
-    fireEvent.change(screen.getByLabelText("Folder path"), {
+    fireEvent.change(screen.getByLabelText("Folder path or git address"), {
       target: { value: "/home/dev/warehouse" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Go" }));
@@ -128,7 +128,7 @@ describe("indexing a repository by browsing to it", () => {
     fireEvent.click(screen.getByRole("button", { name: "Index this folder" }));
 
     expect(await screen.findByText("Repository does not exist: /nowhere")).toBeInTheDocument();
-    expect(screen.getByLabelText("Folder path")).toHaveValue("/home/dev/warehouse");
+    expect(screen.getByLabelText("Folder path or git address")).toHaveValue("/home/dev/warehouse");
   });
 
   it("refuses to climb past the filesystem root", async () => {

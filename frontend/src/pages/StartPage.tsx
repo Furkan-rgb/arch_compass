@@ -10,6 +10,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -27,7 +28,7 @@ import { EmptyLine, ErrorPanel, Loading, PageHeader, page, sheet } from "../comp
 import { useModelPicker } from "../model-picker";
 import { latestPerRepository } from "../repositories";
 import { useRun } from "../run";
-import { isReady, runIntent, type StartSelection } from "../start-selection";
+import { isReady, looksLikeGitAddress, runIntent, type StartSelection } from "../start-selection";
 import type { BundledExample } from "../types";
 
 /* A short list of things to pick from, at the density of a list rather than of a card wall:
@@ -70,15 +71,24 @@ function FolderBrowser({
   indexing,
   error,
   onIndex,
+  fetching,
+  checkoutError,
+  onCheckout,
 }: {
   /** Where to open: a repository some case named, or the home folder where `null` lands. */
   start: string | null;
   indexing: boolean;
   error: unknown;
   onIndex: (root: string) => void;
+  fetching: boolean;
+  checkoutError: unknown;
+  onCheckout: (url: string, branch: string | null) => void;
 }) {
   const [at, setAt] = useState<string | null>(start);
   const [typed, setTyped] = useState(start ?? "");
+  const [branch, setBranch] = useState("");
+  // One field for "the project": recognised from what was pasted, never asked about.
+  const address = looksLikeGitAddress(typed);
   // The field follows the walk until anybody edits it, so a listing that lands a beat later
   // cannot eat a path half way through being pasted.
   const [edited, setEdited] = useState(false);
@@ -117,7 +127,12 @@ function FolderBrowser({
         className="flex gap-2"
         onSubmit={(event) => {
           event.preventDefault();
-          go();
+          // Enter does what the line says: an address is fetched, a path is walked to.
+          if (address) {
+            if (!fetching) onCheckout(typed.trim(), branch.trim() || null);
+          } else {
+            go();
+          }
         }}
       >
         <Button
@@ -126,7 +141,7 @@ function FolderBrowser({
           aria-label="Go up to the parent folder"
           // A null parent is the server saying there is nowhere above this; nothing here
           // counts slashes to work that out.
-          disabled={!listing.data?.parent}
+          disabled={address || !listing.data?.parent}
           onClick={() => walk(listing.data?.parent ?? null)}
         >
           <ArrowUp size={14} aria-hidden />
@@ -138,23 +153,38 @@ function FolderBrowser({
             setEdited(true);
             setTyped(event.target.value);
           }}
-          aria-label="Folder path"
+          aria-label="Folder path or git address"
           spellCheck={false}
         />
-        <Button type="submit" disabled={!typed.trim()}>
-          Go
-        </Button>
+        {address ? null : (
+          <Button type="submit" disabled={!typed.trim()}>
+            Go
+          </Button>
+        )}
       </form>
 
-      {listing.isLoading ? <Loading label="Reading folders…" rows={3} /> : null}
-      {listing.error ? (
+      {address ? (
+        // The line named a repository elsewhere, so the walk yields to the fetch: a branch
+        // to ask for, and nothing else — the folder list below is about this machine.
+        <Input
+          className="font-mono text-meta"
+          value={branch}
+          onChange={(event) => setBranch(event.target.value)}
+          placeholder="branch — empty means the default"
+          aria-label="Branch"
+          spellCheck={false}
+        />
+      ) : null}
+
+      {!address && listing.isLoading ? <Loading label="Reading folders…" rows={3} /> : null}
+      {!address && listing.error ? (
         <ErrorPanel
           error={listing.error}
           onRetry={() => void listing.refetch()}
           retrying={listing.isFetching}
         />
       ) : null}
-      {listing.data?.directories.length ? (
+      {address ? null : listing.data?.directories.length ? (
         <ul data-slot="pick" className={cn(pick, "max-h-[280px]")}>
           {listing.data.directories.map((folder) => (
             <li key={folder.path}>
@@ -174,17 +204,41 @@ function FolderBrowser({
       )}
 
       {error ? <ErrorPanel error={error} /> : null}
+      {address && checkoutError ? <ErrorPanel error={checkoutError} /> : null}
 
       <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 border-t border-rule-soft pt-3.5">
-        <Button
-          type="button"
-          variant="primary"
-          // Indexes the folder whose contents are on screen, never a half-typed line.
-          disabled={!here || indexing}
-          onClick={() => here && onIndex(here)}
-        >
-          {indexing ? "Indexing…" : "Index this folder"}
-        </Button>
+        {address ? (
+          <Button
+            type="button"
+            variant="primary"
+            disabled={fetching}
+            onClick={() => onCheckout(typed.trim(), branch.trim() || null)}
+          >
+            {fetching ? (
+              <>
+                <Spinner /> Fetching…
+              </>
+            ) : (
+              "Check out and index"
+            )}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="primary"
+            // Indexes the folder whose contents are on screen, never a half-typed line.
+            disabled={!here || indexing}
+            onClick={() => here && onIndex(here)}
+          >
+            {indexing ? (
+              <>
+                <Spinner /> Indexing…
+              </>
+            ) : (
+              "Index this folder"
+            )}
+          </Button>
+        )}
       </div>
     </>
   );
@@ -205,6 +259,9 @@ function FolderPicker({
   indexing,
   error,
   onIndex,
+  fetching,
+  checkoutError,
+  onCheckout,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -213,13 +270,21 @@ function FolderPicker({
   indexing: boolean;
   error: unknown;
   onIndex: (root: string) => void;
+  fetching: boolean;
+  checkoutError: unknown;
+  onCheckout: (url: string, branch: string | null) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" disabled={disabled}>
+        <Button
+          type="button"
+          size="icon"
+          disabled={disabled}
+          aria-label="Browse local folders"
+          title="Browse local folders"
+        >
           <FolderOpen size={14} aria-hidden />
-          Index a folder…
         </Button>
       </DialogTrigger>
       <DialogContent
@@ -229,10 +294,11 @@ function FolderPicker({
         overlayClassName="items-start py-[12vh]"
       >
         <DialogHeader>
-          <DialogTitle>Index a folder</DialogTitle>
+          <DialogTitle>Add a repository</DialogTitle>
           <DialogDescription>
-            Browse to the root of a local Python project, or paste its path. Parsing reads
-            the code without importing or modifying it.
+            Browse to a local Python project — or paste a path, or a git address. An
+            address is cloned into this workspace and kept fresh on later visits; parsing
+            reads the code without importing or modifying it.
           </DialogDescription>
         </DialogHeader>
         <FolderBrowser
@@ -240,6 +306,9 @@ function FolderPicker({
           indexing={indexing}
           error={error}
           onIndex={onIndex}
+          fetching={fetching}
+          checkoutError={checkoutError}
+          onCheckout={onCheckout}
         />
       </DialogContent>
     </Dialog>
@@ -286,6 +355,21 @@ export function StartPage() {
     },
   });
 
+  // Checking out is two steps worn as one: fetch the address, then index what landed.
+  // The reader asked to review a repository, not to perform the halves — and only the
+  // second half produces the atlas the rest of this page works from.
+  const checkout = useMutation({
+    mutationFn: async ({ url, branch }: { url: string; branch: string | null }) => {
+      const fetched = await api.checkoutRepository(url, branch);
+      return api.indexRepository(fetched.root_path);
+    },
+    onSuccess: async (version) => {
+      setPicking(false);
+      setRepositoryRoot(version.root_path);
+      await client.invalidateQueries({ queryKey: ["repositories"] });
+    },
+  });
+
   // An example brings a repository and nothing else. It takes the identical path a
   // folder-picked project takes from here on: run, be asked, answer — which is the flow
   // the examples exist to show.
@@ -311,6 +395,11 @@ export function StartPage() {
   // price ahead of the value.
   const reviewRepository = useMutation({
     mutationFn: async (root: string) => {
+      // A managed checkout is brought current first, exactly as the review page's New
+      // revision does: "run a review" means the repository's code, not whatever the clone
+      // last held. Anyone else's working copy comes back managed:false untouched, so this
+      // is safe to ask unconditionally.
+      await api.refreshRepository(root);
       const revision = await api.startFromRepository(root);
       if (!revision.case_id) {
         throw new Error("The workspace returned a case without an identifier.");
@@ -353,7 +442,11 @@ export function StartPage() {
 
   const ready = isReady(selection, hasModel);
   const busy =
-    run.running || loadExample.isPending || index.isPending || reviewRepository.isPending;
+    run.running ||
+    loadExample.isPending ||
+    index.isPending ||
+    checkout.isPending ||
+    reviewRepository.isPending;
 
   return (
     <div className={page}>
@@ -437,6 +530,57 @@ export function StartPage() {
           <div className={startHead}>
             <h3 className="m-0 text-ui font-[650]">Repository</h3>
           </div>
+          {/* The way in, first: paste the repository — an address is cloned, a path is
+              indexed in place — with browsing kept behind the folder button for the day
+              the path isn't on the clipboard. */}
+          {!hosted ? (
+            <form
+              className="flex gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const line = path.trim();
+                if (!line || busy) return;
+                if (looksLikeGitAddress(line)) {
+                  checkout.mutate({ url: line, branch: null });
+                } else {
+                  index.mutate(line);
+                }
+              }}
+            >
+              <Input
+                className="min-w-0 flex-1 font-mono text-meta"
+                value={path}
+                onChange={(event) => setPath(event.target.value)}
+                placeholder="https://github.com/owner/repository — or a local path"
+                aria-label="Repository address or path"
+                spellCheck={false}
+              />
+              <Button type="submit" variant="primary" disabled={!path.trim() || busy}>
+                {checkout.isPending || index.isPending ? (
+                  <>
+                    <Spinner /> Adding…
+                  </>
+                ) : (
+                  "Add"
+                )}
+              </Button>
+              <FolderPicker
+                open={picking}
+                onOpenChange={setPicking}
+                disabled={busy}
+                start={path.trim() || null}
+                indexing={index.isPending}
+                error={index.error}
+                onIndex={(root) => index.mutate(root)}
+                fetching={checkout.isPending}
+                checkoutError={checkout.error}
+                onCheckout={(url, branch) => checkout.mutate({ url, branch })}
+              />
+            </form>
+          ) : null}
+          {!hosted && (checkout.error || index.error) && !picking ? (
+            <ErrorPanel error={checkout.error || index.error} />
+          ) : null}
           <p className={hint}>
             Python is parsed without being imported or modified. Indexing the same path
             again is cheap; freshness is checked before every review.
@@ -477,22 +621,6 @@ export function StartPage() {
             </EmptyLine>
           )}
 
-          {!hosted ? (
-            <div className="flex flex-wrap gap-2">
-              <FolderPicker
-                open={picking}
-                onOpenChange={setPicking}
-                disabled={busy}
-                // A repository some case named that nothing has parsed yet: the picker
-                // opens there so the reader confirms the folder rather than finding it
-                // again.
-                start={path.trim() || null}
-                indexing={index.isPending}
-                error={index.error}
-                onIndex={(root) => index.mutate(root)}
-              />
-            </div>
-          ) : null}
         </div>
 
         {/* Pinned to the foot of the sheet and never scrolled away from: the one control
@@ -535,7 +663,7 @@ export function StartPage() {
               reviewRepository.mutate(intent.repositoryRoot);
             }}
           >
-            <Play size={15} aria-hidden />
+            {busy ? <Spinner /> : <Play size={15} aria-hidden />}
             {busy ? "Starting…" : "Run review"}
           </Button>
           {/* A failure before the stream opens never reaches the review's page, because

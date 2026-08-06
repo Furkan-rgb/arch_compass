@@ -90,10 +90,15 @@ describe("OpenQuestions", () => {
     // What was seen, which is the part the reader cannot supply for themselves. `unknown`
     // is not shown: it restated the question and cost a line to do it.
     expect(screen.getByText(/StockLedger and WarehouseFeed both wrap one supplier/)).toBeTruthy();
-    expect(screen.queryByText("whether a second warehouse is coming")).toBeNull();
-    // The second question is not on screen. Each of these takes real thought about the
-    // reader's own project, and five at once reads as a form to get through.
-    expect(screen.queryByText("Are the two BATCH_SIZE constants one fact?")).toBeNull();
+    // The second question exists in the document — the questionnaire keeps every step
+    // mounted — but its fieldset is inactive and hidden, which is what "one at a time"
+    // means to a reader.
+    const other = screen
+      .getByText("Are the two BATCH_SIZE constants one fact?")
+      .closest("fieldset");
+    expect(other?.hasAttribute("data-active")).toBe(false);
+    // One visible answer box: each question takes real thought about the reader's own
+    // project, and five at once reads as a form to get through.
     expect(screen.getAllByRole("textbox")).toHaveLength(1);
     // Never pre-filled. The advisor supplies the question and nothing else (§6C.5).
     expect(answerBox().value).toBe("");
@@ -391,15 +396,18 @@ describe("OpenQuestions and the answers a review can offer", () => {
   it("shows options only where the review offered them", () => {
     renderQuestions({ questions: [WITH_OPTIONS, CONSTANTS] });
 
-    expect(screen.getByRole("group", { name: "Offered answers" })).toBeTruthy();
+    expect(screen.getByRole("radiogroup", { name: "Offered answers" })).toBeTruthy();
     goTo(2);
-    expect(screen.queryByRole("group", { name: "Offered answers" })).toBeNull();
+    // The first question's radios are still in the document, hidden with their fieldset;
+    // the active step offers none.
+    const active = document.querySelector("fieldset[data-active]");
+    expect(active?.querySelector("[data-slot=questionnaire-choices]")).toBeNull();
   });
 
   it("records a pressed option as the reader's own text, editable to the last moment", () => {
     const onSubmit = renderQuestions({ questions: [WITH_OPTIONS] });
 
-    fireEvent.click(screen.getByRole("button", { name: "No second warehouse is coming" }));
+    fireEvent.click(screen.getByRole("radio", { name: "No second warehouse is coming" }));
     expect(answerBox().value).toBe("No second warehouse is coming");
 
     goToReview();
@@ -411,33 +419,34 @@ describe("OpenQuestions and the answers a review can offer", () => {
 
   it("lets an offer be declined by pressing it again", () => {
     renderQuestions({ questions: [WITH_OPTIONS] });
-    const option = screen.getByRole("button", { name: "No second warehouse is coming" });
+    const option = () =>
+      screen.getByRole("radio", { name: "No second warehouse is coming" }) as HTMLInputElement;
 
-    fireEvent.click(option);
-    expect(option.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(option());
+    expect(option().checked).toBe(true);
 
-    fireEvent.click(option);
-    expect(option.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(option());
+    expect(option().checked).toBe(false);
     expect(answerBox().value).toBe("");
   });
 
   it("treats an edited option as the reader's words, no longer any option's", () => {
     renderQuestions({ questions: [WITH_OPTIONS] });
-    const option = screen.getByRole("button", { name: "No second warehouse is coming" });
+    const option = screen.getByRole("radio", { name: "No second warehouse is coming" });
 
     fireEvent.click(option);
     fireEvent.change(answerBox(), {
       target: { value: "No second warehouse is coming, and none is being evaluated." },
     });
 
-    expect(option.getAttribute("aria-pressed")).toBe("false");
+    expect((option as HTMLInputElement).checked).toBe(false);
   });
 
   it("never selects an option the reader has not pressed", () => {
     renderQuestions({ questions: [WITH_OPTIONS] });
 
     for (const name of WITH_OPTIONS.answer_options!) {
-      expect(screen.getByRole("button", { name }).getAttribute("aria-pressed")).toBe("false");
+      expect((screen.getByRole("radio", { name }) as HTMLInputElement).checked).toBe(false);
     }
     expect(answerBox().value).toBe("");
   });

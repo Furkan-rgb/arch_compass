@@ -36,6 +36,38 @@ describe("applyProgress", () => {
     expect(state?.judged).toBe(2);
   });
 
+  it("keeps a carried verdict distinguishable from one this run reached", () => {
+    // A re-run over an unchanged question reuses every verdict it can and is over in
+    // seconds. Folded as a plain verdict, that is a run that appears to have judged a
+    // repository faster than a model can answer — so the origin lands with the verdict,
+    // and the tally beside it is what a caller reads to say "3 of 3 carried".
+    // Folded from the stream's own first line rather than from the fixture above, because
+    // detection is what gives the run a row per boundary to write an origin into.
+    const swept = applyProgress(null, {
+      event: "detected",
+      total: 3,
+      boundaries: BOUNDARIES,
+    });
+    const first = applyProgress(applyProgress(swept, {
+      event: "judged",
+      position: 1,
+      total: 3,
+      abstraction: "ports.TaskFormatter",
+      material: false,
+      verdict_reused_from: "rev_earlier",
+      carried: 1,
+    }), {
+      event: "judged",
+      position: 2,
+      total: 3,
+      abstraction: "ports.Clock",
+      material: true,
+    });
+
+    expect(first?.carriedFrom).toEqual(["rev_earlier", null, null]);
+    expect(first?.carried).toBe(1);
+  });
+
   it("leaves the flow alone when the stream announces the review's identity", () => {
     // `started` is for navigation, not for the flow: it arrives before the sweep, when
     // there is genuinely nothing to draw yet.

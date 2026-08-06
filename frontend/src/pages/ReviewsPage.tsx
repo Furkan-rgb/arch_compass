@@ -14,8 +14,6 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Ledger,
-  LedgerBar,
-  LedgerCount,
   LedgerItem,
   RowStripe,
   VerdictText,
@@ -38,7 +36,7 @@ import {
   shortId,
 } from "../components";
 import { deletion } from "../review-capabilities";
-import type { BoundaryReviewSummary } from "../types";
+import type { BoundaryReviewSummary, RepositorySummary } from "../types";
 
 /** True while any listed review is still being produced. */
 export function anyRunning(reviews: BoundaryReviewSummary[]) {
@@ -130,11 +128,16 @@ export function Outcome({ review }: { review: BoundaryReviewSummary }) {
  */
 function RowActions({
   review,
+  title,
+  passCount,
   onCancel,
   onDelete,
   busy,
 }: {
   review: BoundaryReviewSummary;
+  title: string;
+  /** How many passes the row folds. Deleting the row deletes all of them. */
+  passCount: number;
   onCancel: () => void;
   onDelete: () => void;
   busy: boolean;
@@ -169,9 +172,7 @@ function RowActions({
           <Button
             type="button"
             size="icon"
-            aria-label={`More actions for the review of ${
-              review.case_title || review.review_id
-            }`}
+            aria-label={`More actions for the review of ${title}`}
           >
             <MoreVertical size={16} aria-hidden />
           </Button>
@@ -200,7 +201,9 @@ function RowActions({
                   stays visible behind the question, which is the one detail that makes the
                   answer meaningful. */}
               <DropdownMenuLabel data-slot="row-menu-ask">
-                Delete this review? Its question threads go with it.
+                {passCount > 1
+                  ? `Delete this run? Its ${passCount} passes and their question threads go with it.`
+                  : "Delete this review? Its question threads go with it."}
               </DropdownMenuLabel>
               <DropdownMenuItem
                 variant="destructive"
@@ -230,40 +233,77 @@ function RowActions({
   );
 }
 
+/** One run of a review: every pass of it, newest first, worn as a single row. */
+export interface ReviewChain {
+  /** The latest pass — the one the row links to and reports the outcome of. */
+  tip: BoundaryReviewSummary;
+  /** All passes, newest first; `passes[0]` is the tip. */
+  passes: BoundaryReviewSummary[];
+  title: string | null;
+}
+
 /**
- * Every review this workspace has run, kept off the start step.
+ * One row per run, not one per pass.
  *
- * Grouped by case rather than listed flat. Revising a case and reviewing again is the loop
- * this tool is built around, so successive runs of one case are one history: read as a
- * flat list they look like unrelated results, and the reader has to reconstruct which of
- * two reviews came after which revision.
+ * A run is a chain of passes linked by `elicited_from` — the first pass asks its questions,
+ * the second judges the answered case — and the chain is one piece of work. Listed
+ * separately, every finished run showed twice: once as its conclusion and once as a first
+ * pass for ever "waiting on your answers" over questions that were answered minutes later.
+ * So a pass another review answers folds behind that review, and a first pass stands alone
+ * exactly as long as it really is waiting — which is when waiting is the row to show.
  */
-export function CaseHistory({
-  caseId,
-  title,
-  reviews,
+export function groupIntoChains(reviews: BoundaryReviewSummary[]): ReviewChain[] {
+  const byId = new Map(reviews.map((item) => [item.review_id, item]));
+  const answered = new Set(
+    reviews.map((item) => item.elicited_from).filter((id): id is string => Boolean(id)),
+  );
+  // The listing arrives newest first, so the tips keep that order without sorting.
+  return reviews
+    .filter((item) => !answered.has(item.review_id))
+    .map((tip) => {
+      const passes: BoundaryReviewSummary[] = [];
+      // A pass whose predecessor has been deleted still lists: the walk simply ends where
+      // the record does, and the chain is whatever survives.
+      for (
+        let pass: BoundaryReviewSummary | undefined = tip;
+        pass;
+        pass = pass.elicited_from ? byId.get(pass.elicited_from) : undefined
+      ) {
+        passes.push(pass);
+      }
+      return {
+        tip,
+        passes,
+        // The title comes from whichever pass recorded one. A pass still running has none
+        // yet, and the first pass's is a better answer than a placeholder.
+        title: passes.find((item) => item.case_title)?.case_title || null,
+      };
+    });
+}
+
+/**
+ * A repository's runs, newest first.
+ *
+ * One flat ledger rather than a sub-section per case: with passes folded, a case is almost
+ * always exactly one run, and re-running a bundled example makes a *new* case with the same
+ * title — two headings wearing identical words told the reader nothing the rows don't.
+ */
+export function RunLedger({
+  chains,
   onCancel,
   onDelete,
   busy,
 }: {
-  caseId: string;
-  title: string | null;
-  reviews: BoundaryReviewSummary[];
+  chains: ReviewChain[];
   onCancel: (reviewId: string) => void;
-  onDelete: (reviewId: string) => void;
+  onDelete: (reviewIds: string[]) => void;
   busy: boolean;
 }) {
   return (
-    <section data-slot="case-history" className={ledgerSheet}>
-      <LedgerBar>
-        <strong>{title || <code>{shortId(caseId)}</code>}</strong>
-        <LedgerCount>
-          {reviews.length} {reviews.length === 1 ? "review" : "reviews"}
-        </LedgerCount>
-      </LedgerBar>
+    <section data-slot="run-ledger" className={ledgerSheet}>
       <Ledger>
-        {reviews.map((review, index) => (
-          <LedgerItem key={review.review_id}>
+        {chains.map((chain) => (
+          <LedgerItem key={chain.tip.review_id}>
             {/* The hover sits on the wrapper rather than on the row, because the row's
                 controls are its siblings: the highlight belongs to the record, not to the
                 link that opens it. */}
@@ -272,26 +312,36 @@ export function CaseHistory({
               className="grid grid-cols-[minmax(0,1fr)_auto] items-center rounded-[var(--row-radius)] hover:bg-sunken"
             >
               <Link
-                to={`/reviews/${review.review_id}`}
+                to={`/reviews/${chain.tip.review_id}`}
                 {...rowProps({ kind: "review" })}
                 // Named for what it is here: the record is the wrapper above, and this is
                 // the one of its two children that opens the review.
                 data-slot="review-link"
               >
-                <RowStripe verdict={verdictFamily(review)} />
-                <span className={rowName}>{formatDate(review.created_at)}</span>
-                {/* Which revision was judged is the fact that separates two reviews of one
-                    case. Without it the rows differ only by timestamp, and the reader
-                    cannot tell a re-run from a review of a changed case. */}
-                <span className={rowWhere}>case rev {review.case_revision}</span>
-                {index === 0 && reviews.length > 1 ? (
-                  <span className="font-mono text-micro tracking-[.06em] uppercase text-accent-ink max-[860px]:hidden">
-                    latest
+                <RowStripe verdict={verdictFamily(chain.tip)} />
+                <span className={rowName}>
+                  {chain.title || <code>{shortId(chain.tip.case_id)}</code>}
+                </span>
+                <span className={rowWhere}>
+                  {"branchName" in chain && (chain as LedgerLine).branchName
+                    ? `${(chain as LedgerLine).branchName} · `
+                    : ""}
+                  {formatDate(chain.tip.created_at)}
+                </span>
+                {/* The line's depth is worth a word; the revisions themselves live on the
+                    page, behind its picker. */}
+                {"revisions" in chain && (chain as LedgerLine).revisions > 1 ? (
+                  <span className="font-mono text-micro tracking-[.06em] text-ink-3 max-[860px]:hidden">
+                    {(chain as LedgerLine).revisions} revisions
+                  </span>
+                ) : chain.passes.length > 1 ? (
+                  <span className="font-mono text-micro tracking-[.06em] text-ink-3 max-[860px]:hidden">
+                    {chain.passes.length} passes
                   </span>
                 ) : (
                   <span />
                 )}
-                <Outcome review={review} />
+                <Outcome review={chain.tip} />
                 <ArrowRight
                   size={13}
                   aria-hidden
@@ -299,10 +349,15 @@ export function CaseHistory({
                 />
               </Link>
               <RowActions
-                review={review}
+                review={chain.tip}
+                title={chain.title || chain.tip.review_id}
+                passCount={chain.passes.length}
                 busy={busy}
-                onCancel={() => onCancel(review.review_id)}
-                onDelete={() => onDelete(review.review_id)}
+                onCancel={() => onCancel(chain.tip.review_id)}
+                // The whole run goes, not just the pass on show. A delete that left the
+                // first pass behind would resurface it as a row "waiting on your answers"
+                // — the exact ghost this listing folds away.
+                onDelete={() => onDelete(chain.passes.map((pass) => pass.review_id))}
               />
             </div>
           </LedgerItem>
@@ -312,20 +367,96 @@ export function CaseHistory({
   );
 }
 
-/** Newest first within a case, and cases ordered by their most recent review. */
-export function groupByCase(reviews: BoundaryReviewSummary[]) {
-  const groups = new Map<string, BoundaryReviewSummary[]>();
-  // The listing already arrives newest first, so insertion order is both the order of the
-  // rows inside a group and the order of the groups themselves.
+/**
+ * The listing's outer shape: one section per repository, cases grouped inside it,
+ * newest run first throughout.
+ *
+ * The repository became the natural container the day reviews learned which one they
+ * belong to — a `repo_id` derived from the root commit, so two runs on the same history
+ * land in the same section whatever directory it was checked out in. Reviews from before
+ * that identity existed carry no `repo_id` and are gathered honestly at the end under
+ * their own heading rather than being guessed into a section.
+ */
+export function groupByRepository(
+  reviews: BoundaryReviewSummary[],
+  repositories: RepositorySummary[],
+) {
+  const groups = new Map<string | null, BoundaryReviewSummary[]>();
   for (const review of reviews) {
-    groups.set(review.case_id, [...(groups.get(review.case_id) || []), review]);
+    const key = review.repo_id ?? null;
+    groups.set(key, [...(groups.get(key) || []), review]);
   }
-  return [...groups.entries()].map(([caseId, items]) => ({
-    caseId,
-    // The title comes from the review that recorded it. A review that failed before
-    // composing a report has none, and an older row is a better answer than a placeholder.
-    title: items.find((item) => item.case_title)?.case_title || null,
-    reviews: items,
+  const sections = [...groups.entries()]
+    // The unplaced section reads last: it is history, not the working set.
+    .sort(([a], [b]) => Number(a === null) - Number(b === null))
+    .map(([repoId, items]) => {
+      const indexed = repoId
+        ? repositories.find((item) => item.repo_id === repoId)
+        : undefined;
+      const segments = indexed?.root_path.split("/").filter(Boolean) ?? [];
+      const chains = groupIntoChains(items);
+      return {
+        repoId,
+        // The directory's own basename, minus the content hash a managed checkout's
+        // folder carries — the person pasted "audiobook_studio", not the digest. The
+        // full path stays in the tooltip.
+        name: segments.at(-1)?.replace(/-[0-9a-f]{12}$/, "") ?? null,
+        segments,
+        branchName: indexed?.branch_name ?? null,
+        rootPath: indexed?.root_path ?? null,
+        chains,
+        count: chains.length,
+      };
+    });
+  // Two projects can end in the same folder name — every bundled example's root is a
+  // directory literally called "repository". A colliding name grows leftward one segment
+  // at a time until it says which project it is; unique names stay short.
+  for (let width = 2; width <= 6; width += 1) {
+    const counts = new Map<string, number>();
+    for (const section of sections) {
+      if (section.name) counts.set(section.name, (counts.get(section.name) ?? 0) + 1);
+    }
+    let widened = false;
+    for (const section of sections) {
+      if (
+        section.name &&
+        (counts.get(section.name) ?? 0) > 1 &&
+        section.segments.length >= width
+      ) {
+        section.name = section.segments.slice(-width).join("/");
+        widened = true;
+      }
+    }
+    if (!widened) break;
+  }
+  return sections;
+}
+
+/**
+ * One row per branch: the branch's line, worn as its newest run.
+ *
+ * A branch carries one living review, so listing every revision here would repeat the
+ * revision picker as clutter — the row is the line's current state, the branch's name
+ * rides inside the row, and older revisions are one click away on the page itself.
+ */
+export type LedgerLine = ReviewChain & {
+  branchName: string | null;
+  revisions: number;
+};
+
+export function foldToLines(
+  chains: ReviewChain[],
+  branchNames: Map<string, string>,
+): LedgerLine[] {
+  const byBranch = new Map<string | null, ReviewChain[]>();
+  for (const chain of chains) {
+    const key = chain.tip.branch_id ?? null;
+    byBranch.set(key, [...(byBranch.get(key) || []), chain]);
+  }
+  return [...byBranch.entries()].map(([branchId, items]) => ({
+    ...items[0],
+    branchName: (branchId && branchNames.get(branchId)) || null,
+    revisions: items.length,
   }));
 }
 
@@ -340,12 +471,35 @@ export function ReviewsPage() {
     // busy answering a question whose answer cannot change.
     refetchInterval: (query) => (anyRunning(query.state.data || []) ? 2000 : false),
   });
-  const grouped = useMemo(() => groupByCase(reviews.data || []), [reviews.data]);
+  // Names for the repo sections. The listing rows carry only the hashed id; the indexed
+  // repositories are what turn it back into a directory a reader recognises.
+  const repositories = useQuery({
+    queryKey: ["repositories"],
+    queryFn: api.repositories,
+  });
+  // Branch names for the sub-headings. Only consulted when a repository's runs span more
+  // than one branch — the common single-branch section stays exactly as it was.
+  const branchLineages = useQuery({ queryKey: ["branches"], queryFn: api.branches });
+  const branchNames = new Map(
+    (branchLineages.data || []).map((item) => [item.branch.branch_id, item.branch.branch_name]),
+  );
+  const grouped = useMemo(
+    () => groupByRepository(reviews.data || [], repositories.data || []),
+    [reviews.data, repositories.data],
+  );
 
   const refresh = () => client.invalidateQueries({ queryKey: ["reviews"] });
   const cancel = useMutation({ mutationFn: api.cancelReview, onSuccess: refresh });
-  const remove = useMutation({ mutationFn: api.deleteReview, onSuccess: refresh });
+  const remove = useMutation({
+    // A run's passes go together, one at a time: the server deletes one review per call,
+    // and in order, so a failure part-way leaves whole records rather than a torn chain.
+    mutationFn: async (reviewIds: string[]) => {
+      for (const reviewId of reviewIds) await api.deleteReview(reviewId);
+    },
+    onSuccess: refresh,
+  });
   const busy = cancel.isPending || remove.isPending;
+  const runCount = grouped.reduce((total, section) => total + section.count, 0);
 
   return (
     <div className={page}>
@@ -354,8 +508,8 @@ export function ReviewsPage() {
         meta={
           reviews.data?.length ? (
             <Badge>
-              {reviews.data.length} across {grouped.length}{" "}
-              {grouped.length === 1 ? "case" : "cases"}
+              {runCount} {runCount === 1 ? "run" : "runs"} across {grouped.length}{" "}
+              {grouped.length === 1 ? "repository" : "repositories"}
             </Badge>
           ) : undefined
         }
@@ -420,16 +574,41 @@ export function ReviewsPage() {
         />
       ) : null}
 
-      {grouped.map((group) => (
-        <CaseHistory
-          key={group.caseId}
-          caseId={group.caseId}
-          title={group.title}
-          reviews={group.reviews}
-          busy={busy}
-          onCancel={(reviewId) => cancel.mutate(reviewId)}
-          onDelete={(reviewId) => remove.mutate(reviewId)}
-        />
+      {grouped.map((section) => (
+        <section
+          key={section.repoId ?? "unplaced"}
+          aria-label={section.name ?? "Reviews from before repository identity"}
+        >
+          {/* The section heading is the repository, worn the way the rows wear their
+              facts: the directory's name in the mono face, the branch beside it, and the
+              count at the end of the line. Sections from before repo identity say so
+              rather than pretending to be one. */}
+          <h2 className="mt-6 mb-2 flex flex-wrap items-baseline gap-x-2 text-sub font-[650] text-ink first:mt-0">
+            {section.name ? (
+              <>
+                <code className="font-mono" title={section.rootPath ?? undefined}>
+                  {section.name}
+                </code>
+
+              </>
+            ) : section.repoId ? (
+              <code className="font-mono text-meta" title={section.repoId}>
+                {shortId(section.repoId)}
+              </code>
+            ) : (
+              <span>Before repository identity</span>
+            )}
+            <span className="ml-auto text-meta font-normal text-ink-3">
+              {section.count} {section.count === 1 ? "run" : "runs"}
+            </span>
+          </h2>
+          <RunLedger
+            chains={foldToLines(section.chains, branchNames)}
+            busy={busy}
+            onCancel={(reviewId) => cancel.mutate(reviewId)}
+            onDelete={(reviewIds) => remove.mutate(reviewIds)}
+          />
+        </section>
       ))}
     </div>
   );

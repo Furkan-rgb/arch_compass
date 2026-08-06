@@ -1,14 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Download, MessageCircleQuestion } from "lucide-react";
+import { ArrowRight, ChevronDown, Download, GitBranch, Info, Play, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { ApiError, api } from "../api";
+import { AiChatIcon } from "../ai-icon";
+import { AddressedLedger, deltaFact } from "../delta";
+import { groupIntoChains } from "./ReviewsPage";
 import { AskPanel } from "../ask-panel";
 import {
   ErrorPanel,
@@ -34,15 +45,244 @@ import {
 } from "../review-ledger";
 import { useRun } from "../run";
 import { QuestionDiscussion } from "../question-discussion";
+import { BulkDecide } from "../triage";
 import { OpenQuestions, type SubmittedAnswer } from "../review-questions";
 import type {
   BoundaryReview,
+  BoundaryReviewSummary,
+  RepositoryBranch,
+  BoundaryTriage,
   OpenQuestion,
   RecordedAnswer,
+  ReviewDetail,
   ReviewOverview,
   ReviewStatus,
   ReviewedBoundary,
 } from "../types";
+
+/**
+ * The run this review is one pass of, oldest pass first.
+ *
+ * Walked in both directions from the review on show: back along `elicited_from` to the pass
+ * that asked, and forward to whichever pass answers this one. The listing of the case's
+ * reviews already holds both links, so nothing here is guessed — a pass that has been
+ * deleted simply ends the walk on that side.
+ */
+export function chainAround(
+  reviewId: string,
+  reviews: BoundaryReviewSummary[],
+): BoundaryReviewSummary[] {
+  const byId = new Map(reviews.map((item) => [item.review_id, item]));
+  const current = byId.get(reviewId);
+  if (!current) return [];
+  const chain = [current];
+  let earlier = current.elicited_from ? byId.get(current.elicited_from) : undefined;
+  while (earlier) {
+    chain.unshift(earlier);
+    earlier = earlier.elicited_from ? byId.get(earlier.elicited_from) : undefined;
+  }
+  let later = reviews.find((item) => item.elicited_from === reviewId);
+  while (later) {
+    chain.push(later);
+    const answeredId = later.review_id;
+    later = reviews.find((item) => item.elicited_from === answeredId);
+  }
+  return chain;
+}
+
+/** The word a pass wears in the rail: what it did, or what it is doing. */
+function passWord(status: BoundaryReviewSummary["status"]): string {
+  if (status === "awaiting_answers") return "asked";
+  if (status === "running") return "running";
+  if (status === "succeeded") return "judged";
+  return status;
+}
+
+/**
+ * The way between the passes of one run.
+ *
+ * The listing folds a run to its latest pass, so this rail is where the earlier ones remain
+ * reachable — the first pass holds the questions as they were asked, and the second holds
+ * what the answers changed. Absent on a run of one pass: a rail with one stop is furniture.
+ */
+function PassesRail({
+  chain,
+  currentId,
+}: {
+  chain: BoundaryReviewSummary[];
+  currentId: string;
+}) {
+  if (chain.length < 2) return null;
+  return (
+    <nav
+      aria-label="Passes of this run"
+      className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-micro"
+    >
+      <span className="tracking-[.09em] uppercase text-ink-3">Passes</span>
+      {chain.map((pass, index) => {
+        const label = `${index + 1} · ${passWord(pass.status)}`;
+        return pass.review_id === currentId ? (
+          <span key={pass.review_id} aria-current="page" className="font-[650] text-ink">
+            {label}
+          </span>
+        ) : (
+          <Link
+            key={pass.review_id}
+            to={`/reviews/${pass.review_id}`}
+            className="text-accent-ink"
+          >
+            {label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+/**
+ * The branch and the revision this page is showing, and the way to make the next one.
+ *
+ * The repository model made visible where the reader stands: a branch carries one living
+ * review, each run is a revision on its line, and this strip says which line and which
+ * point. The button appends to the line — re-analyse the code, judge what changed, ask
+ * only about that — which is why it lives here and not on the start step: a next revision
+ * is something done *to this branch*, not a fresh errand.
+ *
+ * It does not always append. The run itself refuses a revision that would change nothing —
+ * a repository nothing has touched since this revision earns a floating notice saying so,
+ * from the run's own holder, rather than a second revision repeating the first: the line is
+ * a history of what happened to the code, not of who pressed what.
+ *
+ * A picker with one option renders as a plain label: a control that opens a menu of the
+ * thing already on screen is furniture.
+ */
+function RevisionStrip({
+  review,
+  currentId,
+  reviews,
+  branches,
+  onNewRevision,
+  starting,
+  startError,
+}: {
+  review: ReviewDetail;
+  currentId: string;
+  reviews: BoundaryReviewSummary[];
+  branches: RepositoryBranch[];
+  onNewRevision: () => void;
+  starting: boolean;
+  startError: Error | null;
+}) {
+  const navigate = useNavigate();
+  const branchId = review.branch_id ?? null;
+  const repoId = review.repo_id ?? null;
+  if (!branchId) return null;
+
+  const chains = groupIntoChains(reviews.filter((item) => item.branch_id === branchId));
+  const position = chains.findIndex((chain) =>
+    chain.passes.some((pass) => pass.review_id === currentId),
+  );
+  // Branches of this repository that have a line to show. A branch with no reviews has
+  // no page to land on, so it is not offered rather than offered and refused.
+  const linesOn = new Set(
+    reviews.filter((item) => item.repo_id === repoId).map((item) => item.branch_id),
+  );
+  const branchOptions = branches.filter(
+    (item) => item.branch.repo_id === repoId && linesOn.has(item.branch.branch_id),
+  );
+  const branchName = branches.find((item) => item.branch.branch_id === branchId)?.branch
+    .branch_name;
+
+  const staticLabel = "inline-flex items-center gap-1.5 font-mono text-meta text-ink-2";
+  const openBranch = (targetBranchId: string) => {
+    const tip = groupIntoChains(
+      reviews.filter((item) => item.branch_id === targetBranchId),
+    )[0]?.tip;
+    if (tip) navigate(`/reviews/${tip.review_id}`);
+  };
+
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+      {branchName ? (
+        branchOptions.length > 1 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" aria-label={`Branch ${branchName} — switch branch`}>
+                <GitBranch size={13} aria-hidden /> {branchName}
+                <ChevronDown size={13} aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              {branchOptions.map((option) => (
+                <DropdownMenuItem
+                  key={option.branch.branch_id}
+                  disabled={option.branch.branch_id === branchId}
+                  onSelect={() => openBranch(option.branch.branch_id)}
+                >
+                  {option.branch.branch_name}
+                  {option.branch.branch_id === branchId ? " — viewing" : ""}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <span className={staticLabel}>
+            <GitBranch size={13} aria-hidden /> {branchName}
+          </span>
+        )
+      ) : null}
+      {position !== -1 ? (
+        chains.length > 1 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                aria-label={`Revision ${chains.length - position} of ${chains.length} — switch revision`}
+              >
+                Revision {chains.length - position}
+                {position === 0 ? (
+                  <span className="text-micro tracking-[.06em] uppercase text-accent-ink">
+                    latest
+                  </span>
+                ) : null}
+                <ChevronDown size={13} aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              {chains.map((chain, index) => (
+                <DropdownMenuItem
+                  key={chain.tip.review_id}
+                  disabled={index === position}
+                  onSelect={() => navigate(`/reviews/${chain.tip.review_id}`)}
+                >
+                  Revision {chains.length - index} · {formatDate(chain.tip.created_at)}
+                  {index === 0 ? " · latest" : ""}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <span className={staticLabel}>Revision {chains.length - position}</span>
+        )
+      ) : null}
+      <span className="ml-auto" />
+      <Button
+        type="button"
+        disabled={starting}
+        onClick={onNewRevision}
+        title="Re-analyse the code and judge what changed. Unchanged boundaries carry; only what moved can be asked about."
+      >
+        {starting ? <Spinner /> : <Play size={13} aria-hidden />}{" "}
+        {starting ? "Starting…" : "New revision"}
+      </Button>
+      {startError ? (
+        <p role="alert" className="m-0 w-full text-meta text-material">
+          {startError.message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * What the verdicts amount to, read as a set.
@@ -473,7 +713,7 @@ export function AskAction({
       disabled={refusal !== null}
       onClick={refusal ? undefined : onToggle}
     >
-      <MessageCircleQuestion size={14} aria-hidden /> Ask about this review
+      <AiChatIcon size={14} /> Ask about this review
     </Button>
   );
   if (!refusal) return button;
@@ -593,10 +833,10 @@ export function ReviewDetailPage() {
    * The listing entry for this review, which is where a running review's counts live — the
    * review document has no room for how far it has got.
    *
-   * It also used to feed links to the neighbouring reviews of this case. Those are gone:
-   * they navigated by case revision, and following one to a first pass landed the reader on
-   * the in-progress screen, which is not where that review is. Moving between the passes of
-   * a case is worth having and will be built as its own thing rather than as two arrows.
+   * It also feeds the passes rail: the case's other reviews carry the `elicited_from`
+   * links, and the rail is the walk along them. It once fed arrows that navigated by case
+   * revision instead, which landed readers on the in-progress screen of a pass that was
+   * never run — the rail names each pass by what it did, which is the difference.
    */
   const siblings = useQuery({
     queryKey: ["reviews", caseId],
@@ -626,12 +866,32 @@ export function ReviewDetailPage() {
     enabled: Boolean(elicitedFrom),
   });
 
+  /**
+   * The review that asked the questions this revision answered, whichever review that was.
+   *
+   * Not the same thing as the pass this one answers. Only the answers are recorded on the
+   * case, by reference — the wording lives on the review that asked — and a third review
+   * judging the same answered revision was elicited from nobody. Reading the asking review
+   * off the revision itself is what lets it show the questions rather than a placeholder.
+   * The same id on a second pass, so react-query serves it from what `earlierPass` fetched.
+   */
+  const askedBy = pinnedCase.data?.answered?.review_id ?? null;
+  const askingPass = useQuery({
+    queryKey: ["review", askedBy],
+    queryFn: () => api.review(askedBy!),
+    enabled: Boolean(askedBy),
+  });
+
   // The atlas the review pinned answers where the repository is; a review carries the
   // version, and the listing is what turns a version into a path.
   const repositories = useQuery({
     queryKey: ["repositories"],
     queryFn: api.repositories,
   });
+  // The whole listing and the branch lineages, for the revision strip: which branches of
+  // this repository carry a line, and where this review sits on its own.
+  const allReviews = useQuery({ queryKey: ["reviews"], queryFn: () => api.reviews() });
+  const branchLineages = useQuery({ queryKey: ["branches"], queryFn: api.branches });
   const indexedAtlas = repositories.data?.find((item) => item.version_id === atlasVersionId);
   const repositoryRoot =
     indexedAtlas?.root_path || pinnedCase.data?.snapshot?.repository?.root_path || null;
@@ -656,9 +916,45 @@ export function ReviewDetailPage() {
     },
   });
 
+  // The next revision of this branch's line: re-index, continue the branch's case, judge
+  // the delta. The same start the start step performs, offered where the line lives.
+  const newRevision = useMutation({
+    mutationFn: async () => {
+      if (!repositoryRoot) {
+        throw new Error("This review's repository could not be resolved.");
+      }
+      // A managed checkout is brought current first, so "re-analyse the code" means the
+      // repository's code, not whatever the clone last held. Anyone else's working copy
+      // comes back managed:false untouched, so this is safe to ask unconditionally.
+      await api.refreshRepository(repositoryRoot);
+      // No check here: a revision that would move nothing is the run's own first decision,
+      // refused inside the service before anything is written, and the run's holder shows
+      // the notice wherever the reader is. This handler only starts the run.
+      const revision = await api.startFromRepository(repositoryRoot);
+      if (!revision.case_id) {
+        throw new Error("The workspace returned a case without an identifier.");
+      }
+      run.start(revision.case_id, repositoryRoot);
+    },
+  });
+
   const report = review.data?.report ?? null;
   const reviewed = report?.reviewed || [];
+  const branchId = review.data?.branch_id ?? null;
+  // Reference → triage join, for the ledger rows. Rebuilt per render from a list that is
+  // at most dozens long; a memo here would be bookkeeping for nothing.
+  const triageByReference = new Map<string, BoundaryTriage>(
+    (review.data?.boundary_triage ?? []).map((entry) => [entry.reference, entry]),
+  );
+
   const references = reviewed.map((item) => item.reference).join(" ");
+  // Material with nobody's name on it — what the bulk gesture would decide.
+  const undecided = reviewed.filter(
+    (item) =>
+      item.material &&
+      item.fingerprint &&
+      !triageByReference.get(item.reference)?.decision,
+  );
 
   /**
    * A citation opens the row it names, in the tab that holds it.
@@ -753,7 +1049,7 @@ export function ReviewDetailPage() {
   const cleared = reviewed.length - material;
   const openQuestions = report?.overview.open_questions || [];
   const answered = pinnedCase.data?.answered?.answers || [];
-  const askedEarlier = earlierPass.data?.report?.overview?.open_questions || [];
+  const askedEarlier = askingPass.data?.report?.overview?.open_questions || [];
   const title = report?.case_title || pinnedCase.data?.snapshot?.title || shortId(reviewId);
 
   // Both passes are stored, both judged the same atlas, and the only difference between them
@@ -799,7 +1095,21 @@ export function ReviewDetailPage() {
     ? (progress?.verdicts.filter((item) => item !== null).length ?? 0)
     : reviewed.length;
 
+  // The directory's own name, with the branch beside it: what a reader calls the repo,
+  // where the atlas id below is what the workspace calls one snapshot of it.
+  const repositoryName = repositoryRoot?.split("/").filter(Boolean).pop() ?? null;
   const facts: BandFact[] = [
+    ...(repositoryName
+      ? [
+          {
+            label: "Repository",
+            value: `${repositoryName}${
+              indexedAtlas?.branch_name ? ` · ${indexedAtlas.branch_name}` : ""
+            }`,
+            title: repositoryRoot ?? undefined,
+          },
+        ]
+      : []),
     {
       label: "Atlas",
       value: `${shortId(atlasVersionId || "—")}${indexedAtlas ? " · indexed" : ""}`,
@@ -812,6 +1122,15 @@ export function ReviewDetailPage() {
       title: review.data?.prompt_identity,
     },
   ];
+  // What this revision was, against the previous one — the partition in one line. Reviews
+  // written before the delta existed fall back to the raw reuse count, which is the same
+  // fact with less to say.
+  const carried = reviewed.filter((item) => item.verdict_reused_from).length;
+  if (!running && report?.delta) {
+    facts.push({ label: "Revision", value: deltaFact(report.delta) });
+  } else if (!running && carried > 0) {
+    facts.push({ label: "Carried", value: `${carried} of ${reviewed.length} reused` });
+  }
   if (running) {
     facts.push({
       label: "Judged",
@@ -872,6 +1191,8 @@ export function ReviewDetailPage() {
       open={openRow}
       onOpen={setOpenRow}
       onShowInAtlas={showInAtlas}
+      triage={triageByReference}
+      branchId={branchId}
     />
   );
 
@@ -918,6 +1239,17 @@ export function ReviewDetailPage() {
                 questions={askedEarlier}
                 answered={answered}
               />
+            ) : null}
+            {/* Adoption, when there is a plural to adopt: everything material and
+                undecided, one recorded decision each. What used to be the baseline
+                button, with an author attached. */}
+            {!running && !holding && branchId && undecided.length > 1 ? (
+              <BulkDecide boundaries={undecided} branchId={branchId} reviewId={reviewId} />
+            ) : null}
+            {/* The boundaries this revision closed, above the ledger of the ones it still
+                has: the best news first, and it has no row of its own to live in. */}
+            {!running && report?.delta?.addressed_boundaries?.length ? (
+              <AddressedLedger addressed={report.delta.addressed_boundaries} />
             ) : null}
             {running ? (
               <JudgingLedger progress={progress} />
@@ -997,6 +1329,19 @@ export function ReviewDetailPage() {
           </>
         }
       />
+
+      {review.data ? (
+        <RevisionStrip
+          review={review.data}
+          currentId={reviewId}
+          reviews={allReviews.data || []}
+          branches={branchLineages.data || []}
+          onNewRevision={() => newRevision.mutate()}
+          starting={newRevision.isPending || run.running || running}
+          startError={newRevision.error instanceof Error ? newRevision.error : null}
+        />
+      ) : null}
+      <PassesRail chain={chainAround(reviewId, siblings.data || [])} currentId={reviewId} />
 
       {holding ? (
         <HoldBanner

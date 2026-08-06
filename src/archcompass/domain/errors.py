@@ -27,6 +27,17 @@ class PathValidationError(ArchCompassError):
     pass
 
 
+class RepositoryCheckoutError(ArchCompassError):
+    """A repository was named and could not be made available to review.
+
+    Its own type rather than a `PathValidationError`, which is what a malformed request gets:
+    everything here is a well-formed request about a repository that will not cooperate — an
+    unreachable remote, a branch it does not have, a working copy that is somebody else's to
+    move. The message is the whole of the remedy, so it names what to do rather than what
+    failed.
+    """
+
+
 class CaseNotFoundError(ArchCompassError):
     pass
 
@@ -106,6 +117,23 @@ class ReviewCancelledError(ArchCompassError):
     """
 
 
+class NothingToReviewError(ArchCompassError):
+    """A revision was asked for and nothing has moved since the branch's last one.
+
+    Raised before anything is written, which is the point: a revision that would change
+    nothing is reported, not recorded. The branch's line is a history of what happened to
+    the code, not of who pressed what.
+
+    Carries the revision the repository is current against, because "nothing has changed"
+    is a statement relative to something and a caller — CI reporting a standing, a page
+    offering the record — needs to be able to open that something.
+    """
+
+    def __init__(self, message: str, *, current_against: str) -> None:
+        super().__init__(message)
+        self.current_against = current_against
+
+
 class ReviewNotCancellableError(ArchCompassError):
     """The review is not running, so there is nothing to stop."""
 
@@ -121,6 +149,28 @@ class ReviewHasNoReportError(ArchCompassError):
     remedy: a run in progress will have a report shortly, and one that failed or was
     cancelled never will. Running it again produces a different review, not this one.
     """
+
+
+class ReviewNotBaselineableError(ArchCompassError):
+    """The review reached no verdicts, so there is nothing in it to declare seen.
+
+    A state conflict rather than a malformed request: the review exists and the request is
+    right about everything except what that review is. Repeating it fails identically —
+    a failed or cancelled run never acquires a report — so the cure is another run.
+    """
+
+
+class ReviewHasNoBranchError(ArchCompassError):
+    """The review has no branch lineage, and the thing being asked for lives on a branch.
+
+    Its own type because its cure is unusual and specific: re-index the repository so the
+    atlas carries a lineage, then run the review again. Nothing about the request is wrong,
+    and nothing about the review is broken — it simply predates the identity model.
+    """
+
+
+class BaselineEntryNotFoundError(ArchCompassError):
+    """This branch has no baselined boundary under that fingerprint."""
 
 
 class ProviderError(ArchCompassError):
@@ -154,6 +204,15 @@ class ClusterPartitionError(ModelOutputValidationError):
 
 class EvidenceReferenceError(ArchCompassError):
     pass
+
+
+class BranchNotFoundError(ArchCompassError):
+    """This workspace has never seen that line of work.
+
+    Its own type rather than a validation error: the request is well formed and the branch id
+    is a hash nobody types by hand, so reaching this almost always means the workspace has not
+    indexed the repository yet — which is a thing to do, not a thing to fix in the request.
+    """
 
 
 class ConversationNotFoundError(ArchCompassError):

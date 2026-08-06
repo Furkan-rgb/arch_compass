@@ -24,22 +24,29 @@ from archcompass.adapters.models import (
 )
 from archcompass.adapters.persistence import (
     SQLiteAtlasRepository,
+    SQLiteBoundaryLineRepository,
     SQLiteBoundaryReviewRepository,
     SQLiteCaseRepository,
     SQLiteDatabase,
+    SQLiteLineageRepository,
     SQLitePolicySourceRepository,
     SQLiteReasoningModelSelectionRepository,
     SQLiteReviewConversationRepository,
+    SQLiteStandingDecisionRepository,
+    SQLiteVerdictCacheRepository,
 )
 from archcompass.adapters.retrieval import (
     MarkdownPolicySourceInspector,
     MarkdownPolicyStore,
     load_method_primer,
 )
+from archcompass.adapters.vcs import GitCommandLineClient
 from archcompass.application.atlas_freshness import AtlasFreshnessService
 from archcompass.application.atlas_queries import AtlasService
 from archcompass.application.bundled_examples import BundledExampleService
 from archcompass.application.cases import CaseService
+from archcompass.application.checkouts import RepositoryCheckoutService
+from archcompass.application.ci import CiRunService
 from archcompass.application.model_catalog import ModelCatalogService, reasoning_config
 from archcompass.application.policies import PolicyService
 from archcompass.application.repository_index import RepositoryIndexService
@@ -49,6 +56,7 @@ from archcompass.application.reviews import ReviewService
 from archcompass.application.safety import (
     validate_repository_directory,
 )
+from archcompass.application.triage import TriageService
 from archcompass.configuration import (
     ReasoningModelConfig,
     load_provider_environment,
@@ -59,8 +67,11 @@ from archcompass.ports.model_catalog import ProviderDescriptor
 from archcompass.ports.reasoning import FocusedReasoningProvider
 from archcompass.ports.repositories import (
     AtlasRepository,
+    BoundaryLineRepository,
     BoundaryReviewRepository,
     CaseRepository,
+    LineageRepository,
+    VerdictCacheRepository,
 )
 
 BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
@@ -69,6 +80,12 @@ BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
 #: policies authored in it. Named once because it is also what an analysis of the workspace's
 #: own repository has to leave out.
 WORKSPACE_STATE_DIRECTORY = Path(".archcompass")
+
+#: Where a workspace keeps the clones it was asked to make, beside the database and the
+#: policies. A checkout is state Arch Compass wrote and can throw away — deleting the
+#: directory loses nothing but the time to clone it again — so it belongs with the rest of
+#: what the workspace owns rather than somewhere in the user's home.
+CHECKOUT_DIRECTORY = WORKSPACE_STATE_DIRECTORY / "checkouts"
 
 #: Where a workspace keeps the policies written in it, beside the database it already keeps
 #: there. The one policy directory Arch Compass owns the files in: everything else in the
@@ -90,7 +107,10 @@ class Runtime:
     database: SQLiteDatabase
     case_repository: CaseRepository
     atlas_repository: AtlasRepository
+    lineage_repository: LineageRepository
     review_repository: BoundaryReviewRepository
+    verdict_cache_repository: VerdictCacheRepository
+    boundary_line_repository: BoundaryLineRepository
     review_conversation_service: ReviewConversationService
     review_source_service: ReviewSourceService
     bundled_example_service: BundledExampleService
@@ -102,6 +122,9 @@ class Runtime:
     repository_service: RepositoryIndexService
     atlas_service: AtlasService
     review_service: ReviewService
+    triage_service: TriageService
+    ci_service: CiRunService
+    checkout_service: RepositoryCheckoutService
     freshness_service: AtlasFreshnessService
     model_catalog_service: ModelCatalogService
 
@@ -139,8 +162,12 @@ def build_runtime(
     reasoning = SelectedModelReasoner(model_catalog_service, _build_reasoner)
     cases = SQLiteCaseRepository(database)
     atlases = SQLiteAtlasRepository(database)
+    lineages = SQLiteLineageRepository(database)
     reviews = SQLiteBoundaryReviewRepository(database)
+    verdict_cache = SQLiteVerdictCacheRepository(database)
+    boundary_lines = SQLiteBoundaryLineRepository(database)
     review_conversations = SQLiteReviewConversationRepository(database)
+    standing_decisions = SQLiteStandingDecisionRepository(database)
     # The workspace is left out of every snapshot, which is what allows a repository to be
     # analysed with its own workspace inside it. What the workspace holds changes whenever a
     # review runs, so indexing it would move the content fingerprint on every run and leave
@@ -175,10 +202,11 @@ def build_runtime(
         authored_source=canonical_workspace / AUTHORED_POLICY_DIRECTORY,
         policy_store=MarkdownPolicyStore(),
     )
-    case_service = CaseService(cases)
+    case_service = CaseService(cases, reviews, lineages)
     repository_service = RepositoryIndexService(
         analyzer=analyzer,
         atlases=atlases,
+        lineages=lineages,
     )
     atlas_service = AtlasService(
         atlases=atlases,
@@ -210,13 +238,31 @@ def build_runtime(
         policies=policy_service,
         reasoner=reasoning,
         source=review_source_service,
+        verdict_cache=verdict_cache,
+        boundary_lines=boundary_lines,
+    )
+    triage_service = TriageService(
+        decisions=standing_decisions,
+        lineages=lineages,
+    )
+    ci_service = CiRunService(
+        repositories=repository_service,
+        reviews=review_service,
+        triage=triage_service,
+    )
+    checkout_service = RepositoryCheckoutService(
+        git=GitCommandLineClient(),
+        checkouts_root=canonical_workspace / CHECKOUT_DIRECTORY,
     )
     return Runtime(
         workspace=canonical_workspace,
         database=database,
         case_repository=cases,
         atlas_repository=atlases,
+        lineage_repository=lineages,
         review_repository=reviews,
+        verdict_cache_repository=verdict_cache,
+        boundary_line_repository=boundary_lines,
         review_conversation_service=review_conversation_service,
         review_source_service=review_source_service,
         bundled_example_service=bundled_example_service,
@@ -228,6 +274,9 @@ def build_runtime(
         repository_service=repository_service,
         atlas_service=atlas_service,
         review_service=review_service,
+        triage_service=triage_service,
+        ci_service=ci_service,
+        checkout_service=checkout_service,
         freshness_service=freshness,
         model_catalog_service=model_catalog_service,
     )

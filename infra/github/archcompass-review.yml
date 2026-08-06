@@ -1,0 +1,149 @@
+# An illustrative GitHub Actions workflow for `archcompass ci`.
+#
+# Copy this into `.github/workflows/` of the repository you want reviewed and work through
+# the TODOs. It is deliberately not wired to ArchCompass's own CI: it names a provider it
+# cannot be given credentials for here, and a workspace that has to outlive the run.
+#
+# What it does, in one sentence: check out the pull request, run one headless review of what
+# this branch changed, and keep exactly one comment on the pull request up to date with what
+# that review found.
+#
+# Three things about this are load-bearing and easy to get wrong when adapting it.
+#
+# `fetch-depth: 0`. A repository's durable identity is the SHA of its root commit, and the
+# default shallow clone does not have one. Without the full history every run computes a
+# different `repo_id`, which means no previous revision to be a delta against and no standing
+# decisions to read — so every boundary is judged and reported on every push, a wall of noise
+# arriving as a configuration mistake rather than as an error.
+#
+# The branch is stated, not detected. A pull request checkout is detached: git knows the
+# commit and not the branch it was reached from. `--branch` and `--base-branch` come from the
+# event, which is the only place that knows.
+#
+# The workspace has to persist. The standing decisions and the branch's line of revisions live
+# in the workspace database, and a workspace created fresh in the runner has decided nothing
+# and remembers no previous revision — every run would judge everything and block on boundaries
+# the team waived last week. See the TODO on the workspace step.
+
+name: ArchCompass boundary review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  # Editing the sticky comment in place, which is the whole point: a comment per push is a
+  # thread nobody can read by the fourth commit.
+  pull-requests: write
+
+concurrency:
+  # One review per pull request at a time. Two runs racing would both try to edit the same
+  # comment, and the loser would overwrite the newer finding with an older one.
+  group: archcompass-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Read the note above before changing this.
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install ArchCompass
+        # TODO: point this at the release you intend to pin. An unpinned install means the
+        # verdicts can move between two runs of the same commit, which is the one thing the
+        # verdict cache exists to make impossible.
+        run: uv tool install archcompass
+
+      - name: Restore the workspace
+        # TODO: replace this with real persistence. The workspace holds the team's standing
+        # decisions and the previous revision of this branch, and a fresh one has decided
+        # nothing — the check would block on everything anybody already waived.
+        #
+        # Two workable shapes, in order of preference:
+        #   1. Point `--workspace` at a hosted ArchCompass workspace shared with the team,
+        #      which is also where a holding boundary's question gets answered.
+        #   2. `actions/cache` keyed on the base branch, restored here and saved on runs of
+        #      the base branch only, so a pull request reads the team's standings without
+        #      being able to write to them.
+        run: mkdir -p "$RUNNER_TEMP/archcompass-workspace"
+
+      - name: Run the boundary review
+        id: review
+        # The step is allowed to fail so the comment still gets posted; the failure is
+        # re-raised at the end. A blocking finding with no comment explaining it is a red
+        # cross with no argument attached.
+        continue-on-error: true
+        env:
+          # TODO: provider credentials. One of these, matching the `--provider`/`--model`
+          # you pass below, and never both:
+          #   GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          #   OLLAMA_HOST: http://ollama.internal:11434
+          #
+          # A review is one model call per detected boundary. Costed runs on a busy
+          # repository add up, so start on a pull-request trigger rather than a push trigger
+          # and read §5 of docs/plans/company-readiness.md on the per-run cap.
+          ARCHCOMPASS_WORKSPACE: ${{ runner.temp }}/archcompass-workspace
+          # TODO: the case this repository is reviewed against, created once with
+          # `archcompass case create --from case.yaml` and its id recorded here. The case is
+          # what the advisor judges against; without one it judges the code alone and holds
+          # most of its verdicts on questions nobody in CI can answer.
+          ARCHCOMPASS_CASE_ID: ${{ vars.ARCHCOMPASS_CASE_ID }}
+        run: |
+          set -o pipefail
+          archcompass \
+            --workspace "$ARCHCOMPASS_WORKSPACE" \
+            --provider google --model gemini-2.5-flash \
+            ci "$ARCHCOMPASS_CASE_ID" \
+            --repo . \
+            --branch "${{ github.head_ref }}" \
+            --base-branch "${{ github.base_ref }}" \
+            --comment-file "$RUNNER_TEMP/archcompass-comment.md" \
+            --json > "$RUNNER_TEMP/archcompass-run.json"
+
+      - name: Post or edit the sticky comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const path = `${process.env.RUNNER_TEMP}/archcompass-comment.md`;
+            if (!fs.existsSync(path)) return;
+            const body = fs.readFileSync(path, "utf8");
+            // The marker the renderer writes as the first line. Finding the comment by it —
+            // rather than by author, or by remembering an id between runs — is what makes
+            // this idempotent across re-runs and across the Action being reinstalled.
+            const marker = "<!-- archcompass-ci -->";
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const existing = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number, per_page: 100 },
+            );
+            const mine = existing.find((comment) => comment.body.startsWith(marker));
+            if (mine) {
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: mine.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number, body,
+              });
+            }
+
+      - name: Fail on what the review found
+        # The exit code is the contract: 0 nothing to account for, 1 something is, 2 the run
+        # could not happen at all. Start with `--fail-on nothing` on the step above while the
+        # team is adopting, and ratchet it to blocking once the team has worked through the
+        # first run — select the boundaries and decide on them in one act, which records a
+        # real decision per boundary with an author on it.
+        if: steps.review.outcome == 'failure'
+        run: |
+          echo "ArchCompass found boundaries this pull request has not accounted for."
+          echo "See the comment on the pull request, or the JSON below."
+          cat "$RUNNER_TEMP/archcompass-run.json" || true
+          exit 1

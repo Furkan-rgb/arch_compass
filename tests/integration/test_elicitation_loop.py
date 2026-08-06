@@ -903,6 +903,74 @@ def test_a_discussion_is_shown_code_only_for_the_boundaries_its_question_cites(
     assert {item.reference for item in whole} == {item.reference for item in report.reviewed}
 
 
+def test_a_discussion_receives_the_lines_around_each_cited_span(
+    runtime: Runtime,
+) -> None:
+    """A detector pins declaration spans — one line for a duplicated constant — and a
+    discussion is exactly the place one line is not enough. Asked "how do I know whether
+    these are the same constant?", a live stage holding only the spans could do nothing
+    but restate the question: what settles it — what the value flows into, the
+    declaration beside it — sits just outside them. The evidence widens within the cited
+    boundaries; which boundaries are read does not change."""
+
+    review_id, references = _waiting(runtime)
+    stored = runtime.review_repository.get(review_id)
+    report = stored.report
+    assert report is not None
+    question = next(
+        item for item in report.overview.open_questions if item.reference == references[0]
+    )
+
+    evidence = runtime.review_conversation_service._evidence(
+        stored, about_question=question
+    )
+
+    assert {item.reference for item in evidence.excerpts} == set(
+        question.supporting_references
+    ), "widening must not change which boundaries are read"
+    pinned = [
+        excerpt
+        for reference in question.supporting_references
+        for excerpt in runtime.review_source_service.for_review(stored, reference=reference)
+    ]
+    assert sum(len(item.text.splitlines()) for item in evidence.excerpts) > sum(
+        len(item.text.splitlines()) for item in pinned
+    ), "the discussion sees more than the detector's own spans"
+
+
+def test_a_discussion_on_a_superseded_round_sees_the_concluding_passes_conclusion(
+    runtime: Runtime,
+) -> None:
+    """A review row never changes status, so the pinned pass waits for ever while the
+    reader has the successor's conclusion on their page. The discussion is shown that
+    conclusion — marked as the later pass's — and stays withheld while nothing concluded."""
+
+    review_id, references = _waiting(runtime)
+    conversation = runtime.review_conversation_service.create(
+        review_id, question_reference=references[0]
+    )
+
+    before = runtime.review_conversation_service.ask(
+        conversation.conversation_id, "How does this fit the overall recommendation?"
+    )
+    assert before.answer is not None
+    assert "Conclusion withheld." in before.answer.answer
+
+    stored = runtime.review_repository.get(review_id)
+    second = runtime.review_service.review(
+        stored.case_id,
+        repository_root=REPOSITORY,
+        elicited_from=review_id,
+    )
+    assert second.status is ReviewStatus.SUCCEEDED
+
+    after = runtime.review_conversation_service.ask(
+        conversation.conversation_id, "And now, how does it fit?"
+    )
+    assert after.answer is not None
+    assert "Conclusion in scope from the concluding pass." in after.answer.answer
+
+
 def test_every_recorded_span_resolves_to_the_code_at_it(runtime: Runtime) -> None:
     """The claim the whole change rests on: the review always knew where the evidence was.
 
@@ -1048,6 +1116,9 @@ def test_unfolding_more_lines_reads_now_and_keeps_what_was_judged(
     assert len(grown[0].text.splitlines()) > len(pinned[0].text.splitlines()), (
         "a fresh repository can still be unfolded"
     )
+    assert not any(item.provenance for item in grown), (
+        "a successful live read needs no caption"
+    )
 
     (repository / "main.py").write_text(
         (repository / "main.py").read_text(encoding="utf-8") + "\n# moved on\n",
@@ -1059,6 +1130,9 @@ def test_unfolding_more_lines_reads_now_and_keeps_what_was_judged(
 
     assert all(item.text for item in after), "the judged lines survive a failed unfold"
     assert [item.text for item in after] == [item.text for item in pinned]
+    assert all(
+        "changed since this review ran" in item.provenance for item in after
+    ), "a pinned copy served for a moved-on repository says which code it is"
 
 
 def test_the_stage_is_given_the_round_that_produced_the_review_it_answers_about(

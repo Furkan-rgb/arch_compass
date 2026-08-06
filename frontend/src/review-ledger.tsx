@@ -17,6 +17,7 @@ import {
   RowStripe,
   VerdictText,
   type Stripe,
+  rowCarried,
   rowJudging,
   rowMeta,
   rowName,
@@ -29,9 +30,11 @@ import {
 } from "@/components/ledger";
 import { cn } from "@/lib/utils";
 
+import { DeltaMark } from "./delta";
 import { FindingSource } from "./finding-source";
 import type { RunState } from "./run-progress";
-import type { ReviewedBoundary } from "./types";
+import { DecisionMark, StandingFooter } from "./triage";
+import type { BoundaryTriage, ReviewedBoundary } from "./types";
 
 /**
  * The verdicts as a ledger: one row per boundary, opened for the reasoning behind it.
@@ -71,24 +74,6 @@ export function Citations({ references }: { references: string[] }) {
       ))}
     </span>
   );
-}
-
-/**
- * Which verdict is the exception here, and therefore the one that wears the loud mark.
- *
- * Every row carrying a filled chip is a page where nothing is emphasised, because the eye
- * cannot pick an exception out of a column of identical badges. So the majority verdict is
- * quiet text in its own hue and the minority wears the chip — on a report where five of six
- * boundaries should change, the one that earned its place is the thing worth seeing.
- *
- * `null` where the two are level: neither is the exception then, and picking one would be
- * inventing an emphasis the set does not have.
- */
-export function loudVerdict(reviewed: ReviewedBoundary[]): boolean | null {
-  const material = reviewed.filter((item) => item.material).length;
-  const cleared = reviewed.length - material;
-  if (material === cleared) return null;
-  return material < cleared;
 }
 
 export type BandFact = { label: string; value: ReactNode; title?: string };
@@ -211,13 +196,22 @@ export function VerdictBand({
   );
 }
 
-type Filter = "all" | "material" | "cleared";
+type Filter = "all" | "material" | "cleared" | "unreviewed";
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "material", label: "Should change" },
   { id: "cleared", label: "Earns its place" },
 ];
+
+/* One more filter, shown only where its question can be asked: "unreviewed" needs a branch
+   for decisions to be filed under. A filter for a question with no answer is a control that
+   teaches the reader to distrust the bar. The "new & changed" filter that used to sit beside
+   it went with the baseline that gave those words their meaning. */
+const UNREVIEWED_FILTER: { id: Filter; label: string } = {
+  id: "unreviewed",
+  label: "Unreviewed",
+};
 
 /* The reasoning behind one verdict, at reading width and reading leading — the one passage
    on this page written to be read rather than scanned. Everything around it is 78ch, which
@@ -239,20 +233,23 @@ const subhead =
 function LedgerRow({
   item,
   policyCount,
-  loud,
   open,
   onOpen,
   onShowInAtlas,
   reviewId,
+  triage,
+  branchId,
 }: {
   item: ReviewedBoundary;
   policyCount: number;
-  /** Which verdict is the exception on this page, from `loudVerdict`. */
-  loud: boolean | null;
   open: boolean;
   onOpen: (reference: string | null) => void;
   onShowInAtlas: ((nodeId: string) => void) | null;
   reviewId: string;
+  /** This boundary's fingerprint and standing decision, joined on by the server. Absent
+      while a run is watched live — triage waits for the record. */
+  triage: BoundaryTriage | undefined;
+  branchId: string | null;
 }) {
   const bearings = item.policy_bearings || [];
   const abstraction = item.candidate.participants[0];
@@ -296,18 +293,23 @@ function LedgerRow({
           <span className={rowMeta} title={`${bearings.length} of ${policyCount} policies`}>
             {bearings.length}/{policyCount}
           </span>
-          {/* Words, not only a coloured rail: a reader scanning for "what was the answer"
-              should not have to learn a colour convention first. The exception wears the
-              chip and the majority is quiet text, so the odd one out is what the eye finds.
-              The chip is the badge's verdict variant — the one place in this design a chip
-              is allowed to be loud is on a verdict, which is exactly this. */}
-          {loud === item.material ? (
+          {/* One grid cell, not two: the row's geometry is a six-column contract with
+              `rowVariants`, and every extra child would wrap the tail onto a second line.
+              Inside it, reading order matches authority order: where the revision put the
+              boundary, what the team said, what the model judged. Quiet is the resting
+              state — carried and re-judged boundaries wear no delta mark, undecided ones
+              no standing mark. */}
+          <span className="flex items-center gap-2 justify-self-end">
+            <DeltaMark boundary={item} />
+            <DecisionMark triage={triage} />
+            {/* Words, not only a coloured rail: a reader scanning for "what was the answer"
+                should not have to learn a colour convention first. Every verdict wears the
+                label — the hue still separates them at a glance, and two boundaries with
+                two answers read as two stamps rather than one stamp and a whisper. */}
             <Badge variant={verdict} className="font-[650] tracking-[.04em]">
               {word}
             </Badge>
-          ) : (
-            <VerdictText verdict={verdict}>{word}</VerdictText>
-          )}
+          </span>
         </CollapsibleTrigger>
 
         {/* `forceMount`, so every row carries its detail whether or not it is showing: a
@@ -453,6 +455,18 @@ function LedgerRow({
               <Network size={14} aria-hidden /> Show {item.reference} in the atlas
             </button>
           ) : null}
+
+          {/* Last, like a signature after a letter: the verdict and its evidence are
+              read first, and what the team made of them is recorded underneath. Absent
+              while the record has no triage join to offer (a live run). */}
+          {triage ? (
+            <StandingFooter
+              boundary={item}
+              triage={triage}
+              branchId={branchId}
+              reviewId={reviewId}
+            />
+          ) : null}
         </CollapsibleContent>
       </LedgerItem>
     </Collapsible>
@@ -472,6 +486,8 @@ export function FindingsLedger({
   open,
   onOpen,
   onShowInAtlas,
+  triage,
+  branchId = null,
 }: {
   reviewed: ReviewedBoundary[];
   policyCount: number;
@@ -481,13 +497,28 @@ export function FindingsLedger({
   open: string | null;
   onOpen: (reference: string | null) => void;
   onShowInAtlas: ((nodeId: string) => void) | null;
+  /** Reference → the server's triage join for that boundary. Absent entirely on surfaces
+      that watch a live run — triage reads the record, not the stream. */
+  triage?: Map<string, BoundaryTriage>;
+  branchId?: string | null;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
-  const loud = loudVerdict(reviewed);
-  const shown = reviewed.filter(
-    (item) =>
-      filter === "all" || (filter === "material" ? item.material : !item.material),
-  );
+  const filters = [
+    ...FILTERS,
+    ...(branchId && triage ? [UNREVIEWED_FILTER] : []),
+  ];
+  const shown = reviewed.filter((item) => {
+    switch (filter) {
+      case "material":
+        return item.material;
+      case "cleared":
+        return !item.material;
+      case "unreviewed":
+        return !triage?.get(item.reference)?.decision;
+      default:
+        return true;
+    }
+  });
 
   return (
     <section className={ledgerSheet} aria-label="Boundaries examined">
@@ -509,7 +540,7 @@ export function FindingsLedger({
           className="overflow-x-auto max-[620px]:w-full"
           aria-label="Filter by verdict"
         >
-          {FILTERS.map(({ id, label }) => (
+          {filters.map(({ id, label }) => (
             <ToggleGroupItem key={id} value={id}>
               {label}
             </ToggleGroupItem>
@@ -526,11 +557,12 @@ export function FindingsLedger({
             key={item.reference}
             item={item}
             policyCount={policyCount}
-            loud={loud}
             open={open === item.reference}
             onOpen={onOpen}
             onShowInAtlas={onShowInAtlas}
             reviewId={reviewId}
+            triage={triage?.get(item.reference)}
+            branchId={branchId ?? null}
           />
         ))}
       </Ledger>
@@ -582,6 +614,7 @@ export function JudgingLedger({
   const total = progress?.total ?? 0;
   const named = progress?.boundaries ?? [];
   const judged = progress?.judged ?? 0;
+  const carried = progress?.carried ?? 0;
   const settled = progress?.eliciting || progress?.summarising || progress?.concluded;
 
   return (
@@ -590,11 +623,16 @@ export function JudgingLedger({
         <strong>Boundaries</strong>
         <LedgerCount>
           {judged} of {total} judged
+          {/* Said while it is happening rather than only on the finished review. A run that
+              carried most of its verdicts is over in seconds, and a count that stayed silent
+              about it would leave the reader to conclude the run had skipped the work. */}
+          {carried > 0 ? ` · ${carried} carried` : null}
         </LedgerCount>
       </LedgerBar>
       <Ledger>
         {Array.from({ length: total }, (_, index) => {
           const verdict = progress?.verdicts[index] ?? null;
+          const origin = progress?.carriedFrom?.[index] ?? null;
           const current = index === judged && !settled;
           const name = named[index];
           // "Queued" is not a verdict and gets no colour: the neutral rule is the row that
@@ -615,8 +653,19 @@ export function JudgingLedger({
                   <Skeleton className="h-2 w-[24ch] max-w-full" aria-hidden />
                 )}
                 <span className={rowWhere} />
-                <span className={rowMeta}>
-                  {verdict === null ? null : bearings?.[index]}
+                {/* Where a verdict was looked up rather than reached, the row says so in
+                    place of the count of what bore on it: nothing bore on it here. The
+                    origin run is in the title rather than the line, because a review id is
+                    longer than the column and a reader wants the fact, not the identifier. */}
+                <span
+                  className={origin === null ? rowMeta : rowCarried}
+                  title={origin === null ? undefined : `Carried from review ${origin}`}
+                >
+                  {origin !== null
+                    ? "carried from an earlier run"
+                    : verdict === null
+                      ? null
+                      : bearings?.[index]}
                 </span>
                 {verdict === null ? (
                   <span className={current ? rowJudging : rowQueued}>

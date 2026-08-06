@@ -303,9 +303,20 @@ class FindingCandidate(DomainModel):
 class AtlasVersion(DomainModel):
     schema_version: int = Field(default=2, ge=1, le=2)
     version_id: str = Field(default_factory=lambda: new_id("atlas"))
+    #: Where this checkout is, hashed. A location, not an identity: see `domain.lineage`.
     repository_identity: str
     root_path: str
     git_commit_sha: str | None = None
+    #: The first commit of the history, and the branch the tree was on when this was built.
+    #: Facts read from git, kept beside the ids derived from them so a `repo_id` can always
+    #: be explained by the row that carries it.
+    root_commit_sha: str | None = None
+    branch_name: str | None = None
+    #: The durable lineage this atlas belongs to. Absent on an atlas built before lineages
+    #: existed — nothing can recompute them for a checkout that may have moved since, so they
+    #: are filled by the next analysis rather than backfilled.
+    repo_id: str | None = None
+    branch_id: str | None = None
     content_fingerprint: str
     parser_version: str
     analysis_config_hash: str

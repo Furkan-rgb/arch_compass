@@ -16,7 +16,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { api } from "./api";
-import { FindingsLedger, JudgingLedger, VerdictBand, loudVerdict } from "./review-ledger";
+import { FindingsLedger, JudgingLedger, VerdictBand } from "./review-ledger";
 import type { ReviewedBoundary } from "./types";
 
 function boundary(reference: string, name: string, material: boolean): ReviewedBoundary {
@@ -71,21 +71,6 @@ function renderLedger(open: string | null = null) {
   return onOpen;
 }
 
-describe("loudVerdict", () => {
-  it("marks the minority verdict as the one that wears the chip", () => {
-    expect(loudVerdict(REVIEWED)).toBe(false);
-    expect(loudVerdict([boundary("BR-001", "Feed", false)])).toBe(true);
-  });
-
-  it("emphasises neither where the two are level", () => {
-    // Picking one there would be inventing an emphasis the set does not have.
-    expect(
-      loudVerdict([boundary("BR-001", "Feed", true), boundary("BR-002", "Ledger", false)]),
-    ).toBeNull();
-    expect(loudVerdict([])).toBeNull();
-  });
-});
-
 describe("VerdictBand", () => {
   it("states the split as the first thing on the page", () => {
     render(
@@ -102,7 +87,7 @@ describe("VerdictBand", () => {
     const band = screen.getByLabelText("Verdicts");
     expect(band).toHaveTextContent("5");
     expect(band).toHaveTextContent("should change");
-    expect(band).toHaveTextContent("earns its place");
+    expect(band).toHaveTextContent("sound");
     expect(band).toHaveTextContent("27 weighed");
   });
 
@@ -129,25 +114,22 @@ describe("VerdictBand", () => {
     expect(band).toHaveTextContent("boundaries judged");
     expect(band).toHaveTextContent("2 unanswered");
     expect(band).not.toHaveTextContent("should change");
-    expect(band).not.toHaveTextContent("earns its place");
+    expect(band).not.toHaveTextContent("sound");
   });
 });
 
 describe("FindingsLedger", () => {
-  it("gives the loud mark to the exception and leaves the majority quiet", () => {
+  it("stamps every row's verdict as a label in its own hue", () => {
     renderLedger();
 
-    // Two should change and one earns its place, so the cleared row is the one that pops.
-    // The chip is the badge in its verdict variant — the one place in this design a chip is
-    // allowed to be loud — and the majority keeps the ledger's own quiet mark.
-    const loud = screen.getByText("earns its place");
-    expect(loud.dataset.slot).toBe("badge");
-    expect(loud.dataset.variant).toBe("cleared");
-    for (const quiet of screen.getAllByText("should change")) {
-      // The quiet mark says what it is rather than only what it is not, and it carries the
-      // verdict's own hue — which is the whole of what makes it readable without the chip.
-      expect(quiet.dataset.slot).toBe("verdict-text");
-      expect(quiet.className).toContain("text-material");
+    // Both verdicts wear the chip now: two answers read as two stamps, and the hue is
+    // what separates them at a glance.
+    const cleared = screen.getByText("sound");
+    expect(cleared.dataset.slot).toBe("badge");
+    expect(cleared.dataset.variant).toBe("cleared");
+    for (const material of screen.getAllByText("should change")) {
+      expect(material.dataset.slot).toBe("badge");
+      expect(material.dataset.variant).toBe("material");
     }
   });
 
@@ -208,6 +190,36 @@ describe("JudgingLedger", () => {
     expect(ledger).toHaveTextContent("should change");
     expect(ledger).toHaveTextContent("judging…");
     expect(ledger).toHaveTextContent("queued");
+  });
+
+  it("says which verdicts were carried, while the run is still going", () => {
+    // A carried verdict was looked up, not reached, and a row that said nothing about it
+    // would have the run claim a model call it never made. The count says the same thing
+    // about the run as a whole, which is what explains it finishing as fast as it does.
+    render(
+      <JudgingLedger
+        progress={{
+          total: 3,
+          boundaries: ["ports.Feed", "ports.Ledger", "ports.Digest"],
+          verdicts: [true, false, null],
+          carriedFrom: ["rev_earlier", null, null],
+          carried: 1,
+          judged: 2,
+          eliciting: false,
+          summarising: false,
+          concluded: false,
+        }}
+        bearings={["3/53", "2/53", "4/53"]}
+      />,
+    );
+
+    const rows = within(screen.getByLabelText("Boundaries examined")).getAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent("carried from an earlier run");
+    // In place of the bearings, which are a count of what bore on it here: nothing did.
+    expect(rows[0]).not.toHaveTextContent("3/53");
+    expect(rows[1]).toHaveTextContent("2/53");
+    expect(rows[1]).not.toHaveTextContent("carried");
+    expect(screen.getByLabelText("Boundaries examined")).toHaveTextContent("1 carried");
   });
 
   it("draws unnamed rows for a run it is only reading the counts of", () => {

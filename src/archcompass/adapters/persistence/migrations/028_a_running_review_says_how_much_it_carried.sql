@@ -1,0 +1,23 @@
+-- A running review says how much of itself it carried forward.
+--
+-- Verdicts whose boundary, policy corpus, case revision and model are all unchanged are
+-- reused verbatim (migration 025), and until now that was only visible once the run was
+-- over, read off the stored report. While the run was in flight the counts said only that
+-- N of M boundaries had been judged — so a fully cached run finished in seconds with no
+-- account of why, which reads as a run that skipped the work rather than one that had
+-- already done it.
+--
+-- The column is the record's half of that answer. The stream carries the origin review per
+-- boundary, but a second tab, a reload, or a run started from the CLI has the columns and
+-- not the stream, and a listing must not have to open every stored report to say how much
+-- of a run was carried.
+--
+-- `DEFAULT 0` and no backfill. Zero is the honest reading of every row written before this
+-- existed: what those runs carried was not recorded, and counting it now would mean
+-- re-deriving it from documents that may since have been deleted. It is also simply true
+-- of any run that judged everything itself, which is every first run on a repository.
+--
+-- A plain ADD COLUMN rather than a rebuild: nothing here widens a CHECK constraint, so the
+-- hazard that made 013, 014, 018, 019 and 024 rebuild the table does not apply.
+
+ALTER TABLE boundary_reviews ADD COLUMN boundaries_carried INTEGER NOT NULL DEFAULT 0;

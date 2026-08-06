@@ -113,7 +113,7 @@ class ReasoningModelConfig(DomainModel):
     api_key_env: str | None = None
     timeout_seconds: float = Field(gt=0)
     context_window_tokens: int = Field(default=32768, ge=512)
-    max_output_tokens: int = Field(default=16384, ge=512, le=32768)
+    max_output_tokens: int = Field(default=16384, ge=512, le=65536)
     #: Characters per token used to estimate a request against the context window.
     #: Deliberately generous: over-estimating refuses a borderline request explicitly,
     #: while under-estimating lets the model silently truncate it.

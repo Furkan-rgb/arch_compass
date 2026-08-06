@@ -26,6 +26,22 @@ export type BoundaryExcerpt = OpenAPIComponents["schemas"]["BoundaryExcerpt"];
 export type DirectoryListing = OpenAPIComponents["schemas"]["DirectoryListing"];
 
 /**
+ * A review as the workspace reads it: the stored document plus the one thing *now* knows
+ * about it — the team's standing decisions, joined on by the server at read time and never
+ * stored on the review. Where each boundary stands against the previous revision is on the
+ * document itself, at `report.delta` and `report.reviewed[].delta_state`.
+ */
+export type ReviewDetail = OpenAPIComponents["schemas"]["ReviewDetailResponse"];
+export type BoundaryTriage = OpenAPIComponents["schemas"]["BoundaryTriage"];
+export type JoinedDecision = OpenAPIComponents["schemas"]["JoinedDecision"];
+export type DecisionState = OpenAPIComponents["schemas"]["DecisionState"];
+export type StandingDecision = OpenAPIComponents["schemas"]["StandingDecision"];
+export type DecisionComment = OpenAPIComponents["schemas"]["DecisionComment"];
+export type DecisionRequest = OpenAPIComponents["schemas"]["DecisionRequest"];
+export type BulkDecisionRequest = OpenAPIComponents["schemas"]["BulkDecisionRequest"];
+export type BulkDecisionResponse = OpenAPIComponents["schemas"]["BulkDecisionResponse"];
+
+/**
  * What this workspace is pointed at, including being pointed at nothing.
  *
  * Aliased from the generated schema rather than restated here. It was restated, and drifted
@@ -39,16 +55,21 @@ export type ModelCandidate = OpenAPIComponents["schemas"]["AvailableModelRespons
 export type ProviderAvailability =
   OpenAPIComponents["schemas"]["ProviderAvailabilityResponse"];
 
-export interface RepositorySummary {
-  version_id: string;
-  repository_identity: string;
-  root_path: string;
-  git_commit_sha?: string | null;
-  created_at: string;
-  node_count: number;
-  edge_count: number;
-  signal_count: number;
-}
+/** Aliased, not restated: the hand-written mirror of this one silently dropped
+    `repo_id` and `branch_name` the day the server learned them. */
+export type RepositorySummary = OpenAPIComponents["schemas"]["RepositorySummary"];
+export type RepositoryCheckout = OpenAPIComponents["schemas"]["RepositoryCheckout"];
+export type CheckoutRefresh = OpenAPIComponents["schemas"]["CheckoutRefresh"];
+export type RepositoryBranch = OpenAPIComponents["schemas"]["RepositoryBranch"];
+
+/**
+ * How a review run ended, as the stream said it: with a composed review, or with the
+ * workspace refusing a revision that would change nothing. Two shapes rather than a
+ * nullable review, so a caller has to say which ending it is handling.
+ */
+export type ReviewRunOutcome =
+  | { ended: "completed"; review: BoundaryReview }
+  | { ended: "unchanged" };
 
 export interface SourceLocation {
   path: string;

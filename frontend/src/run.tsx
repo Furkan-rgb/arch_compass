@@ -11,6 +11,7 @@ import {
 import { useNavigate } from "react-router-dom";
 
 import { api } from "./api";
+import { NoChangeNotice } from "./no-change-notice";
 import { RunSignals, type RunPhase, type SettledPhase } from "./run-notice";
 import { applyProgress, type RunState } from "./run-progress";
 
@@ -80,6 +81,16 @@ export function RunProvider({ children }: { children: ReactNode }) {
    * it to still be here one render later.
    */
   const [settled, setSettled] = useState<SettledPhase | null>(null);
+  /**
+   * That the last start found nothing to judge, so no revision was made.
+   *
+   * Held beside the run and not on any page, because the answer is the run's own: the
+   * service refuses a revision that would change nothing wherever it was started from, so
+   * the notice has to be able to appear over the start step and the review page alike. A
+   * moment rather than a property of any review — it stops being true the instant anyone
+   * edits a file — so it is cleared by the next start and dismissed by the reader.
+   */
+  const [unchanged, setUnchanged] = useState(false);
   // Guards a second start while one is in flight. State would be a render behind, and two
   // streams would both write into one progress, which is a plausible double-click away.
   const inFlight = useRef(false);
@@ -92,6 +103,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       setProgress(null);
       setError(null);
       setSettled(null);
+      setUnchanged(false);
       setRunning(true);
       api
         .streamReview(
@@ -109,7 +121,16 @@ export function RunProvider({ children }: { children: ReactNode }) {
           },
           elicitedFrom,
         )
-        .then(async (review) => {
+        .then(async (outcome) => {
+          if (outcome.ended === "unchanged") {
+            // Refused before the run had a record, so there was no `started` line and no
+            // navigation: the reader is exactly where they pressed the button, which is
+            // where the notice appears. Not a settled phase — the signals announce runs,
+            // and nothing ran.
+            setUnchanged(true);
+            return;
+          }
+          const review = outcome.review;
           await Promise.all([
             client.invalidateQueries({ queryKey: ["reviews"] }),
             client.invalidateQueries({ queryKey: ["review", review.review_id] }),
@@ -154,6 +175,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
           here: the moments worth reporting are exactly the ones where the reader is not on the
           page that would otherwise report them. */}
       <RunSignals phase={phase} reviewId={reviewId} />
+      {unchanged ? <NoChangeNotice onDismiss={() => setUnchanged(false)} /> : null}
       {children}
     </RunContext.Provider>
   );

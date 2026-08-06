@@ -125,12 +125,35 @@ class SnapshotFile:
 
 
 @dataclass(frozen=True)
+class GitFacts:
+    """What git says about a checkout, or nothing at all.
+
+    Three separate questions with three separate answers, because they fail separately: a
+    directory outside git answers none of them, a repository with no commits yet answers
+    neither sha, and a detached HEAD — the ordinary shape of a CI checkout — answers both
+    shas and no branch. Read together behind one top-level lookup, since that lookup is the
+    part all three share.
+    """
+
+    commit_sha: str | None = None
+    #: The first commit of the history. What `repo_id` is derived from, because it is the one
+    #: identifier that survives a clone. Reported only for a root that is the top level of its
+    #: repository — see `_git_facts` for why a nested root reports neither this nor the branch.
+    root_commit_sha: str | None = None
+    #: The branch the working tree is on, or `None` when HEAD is detached — or when the root
+    #: is nested inside a repository whose branch is not this project's to claim.
+    branch_name: str | None = None
+
+
+@dataclass(frozen=True)
 class RepositorySnapshot:
     root: Path
     python_files: tuple[SnapshotFile, ...]
     configuration_files: tuple[SnapshotFile, ...]
     content_fingerprint: str
     git_commit_sha: str | None
+    root_commit_sha: str | None = None
+    branch_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -185,6 +208,11 @@ class PythonAstRepositoryAnalyzer:
             repository_identity=repository_identity,
             root_path=str(canonical_root),
             git_commit_sha=snapshot.git_commit_sha,
+            # The facts a durable identity is derived from, carried rather than derived here:
+            # the analyzer reads git, and which lineage a run attaches to is a decision with
+            # an override on it (a CI checkout is detached), which belongs above this layer.
+            root_commit_sha=snapshot.root_commit_sha,
+            branch_name=snapshot.branch_name,
             content_fingerprint=snapshot.content_fingerprint,
             parser_version=PARSER_VERSION,
             analysis_config_hash=self._config_hash(),
@@ -321,12 +349,15 @@ class PythonAstRepositoryAnalyzer:
         python_path_set = set(python_paths)
         python_files = tuple(item for item in files if item.path in python_path_set)
         configuration_files = tuple(item for item in files if item.path not in python_path_set)
+        git = self._git_facts(canonical_root)
         return RepositorySnapshot(
             root=canonical_root,
             python_files=python_files,
             configuration_files=configuration_files,
             content_fingerprint=self._fingerprint(files),
-            git_commit_sha=self._git_sha(canonical_root),
+            git_commit_sha=git.commit_sha,
+            root_commit_sha=git.root_commit_sha,
+            branch_name=git.branch_name,
         )
 
     @staticmethod
@@ -372,33 +403,46 @@ class PythonAstRepositoryAnalyzer:
             digest.update(b"\0")
         return digest.hexdigest()
 
+    @classmethod
+    def _git_facts(cls, root: Path) -> GitFacts:
+        """Everything the atlas records about this checkout's history, in one place.
+
+        Git is read here and nowhere else, and every question is asked the same way: one
+        subprocess with a short budget, and any failure is `None` rather than an exception.
+        A repository is optional — a directory someone points at may simply not be one — so
+        "git could not say" has to be an ordinary answer rather than a broken run.
+
+        The history facts — the root commit and the branch — are reported only when the
+        analysed root *is* the top level of the repository. The folder put up for review is
+        the project, and a folder that merely sits inside some larger repository does not
+        inherit that repository's identity: reported, the enclosing root commit would make
+        every project under one checkout the same repository, so their reviews would group
+        together and one project's baseline would stand over another's boundaries (see
+        `domain.lineage.derive_repo_id`). Such a root is treated exactly like a folder outside
+        git, which is what it is as far as identity goes.
+
+        `commit_sha` is the exception and stays what it always was, including the `git log -1`
+        against a subdirectory below. It answers a different question — has this folder's own
+        content moved since the atlas was built — and freshness is about these files, not
+        about whose repository they are in.
+        """
+
+        top_level = cls._git_top_level(root)
+        if top_level is None:
+            return GitFacts()
+        if top_level != root:
+            return GitFacts(commit_sha=cls._git_sha(root, top_level))
+        return GitFacts(
+            commit_sha=cls._git_sha(root, top_level),
+            root_commit_sha=cls._git_root_commit_sha(top_level),
+            branch_name=cls._git_branch_name(top_level),
+        )
+
     @staticmethod
-    def _git_sha(root: Path) -> str | None:
+    def _run_git(*arguments: str) -> str | None:
         try:
-            top_level_result = subprocess.run(
-                ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            top_level = Path(top_level_result.stdout.strip()).resolve(strict=True)
-            if top_level == root:
-                command = ["git", "-C", str(root), "rev-parse", "HEAD"]
-            else:
-                relative_root = root.relative_to(top_level).as_posix()
-                command = [
-                    "git",
-                    "-C",
-                    str(top_level),
-                    "log",
-                    "-1",
-                    "--format=%H",
-                    "--",
-                    relative_root,
-                ]
             result = subprocess.run(
-                command,
+                ["git", *arguments],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -406,8 +450,67 @@ class PythonAstRepositoryAnalyzer:
             )
         except (OSError, subprocess.SubprocessError):
             return None
-        sha = result.stdout.strip()
-        return sha if len(sha) == 40 else None
+        return result.stdout.strip()
+
+    @classmethod
+    def _git_top_level(cls, root: Path) -> Path | None:
+        output = cls._run_git("-C", str(root), "rev-parse", "--show-toplevel")
+        if not output:
+            return None
+        try:
+            return Path(output).resolve(strict=True)
+        except OSError:
+            return None
+
+    @classmethod
+    def _git_sha(cls, root: Path, top_level: Path) -> str | None:
+        if top_level == root:
+            output = cls._run_git("-C", str(root), "rev-parse", "HEAD")
+        else:
+            try:
+                relative_root = root.relative_to(top_level).as_posix()
+            except ValueError:
+                return None
+            output = cls._run_git(
+                "-C", str(top_level), "log", "-1", "--format=%H", "--", relative_root
+            )
+        return cls._validated_sha(output)
+
+    @classmethod
+    def _git_root_commit_sha(cls, top_level: Path) -> str | None:
+        """The first commit of this history, which is what survives a clone.
+
+        A history can have more than one root — merging two unrelated histories is legal, and
+        `rev-list --max-parents=0` then prints all of them. The lexicographically first is
+        taken, because the identity has to be the same on every machine that asks, and git's
+        own ordering here is by traversal rather than by anything stable.
+        """
+
+        output = cls._run_git("-C", str(top_level), "rev-list", "--max-parents=0", "HEAD")
+        if not output:
+            return None
+        return cls._validated_sha(sorted(output.splitlines())[0].strip())
+
+    @classmethod
+    def _git_branch_name(cls, top_level: Path) -> str | None:
+        """The branch the working tree is on, or `None` when there is not one.
+
+        A detached HEAD answers with the literal string `HEAD`, which is not a branch name and
+        is exactly what a CI checkout of a commit looks like. It is reported as absent so the
+        caller can decide what to attribute the run to, rather than filing every CI run under
+        a branch called `HEAD`.
+        """
+
+        output = cls._run_git("-C", str(top_level), "rev-parse", "--abbrev-ref", "HEAD")
+        if not output or output == "HEAD":
+            return None
+        return output
+
+    @staticmethod
+    def _validated_sha(candidate: str | None) -> str | None:
+        if candidate is None or len(candidate) != 40:
+            return None
+        return candidate if all(char in "0123456789abcdef" for char in candidate) else None
 
     def _create_packages(
         self, root: Path, python_files: list[Path], root_node: AtlasNode

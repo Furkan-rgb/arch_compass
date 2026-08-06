@@ -92,7 +92,7 @@ def test_two_visitors_share_nothing() -> None:
         started = mine.post(
             "/api/repositories/start", json={"root_path": loaded.json()["root_path"]}
         )
-        assert started.status_code == 201, started.text
+        assert started.status_code == 200, started.text
 
         assert [item["case_id"] for item in mine.get("/api/cases").json()] == [
             started.json()["case_id"]
@@ -165,7 +165,7 @@ def test_the_daily_budget_refuses_the_run_past_the_cap(
         assert loaded.status_code == 201, loaded.text
         root = loaded.json()["root_path"]
         started = client.post("/api/repositories/start", json={"root_path": root})
-        assert started.status_code == 201, started.text
+        assert started.status_code == 200, started.text
         request = {"case_id": started.json()["case_id"], "repository_root": root}
 
         assert client.post("/api/reviews", json=request).status_code == 201
@@ -211,6 +211,30 @@ def test_a_hosted_instance_with_no_reachable_provider_refuses_to_start(
 
     with pytest.raises(Exception, match="GOOGLE_API_KEY"):
         create_hosted_app()
+
+
+@pytest.mark.usefixtures("hosted_environment")
+def test_the_hosted_demo_will_not_clone_a_repository_a_visitor_names() -> None:
+    """A URL a visitor chooses is a request this server would make on their behalf."""
+
+    with _client() as client:
+        refused = client.post(
+            "/api/repositories/checkout",
+            json={"url": "https://example.invalid/somebody/code.git"},
+        )
+
+        assert refused.status_code == 403
+        assert refused.json()["code"] == "hosted_restriction"
+        assert "will not clone" in refused.json()["message"]
+
+        # And will not fetch into one either. There are no managed checkouts here for it to
+        # be about, so the refusal costs a visitor nothing and needs no second explanation.
+        stale = client.post(
+            "/api/repositories/refresh", json={"root_path": "/tmp/somebody/code"}
+        )
+
+        assert stale.status_code == 403
+        assert stale.json()["code"] == "hosted_restriction"
 
 
 def test_a_local_workspace_is_untouched_by_any_of_it(runtime: Runtime) -> None:

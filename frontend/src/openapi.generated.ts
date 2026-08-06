@@ -6,6 +6,15 @@
 
 export interface components {
   schemas: {
+    "AddressedBoundary": {
+    "fingerprint": string;
+    "pattern": components["schemas"]["FindingPattern"];
+    "title": string;
+    "material": boolean;
+    "verdict_label": string;
+    "last_seen_in_review": string;
+    "last_reference": string;
+  };
     "AnswerProgress": components["schemas"]["AnswerProse"] | components["schemas"]["QuestionAnswered"] | components["schemas"]["QuestionFailed"];
     "AnswerProse": {
     "event"?: "prose";
@@ -99,6 +108,10 @@ export interface components {
     "repository_identity": string;
     "root_path": string;
     "git_commit_sha"?: string | null;
+    "root_commit_sha"?: string | null;
+    "branch_name"?: string | null;
+    "repo_id"?: string | null;
+    "branch_id"?: string | null;
     "content_fingerprint": string;
     "parser_version": string;
     "analysis_config_hash": string;
@@ -120,6 +133,8 @@ export interface components {
     "location"?: components["schemas"]["SourceLocation"] | null;
     "text"?: string;
     "unavailable"?: string;
+    "truncated_after_line"?: number | null;
+    "provenance"?: string;
   };
     "BoundaryReview": {
     "schema_version"?: 1;
@@ -131,6 +146,8 @@ export interface components {
     "reasoning_model": string;
     "prompt_identity": string;
     "elicited_from"?: string | null;
+    "repo_id"?: string | null;
+    "branch_id"?: string | null;
     "report"?: components["schemas"]["BoundaryReviewReport"] | null;
     "markdown_report"?: string | null;
     "duration_seconds"?: number;
@@ -147,6 +164,7 @@ export interface components {
     "overview": components["schemas"]["ReviewOverview"];
     "policies_presented"?: Array<string>;
     "excerpts"?: Array<components["schemas"]["BoundaryExcerpt"]>;
+    "delta"?: components["schemas"]["RevisionDelta"] | null;
   };
     "BoundaryReviewSummary": {
     "review_id": string;
@@ -157,10 +175,53 @@ export interface components {
     "boundaries_detected": number | null;
     "boundaries_reviewed": number;
     "boundaries_material": number;
+    "boundaries_carried"?: number;
     "created_at": string;
     "updated_at": string;
     "case_title"?: string | null;
     "elicited_from"?: string | null;
+    "repo_id"?: string | null;
+    "branch_id"?: string | null;
+  };
+    "BoundaryState": "carried" | "judged" | "succeeded" | "addressed";
+    "BoundaryTriage": {
+    "reference": string;
+    "fingerprint": string;
+    "decision"?: components["schemas"]["JoinedDecision"] | null;
+    "comment_count"?: number;
+  };
+    "BranchDecisionsResponse": {
+    "branch_id": string;
+    "decisions": Array<components["schemas"]["StandingDecision"]>;
+    "comment_counts": {
+    [key: string]: number;
+  };
+  };
+    "BranchLineage": {
+    "branch_id": string;
+    "repo_id": string;
+    "branch_name": string;
+    "base_branch_id"?: string | null;
+    "first_seen_at"?: string;
+  };
+    "BulkDecisionBoundary": {
+    "boundary_fingerprint": string;
+    "boundary_reference": string;
+    "material": boolean;
+    "verdict_label": string;
+  };
+    "BulkDecisionRequest": {
+    "branch_id": string;
+    "state": components["schemas"]["DecisionState"];
+    "author": string;
+    "reason"?: string | null;
+    "review_id": string;
+    "boundaries": Array<components["schemas"]["BulkDecisionBoundary"]>;
+  };
+    "BulkDecisionResponse": {
+    "branch_id": string;
+    "recorded": number;
+    "decisions": Array<components["schemas"]["StandingDecision"]>;
   };
     "BundledExample": {
     "name": string;
@@ -221,6 +282,12 @@ export interface components {
     "reversal_conditions"?: Array<string> | null;
     "revisit_triggers"?: Array<string> | null;
   };
+    "CheckoutRefresh": {
+    "root_path": string;
+    "managed"?: boolean;
+    "updated"?: boolean;
+    "branch_name"?: string | null;
+  };
     "Clarification": {
     "id"?: string;
     "question": string;
@@ -231,6 +298,32 @@ export interface components {
     "kind": "cyclic_components";
     "limit"?: number;
   };
+    "DecisionComment": {
+    "schema_version"?: 1;
+    "comment_id"?: string;
+    "branch_id": string;
+    "boundary_fingerprint": string;
+    "author": string;
+    "body": string;
+    "created_at"?: string;
+    "ordinal"?: number;
+  };
+    "DecisionCommentRequest": {
+    "author": string;
+    "body": string;
+  };
+    "DecisionRequest": {
+    "branch_id": string;
+    "boundary_fingerprint": string;
+    "state": components["schemas"]["DecisionState"];
+    "author": string;
+    "reason"?: string | null;
+    "review_id": string;
+    "boundary_reference": string;
+    "material": boolean;
+    "verdict_label": string;
+  };
+    "DecisionState": "accepted" | "waived" | "parked";
     "DirectoryEntry": {
     "name": string;
     "path": string;
@@ -276,6 +369,15 @@ export interface components {
     "metric": string;
     "limit"?: number;
   };
+    "JoinedDecision": {
+    "decision_id": string;
+    "state": components["schemas"]["DecisionState"];
+    "author": string;
+    "reason"?: string | null;
+    "decided_at": string;
+    "taken_on_current_verdict": boolean;
+  };
+    "JudgedBecause": "new" | "content" | "shape" | "case" | "policies" | "model" | "prompt" | "resurfaced";
     "MetricNature": "objective_measurement" | "structural_proxy";
     "MetricScope": "lexical_node" | "owning_module" | "reverse_static_impact_neighbourhood" | "bounded_resolved_call_chain";
     "ModelCatalogResponse": {
@@ -405,6 +507,26 @@ export interface components {
     "node_id": string;
     "limit"?: number;
   };
+    "RepositoryBranch": {
+    "repository": components["schemas"]["RepositoryLineage"];
+    "branch": components["schemas"]["BranchLineage"];
+  };
+    "RepositoryCheckout": {
+    "root_path": string;
+    "branch_name"?: string | null;
+    "created"?: boolean;
+    "managed"?: boolean;
+  };
+    "RepositoryCheckoutRequest": {
+    "url": string;
+    "branch"?: string | null;
+  };
+    "RepositoryLineage": {
+    "repo_id": string;
+    "root_commit_sha"?: string | null;
+    "canonical_root": string;
+    "first_seen_at"?: string;
+  };
     "RepositoryPathRequest": {
     "root_path": string;
   };
@@ -417,6 +539,8 @@ export interface components {
     "repository_identity": string;
     "root_path": string;
     "git_commit_sha"?: string | null;
+    "repo_id"?: string | null;
+    "branch_name"?: string | null;
     "created_at": string;
     "node_count"?: number;
     "edge_count"?: number;
@@ -464,6 +588,26 @@ export interface components {
     "title"?: string | null;
     "question_reference"?: string | null;
   };
+    "ReviewDetailResponse": {
+    "schema_version"?: 1;
+    "review_id"?: string;
+    "status": components["schemas"]["ReviewStatus"];
+    "case_id": string;
+    "case_revision": number;
+    "atlas_version_id": string;
+    "reasoning_model": string;
+    "prompt_identity": string;
+    "elicited_from"?: string | null;
+    "repo_id"?: string | null;
+    "branch_id"?: string | null;
+    "report"?: components["schemas"]["BoundaryReviewReport"] | null;
+    "markdown_report"?: string | null;
+    "duration_seconds"?: number;
+    "sanitized_errors"?: Array<string>;
+    "failure_diagnostics"?: Array<components["schemas"]["FailureDiagnostic"]>;
+    "created_at"?: string;
+    "boundary_triage"?: Array<components["schemas"]["BoundaryTriage"]>;
+  };
     "ReviewDetected": {
     "event"?: "detected";
     "total": number;
@@ -483,6 +627,8 @@ export interface components {
     "total": number;
     "abstraction": string;
     "material": boolean;
+    "verdict_reused_from"?: string | null;
+    "carried"?: number;
   };
     "ReviewMessage": {
     "message_id"?: string;
@@ -499,7 +645,7 @@ export interface components {
     "limits": string;
     "open_questions"?: Array<components["schemas"]["OpenQuestion"]>;
   };
-    "ReviewProgress": components["schemas"]["ReviewStarted"] | components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewEliciting"] | components["schemas"]["ReviewSummarising"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewFailed"];
+    "ReviewProgress": components["schemas"]["ReviewStarted"] | components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewEliciting"] | components["schemas"]["ReviewSummarising"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewUnchanged"] | components["schemas"]["ReviewFailed"];
     "ReviewQuestionRequest": {
     "question": string;
   };
@@ -520,15 +666,38 @@ export interface components {
     "event"?: "summarising";
     "total": number;
   };
+    "ReviewUnchanged": {
+    "event"?: "unchanged";
+    "current_against": string;
+    "message": string;
+  };
     "ReviewedBoundary": {
     "reference": string;
     "candidate": components["schemas"]["FindingCandidate"];
+    "fingerprint"?: string | null;
+    "content_fingerprint"?: string | null;
+    "inputs_identity"?: string | null;
+    "verdict_reused_from"?: string | null;
+    "delta_state"?: components["schemas"]["BoundaryState"] | null;
+    "judged_because"?: components["schemas"]["JudgedBecause"] | null;
+    "succeeds"?: string | null;
+    "resurfaced_from_review"?: string | null;
     "material": boolean;
     "rationale": string;
     "policy_bearings"?: Array<components["schemas"]["PolicyBearing"]>;
     "hinge"?: components["schemas"]["VerdictHinge"] | null;
     "recommended_response"?: string;
     "verdict_label": string;
+  };
+    "RevisionDelta": {
+    "previous_review_id"?: string | null;
+    "first_revision"?: boolean;
+    "carried"?: number;
+    "judged"?: number;
+    "succeeded"?: number;
+    "addressed"?: number;
+    "resurfaced"?: number;
+    "addressed_boundaries"?: Array<components["schemas"]["AddressedBoundary"]>;
   };
     "SearchNodesQuery": {
     "kind": "search_nodes";
@@ -561,6 +730,24 @@ export interface components {
     "start_line": number;
     "end_line": number;
   };
+    "StandingDecision": {
+    "schema_version"?: 1;
+    "decision_id"?: string;
+    "branch_id": string;
+    "boundary_fingerprint": string;
+    "state": components["schemas"]["DecisionState"];
+    "author": string;
+    "reason"?: string | null;
+    "decided_at"?: string;
+    "review_id": string;
+    "boundary_reference": string;
+    "material": boolean;
+    "verdict_label": string;
+  };
+    "StartFromRepositoryRequest": {
+    "root_path": string;
+    "start_clean"?: boolean;
+  };
     "StatementKind": "fact" | "derived_constraint" | "assumption" | "question" | "force";
     "SubmittedAnswer": {
     "question_reference": string;
@@ -590,6 +777,23 @@ export interface components {
 }
 
 export interface operations {
+  "add_decision_comment_api_decisions__branch_id___fingerprint__comments_post": {
+    parameters: {
+      query: never;
+      path: {
+      "branch_id": string;
+      "fingerprint": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["DecisionCommentRequest"];
+    responses: {
+      "201": components["schemas"]["DecisionComment"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
   "add_policy_source_api_policies_sources_post": {
     parameters: {
       query: never;
@@ -638,6 +842,22 @@ export interface operations {
       "503": components["schemas"]["ProblemDetail"];
     };
   };
+  "branch_decisions_api_branches__branch_id__decisions_get": {
+    parameters: {
+      query: never;
+      path: {
+      "branch_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": components["schemas"]["BranchDecisionsResponse"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
   "cancel_review_api_reviews__review_id__cancel_post": {
     parameters: {
       query: never;
@@ -668,6 +888,20 @@ export interface operations {
     responses: {
       "200": Array<components["schemas"]["CaseRevision"]>;
       "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "checkout_repository_api_repositories_checkout_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["RepositoryCheckoutRequest"];
+    responses: {
+      "201": components["schemas"]["RepositoryCheckout"];
+      "422": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
     };
   };
   "clear_model_selection_api_models_selection_delete": {
@@ -735,6 +969,40 @@ export interface operations {
     requestBody: components["schemas"]["ReviewConversationCreateRequest"];
     responses: {
       "201": components["schemas"]["ReviewConversation"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "decision_comments_api_decisions__branch_id___fingerprint__comments_get": {
+    parameters: {
+      query: never;
+      path: {
+      "branch_id": string;
+      "fingerprint": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": Array<components["schemas"]["DecisionComment"]>;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "decision_history_api_decisions__branch_id___fingerprint__history_get": {
+    parameters: {
+      query: never;
+      path: {
+      "branch_id": string;
+      "fingerprint": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": Array<components["schemas"]["StandingDecision"]>;
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
     };
@@ -819,7 +1087,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      "200": components["schemas"]["BoundaryReview"];
+      "200": components["schemas"]["ReviewDetailResponse"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
     };
@@ -863,6 +1131,19 @@ export interface operations {
     requestBody: components["schemas"]["RepositoryPathRequest"];
     responses: {
       "201": components["schemas"]["AtlasVersion"];
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "list_branches_api_branches_get": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": Array<components["schemas"]["RepositoryBranch"]>;
       "422": components["schemas"]["ProblemDetail"];
     };
   };
@@ -1013,6 +1294,48 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "record_decision_api_decisions_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["DecisionRequest"];
+    responses: {
+      "201": components["schemas"]["StandingDecision"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "record_decisions_api_decisions_bulk_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["BulkDecisionRequest"];
+    responses: {
+      "201": components["schemas"]["BulkDecisionResponse"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "refresh_repository_api_repositories_refresh_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["RepositoryPathRequest"];
+    responses: {
+      "200": components["schemas"]["CheckoutRefresh"];
+      "422": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
+    };
+  };
   "remove_policy_source_api_policies_sources_delete": {
     parameters: {
       query: {
@@ -1158,9 +1481,9 @@ export interface operations {
       header: never;
       cookie: never;
     };
-    requestBody: components["schemas"]["RepositoryPathRequest"];
+    requestBody: components["schemas"]["StartFromRepositoryRequest"];
     responses: {
-      "201": components["schemas"]["CaseRevision"];
+      "200": components["schemas"]["CaseRevision"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
     };
@@ -1244,6 +1567,12 @@ export interface operations {
 }
 
 export interface paths {
+  "/api/branches": {
+    get: operations["list_branches_api_branches_get"];
+  };
+  "/api/branches/{branch_id}/decisions": {
+    get: operations["branch_decisions_api_branches__branch_id__decisions_get"];
+  };
   "/api/cases": {
     get: operations["list_cases_api_cases_get"];
     post: operations["create_case_api_cases_post"];
@@ -1257,6 +1586,19 @@ export interface paths {
   };
   "/api/cases/{case_id}/history": {
     get: operations["case_history_api_cases__case_id__history_get"];
+  };
+  "/api/decisions": {
+    post: operations["record_decision_api_decisions_post"];
+  };
+  "/api/decisions/bulk": {
+    post: operations["record_decisions_api_decisions_bulk_post"];
+  };
+  "/api/decisions/{branch_id}/{fingerprint}/comments": {
+    get: operations["decision_comments_api_decisions__branch_id___fingerprint__comments_get"];
+    post: operations["add_decision_comment_api_decisions__branch_id___fingerprint__comments_post"];
+  };
+  "/api/decisions/{branch_id}/{fingerprint}/history": {
+    get: operations["decision_history_api_decisions__branch_id___fingerprint__history_get"];
   };
   "/api/examples": {
     get: operations["list_examples_api_examples_get"];
@@ -1291,6 +1633,9 @@ export interface paths {
   "/api/repositories": {
     get: operations["list_repositories_api_repositories_get"];
   };
+  "/api/repositories/checkout": {
+    post: operations["checkout_repository_api_repositories_checkout_post"];
+  };
   "/api/repositories/explore": {
     post: operations["repository_explore_api_repositories_explore_post"];
   };
@@ -1302,6 +1647,9 @@ export interface paths {
   };
   "/api/repositories/inspect": {
     get: operations["repository_inspect_api_repositories_inspect_get"];
+  };
+  "/api/repositories/refresh": {
+    post: operations["refresh_repository_api_repositories_refresh_post"];
   };
   "/api/repositories/review-context": {
     post: operations["repository_review_context_api_repositories_review_context_post"];

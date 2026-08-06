@@ -6,6 +6,7 @@ from pathlib import Path
 
 from pydantic import Field
 
+from archcompass.application.standings import branch_chain
 from archcompass.domain.base import DomainModel, utc_now
 from archcompass.domain.case import (
     AnsweredQuestions,
@@ -16,10 +17,14 @@ from archcompass.domain.case import (
     RecordedAnswer,
     RepositoryReference,
 )
-from archcompass.domain.errors import CaseValidationError
+from archcompass.domain.errors import CaseNotFoundError, CaseValidationError
 from archcompass.domain.review import BoundaryReview
 from archcompass.domain.workspace import CaseSummary
-from archcompass.ports.repositories import CaseRepository
+from archcompass.ports.repositories import (
+    BoundaryReviewRepository,
+    CaseRepository,
+    LineageRepository,
+)
 
 
 class WrittenAnswer(DomainModel):
@@ -65,8 +70,15 @@ def _title_for(root: Path) -> str:
 
 
 class CaseService:
-    def __init__(self, repository: CaseRepository) -> None:
+    def __init__(
+        self,
+        repository: CaseRepository,
+        reviews: BoundaryReviewRepository,
+        lineages: LineageRepository,
+    ) -> None:
         self._repository = repository
+        self._reviews = reviews
+        self._lineages = lineages
 
     def create(self, case: ArchitectureCase, *, actor: str = "user") -> CaseRevision:
         normalized = case.model_copy(update={"revision": 1})
@@ -97,6 +109,87 @@ class CaseService:
             ),
             actor=actor,
         )
+
+    def continue_from_repository(
+        self,
+        root: Path,
+        *,
+        branch_id: str | None,
+        actor: str = "user",
+    ) -> CaseRevision:
+        """The case a repeat visit to this branch carries on with, or a first one.
+
+        A review is a conversation, not a transaction. The first pass asks what the code
+        cannot settle, the reader answers, and the answers become clarifications on the case
+        — so a second visit that composed a fresh case would throw all of that away and ask
+        the very questions it had already been given answers to. Worse, silently: the reader
+        sees the same five questions and no sign that anything they typed was kept.
+
+        So the newest case reviewed on this branch is reused, at whatever revision it has
+        reached. Everything else then follows from machinery that already exists: the verdict
+        cache keys on what the case says and the revision it says it at, so an unchanged
+        branch re-judged against an unchanged case pays for no model call; and the elicitation
+        stage, reading a case that now holds the answers, finds nothing left unstated and the
+        run concludes in one pass instead of stopping to ask. Nothing in the review had to
+        learn about any of this — a run is still one case, one atlas — which is why continuity
+        belongs here and not in a branch inside the run.
+
+        The **branch** rather than the repository, because a branch is the scope everything
+        durable already lives in: its standing decisions, its line of revisions, and now its
+        case. Two branches of one repository are two pieces of work, and one of them must not
+        be able to append answers to the other's backbone.
+
+        A branch with nothing of its own reads through to the branch it came from, which is the
+        same rule the standings follow and is here for the same reason. A feature branch cut
+        from `main` this morning is not a repository nobody has ever discussed: the answers on
+        `main`'s case are about this code, and starting blank would ask the reader every
+        question their colleagues already answered. What the branch does *not* do is write back
+        — the first review on it appends a revision under its own branch, so the two lines
+        diverge from the moment either has something to say, and `main`'s case is never edited
+        by a pull request.
+
+        Reviews rather than cases are what is searched, and a durable id rather than the path.
+        A case nobody ever reviewed is one somebody started and left, and stepping into it
+        would resume a conversation that never happened; the branch's durable identity is what
+        makes the continuation survive the checkout being moved or cloned again.
+
+        A checkout with no lineage, or a chain nothing has been run on, starts a case exactly
+        as a first visit does — as does a run whose case has since gone. There is no error to
+        report in any of those: the reader asked to review a repository, and a first case is
+        the honest answer to that.
+        """
+
+        continuing = self.continuing_case(branch_id=branch_id)
+        if continuing is not None:
+            return continuing
+        return self.start_from_repository(root, actor=actor)
+
+    def continuing_case(self, *, branch_id: str | None) -> CaseRevision | None:
+        """The case this branch would carry on with, or `None` if it would start one.
+
+        The lookup half of `continue_from_repository`, without the creation half, for a caller
+        that needs to know which case a run *would* use without a run having happened. The
+        pre-flight check is that caller: it works out whether a new revision would find
+        anything, and a check that opened a blank case on the way to answering "nothing has
+        changed" would have changed something itself.
+
+        `None` is therefore not an error and not a fallback — it is the answer that this
+        branch has nothing behind it, which is precisely what makes its next revision a first
+        one.
+        """
+
+        for candidate in branch_chain(self._lineages, branch_id):
+            continuing = self._reviews.latest_case_for_branch(candidate)
+            if continuing is None:
+                continue
+            try:
+                return self._repository.get(continuing)
+            except CaseNotFoundError:
+                # The case this branch was reviewing has been deleted. The base may still
+                # have one worth continuing, so the walk goes on rather than falling straight
+                # through to a blank case.
+                continue
+        return None
 
     def show(self, case_id: str, revision: int | None = None) -> CaseRevision:
         return self._repository.get(case_id, revision)

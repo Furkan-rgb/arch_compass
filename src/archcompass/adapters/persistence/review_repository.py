@@ -11,8 +11,8 @@ from archcompass.domain.workspace import BoundaryReviewSummary
 
 _LISTING_COLUMNS = """
     review_id, case_id, case_revision, atlas_version_id, status,
-    boundaries_detected, boundaries_reviewed, boundaries_material,
-    created_at, updated_at, case_title, elicited_from
+    boundaries_detected, boundaries_reviewed, boundaries_material, boundaries_carried,
+    created_at, updated_at, case_title, elicited_from, repo_id, branch_id
 """
 
 
@@ -37,8 +37,8 @@ class SQLiteBoundaryReviewRepository:
                     review_id, case_id, case_revision, atlas_version_id, status,
                     reasoning_model, boundaries_detected, boundaries_reviewed,
                     boundaries_material, created_at, updated_at, case_title,
-                    elicited_from, review_json
-                ) VALUES (?, ?, ?, ?, ?, ?, NULL, 0, 0, ?, ?, NULL, ?, ?)
+                    elicited_from, repo_id, branch_id, review_json
+                ) VALUES (?, ?, ?, ?, ?, ?, NULL, 0, 0, ?, ?, NULL, ?, ?, ?, ?)
                 """,
                 (
                     review.review_id,
@@ -53,6 +53,10 @@ class SQLiteBoundaryReviewRepository:
                     # settled before the first model call, and a listing has to be able to
                     # pair the two passes while the second is still going.
                     review.elicited_from,
+                    # Columns as well as the document, because the next stages ask "what has
+                    # run on this branch" of the listing rather than of every stored report.
+                    review.repo_id,
+                    review.branch_id,
                     review.model_dump_json(),
                 ),
             )
@@ -65,6 +69,7 @@ class SQLiteBoundaryReviewRepository:
         detected: int | None = None,
         reviewed: int | None = None,
         material: int | None = None,
+        carried: int | None = None,
     ) -> None:
         """Move the counts a running review reports, leaving the ones not supplied alone.
 
@@ -79,6 +84,7 @@ class SQLiteBoundaryReviewRepository:
             ("boundaries_detected", detected),
             ("boundaries_reviewed", reviewed),
             ("boundaries_material", material),
+            ("boundaries_carried", carried),
         ):
             if value is not None:
                 assignments.append(f"{column} = ?")
@@ -105,7 +111,8 @@ class SQLiteBoundaryReviewRepository:
                 """
                 UPDATE boundary_reviews
                 SET status = ?, reasoning_model = ?, boundaries_detected = ?,
-                    boundaries_reviewed = ?, boundaries_material = ?, updated_at = ?,
+                    boundaries_reviewed = ?, boundaries_material = ?,
+                    boundaries_carried = ?, updated_at = ?,
                     case_title = ?, review_json = ?
                 WHERE review_id = ?
                 """,
@@ -115,6 +122,15 @@ class SQLiteBoundaryReviewRepository:
                     0 if report is None else len(report.reviewed),
                     0 if report is None else len(report.reviewed),
                     0 if report is None else len(report.material),
+                    # Counted from the boundaries themselves rather than trusted from the
+                    # last progress write: the report is what the review will be read as,
+                    # and a column that disagreed with it would be a second answer to a
+                    # question that has one.
+                    0
+                    if report is None
+                    else sum(
+                        1 for item in report.reviewed if item.verdict_reused_from is not None
+                    ),
                     utc_now().isoformat(),
                     None if report is None else report.case_title,
                     review.model_dump_json(),
@@ -305,12 +321,89 @@ class SQLiteBoundaryReviewRepository:
                 ),
                 boundaries_reviewed=int(row["boundaries_reviewed"]),
                 boundaries_material=int(row["boundaries_material"]),
+                boundaries_carried=int(row["boundaries_carried"]),
                 created_at=str(row["created_at"]),
                 updated_at=str(row["updated_at"]),
                 case_title=(None if row["case_title"] is None else str(row["case_title"])),
                 elicited_from=(
                     None if row["elicited_from"] is None else str(row["elicited_from"])
                 ),
+                repo_id=(None if row["repo_id"] is None else str(row["repo_id"])),
+                branch_id=(None if row["branch_id"] is None else str(row["branch_id"])),
             )
             for row in rows
         ]
+
+    def latest_case_for_branch(self, branch_id: str) -> str | None:
+        """The case the most recent run on this branch was about, if there was one.
+
+        `branch_id` rather than `repo_id`, because a branch is the scope a review lives in: it
+        owns its case, its standing decisions and its line of revisions, and two branches of
+        one repository are two conversations. Continuing a feature branch into `main`'s case
+        would carry answers about work the branch has not done and hand a PR the wrong
+        backbone. Both ids are durable — derived from the root commit and the branch name —
+        so this survives the clone being moved or made again somewhere else, which is the
+        reason the columns exist at all.
+
+        Every status counts: a run that failed, was cancelled, or is still waiting on answers
+        was still a run about a case, and the one waiting on answers is exactly the case a
+        repeat visit means to carry on with.
+
+        Ordered as the listing is, so "the newest" here and the row a reader sees at the top
+        of the history are the same row.
+        """
+
+        with self._database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT case_id FROM boundary_reviews
+                WHERE branch_id = ?
+                ORDER BY created_at DESC, review_id
+                LIMIT 1
+                """,
+                (branch_id,),
+            ).fetchone()
+        return None if row is None else str(row["case_id"])
+
+    def previous_revision_for_branch(
+        self, branch_id: str, *, excluding_review_id: str
+    ) -> BoundaryReview | None:
+        """The revision a run judges its delta against: this branch's latest earlier review.
+
+        Only a review that reached verdicts qualifies. A failed or cancelled run has no report
+        and therefore no boundaries, so comparing against it would report every boundary in
+        the repository as new — the loudest possible answer to a run that said nothing. A pass
+        still waiting on answers does count: it judged everything, and its verdicts are the
+        most recent statement about this branch's boundaries.
+
+        The run asking is excluded by id rather than by time. Its own row is written before
+        the first model call, so it is already the newest row on the branch by the moment this
+        is asked, and a comparison against itself would find every boundary unchanged.
+
+        Ordered as the listing is, so "the previous revision" and the row above this one in
+        the history a reader is looking at are the same row.
+        """
+
+        with self._database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT review_json FROM boundary_reviews
+                WHERE branch_id = ?
+                  AND review_id <> ?
+                  AND status IN ('succeeded', 'awaiting_answers')
+                ORDER BY created_at DESC, review_id
+                LIMIT 1
+                """,
+                (branch_id, excluding_review_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return decode_stored_json(
+            BoundaryReview,
+            row["review_json"],
+            description=f"The previous revision on branch {branch_id}",
+            remedy=(
+                "A review is derived from a case and an atlas, so run the review again "
+                "from the case it names."
+            ),
+        )

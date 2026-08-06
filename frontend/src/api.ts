@@ -6,6 +6,7 @@ import type {
   AtlasVersion,
   CaseRevision,
   CaseSummary,
+  CheckoutRefresh,
   DirectoryListing,
   Policy,
   PolicyDraft,
@@ -14,9 +15,18 @@ import type {
   BoundaryReview,
   BoundaryReviewSummary,
   BundledExample,
+  BulkDecisionRequest,
+  BulkDecisionResponse,
+  DecisionComment,
+  DecisionRequest,
+  ReviewDetail,
+  StandingDecision,
   ReviewConversation,
   ReviewMessage,
   ReviewProgress,
+  ReviewRunOutcome,
+  RepositoryBranch,
+  RepositoryCheckout,
   RepositorySummary,
   ModelCatalog,
   WorkspaceSummary,
@@ -193,7 +203,40 @@ export const api = {
       `/api/reviews${caseId ? `?case_id=${encodeURIComponent(caseId)}` : ""}`,
     ),
   review: (reviewId: string) =>
-    request<BoundaryReview>(`/api/reviews/${encodeURIComponent(reviewId)}`),
+    request<ReviewDetail>(`/api/reviews/${encodeURIComponent(reviewId)}`),
+  /**
+   * Record a standing decision about one boundary of one branch.
+   *
+   * The whole verdict context travels with it — review, reference, material, label — so the
+   * decision permanently names what the team actually looked at, and a later run whose
+   * verdict differs can say the ground moved rather than silently inheriting approval.
+   */
+  // Many boundaries, one decision, one transaction — the gesture that adopts a legacy
+  // repository. Individual standing decisions are recorded, each with the same author,
+  // which is the difference between sign-off and silence.
+  postBulkDecisions: (decisions: BulkDecisionRequest) =>
+    request<BulkDecisionResponse>("/api/decisions/bulk", {
+      method: "POST",
+      body: JSON.stringify(decisions),
+    }),
+  postDecision: (decision: DecisionRequest) =>
+    request<StandingDecision>("/api/decisions", {
+      method: "POST",
+      body: JSON.stringify(decision),
+    }),
+  decisionComments: (branchId: string, fingerprint: string) =>
+    request<DecisionComment[]>(
+      `/api/decisions/${encodeURIComponent(branchId)}/${encodeURIComponent(fingerprint)}/comments`,
+    ),
+  postDecisionComment: (
+    branchId: string,
+    fingerprint: string,
+    comment: { author: string; body: string },
+  ) =>
+    request<DecisionComment>(
+      `/api/decisions/${encodeURIComponent(branchId)}/${encodeURIComponent(fingerprint)}/comments`,
+      { method: "POST", body: JSON.stringify(comment) },
+    ),
   createReview: (caseId: string, repositoryRoot: string) =>
     request<BoundaryReview>("/api/reviews", {
       method: "POST",
@@ -262,8 +305,9 @@ export const api = {
     onProgress: (event: ReviewProgress) => void,
     /** The review this run answers, where it is the second pass of an elicitation. */
     elicitedFrom?: string | null,
-  ): Promise<BoundaryReview> => {
+  ): Promise<ReviewRunOutcome> => {
     let review: BoundaryReview | null = null;
+    let unchanged = false;
     await streamLines<ReviewProgress>(
       "/api/reviews/stream",
       {
@@ -277,9 +321,15 @@ export const api = {
         if (event.event === "failed") {
           throw new ApiError(event.problem.message, 200, event.problem.code);
         }
+        // Terminal and not a failure: the workspace worked out the whole partition and
+        // refused a revision that would repeat the one before it. Nothing was recorded,
+        // so there is no review to resolve with — the caller is told which kind of
+        // ending it got rather than left to infer it from an absence.
+        if (event.event === "unchanged") unchanged = true;
         if (event.event === "completed") review = event.review;
       },
     );
+    if (unchanged) return { ended: "unchanged" };
     if (!review) {
       throw new ApiError(
         "The review ended without producing a result.",
@@ -287,7 +337,7 @@ export const api = {
         "incomplete_stream",
       );
     }
-    return review;
+    return { ended: "completed", review };
   },
 
   reviewConversations: (reviewId: string) =>
@@ -373,6 +423,9 @@ export const api = {
       `/api/filesystem/directories${path ? `?path=${encodeURIComponent(path)}` : ""}`,
     ),
   repositories: () => request<RepositorySummary[]>("/api/repositories"),
+  // Every branch the workspace has a lineage for, with the repository it belongs to —
+  // what turns a review's branch_id into a name, and the options a branch switch offers.
+  branches: () => request<RepositoryBranch[]>("/api/branches"),
   // Indexing answers with the atlas version it created, not a repository summary: the
   // node and edge counts belong to the listing, and claiming them here would be a type
   // that promises fields the response does not carry.
@@ -386,6 +439,23 @@ export const api = {
   // runs on the code alone and asks for what it lacked (master plan §6C.1).
   startFromRepository: (rootPath: string) =>
     request<CaseRevision>("/api/repositories/start", {
+      method: "POST",
+      body: JSON.stringify({ root_path: rootPath }),
+    }),
+  // Clones the address into the workspace's own checkouts directory — or, for a local
+  // path that is already a repository root, answers with that path reviewed in place.
+  // Either way the folder handed back is a git root, which is what makes the repository
+  // identity real rather than a path hash.
+  checkoutRepository: (url: string, branch: string | null) =>
+    request<RepositoryCheckout>("/api/repositories/checkout", {
+      method: "POST",
+      body: JSON.stringify({ url, branch }),
+    }),
+  // Catches a checkout Arch Compass made up with its remote, given only the folder — which
+  // is all a page reviewing a repository holds. A folder that is not ours comes back
+  // `managed: false` and untouched, so this is safe to call before any review.
+  refreshRepository: (rootPath: string) =>
+    request<CheckoutRefresh>("/api/repositories/refresh", {
       method: "POST",
       body: JSON.stringify({ root_path: rootPath }),
     }),
