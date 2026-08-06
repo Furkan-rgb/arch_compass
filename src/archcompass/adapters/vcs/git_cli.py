@@ -10,6 +10,7 @@ quoting rule to get wrong.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -169,7 +170,19 @@ class GitCommandLineClient:
             raise RepositoryCheckoutError(
                 f"This repository has no branch called {branch}."
             )
-        if self._ask(checkout, "checkout", "--force", "-B", branch, remote_branch) is None:
+        # On the network budget, not the local one: `clone` filtered the blobs out, so this
+        # is the command that actually fetches the file contents of the tree it checks out.
+        # A question answered from `.git` it is not, and on the short budget every repository
+        # bigger than a toy fails here after thirty seconds.
+        if self._run(
+            checkout,
+            "checkout",
+            "--force",
+            "-B",
+            branch,
+            remote_branch,
+            timeout=self._network_timeout,
+        ) is None:
             raise RepositoryCheckoutError(
                 f"The checkout at {checkout} could not be moved to {branch}."
             )
@@ -202,6 +215,13 @@ class GitCommandLineClient:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                # A repository that wants a password gets none. Nothing here is attached to a
+                # terminal — the caller is a web request or a CLI command already in flight —
+                # so a prompt cannot be answered and would only sit there until the timeout
+                # turns it into a failure minutes later. Refused immediately, the same call
+                # fails in the time the network takes, and the message about credentials
+                # `clone` already raises is the one the reader gets.
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
             )
         except (OSError, subprocess.SubprocessError):
             return None

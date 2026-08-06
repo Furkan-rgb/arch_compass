@@ -127,7 +127,7 @@ class RepositoryCheckoutService:
         claim about code nobody can find.
         """
 
-        destination = self._checkouts_root / _directory_name(url)
+        destination = self._checkouts_root / directory_name(url)
         described = self._git.describe(destination)
         created = described is None or described.top_level != destination
         if created:
@@ -249,8 +249,13 @@ class RepositoryCheckoutService:
         return name
 
 
-def _directory_name(url: str) -> str:
-    """What this repository's checkout is called, from the URL and nothing else.
+def directory_name(url: str) -> str:
+    """What this repository's directory is called, from the URL and nothing else.
+
+    Shared with `application.source_archives`, which needs the same answer for the same
+    reason: two ways of putting a repository on disk should not disagree about what to call
+    the folder, and the rule for turning an address into a safe single path component is the
+    interesting part of it.
 
     Two parts, because each answers half of it. The slug is for the person who opens the
     folder and wants to know whose code is in it; the digest is what actually keeps two

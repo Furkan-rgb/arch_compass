@@ -62,6 +62,12 @@ const hint = "m-0 text-meta leading-[1.5] text-ink-2";
 /* A read that failed is reported once, at the top of the sheet, inside its own gutter. */
 const readError = "px-[var(--card-pad-x)] [&_[data-slot=error-strip]]:mt-3 [&_[data-slot=error-strip]]:mb-0";
 
+/** `a`, `a and b`, `a, b and c` — a list read aloud rather than joined with commas. */
+function listed(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
 /**
  * Walking the machine's folders to find the one to index. State lives here, not on the page,
  * so the dialog unmounting it resets the walk.
@@ -438,6 +444,19 @@ export function StartPage() {
   // filesystem, so offering the picker would offer a control whose every click is a 403.
   // The bundled examples are the whole repertoire there, and the copy says so.
   const hosted = Boolean(workspace.data?.hosted);
+  // Which hosts this workspace will fetch a repository from. Empty on a local workspace,
+  // which clones from wherever its git can reach — and empty on a hosted one that was not
+  // given any, where the examples remain the whole repertoire.
+  const sourceHosts = workspace.data?.source_hosts ?? [];
+  // The line is offered wherever something can come of typing in it. Locally that is always;
+  // on the demo it is exactly when the server named hosts it will fetch from, because there
+  // the only alternative to a fetch is a 403 the reader had no way to predict.
+  //
+  // Withheld until the workspace has answered, rather than assumed and corrected. The
+  // default before an answer is "not hosted", so assuming would put the field on screen and
+  // then take it away again on a demo that has no hosts — and a control that appears and
+  // vanishes reads as something breaking, where a beat of nothing reads as loading.
+  const canAddRepository = !workspace.isPending && (!hosted || sourceHosts.length > 0);
   const openPicker = useModelPicker();
 
   const ready = isReady(selection, hasModel);
@@ -533,7 +552,7 @@ export function StartPage() {
           {/* The way in, first: paste the repository — an address is cloned, a path is
               indexed in place — with browsing kept behind the folder button for the day
               the path isn't on the clipboard. */}
-          {!hosted ? (
+          {canAddRepository ? (
             <form
               className="flex gap-2"
               onSubmit={(event) => {
@@ -551,7 +570,11 @@ export function StartPage() {
                 className="min-w-0 flex-1 font-mono text-meta"
                 value={path}
                 onChange={(event) => setPath(event.target.value)}
-                placeholder="https://github.com/owner/repository — or a local path"
+                placeholder={
+                  hosted
+                    ? `https://${sourceHosts[0]}/owner/repository`
+                    : "https://github.com/owner/repository — or a local path"
+                }
                 aria-label="Repository address or path"
                 spellCheck={false}
               />
@@ -564,26 +587,40 @@ export function StartPage() {
                   "Add"
                 )}
               </Button>
-              <FolderPicker
-                open={picking}
-                onOpenChange={setPicking}
-                disabled={busy}
-                start={path.trim() || null}
-                indexing={index.isPending}
-                error={index.error}
-                onIndex={(root) => index.mutate(root)}
-                fetching={checkout.isPending}
-                checkoutError={checkout.error}
-                onCheckout={(url, branch) => checkout.mutate({ url, branch })}
-              />
+              {/* Browsing is this machine's folders, so it belongs to a workspace that has
+                  some: the hosted server refuses to list its own disk. */}
+              {hosted ? null : (
+                <FolderPicker
+                  open={picking}
+                  onOpenChange={setPicking}
+                  disabled={busy}
+                  start={path.trim() || null}
+                  indexing={index.isPending}
+                  error={index.error}
+                  onIndex={(root) => index.mutate(root)}
+                  fetching={checkout.isPending}
+                  checkoutError={checkout.error}
+                  onCheckout={(url, branch) => checkout.mutate({ url, branch })}
+                />
+              )}
             </form>
           ) : null}
-          {!hosted && (checkout.error || index.error) && !picking ? (
+          {canAddRepository && (checkout.error || index.error) && !picking ? (
             <ErrorPanel error={checkout.error || index.error} />
           ) : null}
           <p className={hint}>
-            Python is parsed without being imported or modified. Indexing the same path
-            again is cheap; freshness is checked before every review.
+            {hosted ? (
+              <>
+                Public repositories on {listed(sourceHosts)}. The code is downloaded and
+                parsed — never imported, installed or run — and the copy goes when your
+                session does.
+              </>
+            ) : (
+              <>
+                Python is parsed without being imported or modified. Indexing the same path
+                again is cheap; freshness is checked before every review.
+              </>
+            )}
           </p>
 
           {repositories.isLoading ? (
@@ -615,9 +652,11 @@ export function StartPage() {
             // not an empty one, and saying "nothing indexed yet" over a failed read is
             // this page telling the reader something it does not know.
             <EmptyLine>
-              {hosted
+              {!canAddRepository
                 ? "Nothing indexed yet — load an example above."
-                : "Nothing indexed yet — browse to a local Python project below, or load an example above."}
+                : hosted
+                  ? "Nothing indexed yet — paste a repository above, or load an example."
+                  : "Nothing indexed yet — browse to a local Python project below, or load an example above."}
             </EmptyLine>
           )}
 

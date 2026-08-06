@@ -72,7 +72,10 @@ function open() {
   );
 }
 
-const browse = () => fireEvent.click(screen.getByRole("button", { name: /Browse local folders/ }));
+/* Awaited, because the field and its folder button appear once the workspace has answered
+   whether this is a demo — before that there is nothing to click. */
+const browse = async () =>
+  fireEvent.click(await screen.findByRole("button", { name: /Browse local folders/ }));
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -87,7 +90,7 @@ describe("indexing a repository by browsing to it", () => {
       });
 
     open();
-    browse();
+    await browse();
 
     await screen.findByRole("button", { name: /warehouse/ });
     fireEvent.click(screen.getByRole("button", { name: /warehouse/ }));
@@ -112,7 +115,7 @@ describe("indexing a repository by browsing to it", () => {
     );
 
     open();
-    browse();
+    await browse();
     await screen.findByLabelText("Folder path or git address");
 
     // Pasted before the home listing has landed: the field stops following the walk the
@@ -140,7 +143,7 @@ describe("indexing a repository by browsing to it", () => {
     });
 
     open();
-    browse();
+    await browse();
 
     const up = await screen.findByRole("button", { name: /parent folder/ });
     expect(up).toBeDisabled();
@@ -165,5 +168,62 @@ describe("running needs a model as well as a repository", () => {
 
     await screen.findByText(/Judging every boundary in/);
     expect(screen.getByRole("button", { name: /Run review/ })).toBeEnabled();
+  });
+});
+
+/** The hosted demo, with or without hosts it will fetch a repository from. */
+function hostedWorkspace(sourceHosts: string[]) {
+  workspace([]);
+  vi.spyOn(api, "workspace").mockResolvedValue({
+    workspace: "Hosted demo workspace",
+    models: {
+      reasoning: { provider: "fake", model: "deterministic-architecture-v4" },
+      failure: "",
+      pinned: false,
+    },
+    hosted: true,
+    source_hosts: sourceHosts,
+  });
+}
+
+describe("what the hosted demo offers", () => {
+  it("offers the address field, naming the hosts it will fetch from", async () => {
+    hostedWorkspace(["github.com"]);
+    open();
+
+    // By placeholder, so this waits for the hosted answer rather than catching the field
+    // in the beat before the workspace query settles.
+    await screen.findByPlaceholderText("https://github.com/owner/repository");
+    expect(await screen.findByText(/Public repositories on github\.com/)).toBeInTheDocument();
+    // Browsing is this machine's folders, and the hosted server refuses to list its own.
+    expect(screen.queryByRole("button", { name: /Browse local folders/ })).toBeNull();
+  });
+
+  it("hides the address field when the demo was given no hosts to fetch from", async () => {
+    hostedWorkspace([]);
+    open();
+
+    expect(await screen.findByText(/load an example above/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Repository address or path")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Browse local folders/ })).toBeNull();
+  });
+
+  it("shows the server's refusal verbatim when an address is not one it will fetch", async () => {
+    hostedWorkspace(["github.com"]);
+    vi.spyOn(api, "checkoutRepository").mockRejectedValue(
+      new ApiError(
+        "'https://evil.test/o/r' is not an address this workspace will fetch.",
+        409,
+        "checkout_failed",
+      ),
+    );
+    open();
+
+    fireEvent.change(await screen.findByLabelText("Repository address or path"), {
+      target: { value: "https://evil.test/o/r" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(await screen.findByText(/is not an address this workspace will fetch/)).toBeInTheDocument();
   });
 });

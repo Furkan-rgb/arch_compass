@@ -58,6 +58,8 @@ jobs:
             --allow-unauthenticated \
             --max-instances 1 \
             --memory 1Gi \
+            --concurrency 12 \
+            --timeout 600 \
             --set-env-vars ARCHCOMPASS_HOSTED=1,ARCHCOMPASS_PROVIDERS=google \
             --set-secrets GOOGLE_API_KEY=archcompass-google-api-key:latest
 

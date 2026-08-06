@@ -237,6 +237,120 @@ def test_the_hosted_demo_will_not_clone_a_repository_a_visitor_names() -> None:
         assert stale.json()["code"] == "hosted_restriction"
 
 
+@pytest.fixture
+def fetching_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """A demo that was given hosts to fetch from, which is off unless a deployment says so."""
+
+    monkeypatch.setenv("ARCHCOMPASS_SOURCE_HOSTS", "github.com")
+    yield
+
+
+@pytest.mark.usefixtures("hosted_environment", "fetching_environment")
+def test_a_demo_that_fetches_says_which_hosts_it_will_fetch_from() -> None:
+    """The page offers the field only where the server named hosts, so it has to say them."""
+
+    with _client() as client:
+        summary = client.get("/api/workspace").json()
+
+        assert summary["hosted"] is True
+        assert summary["source_hosts"] == ["github.com"]
+
+
+@pytest.mark.usefixtures("hosted_environment")
+def test_a_demo_that_was_given_no_hosts_offers_none() -> None:
+    with _client() as client:
+        assert client.get("/api/workspace").json()["source_hosts"] == []
+
+
+@pytest.mark.usefixtures("hosted_environment", "fetching_environment")
+@pytest.mark.parametrize(
+    "address",
+    [
+        "file:///tmp/archcompass-sessions/somebody-else/repository",
+        "git@github.com:owner/repository",
+        "http://github.com/owner/repository",
+        "https://github.com@169.254.169.254/owner/repository",
+        "https://169.254.169.254/owner/repository",
+        "https://github.com.evil.test/owner/repository",
+        "https://github.com:8080/owner/repository",
+        "https://gitlab.com/owner/repository",
+        "/etc",
+    ],
+)
+def test_a_demo_that_fetches_still_fetches_only_from_the_hosts_it_named(
+    address: str,
+) -> None:
+    """The metadata address is the one that matters: on a cloud instance it serves tokens."""
+
+    with _client() as client:
+        refused = client.post("/api/repositories/checkout", json={"url": address})
+
+        assert refused.status_code == 409, refused.text
+        assert "not an address this workspace will fetch" in refused.json()["message"]
+
+
+@pytest.mark.usefixtures("hosted_environment", "fetching_environment")
+def test_a_repository_a_visitor_did_not_fetch_is_still_not_indexable() -> None:
+    """Allowing a fetch does not allow naming a folder — including another session's."""
+
+    with _client() as client:
+        refused = client.post(
+            "/api/repositories/index", json={"root_path": "/etc"}
+        )
+
+        assert refused.status_code == 403
+        assert refused.json()["code"] == "hosted_restriction"
+
+
+@pytest.mark.usefixtures("hosted_environment", "fetching_environment")
+def test_a_demo_that_fetches_answers_refresh_rather_than_refusing_it() -> None:
+    """Every run begins by asking for this, so refusing would fail every review."""
+
+    with _client() as client:
+        answered = client.post(
+            "/api/repositories/refresh", json={"root_path": "/tmp/somewhere"}
+        )
+
+        assert answered.status_code == 200, answered.text
+        assert answered.json()["managed"] is False
+        assert answered.json()["updated"] is False
+
+
+@pytest.mark.usefixtures("hosted_environment", "fetching_environment")
+def test_the_hosted_demo_stops_fetching_past_the_daily_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ARCHCOMPASS_SESSION_DAILY_FETCHES", "1")
+    with _client() as client:
+        # Refused for what it is, but counted: a fetch that fails has already been asked for.
+        first = client.post(
+            "/api/repositories/checkout", json={"url": "https://evil.test/o/r"}
+        )
+        assert first.status_code == 409
+
+        second = client.post(
+            "/api/repositories/checkout", json={"url": "https://github.com/o/r"}
+        )
+
+        assert second.status_code == 429
+        assert second.json()["code"] == "budget_exhausted"
+        assert "as many repositories as this demo allows" in second.json()["message"]
+
+
+def test_a_deployment_cannot_allow_a_host_this_build_cannot_fetch_from(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Said once, to whoever deployed it, rather than to every visitor who pastes a URL."""
+
+    monkeypatch.setenv("ARCHCOMPASS_HOSTED", "1")
+    monkeypatch.setenv("ARCHCOMPASS_PROVIDERS", "fake")
+    monkeypatch.setenv("ARCHCOMPASS_SESSION_ROOT", str(tmp_path / "sessions"))
+    monkeypatch.setenv("ARCHCOMPASS_SOURCE_HOSTS", "github.com,evil.test")
+
+    with pytest.raises(Exception, match=r"evil\.test"):
+        create_hosted_app()
+
+
 def test_a_local_workspace_is_untouched_by_any_of_it(runtime: Runtime) -> None:
     """The same app object, built the way the CLI builds it: no session, no restrictions."""
 
@@ -249,3 +363,47 @@ def test_a_local_workspace_is_untouched_by_any_of_it(runtime: Runtime) -> None:
         assert SESSION_COOKIE not in client.cookies
         assert "set-cookie" not in summary.headers
         assert client.get("/api/filesystem/directories").status_code == 200
+        # No hosts to fetch from, because a local workspace does not fetch: it clones,
+        # from wherever the git on this machine can reach.
+        assert summary.json()["source_hosts"] == []
+
+
+@pytest.mark.usefixtures("hosted_environment", "fetching_environment")
+def test_the_demo_analyses_one_repository_at_a_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two overlapping analyses is how a container sized for one of them dies."""
+
+    from archcompass.presentation.web import app as web_app
+
+    monkeypatch.setattr(web_app, "INDEX_QUEUE_SECONDS", 0.1)
+    application = create_hosted_app()
+    assert application.state.index_lock is not None
+
+    # Held by somebody else's analysis: the next caller is told, not left waiting forever.
+    application.state.index_lock.acquire()
+    try:
+        with TestClient(application, base_url=HOSTED_URL) as client:
+            refused = client.post("/api/repositories/index", json={"root_path": "/etc"})
+
+            assert refused.status_code == 503
+            assert refused.json()["code"] == "busy"
+            assert "one at a time" in refused.json()["message"]
+    finally:
+        application.state.index_lock.release()
+
+
+@pytest.mark.usefixtures("hosted_environment", "fetching_environment")
+def test_the_slot_is_given_back_even_when_the_route_refuses() -> None:
+    """A guard that leaked its permit would serialise the demo down to one index, ever."""
+
+    application = create_hosted_app()
+    with TestClient(application, base_url=HOSTED_URL) as client:
+        for _ in range(3):
+            assert client.post(
+                "/api/repositories/index", json={"root_path": "/etc"}
+            ).status_code == 403
+
+    # The slot is free, so it can be taken: three refusals in a row each gave theirs back.
+    assert application.state.index_lock.acquire(blocking=False)
+    application.state.index_lock.release()

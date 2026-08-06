@@ -89,6 +89,61 @@ IGNORED_DIRECTORIES = {
 CONFIG_SUFFIXES = {".yaml", ".yml", ".toml", ".json", ".ini", ".cfg", ".env"}
 
 
+@dataclass(frozen=True)
+class AnalysisLimits:
+    """How much repository an analysis will take on, where something has to say.
+
+    Absent by default, which is what a workspace on somebody's own machine wants: they
+    chose the directory, it is their memory being spent, and a cap that silently dropped
+    half their code would be worse than a slow run.
+
+    A deployment that analyses repositories strangers name needs the opposite. Every file
+    is read whole into memory and every parsed module is held for the length of the run,
+    so without a limit the size of the analysis is the size of whatever was pointed at —
+    and on a container whose filesystem is memory, one repository is enough to end every
+    session on the instance.
+    """
+
+    #: Files larger than this are left out. A source file this big is machine-generated or
+    #: is not source at all, and neither is something a review has anything to say about.
+    max_file_bytes: int | None = None
+    #: How many files are taken in total, Python and configuration together.
+    max_files: int | None = None
+    #: How much Python one repository may contribute, in bytes. The cap that matters most,
+    #: and the one that is refused rather than trimmed: leaving half a repository out would
+    #: produce an atlas with holes in it and a review confidently wrong about what is there.
+    #:
+    #: Sized from measurement rather than from a round number. Peak memory runs at roughly
+    #: 48 MB per megabyte of Python — pallets/flask at 0.6 MB peaks at 142 MB, psf/black at
+    #: 5.2 MB peaks at 361 MB — because `_compute_metrics` is O(nodes x edges) and holds
+    #: every parsed tree while it runs. django/django, at 30 MB, passed 814 MB and had not
+    #: finished after twelve minutes. Until that loop is not quadratic, the honest thing is
+    #: to say no to the repositories it cannot finish.
+    max_python_bytes: int | None = None
+    #: Whether `.env` files are read into the atlas. True everywhere a person is reviewing
+    #: their own code, where the file is part of how the repository is configured and is
+    #: exactly the kind of thing a review should be able to point at.
+    #:
+    #: False where the repository belongs to somebody who is only passing through. An
+    #: excerpt of a `.env` reaches the model provider like any other file, and a demo that
+    #: forwarded a stranger's secrets to a third party because they pasted a URL would be
+    #: doing something they never asked for and would have no way to notice.
+    include_environment_files: bool = True
+
+    def __bool__(self) -> bool:
+        return (
+            self.max_file_bytes is not None
+            or self.max_files is not None
+            or self.max_python_bytes is not None
+            or not self.include_environment_files
+        )
+
+
+#: No ceiling at all, which is what every caller that does not ask for one gets. A singleton
+#: because it is immutable and there is only one way to have no limits.
+UNLIMITED_ANALYSIS = AnalysisLimits()
+
+
 #: What the hash records when no resolver is configured. A marker rather than an omitted
 #: key: an atlas built with typed edges and one built without them are different atlases,
 #: and leaving the key out when the extra is absent would let the second be read as the
@@ -96,22 +151,45 @@ CONFIG_SUFFIXES = {".yaml", ".yml", ".toml", ".json", ".ini", ".cfg", ".env"}
 _RESOLUTION_ABSENT = "absent"
 
 
-def _analysis_config_hash(resolution: Mapping[str, str] | None = None) -> str:
-    return stable_id(
-        "analysis",
-        canonical_json(
-            {
-                "ignored": sorted(IGNORED_DIRECTORIES),
-                "config_suffixes": sorted(CONFIG_SUFFIXES),
-                "parser": PARSER_VERSION,
-                "resolution": (
-                    dict(sorted(resolution.items()))
-                    if resolution is not None
-                    else _RESOLUTION_ABSENT
-                ),
-            }
+def _error_line(error: BaseException) -> int:
+    """Which line to point the unreadable-module signal at.
+
+    A `SyntaxError` names one. The exhaustion errors that reach the same handler do not —
+    there is no single line that was too deeply nested — so they point at the top of the
+    file, which is where a reader opening it would start anyway.
+    """
+
+    lineno = getattr(error, "lineno", None)
+    return max(1, lineno if isinstance(lineno, int) else 1)
+
+
+def _analysis_config_hash(
+    resolution: Mapping[str, str] | None = None,
+    limits: AnalysisLimits = UNLIMITED_ANALYSIS,
+) -> str:
+    recorded: dict[str, object] = {
+        "ignored": sorted(IGNORED_DIRECTORIES),
+        "config_suffixes": sorted(CONFIG_SUFFIXES),
+        "parser": PARSER_VERSION,
+        "resolution": (
+            dict(sorted(resolution.items()))
+            if resolution is not None
+            else _RESOLUTION_ABSENT
         ),
-    )
+    }
+    # Recorded only where there are limits, so that an unlimited analysis hashes to exactly
+    # what it always did. An atlas built under a cap genuinely is a different atlas — it may
+    # be missing files — and has to be told apart from one built without; an atlas built
+    # without a cap is the same one it was before this key existed, and making every stored
+    # atlas stale to say so would be a re-analysis of every workspace for no new fact.
+    if limits:
+        recorded["limits"] = {
+            "max_file_bytes": limits.max_file_bytes,
+            "max_files": limits.max_files,
+            "max_python_bytes": limits.max_python_bytes,
+            "environment_files": limits.include_environment_files,
+        }
+    return stable_id("analysis", canonical_json(recorded))
 
 
 @dataclass(frozen=True)
@@ -121,7 +199,17 @@ class SnapshotFile:
     content: bytes
 
     def text(self) -> str:
-        return self.content.decode("utf-8")
+        """The file as text, with whatever is not UTF-8 replaced rather than raised.
+
+        A repository is allowed to contain a file that is not UTF-8 — a fixture of raw
+        bytes under a `.json` suffix, a `.py` saved in a legacy encoding — and strict
+        decoding made one such file end the analysis of everything around it. Replaced,
+        the file is still hashed as the bytes it is, still counted, and still parsed: if
+        the substitution broke the syntax, that is a `SyntaxError`, which this analyzer
+        already reports as a signal rather than a failure.
+        """
+
+        return self.content.decode("utf-8", errors="replace")
 
 
 @dataclass(frozen=True)
@@ -190,8 +278,10 @@ class PythonAstRepositoryAnalyzer:
         edge_resolver: EdgeResolver | None = None,
         *,
         excluded_roots: tuple[Path, ...] = (),
+        limits: AnalysisLimits = UNLIMITED_ANALYSIS,
     ) -> None:
         self._edge_resolver = edge_resolver
+        self._limits = limits
         # Canonicalized once, and never folded into the analysis config hash: an excluded
         # root is where this machine happens to keep its workspace, exactly like `root_path`,
         # and hashing it would make two machines analysing the same commit disagree about
@@ -338,6 +428,7 @@ class PythonAstRepositoryAnalyzer:
     def _snapshot(self, root: Path) -> RepositorySnapshot:
         canonical_root = self._validate_root(root)
         python_paths, config_paths = self._discover_files(canonical_root)
+        self._refuse_if_too_large(python_paths)
         files = tuple(
             SnapshotFile(
                 path=path,
@@ -360,6 +451,31 @@ class PythonAstRepositoryAnalyzer:
             branch_name=git.branch_name,
         )
 
+    def _refuse_if_too_large(self, python_paths: list[Path]) -> None:
+        """Say no before reading anything, when this is more than can be finished.
+
+        Measured from the directory entries rather than from the bytes, so a repository that
+        is too big to analyse is refused without ever being loaded — the failure this avoids
+        is running out of memory, and a check made after reading the files has already spent
+        what it was protecting.
+
+        Refused rather than truncated. An atlas built from the first N megabytes of a
+        repository is an atlas with holes in it, and a review is a set of claims about what
+        the code does: silently leaving half of it out would make those claims wrong in a way
+        the reader could not see.
+        """
+
+        cap = self._limits.max_python_bytes
+        if cap is None:
+            return
+        total = sum(path.stat().st_size for path in python_paths)
+        if total > cap:
+            raise PathValidationError(
+                f"This repository has {total / (1024 * 1024):.0f} MB of Python in it, and "
+                f"this workspace analyses up to {cap // (1024 * 1024)} MB. Run Arch Compass "
+                "locally to review a repository this size."
+            )
+
     @staticmethod
     def _validate_root(root: Path) -> Path:
         try:
@@ -379,7 +495,11 @@ class PythonAstRepositoryAnalyzer:
         excluded = excluded_within(root, self._excluded_roots)
         python_files: list[Path] = []
         config_files: list[Path] = []
-        for path in root.rglob("*"):
+        max_file_bytes = self._limits.max_file_bytes
+        max_files = self._limits.max_files
+        for path in sorted(root.rglob("*")):
+            if max_files is not None and len(python_files) + len(config_files) >= max_files:
+                break
             relative_parts = path.relative_to(root).parts
             if any(part in IGNORED_DIRECTORIES for part in relative_parts):
                 continue
@@ -387,9 +507,17 @@ class PythonAstRepositoryAnalyzer:
                 continue
             if lies_within(path, excluded):
                 continue
+            # Asked of the directory entry rather than of the bytes, so an oversized file
+            # is never read at all — the cap exists to stop it being held in memory, and
+            # measuring it after reading it would be measuring the damage.
+            if max_file_bytes is not None and path.stat().st_size > max_file_bytes:
+                continue
             if path.suffix == ".py":
                 python_files.append(path)
-            elif path.suffix.casefold() in CONFIG_SUFFIXES or path.name == ".env":
+            elif path.name == ".env":
+                if self._limits.include_environment_files:
+                    config_files.append(path)
+            elif path.suffix.casefold() in CONFIG_SUFFIXES:
                 config_files.append(path)
         return sorted(python_files), sorted(config_files)
 
@@ -627,7 +755,12 @@ class PythonAstRepositoryAnalyzer:
         source = source_file.text()
         try:
             tree = ast.parse(source, filename=relative, type_comments=True)
-        except SyntaxError as error:
+        # `RecursionError` and `MemoryError` alongside `SyntaxError`: CPython's parser
+        # recurses on nested expressions, so a file of ten thousand nested brackets is
+        # syntactically valid and still cannot be parsed. Uncaught, one such file ends the
+        # analysis of the repository around it, which is a denial of indexing that costs an
+        # attacker one file. Reported as the same unreadable-module signal a syntax error is.
+        except (SyntaxError, RecursionError, MemoryError) as error:
             node = self._node(
                 path=relative,
                 name=path.stem,
@@ -646,8 +779,8 @@ class PythonAstRepositoryAnalyzer:
                     node_id=node.atlas_id,
                     location=SourceLocation(
                         path=relative,
-                        start_line=max(1, error.lineno or 1),
-                        end_line=max(1, error.lineno or 1),
+                        start_line=_error_line(error),
+                        end_line=_error_line(error),
                     ),
                 )
             )
@@ -1004,7 +1137,8 @@ class PythonAstRepositoryAnalyzer:
 
     def _config_hash(self) -> str:
         return _analysis_config_hash(
-            self._edge_resolver.fingerprint() if self._edge_resolver is not None else None
+            self._edge_resolver.fingerprint() if self._edge_resolver is not None else None,
+            self._limits,
         )
 
     def _apply_resolution(

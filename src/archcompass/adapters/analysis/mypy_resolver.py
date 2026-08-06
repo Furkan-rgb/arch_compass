@@ -125,10 +125,17 @@ class MypyEdgeResolver:
             return EdgeResolutionResult()
         try:
             view = _RepositoryTypes.build(root, self._excluded_roots)
-        except CompileError:
-            # A repository mypy cannot get through at all yields no typed edges rather than
-            # no atlas. The parse already produced one, and indexing a repository must not
-            # depend on it type-checking.
+        # `CompileError` is what mypy raises when it cannot get through the code. The rest
+        # are what it raises when it cannot get through *itself*: the semantic analyser
+        # recurses, and its internal invariants are assertions, so a pathological input
+        # surfaces as a `RecursionError`, a `MemoryError` or an `AssertionError` rather than
+        # as a diagnostic. That matters more here than it looks, because the file list this
+        # resolver is given is not the whole of what mypy will read — a `.pyi` stub beside
+        # the code is followed whatever `follow_imports` says, and stubs are not in the
+        # snapshot at all. Any of these means the same thing to this layer: no typed edges.
+        # The parse already produced an atlas, and indexing must not depend on mypy
+        # surviving whatever it was pointed at.
+        except (CompileError, RecursionError, MemoryError, AssertionError):
             return EdgeResolutionResult()
         return EdgeResolutionResult(
             conformances=tuple(
