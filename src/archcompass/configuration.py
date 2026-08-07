@@ -135,6 +135,20 @@ class ReasoningModelConfig(DomainModel):
     #: it on a tight output budget can leave the structured answer truncated — which
     #: surfaces as a validation failure rather than as a silently wrong answer.
     thinking: bool | None = None
+    #: How many judgements may be in flight against this provider at once. A property of the
+    #: provider rather than of the review, which is why it travels on the resolved
+    #: configuration: a hosted API answers several requests at a time from a fleet that was
+    #: built for it, while a self-hosted Ollama serves one model on one GPU — parallel
+    #: requests there do not finish sooner, they queue behind each other and start timing
+    #: out. So the default is one, and a provider that genuinely serves more says so in its
+    #: descriptor.
+    #:
+    #: Only the per-boundary judgements use it. Detection, elicitation and summarisation are
+    #: one call each, so there is nothing there to overlap.
+    #:
+    #: `1` is not a degraded mode: it is the sequential loop this codebase has always run,
+    #: reached by a different branch rather than by an executor with one worker.
+    concurrent_requests: int = Field(default=1, ge=1, le=16)
 
     @model_validator(mode="after")
     def output_fits_context_window(self) -> ReasoningModelConfig:

@@ -37,7 +37,8 @@ history is better off without it.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Generator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
@@ -464,34 +465,46 @@ class ReviewService:
         reused_from: dict[str, str] = {}
         material = 0
         carried = 0
-        for position, candidate in enumerate(candidates, start=1):
-            self._stop_if_cancelled(running.review_id)
-            item = self._verdict_for(
-                candidate,
-                running=running,
-                revision=revision,
-                policies=policies,
-                key=keys[candidate.candidate_id],
-            )
-            if item.reused_from is not None:
-                reused_from[candidate.candidate_id] = item.reused_from
-                carried += 1
-            judged.append(item)
-            material += 1 if item.verdict.material else 0
-            # Reported in the same events and the same order as a fresh verdict, and said to
-            # be what it is. A cached run is not a quieter run — every boundary still lands,
-            # one at a time, in the detected order — but it is a faster one, and a stream
-            # that only counted them would have the run claim minutes of judgement it spent
-            # looking things up. The count travels with the record too, so a second tab or a
-            # reload, which has the columns and not the stream, can say the same thing.
-            self._reviews.record_progress(
-                running.review_id,
-                reviewed=position,
-                material=material,
-                carried=carried,
-            )
-            if on_verdict is not None:
-                on_verdict(item, position, len(candidates))
+        # Reached in the detected order whether or not they were *produced* in it: see
+        # `_judgements`. Closed however this loop ends, which is what stops a cancelled or
+        # failed run leaving a pool of workers behind it.
+        verdicts = self._judgements(
+            running=running,
+            revision=revision,
+            policies=policies,
+            candidates=candidates,
+            keys=keys,
+        )
+        try:
+            for position, candidate in enumerate(candidates, start=1):
+                # Before waiting on this position rather than after it, so a run cancelled
+                # while judgements are in flight stops at the next boundary instead of
+                # waiting out the ones already started. Only the main thread ever asks.
+                self._stop_if_cancelled(running.review_id)
+                item = next(verdicts)
+                if item.reused_from is not None:
+                    reused_from[candidate.candidate_id] = item.reused_from
+                    carried += 1
+                judged.append(item)
+                material += 1 if item.verdict.material else 0
+                # Reported in the same events and the same order as a fresh verdict, and
+                # said to be what it is. A cached run is not a quieter run — every boundary
+                # still lands, one at a time, in the detected order, and that stays true
+                # when several are being judged at once: judging may overlap, reporting
+                # never does — but it is a faster one, and a stream that only counted them
+                # would have the run claim minutes of judgement it spent looking things up.
+                # The count travels with the record too, so a second tab or a reload, which
+                # has the columns and not the stream, can say the same thing.
+                self._reviews.record_progress(
+                    running.review_id,
+                    reviewed=position,
+                    material=material,
+                    carried=carried,
+                )
+                if on_verdict is not None:
+                    on_verdict(item, position, len(candidates))
+        finally:
+            verdicts.close()
         boundaries = reviewed_boundaries(
             [
                 JudgedBoundary(
@@ -765,6 +778,79 @@ class ReviewService:
         )
         self._boundary_lines.append_all(events)
 
+    def _judgements(
+        self,
+        *,
+        running: BoundaryReview,
+        revision: CaseRevision,
+        policies: list[PolicyDocument],
+        candidates: Sequence[FindingCandidate],
+        keys: dict[str, str],
+    ) -> Generator[JudgedCandidate]:
+        """Every candidate's verdict, always in the detected order, sometimes overlapping.
+
+        A judgement is one HTTP request and a long wait, and a review is one per boundary,
+        so a run against a provider that answers several at once spent most of its minutes
+        waiting in sequence for no reason. How many may be in flight is the provider's own
+        answer and nothing this service decides — a hosted API has a fleet, a local Ollama
+        has one GPU and would only queue.
+
+        **Produced in parallel, yielded in submission order.** The caller records progress
+        and calls back per position, and those are what a reader watching the run sees; a
+        boundary that finished third arriving second would have the stream disagree with
+        the report. So this waits on position one, then position two, rather than taking
+        whatever completes first — the run is as fast as its slowest judgement plus the
+        tail, and every event is still in the order the sweep detected them.
+
+        Everything that reports, records or reads the run's own record stays with the
+        caller. A worker does exactly `_verdict_for`, whose only shared state is a SQLite
+        repository that opens a connection per call (WAL, with a busy timeout) and a
+        reasoner that builds its transport once under a lock. Nothing here holds a cursor,
+        a session or a counter across calls.
+
+        Closing this — which the caller does however its loop ends — shuts the pool down
+        without waiting. Judgements not yet started never run; one already in flight
+        finishes into the verdict cache, which is the same policy `_verdict_for` documents:
+        a cancelled run that already paid for a call should not make the next run pay again.
+
+        A worker's exception surfaces from the position that raised, exactly where the
+        sequential loop would have raised it, and closing cancels the rest.
+        """
+
+        concurrency = self._reasoner.concurrent_requests
+        if concurrency <= 1 or len(candidates) <= 1:
+            # Not an executor with one worker. Where nothing may overlap, the run should be
+            # the loop it has always been, so there is no pool, no thread and no difference.
+            for candidate in candidates:
+                yield self._verdict_for(
+                    candidate,
+                    running=running,
+                    revision=revision,
+                    policies=policies,
+                    key=keys[candidate.candidate_id],
+                )
+            return
+        executor = ThreadPoolExecutor(
+            max_workers=concurrency,
+            thread_name_prefix=f"judge-{running.review_id}",
+        )
+        try:
+            pending = [
+                executor.submit(
+                    self._verdict_for,
+                    candidate,
+                    running=running,
+                    revision=revision,
+                    policies=policies,
+                    key=keys[candidate.candidate_id],
+                )
+                for candidate in candidates
+            ]
+            for future in pending:
+                yield future.result()
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
     def _verdict_for(
         self,
         candidate: FindingCandidate,
@@ -793,6 +879,14 @@ class ReviewService:
         verdict came from. The write is not conditional on the run finishing: the verdict
         was genuinely reached, and a cancelled or failed run that already paid for a model
         call should not make the next run pay for it again.
+
+        **This is the whole of what a worker thread runs** (see `_judgements`), and it is
+        safe to run several of at once. The cache's `get` and `put` each open their own
+        SQLite connection — WAL, with a busy timeout — and hold nothing between calls, and
+        `put` is an `INSERT OR IGNORE` on the key, so two runs racing to store the same
+        verdict store one of them and neither fails. Everything else read here is a value
+        the run already holds. Nothing here reports, records progress or reads the review's
+        own record; the consuming loop does all three, from the thread that owns the run.
         """
 
         cached = self._verdict_cache.get(key)

@@ -241,6 +241,13 @@ def _client(api_key: str, base_url: str | None, timeout: float) -> genai.Client:
     """A client whose timeout is fixed at construction, as the Ollama clients are.
 
     `HttpOptions.timeout` is milliseconds; the rest of this codebase counts seconds.
+
+    One client, shared by every call this transport makes — including the several a review
+    now has in flight at once, because this provider's descriptor says it may. That is safe
+    and deliberately so: the synchronous `genai.Client` holds an `httpx.Client`, which is
+    thread-safe and pools its connections, and nothing else on this transport is written
+    after construction. Building one per request would instead give up the pooling that
+    makes several requests worth making.
     """
 
     return genai.Client(
@@ -519,5 +526,10 @@ DESCRIPTOR: Final = ProviderDescriptor(
         # still clamps this downward to whatever limit the probe actually reported.
         context_window_tokens=1_048_576,
         max_output_tokens_thinking=65536,
+        # AI Studio serves requests from a fleet, so a review's boundaries do not have to
+        # wait for each other. Four rather than as many as the boundaries: the free tier
+        # rations requests per minute, and a burst of forty would spend a review's whole
+        # allowance in one second and meet the limit instead of the answers.
+        concurrent_requests=4,
     ),
 )

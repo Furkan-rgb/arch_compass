@@ -707,6 +707,17 @@ class StructuredReasoningProvider:
     def model_identity(self) -> str:
         return f"{self._config.provider}:{self._config.model}"
 
+    @property
+    def concurrent_requests(self) -> int:
+        """Read off the configuration, because that is where the provider's answer lands.
+
+        The number came from the provider's descriptor and may have been overridden by the
+        environment on its way here, and neither is this class's business — it reasons with
+        whatever configuration it was handed, and this is one more field of it.
+        """
+
+        return self._config.concurrent_requests
+
     def prompt_identity(self, task: ReasoningTask) -> str:
         return self._PROMPTS[task]
 

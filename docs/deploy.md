@@ -98,6 +98,7 @@ gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body \
 | `ARCHCOMPASS_HOSTED` | — | Required. `1` to serve the hosted demo. |
 | `ARCHCOMPASS_PROVIDERS` | every provider this build knows | Comma-separated. `google` alone is what a hosted demo wants: there is no Ollama to reach, and a chooser listing one is a row that can only say "nothing is listening". |
 | `GOOGLE_API_KEY` | — | Required when `google` is offered. Startup fails without it, rather than every visitor discovering it one click at a time. |
+| `ARCHCOMPASS_MODEL_CONCURRENT_REQUESTS` | the chosen provider's own number — `4` for `google`, `1` for `ollama` | How many of a review's per-boundary judgements run at once. Applies to local runs as well as hosted ones. `1` is sequential judging, which is what to set when a provider starts refusing parallel requests; values above `16` are clamped to it, and anything that is not a whole number ≥ 1 is refused at startup. Only judgement overlaps — detection, elicitation and summarisation are one call each. |
 | `ARCHCOMPASS_SESSION_ROOT` | `/tmp/archcompass-sessions` | Where session workspaces are written. |
 | `ARCHCOMPASS_SESSION_CACHE` | `32` | How many session runtimes stay open. Eviction loses no data — the workspace stays on disk and is reopened on the next request. |
 | `ARCHCOMPASS_SESSION_DAILY_RUNS` | `10` | Model-spending requests per session per UTC day. |

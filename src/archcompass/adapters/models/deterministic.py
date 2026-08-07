@@ -79,9 +79,23 @@ class DeterministicReasoningProvider:
         ReasoningTask.DISCUSS_OPEN_QUESTION: "discuss-open-question:v1",
     }
 
+    def __init__(self, concurrent_requests: int = 1) -> None:
+        self._concurrent_requests = concurrent_requests
+
     @property
     def model_identity(self) -> str:
         return "fake:deterministic-architecture-v4"
+
+    @property
+    def concurrent_requests(self) -> int:
+        """One by default, because a substitute that answers instantly gains nothing else.
+
+        Configurable all the same, so the parallel judging path can be exercised offline
+        against the same substitute every other test runs against, rather than only against
+        a provider no test suite may call.
+        """
+
+        return self._concurrent_requests
 
     def prompt_identity(self, task: ReasoningTask) -> str:
         return self._PROMPTS[task]
@@ -476,10 +490,14 @@ class DeterministicReasoningProvider:
 
 
 def _build_deterministic(config: ReasoningModelConfig) -> DeterministicReasoningProvider:
-    """Ignores the configuration, deliberately: there is no transport to configure."""
+    """Reads one field of the configuration: there is no transport to configure.
 
-    del config
-    return DeterministicReasoningProvider()
+    How many judgements may run at once is the exception, and it is not about a transport —
+    it is what the substitute has to be able to say for the parallel judging path to be
+    exercised offline, against the provider every other test already runs against.
+    """
+
+    return DeterministicReasoningProvider(config.concurrent_requests)
 
 
 #: The substitute as a provider like any other, so an offline workspace chooses it the same
