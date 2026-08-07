@@ -105,7 +105,7 @@ DEFAULT_MAX_FILES: Final = 1_200
 #: exist mostly to catch shapes it does not: see `AnalysisLimits.max_python_bytes` for where
 #: the number comes from and what it is protecting against.
 MAX_PYTHON_MB_VARIABLE: Final = "ARCHCOMPASS_MAX_PYTHON_MB"
-DEFAULT_MAX_PYTHON_MB: Final = 8
+DEFAULT_MAX_PYTHON_MB: Final = 12
 
 #: How much of a repository this instance will hold at once, counted in the thing that
 #: actually costs: roughly forty kilobytes an atlas node. Eight thousand of them is about

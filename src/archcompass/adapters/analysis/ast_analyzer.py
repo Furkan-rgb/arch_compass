@@ -16,6 +16,7 @@ from typing import ClassVar
 from archcompass.adapters.analysis.ast_support import (
     DefinitionIndex,
     ParsedModule,
+    TreeSource,
     ast_for_node,
     build_edge,
     canonical_roots,
@@ -234,6 +235,57 @@ class SnapshotFile:
 
 
 @dataclass(frozen=True)
+class _Reference:
+    """One name a module wrote, and what kind of edge it would be if it resolves.
+
+    Read out of the tree while the file is in hand, resolved later against the symbol table
+    of the whole repository. The two cannot happen together — a name is only unambiguous once
+    every file has been read — and keeping them together is what used to require every tree
+    to stay in memory until the last file was parsed.
+    """
+
+    source: AtlasNode
+    line: int
+    expression: str
+    kind: EdgeType
+
+
+@dataclass(frozen=True)
+class _ModuleReferences:
+    """Everything one module names, in the order it named it.
+
+    Order is preserved because edge identity is not the only thing that matters: the first
+    edge recorded between a pair of nodes is the one `_deduplicate_edges` keeps, so replaying
+    these in a different order than they were read would keep a different edge.
+    """
+
+    imports: tuple[tuple[str, int], ...]
+    references: tuple[_Reference, ...]
+
+
+@dataclass(frozen=True)
+class _SyntacticMetrics:
+    """What a node's own syntax says about it, with nothing about the rest of the repository.
+
+    Split out because the two halves of `LocalStructuralMetrics` become knowable at different
+    moments: everything here is readable from the node's own tree the instant it is parsed,
+    while how many calls go out of it and come into it is a fact about the resolved edge
+    graph and cannot be known until every file has been read.
+
+    Recording this half early is what lets a tree be released as soon as its file is done,
+    rather than every tree being held until the last one is.
+    """
+
+    physical_lines: int = 0
+    logical_statements: int = 0
+    branch_count: int = 0
+    maximum_nesting_depth: int = 0
+    parameter_count: int = 0
+    public_symbol_count: int = 0
+    imported_module_count: int = 0
+
+
+@dataclass(frozen=True)
 class _ModuleMetrics:
     """What every node in one module shares, computed once for all of them.
 
@@ -370,6 +422,12 @@ class PythonAstRepositoryAnalyzer:
             nodes[package.atlas_id] = package
             edges.append(build_edge(package.parent_id, package.atlas_id, EdgeType.CONTAINS))
 
+        # Complete before the first parse, because it is a fact about which files exist
+        # rather than about what any of them contain.
+        owned_names = self._owned_names([item.path for item in python_files])
+        module_facts: list[ModuleFacts] = []
+        syntactic_metrics: dict[str, _SyntacticMetrics] = {}
+        references_by_path: dict[str, _ModuleReferences] = {}
         modules: list[ParsedModule] = []
         for source_file in python_files:
             parsed = self._parse_module(
@@ -384,6 +442,21 @@ class PythonAstRepositoryAnalyzer:
             # Between files rather than inside one: a module is the smallest thing this can
             # stop at without leaving a half-read file behind, and one module is not what
             # takes a run past the limit.
+            # Recorded while this module's tree is the one in hand. Everything below this
+            # line is about the repository rather than about a file, and none of it reads a
+            # tree — which is what makes it possible to stop holding them.
+            module_facts.append(self._facts_for(parsed, owned_names))
+            references_by_path[parsed.relative_path] = self._module_references(parsed)
+            definitions = DefinitionIndex()
+            for owned_node in (parsed.node, *parsed.symbols.values()):
+                syntactic_metrics[owned_node.atlas_id] = self._syntactic_metrics(
+                    owned_node, definitions.get(parsed, owned_node)
+                )
+            # Everything this file had to say has been said. Holding its tree from here to
+            # the end of the run is what made the cost of an analysis the size of the whole
+            # repository rather than the size of its largest file.
+            parsed.tree = None
+            parsed.source = ""
             self._refuse_if_too_many_nodes(len(nodes))
 
         for source_file in config_files:
@@ -415,10 +488,14 @@ class PythonAstRepositoryAnalyzer:
         # Built once for the whole repository, not once per module: it is a view of every
         # symbol there is, and rebuilding it per file would put back the cost it removes.
         suffix_index = self._suffix_index(symbol_by_qualified)
+        # The few readers that still want syntax after the parse loop get it from here,
+        # which parses a file again rather than having kept it.
+        trees = TreeSource(modules)
         unresolved: list[UnresolvedSite] = []
         for module in modules:
-            self._resolve_module_edges(
+            self._edges_from_references(
                 module,
+                references_by_path[module.relative_path],
                 module_by_name,
                 symbol_by_qualified,
                 suffix_index,
@@ -430,30 +507,29 @@ class PythonAstRepositoryAnalyzer:
         # type checker's own view. Running both would double every agreed pair and leave a
         # reader unable to say which pass believed what.
         if self._edge_resolver is None:
-            add_structural_protocol_edges(nodes, edges, modules)
+            add_structural_protocol_edges(nodes, edges, trees)
         else:
             unresolved = self._apply_resolution(
                 self._edge_resolver, canonical_root, nodes, edges, unresolved
             )
         signals.extend(self._unresolved_call_signals(unresolved))
         edges = self._deduplicate_edges(edges)
-        module_facts = self._module_facts(modules)
         self._add_duplicate_constant_signals(module_facts, signals)
         signals.extend(
             broad_input_boundary_preparation_signals(
                 nodes,
                 edges,
-                modules,
+                trees,
             )
         )
         signals.extend(
             parallel_boundary_preparation_signals(
                 nodes,
                 edges,
-                modules,
+                trees,
             )
         )
-        metrics = self._compute_metrics(nodes, edges, modules)
+        metrics = self._compute_metrics(nodes, edges, modules, syntactic_metrics)
         signals.extend(self._cycle_signals(nodes, edges, modules))
         return Atlas(
             version=version,
@@ -801,7 +877,7 @@ class PythonAstRepositoryAnalyzer:
         happens first and needs it. Edge resolution reads the same table afterwards.
         """
 
-        for statement in module.tree.body:
+        for statement in module.syntax().body:
             if isinstance(statement, ast.Import):
                 for alias in statement.names:
                     module.import_aliases[alias.asname or alias.name.split(".")[0]] = alias.name
@@ -966,7 +1042,7 @@ class PythonAstRepositoryAnalyzer:
                 )
 
     def _collect_local_signals(self, parsed: ParsedModule, signals: list[ObscuritySignal]) -> None:
-        for statement in parsed.tree.body:
+        for statement in parsed.syntax().body:
             if isinstance(statement, (ast.ImportFrom,)) and any(
                 alias.name == "*" for alias in statement.names
             ):
@@ -989,7 +1065,7 @@ class PythonAstRepositoryAnalyzer:
                             statement.lineno,
                         )
                     )
-        for item in ast.walk(parsed.tree):
+        for item in ast.walk(parsed.syntax()):
             if isinstance(item, ast.Call) and self._dotted(item.func) in {
                 "__import__",
                 "importlib.import_module",
@@ -1003,192 +1079,173 @@ class PythonAstRepositoryAnalyzer:
                     )
                 )
 
-    def _resolve_module_edges(
+    def _module_references(self, module: ParsedModule) -> _ModuleReferences:
+        """Every name this module writes, read from its tree and nothing else.
+
+        The counterpart of `_edges_from_references`, which turns these into edges without a
+        tree in sight. Split at exactly this line because everything above it is about one
+        file and everything below it is about the repository.
+        """
+
+        imports: list[tuple[str, int]] = []
+        for statement in module.syntax().body:
+            if isinstance(statement, ast.Import):
+                imports.extend((alias.name, statement.lineno) for alias in statement.names)
+            elif isinstance(statement, ast.ImportFrom):
+                imports.append((self._resolve_from_name(module, statement), statement.lineno))
+
+        references: list[_Reference] = []
+        for source_node in (module.node, *module.symbols.values()):
+            ast_node = ast_for_node(module, source_node)
+            if ast_node is None:
+                continue
+            scoped_nodes = list(lexical_nodes(ast_node))
+            # Three passes over the same scope, in this order, because that is the order the
+            # edges were built in and the first edge between a pair of nodes is the one kept.
+            references.extend(
+                _Reference(source_node, item.lineno, self._dotted(item.func), EdgeType.CALLS)
+                for item in scoped_nodes
+                if isinstance(item, ast.Call)
+            )
+            if isinstance(ast_node, ast.ClassDef):
+                references.extend(
+                    _Reference(
+                        source_node, base.lineno, self._dotted(base), EdgeType.INHERITS
+                    )
+                    for base in ast_node.bases
+                )
+            references.extend(
+                _Reference(source_node, item.lineno, item.id, EdgeType.REFERENCES)
+                for item in scoped_nodes
+                if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Load)
+            )
+        return _ModuleReferences(imports=tuple(imports), references=tuple(references))
+
+    def _edges_from_references(
         self,
         module: ParsedModule,
+        recorded: _ModuleReferences,
         module_by_name: dict[str, ParsedModule],
         symbol_by_qualified: dict[str, AtlasNode],
         suffix_index: dict[str, list[AtlasNode]],
         edges: list[AtlasEdge],
         unresolved: list[UnresolvedSite],
     ) -> None:
-        for statement in module.tree.body:
-            if isinstance(statement, ast.Import):
-                for alias in statement.names:
-                    target = self._best_module(alias.name, module_by_name)
-                    if target:
-                        import_edge = build_edge(
-                            module.node.atlas_id,
-                            target.node.atlas_id,
-                            EdgeType.IMPORTS,
-                            path=module.relative_path,
-                            line=statement.lineno,
-                        )
-                        edges.append(import_edge)
-                        if module.node.node_type == NodeType.TEST_MODULE:
-                            edges.append(
-                                import_edge.model_copy(
-                                    update={
-                                        "edge_id": stable_id(
-                                            "edge",
-                                            module.node.atlas_id,
-                                            target.node.atlas_id,
-                                            EdgeType.TESTS,
-                                            module.relative_path,
-                                            str(statement.lineno),
-                                        ),
-                                        "edge_type": EdgeType.TESTS,
-                                    }
-                                )
-                            )
-                        if module.node.node_type == NodeType.CONFIGURATION:
-                            edges.append(
-                                import_edge.model_copy(
-                                    update={
-                                        "edge_id": stable_id(
-                                            "edge",
-                                            module.node.atlas_id,
-                                            target.node.atlas_id,
-                                            EdgeType.CONFIGURES,
-                                            module.relative_path,
-                                            str(statement.lineno),
-                                        ),
-                                        "edge_type": EdgeType.CONFIGURES,
-                                    }
-                                )
-                            )
-            elif isinstance(statement, ast.ImportFrom):
-                imported_module = self._resolve_from_name(module, statement)
-                target = self._best_module(imported_module, module_by_name)
-                if target:
-                    import_edge = build_edge(
-                        module.node.atlas_id,
-                        target.node.atlas_id,
-                        EdgeType.IMPORTS,
-                        path=module.relative_path,
-                        line=statement.lineno,
-                    )
-                    edges.append(import_edge)
-                    if module.node.node_type == NodeType.TEST_MODULE:
-                        edges.append(
-                            import_edge.model_copy(
-                                update={
-                                    "edge_id": stable_id(
-                                        "edge",
-                                        module.node.atlas_id,
-                                        target.node.atlas_id,
-                                        EdgeType.TESTS,
-                                        module.relative_path,
-                                        str(statement.lineno),
-                                    ),
-                                    "edge_type": EdgeType.TESTS,
-                                }
-                            )
-                        )
-                    if module.node.node_type == NodeType.CONFIGURATION:
-                        edges.append(
-                            import_edge.model_copy(
-                                update={
-                                    "edge_id": stable_id(
-                                        "edge",
-                                        module.node.atlas_id,
-                                        target.node.atlas_id,
-                                        EdgeType.CONFIGURES,
-                                        module.relative_path,
-                                        str(statement.lineno),
-                                    ),
-                                    "edge_type": EdgeType.CONFIGURES,
-                                }
-                            )
-                        )
-        all_symbols = [module.node, *module.symbols.values()]
-        for source_node in all_symbols:
-            ast_node = ast_for_node(module, source_node)
-            if ast_node is None:
+        """Turn what a module named into edges, against the whole repository's symbols.
+
+        Reads no syntax. Everything it needs about the module itself — what it is called,
+        what it imported things as, which node it is — is carried on `ParsedModule` beside
+        the tree, and survives the tree being released.
+        """
+
+        for imported_name, line in recorded.imports:
+            target = self._best_module(imported_name, module_by_name)
+            if not target:
                 continue
-            scoped_nodes = list(lexical_nodes(ast_node))
-            for item in scoped_nodes:
-                if isinstance(item, ast.Call):
-                    dotted = self._dotted(item.func)
-                    target, confidence = self._resolve_symbol(
-                        dotted, source_node, module, symbol_by_qualified, suffix_index
-                    )
-                    if target:
-                        edges.append(
-                            build_edge(
-                                source_node.atlas_id,
-                                target.atlas_id,
-                                EdgeType.CALLS,
-                                confidence=confidence,
-                                path=module.relative_path,
-                                line=item.lineno,
-                            )
-                        )
-                        if source_node.node_type in {
-                            NodeType.TEST_FUNCTION,
-                            NodeType.TEST_MODULE,
-                        }:
-                            edges.append(
-                                build_edge(
-                                    source_node.atlas_id,
-                                    target.atlas_id,
-                                    EdgeType.TESTS,
-                                    confidence=confidence,
-                                    path=module.relative_path,
-                                    line=item.lineno,
-                                )
-                            )
-                    elif dotted:
-                        unresolved.append(
-                            UnresolvedSite(
-                                source=source_node,
-                                module_path=module.relative_path,
-                                line=item.lineno,
-                                expression=dotted,
-                                edge_type=EdgeType.CALLS,
-                            )
-                        )
-            if isinstance(ast_node, ast.ClassDef):
-                for base in ast_node.bases:
-                    dotted = self._dotted(base)
-                    target, confidence = self._resolve_symbol(
-                        dotted, source_node, module, symbol_by_qualified, suffix_index
-                    )
-                    if target:
-                        edges.append(
-                            build_edge(
-                                source_node.atlas_id,
-                                target.atlas_id,
-                                EdgeType.INHERITS,
-                                confidence=confidence,
-                                path=module.relative_path,
-                                line=base.lineno,
-                            )
-                        )
-                        if target.node_type == NodeType.INTERFACE:
-                            edges.append(
-                                build_edge(
-                                    source_node.atlas_id,
-                                    target.atlas_id,
-                                    EdgeType.IMPLEMENTS,
-                                    confidence=confidence,
-                                    path=module.relative_path,
-                                    line=base.lineno,
-                                )
-                            )
-            for item in scoped_nodes:
-                if not isinstance(item, ast.Name) or not isinstance(item.ctx, ast.Load):
+            import_edge = build_edge(
+                module.node.atlas_id,
+                target.node.atlas_id,
+                EdgeType.IMPORTS,
+                path=module.relative_path,
+                line=line,
+            )
+            edges.append(import_edge)
+            # A test importing a module is a test of it, and a configuration module
+            # importing one configures it. The same edge, said again under another name.
+            for derived, when in (
+                (EdgeType.TESTS, NodeType.TEST_MODULE),
+                (EdgeType.CONFIGURES, NodeType.CONFIGURATION),
+            ):
+                if module.node.node_type is not when:
                     continue
-                target, confidence = self._resolve_symbol(
-                    item.id, source_node, module, symbol_by_qualified, suffix_index
+                edges.append(
+                    import_edge.model_copy(
+                        update={
+                            "edge_id": stable_id(
+                                "edge",
+                                module.node.atlas_id,
+                                target.node.atlas_id,
+                                derived,
+                                module.relative_path,
+                                str(line),
+                            ),
+                            "edge_type": derived,
+                        }
+                    )
                 )
+
+        for reference in recorded.references:
+            source_node = reference.source
+            target, confidence = self._resolve_symbol(
+                reference.expression, source_node, module, symbol_by_qualified, suffix_index
+            )
+            if reference.kind is EdgeType.CALLS:
+                if target:
+                    edges.append(
+                        build_edge(
+                            source_node.atlas_id,
+                            target.atlas_id,
+                            EdgeType.CALLS,
+                            confidence=confidence,
+                            path=module.relative_path,
+                            line=reference.line,
+                        )
+                    )
+                    if source_node.node_type in {
+                        NodeType.TEST_FUNCTION,
+                        NodeType.TEST_MODULE,
+                    }:
+                        edges.append(
+                            build_edge(
+                                source_node.atlas_id,
+                                target.atlas_id,
+                                EdgeType.TESTS,
+                                confidence=confidence,
+                                path=module.relative_path,
+                                line=reference.line,
+                            )
+                        )
+                elif reference.expression:
+                    unresolved.append(
+                        UnresolvedSite(
+                            source=source_node,
+                            module_path=module.relative_path,
+                            line=reference.line,
+                            expression=reference.expression,
+                            edge_type=EdgeType.CALLS,
+                        )
+                    )
+            elif reference.kind is EdgeType.INHERITS:
+                if target:
+                    edges.append(
+                        build_edge(
+                            source_node.atlas_id,
+                            target.atlas_id,
+                            EdgeType.INHERITS,
+                            confidence=confidence,
+                            path=module.relative_path,
+                            line=reference.line,
+                        )
+                    )
+                    if target.node_type == NodeType.INTERFACE:
+                        edges.append(
+                            build_edge(
+                                source_node.atlas_id,
+                                target.atlas_id,
+                                EdgeType.IMPLEMENTS,
+                                confidence=confidence,
+                                path=module.relative_path,
+                                line=reference.line,
+                            )
+                        )
+            else:
                 if target is None:
                     unresolved.append(
                         UnresolvedSite(
                             source=source_node,
                             module_path=module.relative_path,
-                            line=item.lineno,
-                            expression=item.id,
+                            line=reference.line,
+                            expression=reference.expression,
                             edge_type=EdgeType.REFERENCES,
                         )
                     )
@@ -1202,7 +1259,7 @@ class PythonAstRepositoryAnalyzer:
                         EdgeType.REFERENCES,
                         confidence=confidence,
                         path=module.relative_path,
-                        line=item.lineno,
+                        line=reference.line,
                     )
                 )
 
@@ -1378,6 +1435,7 @@ class PythonAstRepositoryAnalyzer:
         nodes: dict[str, AtlasNode],
         edges: list[AtlasEdge],
         modules: list[ParsedModule],
+        syntactic: dict[str, _SyntacticMetrics],
     ) -> list[MetricProfile]:
         module_for_path = {module.relative_path: module.node.atlas_id for module in modules}
         module_ids = set(module_for_path.values())
@@ -1413,8 +1471,6 @@ class PythonAstRepositoryAnalyzer:
                 implementations[edge.target_id].add(edge.source_id)
             elif edge.edge_type == EdgeType.CONFIGURES:
                 config_targets[edge.target_id].add(edge.source_id)
-        parsed_by_path = {module.relative_path: module for module in modules}
-        definition_index = DefinitionIndex()
         profiles: list[MetricProfile] = []
         # Everything a node's metrics need beyond the node itself is a property of the module
         # it lives in — its dependencies, what it reaches, what reaches it, the interfaces
@@ -1485,8 +1541,6 @@ class PythonAstRepositoryAnalyzer:
             return computed
 
         for node in nodes.values():
-            parsed = parsed_by_path.get(node.path)
-            syntax = definition_index.get(parsed, node) if parsed else None
             owner = self._owning_module(node, module_for_path)
             shared = module_metrics(owner)
             direct_dependencies = shared.direct_dependencies
@@ -1500,7 +1554,18 @@ class PythonAstRepositoryAnalyzer:
                 for test_id in test_targets.get(node.atlas_id, set())
             }
             reverse_tests = shared.reverse_tests
-            local = self._local_metrics(node, syntax, parsed, call_outgoing, call_incoming)
+            recorded = syntactic.get(node.atlas_id, _SyntacticMetrics())
+            local = LocalStructuralMetrics(
+                physical_lines=recorded.physical_lines,
+                logical_statements=recorded.logical_statements,
+                branch_count=recorded.branch_count,
+                maximum_nesting_depth=recorded.maximum_nesting_depth,
+                parameter_count=recorded.parameter_count,
+                public_symbol_count=recorded.public_symbol_count,
+                imported_module_count=recorded.imported_module_count,
+                outgoing_static_calls=len(call_outgoing[node.atlas_id]),
+                incoming_known_callers=len(call_incoming[node.atlas_id]),
+            )
             representative_path = self._representative_call_path(call_outgoing, node.atlas_id)
             crossed_interfaces = shared.crossed_interfaces
             profiles.append(
@@ -1630,16 +1695,13 @@ class PythonAstRepositoryAnalyzer:
                 crossings += 1
         return crossings
 
-    def _local_metrics(
+    def _syntactic_metrics(
         self,
         node: AtlasNode,
         syntax: ast.AST | None,
-        parsed: ParsedModule | None,
-        call_outgoing: dict[str, set[str]],
-        call_incoming: dict[str, set[str]],
-    ) -> LocalStructuralMetrics:
+    ) -> _SyntacticMetrics:
         if syntax is None:
-            return LocalStructuralMetrics(
+            return _SyntacticMetrics(
                 physical_lines=(node.end_line or 0) - (node.start_line or 1) + 1
                 if node.end_line
                 else 0
@@ -1687,7 +1749,7 @@ class PythonAstRepositoryAnalyzer:
                 imports.update(alias.name for alias in item.names)
             elif isinstance(item, ast.ImportFrom):
                 imports.add(f"{'.' * item.level}{item.module or ''}")
-        return LocalStructuralMetrics(
+        return _SyntacticMetrics(
             physical_lines=(node.end_line or 0) - (node.start_line or 1) + 1
             if node.end_line
             else 0,
@@ -1697,8 +1759,6 @@ class PythonAstRepositoryAnalyzer:
             parameter_count=parameters,
             public_symbol_count=public_symbols,
             imported_module_count=len(imports),
-            outgoing_static_calls=len(call_outgoing[node.atlas_id]),
-            incoming_known_callers=len(call_incoming[node.atlas_id]),
         )
 
     @staticmethod
@@ -1869,8 +1929,24 @@ class PythonAstRepositoryAnalyzer:
     def _owning_module(node: AtlasNode, modules: dict[str, str]) -> str | None:
         return modules.get(node.path)
 
-    def _module_facts(self, modules: list[ParsedModule]) -> list[ModuleFacts]:
-        """What each module states, and which of this repository's modules it names.
+    @staticmethod
+    def _owned_names(paths: list[Path]) -> set[str]:
+        """The module names this repository owns, known from the file list alone.
+
+        Bounded to names this repository owns. Recording every token a file contains would
+        make the atlas a copy of the source; recording only the names that could refer to
+        something here keeps it a set of relationships.
+
+        Derived from paths rather than from parsed modules so that it is complete before the
+        first file is parsed — which is what lets a module's facts be recorded while its tree
+        is in hand, instead of holding every tree until the last one has been read.
+        """
+
+        return {path.stem.casefold() for path in paths if not path.stem.startswith("_")}
+
+    @staticmethod
+    def _facts_for(module: ParsedModule, owned: set[str]) -> ModuleFacts:
+        """What one module states, and which of this repository's modules it names.
 
         Both halves are facts about a file's whole text rather than about any symbol in it,
         which is why they are recorded here and not on a node. Neither is a judgement: two
@@ -1878,24 +1954,13 @@ class PythonAstRepositoryAnalyzer:
         ordinarily how code works. Deciding which of those matter is the detector's job.
         """
 
-        # Bounded to names this repository owns. Recording every token a file contains
-        # would make the atlas a copy of the source; recording only the names that could
-        # refer to something here keeps it a set of relationships.
-        owned = {
-            module.path.stem.casefold()
-            for module in modules
-            if not module.path.stem.startswith("_")
-        }
-        return [
-            ModuleFacts(
-                node_id=module.node.atlas_id,
-                path=module.relative_path,
-                qualified_name=module.qualified_name,
-                constants=_declared_constants(module),
-                mentions=_owned_mentions(module, owned),
-            )
-            for module in modules
-        ]
+        return ModuleFacts(
+            node_id=module.node.atlas_id,
+            path=module.relative_path,
+            qualified_name=module.qualified_name,
+            constants=_declared_constants(module),
+            mentions=_owned_mentions(module, owned),
+        )
 
     def _add_duplicate_constant_signals(
         self, facts: list[ModuleFacts], signals: list[ObscuritySignal]
@@ -1943,7 +2008,7 @@ def _declared_constants(module: ParsedModule) -> list[DefinedConstant]:
     """
 
     constants: list[DefinedConstant] = []
-    for statement in module.tree.body:
+    for statement in module.syntax().body:
         names: list[str] = []
         value: ast.expr | None = None
         if isinstance(statement, ast.Assign):
@@ -2014,7 +2079,7 @@ def _mentioned_names(module: ParsedModule) -> dict[str, list[int]]:
 
     docstrings = {
         id(node.body[0].value)
-        for node in ast.walk(module.tree)
+        for node in ast.walk(module.syntax())
         if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
         and node.body
         and isinstance(node.body[0], ast.Expr)
@@ -2029,7 +2094,7 @@ def _mentioned_names(module: ParsedModule) -> dict[str, list[int]]:
         for token in tokens:
             found[token].add(line)
 
-    for parent in ast.walk(module.tree):
+    for parent in ast.walk(module.syntax()):
         # Imports first, so an alias inherits the statement's line rather than being missed.
         if isinstance(parent, (ast.Import, ast.ImportFrom)):
             # The names, not the module they came from. `from provider.qwen import X` has

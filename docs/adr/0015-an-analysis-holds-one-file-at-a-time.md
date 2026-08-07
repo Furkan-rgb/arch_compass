@@ -1,6 +1,6 @@
 # ADR 0015 — An analysis holds one file at a time
 
-**Status:** Accepted, partly implemented
+**Status:** Accepted, implemented
 **Date:** 2026-08-06
 **Related:** ADR 0002 (no shims for superseded schemas); `docs/deploy.md` (hosted limits)
 
@@ -93,5 +93,30 @@ MB per MB of Python rather than 48. `ARCHCOMPASS_MAX_PYTHON_MB` could then plaus
    signatures rather than from two live ASTs — the one place today where two files' syntax
    meet.
 
-Until step 2 lands, the caps in `docs/deploy.md` are what keeps the demo inside its
-container, and they are sized from the measurements above rather than from round numbers.
+## What it actually bought
+
+Steps 1 and 2 landed, and step 3 was solved by re-parsing rather than by extraction:
+`TreeSource` parses a file again for the few comparisons that outlive it — the protocol
+against the candidate — and keeps a handful at a time. Time was no longer scarce and memory
+was, so buying one back with the other was the cheaper trade than converting three
+comparison functions to work from extracted signatures.
+
+| repository | nodes | before | after |
+|---|---|---|---|
+| pallets/flask | 1,693 | 147 MB | 129 MB |
+| psf/black | 2,235 | 360 MB | 245 MB |
+| sqlalchemy | 38,720 | 1,615 MB | 1,112 MB |
+
+**About a third, not the order of magnitude this ADR predicted.** The prediction assumed the
+residual would be the graph and that the graph was small; measurement says the graph *is* the
+residual and it is not small. The marginal cost fell from about 40 KB a node to 27 KB, which
+is the honest summary: one tree at a time rather than all of them, and the nodes and edges
+themselves are now what an analysis costs.
+
+That makes node count the limit worth enforcing, which is what `ARCHCOMPASS_MAX_NODES` does.
+At 8,000 nodes an analysis costs roughly 210 MB, comfortably inside the container, and the
+byte cap goes back to being a cheap gate applied before any file is read.
+
+The next place to look is the representation of a node and an edge, not the analysis around
+them — 27 KB for a record of a function is a great deal of pydantic. That is a different
+piece of work and it is not started.
