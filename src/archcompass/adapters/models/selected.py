@@ -15,6 +15,7 @@ have let someone fix it never loads.
 from __future__ import annotations
 
 from collections.abc import Callable
+from threading import Lock
 
 from archcompass.domain.atlas import FindingCandidate
 from archcompass.domain.case import ArchitectureCase
@@ -67,15 +68,32 @@ class SelectedModelReasoner:
         self._selection = selection
         self._build = build
         self._cached: tuple[str, FocusedReasoningProvider] | None = None
+        # The one piece of shared state on the judging path that a review can now reach from
+        # several threads at once, so it is the one piece that needs a lock. Everything else
+        # a judgement touches either opens its own SQLite connection or only reads: see
+        # `ReviewService._judge`, where the audit is recorded.
+        self._building = Lock()
 
     def _delegate(self) -> FocusedReasoningProvider:
+        """The provider for the current selection, built once and shared while it stands.
+
+        Held under a lock because a review judges several boundaries at a time when its
+        provider says it may, and every one of them arrives here first. Without it two
+        threads finding the cache empty would each build a transport — which for a hosted
+        provider means resolving a credential and opening a second connection pool, one of
+        which is then dropped on the floor. The lock is held across the build rather than
+        only across the assignment, because building it twice is exactly what is being
+        avoided; the build happens once per selection, not once per call.
+        """
+
         config = self._selection.current()
         if config is None:
             raise NoReasoningModelSelectedError(_NOTHING_SELECTED)
         identity = f"{config.provider}:{config.model}"
-        if self._cached is None or self._cached[0] != identity:
-            self._cached = (identity, self._build(config))
-        return self._cached[1]
+        with self._building:
+            if self._cached is None or self._cached[0] != identity:
+                self._cached = (identity, self._build(config))
+            return self._cached[1]
 
     def _run[Result](self, call: Callable[[FocusedReasoningProvider], Result]) -> Result:
         delegate = self._delegate()
@@ -88,6 +106,17 @@ class SelectedModelReasoner:
     @property
     def model_identity(self) -> str:
         return self._delegate().model_identity
+
+    @property
+    def concurrent_requests(self) -> int:
+        """Whatever the currently chosen provider says, asked afresh like everything here.
+
+        Read once by a review before it starts judging, so a selection changed mid-run does
+        not change how many calls that run has in flight — which is the same rule the rest
+        of this class follows, one level up.
+        """
+
+        return self._delegate().concurrent_requests
 
     def prompt_identity(self, task: ReasoningTask) -> str:
         return self._delegate().prompt_identity(task)

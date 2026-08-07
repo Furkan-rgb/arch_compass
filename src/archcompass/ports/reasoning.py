@@ -47,6 +47,17 @@ class FocusedReasoningProvider(Protocol):
     @property
     def model_identity(self) -> str: ...
 
+    #: How many judgements this reasoner will answer at once, which is a property of the
+    #: provider behind it rather than of any stage — a hosted API serves several requests in
+    #: parallel, a local Ollama serves one model on one GPU. Only `judge_finding_candidate`
+    #: is ever called this way, because it is the only stage a review calls more than once.
+    #:
+    #: On the protocol rather than found by `isinstance`, unlike streaming: every reasoner
+    #: has an answer to this and `1` is a real answer, so there is no capability here to be
+    #: absent — only a number to be read.
+    @property
+    def concurrent_requests(self) -> int: ...
+
     def prompt_identity(self, task: ReasoningTask) -> str: ...
 
     def judge_finding_candidate(

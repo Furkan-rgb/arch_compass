@@ -147,6 +147,12 @@ class RecordingReasoner:
     def model_identity(self) -> str:
         return self._delegate.model_identity
 
+    @property
+    def concurrent_requests(self) -> int:
+        # Whatever the substitute says, which is one — so what is recorded below is written
+        # by one thread and its order is the order the run asked in.
+        return self._delegate.concurrent_requests
+
     def prompt_identity(self, task: ReasoningTask) -> str:
         return self._delegate.prompt_identity(task)
 

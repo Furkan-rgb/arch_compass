@@ -11,11 +11,26 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Final, Protocol
 
 from archcompass.configuration import ReasoningModelConfig
+from archcompass.domain.errors import ConfigurationError
 from archcompass.domain.model_catalog import ProbeResult, ReasoningModelSelection
 from archcompass.ports.reasoning import FocusedReasoningProvider
+
+#: How many judgements a run may have in flight, overriding whatever the chosen provider's
+#: descriptor says. Read where a resolved configuration is built, so it reaches a local run
+#: and a hosted one by the same path — the pin a command line asks for and the selection a
+#: workspace stores are both assembled by `reasoning_config`.
+#:
+#: `1` restores sequential judging exactly, which is what makes this the knob to reach for
+#: when a provider starts refusing parallel requests: there is nothing to redeploy.
+CONCURRENT_REQUESTS_VARIABLE: Final = "ARCHCOMPASS_MODEL_CONCURRENT_REQUESTS"
+
+#: The ceiling on that, wherever the number comes from. A review is tens of boundaries, so
+#: past a handful in flight the wait is bounded by the slowest single judgement rather than
+#: by how many are running, and every further request is one more way to meet a rate limit.
+MAX_CONCURRENT_REQUESTS: Final = 16
 
 
 @dataclass(frozen=True)
@@ -49,6 +64,12 @@ class ProviderDefaults:
     #: here than the response JSON alone would suggest.
     max_output_tokens_thinking: int = 32768
     chars_per_token: float = 4.0
+    #: How many judgements this provider will answer at once. A property of the provider and
+    #: not of the review: a hosted API serves parallel requests from a fleet, while a local
+    #: Ollama serves one model on one GPU, where parallel requests queue behind each other
+    #: and time out rather than finish sooner. One is therefore the only safe default, and a
+    #: provider that can do better says so.
+    concurrent_requests: int = 1
 
     def resolved_base_url(self) -> str | None:
         """The endpoint to use now, letting the environment move a self-hosted provider.
@@ -64,6 +85,40 @@ class ProviderDefaults:
             if override:
                 return override
         return self.base_url
+
+    def resolved_concurrent_requests(self) -> int:
+        """How many judgements to run at once, letting an operator override the descriptor.
+
+        Read at every use for the same reason the endpoint is: whoever starts the process
+        sets it, and a value baked in at import time is one a deployment cannot change. An
+        empty value counts as unset, so `FOO=` in a `.env` is how the knob gets commented
+        out rather than a way to set it to nothing.
+
+        The variable is one knob for the whole run rather than one per provider. It exists
+        for the two answers an operator actually needs — "stop parallelising" and "this
+        endpoint can take more than the descriptor assumes" — and neither is a sentence
+        about a provider they are not using.
+        """
+
+        raw = os.environ.get(CONCURRENT_REQUESTS_VARIABLE, "").strip()
+        if not raw:
+            return self.concurrent_requests
+        try:
+            requested = int(raw)
+        except ValueError as error:
+            raise ConfigurationError(
+                f"{CONCURRENT_REQUESTS_VARIABLE} must be a whole number, not {raw!r}."
+            ) from error
+        if requested < 1:
+            raise ConfigurationError(
+                f"{CONCURRENT_REQUESTS_VARIABLE} must be at least 1, not {requested}. "
+                "One is sequential judging, which is the behaviour this replaces."
+            )
+        # Clamped rather than refused at the top end: the ceiling is a judgement about what
+        # is worth having in flight against any provider, not about what the operator was
+        # allowed to ask for, and refusing the run over it would be the more surprising of
+        # the two answers.
+        return min(requested, MAX_CONCURRENT_REQUESTS)
 
 
 #: Whether a provider is reachable and what it currently offers.

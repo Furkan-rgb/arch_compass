@@ -56,6 +56,11 @@ def reasoning_config(
         ),
         chars_per_token=defaults.chars_per_token,
         thinking=thinking,
+        # The descriptor's number unless the environment says otherwise. Resolved here
+        # because this is the one place both a pinned run and a stored selection pass
+        # through, so the operator's knob reaches a local workspace and a hosted session
+        # without either entry point knowing it exists.
+        concurrent_requests=defaults.resolved_concurrent_requests(),
     )
 
 
@@ -202,6 +207,14 @@ class ModelCatalogService:
         Asked before every model call, so the resolved result is kept: a review judges each
         boundary in its own call, and rebuilding the same shape for each of them would be
         work done forty times to reach the same answer.
+
+        Those calls may now arrive from several threads at once, and the memo is left
+        unlocked deliberately. Two threads that both miss it both resolve the same stored
+        selection through the same descriptor and store the same immutable configuration
+        under the same key, so the race costs one wasted resolution and can produce no wrong
+        answer; a lock here would serialise every judgement behind a dictionary lookup to
+        prevent that. `select` and `clear` empty it, which is a rebind of what is already
+        there rather than a mutation of what a caller is holding.
         """
 
         if self._pin is not None:
