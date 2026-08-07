@@ -28,6 +28,7 @@ from pydantic import (
 )
 
 from archcompass.application.cases import WrittenAnswer
+from archcompass.application.repository_tree import folder_tree
 from archcompass.application.review_source import MAX_CONTEXT_LINES
 from archcompass.application.reviews import JudgedCandidate
 from archcompass.application.standings import standing_for
@@ -77,6 +78,7 @@ from archcompass.domain.review import (
     ReviewStatus,
 )
 from archcompass.domain.review_conversation import ReviewConversation, ReviewMessage
+from archcompass.domain.scope import RepositoryFolderTree
 from archcompass.domain.triage import DecisionComment, DecisionState, StandingDecision
 from archcompass.domain.workspace import (
     BoundaryReviewSummary,
@@ -131,6 +133,18 @@ def _problem_responses(
 
 class RepositoryPathRequest(APIModel):
     root_path: str = Field(min_length=1)
+
+
+class RepositoryIndexRequest(RepositoryPathRequest):
+    """A repository to index, and optionally the folders to leave out of the analysis.
+
+    The scope is optional and stays optional. A client that has never heard of it sends the
+    payload it always sent and gets the scope this repository was last indexed under — which
+    is what somebody who narrowed a review and then pressed re-index means, and is also why
+    omitting the field cannot mean "all of it". Saying "all of it" is sending `[]`.
+    """
+
+    excluded_paths: list[str] | None = None
 
 
 class RepositoryCheckoutRequest(APIModel):
@@ -1089,11 +1103,31 @@ def create_app(
     def index_repository(
         runtime: RuntimeDep,
         hosted_mode: RestrictionsDep,
-        request: RepositoryPathRequest,
+        request: RepositoryIndexRequest,
     ) -> AtlasVersion:
         return runtime.repository_service.index(
-            hosted_mode.repository_root(Path(request.root_path), runtime)
+            hosted_mode.repository_root(Path(request.root_path), runtime),
+            excluded_paths=request.excluded_paths,
         )
+
+    @app.post("/api/repositories/tree", responses=_problem_responses(422))
+    def repository_tree(
+        runtime: RuntimeDep,
+        hosted_mode: RestrictionsDep,
+        request: RepositoryPathRequest,
+    ) -> RepositoryFolderTree:
+        """What is in this repository, two levels deep, so a caller can choose what to skip.
+
+        Validated through the same restriction as indexing, because it reads the same
+        directories: a route that would list any folder on the server is the folder picker
+        this deployment already refuses, wearing a different name.
+
+        Spends no budget. Walking a directory costs neither model tokens nor disk, and the
+        listing exists to make a *smaller* analysis possible — rationing it would ration the
+        cheap step that avoids the expensive one.
+        """
+
+        return folder_tree(hosted_mode.repository_root(Path(request.root_path), runtime))
 
     # 200 rather than 201: this route stopped always creating something the moment a repeat
     # visit began continuing the case it already had, and a client told "created" about a case

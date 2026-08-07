@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Protocol
 
@@ -222,6 +222,36 @@ class AtlasRepository(Protocol):
     def latest_for_path(self, root: Path) -> Atlas | None: ...
 
     def list_versions(self, *, limit: int = 100) -> list[RepositorySummary]: ...
+
+
+class ScopeSelectionRepository(Protocol):
+    """Which folders a repository is reviewed without, kept beyond the request that said so.
+
+    Persisted rather than passed, because the caller that has to apply a scope is usually not
+    the caller that chose it: a freshness check recomputes the repository's fingerprint from a
+    stored atlas, and a fingerprint taken over a different set of files would mark that atlas
+    stale forever.
+
+    Keyed by canonical root path, which is what a stored atlas holds.
+    """
+
+    def record(self, root_path: str, excluded_paths: Sequence[str]) -> None:
+        """Remember this scope for this repository, replacing whatever was chosen before.
+
+        An empty sequence is a scope: it says "review everything", and it is recorded so a
+        later index that names no scope keeps reviewing everything rather than falling back
+        to a choice that was deliberately undone.
+        """
+        ...
+
+    def get(self, root_path: str) -> tuple[str, ...] | None:
+        """The folders this repository is reviewed without, or `None` if nobody has chosen.
+
+        `None` and `()` are different answers and both are ordinary. Nobody choosing is the
+        common case — every repository indexed from the CLI — and choosing everything is
+        what somebody who opened the folder list and cleared it meant.
+        """
+        ...
 
 
 class SourceOriginRepository(Protocol):

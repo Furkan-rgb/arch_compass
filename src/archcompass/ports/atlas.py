@@ -16,7 +16,14 @@ from archcompass.domain.atlas import (
 
 
 class RepositoryAnalyzer(Protocol):
-    def analyze(self, root: Path) -> Atlas: ...
+    def analyze(self, root: Path, *, excluded_paths: tuple[str, ...] = ()) -> Atlas:
+        """The atlas of this repository, less the subtrees named in `excluded_paths`.
+
+        Relative POSIX directory paths, already validated by `domain.scope`: an analyzer
+        applies a scope and does not decide what a legal one is. Empty — the default — is
+        the whole repository, and analyses exactly what it did before scopes existed.
+        """
+        ...
 
 
 #: Which rule admitted a conformance verdict. `strict` is the backend's own subtyping
@@ -119,7 +126,16 @@ class EdgeResolver(Protocol):
 
 
 class RepositoryIdentityReader(Protocol):
-    def current_identity(self, root: Path) -> RepositoryContentIdentity: ...
+    def current_identity(
+        self, root: Path, *, excluded_paths: tuple[str, ...] = ()
+    ) -> RepositoryContentIdentity:
+        """What this repository fingerprints as now, under the given exclusions.
+
+        The exclusions have to be the ones the stored atlas was built under. A fingerprint
+        computed over a different set of files is a different digest, so asking without them
+        would report a scoped atlas stale for as long as it exists.
+        """
+        ...
 
 
 class SourceReader(Protocol):

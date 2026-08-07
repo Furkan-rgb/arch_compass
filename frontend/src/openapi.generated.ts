@@ -521,6 +521,22 @@ export interface components {
     "url": string;
     "branch"?: string | null;
   };
+    "RepositoryFolder": {
+    "path": string;
+    "python_files": number;
+    "python_bytes": number;
+    "suggested"?: boolean;
+  };
+    "RepositoryFolderTree": {
+    "root_path": string;
+    "folders"?: Array<components["schemas"]["RepositoryFolder"]>;
+    "total_python_files"?: number;
+    "total_python_bytes"?: number;
+  };
+    "RepositoryIndexRequest": {
+    "root_path": string;
+    "excluded_paths"?: Array<string> | null;
+  };
     "RepositoryLineage": {
     "repo_id": string;
     "root_commit_sha"?: string | null;
@@ -1129,7 +1145,7 @@ export interface operations {
       header: never;
       cookie: never;
     };
-    requestBody: components["schemas"]["RepositoryPathRequest"];
+    requestBody: components["schemas"]["RepositoryIndexRequest"];
     responses: {
       "201": components["schemas"]["AtlasVersion"];
       "422": components["schemas"]["ProblemDetail"];
@@ -1425,6 +1441,19 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "repository_tree_api_repositories_tree_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["RepositoryPathRequest"];
+    responses: {
+      "200": components["schemas"]["RepositoryFolderTree"];
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
   "review_report_api_reviews__review_id__report_get": {
     parameters: {
       query: never;
@@ -1660,6 +1689,9 @@ export interface paths {
   };
   "/api/repositories/summary": {
     get: operations["repository_summary_api_repositories_summary_get"];
+  };
+  "/api/repositories/tree": {
+    post: operations["repository_tree_api_repositories_tree_post"];
   };
   "/api/review-conversations": {
     get: operations["list_review_conversations_api_review_conversations_get"];

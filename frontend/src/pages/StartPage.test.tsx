@@ -6,7 +6,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, ApiError } from "../api";
 import { RunProvider } from "../run";
 import { StartPage } from "./StartPage";
-import type { AtlasVersion, DirectoryListing, RepositorySummary } from "../types";
+import type {
+  AtlasVersion,
+  DirectoryListing,
+  RepositoryFolderTree,
+  RepositorySummary,
+} from "../types";
 
 const HOME: DirectoryListing = {
   path: "/home/dev",
@@ -225,5 +230,120 @@ describe("what the hosted demo offers", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
 
     expect(await screen.findByText(/is not an address this workspace will fetch/)).toBeInTheDocument();
+  });
+});
+
+/* A checkout is where the scope question can be asked: the code is on disk and nothing has
+   parsed it yet, so what to leave out is still free to choose. */
+const TREE: RepositoryFolderTree = {
+  root_path: "/workspace/checkouts/warehouse",
+  folders: [
+    { path: "src", python_files: 100, python_bytes: 400_000, suggested: false },
+    { path: "src/vendor", python_files: 40, python_bytes: 300_000, suggested: false },
+    { path: "tests", python_files: 30, python_bytes: 60_000, suggested: true },
+  ],
+  total_python_files: 130,
+  total_python_bytes: 460_000,
+};
+
+function checkedOut() {
+  vi.spyOn(api, "checkoutRepository").mockResolvedValue({
+    root_path: TREE.root_path,
+    branch_name: "main",
+    created: true,
+    managed: true,
+  });
+}
+
+/** Pastes an address into the start step's one field and presses Add. */
+async function add() {
+  fireEvent.change(await screen.findByLabelText("Repository address or path"), {
+    target: { value: "https://github.com/owner/warehouse" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+}
+
+describe("choosing what a checked-out repository's review will read", () => {
+  it("offers the tree, and indexes with the shortest description of what was left out", async () => {
+    workspace();
+    checkedOut();
+    vi.spyOn(api, "repositoryTree").mockResolvedValue(TREE);
+    const indexed = vi
+      .spyOn(api, "indexRepository")
+      .mockResolvedValue({ root_path: TREE.root_path } as AtlasVersion);
+
+    open();
+    await add();
+
+    // `tests` arrived flagged, so it starts unticked: the suggestion is applied, not
+    // merely offered, and the total says what that leaves.
+    expect(await screen.findByText(/^Reviewing/)).toHaveTextContent(
+      "Reviewing 100 files, 390.6 KB of Python",
+    );
+
+    // Unticking a child of a folder that is being read is the one case where a deeper
+    // path carries information the parent's does not.
+    fireEvent.click(screen.getByLabelText("Expand src"));
+    fireEvent.click(screen.getByLabelText("src/vendor"));
+    expect(screen.getByText(/^Reviewing/)).toHaveTextContent(
+      "Reviewing 60 files, 97.7 KB of Python",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Review selection" }));
+
+    await waitFor(() =>
+      expect(indexed).toHaveBeenCalledWith(TREE.root_path, ["src/vendor", "tests"]),
+    );
+  });
+
+  it("sends no exclusions at all once everything is selected", async () => {
+    workspace();
+    checkedOut();
+    vi.spyOn(api, "repositoryTree").mockResolvedValue(TREE);
+    const indexed = vi
+      .spyOn(api, "indexRepository")
+      .mockResolvedValue({ root_path: TREE.root_path } as AtlasVersion);
+
+    open();
+    await add();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Select all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review selection" }));
+
+    await waitFor(() => expect(indexed).toHaveBeenCalledWith(TREE.root_path, []));
+  });
+
+  it("indexes the whole repository when the tree cannot be read", async () => {
+    // The picker is an offer. A listing that failed is never the reason a repository the
+    // reader asked for does not get added.
+    workspace();
+    checkedOut();
+    vi.spyOn(api, "repositoryTree").mockRejectedValue(
+      new ApiError("Repository path is not a directory", 422, "validation_error"),
+    );
+    const indexed = vi
+      .spyOn(api, "indexRepository")
+      .mockResolvedValue({ root_path: TREE.root_path } as AtlasVersion);
+
+    open();
+    await add();
+
+    await waitFor(() => expect(indexed).toHaveBeenCalledWith(TREE.root_path));
+    expect(screen.queryByText("Review selection")).toBeNull();
+  });
+
+  it("abandons the flow when the picker is dismissed, indexing nothing", async () => {
+    workspace();
+    checkedOut();
+    vi.spyOn(api, "repositoryTree").mockResolvedValue(TREE);
+    const indexed = vi.spyOn(api, "indexRepository");
+
+    open();
+    await add();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
+
+    await waitFor(() => expect(screen.queryByText("Review selection")).toBeNull());
+    expect(indexed).not.toHaveBeenCalled();
   });
 });

@@ -27,6 +27,7 @@ import type {
   ReviewRunOutcome,
   RepositoryBranch,
   RepositoryCheckout,
+  RepositoryFolderTree,
   RepositorySummary,
   ModelCatalog,
   WorkspaceSummary,
@@ -429,8 +430,23 @@ export const api = {
   // Indexing answers with the atlas version it created, not a repository summary: the
   // node and edge counts belong to the listing, and claiming them here would be a type
   // that promises fields the response does not carry.
-  indexRepository: (rootPath: string) =>
+  indexRepository: (rootPath: string, excludedPaths?: readonly string[]) =>
     request<AtlasVersion>("/api/repositories/index", {
+      method: "POST",
+      body: JSON.stringify({
+        root_path: rootPath,
+        // Left out of the payload entirely when no scope was chosen, rather than sent as
+        // null or as []. Omitting it means "whatever scope this repository was last
+        // indexed under", which is what re-indexing a narrowed repository should do; an
+        // empty list means "all of it", which is a different instruction.
+        ...(excludedPaths === undefined ? {} : { excluded_paths: [...excludedPaths] }),
+      }),
+    }),
+  // What is in a repository, two levels deep, before anything has parsed it: the folders
+  // with Python under them and what leaving each one out would save. Reads directories and
+  // nothing else, so it is cheap enough to ask before every index.
+  repositoryTree: (rootPath: string) =>
+    request<RepositoryFolderTree>("/api/repositories/tree", {
       method: "POST",
       body: JSON.stringify({ root_path: rootPath }),
     }),

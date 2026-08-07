@@ -133,6 +133,33 @@ def test_only_the_repositories_the_demo_ships_with_can_be_indexed(tmp_path: Path
 
 
 @pytest.mark.usefixtures("hosted_environment")
+def test_the_folder_listing_reaches_only_what_indexing_reaches(tmp_path: Path) -> None:
+    """A route that lists any folder on the server is the picker this demo already refuses.
+
+    It reads the same directories indexing reads, so it is narrowed by the same rule rather
+    than by one of its own — a second rule is a second thing to get wrong.
+    """
+
+    elsewhere = tmp_path / "somebody-elses-code"
+    elsewhere.mkdir()
+    with _client() as client:
+        bundled = {item["name"]: item for item in client.get("/api/examples").json()}
+
+        refused = client.post(
+            "/api/repositories/tree", json={"root_path": str(elsewhere)}
+        )
+        assert refused.status_code == 403
+        assert refused.json()["code"] == "hosted_restriction"
+
+        allowed = client.post(
+            "/api/repositories/tree",
+            json={"root_path": bundled[FIXTURE]["repository_root"]},
+        )
+        assert allowed.status_code == 200, allowed.text
+        assert allowed.json()["total_python_files"] > 0
+
+
+@pytest.mark.usefixtures("hosted_environment")
 def test_a_folder_on_the_server_cannot_become_a_policy_source_but_writing_one_can(
     tmp_path: Path,
 ) -> None:
