@@ -110,7 +110,8 @@ gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body \
 | `ARCHCOMPASS_GLOBAL_DAILY_FETCHES` | `100` | The same, per instance, for everyone. |
 | `ARCHCOMPASS_MAX_FILE_KB` | `2048` | Files larger than this are left out of the analysis. |
 | `ARCHCOMPASS_MAX_FILES` | `1200` | How many files one repository contributes to an atlas. |
-| `ARCHCOMPASS_MAX_PYTHON_MB` | `5` | How much Python one repository may bring. Repositories over this are refused rather than trimmed. |
+| `ARCHCOMPASS_MAX_PYTHON_MB` | `12` | How much Python one repository may bring. Refused before a file is read, rather than trimmed. |
+| `ARCHCOMPASS_MAX_NODES` | `8000` | How many modules, classes and functions one repository may produce. Checked while parsing. Memory costs about 40 KB a node, and repository density varies fourfold, so this is the cap that measures what is actually spent. |
 
 ### Reviewing a repository a visitor names
 
@@ -133,12 +134,15 @@ demo, so a repository's secrets are not excerpted to the model provider.
 #### What it costs in memory
 
 Analysis, not fetching, is the expensive thing. Peak memory runs at roughly **48 MB per
-megabyte of Python**, measured: `pallets/flask` at 0.6 MB peaks at 142 MB, `psf/black` at
-5.2 MB peaks at 361 MB, and `django/django` at 30 MB passed 814 MB without finishing in
-twelve minutes. The cause is `_compute_metrics` in the AST analyzer, which is O(nodes ×
-edges) and holds every parsed tree while it runs; until that is fixed, `ARCHCOMPASS_MAX_PYTHON_MB`
-is what keeps the demo inside its container, and the hosted app analyses **one repository at
-a time** so two peaks cannot overlap.
+**atlas node** — about 27 KB of it — rather than per megabyte of source, and how many nodes
+a megabyte carries varies fourfold between repositories. So `ARCHCOMPASS_MAX_NODES` is the
+limit that protects the container and `ARCHCOMPASS_MAX_PYTHON_MB` is a cheap gate applied
+before a file is read. At the 8,000-node cap an analysis costs roughly 210 MB, and the
+hosted app analyses **one repository at a time** so two cannot overlap.
+
+Measured, after the work in ADR 0015: `psf/black` (2,235 nodes) peaks at 245 MB, down from
+360; `sqlalchemy` (38,720 nodes) at 1,112 MB, down from 1,615 — well past the node cap and
+refused. `django` is refused too.
 
 
 A container's `/tmp` is `tmpfs`, so a fetched repository is spending the same allowance the

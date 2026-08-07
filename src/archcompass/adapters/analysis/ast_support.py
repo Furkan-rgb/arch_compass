@@ -12,6 +12,7 @@ the resolver would answer about code the atlas has no nodes for.
 from __future__ import annotations
 
 import ast
+from collections import OrderedDict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,10 +30,32 @@ class ParsedModule:
     relative_path: str
     qualified_name: str
     node: AtlasNode
-    tree: ast.Module
+    #: The parsed syntax, or `None` once it has been released. Released deliberately: a
+    #: repository's worth of trees is ten to twenty times its source in memory, and almost
+    #: everything that reads one is finished with it the moment its file has been turned
+    #: into nodes. What still wants syntax afterwards asks `TreeSource`, which parses the
+    #: file again and keeps a handful at a time.
+    tree: ast.Module | None
     source: str
     symbols: dict[str, AtlasNode] = field(default_factory=dict[str, AtlasNode])
     import_aliases: dict[str, str] = field(default_factory=dict[str, str])
+
+    def syntax(self) -> ast.Module:
+        """The tree, for a caller that runs while it is still there.
+
+        Everything reached from the parse loop is such a caller: the file has just been read
+        and nothing has released it yet. Anything running after that loop asks `TreeSource`
+        instead, which will parse the file again. Raising rather than returning `None` keeps
+        those two worlds apart — a reader that gets here after the release is a bug in the
+        order of the analysis, not a module that happens to have no syntax.
+        """
+
+        if self.tree is None:
+            raise RuntimeError(
+                f"The syntax of {self.relative_path} was released. Read it through "
+                "TreeSource, which parses the file again."
+            )
+        return self.tree
 
 
 def module_name(relative_path: str) -> str:
@@ -124,7 +147,7 @@ class DefinitionIndex:
         self._by_module: dict[int, dict[tuple[int | None, str], ast.AST]] = {}
 
     def get(self, module: ParsedModule | None, node: AtlasNode) -> ast.AST | None:
-        if module is None:
+        if module is None or module.tree is None:
             return None
         if node.atlas_id == module.node.atlas_id:
             return module.tree
@@ -135,7 +158,7 @@ class DefinitionIndex:
         if cached is not None:
             return cached
         found: dict[tuple[int | None, str], ast.AST] = {}
-        for item in ast.walk(module.tree):
+        for item in ast.walk(module.tree or ast.Module(body=[], type_ignores=[])):
             if not isinstance(item, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             found.setdefault((item.lineno, item.name), item)
@@ -143,10 +166,57 @@ class DefinitionIndex:
         return found
 
 
+class TreeSource:
+    """Syntax for a module whose tree was released, parsed again and not kept for long.
+
+    The comparisons that outlive a file — a protocol's method against a candidate's, one
+    implementation's shape against another's — are the only readers left that need syntax
+    after the parse loop, and they need two files at a time rather than all of them. So the
+    trees go, and this brings back the few that are asked for.
+
+    Parsing a file again costs milliseconds and the analysis is no longer short of time; a
+    repository's worth of retained trees costs hundreds of megabytes and the container is
+    short of those. `limit` is what bounds the trade: small enough that the cache is not the
+    thing it replaced, large enough that a pairwise comparison never evicts its own operand.
+    """
+
+    def __init__(self, modules: list[ParsedModule], *, limit: int = 8) -> None:
+        self._by_path = {module.relative_path: module for module in modules}
+        self._limit = limit
+        self._live: OrderedDict[str, ParsedModule] = OrderedDict()
+
+    def for_path(self, relative_path: str | None) -> ParsedModule | None:
+        if relative_path is None:
+            return None
+        module = self._by_path.get(relative_path)
+        if module is None:
+            return None
+        if module.tree is None:
+            # The same refusals the first parse made, made again. A file that would not
+            # parse then will not parse now, and a caller asking for one must get the
+            # absence rather than an exception thrown from somewhere it cannot expect —
+            # the first parse reports an unreadable module as a signal and carries on,
+            # and a second parse that killed the analysis instead would undo that.
+            try:
+                module.tree = ast.parse(
+                    module.path.read_bytes().decode("utf-8", errors="replace"),
+                    filename=module.relative_path,
+                    type_comments=True,
+                )
+            except (SyntaxError, RecursionError, MemoryError, OSError):
+                return None
+        self._live[relative_path] = module
+        self._live.move_to_end(relative_path)
+        while len(self._live) > self._limit:
+            _, evicted = self._live.popitem(last=False)
+            evicted.tree = None
+        return module
+
+
 def ast_for_node(module: ParsedModule | None, node: AtlasNode) -> ast.AST | None:
     """The syntax an Atlas node was derived from, when it is still resolvable."""
 
-    if module is None:
+    if module is None or module.tree is None:
         return None
     if node.atlas_id == module.node.atlas_id:
         return module.tree

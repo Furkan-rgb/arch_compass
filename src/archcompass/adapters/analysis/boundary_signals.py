@@ -20,6 +20,7 @@ from itertools import combinations
 
 from archcompass.adapters.analysis.ast_support import (
     ParsedModule,
+    TreeSource,
     ast_for_node,
     build_edge,
     lexical_nodes,
@@ -56,7 +57,7 @@ class _BoundaryProjection:
 
 def parallel_boundary_preparation_signals(nodes: dict[str, AtlasNode],
     edges: list[AtlasEdge],
-    modules: list[ParsedModule],
+    trees: TreeSource,
 ) -> list[ObscuritySignal]:
     """Surface repeated preparation in sibling implementations as a bounded proxy.
 
@@ -67,7 +68,6 @@ def parallel_boundary_preparation_signals(nodes: dict[str, AtlasNode],
     consultation.
     """
 
-    parsed_by_path = {module.relative_path: module for module in modules}
     children_by_parent: defaultdict[str, list[AtlasNode]] = defaultdict(list)
     for node in nodes.values():
         if node.parent_id is not None:
@@ -110,7 +110,7 @@ def parallel_boundary_preparation_signals(nodes: dict[str, AtlasNode],
             fingerprints = {
                 method.atlas_id: _boundary_preparation_fingerprint(
                     method,
-                    parsed_by_path.get(method.path),
+                    trees.for_path(method.path),
                 )
                 for method in methods
             }
@@ -194,7 +194,7 @@ def parallel_boundary_preparation_signals(nodes: dict[str, AtlasNode],
 
 def broad_input_boundary_preparation_signals(nodes: dict[str, AtlasNode],
     edges: list[AtlasEdge],
-    modules: list[ParsedModule],
+    trees: TreeSource,
 ) -> list[ObscuritySignal]:
     """Locate one port implementation that prepares requests from a broad input.
 
@@ -205,7 +205,6 @@ def broad_input_boundary_preparation_signals(nodes: dict[str, AtlasNode],
     remains a consultation question.
     """
 
-    parsed_by_path = {module.relative_path: module for module in modules}
     children_by_parent: defaultdict[str, list[AtlasNode]] = defaultdict(list)
     for node in nodes.values():
         if node.parent_id is not None:
@@ -239,7 +238,7 @@ def broad_input_boundary_preparation_signals(nodes: dict[str, AtlasNode],
             inspected_methods.add(method.atlas_id)
             projections = _boundary_projections(
                 method,
-                parsed_by_path.get(method.path),
+                trees.for_path(method.path),
             )
             if not projections:
                 continue
@@ -294,7 +293,7 @@ def broad_input_boundary_preparation_signals(nodes: dict[str, AtlasNode],
 
 def add_structural_protocol_edges(nodes: dict[str, AtlasNode],
     edges: list[AtlasEdge],
-    modules: list[ParsedModule],
+    trees: TreeSource,
 ) -> None:
     """Add conservative Python Protocol conformance edges.
 
@@ -304,7 +303,6 @@ def add_structural_protocol_edges(nodes: dict[str, AtlasNode],
     treating a class as a structural implementation.
     """
 
-    parsed_by_path = {module.relative_path: module for module in modules}
     children_by_parent: defaultdict[str, list[AtlasNode]] = defaultdict(list)
     for node in nodes.values():
         if node.parent_id is not None:
@@ -346,7 +344,7 @@ def add_structural_protocol_edges(nodes: dict[str, AtlasNode],
                 _structural_method_match(
                     operation,
                     candidate_methods[operation.symbol_name],
-                    parsed_by_path,
+                    trees,
                 )
                 for operation in operations
             ]
@@ -372,7 +370,7 @@ def add_structural_protocol_edges(nodes: dict[str, AtlasNode],
 
 def _structural_method_match(protocol_method: AtlasNode,
     candidate_method: AtlasNode,
-    parsed_by_path: dict[str, ParsedModule],
+    trees: TreeSource,
 ) -> int | None:
     """How strongly one operation matches, or `None` when the two contradict.
 
@@ -383,11 +381,11 @@ def _structural_method_match(protocol_method: AtlasNode,
     """
 
     protocol_syntax = ast_for_node(
-        parsed_by_path.get(protocol_method.path),
+        trees.for_path(protocol_method.path),
         protocol_method,
     )
     candidate_syntax = ast_for_node(
-        parsed_by_path.get(candidate_method.path),
+        trees.for_path(candidate_method.path),
         candidate_method,
     )
     if not isinstance(

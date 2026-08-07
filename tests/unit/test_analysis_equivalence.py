@@ -27,21 +27,37 @@ from archcompass.domain.base import canonical_json
 GOLDEN = Path(__file__).parent / "golden"
 
 #: The bundled examples, by the directory they live in. Small enough that the comparison is
-#: fast, real enough that they exercise packages, protocols, tests and configuration.
+#: fast, real enough that they exercise packages, protocols and tests.
 EXAMPLES = ["boundary-review", "warehouse-sync", "speech-vendor"]
+
+#: Everything the bundled examples happen not to contain. They are all pure Python, so a
+#: change that only affected configuration files, unparseable source or a file that is not
+#: UTF-8 passed the comparison untouched — which is exactly how a bug that zeroed the size
+#: of every configuration node reached a review of this test's own safety argument.
+#:
+#: Kept here rather than added to `eval/cases`, because those are the repositories the
+#: evaluation reasons about and a deliberately broken file would be a claim about them.
+MIXED = "mixed"
 
 
 def _repository(name: str) -> Path:
+    if name == MIXED:
+        return Path(__file__).parent / "fixtures" / MIXED
     return Path(__file__).resolve().parents[2] / "eval" / "cases" / name / "repository"
 
 
 def _analysed(root: Path) -> dict[str, object]:
     """One atlas, less the facts about this run rather than about the code.
 
-    Four fields, and only four: `root_path` and `repository_identity` are where the checkout
-    happens to sit, `created_at` is when it ran, and `version_id` is freshly minted every
-    time. Everything else is derived from the source and is identical across runs — which is
-    itself worth knowing, and is what the second test in this file pins.
+    Dropped: where the checkout sits (`root_path`, `repository_identity`), when it ran
+    (`created_at`), the identifier minted for it (`version_id`), and what git says about it
+    (`git_commit_sha`, `root_commit_sha`, `branch_name`).
+
+    The git facts matter for a reason worth writing down: these fixtures live inside this
+    repository, so git answers about *this* repository's history, and the answer changes
+    every time a commit touches the fixture's path. A golden that recorded it would fail on
+    the commit that introduced it and pass afterwards, which is a test measuring the
+    repository rather than the analyser. Everything left is derived from the source alone.
     """
 
     atlas = PythonAstRepositoryAnalyzer().analyze(root)
@@ -51,10 +67,12 @@ def _analysed(root: Path) -> dict[str, object]:
     version.pop("created_at", None)
     version.pop("repository_identity", None)
     version.pop("version_id", None)
+    for git_fact in ("git_commit_sha", "root_commit_sha", "branch_name"):
+        version.pop(git_fact, None)
     return document
 
 
-@pytest.mark.parametrize("example", EXAMPLES)
+@pytest.mark.parametrize("example", [*EXAMPLES, MIXED])
 def test_the_atlas_is_unchanged(example: str) -> None:
     root = _repository(example)
     if not root.is_dir():
@@ -79,7 +97,7 @@ def test_the_atlas_is_unchanged(example: str) -> None:
     assert produced == expected
 
 
-@pytest.mark.parametrize("example", EXAMPLES)
+@pytest.mark.parametrize("example", [*EXAMPLES, MIXED])
 def test_analysing_twice_gives_the_same_atlas(example: str) -> None:
     """Determinism, which the golden files above quietly depend on."""
 
@@ -88,3 +106,23 @@ def test_analysing_twice_gives_the_same_atlas(example: str) -> None:
         pytest.skip(f"{example} is not present in this checkout")
 
     assert _analysed(root) == _analysed(root)
+
+
+def test_the_mixed_fixture_actually_contains_what_it_is_for() -> None:
+    """The fixture is only a safety net while it still holds the things it was built for.
+
+    Asserted rather than assumed: a fixture quietly reduced to plain Python would leave the
+    comparison above passing and covering nothing, which is the failure it exists to prevent.
+    """
+
+    atlas = PythonAstRepositoryAnalyzer().analyze(_repository(MIXED))
+    paths = {node.path for node in atlas.nodes}
+
+    assert "pyproject.toml" in paths
+    assert ".env" in paths
+    assert any(signal.code == "parse-error" for signal in atlas.signals)
+    assert "legacy.py" in paths
+    # And the configuration node has a size, which is the specific thing that was lost.
+    sized = {profile.node_id: profile.local.physical_lines for profile in atlas.metrics}
+    configuration = next(node for node in atlas.nodes if node.path == "pyproject.toml")
+    assert sized[configuration.atlas_id] > 0

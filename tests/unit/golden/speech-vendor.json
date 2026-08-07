@@ -8021,12 +8021,9 @@
   "version": {
     "analysis_config_hash": "analysis_812de6be51369d3dff71e5f7",
     "branch_id": null,
-    "branch_name": null,
     "content_fingerprint": "1f839a2e1834a4b9897d9142851641d14810c9cdb52cba8ec141bd06638ec820",
-    "git_commit_sha": "fee45e673fec4b1ea5ab821ddcb14f41341c3379",
     "parser_version": "python-ast-3.12-v5",
     "repo_id": null,
-    "root_commit_sha": null,
     "schema_version": 2
   }
 }

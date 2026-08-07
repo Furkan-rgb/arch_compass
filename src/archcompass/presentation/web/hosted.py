@@ -105,7 +105,18 @@ DEFAULT_MAX_FILES: Final = 1_200
 #: exist mostly to catch shapes it does not: see `AnalysisLimits.max_python_bytes` for where
 #: the number comes from and what it is protecting against.
 MAX_PYTHON_MB_VARIABLE: Final = "ARCHCOMPASS_MAX_PYTHON_MB"
-DEFAULT_MAX_PYTHON_MB: Final = 5
+DEFAULT_MAX_PYTHON_MB: Final = 12
+
+#: How much of a repository this instance will hold at once, counted in the thing that
+#: actually costs: roughly forty kilobytes an atlas node. Eight thousand of them is about
+#: 320 MB of analysis, which sits inside a 1 GiB container beside the server and the fetched
+#: source with room to spare.
+#:
+#: Beside the megabyte cap rather than instead of it. The megabyte cap is refused before a
+#: single file is read and is the cheap gate; this one catches the dense repository that
+#: passes it — the two differ by a factor of four in the wild, so neither alone is enough.
+MAX_NODES_VARIABLE: Final = "ARCHCOMPASS_MAX_NODES"
+DEFAULT_MAX_NODES: Final = 8_000
 
 SESSION_DAILY_FETCHES_VARIABLE: Final = "ARCHCOMPASS_SESSION_DAILY_FETCHES"
 DEFAULT_SESSION_DAILY_FETCHES: Final = 5
@@ -159,6 +170,7 @@ def create_hosted_app() -> FastAPI:
                 max_files=_positive_int(MAX_FILES_VARIABLE, DEFAULT_MAX_FILES),
                 max_python_bytes=_positive_int(MAX_PYTHON_MB_VARIABLE, DEFAULT_MAX_PYTHON_MB)
                 << 20,
+                max_nodes=_positive_int(MAX_NODES_VARIABLE, DEFAULT_MAX_NODES),
                 # Never on the demo, whoever the repository belongs to. A bundled example
                 # has no secrets to leak and a visitor's repository is not ours to forward.
                 include_environment_files=False,
