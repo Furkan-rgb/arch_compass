@@ -104,7 +104,7 @@ gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body \
 | `ARCHCOMPASS_GLOBAL_DAILY_RUNS` | `50` | The same, per instance, for everyone. Sized against the free tier: 180,000 vCPU-seconds a month is 6,000 a day, and a review holds its stream open for roughly two minutes. |
 | `ARCHCOMPASS_SOURCE_HOSTS` | — | Comma-separated hosts a visitor may name a repository on, e.g. `github.com`. Empty means the demo reviews only its bundled examples, which is what it does without this set. Values must be hosts the build knows an archive address for: `github.com`, `gitlab.com`, `codeberg.org`. |
 | `ARCHCOMPASS_MAX_SOURCE_MB` | `64` | How large one fetched repository may be. Counted as it arrives and again over what its archive says it unpacks to. |
-| `ARCHCOMPASS_MAX_TOTAL_SOURCE_MB` | `250` | How much every visitor's fetched code may occupy at once. Least-recently-used trees are deleted to stay under it. Raise with the container's memory, not on its own. |
+| `ARCHCOMPASS_MAX_TOTAL_SOURCE_MB` | `200` | How much every visitor's fetched code may occupy at once. Least-recently-used trees are deleted to stay under it. Raise with the container's memory, not on its own. |
 | `ARCHCOMPASS_SOURCE_TIMEOUT` | `120` | Seconds a fetch may take. |
 | `ARCHCOMPASS_SESSION_DAILY_FETCHES` | `5` | Repositories fetched per session per UTC day. |
 | `ARCHCOMPASS_GLOBAL_DAILY_FETCHES` | `100` | The same, per instance, for everyone. |
@@ -199,6 +199,15 @@ bounds cost, in order of how much to trust it:
   The only hard stop, and a **one-time manual deploy** — check it is live before relying on
   it, because a GCP budget on its own only ever notifies.
 
+Two things that assumption rests on, both worth checking rather than believing:
+
+- **The Gemini key must bill to this project.** Detaching billing stops what this project
+  is charged for; an AI Studio key issued against a different project keeps spending after
+  the demo goes dark, and model calls are the part actually billed per request.
+- **Billing data lags.** The budget fires on figures that arrive hours late, so the cap
+  stops the bleeding rather than capping to the euro. Overshoot is real and is measured in
+  a few euros of model spend, not in cents.
+
 ### What a refusal leaves behind
 
 Every 4xx the workspace produces is logged to standard output, which Cloud Run collects:
@@ -234,6 +243,36 @@ gcloud billing budgets create --billing-account=017485-E8D21C-47029F \
 ```
 
 Firing is one-way by design: re-attaching billing is a decision made by a person in the
-console, never by code. The Artifact Registry repository the deploys build into keeps
-its three newest images and deletes the rest after a week, so image storage cannot
-creep past the free tier either.
+console, never by code.
+
+### Image storage, which grows with no visitors at all
+
+`--source .` hands the build to Cloud Build, which stores an image in Artifact Registry on
+**every push to main**. Images are hundreds of megabytes and the free allowance is 0.5 GB, so
+this is the one cost that climbs while nobody is using the demo. It needs a cleanup policy,
+and a cleanup policy is not created by deploying — run this once:
+
+```bash
+cat > /tmp/cleanup.json <<'JSON'
+[
+  {
+    "name": "keep-three-newest",
+    "action": {"type": "Keep"},
+    "mostRecentVersions": {"keepCount": 3}
+  },
+  {
+    "name": "delete-the-rest-after-a-week",
+    "action": {"type": "Delete"},
+    "condition": {"olderThan": "604800s"}
+  }
+]
+JSON
+gcloud artifacts repositories set-cleanup-policies cloud-run-source-deploy   --location=europe-west1 --project=arch-compass --policy=/tmp/cleanup.json
+```
+
+Check what is actually there rather than assuming, because nothing in this repository
+enforces it:
+
+```bash
+gcloud artifacts repositories describe cloud-run-source-deploy   --location=europe-west1 --project=arch-compass --format='value(cleanupPolicies)'
+```

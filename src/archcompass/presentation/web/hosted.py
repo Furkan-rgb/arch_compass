@@ -81,10 +81,12 @@ DEFAULT_MAX_SOURCE_MB: Final = 64
 #: memory, so this is spent from the same allowance the server runs in, and exhausting it
 #: kills the process rather than the fetch — taking every session on the instance with it.
 #:
-#: Against a 1 GiB container whose application measures around 200 MB with an analysis in
-#: flight, this leaves room to spare. Raise it with the container's memory, not on its own.
+#: Against a 1 GiB container this is the tight number rather than a generous one: the sources
+#: sit beside an application of roughly 100 MB and an analysis that peaks in the mid hundreds,
+#: and they are all the same allowance. Indexing is serialised so only one analysis is ever in
+#: flight, which is what makes it fit. Raise it with the container's memory, not on its own.
 MAX_TOTAL_SOURCE_MB_VARIABLE: Final = "ARCHCOMPASS_MAX_TOTAL_SOURCE_MB"
-DEFAULT_MAX_TOTAL_SOURCE_MB: Final = 250
+DEFAULT_MAX_TOTAL_SOURCE_MB: Final = 200
 
 #: How long the fetch may take. Shorter than a clone's budget, because there is no history to
 #: transfer and a repository that cannot arrive inside two minutes is not one a demo is for.
