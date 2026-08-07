@@ -23,6 +23,20 @@
     {
       "confidence": 1.0,
       "conformance": null,
+      "edge_id": "edge_175b3c5d2c2ae7764af50495",
+      "edge_type": "configures",
+      "location": {
+        "end_line": 8,
+        "path": "config.py",
+        "start_line": 8
+      },
+      "resolved_by": "parse",
+      "source_id": "node_d81eea1d89a43fffa1b13e3d",
+      "target_id": "node_284e1d987d7c4fda36071381"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
       "edge_id": "edge_1b109f6f435c8a68329a76ca",
       "edge_type": "contains",
       "location": null,
@@ -97,6 +111,20 @@
     {
       "confidence": 1.0,
       "conformance": null,
+      "edge_id": "edge_4dfd2114b708fdc0be6d6667",
+      "edge_type": "configures",
+      "location": {
+        "end_line": 9,
+        "path": "config.py",
+        "start_line": 9
+      },
+      "resolved_by": "parse",
+      "source_id": "node_d81eea1d89a43fffa1b13e3d",
+      "target_id": "node_a8e9d88379b9d6e82ce86435"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
       "edge_id": "edge_53363308b7241c4ef680e4a1",
       "edge_type": "imports",
       "location": {
@@ -106,6 +134,20 @@
       },
       "resolved_by": "parse",
       "source_id": "node_284e1d987d7c4fda36071381",
+      "target_id": "node_a8e9d88379b9d6e82ce86435"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_5c1bcb1086e811126bbbfe7b",
+      "edge_type": "imports",
+      "location": {
+        "end_line": 9,
+        "path": "config.py",
+        "start_line": 9
+      },
+      "resolved_by": "parse",
+      "source_id": "node_d81eea1d89a43fffa1b13e3d",
       "target_id": "node_a8e9d88379b9d6e82ce86435"
     },
     {
@@ -121,12 +163,36 @@
     {
       "confidence": 1.0,
       "conformance": null,
+      "edge_id": "edge_8a6e894d69802667b848d8e1",
+      "edge_type": "imports",
+      "location": {
+        "end_line": 8,
+        "path": "config.py",
+        "start_line": 8
+      },
+      "resolved_by": "parse",
+      "source_id": "node_d81eea1d89a43fffa1b13e3d",
+      "target_id": "node_284e1d987d7c4fda36071381"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
       "edge_id": "edge_8d98c4ca84b1f3cfdc8bf547",
       "edge_type": "contains",
       "location": null,
       "resolved_by": "parse",
       "source_id": "node_a8e9d88379b9d6e82ce86435",
       "target_id": "node_0f1aa599b6a870e8d48bf3e5"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_9c142b52596ae931f8621a17",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "target_id": "node_d81eea1d89a43fffa1b13e3d"
     },
     {
       "confidence": 1.0,
@@ -151,6 +217,20 @@
       "resolved_by": "parse",
       "source_id": "node_284e1d987d7c4fda36071381",
       "target_id": "node_4b60c04ec602d77e5b348656"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_b454e4e43709d78342d7b417",
+      "edge_type": "references",
+      "location": {
+        "end_line": 12,
+        "path": "config.py",
+        "start_line": 12
+      },
+      "resolved_by": "parse",
+      "source_id": "node_d81eea1d89a43fffa1b13e3d",
+      "target_id": "node_0f1aa599b6a870e8d48bf3e5"
     },
     {
       "confidence": 1.0,
@@ -310,14 +390,14 @@
       "change_amplification": {
         "configuration_locations": 0,
         "coordinated_implementations": 1,
-        "likely_affected_modules": 1,
+        "likely_affected_modules": 2,
         "public_call_targets_in_affected_modules": 1,
         "reverse_neighbourhood_tests": 0
       },
       "cognitive_scope": {
         "abstraction_boundaries": 0,
         "bounded_resolved_call_chain_nodes": 1,
-        "dependency_neighbourhood_modules": 1,
+        "dependency_neighbourhood_modules": 2,
         "local_control_flow_complexity": 0,
         "public_api_surface": 2,
         "related_configuration_locations": 0
@@ -326,16 +406,17 @@
         "cycle_size": 0,
         "dependency_depth": 0,
         "direct_dependants": [
-          "node_284e1d987d7c4fda36071381"
+          "node_284e1d987d7c4fda36071381",
+          "node_d81eea1d89a43fffa1b13e3d"
         ],
         "direct_dependencies": [],
         "directly_associated_tests": 0,
-        "fan_in": 1,
+        "fan_in": 2,
         "fan_out": 0,
         "forward_dependency_reach": 0,
         "interface_implementations": 1,
         "public_interface_callers": 0,
-        "reverse_dependency_reach": 1,
+        "reverse_dependency_reach": 2,
         "strongly_connected_component": null,
         "transitively_affected_test_modules": 0
       },
@@ -444,14 +525,14 @@
       "change_amplification": {
         "configuration_locations": 0,
         "coordinated_implementations": 0,
-        "likely_affected_modules": 1,
+        "likely_affected_modules": 2,
         "public_call_targets_in_affected_modules": 1,
         "reverse_neighbourhood_tests": 0
       },
       "cognitive_scope": {
         "abstraction_boundaries": 0,
         "bounded_resolved_call_chain_nodes": 1,
-        "dependency_neighbourhood_modules": 1,
+        "dependency_neighbourhood_modules": 2,
         "local_control_flow_complexity": 0,
         "public_api_surface": 0,
         "related_configuration_locations": 0
@@ -460,16 +541,17 @@
         "cycle_size": 0,
         "dependency_depth": 0,
         "direct_dependants": [
-          "node_284e1d987d7c4fda36071381"
+          "node_284e1d987d7c4fda36071381",
+          "node_d81eea1d89a43fffa1b13e3d"
         ],
         "direct_dependencies": [],
         "directly_associated_tests": 0,
-        "fan_in": 1,
+        "fan_in": 2,
         "fan_out": 0,
         "forward_dependency_reach": 0,
         "interface_implementations": 0,
         "public_interface_callers": 0,
-        "reverse_dependency_reach": 1,
+        "reverse_dependency_reach": 2,
         "strongly_connected_component": null,
         "transitively_affected_test_modules": 0
       },
@@ -532,34 +614,36 @@
     },
     {
       "change_amplification": {
-        "configuration_locations": 0,
+        "configuration_locations": 1,
         "coordinated_implementations": 0,
-        "likely_affected_modules": 0,
+        "likely_affected_modules": 1,
         "public_call_targets_in_affected_modules": 1,
         "reverse_neighbourhood_tests": 0
       },
       "cognitive_scope": {
         "abstraction_boundaries": 0,
         "bounded_resolved_call_chain_nodes": 1,
-        "dependency_neighbourhood_modules": 1,
+        "dependency_neighbourhood_modules": 2,
         "local_control_flow_complexity": 0,
         "public_api_surface": 2,
-        "related_configuration_locations": 0
+        "related_configuration_locations": 1
       },
       "dependency": {
         "cycle_size": 0,
         "dependency_depth": 1,
-        "direct_dependants": [],
+        "direct_dependants": [
+          "node_d81eea1d89a43fffa1b13e3d"
+        ],
         "direct_dependencies": [
           "node_a8e9d88379b9d6e82ce86435"
         ],
         "directly_associated_tests": 0,
-        "fan_in": 0,
+        "fan_in": 1,
         "fan_out": 1,
         "forward_dependency_reach": 1,
         "interface_implementations": 0,
         "public_interface_callers": 0,
-        "reverse_dependency_reach": 0,
+        "reverse_dependency_reach": 1,
         "strongly_connected_component": null,
         "transitively_affected_test_modules": 0
       },
@@ -580,14 +664,14 @@
       "change_amplification": {
         "configuration_locations": 0,
         "coordinated_implementations": 0,
-        "likely_affected_modules": 0,
+        "likely_affected_modules": 1,
         "public_call_targets_in_affected_modules": 1,
         "reverse_neighbourhood_tests": 0
       },
       "cognitive_scope": {
         "abstraction_boundaries": 0,
         "bounded_resolved_call_chain_nodes": 2,
-        "dependency_neighbourhood_modules": 1,
+        "dependency_neighbourhood_modules": 2,
         "local_control_flow_complexity": 0,
         "public_api_surface": 0,
         "related_configuration_locations": 0
@@ -595,17 +679,19 @@
       "dependency": {
         "cycle_size": 0,
         "dependency_depth": 1,
-        "direct_dependants": [],
+        "direct_dependants": [
+          "node_d81eea1d89a43fffa1b13e3d"
+        ],
         "direct_dependencies": [
           "node_a8e9d88379b9d6e82ce86435"
         ],
         "directly_associated_tests": 0,
-        "fan_in": 0,
+        "fan_in": 1,
         "fan_out": 1,
         "forward_dependency_reach": 1,
         "interface_implementations": 0,
         "public_interface_callers": 0,
-        "reverse_dependency_reach": 0,
+        "reverse_dependency_reach": 1,
         "strongly_connected_component": null,
         "transitively_affected_test_modules": 0
       },
@@ -626,14 +712,14 @@
       "change_amplification": {
         "configuration_locations": 0,
         "coordinated_implementations": 0,
-        "likely_affected_modules": 0,
+        "likely_affected_modules": 1,
         "public_call_targets_in_affected_modules": 1,
         "reverse_neighbourhood_tests": 0
       },
       "cognitive_scope": {
         "abstraction_boundaries": 0,
         "bounded_resolved_call_chain_nodes": 1,
-        "dependency_neighbourhood_modules": 1,
+        "dependency_neighbourhood_modules": 2,
         "local_control_flow_complexity": 1,
         "public_api_surface": 0,
         "related_configuration_locations": 0
@@ -641,17 +727,19 @@
       "dependency": {
         "cycle_size": 0,
         "dependency_depth": 1,
-        "direct_dependants": [],
+        "direct_dependants": [
+          "node_d81eea1d89a43fffa1b13e3d"
+        ],
         "direct_dependencies": [
           "node_a8e9d88379b9d6e82ce86435"
         ],
         "directly_associated_tests": 0,
-        "fan_in": 0,
+        "fan_in": 1,
         "fan_out": 1,
         "forward_dependency_reach": 1,
         "interface_implementations": 0,
         "public_interface_callers": 0,
-        "reverse_dependency_reach": 0,
+        "reverse_dependency_reach": 1,
         "strongly_connected_component": null,
         "transitively_affected_test_modules": 0
       },
@@ -672,14 +760,14 @@
       "change_amplification": {
         "configuration_locations": 0,
         "coordinated_implementations": 0,
-        "likely_affected_modules": 0,
+        "likely_affected_modules": 1,
         "public_call_targets_in_affected_modules": 1,
         "reverse_neighbourhood_tests": 0
       },
       "cognitive_scope": {
         "abstraction_boundaries": 0,
         "bounded_resolved_call_chain_nodes": 1,
-        "dependency_neighbourhood_modules": 1,
+        "dependency_neighbourhood_modules": 2,
         "local_control_flow_complexity": 0,
         "public_api_surface": 2,
         "related_configuration_locations": 0
@@ -687,17 +775,19 @@
       "dependency": {
         "cycle_size": 0,
         "dependency_depth": 1,
-        "direct_dependants": [],
+        "direct_dependants": [
+          "node_d81eea1d89a43fffa1b13e3d"
+        ],
         "direct_dependencies": [
           "node_a8e9d88379b9d6e82ce86435"
         ],
         "directly_associated_tests": 0,
-        "fan_in": 0,
+        "fan_in": 1,
         "fan_out": 1,
         "forward_dependency_reach": 1,
         "interface_implementations": 0,
         "public_interface_callers": 1,
-        "reverse_dependency_reach": 0,
+        "reverse_dependency_reach": 1,
         "strongly_connected_component": null,
         "transitively_affected_test_modules": 0
       },
@@ -762,14 +852,14 @@
       "change_amplification": {
         "configuration_locations": 0,
         "coordinated_implementations": 0,
-        "likely_affected_modules": 0,
+        "likely_affected_modules": 1,
         "public_call_targets_in_affected_modules": 1,
         "reverse_neighbourhood_tests": 0
       },
       "cognitive_scope": {
         "abstraction_boundaries": 0,
         "bounded_resolved_call_chain_nodes": 1,
-        "dependency_neighbourhood_modules": 1,
+        "dependency_neighbourhood_modules": 2,
         "local_control_flow_complexity": 0,
         "public_api_surface": 0,
         "related_configuration_locations": 0
@@ -777,17 +867,19 @@
       "dependency": {
         "cycle_size": 0,
         "dependency_depth": 1,
-        "direct_dependants": [],
+        "direct_dependants": [
+          "node_d81eea1d89a43fffa1b13e3d"
+        ],
         "direct_dependencies": [
           "node_a8e9d88379b9d6e82ce86435"
         ],
         "directly_associated_tests": 0,
-        "fan_in": 0,
+        "fan_in": 1,
         "fan_out": 1,
         "forward_dependency_reach": 1,
         "interface_implementations": 0,
         "public_interface_callers": 0,
-        "reverse_dependency_reach": 0,
+        "reverse_dependency_reach": 1,
         "strongly_connected_component": null,
         "transitively_affected_test_modules": 0
       },
@@ -808,14 +900,14 @@
       "change_amplification": {
         "configuration_locations": 0,
         "coordinated_implementations": 0,
-        "likely_affected_modules": 1,
+        "likely_affected_modules": 2,
         "public_call_targets_in_affected_modules": 1,
         "reverse_neighbourhood_tests": 0
       },
       "cognitive_scope": {
         "abstraction_boundaries": 0,
         "bounded_resolved_call_chain_nodes": 1,
-        "dependency_neighbourhood_modules": 1,
+        "dependency_neighbourhood_modules": 2,
         "local_control_flow_complexity": 0,
         "public_api_surface": 0,
         "related_configuration_locations": 0
@@ -824,16 +916,17 @@
         "cycle_size": 0,
         "dependency_depth": 0,
         "direct_dependants": [
-          "node_284e1d987d7c4fda36071381"
+          "node_284e1d987d7c4fda36071381",
+          "node_d81eea1d89a43fffa1b13e3d"
         ],
         "direct_dependencies": [],
         "directly_associated_tests": 0,
-        "fan_in": 1,
+        "fan_in": 2,
         "fan_out": 0,
         "forward_dependency_reach": 0,
         "interface_implementations": 0,
         "public_interface_callers": 0,
-        "reverse_dependency_reach": 1,
+        "reverse_dependency_reach": 2,
         "strongly_connected_component": null,
         "transitively_affected_test_modules": 0
       },
@@ -852,34 +945,35 @@
     },
     {
       "change_amplification": {
-        "configuration_locations": 0,
+        "configuration_locations": 1,
         "coordinated_implementations": 0,
-        "likely_affected_modules": 1,
+        "likely_affected_modules": 2,
         "public_call_targets_in_affected_modules": 1,
         "reverse_neighbourhood_tests": 0
       },
       "cognitive_scope": {
         "abstraction_boundaries": 0,
         "bounded_resolved_call_chain_nodes": 1,
-        "dependency_neighbourhood_modules": 1,
+        "dependency_neighbourhood_modules": 2,
         "local_control_flow_complexity": 0,
         "public_api_surface": 1,
-        "related_configuration_locations": 0
+        "related_configuration_locations": 1
       },
       "dependency": {
         "cycle_size": 0,
         "dependency_depth": 0,
         "direct_dependants": [
-          "node_284e1d987d7c4fda36071381"
+          "node_284e1d987d7c4fda36071381",
+          "node_d81eea1d89a43fffa1b13e3d"
         ],
         "direct_dependencies": [],
         "directly_associated_tests": 0,
-        "fan_in": 1,
+        "fan_in": 2,
         "fan_out": 0,
         "forward_dependency_reach": 0,
         "interface_implementations": 0,
         "public_interface_callers": 0,
-        "reverse_dependency_reach": 1,
+        "reverse_dependency_reach": 2,
         "strongly_connected_component": null,
         "transitively_affected_test_modules": 0
       },
@@ -983,6 +1077,53 @@
         "public_symbol_count": 0
       },
       "node_id": "node_d23f497417deb012309138aa"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 0,
+        "public_call_targets_in_affected_modules": 0,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 2,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 0,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 2,
+        "direct_dependants": [],
+        "direct_dependencies": [
+          "node_284e1d987d7c4fda36071381",
+          "node_a8e9d88379b9d6e82ce86435"
+        ],
+        "directly_associated_tests": 0,
+        "fan_in": 0,
+        "fan_out": 2,
+        "forward_dependency_reach": 2,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 0,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 2,
+        "incoming_known_callers": 0,
+        "logical_statements": 5,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 0,
+        "physical_lines": 12,
+        "public_symbol_count": 0
+      },
+      "node_id": "node_d81eea1d89a43fffa1b13e3d"
     }
   ],
   "module_facts": [
@@ -1026,6 +1167,24 @@
       "node_id": "node_d23f497417deb012309138aa",
       "path": "legacy.py",
       "qualified_name": "legacy"
+    },
+    {
+      "constants": [
+        {
+          "line": 11,
+          "name": "DEFAULT_BATCH",
+          "value_fingerprint": ""
+        },
+        {
+          "line": 12,
+          "name": "FEED",
+          "value_fingerprint": "dc937b59892604f5"
+        }
+      ],
+      "mentions": [],
+      "node_id": "node_d81eea1d89a43fffa1b13e3d",
+      "path": "config.py",
+      "qualified_name": "config"
     }
   ],
   "nodes": [
@@ -1266,6 +1425,20 @@
       "qualified_name": "legacy",
       "start_line": 1,
       "symbol_name": "legacy"
+    },
+    {
+      "atlas_id": "node_d81eea1d89a43fffa1b13e3d",
+      "end_line": 12,
+      "has_docstring": true,
+      "is_public": true,
+      "language": "python",
+      "node_type": "configuration",
+      "parent_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "config.py",
+      "qualified_name": "config",
+      "start_line": 1,
+      "symbol_name": "config"
     }
   ],
   "schema_version": 2,
@@ -1365,7 +1538,7 @@
   "version": {
     "analysis_config_hash": "analysis_812de6be51369d3dff71e5f7",
     "branch_id": null,
-    "content_fingerprint": "5363e8c59c7b14a61f83aeb972441d67c7c1f3e0c8f82426c24d6d07a52ba0c5",
+    "content_fingerprint": "0ebf04fc371e8df8a5d43ce376819a43ee113e0f4286a909f1edd4f02fa7b7e1",
     "parser_version": "python-ast-3.12-v5",
     "repo_id": null,
     "schema_version": 2
