@@ -69,7 +69,10 @@ src = ["src", "tests"]
 # — so `narration.delivery` inside `narration/` reads as a first-party import and gets
 # split from its siblings. Pyright already excludes them for the same reason. A fixture's
 # own test asserts it still parses, which is the only property that matters here.
-extend-exclude = ["eval/cases"]
+# `tests/unit/fixtures` holds repositories built to be analysed rather than to be run: one
+# file does not parse and one is not UTF-8, both on purpose, because those are the shapes the
+# analyser has to survive and the bundled examples never contain them.
+extend-exclude = ["eval/cases", "tests/unit/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]

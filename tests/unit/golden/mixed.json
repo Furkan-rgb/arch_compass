@@ -1,0 +1,1376 @@
+{
+  "edges": [
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_0606d8f420e94e431b438c73",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_0587399c7b7a87e8caed8f8f",
+      "target_id": "node_21d717253b994ed06015ee33"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_0b7ee0a73a3fb34e5ee12a6d",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "target_id": "node_0587399c7b7a87e8caed8f8f"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_1b109f6f435c8a68329a76ca",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_4b60c04ec602d77e5b348656",
+      "target_id": "node_4057d30fee07773192b1732a"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_2759d972f3d33bc1a186a4c5",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "target_id": "node_1a333a4f288b72e8d421b2df"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_369cbab036352b03dc9c4933",
+      "edge_type": "references",
+      "location": {
+        "end_line": 19,
+        "path": "pkg/adapter.py",
+        "start_line": 19
+      },
+      "resolved_by": "parse",
+      "source_id": "node_2a1027d6ea4bcc62504d6658",
+      "target_id": "node_4b60c04ec602d77e5b348656"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_36cded20d9c78c1054fe4753",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_284e1d987d7c4fda36071381",
+      "target_id": "node_2a1027d6ea4bcc62504d6658"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_3d66f56e75ac7b1b0b09cb8c",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_0587399c7b7a87e8caed8f8f",
+      "target_id": "node_284e1d987d7c4fda36071381"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_46be5134761b96b673399fcd",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "target_id": "node_ae156071a16ccfb264263f24"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_4abfe14f1ce419dec812085b",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_0f1aa599b6a870e8d48bf3e5",
+      "target_id": "node_1e2b15f4b108f42e46ef1e2d"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_53363308b7241c4ef680e4a1",
+      "edge_type": "imports",
+      "location": {
+        "end_line": 3,
+        "path": "pkg/adapter.py",
+        "start_line": 3
+      },
+      "resolved_by": "parse",
+      "source_id": "node_284e1d987d7c4fda36071381",
+      "target_id": "node_a8e9d88379b9d6e82ce86435"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_7025c67312a3728209ba4719",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "target_id": "node_d23f497417deb012309138aa"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_8d98c4ca84b1f3cfdc8bf547",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_a8e9d88379b9d6e82ce86435",
+      "target_id": "node_0f1aa599b6a870e8d48bf3e5"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_a6ec996f8647af84c8278a34",
+      "edge_type": "calls",
+      "location": {
+        "end_line": 19,
+        "path": "pkg/adapter.py",
+        "start_line": 19
+      },
+      "resolved_by": "parse",
+      "source_id": "node_2a1027d6ea4bcc62504d6658",
+      "target_id": "node_4b60c04ec602d77e5b348656"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_b33beb76d3518ddcad3b4468",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_284e1d987d7c4fda36071381",
+      "target_id": "node_4b60c04ec602d77e5b348656"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_be896548f11335d844e99430",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "target_id": "node_4c35baca8a004528a1159968"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_c127aac07efa962975557e4e",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_4b60c04ec602d77e5b348656",
+      "target_id": "node_7de6b96d59930bf33c5d2de3"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_ccfd6a47799c929376b8d0c4",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_0f1aa599b6a870e8d48bf3e5",
+      "target_id": "node_813dd39f8da87a384ffb7303"
+    },
+    {
+      "confidence": 0.8,
+      "conformance": null,
+      "edge_id": "edge_d14050ee9d937b969b815500",
+      "edge_type": "implements",
+      "location": {
+        "end_line": 8,
+        "path": "pkg/adapter.py",
+        "start_line": 8
+      },
+      "resolved_by": "parse",
+      "source_id": "node_4b60c04ec602d77e5b348656",
+      "target_id": "node_0f1aa599b6a870e8d48bf3e5"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_f604dd9288ebfab0dfbdc467",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_0587399c7b7a87e8caed8f8f",
+      "target_id": "node_a8e9d88379b9d6e82ce86435"
+    },
+    {
+      "confidence": 1.0,
+      "conformance": null,
+      "edge_id": "edge_fb79155478487bd2bf3b8bc9",
+      "edge_type": "contains",
+      "location": null,
+      "resolved_by": "parse",
+      "source_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "target_id": "node_02a3224f5d33a9142cd77047"
+    }
+  ],
+  "metrics": [
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 0,
+        "public_call_targets_in_affected_modules": 0,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 0,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 0,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 0,
+        "direct_dependants": [],
+        "direct_dependencies": [],
+        "directly_associated_tests": 0,
+        "fan_in": 0,
+        "fan_out": 0,
+        "forward_dependency_reach": 0,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 0,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 0,
+        "incoming_known_callers": 0,
+        "logical_statements": 0,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 0,
+        "physical_lines": 1,
+        "public_symbol_count": 0
+      },
+      "node_id": "node_02a3224f5d33a9142cd77047"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 0,
+        "public_call_targets_in_affected_modules": 0,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 0,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 0,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 0,
+        "direct_dependants": [],
+        "direct_dependencies": [],
+        "directly_associated_tests": 0,
+        "fan_in": 0,
+        "fan_out": 0,
+        "forward_dependency_reach": 0,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 0,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 0,
+        "incoming_known_callers": 0,
+        "logical_statements": 0,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 0,
+        "physical_lines": 0,
+        "public_symbol_count": 0
+      },
+      "node_id": "node_0587399c7b7a87e8caed8f8f"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 1,
+        "likely_affected_modules": 1,
+        "public_call_targets_in_affected_modules": 1,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 1,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 2,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 0,
+        "direct_dependants": [
+          "node_284e1d987d7c4fda36071381"
+        ],
+        "direct_dependencies": [],
+        "directly_associated_tests": 0,
+        "fan_in": 1,
+        "fan_out": 0,
+        "forward_dependency_reach": 0,
+        "interface_implementations": 1,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 1,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 0,
+        "incoming_known_callers": 0,
+        "logical_statements": 2,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 0,
+        "physical_lines": 4,
+        "public_symbol_count": 2
+      },
+      "node_id": "node_0f1aa599b6a870e8d48bf3e5"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 0,
+        "public_call_targets_in_affected_modules": 0,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 0,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 0,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 0,
+        "direct_dependants": [],
+        "direct_dependencies": [],
+        "directly_associated_tests": 0,
+        "fan_in": 0,
+        "fan_out": 0,
+        "forward_dependency_reach": 0,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 0,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 0,
+        "incoming_known_callers": 0,
+        "logical_statements": 0,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 0,
+        "physical_lines": 0,
+        "public_symbol_count": 0
+      },
+      "node_id": "node_18a2dd1b5eb4251fd0d01c80"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 0,
+        "public_call_targets_in_affected_modules": 0,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 0,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 0,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 0,
+        "direct_dependants": [],
+        "direct_dependencies": [],
+        "directly_associated_tests": 0,
+        "fan_in": 0,
+        "fan_out": 0,
+        "forward_dependency_reach": 0,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 0,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 0,
+        "incoming_known_callers": 0,
+        "logical_statements": 0,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 0,
+        "physical_lines": 1,
+        "public_symbol_count": 0
+      },
+      "node_id": "node_1a333a4f288b72e8d421b2df"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 1,
+        "public_call_targets_in_affected_modules": 1,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 1,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 0,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 0,
+        "direct_dependants": [
+          "node_284e1d987d7c4fda36071381"
+        ],
+        "direct_dependencies": [],
+        "directly_associated_tests": 0,
+        "fan_in": 1,
+        "fan_out": 0,
+        "forward_dependency_reach": 0,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 1,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 0,
+        "incoming_known_callers": 0,
+        "logical_statements": 1,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 1,
+        "physical_lines": 1,
+        "public_symbol_count": 0
+      },
+      "node_id": "node_1e2b15f4b108f42e46ef1e2d"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 0,
+        "public_call_targets_in_affected_modules": 0,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 0,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 0,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 0,
+        "direct_dependants": [],
+        "direct_dependencies": [],
+        "directly_associated_tests": 0,
+        "fan_in": 0,
+        "fan_out": 0,
+        "forward_dependency_reach": 0,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 0,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 0,
+        "incoming_known_callers": 0,
+        "logical_statements": 0,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 0,
+        "physical_lines": 1,
+        "public_symbol_count": 0
+      },
+      "node_id": "node_21d717253b994ed06015ee33"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 0,
+        "public_call_targets_in_affected_modules": 1,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 1,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 2,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 1,
+        "direct_dependants": [],
+        "direct_dependencies": [
+          "node_a8e9d88379b9d6e82ce86435"
+        ],
+        "directly_associated_tests": 0,
+        "fan_in": 0,
+        "fan_out": 1,
+        "forward_dependency_reach": 1,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 0,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 1,
+        "incoming_known_callers": 0,
+        "logical_statements": 5,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 0,
+        "physical_lines": 19,
+        "public_symbol_count": 2
+      },
+      "node_id": "node_284e1d987d7c4fda36071381"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 0,
+        "public_call_targets_in_affected_modules": 1,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 2,
+        "dependency_neighbourhood_modules": 1,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 0,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 1,
+        "direct_dependants": [],
+        "direct_dependencies": [
+          "node_a8e9d88379b9d6e82ce86435"
+        ],
+        "directly_associated_tests": 0,
+        "fan_in": 0,
+        "fan_out": 1,
+        "forward_dependency_reach": 1,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 0,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 0,
+        "incoming_known_callers": 0,
+        "logical_statements": 1,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 1,
+        "parameter_count": 0,
+        "physical_lines": 2,
+        "public_symbol_count": 0
+      },
+      "node_id": "node_2a1027d6ea4bcc62504d6658"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 0,
+        "public_call_targets_in_affected_modules": 1,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 1,
+        "local_control_flow_complexity": 1,
+        "public_api_surface": 0,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 1,
+        "direct_dependants": [],
+        "direct_dependencies": [
+          "node_a8e9d88379b9d6e82ce86435"
+        ],
+        "directly_associated_tests": 0,
+        "fan_in": 0,
+        "fan_out": 1,
+        "forward_dependency_reach": 1,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 0,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 1,
+        "imported_module_count": 0,
+        "incoming_known_callers": 0,
+        "logical_statements": 3,
+        "maximum_nesting_depth": 1,
+        "outgoing_static_calls": 0,
+        "parameter_count": 2,
+        "physical_lines": 4,
+        "public_symbol_count": 0
+      },
+      "node_id": "node_4057d30fee07773192b1732a"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 0,
+        "public_call_targets_in_affected_modules": 1,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 1,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 2,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 1,
+        "direct_dependants": [],
+        "direct_dependencies": [
+          "node_a8e9d88379b9d6e82ce86435"
+        ],
+        "directly_associated_tests": 0,
+        "fan_in": 0,
+        "fan_out": 1,
+        "forward_dependency_reach": 1,
+        "interface_implementations": 0,
+        "public_interface_callers": 1,
+        "reverse_dependency_reach": 0,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 0,
+        "incoming_known_callers": 1,
+        "logical_statements": 2,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 0,
+        "physical_lines": 8,
+        "public_symbol_count": 2
+      },
+      "node_id": "node_4b60c04ec602d77e5b348656"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 0,
+        "public_call_targets_in_affected_modules": 0,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 0,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 0,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 0,
+        "direct_dependants": [],
+        "direct_dependencies": [],
+        "directly_associated_tests": 0,
+        "fan_in": 0,
+        "fan_out": 0,
+        "forward_dependency_reach": 0,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 0,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 0,
+        "incoming_known_callers": 0,
+        "logical_statements": 0,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 0,
+        "physical_lines": 1,
+        "public_symbol_count": 0
+      },
+      "node_id": "node_4c35baca8a004528a1159968"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 0,
+        "public_call_targets_in_affected_modules": 1,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 1,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 0,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 1,
+        "direct_dependants": [],
+        "direct_dependencies": [
+          "node_a8e9d88379b9d6e82ce86435"
+        ],
+        "directly_associated_tests": 0,
+        "fan_in": 0,
+        "fan_out": 1,
+        "forward_dependency_reach": 1,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 0,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 0,
+        "incoming_known_callers": 0,
+        "logical_statements": 1,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 1,
+        "physical_lines": 2,
+        "public_symbol_count": 0
+      },
+      "node_id": "node_7de6b96d59930bf33c5d2de3"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 1,
+        "public_call_targets_in_affected_modules": 1,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 1,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 0,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 0,
+        "direct_dependants": [
+          "node_284e1d987d7c4fda36071381"
+        ],
+        "direct_dependencies": [],
+        "directly_associated_tests": 0,
+        "fan_in": 1,
+        "fan_out": 0,
+        "forward_dependency_reach": 0,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 1,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 0,
+        "incoming_known_callers": 0,
+        "logical_statements": 1,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 2,
+        "physical_lines": 1,
+        "public_symbol_count": 0
+      },
+      "node_id": "node_813dd39f8da87a384ffb7303"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 1,
+        "public_call_targets_in_affected_modules": 1,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 1,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 1,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 0,
+        "direct_dependants": [
+          "node_284e1d987d7c4fda36071381"
+        ],
+        "direct_dependencies": [],
+        "directly_associated_tests": 0,
+        "fan_in": 1,
+        "fan_out": 0,
+        "forward_dependency_reach": 0,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 1,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 1,
+        "incoming_known_callers": 0,
+        "logical_statements": 2,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 0,
+        "physical_lines": 7,
+        "public_symbol_count": 1
+      },
+      "node_id": "node_a8e9d88379b9d6e82ce86435"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 0,
+        "public_call_targets_in_affected_modules": 0,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 0,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 0,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 0,
+        "direct_dependants": [],
+        "direct_dependencies": [],
+        "directly_associated_tests": 0,
+        "fan_in": 0,
+        "fan_out": 0,
+        "forward_dependency_reach": 0,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 0,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 0,
+        "incoming_known_callers": 0,
+        "logical_statements": 0,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 0,
+        "physical_lines": 3,
+        "public_symbol_count": 0
+      },
+      "node_id": "node_ae156071a16ccfb264263f24"
+    },
+    {
+      "change_amplification": {
+        "configuration_locations": 0,
+        "coordinated_implementations": 0,
+        "likely_affected_modules": 0,
+        "public_call_targets_in_affected_modules": 0,
+        "reverse_neighbourhood_tests": 0
+      },
+      "cognitive_scope": {
+        "abstraction_boundaries": 0,
+        "bounded_resolved_call_chain_nodes": 1,
+        "dependency_neighbourhood_modules": 0,
+        "local_control_flow_complexity": 0,
+        "public_api_surface": 0,
+        "related_configuration_locations": 0
+      },
+      "dependency": {
+        "cycle_size": 0,
+        "dependency_depth": 0,
+        "direct_dependants": [],
+        "direct_dependencies": [],
+        "directly_associated_tests": 0,
+        "fan_in": 0,
+        "fan_out": 0,
+        "forward_dependency_reach": 0,
+        "interface_implementations": 0,
+        "public_interface_callers": 0,
+        "reverse_dependency_reach": 0,
+        "strongly_connected_component": null,
+        "transitively_affected_test_modules": 0
+      },
+      "local": {
+        "branch_count": 0,
+        "imported_module_count": 0,
+        "incoming_known_callers": 0,
+        "logical_statements": 0,
+        "maximum_nesting_depth": 0,
+        "outgoing_static_calls": 0,
+        "parameter_count": 0,
+        "physical_lines": 1,
+        "public_symbol_count": 0
+      },
+      "node_id": "node_d23f497417deb012309138aa"
+    }
+  ],
+  "module_facts": [
+    {
+      "constants": [],
+      "mentions": [],
+      "node_id": "node_1a333a4f288b72e8d421b2df",
+      "path": "broken.py",
+      "qualified_name": "broken"
+    },
+    {
+      "constants": [],
+      "mentions": [],
+      "node_id": "node_21d717253b994ed06015ee33",
+      "path": "pkg/__init__.py",
+      "qualified_name": "pkg"
+    },
+    {
+      "constants": [
+        {
+          "line": 5,
+          "name": "BATCH_SIZE",
+          "value_fingerprint": "1a6562590ef19d10"
+        }
+      ],
+      "mentions": [],
+      "node_id": "node_284e1d987d7c4fda36071381",
+      "path": "pkg/adapter.py",
+      "qualified_name": "pkg.adapter"
+    },
+    {
+      "constants": [],
+      "mentions": [],
+      "node_id": "node_a8e9d88379b9d6e82ce86435",
+      "path": "pkg/ports.py",
+      "qualified_name": "pkg.ports"
+    },
+    {
+      "constants": [],
+      "mentions": [],
+      "node_id": "node_d23f497417deb012309138aa",
+      "path": "legacy.py",
+      "qualified_name": "legacy"
+    }
+  ],
+  "nodes": [
+    {
+      "atlas_id": "node_02a3224f5d33a9142cd77047",
+      "end_line": 1,
+      "has_docstring": false,
+      "is_public": null,
+      "language": "configuration",
+      "node_type": "configuration",
+      "parent_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "parser_version": "python-ast-3.12-v5",
+      "path": ".env",
+      "qualified_name": ".env",
+      "start_line": 1,
+      "symbol_name": ".env"
+    },
+    {
+      "atlas_id": "node_0587399c7b7a87e8caed8f8f",
+      "end_line": null,
+      "has_docstring": false,
+      "is_public": true,
+      "language": "python",
+      "node_type": "package",
+      "parent_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "pkg",
+      "qualified_name": "pkg",
+      "start_line": null,
+      "symbol_name": "pkg"
+    },
+    {
+      "atlas_id": "node_0f1aa599b6a870e8d48bf3e5",
+      "end_line": 7,
+      "has_docstring": false,
+      "is_public": true,
+      "language": "python",
+      "node_type": "interface",
+      "parent_id": "node_a8e9d88379b9d6e82ce86435",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "pkg/ports.py",
+      "qualified_name": "pkg.ports.Feed",
+      "start_line": 4,
+      "symbol_name": "Feed"
+    },
+    {
+      "atlas_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "end_line": null,
+      "has_docstring": false,
+      "is_public": true,
+      "language": "python",
+      "node_type": "repository",
+      "parent_id": null,
+      "parser_version": "python-ast-3.12-v5",
+      "path": ".",
+      "qualified_name": "mixed",
+      "start_line": null,
+      "symbol_name": "mixed"
+    },
+    {
+      "atlas_id": "node_1a333a4f288b72e8d421b2df",
+      "end_line": 1,
+      "has_docstring": false,
+      "is_public": true,
+      "language": "python",
+      "node_type": "module",
+      "parent_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "broken.py",
+      "qualified_name": "broken",
+      "start_line": 1,
+      "symbol_name": "broken"
+    },
+    {
+      "atlas_id": "node_1e2b15f4b108f42e46ef1e2d",
+      "end_line": 7,
+      "has_docstring": false,
+      "is_public": true,
+      "language": "python",
+      "node_type": "method",
+      "parent_id": "node_0f1aa599b6a870e8d48bf3e5",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "pkg/ports.py",
+      "qualified_name": "pkg.ports.Feed.close",
+      "start_line": 7,
+      "symbol_name": "close"
+    },
+    {
+      "atlas_id": "node_21d717253b994ed06015ee33",
+      "end_line": 1,
+      "has_docstring": false,
+      "is_public": false,
+      "language": "python",
+      "node_type": "module",
+      "parent_id": "node_0587399c7b7a87e8caed8f8f",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "pkg/__init__.py",
+      "qualified_name": "pkg",
+      "start_line": 1,
+      "symbol_name": "__init__"
+    },
+    {
+      "atlas_id": "node_284e1d987d7c4fda36071381",
+      "end_line": 19,
+      "has_docstring": true,
+      "is_public": true,
+      "language": "python",
+      "node_type": "module",
+      "parent_id": "node_0587399c7b7a87e8caed8f8f",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "pkg/adapter.py",
+      "qualified_name": "pkg.adapter",
+      "start_line": 1,
+      "symbol_name": "adapter"
+    },
+    {
+      "atlas_id": "node_2a1027d6ea4bcc62504d6658",
+      "end_line": 19,
+      "has_docstring": false,
+      "is_public": true,
+      "language": "python",
+      "node_type": "function",
+      "parent_id": "node_284e1d987d7c4fda36071381",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "pkg/adapter.py",
+      "qualified_name": "pkg.adapter.build",
+      "start_line": 18,
+      "symbol_name": "build"
+    },
+    {
+      "atlas_id": "node_4057d30fee07773192b1732a",
+      "end_line": 12,
+      "has_docstring": false,
+      "is_public": true,
+      "language": "python",
+      "node_type": "method",
+      "parent_id": "node_4b60c04ec602d77e5b348656",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "pkg/adapter.py",
+      "qualified_name": "pkg.adapter.HttpFeed.fetch",
+      "start_line": 9,
+      "symbol_name": "fetch"
+    },
+    {
+      "atlas_id": "node_4b60c04ec602d77e5b348656",
+      "end_line": 15,
+      "has_docstring": false,
+      "is_public": true,
+      "language": "python",
+      "node_type": "class",
+      "parent_id": "node_284e1d987d7c4fda36071381",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "pkg/adapter.py",
+      "qualified_name": "pkg.adapter.HttpFeed",
+      "start_line": 8,
+      "symbol_name": "HttpFeed"
+    },
+    {
+      "atlas_id": "node_4c35baca8a004528a1159968",
+      "end_line": 1,
+      "has_docstring": false,
+      "is_public": null,
+      "language": "configuration",
+      "node_type": "configuration",
+      "parent_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "data.json",
+      "qualified_name": "data.json",
+      "start_line": 1,
+      "symbol_name": "data.json"
+    },
+    {
+      "atlas_id": "node_7de6b96d59930bf33c5d2de3",
+      "end_line": 15,
+      "has_docstring": false,
+      "is_public": true,
+      "language": "python",
+      "node_type": "method",
+      "parent_id": "node_4b60c04ec602d77e5b348656",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "pkg/adapter.py",
+      "qualified_name": "pkg.adapter.HttpFeed.close",
+      "start_line": 14,
+      "symbol_name": "close"
+    },
+    {
+      "atlas_id": "node_813dd39f8da87a384ffb7303",
+      "end_line": 5,
+      "has_docstring": false,
+      "is_public": true,
+      "language": "python",
+      "node_type": "method",
+      "parent_id": "node_0f1aa599b6a870e8d48bf3e5",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "pkg/ports.py",
+      "qualified_name": "pkg.ports.Feed.fetch",
+      "start_line": 5,
+      "symbol_name": "fetch"
+    },
+    {
+      "atlas_id": "node_a8e9d88379b9d6e82ce86435",
+      "end_line": 7,
+      "has_docstring": false,
+      "is_public": true,
+      "language": "python",
+      "node_type": "module",
+      "parent_id": "node_0587399c7b7a87e8caed8f8f",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "pkg/ports.py",
+      "qualified_name": "pkg.ports",
+      "start_line": 1,
+      "symbol_name": "ports"
+    },
+    {
+      "atlas_id": "node_ae156071a16ccfb264263f24",
+      "end_line": 3,
+      "has_docstring": false,
+      "is_public": null,
+      "language": "configuration",
+      "node_type": "configuration",
+      "parent_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "pyproject.toml",
+      "qualified_name": "pyproject.toml",
+      "start_line": 1,
+      "symbol_name": "pyproject.toml"
+    },
+    {
+      "atlas_id": "node_d23f497417deb012309138aa",
+      "end_line": 1,
+      "has_docstring": false,
+      "is_public": true,
+      "language": "python",
+      "node_type": "module",
+      "parent_id": "node_18a2dd1b5eb4251fd0d01c80",
+      "parser_version": "python-ast-3.12-v5",
+      "path": "legacy.py",
+      "qualified_name": "legacy",
+      "start_line": 1,
+      "symbol_name": "legacy"
+    }
+  ],
+  "schema_version": 2,
+  "signals": [
+    {
+      "code": "parse-error",
+      "definition": "",
+      "limitations": "",
+      "location": {
+        "end_line": 1,
+        "path": "broken.py",
+        "start_line": 1
+      },
+      "message": "invalid syntax (broken.py, line 1)",
+      "nature": "objective_measurement",
+      "node_id": "node_1a333a4f288b72e8d421b2df"
+    },
+    {
+      "code": "public-function-without-docstring",
+      "definition": "",
+      "limitations": "",
+      "location": {
+        "end_line": 7,
+        "path": "pkg/ports.py",
+        "start_line": 7
+      },
+      "message": "Public callable pkg.ports.Feed.close has no docstring",
+      "nature": "objective_measurement",
+      "node_id": "node_1e2b15f4b108f42e46ef1e2d"
+    },
+    {
+      "code": "public-function-without-docstring",
+      "definition": "",
+      "limitations": "",
+      "location": {
+        "end_line": 18,
+        "path": "pkg/adapter.py",
+        "start_line": 18
+      },
+      "message": "Public callable pkg.adapter.build has no docstring",
+      "nature": "objective_measurement",
+      "node_id": "node_2a1027d6ea4bcc62504d6658"
+    },
+    {
+      "code": "public-function-without-docstring",
+      "definition": "",
+      "limitations": "",
+      "location": {
+        "end_line": 9,
+        "path": "pkg/adapter.py",
+        "start_line": 9
+      },
+      "message": "Public callable pkg.adapter.HttpFeed.fetch has no docstring",
+      "nature": "objective_measurement",
+      "node_id": "node_4057d30fee07773192b1732a"
+    },
+    {
+      "code": "public-function-without-docstring",
+      "definition": "",
+      "limitations": "",
+      "location": {
+        "end_line": 14,
+        "path": "pkg/adapter.py",
+        "start_line": 14
+      },
+      "message": "Public callable pkg.adapter.HttpFeed.close has no docstring",
+      "nature": "objective_measurement",
+      "node_id": "node_7de6b96d59930bf33c5d2de3"
+    },
+    {
+      "code": "public-function-without-docstring",
+      "definition": "",
+      "limitations": "",
+      "location": {
+        "end_line": 5,
+        "path": "pkg/ports.py",
+        "start_line": 5
+      },
+      "message": "Public callable pkg.ports.Feed.fetch has no docstring",
+      "nature": "objective_measurement",
+      "node_id": "node_813dd39f8da87a384ffb7303"
+    },
+    {
+      "code": "parse-error",
+      "definition": "",
+      "limitations": "",
+      "location": {
+        "end_line": 1,
+        "path": "legacy.py",
+        "start_line": 1
+      },
+      "message": "invalid character '\ufffd' (U+FFFD) (legacy.py, line 1)",
+      "nature": "objective_measurement",
+      "node_id": "node_d23f497417deb012309138aa"
+    }
+  ],
+  "version": {
+    "analysis_config_hash": "analysis_812de6be51369d3dff71e5f7",
+    "branch_id": null,
+    "branch_name": null,
+    "content_fingerprint": "5363e8c59c7b14a61f83aeb972441d67c7c1f3e0c8f82426c24d6d07a52ba0c5",
+    "git_commit_sha": null,
+    "parser_version": "python-ast-3.12-v5",
+    "repo_id": null,
+    "root_commit_sha": null,
+    "schema_version": 2
+  }
+}

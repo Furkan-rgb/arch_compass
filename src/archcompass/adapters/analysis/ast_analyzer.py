@@ -1554,7 +1554,13 @@ class PythonAstRepositoryAnalyzer:
                 for test_id in test_targets.get(node.atlas_id, set())
             }
             reverse_tests = shared.reverse_tests
-            recorded = syntactic.get(node.atlas_id, _SyntacticMetrics())
+            # A node with nothing recorded is one with no syntax of its own to record: the
+            # repository root, a package, a configuration file. It still has a span, and the
+            # span is what its size has always been measured as — computed here rather than
+            # defaulted to zero, which silently shrank every configuration file to nothing.
+            recorded = syntactic.get(node.atlas_id)
+            if recorded is None:
+                recorded = self._syntactic_metrics(node, None)
             local = LocalStructuralMetrics(
                 physical_lines=recorded.physical_lines,
                 logical_statements=recorded.logical_statements,
