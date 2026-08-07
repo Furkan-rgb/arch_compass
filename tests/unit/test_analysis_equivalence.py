@@ -49,10 +49,15 @@ def _repository(name: str) -> Path:
 def _analysed(root: Path) -> dict[str, object]:
     """One atlas, less the facts about this run rather than about the code.
 
-    Four fields, and only four: `root_path` and `repository_identity` are where the checkout
-    happens to sit, `created_at` is when it ran, and `version_id` is freshly minted every
-    time. Everything else is derived from the source and is identical across runs — which is
-    itself worth knowing, and is what the second test in this file pins.
+    Dropped: where the checkout sits (`root_path`, `repository_identity`), when it ran
+    (`created_at`), the identifier minted for it (`version_id`), and what git says about it
+    (`git_commit_sha`, `root_commit_sha`, `branch_name`).
+
+    The git facts matter for a reason worth writing down: these fixtures live inside this
+    repository, so git answers about *this* repository's history, and the answer changes
+    every time a commit touches the fixture's path. A golden that recorded it would fail on
+    the commit that introduced it and pass afterwards, which is a test measuring the
+    repository rather than the analyser. Everything left is derived from the source alone.
     """
 
     atlas = PythonAstRepositoryAnalyzer().analyze(root)
@@ -62,6 +67,8 @@ def _analysed(root: Path) -> dict[str, object]:
     version.pop("created_at", None)
     version.pop("repository_identity", None)
     version.pop("version_id", None)
+    for git_fact in ("git_commit_sha", "root_commit_sha", "branch_name"):
+        version.pop(git_fact, None)
     return document
 
 

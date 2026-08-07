@@ -192,11 +192,19 @@ class TreeSource:
         if module is None:
             return None
         if module.tree is None:
-            module.tree = ast.parse(
-                module.path.read_bytes().decode("utf-8", errors="replace"),
-                filename=module.relative_path,
-                type_comments=True,
-            )
+            # The same refusals the first parse made, made again. A file that would not
+            # parse then will not parse now, and a caller asking for one must get the
+            # absence rather than an exception thrown from somewhere it cannot expect —
+            # the first parse reports an unreadable module as a signal and carries on,
+            # and a second parse that killed the analysis instead would undo that.
+            try:
+                module.tree = ast.parse(
+                    module.path.read_bytes().decode("utf-8", errors="replace"),
+                    filename=module.relative_path,
+                    type_comments=True,
+                )
+            except (SyntaxError, RecursionError, MemoryError, OSError):
+                return None
         self._live[relative_path] = module
         self._live.move_to_end(relative_path)
         while len(self._live) > self._limit:

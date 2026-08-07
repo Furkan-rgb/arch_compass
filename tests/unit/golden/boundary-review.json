@@ -5383,12 +5383,9 @@
   "version": {
     "analysis_config_hash": "analysis_812de6be51369d3dff71e5f7",
     "branch_id": null,
-    "branch_name": null,
     "content_fingerprint": "ad5736f2f491629524c91e2b450f35d1a3acbaa2b9e6b54b13315342e2bf1ec9",
-    "git_commit_sha": "77a26706e2c1dde579b186cca0397bb6ee89925d",
     "parser_version": "python-ast-3.12-v5",
     "repo_id": null,
-    "root_commit_sha": null,
     "schema_version": 2
   }
 }

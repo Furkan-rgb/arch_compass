@@ -1,5 +1,9 @@
 .venv/
 .env
+# ...except the one inside a test fixture, which is there to be analysed rather than read:
+# the analyser looks for `.env` by that exact name, so the fixture cannot call it anything
+# else and still cover it.
+!tests/unit/fixtures/**/.env
 __pycache__/
 *.py[cod]
 .pytest_cache/

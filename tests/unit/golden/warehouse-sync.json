@@ -4243,12 +4243,9 @@
   "version": {
     "analysis_config_hash": "analysis_812de6be51369d3dff71e5f7",
     "branch_id": null,
-    "branch_name": null,
     "content_fingerprint": "d6bbce419d8f6fc4451f6fcf6ac0c75ede24374a3ce7b5f00416d186225014e7",
-    "git_commit_sha": "c562071c6c695559195b2b8513c1bd3a8e6fc731",
     "parser_version": "python-ast-3.12-v5",
     "repo_id": null,
-    "root_commit_sha": null,
     "schema_version": 2
   }
 }
