@@ -104,7 +104,7 @@ gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER --body \
 | `ARCHCOMPASS_GLOBAL_DAILY_RUNS` | `50` | The same, per instance, for everyone. Sized against the free tier: 180,000 vCPU-seconds a month is 6,000 a day, and a review holds its stream open for roughly two minutes. |
 | `ARCHCOMPASS_SOURCE_HOSTS` | — | Comma-separated hosts a visitor may name a repository on, e.g. `github.com`. Empty means the demo reviews only its bundled examples, which is what it does without this set. Values must be hosts the build knows an archive address for: `github.com`, `gitlab.com`, `codeberg.org`. |
 | `ARCHCOMPASS_MAX_SOURCE_MB` | `64` | How large one fetched repository may be. Counted as it arrives and again over what its archive says it unpacks to. |
-| `ARCHCOMPASS_MAX_TOTAL_SOURCE_MB` | `200` | How much every visitor's fetched code may occupy at once. Least-recently-used trees are deleted to stay under it. Raise with the container's memory, not on its own. |
+| `ARCHCOMPASS_MAX_TOTAL_SOURCE_MB` | `250` | How much every visitor's fetched code may occupy at once. Least-recently-used trees are deleted to stay under it. Raise with the container's memory, not on its own. |
 | `ARCHCOMPASS_SOURCE_TIMEOUT` | `120` | Seconds a fetch may take. |
 | `ARCHCOMPASS_SESSION_DAILY_FETCHES` | `5` | Repositories fetched per session per UTC day. |
 | `ARCHCOMPASS_GLOBAL_DAILY_FETCHES` | `100` | The same, per instance, for everyone. |
@@ -137,8 +137,9 @@ Analysis, not fetching, is the expensive thing. Peak memory runs at roughly **48
 **atlas node** — about 27 KB of it — rather than per megabyte of source, and how many nodes
 a megabyte carries varies fourfold between repositories. So `ARCHCOMPASS_MAX_NODES` is the
 limit that protects the container and `ARCHCOMPASS_MAX_PYTHON_MB` is a cheap gate applied
-before a file is read. At the 8,000-node cap an analysis costs roughly 210 MB, and the
-hosted app analyses **one repository at a time** so two cannot overlap.
+before a file is read. At the 8,000-node cap an analysis peaks around 400 MB, and the hosted app analyses **one
+repository at a time** so two cannot overlap — so the worst case is that peak plus the 250 MB
+of held sources, about 650 MB of the container's gigabyte.
 
 Measured, after the work in ADR 0015: `psf/black` (2,235 nodes) peaks at 245 MB, down from
 360; `sqlalchemy` (38,720 nodes) at 1,112 MB, down from 1,615 — well past the node cap and
