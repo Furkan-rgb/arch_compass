@@ -21,8 +21,9 @@ from pathlib import Path
 
 from archcompass.application.checkouts import directory_name
 from archcompass.application.source_storage import SourceStorage
-from archcompass.domain.checkout import RepositoryCheckout
+from archcompass.domain.checkout import RepositoryCheckout, SourceOrigin
 from archcompass.domain.errors import PathValidationError
+from archcompass.ports.repositories import SourceOriginRepository
 from archcompass.ports.source_archive import SourceArchiveFetcher
 
 
@@ -35,11 +36,13 @@ class SourceArchiveService:
         fetcher: SourceArchiveFetcher,
         sources_root: Path,
         hosts: frozenset[str],
+        origins: SourceOriginRepository,
         storage: SourceStorage | None = None,
         reserve_bytes: int = 0,
     ) -> None:
         self._fetcher = fetcher
         self._sources_root = sources_root
+        self._origins = origins
         #: The instance-wide ceiling, shared with every other session. `None` where nothing
         #: is shared — a workspace on one person's machine has a disk, not an allowance.
         self._storage = storage
@@ -87,12 +90,47 @@ class SourceArchiveService:
                 superseded.rename(destination)
             raise
         shutil.rmtree(superseded, ignore_errors=True)
+        # Written after the tree lands, so a row never describes a directory that is not
+        # there. The reverse — a directory with no row — is the recoverable half: it costs
+        # a re-fetch that cannot happen, not a restore of the wrong code.
+        self._origins.record(
+            SourceOrigin(
+                root_path=str(fetched.root_path),
+                url=fetched.url,
+                revision=fetched.revision,
+            )
+        )
         return RepositoryCheckout(
             root_path=str(fetched.root_path),
             branch_name=branch,
             created=not existed,
             managed=True,
         )
+
+    def restore(self, path: Path) -> bool:
+        """Fetch this directory again if it is one of ours and is not there any more.
+
+        The answer to a workspace that deletes source to stay inside its memory: a tree
+        going away has to cost a few seconds rather than a dead end. Every run begins by
+        asking for this, so a repository reviewed an hour ago is fetched again on the way to
+        being reviewed now, and a reader never learns that it had gone.
+
+        Pinned to the revision the first fetch was served, not to whatever the branch points
+        at today. The stored atlas holds line numbers; bringing back different code under
+        them would leave every excerpt citing lines that have moved, which is worse than
+        saying no — so a repository whose archive never named a revision is not restored.
+
+        `False` for anything this service did not write, anything it has no record of, and
+        anything already on disk. All three are ordinary, and none is an error.
+        """
+
+        if not self.holds(path) or path.is_dir():
+            return False
+        origin = self._origins.get(str(path))
+        if origin is None or origin.revision is None:
+            return False
+        self.fetch(origin.url, branch=origin.revision)
+        return True
 
     def holds(self, path: Path) -> bool:
         """Whether this path is one of the trees this service wrote, marking it as in use.

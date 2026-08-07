@@ -407,3 +407,64 @@ def test_the_slot_is_given_back_even_when_the_route_refuses() -> None:
     # The slot is free, so it can be taken: three refusals in a row each gave theirs back.
     assert application.state.index_lock.acquire(blocking=False)
     application.state.index_lock.release()
+
+
+@pytest.mark.usefixtures("hosted_environment", "fetching_environment")
+def test_a_swept_repository_comes_back_when_the_next_run_asks_for_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The dead end this closes: a repository listed on the start page whose code has gone.
+
+    The instance deletes the least recently used source to stay inside its memory, and the
+    atlas outlives the directory — so without this, a visitor returning to their own
+    repository met "repository does not exist" and had nothing to do about it.
+    """
+
+    import io
+    import shutil
+    import tarfile
+    from pathlib import Path
+
+    import httpx
+
+    import archcompass.adapters.sources.https_tarball as tarball
+
+    def archive() -> bytes:
+        raw = io.BytesIO()
+        with tarfile.open(fileobj=raw, mode="w:gz") as tar:
+            body = b"class Thing:\n    def run(self):\n        return 1\n"
+            info = tarfile.TarInfo("repository-abc123/pkg.py")
+            info.size = len(body)
+            tar.addfile(info, io.BytesIO(body))
+        return raw.getvalue()
+
+    served = archive()
+    monkeypatch.setattr(
+        tarball.httpx,
+        "stream",
+        lambda method, url, **kwargs: httpx.Client(
+            transport=httpx.MockTransport(lambda _r: httpx.Response(200, content=served))
+        ).stream(method, url),
+    )
+
+    with _client() as client:
+        fetched = client.post(
+            "/api/repositories/checkout",
+            json={"url": "https://github.com/owner/repository"},
+        )
+        assert fetched.status_code == 201, fetched.text
+        root = fetched.json()["root_path"]
+        assert client.post("/api/repositories/index", json={"root_path": root}).status_code == 201
+
+        # Swept, exactly as the instance would sweep it to make room for somebody else.
+        shutil.rmtree(root)
+        assert not Path(root).is_dir()
+
+        # What every run begins with, and what a reader never sees.
+        refreshed = client.post("/api/repositories/refresh", json={"root_path": root})
+        assert refreshed.status_code == 200, refreshed.text
+        assert refreshed.json()["managed"] is True
+        assert Path(root).is_dir()
+
+        # And the run that follows it works, rather than meeting a path that is not there.
+        assert client.post("/api/repositories/index", json={"root_path": root}).status_code == 201

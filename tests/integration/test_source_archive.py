@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 import tarfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -82,6 +83,19 @@ def served(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, bytes]]:
 
     monkeypatch.setattr("archcompass.adapters.sources.https_tarball.httpx.stream", stream)
     yield state
+
+
+class _Origins:
+    """The origin store, in memory: the persistence is SQLite's problem, not this test's."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, object] = {}
+
+    def record(self, origin) -> None:
+        self.rows[origin.root_path] = origin
+
+    def get(self, root_path: str):
+        return self.rows.get(root_path)
 
 
 def _fetcher(max_bytes: int = 1 << 20) -> HttpsTarballFetcher:
@@ -198,9 +212,7 @@ def test_something_that_is_not_a_source_tarball_is_refused(tmp_path: Path, serve
 def test_fetching_again_replaces_the_tree_and_keeps_the_old_one_on_failure(
     tmp_path: Path, served: dict[str, bytes]
 ) -> None:
-    service = SourceArchiveService(
-        fetcher=_fetcher(), sources_root=tmp_path / "sources", hosts=HOSTS
-    )
+    service = _service(tmp_path)
     served["body"] = _tarball({"a.py": b"first\n"})
     first = service.fetch("https://github.com/owner/repository")
     assert first.created is True
@@ -220,9 +232,7 @@ def test_fetching_again_replaces_the_tree_and_keeps_the_old_one_on_failure(
 
 
 def test_a_tree_this_service_wrote_is_told_from_one_it_did_not(tmp_path: Path) -> None:
-    service = SourceArchiveService(
-        fetcher=_fetcher(), sources_root=tmp_path / "sources", hosts=HOSTS
-    )
+    service = _service(tmp_path)
     assert service.holds(tmp_path / "sources" / "repository-abc") is True
     # The root itself is where they live, not one of them.
     assert service.holds(tmp_path / "sources") is False
@@ -240,7 +250,11 @@ def test_a_host_with_no_archive_address_cannot_be_allowed() -> None:
 
 def _service(tmp_path: Path, **kwargs) -> SourceArchiveService:
     return SourceArchiveService(
-        fetcher=_fetcher(), sources_root=tmp_path / "sources", hosts=HOSTS, **kwargs
+        fetcher=_fetcher(),
+        sources_root=tmp_path / "sources",
+        hosts=HOSTS,
+        origins=_Origins(),
+        **kwargs,
     )
 
 
@@ -316,3 +330,78 @@ def test_a_sessions_root_that_does_not_exist_yet_is_not_an_error(tmp_path: Path)
     SourceStorage(root=tmp_path / "never-created", max_total_bytes=1).make_room(
         reserve=1 << 30, keep=tmp_path / "nothing"
     )
+
+
+def _restorable(tmp_path: Path) -> SourceArchiveService:
+    return SourceArchiveService(
+        fetcher=_fetcher(),
+        sources_root=tmp_path / "sources",
+        hosts=HOSTS,
+        origins=_Origins(),
+    )
+
+
+def test_a_repository_that_was_swept_is_fetched_again_rather_than_lost(
+    tmp_path: Path, served: dict[str, bytes]
+) -> None:
+    """The whole reason the address is recorded: absence costs seconds, not a dead end."""
+
+    service = _restorable(tmp_path)
+    served["body"] = _tarball({"a.py": b"first\n"}, top="repository-abc123")
+    root = Path(service.fetch("https://github.com/owner/repository").root_path)
+    assert (root / "a.py").exists()
+
+    # What the instance does to stay inside its memory.
+    shutil.rmtree(root)
+    assert not root.exists()
+
+    assert service.restore(root) is True
+    assert (root / "a.py").read_bytes() == b"first\n"
+
+
+def test_restoring_asks_for_the_revision_that_was_served_not_the_branch_tip(
+    tmp_path: Path, served: dict[str, bytes]
+) -> None:
+    """The atlas holds line numbers. Code that moved under them would cite the wrong lines."""
+
+    service = _restorable(tmp_path)
+    served["body"] = _tarball({"a.py": b"first\n"}, top="repository-abc123")
+    root = Path(service.fetch("https://github.com/owner/repository").root_path)
+    shutil.rmtree(root)
+
+    service.restore(root)
+
+    assert b"abc123" in served["asked"], "the re-fetch did not pin the original revision"
+
+
+def test_a_repository_whose_archive_never_named_a_revision_is_not_restored(
+    tmp_path: Path, served: dict[str, bytes]
+) -> None:
+    """Refused rather than restored wrongly: the same address may serve different code now."""
+
+    service = _restorable(tmp_path)
+    # A top-level directory that is not `<repository>-<revision>`, so nothing names a commit.
+    served["body"] = _tarball({"a.py": b"first\n"}, top="something-else-entirely")
+    root = Path(service.fetch("https://github.com/owner/repository").root_path)
+    shutil.rmtree(root)
+
+    assert service.restore(root) is False
+
+
+def test_nothing_this_service_wrote_is_restored(tmp_path: Path) -> None:
+    service = _restorable(tmp_path)
+
+    assert service.restore(tmp_path / "somebody-elses-folder") is False
+
+
+def test_a_repository_still_on_disk_is_left_alone(
+    tmp_path: Path, served: dict[str, bytes]
+) -> None:
+    """Restoring is for absence. A tree that is there must not be fetched over."""
+
+    service = _restorable(tmp_path)
+    root = Path(service.fetch("https://github.com/owner/repository").root_path)
+    served.pop("asked", None)
+
+    assert service.restore(root) is False
+    assert "asked" not in served, "a present repository was fetched again"

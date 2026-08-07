@@ -30,6 +30,22 @@ class RepositoryCheckout(DomainModel):
     managed: bool = False
 
 
+class SourceOrigin(DomainModel):
+    """The address a directory was fetched from, and the revision that answered.
+
+    Kept because an extracted archive cannot be asked. A clone records its remote and can
+    say where it came from years later; a directory of files says nothing, so the one short
+    string that makes its absence recoverable has to be written down beside it.
+    """
+
+    root_path: str = Field(min_length=1)
+    url: str = Field(min_length=1)
+    #: What the host said it served. `None` where the archive did not name it — such a
+    #: repository can be reviewed and cannot be restored, because restoring it might bring
+    #: back different code under line numbers the atlas already recorded.
+    revision: str | None = None
+
+
 class CheckoutRefresh(DomainModel):
     """What asking a folder to catch up with its remote did, if anything.
 

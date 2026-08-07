@@ -9,6 +9,7 @@ from typing import Protocol
 from archcompass.domain.atlas import Atlas
 from archcompass.domain.baseline import BaselineEntry
 from archcompass.domain.case import AnsweredQuestions, ArchitectureCase, CaseRevision
+from archcompass.domain.checkout import SourceOrigin
 from archcompass.domain.delta import BoundaryLineEvent
 from archcompass.domain.lineage import BranchLineage, RepositoryLineage
 from archcompass.domain.review import BoundaryReview
@@ -221,3 +222,17 @@ class AtlasRepository(Protocol):
     def latest_for_path(self, root: Path) -> Atlas | None: ...
 
     def list_versions(self, *, limit: int = 100) -> list[RepositorySummary]: ...
+
+
+class SourceOriginRepository(Protocol):
+    """Where a fetched directory came from, for a workspace that may not keep the directory."""
+
+    def record(self, origin: SourceOrigin) -> None: ...
+
+    def get(self, root_path: str) -> SourceOrigin | None:
+        """The address behind this directory, or `None` for one nobody fetched.
+
+        `None` is an ordinary answer rather than a miss: a bundled example was never
+        fetched, and neither was a folder somebody picked on their own machine.
+        """
+        ...

@@ -34,6 +34,7 @@ from archcompass.adapters.persistence import (
     SQLitePolicySourceRepository,
     SQLiteReasoningModelSelectionRepository,
     SQLiteReviewConversationRepository,
+    SQLiteSourceOriginRepository,
     SQLiteStandingDecisionRepository,
     SQLiteVerdictCacheRepository,
 )
@@ -292,6 +293,7 @@ def build_runtime(
             ),
             sources_root=canonical_workspace / SOURCE_DIRECTORY,
             hosts=source_hosts,
+            origins=SQLiteSourceOriginRepository(database),
             storage=source_storage,
             reserve_bytes=max_source_bytes,
         )

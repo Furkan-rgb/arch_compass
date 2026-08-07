@@ -109,12 +109,13 @@ class HttpsTarballFetcher:
         try:
             downloaded = self._download(archive, staging / "source.tar.gz")
             extracted = self._extract(downloaded, staging / "tree")
+            revision = _revision_of(extracted.name, repository)
             extracted.rename(destination)
         except BaseException:
             shutil.rmtree(staging, ignore_errors=True)
             raise
         shutil.rmtree(staging, ignore_errors=True)
-        return FetchedSource(root_path=destination, url=url, revision=None)
+        return FetchedSource(root_path=destination, url=url, revision=revision)
 
     def _validated(self, url: str) -> tuple[str, str, str]:
         matched = self._pattern.match(url)
@@ -237,6 +238,26 @@ def _single_directory(extracted: Path) -> Path:
             "The archive this address served is not laid out like a source tarball."
         )
     return entries[0]
+
+
+def _revision_of(directory: str, repository: str) -> str | None:
+    """What the host says it served, read out of the name of the directory it wrapped.
+
+    Every host in the table names that directory after the repository and the revision, so
+    the revision is what is left when the repository's name and the separator are taken off
+    the front. Read rather than asked for, because asking would be a second request to a
+    host that already answered.
+
+    `None` when the name is not that shape. A repository that cannot say which commit it is
+    can still be reviewed; it just cannot be fetched again later and be guaranteed to be the
+    same code, and the caller is told that by the absence rather than by a value invented
+    for it.
+    """
+
+    prefix = f"{repository}-"
+    if not directory.startswith(prefix):
+        return None
+    return directory[len(prefix) :] or None
 
 
 def _unavailable(archive: str, status: int) -> str:

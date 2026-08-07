@@ -163,6 +163,16 @@ three places:
 Nothing is written to a bucket or a persistent volume. Every workspace is gone when the
 instance recycles.
 
+A swept repository is not a lost one. The address it was fetched from and the revision the
+host served are recorded beside the atlas, so the next run fetches it again — pinned to that
+same revision, because the atlas holds line numbers and code that moved under them would
+make every stored excerpt cite the wrong lines. A visitor sees a few seconds, not an error.
+
+Discussing a finished review needs no source at all: the code behind each finding is pinned
+into the report when the review runs. Only *unfolding* an excerpt for more surrounding lines
+is a live read, and where the repository has moved on it falls back to the pinned copy with
+a caption saying so.
+
 The container's `PORT` is honoured, defaulting to 8080, which is what Cloud Run supplies.
 
 ## The billing backstop

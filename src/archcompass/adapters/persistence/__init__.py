@@ -18,6 +18,9 @@ from archcompass.adapters.persistence.review_conversation_repository import (
     SQLiteReviewConversationRepository,
 )
 from archcompass.adapters.persistence.review_repository import SQLiteBoundaryReviewRepository
+from archcompass.adapters.persistence.source_origin_repository import (
+    SQLiteSourceOriginRepository,
+)
 from archcompass.adapters.persistence.standing_decision_repository import (
     SQLiteStandingDecisionRepository,
 )
@@ -36,6 +39,7 @@ __all__ = [
     "SQLitePolicySourceRepository",
     "SQLiteReasoningModelSelectionRepository",
     "SQLiteReviewConversationRepository",
+    "SQLiteSourceOriginRepository",
     "SQLiteStandingDecisionRepository",
     "SQLiteVerdictCacheRepository",
 ]

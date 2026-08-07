@@ -1128,8 +1128,19 @@ def create_app(
         # archives has to say "nothing was touched" here, exactly as it does for somebody
         # else's working copy. Refusing would fail every review on the way to its first
         # model call. Asking for it again is what re-fetches: paste the address.
-        if runtime.source_service is not None:
-            return CheckoutRefresh(root_path=request.root_path, managed=False)
+        source_service = runtime.source_service
+        if source_service is not None:
+            # The one place a run can notice that its code is gone, and the one place that
+            # can do something about it. This workspace deletes the least recently used
+            # source to stay inside its memory, so a repository reviewed an hour ago may
+            # have been swept since — and every run begins by asking for this, which makes
+            # it exactly where "bring the code up to date" should mean "and bring it back
+            # if it is not there". Fetched again at the revision it was served the first
+            # time, so the line numbers the atlas holds still point at the same code.
+            restored = source_service.restore(Path(request.root_path))
+            return CheckoutRefresh(
+                root_path=request.root_path, managed=restored, updated=False
+            )
         hosted_mode.checkout()
         return runtime.checkout_service.refresh(request.root_path)
 
