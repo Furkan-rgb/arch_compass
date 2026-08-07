@@ -61,6 +61,9 @@ export type RepositorySummary = OpenAPIComponents["schemas"]["RepositorySummary"
 export type RepositoryCheckout = OpenAPIComponents["schemas"]["RepositoryCheckout"];
 export type CheckoutRefresh = OpenAPIComponents["schemas"]["CheckoutRefresh"];
 export type RepositoryBranch = OpenAPIComponents["schemas"]["RepositoryBranch"];
+/** One folder near the top of a repository, with what excluding it would save. */
+export type RepositoryFolder = OpenAPIComponents["schemas"]["RepositoryFolder"];
+export type RepositoryFolderTree = OpenAPIComponents["schemas"]["RepositoryFolderTree"];
 
 /**
  * How a review run ended, as the stream said it: with a composed review, or with the

@@ -27,6 +27,15 @@ class PathValidationError(ArchCompassError):
     pass
 
 
+class ScopeValidationError(PathValidationError):
+    """The folders a request asked to leave out are not a scope this can apply.
+
+    A `PathValidationError` by inheritance because that is what it is — a malformed path in a
+    request — and its own type because the remedy is about the exclusion list rather than
+    about the repository: the folder named is fine, the way it was written is not.
+    """
+
+
 class RepositoryCheckoutError(ArchCompassError):
     """A repository was named and could not be made available to review.
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from archcompass.domain.atlas import AtlasVersion
@@ -14,9 +15,14 @@ from archcompass.domain.lineage import (
     resolve_branch_lineage,
     resolve_repository_lineage,
 )
+from archcompass.domain.scope import validate_excluded_paths
 from archcompass.domain.workspace import RepositorySummary
 from archcompass.ports.atlas import RepositoryAnalyzer
-from archcompass.ports.repositories import AtlasRepository, LineageRepository
+from archcompass.ports.repositories import (
+    AtlasRepository,
+    LineageRepository,
+    ScopeSelectionRepository,
+)
 
 
 class RepositoryIndexService:
@@ -26,12 +32,20 @@ class RepositoryIndexService:
         analyzer: RepositoryAnalyzer,
         atlases: AtlasRepository,
         lineages: LineageRepository,
+        scope_selections: ScopeSelectionRepository,
     ) -> None:
         self._analyzer = analyzer
         self._atlases = atlases
         self._lineages = lineages
+        self._scope_selections = scope_selections
 
-    def index(self, repository: Path, *, branch_name: str | None = None) -> AtlasVersion:
+    def index(
+        self,
+        repository: Path,
+        *,
+        branch_name: str | None = None,
+        excluded_paths: Sequence[str] | None = None,
+    ) -> AtlasVersion:
         """Build the atlas for this repository and file it under a durable lineage.
 
         `branch_name` names the branch this checkout is on where the checkout cannot say so
@@ -39,16 +53,37 @@ class RepositoryIndexService:
         branch it was reached from. Left out, the working tree is believed, and a tree with
         no opinion falls back to the default branch name — see `domain.lineage`.
 
+        `excluded_paths` names the folders this analysis is to leave out, relative to the
+        root. Left out entirely — which is what every caller that has never heard of scopes
+        does — the repository's remembered selection is applied instead, so a re-index does
+        not silently widen a review somebody narrowed. Given, even as an empty list, it is
+        validated, remembered and applied: an empty list is somebody saying "all of it",
+        which is a choice and undoes the last one.
+
         The lineage is resolved before the atlas is stored, so the row is written already
         stamped rather than updated a moment later. There is no window in which an atlas
         exists without the repository it belongs to.
         """
 
+        applied = (
+            # Keyed the way the atlas is keyed, and resolved the same way the analyzer
+            # resolves it, so a selection recorded under one spelling of a directory is
+            # found from the other. `strict=False` because a root that does not exist is
+            # the analyzer's error to report, in its own words, a line below.
+            self._recorded_for(str(repository.expanduser().resolve(strict=False)))
+            if excluded_paths is None
+            else validate_excluded_paths(excluded_paths)
+        )
         # The analyzer canonicalizes and validates the root, and excludes whatever subtrees
         # it was built to leave out; stating either again here would be a second copy of a
         # rule that has to hold in one place.
-        atlas = self._analyzer.analyze(repository)
+        atlas = self._analyzer.analyze(repository, excluded_paths=applied)
         version = atlas.version
+        if excluded_paths is not None:
+            # Recorded under the analyzer's own canonical root rather than under the one
+            # guessed above, because that is the string the stored atlas holds and therefore
+            # the string a freshness check will look this up by.
+            self._scope_selections.record(version.root_path, applied)
         repository_lineage = self._lineages.get_or_create_repository(
             resolve_repository_lineage(
                 root_commit_sha=version.root_commit_sha,
@@ -75,6 +110,16 @@ class RepositoryIndexService:
         )
         self._atlases.save(stamped)
         return stamped.version
+
+    def _recorded_for(self, canonical_root: str) -> tuple[str, ...]:
+        """The scope this repository was last indexed under, or the whole of it.
+
+        A repository nobody has chosen a scope for and one somebody chose to review whole
+        are analysed identically; the difference between them matters to whoever is reading
+        the selection back, not here.
+        """
+
+        return self._scope_selections.get(canonical_root) or ()
 
     def _based(
         self, repository: RepositoryLineage, branch: BranchLineage

@@ -34,6 +34,7 @@ from archcompass.adapters.persistence import (
     SQLitePolicySourceRepository,
     SQLiteReasoningModelSelectionRepository,
     SQLiteReviewConversationRepository,
+    SQLiteScopeSelectionRepository,
     SQLiteSourceOriginRepository,
     SQLiteStandingDecisionRepository,
     SQLiteVerdictCacheRepository,
@@ -190,6 +191,10 @@ def build_runtime(
     boundary_lines = SQLiteBoundaryLineRepository(database)
     review_conversations = SQLiteReviewConversationRepository(database)
     standing_decisions = SQLiteStandingDecisionRepository(database)
+    # Which folders a repository is reviewed without. Read by indexing and by the freshness
+    # check, which is the whole reason it is stored rather than passed: the check recomputes
+    # the fingerprint and has to leave out what the analysis left out.
+    scope_selections = SQLiteScopeSelectionRepository(database)
     # The workspace is left out of every snapshot, which is what allows a repository to be
     # analysed with its own workspace inside it. What the workspace holds changes whenever a
     # review runs, so indexing it would move the content fingerprint on every run and leave
@@ -211,7 +216,7 @@ def build_runtime(
         # quietly left half of it out would be the worse answer.
         limits=analysis_limits,
     )
-    freshness = AtlasFreshnessService(analyzer)
+    freshness = AtlasFreshnessService(analyzer, scope_selections)
     source_reader = SafeSourceReader()
     queries = DeterministicAtlasQueryService(source_reader, freshness)
     configured_policy_sources = tuple(
@@ -234,6 +239,7 @@ def build_runtime(
         analyzer=analyzer,
         atlases=atlases,
         lineages=lineages,
+        scope_selections=scope_selections,
     )
     atlas_service = AtlasService(
         atlases=atlases,

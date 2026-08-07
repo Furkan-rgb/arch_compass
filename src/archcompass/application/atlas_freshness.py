@@ -7,16 +7,26 @@ from pathlib import Path
 from archcompass.domain.atlas import Atlas
 from archcompass.domain.errors import PathValidationError, StaleAtlasError
 from archcompass.ports.atlas import RepositoryIdentityReader
+from archcompass.ports.repositories import ScopeSelectionRepository
 
 
 class AtlasFreshnessService:
-    def __init__(self, identities: RepositoryIdentityReader) -> None:
+    def __init__(
+        self,
+        identities: RepositoryIdentityReader,
+        scope_selections: ScopeSelectionRepository,
+    ) -> None:
         self._identities = identities
+        self._scope_selections = scope_selections
 
     def ensure_fresh(self, atlas: Atlas) -> None:
         root = Path(atlas.version.root_path)
+        # Under the same scope the atlas was built with, or the comparison is between the
+        # digest of one set of files and the digest of another, and a repository reviewed
+        # without its tests would be reported stale every time it was opened.
+        excluded_paths = self._scope_selections.get(atlas.version.root_path) or ()
         try:
-            current = self._identities.current_identity(root)
+            current = self._identities.current_identity(root, excluded_paths=excluded_paths)
         except PathValidationError as error:
             raise self._stale(atlas, str(error)) from error
         mismatches: list[str] = []

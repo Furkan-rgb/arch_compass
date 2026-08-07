@@ -28,8 +28,9 @@ import { EmptyLine, ErrorPanel, Loading, PageHeader, page, sheet } from "../comp
 import { useModelPicker } from "../model-picker";
 import { latestPerRepository } from "../repositories";
 import { useRun } from "../run";
+import { ScopePicker } from "../scope-picker";
 import { isReady, looksLikeGitAddress, runIntent, type StartSelection } from "../start-selection";
-import type { BundledExample } from "../types";
+import type { BundledExample, RepositoryFolderTree } from "../types";
 
 /* A short list of things to pick from, at the density of a list rather than of a card wall:
    name, one fact about it, and the path that tells two of them apart. `aria-pressed` is
@@ -328,6 +329,10 @@ export function StartPage() {
   // Held here rather than inside the picker: a successful index is what closes it, and the
   // mutation is this page's.
   const [picking, setPicking] = useState(false);
+  // A checked-out repository waiting to be told what to read. Set between a checkout that
+  // came back with folders and the index that follows it; `null` at every other moment,
+  // including while the local folder picker's own index runs — that flow asks nothing.
+  const [scope, setScope] = useState<RepositoryFolderTree | null>(null);
 
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: () => api.reviews() });
@@ -351,10 +356,19 @@ export function StartPage() {
   }, [indexed, repositoryRoot]);
 
   const index = useMutation({
-    mutationFn: (root: string) => api.indexRepository(root),
+    // The scope is an argument rather than a second mutation so that both ways in — the
+    // folder picker, which never narrows anything, and the scope picker, which does —
+    // report their progress and their refusals through one piece of state.
+    mutationFn: ({ root, excludedPaths }: { root: string; excludedPaths?: string[] }) =>
+      // No scope was chosen means no scope is sent — not an empty one, which would be this
+      // page saying "all of it" about a repository somebody had already narrowed.
+      excludedPaths === undefined
+        ? api.indexRepository(root)
+        : api.indexRepository(root, excludedPaths),
     onSuccess: async (version) => {
       // Only success closes the picker; a refusal leaves it open on the folder that failed.
       setPicking(false);
+      setScope(null);
       setPath("");
       setRepositoryRoot(version.root_path);
       await client.invalidateQueries({ queryKey: ["repositories"] });
@@ -364,13 +378,25 @@ export function StartPage() {
   // Checking out is two steps worn as one: fetch the address, then index what landed.
   // The reader asked to review a repository, not to perform the halves — and only the
   // second half produces the atlas the rest of this page works from.
+  //
+  // Between them, one question: what should be read. It is asked only when there is
+  // something to answer with — a listing that arrived, with folders in it. A tree the
+  // server would not give, or a repository whose Python is all at the top level, indexes
+  // the whole thing exactly as before. Nobody is stopped at a dialog that has no choice
+  // in it, and a listing that failed is never the reason a repository was not added.
   const checkout = useMutation({
     mutationFn: async ({ url, branch }: { url: string; branch: string | null }) => {
       const fetched = await api.checkoutRepository(url, branch);
-      return api.indexRepository(fetched.root_path);
+      const tree = await api.repositoryTree(fetched.root_path).catch(() => null);
+      if (tree?.folders?.length) return { tree, version: null };
+      return { tree: null, version: await api.indexRepository(fetched.root_path) };
     },
-    onSuccess: async (version) => {
+    onSuccess: async ({ tree, version }) => {
       setPicking(false);
+      if (tree) {
+        setScope(tree);
+        return;
+      }
       setRepositoryRoot(version.root_path);
       await client.invalidateQueries({ queryKey: ["repositories"] });
     },
@@ -562,7 +588,7 @@ export function StartPage() {
                 if (looksLikeGitAddress(line)) {
                   checkout.mutate({ url: line, branch: null });
                 } else {
-                  index.mutate(line);
+                  index.mutate({ root: line });
                 }
               }}
             >
@@ -597,7 +623,7 @@ export function StartPage() {
                   start={path.trim() || null}
                   indexing={index.isPending}
                   error={index.error}
-                  onIndex={(root) => index.mutate(root)}
+                  onIndex={(root) => index.mutate({ root })}
                   fetching={checkout.isPending}
                   checkoutError={checkout.error}
                   onCheckout={(url, branch) => checkout.mutate({ url, branch })}
@@ -605,7 +631,9 @@ export function StartPage() {
               )}
             </form>
           ) : null}
-          {canAddRepository && (checkout.error || index.error) && !picking ? (
+          {/* A refusal is reported where the asking happened, and while the scope picker
+              is up that is inside it. */}
+          {canAddRepository && (checkout.error || index.error) && !picking && !scope ? (
             <ErrorPanel error={checkout.error || index.error} />
           ) : null}
           <p className={hint}>
@@ -714,6 +742,22 @@ export function StartPage() {
           ) : null}
         </div>
       </section>
+
+      {/* Rendered by the page rather than by the form, because what it is waiting on is
+          the page's index mutation. Dismissing it indexes nothing: the checkout is on
+          disk either way, and nothing on this page claims otherwise until an atlas
+          exists for it. */}
+      {scope ? (
+        <ScopePicker
+          tree={scope}
+          indexing={index.isPending}
+          error={index.error}
+          onConfirm={(excluded) =>
+            index.mutate({ root: scope.root_path, excludedPaths: excluded })
+          }
+          onDismiss={() => setScope(null)}
+        />
+      ) : null}
 
       {/* A pointer, not a listing. Past reviews are a standing record with its own place in
           the navigation; what belongs here is the way back to them after a run, in one

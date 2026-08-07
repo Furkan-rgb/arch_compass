@@ -57,6 +57,7 @@ from archcompass.domain.atlas import (
 )
 from archcompass.domain.base import canonical_json, stable_id
 from archcompass.domain.errors import PathValidationError
+from archcompass.domain.scope import IGNORED_DIRECTORIES, excludes
 from archcompass.ports.atlas import (
     ConformanceQuestion,
     EdgeResolutionRequest,
@@ -74,20 +75,6 @@ from archcompass.ports.atlas import (
 # positions from a stored v4 atlas, so it is stale and re-analyzed rather than read with the
 # lines missing (ADR 0002). Re-analysis is cheap and lossless: an atlas is derived.
 PARSER_VERSION = "python-ast-3.12-v5"
-IGNORED_DIRECTORIES = {
-    ".git",
-    ".hg",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".tox",
-    ".venv",
-    "__pycache__",
-    "build",
-    "dist",
-    "node_modules",
-    "site-packages",
-}
 CONFIG_SUFFIXES = {".yaml", ".yml", ".toml", ".json", ".ini", ".cfg", ".env"}
 
 
@@ -381,8 +368,17 @@ class PythonAstRepositoryAnalyzer:
         # whether a stored atlas is stale.
         self._excluded_roots = canonical_roots(excluded_roots)
 
-    def analyze(self, root: Path) -> Atlas:
-        snapshot = self._snapshot(root)
+    def analyze(self, root: Path, *, excluded_paths: tuple[str, ...] = ()) -> Atlas:
+        """The atlas of this repository, less whatever subtrees the caller asked to leave out.
+
+        `excluded_paths` arrives already validated (see `domain.scope`) and relative to the
+        root. It is deliberately not part of the analysis configuration hash: the files it
+        leaves out never reach the digest, so the content fingerprint already says that this
+        is an atlas of a different set of files. Hashing it as well would say the same thing
+        twice, and would make an unscoped analysis hash differently than it always has.
+        """
+
+        snapshot = self._snapshot(root, excluded_paths)
         canonical_root = snapshot.root
         python_files = snapshot.python_files
         config_files = snapshot.configuration_files
@@ -540,8 +536,18 @@ class PythonAstRepositoryAnalyzer:
             module_facts=sorted(module_facts, key=lambda item: item.node_id),
         )
 
-    def current_identity(self, root: Path) -> RepositoryContentIdentity:
-        snapshot = self._snapshot(root)
+    def current_identity(
+        self, root: Path, *, excluded_paths: tuple[str, ...] = ()
+    ) -> RepositoryContentIdentity:
+        """What this repository would fingerprint as right now, under the same exclusions.
+
+        The exclusions have to be the ones the atlas was built with, or the two fingerprints
+        are digests of different file sets and the atlas is reported stale every time it is
+        opened. That is why a selection is remembered rather than passed once: the caller
+        that checks freshness is not the caller that chose the scope.
+        """
+
+        snapshot = self._snapshot(root, excluded_paths)
         return RepositoryContentIdentity(
             root_path=str(snapshot.root),
             content_fingerprint=snapshot.content_fingerprint,
@@ -550,9 +556,11 @@ class PythonAstRepositoryAnalyzer:
             analysis_config_hash=self._config_hash(),
         )
 
-    def _snapshot(self, root: Path) -> RepositorySnapshot:
+    def _snapshot(
+        self, root: Path, excluded_paths: tuple[str, ...] = ()
+    ) -> RepositorySnapshot:
         canonical_root = self._validate_root(root)
-        python_paths, config_paths = self._discover_files(canonical_root)
+        python_paths, config_paths = self._discover_files(canonical_root, excluded_paths)
         self._refuse_if_too_large(python_paths)
         files = tuple(
             SnapshotFile(
@@ -625,7 +633,9 @@ class PythonAstRepositoryAnalyzer:
             raise PathValidationError(f"Repository path is not a directory: {root}")
         return canonical
 
-    def _discover_files(self, root: Path) -> tuple[list[Path], list[Path]]:
+    def _discover_files(
+        self, root: Path, excluded_paths: tuple[str, ...] = ()
+    ) -> tuple[list[Path], list[Path]]:
         # What an ArchCompass workspace holds — its database, its authored policies, its run
         # outputs — changes whenever a review runs. A workspace inside the analysed
         # repository would therefore move the content fingerprint on every run, leaving the
@@ -641,6 +651,11 @@ class PythonAstRepositoryAnalyzer:
                 break
             relative_parts = path.relative_to(root).parts
             if any(part in IGNORED_DIRECTORIES for part in relative_parts):
+                continue
+            # The caller's own exclusions, applied here and nowhere else, so that the
+            # fingerprint, the node set and the freshness check are all computed over one
+            # set of files by construction rather than by three call sites agreeing.
+            if excludes(relative_parts, excluded_paths):
                 continue
             if path.is_symlink() or not path.is_file():
                 continue
