@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tests import reasoning_support
+
 from archcompass.adapters.analysis.source_reader import SafeSourceReader
 from archcompass.application.review_source import (
     MAX_CONTEXT_LINES,
@@ -85,3 +87,39 @@ def test_an_excerpt_stored_before_the_captions_existed_reads_back() -> None:
 
     assert stored.truncated_after_line is None
     assert stored.provenance == ""
+
+
+def test_a_review_still_shows_the_code_it_judged_when_the_repository_is_gone() -> None:
+    """The property the whole conversation flow rests on, now that repositories are swept.
+
+    A hosted visitor's fetched source does not outlive their session, and may not outlive the
+    next visitor's fetch: the instance holds a bounded amount of code and deletes the least
+    recently used to stay inside it. So a review discussed an hour later is a review whose
+    repository may no longer be on disk, and asking about it must still be answerable.
+
+    It is, because the evidence was pinned into the report when the review ran rather than
+    read again when it is asked about. Asserted here because nothing else asserted it, and
+    because the sweeping that makes it matter is new.
+    """
+
+    pinned = BoundaryExcerpt(
+        reference="BR-001",
+        qualified_name="package.Voices",
+        role="States the voice list.",
+        text="BUILT_IN_VOICES = []",
+    )
+    ran = reasoning_support.review(
+        [reasoning_support.reviewed_boundary("BR-001", "Voices", material=False)]
+    )
+    # Frozen models, so the review is rebuilt rather than edited: the excerpts pinned when
+    # it ran, and a repository root that is not there any more.
+    judged = ran.model_copy(
+        update={
+            "report": ran.report.model_copy(update={"excerpts": [pinned]}),
+            "repository_root": "/a/repository/that/no/longer/exists",
+        }
+    )
+
+    served = _service().for_review(judged)
+
+    assert [excerpt.text for excerpt in served] == ["BUILT_IN_VOICES = []"]
