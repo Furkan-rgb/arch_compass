@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterator, Sequence
 from datetime import datetime
@@ -765,6 +766,32 @@ def _acquire_runtime(request: Request) -> Runtime:
     return provider.acquire(request)
 
 
+#: What a deployment learns from, which is not the same as what it shows a visitor. A demo
+#: that only ever answers "this repository is more than I will analyse" tells the person in
+#: front of it something useful and tells the people running it nothing: not how often it
+#: happens, not by how much, and so not whether the limit is in the right place or the
+#: analyser is in the wrong shape.
+#:
+#: One line per refusal, to standard output, which is where a container's logs are read from.
+#: No counters, no metrics endpoint, no store: the question is "is this limit the thing
+#: standing between visitors and a review", and a week of lines answers it.
+_refusals = logging.getLogger("archcompass.refusals")
+
+
+def _log_refusal(request: Request, code: str, message: str) -> None:
+    """Say what was declined and why, in the words the visitor was given.
+
+    The message carries the numbers — how many megabytes, how many modules, which address —
+    because they were written for a reader and are the same facts a deployment wants. Logged
+    rather than parsed into fields for the same reason nothing here is counted: a line is
+    enough to answer the question this exists to answer.
+    """
+
+    _refusals.info(
+        "refused %s %s: %s — %s", request.method, request.url.path, code, message
+    )
+
+
 def _acquire_restrictions(request: Request) -> HostedRestrictions:
     restrictions: HostedRestrictions = request.app.state.restrictions
     return restrictions
@@ -881,7 +908,8 @@ def create_app(
     app.state.index_lock = BoundedSemaphore(1) if hosted else None
 
     @app.exception_handler(HostedRefusal)
-    async def hosted_refusal(_request: Request, error: HostedRefusal) -> JSONResponse:
+    async def hosted_refusal(request: Request, error: HostedRefusal) -> JSONResponse:
+        _log_refusal(request, error.code, error.message)
         return JSONResponse(
             status_code=error.status_code,
             content=ProblemDetail(
@@ -892,9 +920,13 @@ def create_app(
 
     @app.exception_handler(ArchCompassError)
     async def archcompass_error(
-        _request: Request, error: ArchCompassError
+        request: Request, error: ArchCompassError
     ) -> JSONResponse:
         status, code, retryable = _classify_error(error)
+        # 4xx only. A 500 is this program being wrong and belongs in a traceback; a 422 or a
+        # 409 is the workspace declining on purpose, which is the thing worth counting.
+        if 400 <= status < 500:
+            _log_refusal(request, code, str(error))
         return JSONResponse(
             status_code=status,
             content=ProblemDetail(

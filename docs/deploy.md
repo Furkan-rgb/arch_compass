@@ -175,6 +175,39 @@ a caption saying so.
 
 The container's `PORT` is honoured, defaulting to 8080, which is what Cloud Run supplies.
 
+### What the deployment actually sets
+
+`.github/workflows/deploy.yml` overrides the rations above, because the defaults are sized
+for a public demo and this deployment is a portfolio link: `ARCHCOMPASS_SOURCE_HOSTS=github.com`,
+ten reviews a day across everyone, three per visitor, twenty fetches a day. Those numbers are
+an environment change, not a code change.
+
+### What stops a bill
+
+`--memory 1Gi` is not a spend cap — it bounds one instance's memory, not the account. What
+bounds cost, in order of how much to trust it:
+
+- `--max-instances 1`: Cloud Run never runs a second container, so compute cannot scale away
+  from you.
+- `--min-instances 0` (the default, unset here): nothing runs between visits and idle costs
+  nothing. For a link sent to a handful of people this is most of the answer.
+- The always-free tier: 180,000 vCPU-seconds a month, ~50 hours of request time at 1 vCPU.
+- `--timeout 600`: no single request outlives ten minutes.
+- The daily run caps: **the model calls are the part billed per request rather than covered
+  by a free tier**, so this is the ration that matters for money.
+- `infra/billing-cap`: a €5 budget notification detaches billing from the project outright.
+  The only hard stop, and a **one-time manual deploy** — check it is live before relying on
+  it, because a GCP budget on its own only ever notifies.
+
+### What a refusal leaves behind
+
+Every 4xx the workspace produces is logged to standard output, which Cloud Run collects:
+`refused POST /api/repositories/index: hosted_restriction — ...`, carrying the same sentence
+the visitor saw and so the same numbers. What that is for is the one question the limits
+cannot answer from here — how often a real repository is turned away, and by how much —
+which decides whether the analyser needs to get cheaper or the limits are simply in the
+right place.
+
 ## The billing backstop
 
 A GCP budget only ever notifies — nothing Google offers stops spending by itself. The

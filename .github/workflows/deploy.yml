@@ -45,6 +45,12 @@ jobs:
       - name: Install the gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
 
+      # The rations are set here rather than left to their defaults, which are sized for a
+      # public demo. This one is a portfolio link sent to people by name: ten reviews a day
+      # across everyone is generous for that, and the model calls behind them are the only
+      # part of running this that is billed by the request rather than covered by a free
+      # tier. Raising them is an environment change, not a code change.
+      #
       # `--source .` hands the build to Cloud Build, which runs the repository's own
       # multi-stage Dockerfile — the image the Makefile smoke-tests locally is the image
       # that serves. Flags restate the full configuration on every deploy rather than
@@ -60,7 +66,7 @@ jobs:
             --memory 1Gi \
             --concurrency 12 \
             --timeout 600 \
-            --set-env-vars ARCHCOMPASS_HOSTED=1,ARCHCOMPASS_PROVIDERS=google \
+            --set-env-vars ARCHCOMPASS_HOSTED=1,ARCHCOMPASS_PROVIDERS=google,ARCHCOMPASS_SOURCE_HOSTS=github.com,ARCHCOMPASS_GLOBAL_DAILY_RUNS=10,ARCHCOMPASS_SESSION_DAILY_RUNS=3,ARCHCOMPASS_GLOBAL_DAILY_FETCHES=20,ARCHCOMPASS_SESSION_DAILY_FETCHES=3 \
             --set-secrets GOOGLE_API_KEY=archcompass-google-api-key:latest
 
       - name: Check the deployment answers
