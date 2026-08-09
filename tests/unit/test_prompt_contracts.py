@@ -7,7 +7,9 @@ from dataclasses import replace
 from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
 from archcompass.adapters.models.prompt_contracts import (
     ANSWER_REVIEW_QUESTION,
+    DISCUSS_OPEN_QUESTION,
     ELICIT_QUESTIONS,
+    INVESTIGATE_FOR_ANSWER,
     INVESTIGATE_USAGE,
     JUDGE_FINDING_CANDIDATE,
     STAGE_PROMPTS,
@@ -34,10 +36,11 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
     expected_versions = {
         ReasoningTask.JUDGE_FINDING_CANDIDATE: 12,
         ReasoningTask.INVESTIGATE_USAGE: 2,
+        ReasoningTask.INVESTIGATE_FOR_ANSWER: 1,
         ReasoningTask.ELICIT_QUESTIONS: 5,
         ReasoningTask.SUMMARISE_REVIEW: 7,
-        ReasoningTask.ANSWER_REVIEW_QUESTION: 8,
-        ReasoningTask.DISCUSS_OPEN_QUESTION: 2,
+        ReasoningTask.ANSWER_REVIEW_QUESTION: 9,
+        ReasoningTask.DISCUSS_OPEN_QUESTION: 3,
     }
 
     assert set(STAGE_PROMPTS) == set(ReasoningTask)
@@ -347,6 +350,53 @@ def test_the_investigation_contract_bounds_what_looking_is_for() -> None:
     assert "a search hit is a line, not its meaning" in contract
     # And the reason the amendment holds: nothing here is invisible.
     assert "everything you look at is recorded" in contract
+
+
+def test_the_two_investigation_contracts_pull_in_opposite_directions() -> None:
+    """Same two tools, and the restraint inverts — which is why they are two contracts.
+
+    Elicitation prepares questions for a person, so the repository gets first refusal on
+    every one of them and its opening turn is forced at the transport. A conversation turn
+    prepares a reply to a person who has already asked, and most of what they ask is about
+    the review's own reasoning, which no lookup improves. A stage told to look before it may
+    speak would spend a call on "why was this boundary condemned?", so this one says plainly
+    that returning nothing is the common right move.
+    """
+
+    asking = _normalized(INVESTIGATE_USAGE.stage_contract)
+    answering = _normalized(INVESTIGATE_FOR_ANSWER.stage_contract)
+
+    assert "the repository gets first refusal" in asking
+    assert "the repository gets first refusal" not in answering
+    assert "returning no tool calls at all is therefore the common right move" in answering
+    assert "only where the question turns on what the code does" in answering
+    # The two rules both contracts hold, because they are what make the amendment safe.
+    assert "a search hit is a line, not its meaning" in answering
+    assert "do not propose a change" in answering
+    assert "do not re-open a verdict" in answering
+    assert "everything you look at is recorded and shown to the person who asked" in answering
+
+
+def test_both_conversation_contracts_read_their_own_findings() -> None:
+    """The findings are this stage's own lookups, and they still ground nothing.
+
+    Two rules and they are not the same rule. The first is that a claim the investigation
+    settles is stated from it — a stage reading it as somebody else's report writes "the
+    review saw this, but you should confirm it" about a repository it just read. The second
+    is that grounding does not widen: only a boundary can be marked, so a finding that rests
+    on a lookup alone says where it came from and marks nothing.
+    """
+
+    for contract in (ANSWER_REVIEW_QUESTION, DISCUSS_OPEN_QUESTION):
+        text = _normalized(contract.stage_contract)
+        assert "an `investigation` field may be present in the input" in text
+        assert "read it as your own findings rather than as somebody's report" in text
+        assert "the investigation is not a boundary and never becomes one" in text
+        # An absent or abandoned investigation is a stated fact rather than an empty one.
+        assert "nothing was checked" in text
+        # And the lookups are disclosed beside the reply, which is why the stage points at a
+        # line instead of copying it — the same rule `source` is already under.
+        assert "name the file and the line rather than copying the lines out" in text
 
 
 def test_the_elicitation_contract_reads_its_own_findings_before_it_asks() -> None:

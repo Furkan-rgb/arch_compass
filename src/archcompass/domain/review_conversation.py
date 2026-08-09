@@ -23,6 +23,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from archcompass.domain.base import DomainModel, new_id, utc_now
+from archcompass.domain.review import RecordedInvestigation
 
 #: A question longer than this is a document, not a question, and the limit exists so an
 #: oversized input fails at the boundary with a clear message rather than deep inside a
@@ -70,6 +71,21 @@ class ReviewMessage(DomainModel):
     answer: ReviewAnswer | None = None
     #: Present instead of an answer when the turn failed. Both are never set.
     failure: str = ""
+    #: What this turn looked up in the repository before it replied, where it looked at all.
+    #: The same record a review keeps of the looking behind its questions, kept per message
+    #: because that is the grain the looking happens at: one turn asks one thing, and what it
+    #: checked is a fact about that turn rather than about the conversation.
+    #:
+    #: Set on a failed turn too, where lookups happened before the failure. A turn that read
+    #: the repository and then lost its model still read the repository, and a record that
+    #: dropped those lookups would show the reader nothing where something was done.
+    #:
+    #: `None` says nothing recorded an investigation — a message stored before this field
+    #: existed, a provider with no way to offer tools, or a repository too stale to read. It
+    #: never says the code was checked and was silent; that is a record with no lookups and a
+    #: reason. Optional with a default, so every stored conversation still parses: ADR 0002
+    #: refuses shims for a *narrowed* schema, and this widens.
+    investigation: RecordedInvestigation | None = None
     asked_at: datetime = Field(default_factory=utc_now)
 
     @model_validator(mode="after")

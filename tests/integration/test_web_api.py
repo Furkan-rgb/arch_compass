@@ -122,6 +122,11 @@ def test_the_api_covers_the_whole_review_loop(runtime: Runtime) -> None:
         history = client.get(f"/api/review-conversations/{conversation_id}")
         assert history.status_code == 200
         assert len(history.json()["messages"]) == 1
+        # What the turn looked up rides on the message it belongs to, served rather than
+        # discovered: the page that discloses it beside the answer reads it from here.
+        # `None` against this substitute, which cannot offer tools — the field's presence
+        # is the contract, and its value is a fact about the provider.
+        assert "investigation" in history.json()["messages"][0]
 
 
 def test_every_shipped_example_is_a_repository_with_a_name_and_no_case(
@@ -755,6 +760,9 @@ def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> N
     assert "investigation" in schemas["ReviewDetailResponse"]["properties"]
     assert "RecordedInvestigation" in schemas
     assert "InvestigationLookup" in schemas
+    # And on a conversation message, for the same reason and against the same schema: a
+    # turn that read the repository discloses what it read beside its answer.
+    assert "investigation" in schemas["ReviewMessage"]["properties"]
     # The progress line is a declared contract, not an undocumented convention: a client
     # that had to guess the shape would be parsing prose.
     assert schemas["ReviewProgress"]["discriminator"]["propertyName"] == "event"

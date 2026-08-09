@@ -985,6 +985,14 @@ class StructuredReasoningProvider:
         payload_json: str,
         investigator: SourceInvestigator | None,
         *,
+        # Whether the opening turn must produce a tool call. True for elicitation, which runs
+        # once per review and proved it would skip looking when it was allowed to. False for
+        # a conversation turn, which runs once per message and is usually about text already
+        # in front of the stage: a forced lookup there spends a call answering a question
+        # about the review's own words, and every such call is a result the reply has to
+        # carry. The two stages differ in the one thing this flag names, so it is a flag
+        # rather than two loops.
+        force_first: bool = True,
         think: ThinkLevel = None,
     ) -> str:
         """Let the model look things up, and render what it looked at.
@@ -1024,11 +1032,12 @@ class StructuredReasoningProvider:
                 exchange = transport.complete_with_tools(
                     messages,
                     tools=investigator.tools,
-                    # Only the opening turn is constrained. The repository gets first
-                    # refusal on every question, and a first look is how that rule
-                    # survives a model inclined to skip it; from the second turn on,
-                    # stopping is a judgement the model must be free to make.
-                    require_call=turn == 0,
+                    # Only the opening turn is ever constrained, and only where the stage
+                    # asked for it. Where it did, the repository gets first refusal on every
+                    # question and a first look is how that rule survives a model inclined
+                    # to skip it; from the second turn on, stopping is a judgement the model
+                    # must be free to make.
+                    require_call=force_first and turn == 0,
                     task=task,
                     think=self._think_for(think),
                     temperature=None,
@@ -1476,8 +1485,11 @@ class StructuredReasoningProvider:
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None = None,
     ) -> ReviewAnswer:
-        return self._answer(review, evidence, history, question, knowledge, preview=None)
+        return self._answer(
+            review, evidence, history, question, knowledge, investigator, preview=None
+        )
 
     def stream_review_answer(
         self,
@@ -1486,6 +1498,7 @@ class StructuredReasoningProvider:
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None,
         on_prose: Callable[[str], None],
     ) -> ReviewAnswer:
         """The same answer, with its prose reported as it is written.
@@ -1502,6 +1515,7 @@ class StructuredReasoningProvider:
             history,
             question,
             knowledge,
+            investigator,
             preview=ProsePreview(field="answer", emit=on_prose),
         )
 
@@ -1512,6 +1526,7 @@ class StructuredReasoningProvider:
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None,
         *,
         preview: ProsePreview | None,
     ) -> ReviewAnswer:
@@ -1538,126 +1553,144 @@ class StructuredReasoningProvider:
                 if reference in position_of
             )
 
+        payload: dict[str, object] = {
+            "case_title": report.case_title,
+            # The case whole, not the report's two-sentence restatement of its problem.
+            # It is half of what every verdict here was reached from — the judging stage
+            # weighed each boundary against these constraints, non-goals and expected
+            # changes — so an explanation that could not see them was explaining a
+            # conclusion from half its evidence.
+            "case": evidence.case.model_dump(mode="json"),
+            # The whole repository's structure as it was when the review ran — what
+            # exists and what depends on what, with no verdicts and no code. It is how
+            # a question about a module no detector flagged gets a structural answer
+            # instead of "I was not shown that", and nothing in a reply may cite it:
+            # grounding stays boundaries-only.
+            "pinned_atlas_map": self._atlas_map_payload(evidence.atlas_map),
+            "counts": report.headline,
+            # The round that produced this pass, both halves together. Asked "what were
+            # the questions and answers again?", this stage said the review holds no such
+            # record — true of the review it was shown and false of what the workspace
+            # keeps: the questions are pinned in the first pass for ever, the answers on
+            # the case revision this pass runs against.
+            #
+            # No `Q-n` and no `BR-nnn`, for the reason nothing else here carries one.
+            # A reader names a question by what it asked.
+            "elicitation_round": self._elicitation_round(
+                evidence.elicitation,
+                answers_were_recorded=evidence.answers_were_recorded,
+            ),
+            # The conclusion a reader has in front of them, so a question about it is
+            # answerable. Composed from these same verdicts by an earlier call, which is
+            # why the contract names it as the review's own reading rather than as
+            # evidence — it adds no fact about the repository.
+            #
+            # Text only. Every statement knows which boundaries it rests on, and those
+            # references are exactly what must not appear in an input the model can quote
+            # back (12.0); the boundaries themselves are all below with their reasoning.
+            "conclusion": {
+                "situation": report.overview.situation,
+                "themes": [
+                    {"text": item.text, "rests_on_boundary_positions": rests_on(item)}
+                    for item in report.overview.themes
+                ],
+                # Numbered as the reader sees them. The page renders this as an ordered
+                # list, so "recommendation 3" is the third entry here and nothing has to
+                # be inferred from the order of a bare array.
+                "recommended_sequence": [
+                    {
+                        "number": number,
+                        "text": item.text,
+                        "rests_on_boundary_positions": rests_on(item),
+                    }
+                    for number, item in enumerate(
+                        report.overview.recommended_sequence, start=1
+                    )
+                ],
+                "limits": report.overview.limits,
+            },
+            # Background about the method, carried under a name that says what it is
+            # and is not. It has no positions and nothing binds to it: an answer's
+            # grounding is boundaries alone, so nothing here can be cited back — which
+            # is also why the policies keep their titles here, unlike in the judging
+            # stage where the reply must bind to them by position instead.
+            "background_how_archcompass_works": knowledge.method,
+            "background_policy_corpus": self._policy_corpus_payload(knowledge),
+            # No reference codes. The model is shown the substance and answers by
+            # position; codes exist for the reader, not for the model to quote back.
+            "boundaries": [
+                {
+                    "position": index,
+                    "boundary": item.candidate.summary,
+                    # Which of the three detectors found this. The advice for the two
+                    # directions of the catalogue points opposite ways, so a question
+                    # about what a boundary even is depends on knowing which it is.
+                    "pattern": item.candidate.pattern.value,
+                    # Spelled out, for the same reason the summary stage spells it out:
+                    # read as ordinary English "material" says the boundary matters,
+                    # and the verdict means the opposite.
+                    "verdict": (
+                        "NOT earning its place — this boundary should change"
+                        if item.material
+                        else "earning its place — this boundary should stay as it is"
+                    ),
+                    "reasoning": item.rationale,
+                    "recommended_response": item.recommended_response,
+                    # The numbers the pattern was detected from — four modules stating a
+                    # constant, two distinct values among them. Without them a question
+                    # like "how many copies are there?" is answerable only from whatever
+                    # the prose happens to have restated.
+                    "measurements": [
+                        {"name": measure.name, "value": measure.value, "unit": measure.unit}
+                        for measure in item.candidate.measurements
+                    ],
+                    "policies_that_bear": [
+                        f"{bearing.policy_title}: {bearing.how}"
+                        for bearing in item.policy_bearings
+                    ],
+                    "detection_limits": item.candidate.limitations,
+                    # Which elements make this boundary up and which edges the detector
+                    # recorded among them — what the judging stage had and this one
+                    # lacked, so "what implements this?" no longer depends on the prose
+                    # having restated it.
+                    **self._structure_for(item.candidate),
+                    # The lines this boundary was measured from, read from the repository
+                    # it pinned. Without them a reader asking to see the leak was told
+                    # the review "does not include the specific lines" — true of what
+                    # reached this stage, and false of what the record holds.
+                    "source": self._source_for(evidence.excerpts, item.reference),
+                }
+                for index, item in enumerate(boundaries, start=1)
+            ],
+            "earlier_questions": [
+                {
+                    "question": message.question,
+                    "answer": "" if message.answer is None else message.answer.answer,
+                }
+                for message in history
+            ],
+            "question": question,
+        }
+        # Before the answer and from the same input, so the stage looks at the review it
+        # is about to speak about rather than at a summary of it. The findings then enter
+        # that input as one more key, exactly as they do at elicitation: the grounded
+        # schema, the arity validator, the repair round and the preview are all untouched
+        # by whether anything was looked up.
+        #
+        # And it happens here, before `_complete` is entered, which is what keeps a
+        # streamed reply a reply: the preview begins with the first fragment of the answer
+        # itself, and no part of an investigation is ever shown on its way past.
+        findings = self._investigate(
+            ReasoningTask.INVESTIGATE_FOR_ANSWER,
+            canonical_json(payload),
+            investigator,
+            force_first=False,
+        )
+        if findings:
+            payload["investigation"] = findings
         proposed = self._complete(
             ReasoningTask.ANSWER_REVIEW_QUESTION,
-            {
-                "case_title": report.case_title,
-                # The case whole, not the report's two-sentence restatement of its problem.
-                # It is half of what every verdict here was reached from — the judging stage
-                # weighed each boundary against these constraints, non-goals and expected
-                # changes — so an explanation that could not see them was explaining a
-                # conclusion from half its evidence.
-                "case": evidence.case.model_dump(mode="json"),
-                # The whole repository's structure as it was when the review ran — what
-                # exists and what depends on what, with no verdicts and no code. It is how
-                # a question about a module no detector flagged gets a structural answer
-                # instead of "I was not shown that", and nothing in a reply may cite it:
-                # grounding stays boundaries-only.
-                "pinned_atlas_map": self._atlas_map_payload(evidence.atlas_map),
-                "counts": report.headline,
-                # The round that produced this pass, both halves together. Asked "what were
-                # the questions and answers again?", this stage said the review holds no such
-                # record — true of the review it was shown and false of what the workspace
-                # keeps: the questions are pinned in the first pass for ever, the answers on
-                # the case revision this pass runs against.
-                #
-                # No `Q-n` and no `BR-nnn`, for the reason nothing else here carries one.
-                # A reader names a question by what it asked.
-                "elicitation_round": self._elicitation_round(
-                    evidence.elicitation,
-                    answers_were_recorded=evidence.answers_were_recorded,
-                ),
-                # The conclusion a reader has in front of them, so a question about it is
-                # answerable. Composed from these same verdicts by an earlier call, which is
-                # why the contract names it as the review's own reading rather than as
-                # evidence — it adds no fact about the repository.
-                #
-                # Text only. Every statement knows which boundaries it rests on, and those
-                # references are exactly what must not appear in an input the model can quote
-                # back (12.0); the boundaries themselves are all below with their reasoning.
-                "conclusion": {
-                    "situation": report.overview.situation,
-                    "themes": [
-                        {"text": item.text, "rests_on_boundary_positions": rests_on(item)}
-                        for item in report.overview.themes
-                    ],
-                    # Numbered as the reader sees them. The page renders this as an ordered
-                    # list, so "recommendation 3" is the third entry here and nothing has to
-                    # be inferred from the order of a bare array.
-                    "recommended_sequence": [
-                        {
-                            "number": number,
-                            "text": item.text,
-                            "rests_on_boundary_positions": rests_on(item),
-                        }
-                        for number, item in enumerate(
-                            report.overview.recommended_sequence, start=1
-                        )
-                    ],
-                    "limits": report.overview.limits,
-                },
-                # Background about the method, carried under a name that says what it is
-                # and is not. It has no positions and nothing binds to it: an answer's
-                # grounding is boundaries alone, so nothing here can be cited back — which
-                # is also why the policies keep their titles here, unlike in the judging
-                # stage where the reply must bind to them by position instead.
-                "background_how_archcompass_works": knowledge.method,
-                "background_policy_corpus": self._policy_corpus_payload(knowledge),
-                # No reference codes. The model is shown the substance and answers by
-                # position; codes exist for the reader, not for the model to quote back.
-                "boundaries": [
-                    {
-                        "position": index,
-                        "boundary": item.candidate.summary,
-                        # Which of the three detectors found this. The advice for the two
-                        # directions of the catalogue points opposite ways, so a question
-                        # about what a boundary even is depends on knowing which it is.
-                        "pattern": item.candidate.pattern.value,
-                        # Spelled out, for the same reason the summary stage spells it out:
-                        # read as ordinary English "material" says the boundary matters,
-                        # and the verdict means the opposite.
-                        "verdict": (
-                            "NOT earning its place — this boundary should change"
-                            if item.material
-                            else "earning its place — this boundary should stay as it is"
-                        ),
-                        "reasoning": item.rationale,
-                        "recommended_response": item.recommended_response,
-                        # The numbers the pattern was detected from — four modules stating a
-                        # constant, two distinct values among them. Without them a question
-                        # like "how many copies are there?" is answerable only from whatever
-                        # the prose happens to have restated.
-                        "measurements": [
-                            {"name": measure.name, "value": measure.value, "unit": measure.unit}
-                            for measure in item.candidate.measurements
-                        ],
-                        "policies_that_bear": [
-                            f"{bearing.policy_title}: {bearing.how}"
-                            for bearing in item.policy_bearings
-                        ],
-                        "detection_limits": item.candidate.limitations,
-                        # Which elements make this boundary up and which edges the detector
-                        # recorded among them — what the judging stage had and this one
-                        # lacked, so "what implements this?" no longer depends on the prose
-                        # having restated it.
-                        **self._structure_for(item.candidate),
-                        # The lines this boundary was measured from, read from the repository
-                        # it pinned. Without them a reader asking to see the leak was told
-                        # the review "does not include the specific lines" — true of what
-                        # reached this stage, and false of what the record holds.
-                        "source": self._source_for(evidence.excerpts, item.reference),
-                    }
-                    for index, item in enumerate(boundaries, start=1)
-                ],
-                "earlier_questions": [
-                    {
-                        "question": message.question,
-                        "answer": "" if message.answer is None else message.answer.answer,
-                    }
-                    for message in history
-                ],
-                "question": question,
-            },
+            payload,
             ProposedReviewAnswer,
             runtime_instruction=(
                 f"Return exactly {expected} supported_by values, one for each boundary, in "
@@ -1694,9 +1727,10 @@ class StructuredReasoningProvider:
         history: list[ReviewMessage],
         asked: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None = None,
     ) -> ReviewAnswer:
         return self._discuss(
-            review, evidence, question, history, asked, knowledge, preview=None
+            review, evidence, question, history, asked, knowledge, investigator, preview=None
         )
 
     def stream_open_question_discussion(
@@ -1707,6 +1741,7 @@ class StructuredReasoningProvider:
         history: list[ReviewMessage],
         asked: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None,
         on_prose: Callable[[str], None],
     ) -> ReviewAnswer:
         return self._discuss(
@@ -1716,6 +1751,7 @@ class StructuredReasoningProvider:
             history,
             asked,
             knowledge,
+            investigator,
             preview=ProsePreview(field="answer", emit=on_prose),
         )
 
@@ -1727,6 +1763,7 @@ class StructuredReasoningProvider:
         history: list[ReviewMessage],
         asked: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None,
         *,
         preview: ProsePreview | None,
     ) -> ReviewAnswer:
@@ -1850,94 +1887,107 @@ class StructuredReasoningProvider:
                 "withheld — this review is still waiting on answers, so its conclusion "
                 "and the verdicts outside this question are not settled enough to show"
             )
+        payload: dict[str, object] = {
+            "case_title": report.case_title,
+            # The case whole, and it matters most here. The reader is being asked to add
+            # something to this document, so "what does it already say about that" is
+            # among the first things they will ask.
+            #
+            # This is the revision the review pinned, which means it holds what was
+            # written before this round — including answers from any earlier round — and
+            # not the answers being typed right now. Those batch into one revision at the
+            # end (§6C.4). So this stage cannot see a reply the reader is still free to
+            # change or delete, which is correct: an answer is not an answer until they
+            # save it.
+            "case": evidence.case.model_dump(mode="json"),
+            # As the answering stage carries it: structure only, no verdicts, so it
+            # widens nothing the cited-boundaries scope protects.
+            "pinned_atlas_map": self._atlas_map_payload(evidence.atlas_map),
+            **(
+                {"counts": report.headline}
+                if concluded
+                else {"counts": successor.headline} if successor is not None else {}
+            ),
+            "conclusion": conclusion,
+            "the_question_being_discussed": {
+                "what_the_review_saw": question.what_the_review_saw,
+                "the_unknown": question.unknown,
+                "why_it_matters": question.why_it_matters,
+                "question_put_to_the_reader": question.question,
+                "where_their_answer_would_be_recorded": (
+                    question.answer_belongs_in.value
+                ),
+            },
+            "background_how_archcompass_works": knowledge.method,
+            "background_policy_corpus": self._policy_corpus_payload(knowledge),
+            # Presented as the answering stage presents them, minus the reference codes
+            # for the usual reason (12.0). The same fields, because a reader asking
+            # "why does this boundary make you ask that" needs what that stage needed.
+            "boundaries_this_question_would_settle": [
+                {
+                    "position": index,
+                    "boundary": item.candidate.summary,
+                    "pattern": item.candidate.pattern.value,
+                    "verdict": (
+                        "NOT earning its place — this boundary should change"
+                        if item.material
+                        else "earning its place — this boundary should stay as it is"
+                    ),
+                    "reasoning": item.rationale,
+                    "recommended_response": item.recommended_response,
+                    "measurements": [
+                        {"name": measure.name, "value": measure.value, "unit": measure.unit}
+                        for measure in item.candidate.measurements
+                    ],
+                    "policies_that_bear": [
+                        f"{bearing.policy_title}: {bearing.how}"
+                        for bearing in item.policy_bearings
+                    ],
+                    "detection_limits": item.candidate.limitations,
+                    # As the answering stage carries it, and for the same reason: the
+                    # reader being asked to settle what relates these elements needs
+                    # what the detector recorded about how they relate.
+                    **self._structure_for(item.candidate),
+                    "source": self._source_for(evidence.excerpts, item.reference),
+                    # What this verdict said it turned on, which is why this boundary is
+                    # cited at all. Without it the reader can be told the verdict but not
+                    # what their answer would do to it.
+                    "verdict_turns_on": (
+                        None
+                        if item.hinge is None
+                        else {
+                            "unknown": item.hinge.unknown,
+                            "if_confirmed": item.hinge.if_confirmed,
+                            "if_denied": item.hinge.if_denied,
+                        }
+                    ),
+                }
+                for index, item in enumerate(boundaries, start=1)
+            ],
+            "earlier_turns": [
+                {
+                    "asked": message.question,
+                    "replied": "" if message.answer is None else message.answer.answer,
+                }
+                for message in history
+            ],
+            "asked": asked,
+        }
+        # As in `_answer`, and under the same contract: the looking happens before the reply
+        # is composed, from the input the reply will be composed from, and its findings enter
+        # that input as one key. The scope this stage is under is a scope on the verdicts it
+        # is shown and not on the repository it may read — see where the toolbox is built.
+        findings = self._investigate(
+            ReasoningTask.INVESTIGATE_FOR_ANSWER,
+            canonical_json(payload),
+            investigator,
+            force_first=False,
+        )
+        if findings:
+            payload["investigation"] = findings
         proposed = self._complete(
             ReasoningTask.DISCUSS_OPEN_QUESTION,
-            {
-                "case_title": report.case_title,
-                # The case whole, and it matters most here. The reader is being asked to add
-                # something to this document, so "what does it already say about that" is
-                # among the first things they will ask.
-                #
-                # This is the revision the review pinned, which means it holds what was
-                # written before this round — including answers from any earlier round — and
-                # not the answers being typed right now. Those batch into one revision at the
-                # end (§6C.4). So this stage cannot see a reply the reader is still free to
-                # change or delete, which is correct: an answer is not an answer until they
-                # save it.
-                "case": evidence.case.model_dump(mode="json"),
-                # As the answering stage carries it: structure only, no verdicts, so it
-                # widens nothing the cited-boundaries scope protects.
-                "pinned_atlas_map": self._atlas_map_payload(evidence.atlas_map),
-                **(
-                    {"counts": report.headline}
-                    if concluded
-                    else {"counts": successor.headline} if successor is not None else {}
-                ),
-                "conclusion": conclusion,
-                "the_question_being_discussed": {
-                    "what_the_review_saw": question.what_the_review_saw,
-                    "the_unknown": question.unknown,
-                    "why_it_matters": question.why_it_matters,
-                    "question_put_to_the_reader": question.question,
-                    "where_their_answer_would_be_recorded": (
-                        question.answer_belongs_in.value
-                    ),
-                },
-                "background_how_archcompass_works": knowledge.method,
-                "background_policy_corpus": self._policy_corpus_payload(knowledge),
-                # Presented as the answering stage presents them, minus the reference codes
-                # for the usual reason (12.0). The same fields, because a reader asking
-                # "why does this boundary make you ask that" needs what that stage needed.
-                "boundaries_this_question_would_settle": [
-                    {
-                        "position": index,
-                        "boundary": item.candidate.summary,
-                        "pattern": item.candidate.pattern.value,
-                        "verdict": (
-                            "NOT earning its place — this boundary should change"
-                            if item.material
-                            else "earning its place — this boundary should stay as it is"
-                        ),
-                        "reasoning": item.rationale,
-                        "recommended_response": item.recommended_response,
-                        "measurements": [
-                            {"name": measure.name, "value": measure.value, "unit": measure.unit}
-                            for measure in item.candidate.measurements
-                        ],
-                        "policies_that_bear": [
-                            f"{bearing.policy_title}: {bearing.how}"
-                            for bearing in item.policy_bearings
-                        ],
-                        "detection_limits": item.candidate.limitations,
-                        # As the answering stage carries it, and for the same reason: the
-                        # reader being asked to settle what relates these elements needs
-                        # what the detector recorded about how they relate.
-                        **self._structure_for(item.candidate),
-                        "source": self._source_for(evidence.excerpts, item.reference),
-                        # What this verdict said it turned on, which is why this boundary is
-                        # cited at all. Without it the reader can be told the verdict but not
-                        # what their answer would do to it.
-                        "verdict_turns_on": (
-                            None
-                            if item.hinge is None
-                            else {
-                                "unknown": item.hinge.unknown,
-                                "if_confirmed": item.hinge.if_confirmed,
-                                "if_denied": item.hinge.if_denied,
-                            }
-                        ),
-                    }
-                    for index, item in enumerate(boundaries, start=1)
-                ],
-                "earlier_turns": [
-                    {
-                        "asked": message.question,
-                        "replied": "" if message.answer is None else message.answer.answer,
-                    }
-                    for message in history
-                ],
-                "asked": asked,
-            },
+            payload,
             ProposedQuestionDiscussion,
             runtime_instruction=(
                 f"Return exactly {expected} supported_by values, one for each boundary, in "

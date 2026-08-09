@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 import { api } from "./api";
 import { ErrorPanel } from "./components";
+import { InvestigationDisclosure } from "./investigation-disclosure";
 import { AnswerProse } from "./markdown";
 import { DISCUSSION_DRAFTS, useQuestionDrafts } from "./question-drafts";
 import type { OpenQuestion, ReviewConversation } from "./types";
@@ -138,6 +139,12 @@ export function QuestionDiscussion({
               {message.answer ? (
                 <div data-slot="discussion-reply" className={reply}>
                   <AnswerProse text={message.answer.answer} />
+                  {message.investigation ? (
+                    <InvestigationDisclosure
+                      investigation={message.investigation}
+                      title="What this answer checked"
+                    />
+                  ) : null}
                   {message.answer.suggested_answer ? (
                     // Marked out as an offer rather than as a result, because that is
                     // exactly what it is: nothing has been recorded, and pressing the

@@ -33,6 +33,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 
 from archcompass.domain.errors import PathValidationError
+from archcompass.domain.review import InvestigationLookup, RecordedInvestigation
 from archcompass.domain.scope import CONFIG_SUFFIXES, IGNORED_DIRECTORIES
 from archcompass.ports.atlas import SourceReader
 from archcompass.ports.investigation import RecordedLookup, ToolSpec
@@ -282,6 +283,48 @@ class RepositoryInvestigator:
                 "file is shorter than that."
             )
         return f"{relative_path}:{start_line}-{start_line + shown - 1}\n{text}"
+
+
+def recorded_investigation(
+    investigator: RepositoryInvestigator, prompt_identity: str
+) -> RecordedInvestigation | None:
+    """The toolbox's transcript as a stored record, or nothing worth storing.
+
+    Nothing worth storing is the common case and it is `None` rather than an empty record:
+    most providers cannot offer tools, so their investigator is handed over and never
+    touched, and a document saying "no lookups, no reason" would tell every later reader that
+    this repository was checked and had nothing to say. An abandonment with no lookups is the
+    opposite — it is exactly the state worth keeping — so it is the second thing that makes a
+    record.
+
+    The identity is passed in rather than read here, because it is a fact about the *stage*
+    that did the looking and this function serves two of them: a review records the
+    investigate-usage contract it asked under, a conversation turn the investigate-for-answer
+    one. A transcript with no identity cannot be compared with a later one — a prompt bump
+    changes what the stage looks for — and a transcript filed under the wrong identity is
+    worse, because the comparison then succeeds and means nothing.
+
+    Module-level and shared because the mapping is the same three fields either way. It lived
+    on `ReviewService` while elicitation was the only stage that could look; a second copy for
+    the conversation service would be a second place for "keep the refusals too" to be
+    forgotten.
+    """
+
+    if not investigator.transcript and not investigator.abandoned:
+        return None
+    return RecordedInvestigation(
+        lookups=[
+            InvestigationLookup(
+                tool=item.tool,
+                arguments=dict(item.arguments),
+                result=item.result,
+            )
+            for item in investigator.transcript
+        ],
+        closing=investigator.closing,
+        abandoned=investigator.abandoned,
+        prompt_identity=prompt_identity,
+    )
 
 
 def searchable_files(root: Path) -> Iterator[Path]:

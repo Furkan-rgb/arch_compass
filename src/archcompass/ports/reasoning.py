@@ -38,6 +38,13 @@ class ReasoningTask(StrEnum):
     #: identity yet — the transcript is not persisted either — but versioning it from the
     #: start is what makes pinning both later a matter of writing them down.
     INVESTIGATE_USAGE = "investigate_usage"
+    #: The same two tools held by a stage about to reply to a person rather than to question
+    #: one. Its own task and not a second use of the one above, because the restraint differs:
+    #: an elicitation looks at the repository before it may ask anything, while most messages
+    #: in a conversation are about the review's own words and are answered without a lookup.
+    #: Two contracts is also what keeps the identities apart, so a stored transcript says
+    #: which of the two kinds of looking produced it.
+    INVESTIGATE_FOR_ANSWER = "investigate_for_answer"
     ELICIT_QUESTIONS = "elicit_questions"
     SUMMARISE_REVIEW = "summarise_review"
     ANSWER_REVIEW_QUESTION = "answer_review_question"
@@ -164,6 +171,7 @@ class FocusedReasoningProvider(Protocol):
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None = None,
     ) -> ReviewAnswer:
         """Answer one question about a review the model is shown in full.
 
@@ -181,6 +189,13 @@ class FocusedReasoningProvider(Protocol):
         never evidence about the repository, and an answer never cites it as grounding. Only
         boundaries ground an answer, so nothing here binds by position and nothing here is
         read back.
+
+        `investigator` is the toolbox `elicit_questions` holds, offered here for the same
+        reason: a question that turns on how the code stands *now* — where else is this
+        called, did anyone consolidate it since — is one the pinned evidence cannot settle,
+        and answering it from the excerpts alone is answering a question that was not asked.
+        `None` means what it means at elicitation: the reply is composed from the pinned
+        evidence alone, which is also what happens where the provider cannot carry tools.
         """
         ...
 
@@ -192,6 +207,7 @@ class FocusedReasoningProvider(Protocol):
         history: list[ReviewMessage],
         asked: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None = None,
     ) -> ReviewAnswer:
         """Talk about one open question with the person who has to answer it.
 
@@ -226,6 +242,12 @@ class FocusedReasoningProvider(Protocol):
         `suggested_answer`; it may never record one. What comes back fills a box the reader
         edits and submits themselves, through the same preview every other answer walks
         (§6C.4, invariant 25).
+
+        `investigator` is the same toolbox `answer_review_question` is offered, and it is the
+        one place a reader most often asks a question of the code: "how would I know whether
+        these are the same constant?" is answered by what the repository does with them. The
+        toolbox is not scoped the way the boundaries are, and that is deliberate rather than
+        an oversight — see where it is built for why the two can differ.
         """
         ...
 
@@ -261,6 +283,7 @@ class StreamingAnswerReasoner(Protocol):
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None,
         on_prose: Callable[[str], None],
     ) -> ReviewAnswer:
         """Answer as `answer_review_question` does, calling `on_prose` with each fragment.
@@ -269,6 +292,13 @@ class StreamingAnswerReasoner(Protocol):
         Fragments may stop arriving before the answer does — a reply needing the one
         sanctioned repair round is rewritten unstreamed — so a caller must treat the returned
         answer as the text, and whatever it showed meanwhile as provisional.
+
+        Any investigation happens before a single fragment is emitted, so what a reader
+        watches is exactly what they watched before this parameter existed: the reply, from
+        its first word. No part of a lookup is ever previewed — the toolbox turns are a
+        separate conversation whose only output is the findings the answer is composed from.
+        A turn that looks therefore starts later and reads the same, which is the trade this
+        stage is allowed to make and the streaming path is not allowed to expose.
         """
         ...
 
@@ -280,6 +310,7 @@ class StreamingAnswerReasoner(Protocol):
         history: list[ReviewMessage],
         asked: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None,
         on_prose: Callable[[str], None],
     ) -> ReviewAnswer:
         """Discuss as `discuss_open_question` does, calling `on_prose` with each fragment.

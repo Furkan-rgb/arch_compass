@@ -667,6 +667,7 @@ export interface components {
     "question": string;
     "answer"?: components["schemas"]["ReviewAnswer"] | null;
     "failure"?: string;
+    "investigation"?: components["schemas"]["RecordedInvestigation"] | null;
     "asked_at"?: string;
   };
     "ReviewOverview": {

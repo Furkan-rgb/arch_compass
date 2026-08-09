@@ -15,10 +15,12 @@ allowed only because every lookup is recorded. A finding nobody can trace back t
 the unverifiable evidence 12.0 refuses; a transcript of exactly what was asked and exactly
 what came back is not.
 
-Stage-agnostic on purpose, though only one stage uses it today. Nothing in these three types
-names elicitation, because the conversation stages have the same problem — a reader asking
-"where else is this used?" is asking about the repository — and a second toolbox written for
-them would be a second set of bounds to get wrong.
+Stage-agnostic on purpose, and three stages now use it. Nothing in these three types names
+elicitation, because the conversation stages have the same problem — a reader asking "where
+else is this used?" is asking about the repository — and a second toolbox written for them
+would have been a second set of bounds to get wrong. What differs between the stages is the
+contract they hold it under and whether their first turn is forced, both of which live where
+the loop runs; the bounds and the recording are one thing, here.
 """
 
 from __future__ import annotations

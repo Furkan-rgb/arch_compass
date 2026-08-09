@@ -142,6 +142,13 @@ def test_review_answers_are_assembled_before_model_adapters() -> None:
     a scattered concept, then the round of questions and answers — each of which this stage
     then truthfully reported as missing from the review. A single value moves that omission
     to one method with one test, instead of a signature that grows a parameter per lesson.
+
+    `investigator` is the one thing here the application does not choose the contents of, and
+    it is not a hole in the sentence above. Everything the stage may *reason from* is still
+    assembled before the call; what this adds is a bounded set of read-only questions the
+    stage may put to the repository, every one of them recorded and shown to the person who
+    asked. That is §12.0's amendment, and it is why this list may grow by exactly this
+    parameter and not by a repository root, an atlas, or a retrieval handle.
     """
 
     for path in (
@@ -164,6 +171,7 @@ def test_review_answers_are_assembled_before_model_adapters() -> None:
             "history",
             "question",
             "knowledge",
+            "investigator",
         ], path
 
     adapters = ast.parse(

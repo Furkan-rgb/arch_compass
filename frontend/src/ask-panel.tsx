@@ -25,6 +25,7 @@ import {
 } from "./ask-panel-width";
 import { ErrorPanel } from "./components";
 import { FindingSource } from "./finding-source";
+import { InvestigationDisclosure } from "./investigation-disclosure";
 import { AnswerProse } from "./markdown";
 
 /**
@@ -509,6 +510,16 @@ export function AskPanel({
               {message.answer ? (
                 <div data-slot="answer" className={answered}>
                   <AnswerProse text={message.answer.answer} />
+                  {/* What this reply looked up before it was composed — the same record a
+                      run keeps, scoped to one answer. Under the prose rather than above
+                      it: the answer is what was asked for, and the checking is its
+                      warrant. */}
+                  {message.investigation ? (
+                    <InvestigationDisclosure
+                      investigation={message.investigation}
+                      title="What this answer checked"
+                    />
+                  ) : null}
                   {/* The code the answer rests on, rendered from the file rather than retyped
                       into the answer. §12.0: where the application already holds a value, a
                       model reproducing it can only produce a second copy that disagrees —

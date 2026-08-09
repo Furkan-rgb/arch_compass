@@ -190,6 +190,7 @@ def test_the_prose_arrives_in_fragments_and_the_answer_is_still_validated() -> N
         [],
         "What about the Formatter?",
         _background(),
+        None,
         seen.append,
     )
 
@@ -216,6 +217,7 @@ def test_a_transport_that_cannot_stream_answers_anyway() -> None:
         [],
         "What about the Clock?",
         _background(),
+        None,
         seen.append,
     )
 
@@ -247,6 +249,7 @@ def test_the_repair_round_is_not_streamed() -> None:
         [],
         "What about the Formatter?",
         _background(),
+        None,
         seen.append,
     )
 
@@ -265,7 +268,13 @@ def test_a_streamed_answer_is_refused_on_the_same_terms_as_any_other() -> None:
 
     with pytest.raises(ModelOutputValidationError, match="supported_by"):
         provider.stream_review_answer(
-            _review(), ReviewEvidence(case=_case()), [], "Formatter?", _background(), lambda _: None
+            _review(),
+            ReviewEvidence(case=_case()),
+            [],
+            "Formatter?",
+            _background(),
+            None,
+            lambda _: None,
         )
 
 
@@ -279,7 +288,13 @@ def test_an_answer_answered_with_json_is_refused_rather_than_shown_as_prose() ->
 
     with pytest.raises(ModelOutputValidationError, match="must be prose"):
         provider.stream_review_answer(
-            _review(), ReviewEvidence(case=_case()), [], "Formatter?", _background(), lambda _: None
+            _review(),
+            ReviewEvidence(case=_case()),
+            [],
+            "Formatter?",
+            _background(),
+            None,
+            lambda _: None,
         )
 
 
@@ -310,6 +325,7 @@ def test_a_mid_stream_failure_is_not_retried_into_repeated_text() -> None:
         [],
         "Formatter?",
         _background(),
+        None,
         seen.append,
         )
 

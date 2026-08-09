@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -14,14 +15,20 @@ from archcompass.domain.errors import (
     PolicyFormatError,
     ProviderError,
 )
-from archcompass.domain.review import BoundaryReview
-from archcompass.domain.review_conversation import MAX_QUESTION_CHARACTERS
+from archcompass.domain.knowledge import MethodKnowledge
+from archcompass.domain.review import BoundaryReview, ReviewEvidence
+from archcompass.domain.review_conversation import (
+    MAX_QUESTION_CHARACTERS,
+    ReviewAnswer,
+    ReviewMessage,
+)
+from archcompass.ports.investigation import SourceInvestigator
 
 FIXTURE = Path("eval/cases/boundary-review/repository").resolve()
 
 
-def _review(runtime: Runtime) -> BoundaryReview:
-    atlas = runtime.analyzer.analyze(FIXTURE)
+def _review(runtime: Runtime, root: Path = FIXTURE) -> BoundaryReview:
+    atlas = runtime.analyzer.analyze(root)
     runtime.atlas_repository.save(atlas)
     revision = runtime.case_repository.create(
         ArchitectureCase(
@@ -33,11 +40,57 @@ def _review(runtime: Runtime) -> BoundaryReview:
             # settled enough to hold a conversation about, which is a different subject from
             # the one these tests are about.
             expected_future_changes=["A second scheduler backend is contracted for Q3"],
-            repository=RepositoryReference(root_path=str(FIXTURE)),
+            repository=RepositoryReference(root_path=str(root)),
         ),
         actor="test",
     )
-    return runtime.review_service.review(revision.case_id, repository_root=FIXTURE)
+    return runtime.review_service.review(revision.case_id, repository_root=root)
+
+
+def _copied(tmp_path: Path) -> Path:
+    """The fixture somewhere writable, for the tests that have to make it go stale."""
+
+    repository = tmp_path / "repository"
+    shutil.copytree(FIXTURE, repository)
+    return repository
+
+
+def _looking(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch
+) -> list[SourceInvestigator | None]:
+    """Make the workspace's reasoner one that actually uses the toolbox it is handed.
+
+    The substitute ignores the investigator — it has no model to offer tools to — so a turn
+    against it records nothing, which is correct and asserts nothing about the wiring. This
+    stands in for the half a live provider does: one lookup and a closing, through the real
+    `RepositoryInvestigator` the service builds. What is under test is everything after
+    that: whether the toolbox was built at all, and whether what it was asked reaches the
+    message that gets stored.
+
+    What comes back is the list of investigators the stage was handed, one per turn, so a
+    test can assert `None` was passed as readily as it can assert a record came out.
+    """
+
+    reasoner = runtime.review_conversation_service._reasoner  # pyright: ignore[reportPrivateUsage]
+    original = reasoner.answer_review_question
+    handed: list[SourceInvestigator | None] = []
+
+    def answer(
+        review: BoundaryReview,
+        evidence: ReviewEvidence,
+        history: list[ReviewMessage],
+        question: str,
+        knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None = None,
+    ) -> ReviewAnswer:
+        handed.append(investigator)
+        if investigator is not None:
+            investigator.call("search_source", {"query": "TaskFormatter"})
+            investigator.conclude("One module reads it.", "")
+        return original(review, evidence, history, question, knowledge)
+
+    monkeypatch.setattr(reasoner, "answer_review_question", answer)
+    return handed
 
 
 def test_a_question_is_answered_and_grounded_in_reviewed_boundaries(
@@ -105,7 +158,17 @@ def test_a_failed_turn_is_recorded_rather_than_dropped(
     monkeypatch.setattr(
         runtime.review_conversation_service,
         "_reasoner",
-        type("Refusing", (), {"answer_review_question": staticmethod(refuse)})(),
+        # The identity is part of what a reasoner is: the service asks for it when it
+        # stores what a turn looked up, and a double without one would fail this test for a
+        # reason that has nothing to do with the failed turn it is about.
+        type(
+            "Refusing",
+            (),
+            {
+                "answer_review_question": staticmethod(refuse),
+                "prompt_identity": staticmethod(lambda task: f"{task.value}:v1"),
+            },
+        )(),
     )
 
     message = runtime.review_conversation_service.ask(
@@ -208,12 +271,17 @@ def test_a_preview_never_becomes_the_stored_record(
 
     class _FailsAfterSpeaking:
         @staticmethod
+        def prompt_identity(task: object) -> str:
+            return f"{task}:v1"
+
+        @staticmethod
         def stream_review_answer(
             _review_: object,
             _evidence: object,
             _history: object,
             _question: object,
             _knowledge: object,
+            _investigator: object,
             on_prose: object,
         ) -> None:
             assert callable(on_prose)
@@ -232,6 +300,7 @@ def test_a_preview_never_becomes_the_stored_record(
             _history: object,
             _asked: object,
             _knowledge: object,
+            _investigator: object,
             _on_prose: object,
         ) -> None:
             raise AssertionError("This conversation is not about an open question")
@@ -268,6 +337,7 @@ def test_a_reasoner_that_cannot_stream_still_answers(
         """Everything a reasoner needs, minus the streaming method."""
 
         answer_review_question = staticmethod(real.answer_review_question)
+        prompt_identity = staticmethod(real.prompt_identity)
 
     monkeypatch.setattr(runtime.review_conversation_service, "_reasoner", _CannotStream())
 
@@ -407,3 +477,140 @@ def test_a_conversation_refuses_to_lose_a_concurrent_message(runtime: Runtime) -
 
     with pytest.raises(ConversationNotFoundError, match="changed while"):
         runtime.review_conversation_service._conversations.append(stale)
+
+
+def test_a_turn_that_looked_before_replying_keeps_what_it_looked_at(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The record is per message, because the looking is per message.
+
+    A reader is shown the answer and, beside it, what was asked of their repository to
+    reach it — the same disclosure the questions carry, at the grain a conversation
+    happens in. Without the contract identity the transcript cannot be compared with a
+    later one, and a prompt bump is exactly when an old record stops being comparable.
+    """
+
+    review = _review(runtime)
+    conversation = runtime.review_conversation_service.create(review.review_id)
+    _looking(runtime, monkeypatch)
+
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id,
+        "Who else reads the TaskFormatter?",
+    )
+
+    investigation = message.investigation
+    assert investigation is not None
+    assert [item.tool for item in investigation.lookups] == ["search_source"]
+    assert investigation.lookups[0].arguments == {"query": "TaskFormatter"}
+    assert investigation.closing == "One module reads it."
+    assert investigation.abandoned == ""
+    # Its own contract, not elicitation's: the two stages hold the same tools under
+    # different restraint, and a transcript filed under the wrong identity would compare
+    # cleanly against the wrong thing.
+    assert investigation.prompt_identity.startswith("investigate-for-answer:")
+
+
+def test_the_stored_message_carries_the_investigation_the_turn_ran(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Through the store, because a record that only exists in memory is not a record."""
+
+    review = _review(runtime)
+    conversation = runtime.review_conversation_service.create(review.review_id)
+    _looking(runtime, monkeypatch)
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id, "Who else reads the TaskFormatter?"
+    )
+
+    stored = runtime.review_conversation_service.show(conversation.conversation_id)
+
+    assert stored.messages[0].investigation == message.investigation
+
+
+def test_a_turn_that_failed_after_looking_keeps_the_lookups(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A turn that read the repository and then lost its model still read the repository.
+
+    The failure and the transcript are both facts about the same turn, and the transcript
+    is the only trace that anything was done at all — dropping it would show the reader an
+    empty failure where something happened.
+    """
+
+    review = _review(runtime)
+    conversation = runtime.review_conversation_service.create(review.review_id)
+    reasoner = runtime.review_conversation_service._reasoner
+
+    def look_then_fail(
+        _review: object,
+        _evidence: object,
+        _history: object,
+        _question: object,
+        _knowledge: object,
+        investigator: SourceInvestigator | None = None,
+    ) -> ReviewAnswer:
+        assert investigator is not None
+        investigator.call("search_source", {"query": "TaskFormatter"})
+        raise ProviderError("the model was unreachable")
+
+    monkeypatch.setattr(reasoner, "answer_review_question", look_then_fail)
+
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id, "Who else reads the TaskFormatter?"
+    )
+
+    assert message.answer is None
+    assert "unreachable" in message.failure
+    assert message.investigation is not None
+    assert [item.tool for item in message.investigation.lookups] == ["search_source"]
+
+
+def test_a_repository_that_has_moved_on_is_never_read(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The same freshness gate live excerpts take, and for the same reason.
+
+    Code on disk that is no longer the code these verdicts were reached against is not
+    evidence about this review. The stage answers from the pinned evidence alone, which is
+    what every provider without tools does anyway — so there is one behaviour here, not a
+    degraded one.
+    """
+
+    repository = _copied(tmp_path)
+    review = _review(runtime, repository)
+    conversation = runtime.review_conversation_service.create(review.review_id)
+    handed = _looking(runtime, monkeypatch)
+    (repository / "edited_after_the_review.py").write_text(
+        "MARKER = 1\n", encoding="utf-8"
+    )
+
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id, "Who else reads the TaskFormatter?"
+    )
+
+    assert handed == [None], "a stale repository must not be handed to a stage"
+    # And `None` is what gets stored: nothing was checked, which is a different fact from
+    # a repository that was checked and had nothing to say.
+    assert message.investigation is None
+
+
+def test_a_provider_that_cannot_look_records_no_investigation(runtime: Runtime) -> None:
+    """`None` is not "found nothing". It is "nothing here can look".
+
+    The workspace's substitute has no tool-calling transport under it, which is the
+    ordinary case for every provider without the capability. A record of no lookups and no
+    note would tell a reader the repository was checked and was silent.
+    """
+
+    review = _review(runtime)
+    conversation = runtime.review_conversation_service.create(review.review_id)
+
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id, "What did you make of the TaskFormatter boundary?"
+    )
+
+    assert message.answer is not None
+    assert message.investigation is None
+    stored = runtime.review_conversation_service.show(conversation.conversation_id)
+    assert stored.messages[0].investigation is None

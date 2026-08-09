@@ -42,8 +42,13 @@ function resultExtent(result: string): string {
 
 export function InvestigationDisclosure({
   investigation,
+  title = "What the review checked before asking",
 }: {
   investigation: RecordedInvestigation;
+  /** The fold's own line. The default fits a run's record; an answer's record says what
+      the answer checked, because the checking there belongs to one reply and not to the
+      review. */
+  title?: string;
 }) {
   const lookups = investigation.lookups ?? [];
   const closing = (investigation.closing ?? "").trim();
@@ -63,7 +68,7 @@ export function InvestigationDisclosure({
         )}
       >
         <FileSearch aria-hidden className="size-[14px] flex-none self-center text-ink-3" />
-        <span className="font-semibold">What the review checked before asking</span>
+        <span className="font-semibold">{title}</span>
         <span className="text-meta text-ink-3">
           {lookups.length} lookup{lookups.length === 1 ? "" : "s"}
           {abandoned ? " · cut short" : ""}
@@ -80,7 +85,7 @@ export function InvestigationDisclosure({
         {lookups.map((item, index) => (
           <li key={`${item.tool}-${index}`}>
             <p className="m-0 mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-meta">
-              <code className="text-meta text-ink-2">{callLabel(item)}</code>
+              <code className="text-meta text-ink-2 [overflow-wrap:anywhere]">{callLabel(item)}</code>
               <span className="text-meta text-ink-3">
                 {resultExtent(item.result ?? "")}
               </span>
@@ -92,7 +97,7 @@ export function InvestigationDisclosure({
         ))}
       </ul>
       {closing ? (
-        <p className="m-0 mt-3 max-w-[78ch] text-ui leading-[1.55] text-ink-2">
+        <p className="m-0 mt-3 max-w-[78ch] text-ui leading-[1.55] text-ink-2 [overflow-wrap:anywhere]">
           {closing}
         </p>
       ) : null}
@@ -100,6 +105,7 @@ export function InvestigationDisclosure({
         <p
           className={cn(
             "m-0 mt-3 max-w-[78ch] rounded-control border border-dashed border-rule",
+            "[overflow-wrap:anywhere]",
             "px-3 py-2 text-ui leading-[1.55] text-ink-3",
           )}
         >

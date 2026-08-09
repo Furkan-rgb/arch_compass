@@ -262,6 +262,7 @@ def build_runtime(
         reasoner=reasoning,
         policies=policy_service,
         source=review_source_service,
+        source_reader=source_reader,
         method_primer=load_method_primer(),
     )
     review_service = ReviewService(

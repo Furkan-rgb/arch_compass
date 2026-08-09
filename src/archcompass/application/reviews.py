@@ -43,7 +43,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
 
-from archcompass.application.investigation import RepositoryInvestigator
+from archcompass.application.investigation import (
+    RepositoryInvestigator,
+    recorded_investigation,
+)
 from archcompass.application.policies import PolicyService
 from archcompass.application.review_rendering import render_report
 from archcompass.application.review_source import ReviewSourceService
@@ -73,7 +76,6 @@ from archcompass.domain.review import (
     BoundaryReview,
     BoundaryReviewReport,
     CandidateVerdict,
-    InvestigationLookup,
     JudgedBoundary,
     RecordedInvestigation,
     ReviewedBoundary,
@@ -1016,7 +1018,10 @@ class ReviewService:
                 judged,
                 investigator,
             )
-            investigation = self._recorded(investigator)
+            investigation = recorded_investigation(
+                investigator,
+                self._reasoner.prompt_identity(ReasoningTask.INVESTIGATE_USAGE),
+            )
             if questions:
                 # The run stops here, and the record says so. Nothing further is worth
                 # composing: these verdicts are what the case supports so far, and four of
@@ -1034,41 +1039,6 @@ class ReviewService:
             ReviewStatus.SUCCEEDED,
             self._reasoner.summarise_review(revision.snapshot, boundaries),
             investigation,
-        )
-
-    def _recorded(
-        self, investigator: RepositoryInvestigator
-    ) -> RecordedInvestigation | None:
-        """The toolbox's transcript as a stored record, or nothing worth storing.
-
-        Nothing worth storing is the common case and it is `None` rather than an empty
-        record: most providers cannot offer tools, so their investigator is handed over and
-        never touched, and a document saying "no lookups, no reason" would tell every later
-        reader that this repository was checked and had nothing to say. An abandonment with
-        no lookups is the opposite — it is exactly the state worth keeping — so it is the
-        second thing that makes a record.
-
-        The identity is read here rather than carried through the loop because it is the
-        application's fact about the run, not the model's: it says which investigate-usage
-        contract this transcript can be compared against.
-        """
-
-        if not investigator.transcript and not investigator.abandoned:
-            return None
-        return RecordedInvestigation(
-            lookups=[
-                InvestigationLookup(
-                    tool=item.tool,
-                    arguments=dict(item.arguments),
-                    result=item.result,
-                )
-                for item in investigator.transcript
-            ],
-            closing=investigator.closing,
-            abandoned=investigator.abandoned,
-            prompt_identity=self._reasoner.prompt_identity(
-                ReasoningTask.INVESTIGATE_USAGE
-            ),
         )
 
     def _stop_if_cancelled(self, review_id: str) -> None:

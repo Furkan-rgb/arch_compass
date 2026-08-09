@@ -76,6 +76,7 @@ class DeterministicReasoningProvider:
     _PROMPTS: ClassVar[dict[ReasoningTask, str]] = {
         ReasoningTask.JUDGE_FINDING_CANDIDATE: "judge-finding-candidate:v4",
         ReasoningTask.INVESTIGATE_USAGE: "investigate-usage:v1",
+        ReasoningTask.INVESTIGATE_FOR_ANSWER: "investigate-for-answer:v1",
         ReasoningTask.ELICIT_QUESTIONS: "elicit-questions:v1",
         ReasoningTask.SUMMARISE_REVIEW: "summarise-review:v3",
         ReasoningTask.ANSWER_REVIEW_QUESTION: "answer-review-question:v1",
@@ -337,6 +338,7 @@ class DeterministicReasoningProvider:
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None,
         on_prose: Callable[[str], None],
     ) -> ReviewAnswer:
         """The same answer, handed over a word at a time.
@@ -351,7 +353,9 @@ class DeterministicReasoningProvider:
         without pretending to imitate how any particular provider chunks its output.
         """
 
-        answer = self.answer_review_question(review, evidence, history, question, knowledge)
+        answer = self.answer_review_question(
+            review, evidence, history, question, knowledge, investigator
+        )
         for index, word in enumerate(answer.answer.split(" ")):
             on_prose(word if index == 0 else f" {word}")
         return answer
@@ -363,7 +367,12 @@ class DeterministicReasoningProvider:
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None = None,
     ) -> ReviewAnswer:
+        # Accepted and never used, for the reason `elicit_questions` never uses it: there is
+        # no model here to offer tools to, and a substitute that read the repository would
+        # answer differently depending on which repository it was pointed at.
+        del investigator
         report = review.report
         if report is None:
             raise ValueError("A review without a report cannot be questioned")
@@ -428,10 +437,11 @@ class DeterministicReasoningProvider:
         history: list[ReviewMessage],
         asked: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None,
         on_prose: Callable[[str], None],
     ) -> ReviewAnswer:
         answer = self.discuss_open_question(
-            review, evidence, question, history, asked, knowledge
+            review, evidence, question, history, asked, knowledge, investigator
         )
         for index, word in enumerate(answer.answer.split(" ")):
             on_prose(word if index == 0 else f" {word}")
@@ -445,7 +455,9 @@ class DeterministicReasoningProvider:
         history: list[ReviewMessage],
         asked: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None = None,
     ) -> ReviewAnswer:
+        del investigator
         report = review.report
         if report is None:
             raise ValueError("A review without a report cannot be discussed")

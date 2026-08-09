@@ -25,6 +25,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+from archcompass.application.investigation import (
+    RepositoryInvestigator,
+    recorded_investigation,
+)
 from archcompass.application.policies import PolicyService
 from archcompass.application.review_source import MAX_CONTEXT_LINES, ReviewSourceService
 from archcompass.domain.case import AnsweredQuestions
@@ -39,6 +43,7 @@ from archcompass.domain.review import (
     AnsweredQuestion,
     BoundaryReview,
     OpenQuestion,
+    RecordedInvestigation,
     ReviewEvidence,
     ReviewStatus,
 )
@@ -48,7 +53,12 @@ from archcompass.domain.review_conversation import (
     ReviewConversation,
     ReviewMessage,
 )
-from archcompass.ports.reasoning import FocusedReasoningProvider, StreamingAnswerReasoner
+from archcompass.ports.atlas import SourceReader
+from archcompass.ports.reasoning import (
+    FocusedReasoningProvider,
+    ReasoningTask,
+    StreamingAnswerReasoner,
+)
 from archcompass.ports.repositories import (
     BoundaryReviewRepository,
     CaseRepository,
@@ -66,6 +76,7 @@ class ReviewConversationService:
         reasoner: FocusedReasoningProvider,
         policies: PolicyService,
         source: ReviewSourceService,
+        source_reader: SourceReader,
         method_primer: str,
     ) -> None:
         self._reviews = reviews
@@ -74,6 +85,10 @@ class ReviewConversationService:
         self._reasoner = reasoner
         self._policies = policies
         self._source = source
+        # The same reader every excerpt goes through, injected here for the same reason
+        # `ReviewService` takes one: a toolbox reads files, and path traversal is refused by
+        # machinery that already exists rather than by a second check written beside it.
+        self._source_reader = source_reader
         self._method_primer = method_primer
 
     def create(
@@ -163,22 +178,29 @@ class ReviewConversationService:
         review = self._load(
             conversation.review_id, about_question=conversation.question_reference
         )
+        investigator = self._investigator(review)
         try:
-            answer = self._answer(review, conversation, text, on_prose)
+            answer = self._answer(review, conversation, text, on_prose, investigator)
         except ProviderError as error:
             # The failed turn is appended rather than dropped. A question that produced
             # nothing is part of the history a reader needs to make sense of what follows,
             # and silently discarding it makes the conversation look like it was never asked.
+            #
+            # And it keeps whatever was looked up before it failed. A turn that read the
+            # repository and then lost its model still read the repository, and those
+            # lookups are the only trace that anything happened at all.
             message = ReviewMessage(
                 ordinal=conversation.next_ordinal,
                 question=text,
                 failure=str(error),
+                investigation=self._investigation(investigator),
             )
         else:
             message = ReviewMessage(
                 ordinal=conversation.next_ordinal,
                 question=text,
                 answer=answer,
+                investigation=self._investigation(investigator),
             )
         appended = conversation.model_copy(
             update={"messages": [*conversation.messages, message]}
@@ -186,12 +208,56 @@ class ReviewConversationService:
         self._conversations.append(appended)
         return message
 
+    def _investigator(self, review: BoundaryReview) -> RepositoryInvestigator | None:
+        """A toolbox over this review's repository, where the repository is still it.
+
+        The gate is the one live excerpt-widening already takes, and it is the same question:
+        is the code on disk the code these verdicts were reached against? Where it is not —
+        the atlas is gone, the checkout has moved on, the directory was deleted — the stage
+        answers from the pinned evidence alone rather than from a repository nobody judged.
+        That is why the investigator itself has no freshness logic: this is the one place the
+        question is asked, and a lookup mid-investigation could only answer it by abandoning
+        the whole thing.
+
+        **A question-scoped discussion gets one too, unscoped, while its verdicts stay
+        withheld.** Those look contradictory and are not. The scoping rule exists so that a
+        first pass's held verdicts cannot reach a reader through a side door, and a verdict
+        is not in the repository: it is a judgement this run made, stored with the review.
+        Source text cannot leak one. So the boundaries shown stay narrow — that is what the
+        rule is about — while the searching may go as wide as the repository, because
+        everything it can find is code the reader already owns.
+        """
+
+        root, _ = self._source.readable_root(review)
+        if root is None:
+            return None
+        return RepositoryInvestigator(root=root, source_reader=self._source_reader)
+
+    def _investigation(
+        self, investigator: RepositoryInvestigator | None
+    ) -> RecordedInvestigation | None:
+        """What this turn looked up, as the record stored on the message.
+
+        `None` from both directions and they mean the same thing to a reader: nothing here
+        could look, or nothing here did. A record is written only where something was
+        actually asked of the repository or where the looking broke off — the same rule the
+        review-level record follows, because it is the same function.
+        """
+
+        if investigator is None:
+            return None
+        return recorded_investigation(
+            investigator,
+            self._reasoner.prompt_identity(ReasoningTask.INVESTIGATE_FOR_ANSWER),
+        )
+
     def _answer(
         self,
         review: BoundaryReview,
         conversation: ReviewConversation,
         question: str,
         on_prose: Callable[[str], None] | None,
+        investigator: RepositoryInvestigator | None,
     ) -> ReviewAnswer:
         """Take the streaming route only where both the caller and the reasoner offer it.
 
@@ -219,18 +285,31 @@ class ReviewConversationService:
                     conversation.messages,
                     question,
                     background,
+                    investigator,
                     on_prose,
                 )
             return self._reasoner.discuss_open_question(
-                review, evidence, about, conversation.messages, question, background
+                review,
+                evidence,
+                about,
+                conversation.messages,
+                question,
+                background,
+                investigator,
             )
         evidence = self._evidence(review, about_question=None)
         if on_prose is not None and isinstance(self._reasoner, StreamingAnswerReasoner):
             return self._reasoner.stream_review_answer(
-                review, evidence, conversation.messages, question, background, on_prose
+                review,
+                evidence,
+                conversation.messages,
+                question,
+                background,
+                investigator,
+                on_prose,
             )
         return self._reasoner.answer_review_question(
-            review, evidence, conversation.messages, question, background
+            review, evidence, conversation.messages, question, background, investigator
         )
 
     def _evidence(

@@ -867,6 +867,11 @@ def test_only_the_opening_turn_is_forced_to_look() -> None:
     as optional. So the first turn rides with the vendor's must-call mode, and every turn
     after it is the model's own judgement — a forced call on the last turn would be a loop
     that cannot end.
+
+    Elicitation and nowhere else, now that the loop serves the conversation stages too. This
+    stage runs once per review and it is the one where "asked without looking" is the defect;
+    a conversation turn runs once per message and is not forced, which
+    `test_chat_investigation` pins from the other side.
     """
 
     investigator = _Investigator({"search_source": "audio/sink.py:12: one line"})

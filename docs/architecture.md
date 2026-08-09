@@ -380,9 +380,19 @@ direction:
   rather than loosening who chooses. A detector picks the spans, the application reads them,
   and the stage has no way to ask for a line that is not among them — which is what lets
   somebody who was not there check the verdict.
-- **Investigating before asking is model-driven and recorded.** Only elicitation holds the
-  toolbox (`application/investigation.py`), and every lookup travels with what it produced,
-  so a question can be traced to what was asked of the repository and what came back.
+- **Investigating before speaking is model-driven and recorded.** Elicitation holds the
+  toolbox (`application/investigation.py`), and so do the two conversation stages, which have
+  the same defect for the same reason: a reader asking "where else is this used?" is asking
+  about the repository, and pinned excerpts cannot answer it. Every lookup travels with what
+  it produced — on the review for the questions, on the message for a turn — so a question or
+  an answer can be traced to what was asked of the repository and what came back. Only the
+  first turn of an elicitation is forced to look; a conversation turn is usually about text
+  already in front of it, and looking there is a judgement rather than a rule.
+- **A question-scoped discussion searches wide while its verdicts stay narrow**, which is not
+  a hole in §6C.7's scoping. That rule keeps a first pass's withheld verdicts out of the
+  input; a verdict is a judgement this run made and stored with the review, so no amount of
+  source text can leak one. The boundaries shown stay the ones the question cites; the
+  repository the lookups may reach is the reader's own code.
 - **Judging remains tool-free**, deliberately and with a test that says so. Showing a stage
   code is the opposite of letting it go looking for code.
 

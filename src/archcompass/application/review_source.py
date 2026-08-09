@@ -375,7 +375,7 @@ class ReviewSourceService:
         boundaries: list[ReviewedBoundary],
         context: int,
     ) -> list[BoundaryExcerpt]:
-        root, refusal = self._readable_root(review)
+        root, refusal = self.readable_root(review)
         return [
             excerpt
             for boundary in boundaries
@@ -550,12 +550,23 @@ class ReviewSourceService:
             unavailable=reason,
         )
 
-    def _readable_root(self, review: BoundaryReview) -> tuple[Path | None, str]:
+    def readable_root(self, review: BoundaryReview) -> tuple[Path | None, str]:
         """The repository this review judged, if it is still the one that was judged.
 
         Freshness is checked once for the whole request rather than per participant: it is a
         property of the repository against the pinned atlas, and asking it eight times would
         give eight chances to answer differently mid-page.
+
+        Public because every path that hands a model live source goes through this one
+        freshness answer, and there is now more than one of them: excerpts are widened from
+        here, and the conversation service builds a toolbox only where this yields a root. A
+        second way to decide "is the code on disk the code that was judged" is a second way
+        to get it wrong, and the way it goes wrong is a stage reading a repository that has
+        moved on and reporting what it read as what the review saw.
+
+        A refusal comes back as a sentence rather than as a bare `None`, because the two
+        callers do different things with it: one captions an excerpt with it, the other
+        simply does not look. Neither has to reconstruct why.
         """
 
         try:

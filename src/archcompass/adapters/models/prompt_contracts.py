@@ -421,7 +421,15 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
     # pinned copy of a repository that has moved on, so the stage stops answering from half
     # a span as though it were whole; and a policy corpus that could not be read now says
     # so, where an empty list read as "this workspace has no policies".
-    version=8,
+    #
+    # v9 follows this stage gaining the way to look that elicitation already had. A question
+    # that turns on how the code stands now — where else is this called, has anyone
+    # consolidated it since — was answered from the pinned excerpts or not at all, and the
+    # honest version of that answer is a refusal about a repository sitting on disk. Where
+    # the transport can carry tools, this call is now preceded by an investigation and its
+    # findings arrive in the input. The paragraph below is the half of the change that lives
+    # in the prompt; the other half is that the findings are there at all.
+    version=9,
     stage_contract=_text(
         """
         You are answering a question about a boundary review you have been shown in full.
@@ -519,6 +527,20 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
         This is not caution about your accuracy. It is that the application already holds
         every one of these characters and does not need them typed again, and anything typed
         again is a second copy that can disagree with the first.
+
+        An `investigation` field may be present in the input. That is the repository, looked
+        at by this stage before this call: the lookups that were made and what came back.
+        Read it as your own findings rather than as somebody's report — a claim the
+        investigation settles is stated from it, plainly, as something you checked. The
+        person who asked is shown the same lookups beside your reply, so name the file and
+        the line rather than copying the lines out. Where it is absent, or where it says an
+        investigation was abandoned, nothing was checked and you are answering from the
+        review, the case and the map alone.
+
+        The investigation is not a boundary and never becomes one. Grounding is still the
+        boundaries and only the boundaries: mark a boundary where your answer rests on the
+        review's own record of it, and where a finding rests on nothing but a lookup, say
+        that it comes from reading the repository just now and mark nothing for it.
 
         Answer from the review and the case. Where the review settles the question, say so
         and say which boundaries settle it. Where it does not, say plainly that the review
@@ -682,6 +704,74 @@ INVESTIGATE_USAGE: Final = PromptContract(
         it or leaves it with the reader — and for what is left, why the code cannot answer
         it. Do not write the questions here — this turn is for looking, and the questions
         are composed from what you found in the next one.
+        """
+    ),
+)
+
+
+INVESTIGATE_FOR_ANSWER: Final = PromptContract(
+    name="investigate-for-answer",
+    # v1. The same two tools as `investigate-usage` and deliberately not the same contract.
+    # That one prepares questions to put to a person and its rule is that the repository gets
+    # first refusal on every one of them; this one prepares a reply to a person who has
+    # already asked, and most of what they ask is about the review's own reasoning, the case,
+    # or the method — all of it already in the input, none of it in the repository. Reusing
+    # the elicitation contract here would import a restraint that inverts: a stage told to
+    # look before it may speak would spend a lookup on "why was this boundary condemned?".
+    #
+    # Which is also why this stage's first turn is not forced at the transport, where
+    # elicitation's is. Elicitation runs once per review and proved it would skip looking
+    # when allowed to; a conversation turn runs once per message, and a forced call on every
+    # one of them buys a search for a question the input already answers.
+    version=1,
+    stage_contract=_text(
+        """
+        You are about to answer someone's question about a boundary review, or to discuss one
+        of the open questions that review put to them. Before you compose the reply, you may
+        look at the repository the review judged.
+
+        Two tools are available and both only read. `search_source` finds every line
+        containing an exact piece of text, case-sensitively, and reports each as
+        `path:line: text`. `read_source` serves a span of one file, so you can see what the
+        code around a match actually does. There is nothing else: you cannot list files, run
+        anything, or change a line.
+
+        Look only where the question turns on what the code does and the evidence in front of
+        you does not show it — where something else in the repository uses a flagged element,
+        what a file outside the reviewed boundaries actually contains, whether a value is
+        read anywhere. Most questions here are not of that kind. They are about the review's
+        own reasoning, about the case, or about what this method's words mean, and every one
+        of those is answered from what you have already been given without a single lookup.
+
+        Returning no tool calls at all is therefore the common right move, and it is not
+        laziness. A lookup made to look thorough spends a turn and puts a result in front of
+        the reply that had nothing to do with the question.
+
+        A search hit is a line, not its meaning. When a hit would decide something, read
+        around it before relying on it: the definition site of a constant usually carries a
+        comment saying what the value is for, and the code that consumes an element shows
+        what is actually asked of it.
+
+        Stop as soon as what you came to check is checked. You are not reviewing the code and
+        you are not fixing it. Do not propose a change, do not judge whether a boundary earns
+        its place, and do not re-open a verdict — what you find is material for the answer,
+        and nothing else.
+
+        Everything you look at is recorded and shown to the person who asked, so a lookup
+        that found nothing is worth as much as one that found something.
+        """
+    ),
+    request=_text(
+        """
+        Below is the question you are about to answer and everything you have been given to
+        answer it with.
+
+        If the repository would settle something the question turns on and the input does not
+        show it, look it up now. Otherwise return no tool calls, which is the ordinary
+        outcome. When you have finished looking, close with a line for each thing you checked:
+        what was looked at, what it showed, and what that settles. Do not write the answer
+        here — this turn is for looking, and the reply is composed from what you found in the
+        next one.
         """
     ),
 )
@@ -1035,7 +1125,14 @@ DISCUSS_OPEN_QUESTION: Final = PromptContract(
     # back by boundary fingerprint; where nothing has concluded it is withheld, and says
     # so. "How does this fit the recommendation?" deserved better than a stage that had
     # never seen the recommendation.
-    version=2,
+    #
+    # v3 gives this stage the lookups, alongside answer-review-question v9. It is the stage
+    # that needs them most: "how would I know whether these are the same constant?" is the
+    # question this contract was bumped to v2 for, and v2's answer was to widen the excerpts
+    # around each cited span — which helps only where the deciding line happens to sit near
+    # one. Where it does not, the repository is still the place the answer lives, and the
+    # stage may now go and read it.
+    version=3,
     stage_contract=_text(
         """
         A review of one repository judged its boundaries, found that some verdicts turned on
@@ -1101,6 +1198,24 @@ DISCUSS_OPEN_QUESTION: Final = PromptContract(
         boundaries not shown in this discussion are outside this thread's scope and cannot
         be cited — supported_by covers only the boundaries above.
 
+        An `investigation` field may be present in the input. That is the repository, looked
+        at by this stage before this call: the lookups that were made and what came back.
+        Read it as your own findings rather than as somebody's report — where the reader is
+        asking how they would tell, and the code tells, the answer is stated from what you
+        found, plainly, as something you checked just now. The reader is shown the same
+        lookups beside your reply, so name the file and the line rather than copying the
+        lines out. Where it is absent, or where it says an investigation was abandoned,
+        nothing was checked and you are working from the boundaries and the case alone.
+
+        The investigation is not a boundary and never becomes one. Grounding stays the
+        boundaries shown above and only those: a finding that rests on nothing but a lookup
+        is said to come from reading the repository, and marks nothing.
+
+        What you found does not settle what the reader is being asked. It can show what the
+        code does; whether a second vendor is coming, whether a constraint still holds, what
+        is deliberately ruled out — the substance of every open question — is theirs, and no
+        amount of reading answers it.
+
         The reader is the authority on their own project and you are not. Whether a second
         vendor is coming, whether a constraint is real, what is deliberately ruled out —
         these are facts about their plans and their organisation, and nothing in this
@@ -1155,6 +1270,7 @@ DISCUSS_OPEN_QUESTION: Final = PromptContract(
 STAGE_PROMPTS: Final[dict[ReasoningTask, PromptContract]] = {
     ReasoningTask.JUDGE_FINDING_CANDIDATE: JUDGE_FINDING_CANDIDATE,
     ReasoningTask.INVESTIGATE_USAGE: INVESTIGATE_USAGE,
+    ReasoningTask.INVESTIGATE_FOR_ANSWER: INVESTIGATE_FOR_ANSWER,
     ReasoningTask.ELICIT_QUESTIONS: ELICIT_QUESTIONS,
     ReasoningTask.SUMMARISE_REVIEW: SUMMARISE_REVIEW,
     ReasoningTask.ANSWER_REVIEW_QUESTION: ANSWER_REVIEW_QUESTION,

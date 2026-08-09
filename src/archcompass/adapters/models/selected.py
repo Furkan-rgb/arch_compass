@@ -160,10 +160,11 @@ class SelectedModelReasoner:
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None = None,
     ) -> ReviewAnswer:
         return self._run(
             lambda reasoner: reasoner.answer_review_question(
-                review, evidence, history, question, knowledge
+                review, evidence, history, question, knowledge, investigator
             )
         )
 
@@ -175,10 +176,11 @@ class SelectedModelReasoner:
         history: list[ReviewMessage],
         asked: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None = None,
     ) -> ReviewAnswer:
         return self._run(
             lambda reasoner: reasoner.discuss_open_question(
-                review, evidence, question, history, asked, knowledge
+                review, evidence, question, history, asked, knowledge, investigator
             )
         )
 
@@ -189,11 +191,12 @@ class SelectedModelReasoner:
         history: list[ReviewMessage],
         question: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None,
         on_prose: Callable[[str], None],
     ) -> ReviewAnswer:
         return self._run(
             lambda reasoner: _streaming(reasoner).stream_review_answer(
-                review, evidence, history, question, knowledge, on_prose
+                review, evidence, history, question, knowledge, investigator, on_prose
             )
         )
 
@@ -205,11 +208,12 @@ class SelectedModelReasoner:
         history: list[ReviewMessage],
         asked: str,
         knowledge: MethodKnowledge,
+        investigator: SourceInvestigator | None,
         on_prose: Callable[[str], None],
     ) -> ReviewAnswer:
         return self._run(
             lambda reasoner: _streaming(reasoner).stream_open_question_discussion(
-                review, evidence, question, history, asked, knowledge, on_prose
+                review, evidence, question, history, asked, knowledge, investigator, on_prose
             )
         )
 

@@ -505,6 +505,64 @@ def test_a_discussion_never_sees_a_verdict_its_question_does_not_cite(
     assert set(message.answer.supporting_references) <= cited
 
 
+def test_a_withheld_review_still_lets_its_discussion_read_the_repository(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Narrow boundaries and a wide toolbox, which is not the contradiction it looks like.
+
+    The scoping rule above keeps a first pass's held verdicts out of the input. A verdict is
+    a judgement this run made and stored with the review — it is not in the repository, and
+    no amount of source text can leak one. So the boundaries shown stay the ones the
+    question cites, while the searching may go as wide as the reader's own code, which is
+    the whole point: "how would I know whether these are the same constant?" is answered by
+    what the repository does with them.
+    """
+
+    review_id, references = _waiting(runtime)
+    conversation = runtime.review_conversation_service.create(
+        review_id, question_reference=references[0]
+    )
+    reasoner = runtime.review_conversation_service._reasoner  # pyright: ignore[reportPrivateUsage]
+    original = reasoner.discuss_open_question
+    handed: list[SourceInvestigator | None] = []
+
+    def discuss(
+        review: object,
+        evidence: object,
+        question: object,
+        history: object,
+        asked: str,
+        knowledge: object,
+        investigator: SourceInvestigator | None = None,
+    ) -> object:
+        handed.append(investigator)
+        if investigator is not None:
+            investigator.call("search_source", {"query": "RETRY_LIMIT"})
+            investigator.conclude("Both copies feed the same client.", "")
+        return original(review, evidence, question, history, asked, knowledge)
+
+    monkeypatch.setattr(reasoner, "discuss_open_question", discuss)
+
+    message = runtime.review_conversation_service.ask(
+        conversation.conversation_id, "How would I tell whether these are the same fact?"
+    )
+
+    assert handed and handed[0] is not None, "a waiting review's discussion may still look"
+    investigation = message.investigation
+    assert investigation is not None
+    assert [item.tool for item in investigation.lookups] == ["search_source"]
+    assert investigation.prompt_identity.startswith("investigate-for-answer:")
+    # And the scope that makes the stage safe to run at all is untouched by the toolbox.
+    assert message.answer is not None
+    stored = runtime.review_repository.get(review_id)
+    report = stored.report
+    assert report is not None
+    cited = next(
+        item for item in report.overview.open_questions if item.reference == references[0]
+    ).supporting_references
+    assert set(message.answer.supporting_references) <= set(cited)
+
+
 def test_a_reference_the_review_never_asked_is_refused(runtime: Runtime) -> None:
     """`Q-n` is the application's own identifier, so the application resolves it (§12.0)."""
 
