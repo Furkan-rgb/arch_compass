@@ -1,5 +1,10 @@
 # Architecture
 
+> A rendered whole-system tour — layers, the review spine, the evidence doctrine, the
+> fingerprint algebra, deployment modes, and an honest ledger of what is half-built —
+> lives at [`system-tour.html`](system-tour.html) (open it in a browser). It is a dated
+> snapshot read from the code, not a living document: regenerate it when it drifts.
+
 This file carries two things: the settled reference (dependency direction and information
 flow, further down), and — first — whatever is currently *under discussion*. The working
 rule: when a flow feels wrong, the reasoning lands here before any code changes. What is
