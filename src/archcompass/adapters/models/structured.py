@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import (
     Annotated,
@@ -57,6 +57,7 @@ from archcompass.domain.review import (
     VerdictHinge,
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
+from archcompass.ports.investigation import RecordedLookup, SourceInvestigator, ToolSpec
 from archcompass.ports.reasoning import ReasoningTask, StreamingAnswerReasoner
 
 Item = TypeVar("Item", bound=BaseModel)
@@ -64,6 +65,24 @@ Item = TypeVar("Item", bound=BaseModel)
 #: One turn of the conversation sent to a model, in the role/content form every chat
 #: API accepts. A transport reshapes it into whatever its own SDK wants.
 ChatMessage = dict[str, str]
+
+#: How many rounds of tool calling one investigation may take before the stage has to ask
+#: with what it has. Six is enough for a search, two reads and a check, which is the shape
+#: the three worthwhile lookups take; past that a stage is browsing, and the failure a cap
+#: prevents is not expense but an investigation that never terminates in front of a reader
+#: watching a review run. The cap is spent without a further model call: a turn the loop
+#: would not act on is a request nobody reads.
+MAX_INVESTIGATION_TURNS = 6
+
+#: The ceiling on what a whole investigation may hand the asking stage, in characters across
+#: every recorded result. The per-result clamp bounds one answer and the turn cap bounds the
+#: conversation's length, but neither bounds their product: a model may put several calls in
+#: one turn, and six turns of many clamped results could still swell the elicitation request
+#: until the budget guard refuses it — failing a stage whose worst permitted outcome is to
+#: ask the way it always asked. Findings gathered before the ceiling are kept and said to be
+#: cut short; five clamped results fit under it, which is more than any investigation worth
+#: reading has needed.
+MAX_INVESTIGATION_CHARACTERS = 20_000
 
 #: Reasoning-effort control: off, on, or an explicit level. Named after Ollama's
 #: `think` parameter because that is where it was first needed; a transport whose
@@ -672,6 +691,157 @@ class StreamingChatTransport(Protocol):
     ) -> Iterator[str]: ...
 
 
+@dataclass(frozen=True)
+class ToolCall:
+    """One tool a model asked for, as it asked for it.
+
+    The arguments are carried as they arrived rather than validated here. Whether they make
+    sense is the investigator's question, and it answers it in text the model reads — a
+    transport that refused a malformed call would turn a model's bad guess into a failed
+    stage.
+    """
+
+    name: str
+    arguments: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class ToolExchange:
+    """One turn of an investigation: what the model said, and what it wants looked up.
+
+    An empty `calls` is the terminating answer and the only one — the model saying it has
+    seen enough. There is no separate "done" signal, because a model that has to remember to
+    send one will eventually forget, and a turn with neither text nor calls would then hang
+    the loop rather than end it.
+    """
+
+    #: Assistant prose, often empty. A model with tools to call frequently calls them
+    #: without saying anything first, and that is not a defect worth prompting away.
+    text: str
+    calls: tuple[ToolCall, ...]
+    #: Whatever the transport that produced this turn needs handed back when the turn is
+    #: replayed, in whatever shape that vendor's SDK holds it. Written and read only there:
+    #: nothing above the transport boundary may look inside it, compare it, or store it, and
+    #: the loop that carries it from here onto the replayed turn is a courier rather than a
+    #: reader. `None` is the ordinary value — a vendor with nothing to hand back, a fake, a
+    #: transport written before any of this existed — and every path stays correct for it.
+    vendor_state: object | None = None
+
+
+@dataclass(frozen=True)
+class AssistantToolTurn:
+    """The model's own turn, replayed to it, with the calls it made attached.
+
+    Replayed rather than summarised: a vendor that receives tool results without the calls
+    they answer has no way to pair them, and pairing is positional — result *n* answers call
+    *n* of the turn before it.
+    """
+
+    text: str
+    calls: tuple[ToolCall, ...]
+    #: The `ToolExchange.vendor_state` this turn was built from, carried back down to the
+    #: transport that wrote it. Gemini's 3-series is the reason it exists: it attaches a
+    #: thought signature to a function call and expects that signature returned with the
+    #: history, and a turn rebuilt from `text` and `calls` alone is a turn with the signature
+    #: stripped off. Provider-neutral dataclasses are the wrong place to hold a vendor's
+    #: private token, so this holds it without describing it — opaque here, meaningful only
+    #: where it came from, and never persisted with the review.
+    vendor_state: object | None = None
+
+
+@dataclass(frozen=True)
+class ToolResultTurn:
+    """What one tool answered, on its way back to the model.
+
+    `call_name` rather than a call id, because the pairing is by position and the name is
+    there for the vendors whose wire format asks for one. Two calls of the same tool in one
+    turn are therefore distinguished by their order and by nothing else, which is exactly
+    how they were sent.
+    """
+
+    call_name: str
+    content: str
+
+
+#: One turn of an investigation, in either direction. A closed union rather than a widened
+#: `ChatMessage`, because a tool result is not a role and a call is not text: encoding them
+#: as prose would leave every transport parsing its own history back out of strings.
+InvestigationMessage = ChatMessage | AssistantToolTurn | ToolResultTurn
+
+
+@runtime_checkable
+class ToolCallingChatTransport(Protocol):
+    """A transport that can also let a model call tools before it answers.
+
+    Separate from `ChatTransport` and checked with `isinstance`, exactly as streaming is: a
+    vendor either has a function-calling API or does not, and a transport without one omits
+    the method while every stage goes on working — asking from pinned evidence alone, which
+    is what every stage did before this existed. Putting `complete_with_tools` on
+    `ChatTransport` would instead make every transport claim the capability and raise when
+    it was used.
+
+    That check is by name only. `runtime_checkable` compares which methods exist and nothing
+    about their signatures, and a transport is held as a `ChatTransport`, which says nothing
+    about tools — so a drifted `complete_with_tools` would pass `isinstance` and fail on the
+    call. Every transport that can do this therefore states its conformance to this protocol
+    where it is defined.
+
+    No response schema on these requests, deliberately. An investigation is unconstrained
+    text plus tool calls; the strict-schema call that composes the questions is unchanged
+    and happens afterwards, so nothing about what a stage may *return* is loosened by this.
+
+    `require_call` asks the vendor to constrain the reply to a tool call, where the API has
+    such a mode (Gemini spells it function-calling mode ANY). The loop sets it on the first
+    turn only: a prompt alone proved too weak an instruction for a small model, which spent
+    its permission not to look exactly as written — and a stage that looked at nothing
+    cannot tell the asking stage what was checked. Every later turn is the model's own
+    judgement, because a forced call on the last turn would be a loop that cannot end.
+    """
+
+    def complete_with_tools(
+        self,
+        messages: list[InvestigationMessage],
+        *,
+        tools: Sequence[ToolSpec],
+        require_call: bool,
+        task: ReasoningTask,
+        think: ThinkLevel,
+        temperature: float | None,
+    ) -> ToolExchange: ...
+
+
+def _rendered_investigation(
+    transcript: Sequence[RecordedLookup],
+    closing: str,
+    abandoned: str,
+) -> str:
+    """What was looked up and what came back, as one block of text for the next stage.
+
+    Rendered from the record rather than from the conversation, so what the asking stage
+    reads is what a reader of this review could be shown: the call as it was made, with its
+    arguments in the codebase's one canonical form, and the answer underneath it. Nothing is
+    summarised — a lookup that found nothing is printed saying so, because "checked and
+    empty" and "never checked" are opposite facts about a question.
+
+    Empty when nothing happened at all, which is the signal the caller reads: no key is
+    added, and the stage is told nothing rather than told that an investigation found
+    nothing.
+    """
+
+    blocks = [
+        f"{item.tool}({canonical_json(dict(item.arguments))})\n{item.result}"
+        for item in transcript
+    ]
+    if closing:
+        blocks.append(closing)
+    if abandoned:
+        # Named where the findings are, not logged away from them. A stage shown two results
+        # and no note would take them for the whole of what could be found, and ask its
+        # questions as though the repository had been read.
+        blocks.append(f"investigation abandoned: {abandoned}")
+    return "\n\n".join(blocks)
+
+
 def _accumulated(chunks: Iterable[str], preview: ProsePreview) -> str:
     """Join a streamed reply, reporting each new fragment of the previewed field.
 
@@ -737,6 +907,7 @@ class StructuredReasoningProvider:
         case: ArchitectureCase,
         candidate: FindingCandidate,
         policies: list[PolicyDocument],
+        excerpts: list[BoundaryExcerpt] | None = None,
     ) -> CandidateVerdict:
         expected = len(policies)
         proposed = self._complete(
@@ -744,6 +915,16 @@ class StructuredReasoningProvider:
             {
                 "case": case.model_dump(mode="json"),
                 "candidate": candidate.model_dump(mode="json"),
+                # The code at the candidate's own spans, when the application read it. The
+                # key is absent rather than empty where it did not: an empty list is a
+                # statement — "these lines were looked for and are not there" — and the
+                # contract says what a missing key means, which is that structure is the
+                # whole of the evidence here.
+                **(
+                    {"source_evidence": self._source_entries(excerpts)}
+                    if excerpts
+                    else {}
+                ),
                 # Presented without IDs on purpose. An identifier in the input is an
                 # identifier the model can quote back, and position is already a complete
                 # and unforgeable binding.
@@ -798,18 +979,129 @@ class StructuredReasoningProvider:
             recommended_response=(proposed.recommended_response.strip() if material else ""),
         )
 
+    def _investigate(
+        self,
+        task: ReasoningTask,
+        payload_json: str,
+        investigator: SourceInvestigator | None,
+        *,
+        think: ThinkLevel = None,
+    ) -> str:
+        """Let the model look things up, and render what it looked at.
+
+        Returns "" whenever there is nothing to render — no investigator, or a transport
+        without the capability, or a model that decided immediately that it had nothing to
+        check. That empty string is what keeps every provider behaving exactly as it did
+        before this existed: the caller adds no key, and the request it sends is byte for
+        byte the one it sent yesterday.
+
+        What comes back is a rendering of the *transcript*, not of the conversation. The
+        difference matters: the transcript is the record of what was asked of the repository
+        and what it said, produced by the application, and it is the only part of this a
+        later question can be traced to. The model's closing prose is appended after it
+        because it is the one thing the record cannot hold — which of those findings it
+        thought mattered — and it is appended rather than interleaved so it cannot be
+        mistaken for a result.
+
+        A `ProviderError` mid-investigation degrades to a note and does not propagate.
+        Investigating is an improvement to a question, and losing an improvement must never
+        cost the review that the question belongs to: the worst outcome allowed here is a
+        stage that asks the way it asked before.
+        """
+
+        transport = self._transport
+        if investigator is None or not isinstance(transport, ToolCallingChatTransport):
+            return ""
+        contract = STAGE_PROMPTS[task]
+        messages: list[InvestigationMessage] = [
+            {"role": "system", "content": contract.system_prompt},
+            {"role": "user", "content": f"{contract.request}\n\nInput:\n{payload_json}"},
+        ]
+        closing = ""
+        abandoned = ""
+        for turn in range(MAX_INVESTIGATION_TURNS):
+            try:
+                exchange = transport.complete_with_tools(
+                    messages,
+                    tools=investigator.tools,
+                    # Only the opening turn is constrained. The repository gets first
+                    # refusal on every question, and a first look is how that rule
+                    # survives a model inclined to skip it; from the second turn on,
+                    # stopping is a judgement the model must be free to make.
+                    require_call=turn == 0,
+                    task=task,
+                    think=self._think_for(think),
+                    temperature=None,
+                )
+            except ProviderError as error:
+                abandoned = str(error)
+                break
+            if not exchange.calls:
+                closing = exchange.text.strip()
+                break
+            messages.append(
+                AssistantToolTurn(
+                    text=exchange.text,
+                    calls=exchange.calls,
+                    # Carried across untouched. What is in it is the transport's business —
+                    # a Gemini thought signature today — and the loop's only part in it is
+                    # not losing it on the way from the reply to the replay.
+                    vendor_state=exchange.vendor_state,
+                )
+            )
+            # Every call is executed, including the ones after a failure, because a failure
+            # is a result here — `call` never raises — and a model that asked three things
+            # is owed three answers in the order it asked them.
+            messages.extend(
+                ToolResultTurn(
+                    call_name=call.name,
+                    content=investigator.call(call.name, call.arguments),
+                )
+                for call in exchange.calls
+            )
+            # Measured over the record rather than over the messages, because the record is
+            # what the rendering below will hand the asking stage — and that stage's request
+            # is the one the ceiling exists to keep inside its budget.
+            if (
+                sum(len(item.result) for item in investigator.transcript)
+                >= MAX_INVESTIGATION_CHARACTERS
+            ):
+                abandoned = (
+                    "its findings reached the size ceiling, so nothing further was looked up"
+                )
+                break
+        # Told to the investigator before anything is rendered, and on every way out of the
+        # loop above. The rendering is spent on the next request; the investigator is what
+        # the run that built it still holds, so this is the only route these two sentences
+        # have to a record anybody can read afterwards.
+        investigator.conclude(closing, abandoned)
+        return _rendered_investigation(investigator.transcript, closing, abandoned)
+
     def elicit_questions(
         self,
         case: ArchitectureCase,
         boundaries: list[ReviewedBoundary],
+        investigator: SourceInvestigator | None = None,
     ) -> list[OpenQuestion]:
         expected = len(boundaries)
+        payload: dict[str, object] = {
+            "case": case.model_dump(mode="json"),
+            "boundaries": self._boundaries_for_reading(boundaries),
+        }
+        # Before the questions and from the same input, so the stage investigates the
+        # verdicts it is about to ask about rather than a summary of them. The findings then
+        # enter that input as one more key: everything below — the grounded schema, the arity
+        # validator, the repair round — is untouched by whether anything was looked up.
+        findings = self._investigate(
+            ReasoningTask.INVESTIGATE_USAGE,
+            canonical_json(payload),
+            investigator,
+        )
+        if findings:
+            payload["investigation"] = findings
         proposed = self._complete(
             ReasoningTask.ELICIT_QUESTIONS,
-            {
-                "case": case.model_dump(mode="json"),
-                "boundaries": self._boundaries_for_reading(boundaries),
-            },
+            payload,
             ProposedElicitation,
             runtime_instruction=(
                 f"Every entry in open_questions must carry exactly {expected} supported_by "
@@ -1032,6 +1324,20 @@ class StructuredReasoningProvider:
         fix.
         """
 
+        return StructuredReasoningProvider._source_entries(
+            [item for item in excerpts if item.reference == reference]
+        )
+
+    @staticmethod
+    def _source_entries(excerpts: list[BoundaryExcerpt]) -> list[dict[str, object]]:
+        """The same rendering, for excerpts already narrowed to one thing.
+
+        Split out because judging is shown the code at one candidate's spans, and that
+        candidate has no `BR-nnn` yet — references are assigned from position once the
+        verdicts exist. One shape for both, so what a judging stage sees and what a
+        conversation stage sees are the same four fields in the same order.
+        """
+
         return [
             {
                 "where": (
@@ -1049,7 +1355,6 @@ class StructuredReasoningProvider:
                 "note": StructuredReasoningProvider._excerpt_note(item),
             }
             for item in excerpts
-            if item.reference == reference
         ]
 
     @staticmethod

@@ -64,6 +64,7 @@ from archcompass.application.safety import (
 from archcompass.application.source_archives import SourceArchiveService
 from archcompass.application.source_storage import SourceStorage
 from archcompass.application.triage import TriageService
+from archcompass.application.usage_evidence import UsageEvidenceService
 from archcompass.configuration import (
     ReasoningModelConfig,
     load_provider_environment,
@@ -271,6 +272,14 @@ def build_runtime(
         policies=policy_service,
         reasoner=reasoning,
         source=review_source_service,
+        # No reader of its own, and that is the point of it: it finds where a flagged name
+        # occurs and hands back coordinates, and the code at those coordinates is read by
+        # the source service above, through the one reader that cannot leave the repository.
+        usage=UsageEvidenceService(),
+        # The same reader the source service was given, not a second one. It is the one path
+        # that cannot leave the analysed repository, and the elicitation toolbox reads
+        # through it for exactly that reason.
+        source_reader=source_reader,
         verdict_cache=verdict_cache,
         boundary_lines=boundary_lines,
     )

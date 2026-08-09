@@ -29,6 +29,7 @@ from archcompass.domain.errors import ProviderError, ReviewCancelledError
 from archcompass.domain.knowledge import MethodKnowledge
 from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
+    BoundaryExcerpt,
     BoundaryReview,
     CandidateVerdict,
     OpenQuestion,
@@ -39,6 +40,7 @@ from archcompass.domain.review import (
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
 from archcompass.domain.workspace import BoundaryReviewSummary
+from archcompass.ports.investigation import SourceInvestigator
 from archcompass.ports.model_catalog import CONCURRENT_REQUESTS_VARIABLE
 from archcompass.ports.reasoning import FocusedReasoningProvider, ReasoningTask
 
@@ -103,6 +105,7 @@ class OverlappingReasoner:
         case: ArchitectureCase,
         candidate: FindingCandidate,
         policies: list[PolicyDocument],
+        excerpts: list[BoundaryExcerpt] | None = None,
     ) -> CandidateVerdict:
         with self._lock:
             self._entered += 1
@@ -117,7 +120,7 @@ class OverlappingReasoner:
                 # Only the first few wait: a barrier the last judgement reaches alone is one
                 # that times out, and the question was never about the last judgement.
                 self._barrier.wait()
-            return self._delegate.judge_finding_candidate(case, candidate, policies)
+            return self._delegate.judge_finding_candidate(case, candidate, policies, excerpts)
         finally:
             with self._lock:
                 self.in_flight -= 1
@@ -126,8 +129,9 @@ class OverlappingReasoner:
         self,
         case: ArchitectureCase,
         boundaries: list[ReviewedBoundary],
+        investigator: SourceInvestigator | None = None,
     ) -> list[OpenQuestion]:
-        return self._delegate.elicit_questions(case, boundaries)
+        return self._delegate.elicit_questions(case, boundaries, investigator)
 
     def summarise_review(
         self,

@@ -119,7 +119,20 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
     # against questions rather than against a paraphrase of them, and it is the check that
     # ends the loop: a stage that cannot see a recorded answer hinges again on the fact it
     # settles, and the reader is asked what they have already replied to.
-    version=11,
+    #
+    # v12 gives the stage the code. Every version above is a rule about how to reason, and
+    # each of them was written because a run reasoned badly — while the payload it reasoned
+    # from held names, paths, roles and a count, and not one line of the repository. Asked
+    # whether two constants stating `RETRY_LIMIT` are one fact or two, it was answering from
+    # two identifiers spelled the same; on a seeded bench it gave both answers to the same
+    # input on different runs, and one run quoted a value the code does not contain. The
+    # candidate now carries who uses it and the application reads the code at every one of
+    # its spans — definitions widened over the comment block above them, which is where the
+    # sentence deciding the question is usually written. This paragraph is what makes that
+    # evidence load-bearing rather than decorative: a claim about what the code does has to
+    # cite it, and a prototype that showed the lines without saying so produced rationales
+    # that agreed with the excerpts in one place and contradicted them in the next.
+    version=12,
     stage_contract=_text(
         """
         A structural detector found one pattern in this repository and reported what it
@@ -167,6 +180,30 @@ JUDGE_FINDING_CANDIDATE: Final = PromptContract(
         module with no other reason to know the concept exists now has to be edited when it
         changes. Where it is a problem the response is to move that knowledge behind the
         abstraction that already exists — not to create a second one.
+
+        You are shown the code. source_evidence is the code at this candidate's recorded
+        spans — each participant's own lines, definitions given with the comment block
+        written above them, and the sites that consume them — read by the application from
+        the repository this atlas was built from. Nothing you say chose it and there is no
+        way to ask for more: it is the same evidence anybody checking your verdict would be
+        shown, which is what makes the verdict checkable.
+
+        Your verdict may rest on it, and a claim about what this code does must cite it.
+        "The copies are one fact" is a claim: point at the consumer that reads both, or at
+        the same external thing each copy is about. "They only share a name" is equally a
+        claim: point at the uses that differ. A rationale asserting either without naming a
+        line you were given is a guess in the register of a finding, and the reader cannot
+        tell the two apart.
+
+        Read the comments. A comment beside a definition is part of what the constant means
+        — "the vendor allows five attempts", "unrelated to the retry count in billing" — and
+        it is very often the whole answer to the question you were asked. It is not a
+        weaker sort of evidence than the assignment under it.
+
+        Where source_evidence is absent, the structure alone is the evidence, and your
+        rationale may say so. A span the repository can no longer serve is a real outcome and
+        judging without it is the right response; inventing a line to cite, or refusing a
+        verdict you can reach from the shape and the case, are both worse.
 
         Respect the detector's stated limitations, which differ per pattern and are given
         with the candidate. A static count cannot see implementations registered at runtime,
@@ -567,6 +604,89 @@ ANSWER_REVIEW_QUESTION: Final = PromptContract(
 )
 
 
+INVESTIGATE_USAGE: Final = PromptContract(
+    name="investigate-usage",
+    # v1 was this contract's own counter-example. It told the stage that "returning no tool
+    # calls at all is a perfectly good first move" and that most of what is missing from a
+    # question "no amount of reading will tell you" — permissions a small model spent
+    # exactly as written: across nine live runs against a repository seeded with
+    # code-answerable questions, gemini-3.5-flash-lite never once read a file, searched only
+    # when it felt like it, and went on asking the reader what the search results in its own
+    # transcript already answered.
+    #
+    # v2 states the rule the feature exists for, as a rule rather than an option: the
+    # repository gets first refusal on every question. It also names the procedure v1 left
+    # to taste — a hit is a line, not its meaning; read around what decides — because the
+    # facts that settled the trial questions sat in comments beside definitions no search
+    # line carried. The sorting of concerns into the code's kind and the reader's kind
+    # replaces v1's "most of it is the reader's" with the classification itself, so the
+    # model is deciding which kind each concern is instead of being told which kind usually
+    # wins. The first turn of this conversation is additionally forced to call a tool at the
+    # transport (Gemini's function-calling mode ANY), so "looked at nothing" is a state this
+    # contract can no longer reach on its own.
+    #
+    # This contract is the looking. It is deliberately not a contract about asking well: the
+    # model here holds two tools and nothing else, and the only judgement it is making is
+    # which lookups would change a question. Splitting them is what keeps the elicitation
+    # contract about the reader.
+    version=2,
+    stage_contract=_text(
+        """
+        You are about to put clarifying questions to the architect of one repository about
+        boundaries a review has just judged. Before anything may be asked, the repository
+        gets first refusal: a question the code can answer is settled here, and only what
+        the code cannot say goes to a person.
+
+        Two tools are available and both only read. `search_source` finds every line
+        containing an exact piece of text, case-sensitively, and reports each as
+        `path:line: text`. `read_source` serves a span of one file, so you can see what the
+        code around a match actually does. There is nothing else: you cannot list files, run
+        anything, or change a line.
+
+        Sort what you are unsure of into two kinds before you look. What the code does — how
+        a flagged element is actually used, whether two constants stating one value state
+        one fact, whether a configuration value is consumed at all — is your kind, and every
+        question of that kind you would otherwise ask is a lookup you must make instead.
+        What the code is meant to do — whether a second vendor is coming, whether a
+        constraint still holds, what a team intends — is the reader's kind, and no amount of
+        reading answers it. The failure this stage exists to prevent is a question of the
+        first kind reaching a person while the tools sat unused.
+
+        A search hit is a line, not its meaning. When a hit would decide something, read
+        around it before relying on it: the definition site of a duplicated constant usually
+        carries a comment saying what the value is for, and the code that consumes a flagged
+        element shows what is actually asked of it. For a duplicated constant, that means
+        reading each definition and at least one consumer of each copy before calling the
+        copies one fact or two.
+
+        Stop when every concern of your kind is settled. Spending turns past that point buys
+        nothing, and the reader's kind was never yours to settle.
+
+        You are not reviewing the code and you are not fixing it. Do not propose a change,
+        do not judge whether a boundary earns its place, and do not decide anything a
+        verdict already decided. What you find is material for a question, and nothing else.
+
+        Everything you look at is recorded and shown to the stage that asks, so a lookup
+        that found nothing is worth as much as one that found something: it is the
+        difference between a question asked because the repository is silent and a question
+        asked because nobody checked.
+        """
+    ),
+    request=_text(
+        """
+        Below are the verdicts you are about to ask about and the case they were judged
+        against.
+
+        Look until everything the code can settle is settled. Then close with a line for
+        each concern you weighed: what was checked, what it showed, and whether that settles
+        it or leaves it with the reader — and for what is left, why the code cannot answer
+        it. Do not write the questions here — this turn is for looking, and the questions
+        are composed from what you found in the next one.
+        """
+    ),
+)
+
+
 ELICIT_QUESTIONS: Final = PromptContract(
     name="elicit-questions",
     # v1, split out of summarise-review v5. The question section had been living inside a
@@ -601,7 +721,14 @@ ELICIT_QUESTIONS: Final = PromptContract(
     # and the per-option minimum are in the grammar, and only the judgement of enumerability
     # can be asked for in prose. Nothing downstream reads an option as a key or checks an
     # answer against the set, so the guidance is about the reader's time rather than validity.
-    version=4,
+    #
+    # v5 follows the stage gaining a way to look. Where the transport can carry tools, this
+    # call is now preceded by an investigation of the repository and its findings arrive in
+    # the input, which changes what may be asked: the request always said not to ask what the
+    # repository would settle, and until now the stage had no means to settle anything and
+    # asked anyway. The paragraph below is the half of the fix that lives in the prompt — the
+    # other half is that the findings are there at all.
+    version=5,
     stage_contract=_text(
         """
         Every boundary in one repository has now been judged separately, and you are shown
@@ -624,6 +751,15 @@ ELICIT_QUESTIONS: Final = PromptContract(
         they have replied to learns that replying achieves nothing, and each answer there
         carries the same force as an entry in the field its bears_on names — an answer bearing
         on non_goals rules its subject out as firmly as the non_goals list does.
+
+        An `investigation` field may be present in the input. That is the repository, looked
+        at by this stage before this call: the lookups that were made and what came back,
+        recorded so you can see exactly what was and was not checked. Read it as your own
+        findings rather than as somebody's report — a question the investigation already
+        answers must not be asked, and what it found may be stated in `what_the_review_saw`
+        alongside what the detector measured. Where it says an investigation was abandoned,
+        or where it is absent altogether, nothing was checked and you are back to asking from
+        the verdicts and the case alone.
 
         You are not re-judging anything, and you are not summarising. Each verdict was
         reached with that boundary's own evidence in front of it, and you are seeing a
@@ -1018,6 +1154,7 @@ DISCUSS_OPEN_QUESTION: Final = PromptContract(
 
 STAGE_PROMPTS: Final[dict[ReasoningTask, PromptContract]] = {
     ReasoningTask.JUDGE_FINDING_CANDIDATE: JUDGE_FINDING_CANDIDATE,
+    ReasoningTask.INVESTIGATE_USAGE: INVESTIGATE_USAGE,
     ReasoningTask.ELICIT_QUESTIONS: ELICIT_QUESTIONS,
     ReasoningTask.SUMMARISE_REVIEW: SUMMARISE_REVIEW,
     ReasoningTask.ANSWER_REVIEW_QUESTION: ANSWER_REVIEW_QUESTION,

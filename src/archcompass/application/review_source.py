@@ -8,8 +8,19 @@ reader asking "show me the code" was told the review did not contain it.
 
 Selection is therefore already done, and this is delivery rather than retrieval. That
 distinction is §12.0: the application decides what to look at and the model decides what it
-means. A tool a model could call to fetch source would invert it and let the stage choose
-its own evidence, which is the thing `tests/unit/test_boundaries.py` asserts against.
+means, and it still holds for every line that reaches a verdict. What comes through here is
+evidence a detector picked, read at spans a detector recorded, and nothing a stage asked for
+can enter it — which is what makes a judgement checkable by somebody who was not there.
+
+§12.0 is now amended for one thing, and the split is worth stating where it is easiest to
+get wrong. *Investigating* — looking something up before deciding what to ask a person about
+it — is allowed, through `application.investigation`, and only the elicitation stage has it.
+It was allowed because the alternative was worse: a stage with no way to see how a symbol is
+used handed that question to a reader, in a contract that tells it not to. The condition is
+that every lookup is recorded and travels with what it produced, so a question can be traced
+to what was asked of the repository and what came back. Judging is untouched and has no such
+parameter: a verdict rests on this module's spans, because a verdict is a claim, and a claim
+assembled from evidence the model chose for itself is one nobody can check.
 
 The text is read once, when the review completes, and pinned on the review with everything
 else the run depended on. Reading it live instead was the earlier design and it did not
@@ -54,6 +65,21 @@ MAX_EXCERPT_LINES = 60
 #: request unchecked: the request says how much context is wanted, and this says how much
 #: the workspace will read whatever it asks for.
 MAX_CONTEXT_LINES = 20
+
+#: How far above a candidate's span the leading comment block may reach. A constant's
+#: recorded span is the line that assigns it, and what the constant *means* is written
+#: directly above it — which is why the judging stage, shown the assignment alone, was
+#: deciding whether two copies state one fact with the sentence answering it out of frame.
+#: Bounded because a file that opens with a licence header is not a file whose first
+#: constant means forty lines of licence.
+MAX_LEADING_COMMENT_LINES = 12
+
+#: The reference every excerpt served for a candidate carries. A candidate is judged before
+#: any of this run's boundaries are numbered — `BR-nnn` is assigned from position once the
+#: verdicts exist — so there is no reference yet to attach, and `BR-000` is outside the range
+#: the numbering ever produces. Nothing reads it back: these excerpts go straight into one
+#: judging payload and are never stored on a review.
+_UNNUMBERED = "BR-000"
 
 #: How far into a file a fingerprinted span may reach. Far larger than an excerpt, because
 #: nothing is being shown to anybody: this is a ceiling on how much of a generated or vendored
@@ -271,6 +297,39 @@ class ReviewSourceService:
             for excerpt in self._for_boundary(boundary, root, "", context)
         ]
 
+    def for_candidate(
+        self,
+        candidate: FindingCandidate,
+        *,
+        root: Path,
+    ) -> list[BoundaryExcerpt]:
+        """The code at one candidate's spans, for the stage about to judge it.
+
+        The judging stage used to be given the candidate's metadata and nothing else — names,
+        paths, roles, a count — so "are these copies one fact or two" was answered without a
+        line of the repository in the payload. This is the other half of that fix: the
+        candidate carries who uses it (`application.usage_evidence`), and this reads the code
+        at every span it now records, definitions and consumers alike.
+
+        Still §12.0 and not an exception to it. A detector chose these spans and the
+        application reads them; the stage is given no way to ask for a line that is not one
+        of them, which is exactly what makes a verdict checkable by somebody who was not
+        there. The amendment for *investigating* stops at elicitation and does not reach here.
+
+        Freshness is the caller's, for the same reason `for_boundaries` states: this runs
+        inside a review that checked before its first model call, and a second check would
+        answer a question already answered.
+
+        Definitions are widened upward over their leading comments — the one thing this path
+        does that no other does, and the reason it is not simply `for_boundaries` with a
+        candidate. Read whole and served whole: no context lines, because unfolding is a
+        reader's request and a stage has no way to make one.
+        """
+
+        return self._for_participants(
+            _UNNUMBERED, candidate.participants, root, "", 0, widen=True
+        )
+
     @staticmethod
     def _grown_or_pinned(
         live: BoundaryExcerpt, stored: BoundaryExcerpt | None
@@ -330,8 +389,29 @@ class ReviewSourceService:
         refusal: str,
         context: int,
     ) -> list[BoundaryExcerpt]:
+        return self._for_participants(
+            boundary.reference, boundary.candidate.participants, root, refusal, context
+        )
+
+    def _for_participants(
+        self,
+        reference: str,
+        participants: Sequence[FindingParticipant],
+        root: Path | None,
+        refusal: str,
+        context: int,
+        *,
+        widen: bool = False,
+    ) -> list[BoundaryExcerpt]:
+        """One excerpt per participant, in the order they are recorded in.
+
+        One per participant however it turns out, including the ones with nothing to show. A
+        list shorter than the participants it was built from reads as a finding with fewer
+        participants, and every stage downstream counts what it is given.
+        """
+
         excerpts: list[BoundaryExcerpt] = []
-        for participant in boundary.candidate.participants:
+        for participant in participants:
             location = participant.location
             if location is None:
                 # A boundary that was never written — what a greenfield candidate is (§4.1)
@@ -339,7 +419,7 @@ class ReviewSourceService:
                 # read, and that is a statement rather than a failure.
                 excerpts.append(
                     self._without_text(
-                        boundary.reference,
+                        reference,
                         participant,
                         None,
                         "This participant has no recorded source span, so there is no code "
@@ -349,13 +429,59 @@ class ReviewSourceService:
                 continue
             if root is None:
                 excerpts.append(
-                    self._without_text(boundary.reference, participant, location, refusal)
+                    self._without_text(reference, participant, location, refusal)
                 )
                 continue
-            excerpts.append(
-                self._read(boundary.reference, participant, location, root, context)
-            )
+            if widen:
+                location = self._with_leading_comments(root, location)
+            excerpts.append(self._read(reference, participant, location, root, context))
         return excerpts
+
+    def _with_leading_comments(self, root: Path, location: SourceLocation) -> SourceLocation:
+        """The same span, started at the top of the comment block that touches it.
+
+        The run must *touch* the span: a comment separated from it by a blank line is about
+        whatever comes before that gap, and dragging it in would attach a module's opening
+        note to the first constant under it as though it were that constant's meaning. So the
+        walk goes upward from the line above the span and stops at the first line that is not
+        a full-line `#` comment — which a blank line is not.
+
+        Trimmed here rather than in `SafeSourceReader`, deliberately. The reader answers "what
+        do lines a to b say", and it is the same reader the fingerprints and the elicitation
+        toolbox go through; teaching it to decide which lines a caller *meant* would put a
+        judgement about Python syntax inside the one component whose whole job is refusing to
+        leave the repository.
+
+        A file that cannot be read yields the span unchanged, and `_read` then reports the
+        failure with the reason attached — one refusal, in the place that already words it.
+        """
+
+        if location.start_line == 1:
+            return location
+        first = max(1, location.start_line - MAX_LEADING_COMMENT_LINES)
+        try:
+            above = self._source_reader.excerpt(
+                root=root,
+                relative_path=location.path,
+                start_line=first,
+                end_line=location.start_line - 1,
+                max_lines=MAX_LEADING_COMMENT_LINES,
+                numbered=False,
+            )
+        except (PathValidationError, OSError, UnicodeDecodeError):
+            return location
+        run = 0
+        # Split rather than `splitlines`, because a blank last line is the whole question
+        # here and `splitlines` discards it: the reader joins its lines with newlines, so
+        # "comment, blank" comes back as text ending in a newline and would read as a comment
+        # block touching the span when a blank line is precisely what separates them.
+        for line in reversed(above.split("\n")):
+            if not line.strip().startswith("#"):
+                break
+            run += 1
+        if not run:
+            return location
+        return location.model_copy(update={"start_line": location.start_line - run})
 
     def _read(
         self,

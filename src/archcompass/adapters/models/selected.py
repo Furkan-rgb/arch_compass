@@ -23,6 +23,7 @@ from archcompass.domain.errors import NoReasoningModelSelectedError, ProviderErr
 from archcompass.domain.knowledge import MethodKnowledge
 from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
+    BoundaryExcerpt,
     BoundaryReview,
     CandidateVerdict,
     OpenQuestion,
@@ -31,6 +32,7 @@ from archcompass.domain.review import (
     ReviewOverview,
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
+from archcompass.ports.investigation import SourceInvestigator
 from archcompass.ports.model_catalog import (
     ReasoningProviderFactory,
     SelectedReasoningModel,
@@ -126,17 +128,23 @@ class SelectedModelReasoner:
         case: ArchitectureCase,
         candidate: FindingCandidate,
         policies: list[PolicyDocument],
+        excerpts: list[BoundaryExcerpt] | None = None,
     ) -> CandidateVerdict:
         return self._run(
-            lambda reasoner: reasoner.judge_finding_candidate(case, candidate, policies)
+            lambda reasoner: reasoner.judge_finding_candidate(
+                case, candidate, policies, excerpts
+            )
         )
 
     def elicit_questions(
         self,
         case: ArchitectureCase,
         boundaries: list[ReviewedBoundary],
+        investigator: SourceInvestigator | None = None,
     ) -> list[OpenQuestion]:
-        return self._run(lambda reasoner: reasoner.elicit_questions(case, boundaries))
+        return self._run(
+            lambda reasoner: reasoner.elicit_questions(case, boundaries, investigator)
+        )
 
     def summarise_review(
         self,

@@ -115,6 +115,29 @@ question, not two.
 the report grounded and numbered, that they render, and that answering one produces a second
 review with nothing left open.
 
+### A small shop and the platform behind it — `acme-shop`
+
+The evidence-path fixture. Two pairs of constants agree, and whether each agreement means
+anything is written in the repository at exactly the places the evidence machinery reads:
+`PAGE_SIZE` is disambiguated by the comment blocks directly above its two definitions —
+the span the judge's excerpt widens over — and `RETRY_LIMIT` is anchored only at its
+consumer sites, which both feed one hosted platform's client, the span the usage
+augmentation attaches. The payment seam is deliberately settled nowhere: whether a second
+processor is coming is the one question a reader must still be asked after every line has
+been read.
+
+Read a live run for three things: whether a claim about either duplication cites the
+evidence rather than the identifiers; whether anything the code answers is asked of the
+reader — a question about either constant pair is a failure of the investigation, and a
+question about the payment seam is not; and whether the answers repeat across runs, since
+this fixture measures the evidence path only when the verdicts stop flipping without it.
+Run-to-run variance on identical inputs was large enough before the evidence landed to
+imitate feature effects in both directions, so nothing here is concluded from fewer than
+ten runs of a configuration. Free-tier quota shapes which model those runs use:
+`gemini-3.6-flash` allows twenty requests a day, which one run of this fixture nearly
+spends, so repetition happens on `gemini-3.5-flash-lite` with thinking on, and 3.6-flash
+is spot confirmation.
+
 ### What a live run is read for
 
 Nothing is scored. Two failures pull in opposite directions, and the output is read for both:

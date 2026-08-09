@@ -25,9 +25,15 @@ from google import genai
 from google.genai import errors, types
 
 from archcompass.adapters.models.structured import (
+    AssistantToolTurn,
     ChatMessage,
+    InvestigationMessage,
     StructuredReasoningProvider,
     ThinkLevel,
+    ToolCall,
+    ToolCallingChatTransport,
+    ToolExchange,
+    ToolResultTurn,
 )
 from archcompass.configuration import (
     ReasoningModelConfig,
@@ -35,6 +41,7 @@ from archcompass.configuration import (
 )
 from archcompass.domain.errors import ConfigurationError, ProviderError
 from archcompass.domain.model_catalog import AvailableModel, ProbeResult
+from archcompass.ports.investigation import ToolSpec
 from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
 from archcompass.ports.reasoning import ReasoningTask
 
@@ -408,6 +415,83 @@ class GoogleChatTransport:
         ) as error:
             raise ProviderError(f"Google AI Studio reasoning request failed: {error}") from error
 
+    def complete_with_tools(
+        self,
+        messages: list[InvestigationMessage],
+        *,
+        tools: Sequence[ToolSpec],
+        require_call: bool,
+        task: ReasoningTask,
+        think: ThinkLevel,
+        temperature: float | None,
+    ) -> ToolExchange:
+        """One turn of an investigation: the history, the tools, and what came back.
+
+        Everything vendor-shaped about this request is shared with `complete` — the same
+        retry policy, the same error mapping, the same thinking config — and the two things
+        that differ are stated rather than inherited. There is no response schema, because
+        an investigation turn is prose and calls; and the declarations carry
+        `parameters_json_schema` rather than the typed `parameters`, for the reason the
+        response schema travels as `response_json_schema`: the narrower field runs a plain
+        JSON Schema through a lossy OpenAPI subset.
+        """
+
+        system_instruction, contents = _split_investigation(messages)
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction or None,
+            max_output_tokens=self._config.max_output_tokens,
+            temperature=temperature,
+            thinking_config=_thinking_config(think),
+            # Mode ANY constrains the reply to a function call; it is the API's own spelling
+            # of "you must look before you speak", and the vendor's documentation names it as
+            # the way to make a model use its tools rather than merely hold them. Absent —
+            # the default, mode AUTO — the choice is the model's, which is what every turn
+            # after the first wants.
+            tool_config=(
+                types.ToolConfig(
+                    function_calling_config=types.FunctionCallingConfig(
+                        mode=types.FunctionCallingConfigMode.ANY
+                    )
+                )
+                if require_call
+                else None
+            ),
+            tools=[
+                types.Tool(
+                    function_declarations=[
+                        types.FunctionDeclaration(
+                            name=spec.name,
+                            description=spec.description,
+                            parameters_json_schema=dict(spec.parameters),
+                        )
+                        for spec in tools
+                    ]
+                )
+            ],
+        )
+        client = self._client
+        try:
+            response = _with_retry(
+                lambda: client.models.generate_content(
+                    model=self._config.model,
+                    contents=contents,  # pyright: ignore[reportArgumentType]
+                    config=config,
+                )
+            )
+            return _tool_exchange(response, task=task, config=self._config)
+        except errors.APIError as error:
+            raise ProviderError(
+                f"Google AI Studio reasoning request failed with {_describe(error)}"
+            ) from error
+        except (
+            httpx.HTTPError,
+            ConnectionError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as error:
+            raise ProviderError(f"Google AI Studio reasoning request failed: {error}") from error
+
 
 def _split_system_prompt(messages: list[ChatMessage]) -> tuple[str, list[types.Content]]:
     """Separate the system prompt, which Gemini takes as its own field, from the turns.
@@ -419,6 +503,66 @@ def _split_system_prompt(messages: list[ChatMessage]) -> tuple[str, list[types.C
     system_parts: list[str] = []
     contents: list[types.Content] = []
     for message in messages:
+        role = message["role"]
+        content = message["content"]
+        if role == "system":
+            system_parts.append(content)
+            continue
+        contents.append(
+            types.Content(
+                role="model" if role == "assistant" else "user",
+                parts=[types.Part(text=content)],
+            )
+        )
+    return "\n\n".join(system_parts), contents
+
+
+def _split_investigation(
+    messages: list[InvestigationMessage],
+) -> tuple[str, list[types.Content]]:
+    """The same split as `_split_system_prompt`, over a history that also carries calls.
+
+    A tool result is a `user` turn in Gemini's vocabulary, which reads oddly and is the
+    documented shape: the model produced the call, so the side answering it is the caller.
+    Each call and each result becomes its own part, in the order they were made, because
+    that order is the whole of the pairing — nothing in a result says which call it answers.
+
+    An assistant turn this transport produced is replayed as the very object the model sent
+    rather than rebuilt from its name and arguments. That is what carries the thought
+    signature: the 3-series attaches an opaque token to a function call and expects it back
+    with the history, and a call reconstructed out of provider-neutral fields arrives without
+    it. The reconstruction below is still the path for every turn that has no such object —
+    another vendor's history replayed through here, a fake in a test — and dropping it would
+    make this transport depend on having produced the conversation it is continuing.
+    """
+
+    system_parts: list[str] = []
+    contents: list[types.Content] = []
+    for message in messages:
+        if isinstance(message, AssistantToolTurn):
+            if isinstance(message.vendor_state, types.Content):
+                contents.append(message.vendor_state)
+                continue
+            parts = [types.Part(text=message.text)] if message.text else []
+            parts.extend(
+                types.Part.from_function_call(name=call.name, args=dict(call.arguments))
+                for call in message.calls
+            )
+            contents.append(types.Content(role="model", parts=parts))
+            continue
+        if isinstance(message, ToolResultTurn):
+            contents.append(
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_function_response(
+                            name=message.call_name,
+                            response={"result": message.content},
+                        )
+                    ],
+                )
+            )
+            continue
         role = message["role"]
         content = message["content"]
         if role == "system":
@@ -472,12 +616,21 @@ def _thinking_config(think: ThinkLevel) -> types.ThinkingConfig | None:
     return None
 
 
-def _response_text(
+def _answered(
     response: types.GenerateContentResponse,
     *,
     task: ReasoningTask,
     config: ReasoningModelConfig,
-) -> str:
+) -> types.Candidate:
+    """The one candidate, or the named reason there is nothing to read.
+
+    Shared by both decoders because the three ways a reply can be unusable are properties of
+    this API rather than of what was asked for: a blocked prompt, an allowance spent on
+    thinking, and a stop nobody asked for. An investigation turn hits the middle one exactly
+    as a structured call does — the tokens come from the same budget — and the loop above
+    degrades that into a note rather than a failed review.
+    """
+
     candidates: Sequence[types.Candidate] = response.candidates or []
     if not candidates:
         feedback = response.prompt_feedback
@@ -500,10 +653,71 @@ def _response_text(
         raise ProviderError(
             f"Google AI Studio stopped the {task.value} response early ({finish_reason})"
         )
+    return candidates[0]
+
+
+def _tool_exchange(
+    response: types.GenerateContentResponse,
+    *,
+    task: ReasoningTask,
+    config: ReasoningModelConfig,
+) -> ToolExchange:
+    """One investigation turn decoded: what the model said, and what it wants looked up.
+
+    Thought parts are skipped rather than joined into the prose. They are the model's own
+    reasoning and are not addressed to the stage that reads this; carried through, they
+    would be rendered into the transcript as though they were findings about the repository.
+
+    A reply with neither text nor a call is refused. Read as "no calls" it would be the
+    terminating answer, and an investigation that never happened would reach the asking
+    stage as one that looked and found nothing to say — opposite facts about one question.
+
+    The candidate's own `Content` rides back as the exchange's `vendor_state`, verbatim and
+    unread. The decoded text and calls are what the loop reasons about; this is what the next
+    request replays, thought signatures and all, and keeping it whole is the only way to
+    replay something whose meaning this code does not know.
+    """
+
+    candidate = _answered(response, task=task, config=config)
+    content = candidate.content
+    prose: list[str] = []
+    calls: list[ToolCall] = []
+    for part in (content.parts if content is not None else None) or []:
+        if part.thought:
+            continue
+        call = part.function_call
+        if call is not None and call.name:
+            calls.append(ToolCall(name=call.name, arguments=dict(call.args or {})))
+        elif part.text:
+            prose.append(part.text)
+    if not prose and not calls:
+        raise ProviderError(
+            f"Google AI Studio returned neither text nor a tool call for {task.value}"
+        )
+    return ToolExchange(
+        text="".join(prose).strip(), calls=tuple(calls), vendor_state=content
+    )
+
+
+def _response_text(
+    response: types.GenerateContentResponse,
+    *,
+    task: ReasoningTask,
+    config: ReasoningModelConfig,
+) -> str:
+    _answered(response, task=task, config=config)
     text = response.text
     if not text:
         raise ProviderError(f"Google AI Studio returned an empty {task.value} response")
     return text
+
+
+#: Conformance to the optional tool-calling capability, stated so the type checker verifies
+#: it. The provider reaches this transport through `isinstance`, which compares method names
+#: and not signatures, so without this a drifted `complete_with_tools` would pass the check
+#: and fail on the call — with nothing before it noticing, because the loop treats a failure
+#: as an investigation to abandon rather than as a bug.
+_conforms: Final[type[ToolCallingChatTransport]] = GoogleChatTransport
 
 
 class GoogleReasoningProvider(StructuredReasoningProvider):

@@ -38,7 +38,13 @@ from archcompass.domain.errors import (
     PersistenceError,
 )
 from archcompass.domain.finding_detectors import detect_finding_candidates
-from archcompass.domain.review import ReviewEvidence, ReviewStatus
+from archcompass.domain.review import (
+    OpenQuestion,
+    ReviewedBoundary,
+    ReviewEvidence,
+    ReviewStatus,
+)
+from archcompass.ports.investigation import SourceInvestigator
 
 EXAMPLE = "warehouse-sync"
 ROOT = Path(__file__).resolve().parent.parent.parent / "eval" / "cases" / EXAMPLE
@@ -1204,6 +1210,127 @@ def test_the_stage_is_given_the_round_that_produced_the_review_it_answers_about(
     # and which way the verdicts moved, which is what makes the answer worth reading back.
     assert evidence.elicitation[0].question.what_the_review_saw
     assert evidence.elicitation[0].question.why_it_matters
+
+
+def _looking(
+    runtime: Runtime,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    ask: bool = True,
+) -> None:
+    """Make the workspace's reasoner one that actually uses the toolbox it is handed.
+
+    The substitute ignores the investigator — it has no model to offer tools to — so a run
+    against it records nothing, which is correct and asserts nothing about the wiring. This
+    stands in for the half a live provider does: two lookups and a closing, through the real
+    `RepositoryInvestigator` the service builds. What is under test is everything after that
+    — that the record is assembled, carried out of the elicitation branch, and stored on the
+    review in whichever outcome the pass reaches.
+    """
+
+    reasoner = runtime.review_service._reasoner  # pyright: ignore[reportPrivateUsage]
+    original = reasoner.elicit_questions
+
+    def elicit(
+        case: ArchitectureCase,
+        boundaries: list[ReviewedBoundary],
+        investigator: SourceInvestigator | None = None,
+    ) -> list[OpenQuestion]:
+        assert investigator is not None, "the elicitation branch must hand one over"
+        investigator.call("search_source", {"query": "RETRY_LIMIT"})
+        investigator.call("read_source", {"path": "nowhere.py", "start_line": 1, "end_line": 2})
+        investigator.conclude("Both copies are read by the same module.", "")
+        return original(case, boundaries, investigator) if ask else []
+
+    monkeypatch.setattr(reasoner, "elicit_questions", elicit)
+
+
+def test_a_pass_that_looked_before_asking_keeps_what_it_looked_at(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The investigation is stored, so a question is traceable to what the code said.
+
+    Every lookup, whether it answered anything or not, plus the prose the stage closed on
+    and the contract identity it investigated under. Without the identity the record is a
+    transcript with no way to tell which version of the investigate-usage contract produced
+    it — and a prompt bump is exactly when an old record stops being comparable.
+    """
+
+    case_id = _loaded(runtime)
+    _looking(runtime, monkeypatch)
+
+    review = runtime.review_service.review(case_id, repository_root=REPOSITORY)
+
+    assert review.status is ReviewStatus.AWAITING_ANSWERS
+    investigation = review.investigation
+    assert investigation is not None
+    assert [item.tool for item in investigation.lookups] == [
+        "search_source",
+        "read_source",
+    ]
+    assert investigation.lookups[0].arguments == {"query": "RETRY_LIMIT"}
+    assert "RETRY_LIMIT" in investigation.lookups[0].result
+    # The read asked for a file that is not there, and it is kept exactly like the one that
+    # answered: a stage that was refused twice composed its questions from nothing, and the
+    # refusals are the only place that is visible.
+    assert "could not be read" in investigation.lookups[1].result
+    assert investigation.closing == "Both copies are read by the same module."
+    assert investigation.abandoned == ""
+    assert investigation.prompt_identity.startswith("investigate-usage:")
+
+
+def test_the_record_is_kept_by_the_pass_that_settled_everything_too(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An investigation that asked nothing afterwards is the record most worth having.
+
+    A pass that looked and then had no question left is the outcome this feature is for, and
+    it is also the one where the looking is otherwise invisible: the reader sees a finished
+    review and no questions, with nothing saying the silence was checked rather than assumed.
+    """
+
+    case_id = _loaded(runtime)
+    _looking(runtime, monkeypatch, ask=False)
+
+    review = runtime.review_service.review(case_id, repository_root=REPOSITORY)
+
+    assert review.status is ReviewStatus.SUCCEEDED, "asking nothing concludes in one pass"
+    assert review.investigation is not None
+    assert len(review.investigation.lookups) == 2
+
+
+def test_the_stored_review_carries_the_investigation_it_ran(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Through the store, because a record that only exists in memory is not a record."""
+
+    case_id = _loaded(runtime)
+    _looking(runtime, monkeypatch)
+    review = runtime.review_service.review(case_id, repository_root=REPOSITORY)
+
+    stored = runtime.review_repository.get(review.review_id)
+
+    assert stored == review
+    assert stored.investigation == review.investigation
+
+
+def test_a_run_whose_provider_never_looked_records_no_investigation(
+    runtime: Runtime,
+) -> None:
+    """`None` is not "found nothing". It is "nothing here can look".
+
+    The substitute has no tool-calling transport under it, which is the ordinary case for
+    every provider without the capability, and a record of no lookups and no note would tell
+    a reader the repository was checked and was silent.
+    """
+
+    case_id = _loaded(runtime)
+
+    review = runtime.review_service.review(case_id, repository_root=REPOSITORY)
+
+    assert review.status is ReviewStatus.AWAITING_ANSWERS
+    assert review.investigation is None
+    assert runtime.review_repository.get(review.review_id).investigation is None
 
 
 def test_a_first_pass_carries_no_round_because_it_has_asked_nothing_yet(

@@ -11,6 +11,7 @@ from archcompass.domain.case import ArchitectureCase
 from archcompass.domain.knowledge import MethodKnowledge
 from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
+    BoundaryExcerpt,
     BoundaryReview,
     CandidateVerdict,
     OpenQuestion,
@@ -19,6 +20,7 @@ from archcompass.domain.review import (
     ReviewOverview,
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
+from archcompass.ports.investigation import SourceInvestigator
 
 
 class ReasoningTask(StrEnum):
@@ -30,6 +32,12 @@ class ReasoningTask(StrEnum):
     """
 
     JUDGE_FINDING_CANDIDATE = "judge_finding_candidate"
+    #: The lookups a stage makes before it asks, which is a stage in its own right because
+    #: it has its own contract and its own identity: what the model is told while it holds
+    #: tools is not what it is told while it composes questions. No review stores this
+    #: identity yet — the transcript is not persisted either — but versioning it from the
+    #: start is what makes pinning both later a matter of writing them down.
+    INVESTIGATE_USAGE = "investigate_usage"
     ELICIT_QUESTIONS = "elicit_questions"
     SUMMARISE_REVIEW = "summarise_review"
     ANSWER_REVIEW_QUESTION = "answer_review_question"
@@ -65,11 +73,24 @@ class FocusedReasoningProvider(Protocol):
         case: ArchitectureCase,
         candidate: FindingCandidate,
         policies: list[PolicyDocument],
+        excerpts: list[BoundaryExcerpt] | None = None,
     ) -> CandidateVerdict:
         """Decide whether one detected pattern matters in this case.
 
         The policies are presented in the order given and the response binds to them by
         position, so the list must not be reordered between the call and the result.
+
+        `excerpts` is the code at this candidate's own recorded spans — every participant,
+        definitions widened to take in the comment block written above them — read by the
+        application before the call. It is evidence and not a lookup: the spans were chosen
+        by a detector, the reading is the application's, and the stage is given no way to ask
+        for a line that is not one of them. That is what keeps a verdict checkable, and it is
+        why this parameter is not the amendment `elicit_questions` documents.
+
+        `None` is the legacy shape — what every caller passed before candidates carried their
+        usage — and means the stage judges from structure alone, as it always did. A provider
+        that cannot present source ignores it; nothing about the verdict changes shape either
+        way.
         """
         ...
 
@@ -77,6 +98,7 @@ class FocusedReasoningProvider(Protocol):
         self,
         case: ArchitectureCase,
         boundaries: list[ReviewedBoundary],
+        investigator: SourceInvestigator | None = None,
     ) -> list[OpenQuestion]:
         """Ask for what would settle the verdicts that could not settle themselves.
 
@@ -96,6 +118,22 @@ class FocusedReasoningProvider(Protocol):
         Boundaries are presented by position and the reply marks which of them each question
         rests on, so the order must not change between the call and the result. Nothing here
         may revise a verdict — the shape returned has no field for one.
+
+        `investigator` is a bounded set of read-only lookups into the repository these
+        verdicts were reached in, which the stage may use before composing anything. `None`
+        — the default, and what every caller passed before it existed — means the questions
+        are asked from the pinned evidence alone, which is also what happens when the
+        provider behind this cannot carry tools at all. Nothing about the questions changes
+        shape either way: an investigation improves what is asked, and its absence is a stage
+        asking as it always did.
+
+        **`judge_finding_candidate` deliberately has no such parameter.** §12.0's rule that
+        the application chooses evidence is amended here for asking and nowhere else: a
+        verdict has to rest on spans a detector picked and the application read, because that
+        is what makes it checkable. A question binds nothing, and the lookups behind one are
+        recorded, which is why this is the stage that may look. Judging is shown code —
+        `excerpts` — and that is the opposite of this: a toolbox is the model choosing what
+        to read, and a list of excerpts is the application having chosen.
         """
         ...
 

@@ -43,9 +43,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
 
+from archcompass.application.investigation import RepositoryInvestigator
 from archcompass.application.policies import PolicyService
 from archcompass.application.review_rendering import render_report
 from archcompass.application.review_source import ReviewSourceService
+from archcompass.application.usage_evidence import UsageEvidenceService
 from archcompass.domain.atlas import Atlas, FindingCandidate
 from archcompass.domain.case import ArchitectureCase, CaseRevision
 from archcompass.domain.delta import (
@@ -71,7 +73,9 @@ from archcompass.domain.review import (
     BoundaryReview,
     BoundaryReviewReport,
     CandidateVerdict,
+    InvestigationLookup,
     JudgedBoundary,
+    RecordedInvestigation,
     ReviewedBoundary,
     ReviewOverview,
     ReviewStatus,
@@ -85,7 +89,7 @@ from archcompass.domain.verdict_cache import (
     policy_corpus_fingerprint,
     verdict_cache_key,
 )
-from archcompass.ports.atlas import AtlasFreshnessChecker
+from archcompass.ports.atlas import AtlasFreshnessChecker, SourceReader
 from archcompass.ports.reasoning import FocusedReasoningProvider, ReasoningTask
 from archcompass.ports.repositories import (
     AtlasRepository,
@@ -234,6 +238,8 @@ class ReviewService:
         policies: PolicyService,
         reasoner: FocusedReasoningProvider,
         source: ReviewSourceService,
+        usage: UsageEvidenceService,
+        source_reader: SourceReader,
         verdict_cache: VerdictCacheRepository,
         boundary_lines: BoundaryLineRepository,
     ) -> None:
@@ -244,6 +250,12 @@ class ReviewService:
         self._policies = policies
         self._reasoner = reasoner
         self._source = source
+        self._usage = usage
+        # The reader itself, as well as the service built on it. `ReviewSourceService` reads
+        # spans a detector chose; the elicitation stage's toolbox reads spans the model asks
+        # for, and both go through this one object for the reason there is only one of it:
+        # it is the single path that cannot leave the analysed repository.
+        self._source_reader = source_reader
         self._verdict_cache = verdict_cache
         self._boundary_lines = boundary_lines
 
@@ -326,7 +338,11 @@ class ReviewService:
             self._policies.catalog(repository_root=repository_root),
             key=lambda policy: policy.id,
         )
-        candidates = detect_finding_candidates(atlas)
+        # Augmented before anything is fingerprinted, so a boundary's identity includes how
+        # its code is used: a verdict cached against usage has to die when usage changes.
+        candidates = self._usage.augment(
+            detect_finding_candidates(atlas), atlas, repository_root
+        )
         contents, keys = self._inputs_identities(
             running,
             candidates=candidates,
@@ -471,6 +487,7 @@ class ReviewService:
         verdicts = self._judgements(
             running=running,
             revision=revision,
+            repository_root=repository_root,
             policies=policies,
             candidates=candidates,
             keys=keys,
@@ -530,8 +547,9 @@ class ReviewService:
         # Checked once more before the last call, which is the longest single wait in the
         # run: cancelling just as the verdicts land should not still cost a summarisation.
         self._stop_if_cancelled(running.review_id)
-        status, overview = self._read_the_set(
+        status, overview, investigation = self._read_the_set(
             revision=revision,
+            repository_root=repository_root,
             boundaries=boundaries,
             # `None` belongs with the judged, not with the carried: a run that could not
             # partition itself — no branch lineage, so no previous revision to compare with —
@@ -562,6 +580,10 @@ class ReviewService:
         review = running.model_copy(
             update={
                 "status": status,
+                # Kept whichever way the pass ended, and `None` where nothing looked. It is
+                # a fact about the run rather than about the verdicts, so it sits on the
+                # review beside them rather than inside the report.
+                "investigation": investigation,
                 "report": report,
                 "markdown_report": render_report(
                     report,
@@ -783,6 +805,7 @@ class ReviewService:
         *,
         running: BoundaryReview,
         revision: CaseRevision,
+        repository_root: Path,
         policies: list[PolicyDocument],
         candidates: Sequence[FindingCandidate],
         keys: dict[str, str],
@@ -826,6 +849,7 @@ class ReviewService:
                     candidate,
                     running=running,
                     revision=revision,
+                    repository_root=repository_root,
                     policies=policies,
                     key=keys[candidate.candidate_id],
                 )
@@ -841,6 +865,7 @@ class ReviewService:
                     candidate,
                     running=running,
                     revision=revision,
+                    repository_root=repository_root,
                     policies=policies,
                     key=keys[candidate.candidate_id],
                 )
@@ -857,6 +882,7 @@ class ReviewService:
         *,
         running: BoundaryReview,
         revision: CaseRevision,
+        repository_root: Path,
         policies: list[PolicyDocument],
         key: str,
     ) -> JudgedCandidate:
@@ -907,6 +933,12 @@ class ReviewService:
             revision.snapshot,
             candidate,
             policies,
+            # Read here rather than up in `review`, so a run whose verdicts all carry pays
+            # for nothing: a cache hit needs no evidence, because nothing is being judged.
+            # The repository is known fresh — `review` checked before anything was recorded
+            # and nothing has been indexed since — which is the same reason the elicitation
+            # toolbox is built without freshness logic of its own.
+            self._source.for_candidate(candidate, root=repository_root),
         )
         self._verdict_cache.put(
             CachedVerdict(
@@ -922,12 +954,13 @@ class ReviewService:
         self,
         *,
         revision: CaseRevision,
+        repository_root: Path,
         boundaries: list[ReviewedBoundary],
         judged: list[ReviewedBoundary],
         first_pass: bool,
         on_eliciting: Callable[[], None] | None,
         on_summarising: Callable[[], None] | None,
-    ) -> tuple[ReviewStatus, ReviewOverview]:
+    ) -> tuple[ReviewStatus, ReviewOverview, RecordedInvestigation | None]:
         """The one call that sees every verdict at once, and what it makes the run.
 
         Which call that is depends on the pass, and the whole two-pass flow turns on this
@@ -953,14 +986,37 @@ class ReviewService:
         Neither call is made when there are no verdicts. A sweep that found nothing has
         nothing to ask about and nothing to synthesise, and either call would be asking a
         model to invent the content of its own input.
+
+        Only the asking half is given a toolbox. It is built here, per elicitation, because
+        this is the point where the repository is known to be exactly the one the verdicts
+        were reached in — freshness was checked before the first model call and nothing has
+        been indexed since — which is why the investigator needs no freshness logic of its
+        own. The summary is given none, deliberately: it says what verdicts already reached
+        amount to, and a lookup there would be new evidence entering a conclusion after every
+        judgement that could have weighed it had finished.
+
+        What the toolbox was asked comes back with the status and the overview, because the
+        caller is what writes the review and this belongs on it. It travels out of both
+        outcomes: a pass that looked and then had nothing left to ask is the record most
+        worth keeping, since it is the one where nothing else on the document shows that the
+        silence was checked rather than assumed.
         """
 
         if not boundaries:
-            return ReviewStatus.SUCCEEDED, empty_review_overview()
+            return ReviewStatus.SUCCEEDED, empty_review_overview(), None
+        investigation: RecordedInvestigation | None = None
         if first_pass and judged:
             if on_eliciting is not None:
                 on_eliciting()
-            questions = self._reasoner.elicit_questions(revision.snapshot, judged)
+            investigator = RepositoryInvestigator(
+                root=repository_root, source_reader=self._source_reader
+            )
+            questions = self._reasoner.elicit_questions(
+                revision.snapshot,
+                judged,
+                investigator,
+            )
+            investigation = self._recorded(investigator)
             if questions:
                 # The run stops here, and the record says so. Nothing further is worth
                 # composing: these verdicts are what the case supports so far, and four of
@@ -970,12 +1026,49 @@ class ReviewService:
                 return (
                     ReviewStatus.AWAITING_ANSWERS,
                     first_pass_overview(boundaries, questions),
+                    investigation,
                 )
         if on_summarising is not None:
             on_summarising()
         return (
             ReviewStatus.SUCCEEDED,
             self._reasoner.summarise_review(revision.snapshot, boundaries),
+            investigation,
+        )
+
+    def _recorded(
+        self, investigator: RepositoryInvestigator
+    ) -> RecordedInvestigation | None:
+        """The toolbox's transcript as a stored record, or nothing worth storing.
+
+        Nothing worth storing is the common case and it is `None` rather than an empty
+        record: most providers cannot offer tools, so their investigator is handed over and
+        never touched, and a document saying "no lookups, no reason" would tell every later
+        reader that this repository was checked and had nothing to say. An abandonment with
+        no lookups is the opposite — it is exactly the state worth keeping — so it is the
+        second thing that makes a record.
+
+        The identity is read here rather than carried through the loop because it is the
+        application's fact about the run, not the model's: it says which investigate-usage
+        contract this transcript can be compared against.
+        """
+
+        if not investigator.transcript and not investigator.abandoned:
+            return None
+        return RecordedInvestigation(
+            lookups=[
+                InvestigationLookup(
+                    tool=item.tool,
+                    arguments=dict(item.arguments),
+                    result=item.result,
+                )
+                for item in investigator.transcript
+            ],
+            closing=investigator.closing,
+            abandoned=investigator.abandoned,
+            prompt_identity=self._reasoner.prompt_identity(
+                ReasoningTask.INVESTIGATE_USAGE
+            ),
         )
 
     def _stop_if_cancelled(self, review_id: str) -> None:

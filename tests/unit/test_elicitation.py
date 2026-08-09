@@ -10,16 +10,25 @@ by a reference the model wrote, and a question grounded on nothing is not record
 
 from __future__ import annotations
 
+import inspect
 import json
+from collections.abc import Mapping, Sequence
 from typing import cast
 
 import pytest
 
 from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
+from archcompass.adapters.models.selected import SelectedModelReasoner
 from archcompass.adapters.models.structured import (
+    MAX_INVESTIGATION_TURNS,
+    AssistantToolTurn,
     ChatMessage,
+    InvestigationMessage,
     ProposedCandidateVerdict,
     StructuredReasoningProvider,
+    ToolCall,
+    ToolExchange,
+    ToolResultTurn,
     opening_capital,
 )
 from archcompass.application.review_rendering import render_report
@@ -31,7 +40,7 @@ from archcompass.domain.atlas import (
     FindingPattern,
 )
 from archcompass.domain.case import ArchitectureCase, CaseField
-from archcompass.domain.errors import ModelOutputValidationError
+from archcompass.domain.errors import ModelOutputValidationError, ProviderError
 from archcompass.domain.policy import (
     PolicyDocument,
     PolicyScope,
@@ -39,12 +48,17 @@ from archcompass.domain.policy import (
     PolicyStrength,
 )
 from archcompass.domain.review import (
+    BoundaryReview,
     BoundaryReviewReport,
+    InvestigationLookup,
     OpenQuestion,
+    RecordedInvestigation,
     ReviewedBoundary,
     ReviewOverview,
+    ReviewStatus,
     VerdictHinge,
 )
+from archcompass.ports.investigation import RecordedLookup, ToolSpec
 from archcompass.ports.reasoning import ReasoningTask
 
 
@@ -632,6 +646,489 @@ def test_the_deterministic_provider_asks_in_both_shapes() -> None:
     assert len(questions) == 2
     assert questions[0].answer_options
     assert questions[1].answer_options == []
+
+
+class _Investigator:
+    """A toolbox that answers from a script and keeps the record the real one keeps."""
+
+    def __init__(self, answers: dict[str, str]) -> None:
+        self._answers = answers
+        self.transcript: list[RecordedLookup] = []
+        self.closing = ""
+        self.abandoned = ""
+
+    @property
+    def tools(self) -> list[ToolSpec]:
+        return [
+            ToolSpec(
+                name="search_source",
+                description="Find text.",
+                parameters={"type": "object", "properties": {}},
+            )
+        ]
+
+    def call(self, name: str, arguments: Mapping[str, object]) -> str:
+        result = self._answers.get(name, f"There is no tool called {name!r}.")
+        self.transcript.append(RecordedLookup(tool=name, arguments=dict(arguments), result=result))
+        return result
+
+    def conclude(self, closing: str, abandoned: str) -> None:
+        self.closing = closing
+        self.abandoned = abandoned
+
+
+class _StaticSelection:
+    """A workspace whose chosen model never changes and never records a failure."""
+
+    def __init__(self, config: ReasoningModelConfig) -> None:
+        self._config = config
+
+    def current(self) -> ReasoningModelConfig | None:
+        return self._config
+
+    def record_failure(self, detail: str) -> None:
+        del detail
+
+
+class _InvestigatingTransport(_RecordingTransport):
+    """A transport with the tool-calling capability, scripted turn by turn.
+
+    Each entry is either the exchange to return or an error to raise, so the abandonment
+    path is scripted in the same shape as the ordinary one.
+    """
+
+    def __init__(
+        self,
+        exchanges: list[ToolExchange | ProviderError],
+        *replies: str,
+        repeating: bool = False,
+    ) -> None:
+        super().__init__(*replies)
+        self._exchanges = list(exchanges)
+        self._repeating = repeating
+        self.investigations: list[list[object]] = []
+        self.required: list[bool] = []
+
+    def complete_with_tools(
+        self,
+        messages: list[InvestigationMessage],
+        *,
+        tools: Sequence[ToolSpec],
+        require_call: bool,
+        task: ReasoningTask,
+        think: object,
+        temperature: float | None,
+    ) -> ToolExchange:
+        del tools, task, think, temperature
+        self.investigations.append(list(messages))
+        self.required.append(require_call)
+        exchange = self._exchanges[0] if self._repeating else self._exchanges.pop(0)
+        if isinstance(exchange, ProviderError):
+            raise exchange
+        return exchange
+
+
+def _investigating(
+    exchanges: list[ToolExchange | ProviderError],
+    *replies: str,
+    repeating: bool = False,
+) -> tuple[StructuredReasoningProvider, _InvestigatingTransport]:
+    transport = _InvestigatingTransport(exchanges, *replies, repeating=repeating)
+    config = ReasoningModelConfig(
+        provider="fake",
+        model="fake-judge",
+        timeout_seconds=30,
+        context_window_tokens=131072,
+        max_output_tokens=8192,
+    )
+    return StructuredReasoningProvider(config, transport), transport
+
+
+ONE_QUESTION = _elicitation_reply(("Is a second vendor contracted?", [True, False, True]))
+
+
+def _sent_payload(transport: _RecordingTransport) -> dict[str, object]:
+    """The input document of the elicitation call, as JSON the assertion can read."""
+
+    messages = cast(list[ChatMessage], transport.requests[0]["messages"])
+    user = next(item for item in messages if item["role"] == "user")
+    return cast(dict[str, object], json.loads(user["content"].split("Input:\n", 1)[1]))
+
+
+def test_a_stage_may_look_things_up_before_it_decides_what_to_ask() -> None:
+    """The whole loop in one pass: two lookups, then the stage says it has enough.
+
+    Each result goes back as its own turn, paired positionally with the call it answers, and
+    what the stage finally sees is a rendering of the record rather than the conversation —
+    the questions are composed from findings, and the findings are what the transcript holds.
+    """
+
+    investigator = _Investigator({"search_source": "audio/sink.py:12: AudioSink.write(chunk)"})
+    provider, transport = _investigating(
+        [
+            ToolExchange(
+                text="Let me see where this is used.",
+                calls=(
+                    ToolCall(name="search_source", arguments={"query": "AudioSink"}),
+                    ToolCall(name="search_source", arguments={"query": "write"}),
+                ),
+            ),
+            ToolExchange(text="Both are called from one module.", calls=()),
+        ],
+        ONE_QUESTION,
+    )
+
+    questions = provider.elicit_questions(_case(), BOUNDARIES, investigator)
+
+    assert [item.tool for item in investigator.transcript] == [
+        "search_source",
+        "search_source",
+    ]
+    # Every result went back as its own turn, in the order the calls were made.
+    second = investigator_turns = transport.investigations[1]
+    assert [item.call_name for item in second if isinstance(item, ToolResultTurn)] == [
+        "search_source",
+        "search_source",
+    ]
+    assert any(isinstance(item, AssistantToolTurn) for item in investigator_turns)
+    # And the findings reached the stage that asks, under a name that says what they are.
+    investigation = cast(str, _sent_payload(transport)["investigation"])
+    assert "search_source" in investigation
+    assert "audio/sink.py:12: AudioSink.write(chunk)" in investigation
+    assert "Both are called from one module." in investigation
+    assert [item.reference for item in questions] == ["Q-1"]
+    # And the toolbox was told the looking had ended, with the prose the rendering used.
+    # It is the only route the closing has to the record that is stored: the rendering is
+    # spent on one request and gone.
+    assert investigator.closing == "Both are called from one module."
+    assert investigator.abandoned == ""
+
+
+def test_whatever_the_transport_attached_to_a_reply_comes_back_with_the_replay() -> None:
+    """The loop is a courier for `vendor_state`, and courier is the whole of its part.
+
+    Gemini signs its function calls and expects the signature back with the history, which
+    no provider-neutral field can hold; the loop therefore carries the transport's own object
+    from the reply onto the turn it replays without ever looking inside it. Asserted by
+    identity — anything this loop did to the value would be this loop reading it.
+    """
+
+    marker = object()
+    investigator = _Investigator({"search_source": "audio/sink.py:12: one line"})
+    provider, transport = _investigating(
+        [
+            ToolExchange(
+                text="Let me look.",
+                calls=(ToolCall(name="search_source", arguments={"query": "AudioSink"}),),
+                vendor_state=marker,
+            ),
+            ToolExchange(text="Enough seen.", calls=()),
+        ],
+        ONE_QUESTION,
+    )
+
+    provider.elicit_questions(_case(), BOUNDARIES, investigator)
+
+    replayed = [
+        item for item in transport.investigations[1] if isinstance(item, AssistantToolTurn)
+    ]
+    assert [item.vendor_state for item in replayed] == [marker]
+
+
+def test_an_investigation_that_will_not_stop_is_stopped() -> None:
+    """A loop with no cap is an agent, and nobody asked for one.
+
+    The cap is spent without a further model call: a stage that has used its last turn has
+    nothing left to say, and asking it again would buy a reply nothing can act on.
+    """
+
+    investigator = _Investigator({"search_source": "audio/sink.py:12: one line"})
+    provider, transport = _investigating(
+        [
+            ToolExchange(
+                text="",
+                calls=(ToolCall(name="search_source", arguments={"query": "again"}),),
+            )
+        ],
+        ONE_QUESTION,
+        repeating=True,
+    )
+
+    provider.elicit_questions(_case(), BOUNDARIES, investigator)
+
+    assert len(transport.investigations) == MAX_INVESTIGATION_TURNS
+    assert len(investigator.transcript) == MAX_INVESTIGATION_TURNS
+
+
+def test_only_the_opening_turn_is_forced_to_look() -> None:
+    """The repository gets first refusal, and the transport is what enforces it.
+
+    A prompt alone proved too weak: a small model told that looking was optional treated it
+    as optional. So the first turn rides with the vendor's must-call mode, and every turn
+    after it is the model's own judgement — a forced call on the last turn would be a loop
+    that cannot end.
+    """
+
+    investigator = _Investigator({"search_source": "audio/sink.py:12: one line"})
+    provider, transport = _investigating(
+        [
+            ToolExchange(
+                text="",
+                calls=(ToolCall(name="search_source", arguments={"query": "AudioSink"}),),
+            ),
+            ToolExchange(text="Enough seen.", calls=()),
+        ],
+        ONE_QUESTION,
+    )
+
+    provider.elicit_questions(_case(), BOUNDARIES, investigator)
+
+    assert transport.required == [True, False]
+
+
+def test_an_investigation_that_outgrows_its_budget_is_cut_short() -> None:
+    """The turn cap bounds the conversation; this bounds what it may carry.
+
+    One turn may hold several calls and every result is clamped, but their product is not:
+    what the asking stage is handed rides inside its own budget-guarded request, and an
+    investigation big enough to burst that would fail a stage whose worst permitted outcome
+    is to ask the way it always asked. The findings gathered under the ceiling are kept, and
+    the rendering says the looking stopped rather than finished.
+    """
+
+    investigator = _Investigator({"search_source": "audio/sink.py:12: " + "x" * 9_000})
+    provider, transport = _investigating(
+        [
+            ToolExchange(
+                text="",
+                calls=(ToolCall(name="search_source", arguments={"query": "again"}),),
+            )
+        ],
+        ONE_QUESTION,
+        repeating=True,
+    )
+
+    provider.elicit_questions(_case(), BOUNDARIES, investigator)
+
+    # 9k, 18k, 27k: the third result crosses the 20k ceiling, and no fourth turn is bought.
+    assert len(transport.investigations) == 3
+    assert len(investigator.transcript) == 3
+    investigation = cast(str, _sent_payload(transport)["investigation"])
+    assert "size ceiling" in investigation
+    assert "size ceiling" in investigator.abandoned
+
+
+def test_an_investigation_that_fails_costs_the_lookups_and_not_the_review() -> None:
+    """Asking without having looked is the worst outcome, and a failed run is worse than it.
+
+    The abandonment is written into the rendering rather than swallowed, because a stage
+    shown two findings and no note would take them for the whole of what could be found.
+    """
+
+    investigator = _Investigator({"search_source": "audio/sink.py:12: one line"})
+    provider, transport = _investigating(
+        [
+            ToolExchange(
+                text="",
+                calls=(ToolCall(name="search_source", arguments={"query": "AudioSink"}),),
+            ),
+            ProviderError("Google AI Studio reasoning request failed with HTTP 429"),
+        ],
+        ONE_QUESTION,
+    )
+
+    questions = provider.elicit_questions(_case(), BOUNDARIES, investigator)
+
+    assert [item.reference for item in questions] == ["Q-1"]
+    investigation = cast(str, _sent_payload(transport)["investigation"])
+    assert "investigation abandoned" in investigation
+    assert "HTTP 429" in investigation
+    # What it did find before the failure is still there; it is findings, not a failed call.
+    assert "audio/sink.py:12: one line" in investigation
+    # The abandonment reaches the record as well as the rendering, so a stored investigation
+    # that stops short says why rather than looking like one that ran out of things to ask.
+    assert "HTTP 429" in investigator.abandoned
+    assert investigator.closing == ""
+
+
+def test_a_transport_that_cannot_call_tools_asks_exactly_as_it_did_before() -> None:
+    """The capability is absent from most providers, and its absence changes nothing.
+
+    Checked on the payload rather than on the questions: an `investigation` key present and
+    empty would be a stage told it investigated and found nothing, which is a different and
+    false statement.
+    """
+
+    provider, transport = _provider(ONE_QUESTION)
+
+    provider.elicit_questions(_case(), BOUNDARIES, _Investigator({}))
+
+    assert "investigation" not in _sent_payload(transport)
+    assert len(transport.requests) == 1
+
+
+def test_a_stage_given_no_investigator_asks_from_the_pinned_evidence_alone() -> None:
+    """The default, and the shape every existing caller keeps."""
+
+    provider, transport = _investigating([], ONE_QUESTION)
+
+    provider.elicit_questions(_case(), BOUNDARIES)
+
+    assert transport.investigations == []
+    assert "investigation" not in _sent_payload(transport)
+
+
+def test_a_stage_that_looks_at_nothing_reports_no_investigation() -> None:
+    """Deciding immediately that nothing needs checking is a real answer, and a silent one."""
+
+    provider, transport = _investigating(
+        [ToolExchange(text="", calls=())],
+        ONE_QUESTION,
+    )
+
+    provider.elicit_questions(_case(), BOUNDARIES, _Investigator({}))
+
+    assert "investigation" not in _sent_payload(transport)
+
+
+def test_the_toolbox_reaches_whichever_model_the_workspace_chose() -> None:
+    """A parameter dropped in the forwarding reasoner is a capability that never runs.
+
+    Nothing would fail: the delegate would investigate nothing and ask exactly as it always
+    has, which is the ordinary behaviour of every provider without the capability. So the
+    forwarding is asserted rather than trusted to the type checker, which cannot see a
+    lambda that simply does not pass its last argument.
+    """
+
+    investigator = _Investigator({"search_source": "audio/sink.py:12: one line"})
+    provider, transport = _investigating(
+        [ToolExchange(text="Checked.", calls=())],
+        ONE_QUESTION,
+    )
+    config = ReasoningModelConfig(
+        provider="fake",
+        model="fake-judge",
+        timeout_seconds=30,
+        context_window_tokens=131072,
+        max_output_tokens=8192,
+    )
+    reasoner = SelectedModelReasoner(_StaticSelection(config), lambda _config: provider)
+
+    reasoner.elicit_questions(_case(), BOUNDARIES, investigator)
+
+    assert len(transport.investigations) == 1
+
+
+def test_the_substitute_takes_a_toolbox_and_ignores_it() -> None:
+    """It has no model to hand tools to, and refusing one would break every caller."""
+
+    investigator = _Investigator({})
+
+    questions = DeterministicReasoningProvider().elicit_questions(
+        _case(), BOUNDARIES, investigator
+    )
+
+    assert [item.reference for item in questions] == ["Q-1"]
+    # Not even a closing, so the run that drove it records no investigation at all rather
+    # than one that says nothing — which is the difference between "this provider cannot
+    # look" and "it looked and found nothing worth saying".
+    assert investigator.transcript == []
+    assert (investigator.closing, investigator.abandoned) == ("", "")
+
+
+def _record() -> RecordedInvestigation:
+    return RecordedInvestigation(
+        lookups=[
+            InvestigationLookup(
+                tool="search_source",
+                arguments={"query": "AudioSink"},
+                result="audio/sink.py:12: AudioSink.write(chunk)",
+            )
+        ],
+        closing="Both copies are read by one module.",
+        prompt_identity="investigate-usage:v2:abc",
+    )
+
+
+def _review(**update: object) -> BoundaryReview:
+    return BoundaryReview(
+        status=ReviewStatus.RUNNING,
+        case_id="case-1",
+        case_revision=1,
+        atlas_version_id="atlas-1",
+        reasoning_model="fake:test",
+        prompt_identity="judge-finding-candidate:v3:abc",
+        **update,  # pyright: ignore[reportArgumentType]
+    )
+
+
+def test_the_record_survives_the_document_it_is_stored_in() -> None:
+    """A review is one JSON document, so writing and reading it back is the whole store.
+
+    Asserted on the arguments as well as the text: they are the half that says what was
+    actually asked of the repository, and a mapping that came back as a string would leave
+    a lookup nobody can repeat.
+    """
+
+    written = _review(investigation=_record()).model_dump_json()
+
+    restored = BoundaryReview.model_validate_json(written).investigation
+
+    assert restored == _record()
+    assert restored is not None
+    assert restored.lookups[0].arguments == {"query": "AudioSink"}
+
+
+def test_a_review_stored_before_the_investigation_was_kept_reads_back_without_one() -> None:
+    """The field widens the schema, which is why `schema_version` stays where it is.
+
+    ADR 0002 refuses a shim for a *narrowed* schema and asks for the record to be produced
+    again; a review can be re-run, but making every stored one unreadable to add a field
+    whose absence has one obvious meaning would be paying that price for nothing. `None` is
+    that meaning: nothing recorded an investigation for this run.
+    """
+
+    document = json.loads(_review().model_dump_json())
+    del document["investigation"]
+
+    assert BoundaryReview.model_validate(document).investigation is None
+
+
+def test_an_investigation_that_looked_at_nothing_still_says_why() -> None:
+    """No lookups beside an abandonment is a real state, and the one worth keeping.
+
+    It is what a first turn that failed leaves behind. Recorded, the questions that follow
+    are legible as questions asked without having looked; unrecorded, they are
+    indistinguishable from questions asked after finding nothing.
+    """
+
+    abandoned = RecordedInvestigation(
+        abandoned="Google AI Studio reasoning request failed with HTTP 429",
+        prompt_identity="investigate-usage:v2:abc",
+    )
+
+    assert abandoned.lookups == []
+    assert abandoned.closing == ""
+    assert BoundaryReview.model_validate_json(
+        _review(investigation=abandoned).model_dump_json()
+    ).investigation == abandoned
+
+
+def test_judging_is_deliberately_given_no_way_to_investigate() -> None:
+    """§12.0 is amended for asking and not for judging.
+
+    A verdict's evidence is chosen by the application — a detector picks the spans and the
+    application reads them — and that is what makes a verdict checkable. Nothing in the
+    judging signature admits a toolbox, and this is the assertion that says the omission is
+    a decision.
+    """
+
+    parameters = inspect.signature(StructuredReasoningProvider.judge_finding_candidate).parameters
+
+    assert "investigator" not in parameters
+    assert (
+        "investigator" in inspect.signature(StructuredReasoningProvider.elicit_questions).parameters
+    )
 
 
 def test_the_summarising_stage_has_no_way_to_ask_anything() -> None:

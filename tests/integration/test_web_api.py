@@ -86,6 +86,10 @@ def test_the_api_covers_the_whole_review_loop(runtime: Runtime) -> None:
         fetched = client.get(f"/api/reviews/{review_id}")
         assert fetched.status_code == 200
         assert fetched.json()["review_id"] == review_id
+        # What the review checked before it asked travels with it. Null here — the
+        # substitute has nothing to hand tools to — and the key is present saying so, which
+        # is what lets a client tell "nothing could look" from a field it forgot to read.
+        assert "investigation" in fetched.json()
 
         summaries = client.get("/api/reviews")
         assert summaries.status_code == 200
@@ -745,6 +749,12 @@ def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> N
     assert "BoundaryReview" in schemas
     assert "ReviewedBoundary" in schemas
     assert "ReviewConversation" in schemas
+    # The investigation is served with the review it belongs to, declared rather than
+    # discovered: a page showing what was checked before anything was asked reads it from
+    # the generated client.
+    assert "investigation" in schemas["ReviewDetailResponse"]["properties"]
+    assert "RecordedInvestigation" in schemas
+    assert "InvestigationLookup" in schemas
     # The progress line is a declared contract, not an undocumented convention: a client
     # that had to guess the shape would be parsing prose.
     assert schemas["ReviewProgress"]["discriminator"]["propertyName"] == "event"

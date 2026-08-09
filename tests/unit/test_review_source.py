@@ -16,9 +16,15 @@ from archcompass.adapters.analysis.source_reader import SafeSourceReader
 from archcompass.application.review_source import (
     MAX_CONTEXT_LINES,
     MAX_EXCERPT_LINES,
+    MAX_LEADING_COMMENT_LINES,
     ReviewSourceService,
 )
-from archcompass.domain.atlas import FindingParticipant, SourceLocation
+from archcompass.domain.atlas import (
+    FindingCandidate,
+    FindingParticipant,
+    FindingPattern,
+    SourceLocation,
+)
 from archcompass.domain.review import BoundaryExcerpt
 
 
@@ -123,3 +129,133 @@ def test_a_review_still_shows_the_code_it_judged_when_the_repository_is_gone() -
     served = _service().for_review(judged)
 
     assert [excerpt.text for excerpt in served] == ["BUILT_IN_VOICES = []"]
+
+
+def _candidate(*participants: FindingParticipant) -> FindingCandidate:
+    return FindingCandidate(
+        pattern=FindingPattern.DUPLICATED_KNOWLEDGE,
+        summary="RETRY_LIMIT is stated in 2 modules with the same value.",
+        participants=list(participants),
+        limitations="Compared by name in one snapshot.",
+    )
+
+
+def _states(path: str, line: int) -> FindingParticipant:
+    return FindingParticipant(
+        node_id=path,
+        qualified_name=path.removesuffix(".py"),
+        role="States RETRY_LIMIT at this location.",
+        location=SourceLocation(path=path, start_line=line, end_line=line),
+    )
+
+
+def test_a_candidate_is_served_the_code_at_every_span_it_records(tmp_path: Path) -> None:
+    """What the judging stage was missing: its own candidate's lines, before it decides."""
+
+    (tmp_path / "left.py").write_text("RETRY_LIMIT = 5\n", encoding="utf-8")
+    (tmp_path / "right.py").write_text("OTHER = 1\nRETRY_LIMIT = 5\n", encoding="utf-8")
+    candidate = _candidate(_states("left.py", 1), _states("right.py", 2))
+
+    served = _service().for_candidate(candidate, root=tmp_path)
+
+    assert [excerpt.qualified_name for excerpt in served] == ["left", "right"]
+    assert served[0].text == "    1 | RETRY_LIMIT = 5"
+    assert served[1].text == "    2 | RETRY_LIMIT = 5"
+
+
+def test_a_definition_is_served_with_the_comment_block_written_above_it(
+    tmp_path: Path,
+) -> None:
+    """The decisive fact is routinely in the comment and never in the span.
+
+    A constant's span is the line that assigns it, and what a constant *means* is written
+    directly above it — "the vendor allows five attempts", "unrelated to the retry limit in
+    billing". A judging stage shown the assignment alone was being asked whether two copies
+    state one fact while the sentence answering it sat one line out of frame.
+    """
+
+    (tmp_path / "left.py").write_text(
+        "import os\n\n# AcmeHub's guidance is five attempts.\n# Keep it beside billing's copy.\n"
+        "RETRY_LIMIT = 5\n",
+        encoding="utf-8",
+    )
+    candidate = _candidate(_states("left.py", 5))
+
+    served = _service().for_candidate(candidate, root=tmp_path)
+
+    assert served[0].text.splitlines() == [
+        "    3 | # AcmeHub's guidance is five attempts.",
+        "    4 | # Keep it beside billing's copy.",
+        "    5 | RETRY_LIMIT = 5",
+    ]
+    assert served[0].location is not None
+    assert served[0].location.start_line == 3, (
+        "the excerpt's own coordinates must say where the text it carries begins"
+    )
+
+
+def test_a_comment_a_blank_line_away_belongs_to_something_else(tmp_path: Path) -> None:
+    """The run has to touch the span, or a module docstring becomes every constant's meaning."""
+
+    (tmp_path / "left.py").write_text(
+        "# A note about the imports below.\n\nRETRY_LIMIT = 5\n",
+        encoding="utf-8",
+    )
+    candidate = _candidate(_states("left.py", 3))
+
+    served = _service().for_candidate(candidate, root=tmp_path)
+
+    assert served[0].text == "    3 | RETRY_LIMIT = 5"
+
+
+def test_the_widening_stops_after_a_bounded_run_of_comments(tmp_path: Path) -> None:
+    """A file that opens with forty lines of licence is not forty lines of context."""
+
+    preamble = "".join(f"# licence line {number}\n" for number in range(1, 41))
+    (tmp_path / "left.py").write_text(f"{preamble}RETRY_LIMIT = 5\n", encoding="utf-8")
+    candidate = _candidate(_states("left.py", 41))
+
+    served = _service().for_candidate(candidate, root=tmp_path)
+
+    lines = served[0].text.splitlines()
+    assert len(lines) == MAX_LEADING_COMMENT_LINES + 1
+    assert lines[0].strip().startswith("29 |")
+
+
+def test_the_excerpt_ceiling_still_applies_after_the_span_has_been_widened(
+    tmp_path: Path,
+) -> None:
+    """Widening adds context to a span; it does not buy the span a larger budget."""
+
+    (tmp_path / "long.py").write_text(
+        "# a leading note\n" + "".join(f"line_{number} = {number}\n" for number in range(1, 201)),
+        encoding="utf-8",
+    )
+    ceiling = MAX_EXCERPT_LINES + 2 * MAX_CONTEXT_LINES
+    candidate = _candidate(
+        FindingParticipant(
+            node_id="long",
+            qualified_name="long",
+            role="States the whole file.",
+            location=SourceLocation(path="long.py", start_line=2, end_line=201),
+        )
+    )
+
+    served = _service().for_candidate(candidate, root=tmp_path)
+
+    assert len(served[0].text.splitlines()) == ceiling
+    assert served[0].truncated_after_line == ceiling
+
+
+def test_a_participant_with_no_span_says_so_rather_than_being_dropped(tmp_path: Path) -> None:
+    """A payload short of one participant reads as a candidate with fewer participants."""
+
+    candidate = _candidate(
+        FindingParticipant(node_id="proposed", qualified_name="package.Proposed", role="Proposed.")
+    )
+
+    served = _service().for_candidate(candidate, root=tmp_path)
+
+    assert len(served) == 1
+    assert served[0].text == ""
+    assert "no recorded source span" in served[0].unavailable

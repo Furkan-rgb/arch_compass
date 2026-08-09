@@ -8,6 +8,7 @@ from archcompass.adapters.models.deterministic import DeterministicReasoningProv
 from archcompass.adapters.models.prompt_contracts import (
     ANSWER_REVIEW_QUESTION,
     ELICIT_QUESTIONS,
+    INVESTIGATE_USAGE,
     JUDGE_FINDING_CANDIDATE,
     STAGE_PROMPTS,
     SUMMARISE_REVIEW,
@@ -31,8 +32,9 @@ def test_every_reasoning_task_has_a_contract_and_every_contract_a_task() -> None
     """The enum and the registry must not drift; a gap surfaces as a runtime KeyError."""
 
     expected_versions = {
-        ReasoningTask.JUDGE_FINDING_CANDIDATE: 11,
-        ReasoningTask.ELICIT_QUESTIONS: 4,
+        ReasoningTask.JUDGE_FINDING_CANDIDATE: 12,
+        ReasoningTask.INVESTIGATE_USAGE: 2,
+        ReasoningTask.ELICIT_QUESTIONS: 5,
         ReasoningTask.SUMMARISE_REVIEW: 7,
         ReasoningTask.ANSWER_REVIEW_QUESTION: 8,
         ReasoningTask.DISCUSS_OPEN_QUESTION: 2,
@@ -263,6 +265,40 @@ def test_the_judgement_contract_reads_the_answers_already_given() -> None:
     assert "binds the design exactly as a listed constraint does" in contract
 
 
+def test_the_judgement_contract_says_what_the_code_in_front_of_it_is_for() -> None:
+    """The stage now sees source, and a stage shown evidence must be told what it weighs.
+
+    Two properties, and the second is the one that was measured. Naming the field is not
+    enough: a prototype that showed the code without saying a claim must cite it produced
+    rationales that agreed with the excerpts by coincidence and contradicted them elsewhere.
+    A verdict about what code does now has to point at the lines it rests on, and the
+    comments beside a definition are named as part of what a constant means — that is where
+    the decisive fact sat in every bench case.
+    """
+
+    contract = _normalized(JUDGE_FINDING_CANDIDATE.stage_contract)
+
+    assert "source_evidence is the code at this candidate's recorded spans" in contract
+    assert "read by the application" in contract
+    assert "a claim about what this code does must cite it" in contract
+    assert "the copies are one fact" in contract
+    assert "a comment beside a definition is part of what the constant means" in contract
+
+
+def test_the_judgement_contract_says_what_it_means_when_there_is_no_code() -> None:
+    """The field is absent on a candidate whose spans could not be read, and absence lies.
+
+    A stage told to cite source and then given none either invents a citation or refuses a
+    verdict it is perfectly able to reach from structure. So the contract names the third
+    answer: judge from the structure, and say in the rationale that it was all there was.
+    """
+
+    contract = _normalized(JUDGE_FINDING_CANDIDATE.stage_contract)
+
+    assert "where source_evidence is absent, the structure alone is the evidence" in contract
+    assert "and your rationale may say so" in contract
+
+
 def test_the_elicitation_request_asks_for_a_force_rather_than_a_destination() -> None:
     """`answer_belongs_in` stopped naming a list the moment the pair became the record.
 
@@ -284,6 +320,50 @@ def test_the_elicitation_request_asks_for_a_force_rather_than_a_destination() ->
     assert "joins this to the reader's answer" not in request
     # And the stage that asks is told not to ask twice.
     assert "do not ask again what one of them already answers" in contract
+
+
+def test_the_investigation_contract_bounds_what_looking_is_for() -> None:
+    """The one stage that chooses its own evidence, told what it may choose it for.
+
+    §12.0 is amended for asking and not for judging, and the whole of the amendment's safety
+    is that this stage cannot decide anything: it may find out how something is used, and it
+    may not propose a change or re-open a verdict. Said in the contract because there is no
+    schema here to say it in — an investigation turn is unconstrained text and tool calls.
+    """
+
+    contract = _normalized(INVESTIGATE_USAGE.stage_contract)
+
+    # v2's rule: the code's kind of question must be looked up, the reader's kind left alone.
+    assert "the repository gets first refusal" in contract
+    assert "is your kind, and every question of that kind" in contract
+    assert "is the reader's kind, and no amount of reading answers it" in contract
+    assert "stop when every concern of your kind is settled" in contract
+    assert "do not propose a change" in contract
+    # The three kinds of question that were being handed to the reader, named.
+    assert "how a flagged element is actually used" in contract
+    assert "whether two constants stating one value state one fact" in contract
+    assert "whether a configuration value is consumed" in contract
+    # The discipline the first trial showed a search-only model lacks.
+    assert "a search hit is a line, not its meaning" in contract
+    # And the reason the amendment holds: nothing here is invisible.
+    assert "everything you look at is recorded" in contract
+
+
+def test_the_elicitation_contract_reads_its_own_findings_before_it_asks() -> None:
+    """A question the stage has already answered for itself must not reach a person.
+
+    The findings arrive as `investigation`, and a stage not told what that field is would
+    read it as somebody else's report — which is the reading that produces "the review saw
+    this, but you should confirm it" instead of a question worth a reader's afternoon.
+    """
+
+    contract = _normalized(ELICIT_QUESTIONS.stage_contract)
+
+    assert "an `investigation` field may be present in the input" in contract
+    assert "a question the investigation already answers must not be asked" in contract
+    assert "may be stated in `what_the_review_saw`" in contract
+    # An abandoned or absent investigation is a stated fact rather than an empty one.
+    assert "nothing was checked" in contract
 
 
 def test_the_summary_contract_reads_a_clarification_as_part_of_the_case() -> None:

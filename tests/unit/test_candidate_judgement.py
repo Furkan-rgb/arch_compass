@@ -17,6 +17,8 @@ from typing import cast
 import pytest
 from tests.reasoning_support import SETTLED_HINGE
 
+from archcompass.adapters.models.deterministic import DeterministicReasoningProvider
+from archcompass.adapters.models.selected import SelectedModelReasoner
 from archcompass.adapters.models.structured import (
     ChatMessage,
     ProposedCandidateVerdict,
@@ -28,6 +30,7 @@ from archcompass.domain.atlas import (
     FindingMeasurement,
     FindingParticipant,
     FindingPattern,
+    SourceLocation,
 )
 from archcompass.domain.case import ArchitectureCase
 from archcompass.domain.errors import ModelOutputValidationError
@@ -37,6 +40,7 @@ from archcompass.domain.policy import (
     PolicySource,
     PolicyStrength,
 )
+from archcompass.domain.review import BoundaryExcerpt
 from archcompass.ports.reasoning import ReasoningTask
 
 
@@ -295,3 +299,124 @@ def test_the_verdict_carries_the_candidate_id_the_application_already_held() -> 
     verdict = provider.judge_finding_candidate(_case(), candidate, POLICIES)
 
     assert verdict.candidate_id == candidate.candidate_id
+
+
+
+class _StaticSelection:
+    """A workspace whose chosen model never changes and never records a failure."""
+
+    def __init__(self, config: ReasoningModelConfig) -> None:
+        self._config = config
+
+    def current(self) -> ReasoningModelConfig | None:
+        return self._config
+
+    def record_failure(self, detail: str) -> None:
+        del detail
+
+
+EXCERPTS = [
+    BoundaryExcerpt(
+        reference="BR-000",
+        qualified_name="package.checkout",
+        role="States RETRY_LIMIT at this location.",
+        location=SourceLocation(path="src/checkout.py", start_line=11, end_line=12),
+        text="   11 | # AcmeHub allows five attempts.\n   12 | RETRY_LIMIT = 5",
+    ),
+    BoundaryExcerpt(
+        reference="BR-000",
+        qualified_name="package.orders",
+        role="Names RETRY_LIMIT on line 5 — a consumer of one of the copies.",
+        location=SourceLocation(path="src/orders.py", start_line=5, end_line=5),
+        unavailable="Those lines are no longer present in this file.",
+    ),
+]
+
+
+def _sent_payload(transport: _RecordingTransport) -> dict[str, object]:
+    """The judging call's input document, as JSON an assertion can read."""
+
+    messages = cast(list[ChatMessage], transport.requests[0]["messages"])
+    user = next(item for item in messages if item["role"] == "user")
+    return cast(dict[str, object], json.loads(user["content"].split("Input:\n", 1)[1]))
+
+
+def test_the_code_at_the_candidates_spans_reaches_the_stage_that_judges_it() -> None:
+    """The defect this whole change exists for: a verdict about code, reached without code.
+
+    Asserted on the payload rather than on the verdict, because what a model concludes from
+    the lines is not this layer's claim. What is this layer's claim is that the lines were
+    there to conclude from — including the comment above the definition, which is where the
+    fact deciding one-fact-or-coincidence is routinely written.
+    """
+
+    provider, transport = _provider(_reply((False, ""), (False, ""), (False, "")))
+
+    provider.judge_finding_candidate(_case(), _candidate(), POLICIES, EXCERPTS)
+
+    assert _sent_payload(transport)["source_evidence"] == [
+        {
+            "where": "src/checkout.py:11",
+            "what_it_contributes": "States RETRY_LIMIT at this location.",
+            "code": "   11 | # AcmeHub allows five attempts.\n   12 | RETRY_LIMIT = 5",
+            "why_there_is_no_code": None,
+            "note": None,
+        },
+        {
+            "where": "src/orders.py:5",
+            "what_it_contributes": (
+                "Names RETRY_LIMIT on line 5 — a consumer of one of the copies."
+            ),
+            "code": None,
+            "why_there_is_no_code": "Those lines are no longer present in this file.",
+            "note": None,
+        },
+    ]
+
+
+def test_a_judgement_with_nothing_to_read_says_nothing_about_source() -> None:
+    """An empty `source_evidence` would tell the stage the repository holds no such lines.
+
+    The key is absent instead, and the contract says what its absence means: the structure
+    is the whole of the evidence, and a rationale may say so.
+    """
+
+    for excerpts in (None, []):
+        provider, transport = _provider(_reply((False, ""), (False, ""), (False, "")))
+
+        provider.judge_finding_candidate(_case(), _candidate(), POLICIES, excerpts)
+
+        assert "source_evidence" not in _sent_payload(transport)
+
+
+def test_the_substitute_takes_the_code_and_ignores_it() -> None:
+    """It judges from the measurements, and refusing the argument would break every caller."""
+
+    verdict = DeterministicReasoningProvider().judge_finding_candidate(
+        _case(), _candidate(), POLICIES, EXCERPTS
+    )
+
+    assert verdict.rationale
+
+
+def test_the_code_reaches_whichever_model_the_workspace_chose() -> None:
+    """A parameter dropped in the forwarding reasoner is evidence that never arrives.
+
+    Nothing would fail. The delegate would judge from structure alone — the shape every
+    verdict had before this change — so the forwarding is asserted rather than left to a
+    type checker, which cannot see a lambda quietly not passing its last argument.
+    """
+
+    provider, transport = _provider(_reply((False, ""), (False, ""), (False, "")))
+    config = ReasoningModelConfig(
+        provider="fake",
+        model="fake-judge",
+        timeout_seconds=30,
+        context_window_tokens=131072,
+        max_output_tokens=8192,
+    )
+    reasoner = SelectedModelReasoner(_StaticSelection(config), lambda _config: provider)
+
+    reasoner.judge_finding_candidate(_case(), _candidate(), POLICIES, EXCERPTS)
+
+    assert len(cast(list[object], _sent_payload(transport)["source_evidence"])) == 2

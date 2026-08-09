@@ -19,6 +19,7 @@ from archcompass.domain.knowledge import MethodKnowledge
 from archcompass.domain.model_catalog import AvailableModel, ProbeResult
 from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
+    BoundaryExcerpt,
     BoundaryReview,
     CandidateVerdict,
     OpenQuestion,
@@ -31,6 +32,7 @@ from archcompass.domain.review import (
     VerdictHinge,
 )
 from archcompass.domain.review_conversation import ReviewAnswer, ReviewMessage
+from archcompass.ports.investigation import SourceInvestigator
 from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
 from archcompass.ports.reasoning import ReasoningTask, StreamingAnswerReasoner
 
@@ -73,6 +75,7 @@ def _atlas_map_marker(evidence: ReviewEvidence) -> str:
 class DeterministicReasoningProvider:
     _PROMPTS: ClassVar[dict[ReasoningTask, str]] = {
         ReasoningTask.JUDGE_FINDING_CANDIDATE: "judge-finding-candidate:v4",
+        ReasoningTask.INVESTIGATE_USAGE: "investigate-usage:v1",
         ReasoningTask.ELICIT_QUESTIONS: "elicit-questions:v1",
         ReasoningTask.SUMMARISE_REVIEW: "summarise-review:v3",
         ReasoningTask.ANSWER_REVIEW_QUESTION: "answer-review-question:v1",
@@ -105,7 +108,12 @@ class DeterministicReasoningProvider:
         case: ArchitectureCase,
         candidate: FindingCandidate,
         policies: list[PolicyDocument],
+        excerpts: list[BoundaryExcerpt] | None = None,
     ) -> CandidateVerdict:
+        # Taken and ignored, exactly as the elicitation toolbox is. There is no model here to
+        # read code to, and refusing the argument would make every caller ask which reasoner
+        # it holds before it could pass evidence to any of them.
+        del excerpts
         # The one call a substitute can make from the measurements alone: indirection
         # that nothing depends on is in front of nothing. Every other candidate is
         # reported as fine, which is both the honest default here and the answer a real
@@ -203,7 +211,12 @@ class DeterministicReasoningProvider:
         self,
         case: ArchitectureCase,
         boundaries: list[ReviewedBoundary],
+        investigator: SourceInvestigator | None = None,
     ) -> list[OpenQuestion]:
+        # Accepted and never used. There is no model here to hand tools to, and a substitute
+        # that investigated would make a deterministic run depend on the repository it is
+        # pointed at — which is the one property this class exists to keep.
+        del investigator
         # Consolidated the way the real stage is asked to consolidate: boundaries naming the
         # same unknown become one question citing all of them. Grouping by the unknown's own
         # text is cruder than a model reading them for sense, but it is the same operation,

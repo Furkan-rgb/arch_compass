@@ -32,6 +32,7 @@ from archcompass.domain.delta import BoundaryLineEventType, BoundaryState, Judge
 from archcompass.domain.errors import NothingToReviewError
 from archcompass.domain.policy import PolicyDocument
 from archcompass.domain.review import (
+    BoundaryExcerpt,
     BoundaryReview,
     BoundaryReviewReport,
     CandidateVerdict,
@@ -41,6 +42,7 @@ from archcompass.domain.review import (
     ReviewStatus,
 )
 from archcompass.domain.triage import DecisionComment, DecisionState, StandingDecision
+from archcompass.ports.investigation import SourceInvestigator
 from archcompass.ports.reasoning import FocusedReasoningProvider, ReasoningTask
 
 PORTS = '''from typing import Protocol
@@ -161,17 +163,19 @@ class RecordingReasoner:
         case: ArchitectureCase,
         candidate: FindingCandidate,
         policies: list[PolicyDocument],
+        excerpts: list[BoundaryExcerpt] | None = None,
     ) -> CandidateVerdict:
         self.judgements += 1
-        return self._delegate.judge_finding_candidate(case, candidate, policies)
+        return self._delegate.judge_finding_candidate(case, candidate, policies, excerpts)
 
     def elicit_questions(
         self,
         case: ArchitectureCase,
         boundaries: list[ReviewedBoundary],
+        investigator: SourceInvestigator | None = None,
     ) -> list[OpenQuestion]:
         self.elicited.append([item.reference for item in boundaries])
-        return self._delegate.elicit_questions(case, boundaries)
+        return self._delegate.elicit_questions(case, boundaries, investigator)
 
     def summarise_review(
         self,

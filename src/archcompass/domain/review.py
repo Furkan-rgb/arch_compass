@@ -554,6 +554,55 @@ class BoundaryReviewReport(DomainModel):
         )
 
 
+class InvestigationLookup(DomainModel):
+    """One thing the review asked the repository, and what the repository said.
+
+    The port's `RecordedLookup` says the same three things and is deliberately not this. That
+    one is a transport-side value passed between an adapter and a toolbox; this is part of a
+    stored document, so it validates, serialises and reads back with everything else the
+    review kept. The mapping between them is a copy of three fields, which is a smaller price
+    than a domain record whose shape is decided by a protocol.
+    """
+
+    tool: str = Field(min_length=1)
+    #: Exactly what was asked, so the lookup can be repeated. A result nobody can reproduce
+    #: is the unverifiable evidence §12.0 refuses, and the arguments are half of reproducing.
+    arguments: dict[str, object] = Field(default_factory=dict[str, object])
+    #: What came back, as the model was shown it — clamped, and including the refusals. A
+    #: lookup that answered nothing is kept for the same reason the useful ones are.
+    result: str = ""
+
+
+class RecordedInvestigation(DomainModel):
+    """What the review checked before it asked anything, kept with the review.
+
+    This is what makes a question legible. A reader shown "is this constant one fact or two?"
+    cannot tell a question asked because the repository is silent from one asked because
+    nobody looked — and the difference is the whole of whether the review is worth answering.
+    So the lookups are stored beside the questions they preceded.
+
+    Empty `lookups` with a non-empty `abandoned` is a real state and not a gap: the first turn
+    failed, so the stage asked without having looked, and that is a fact about the questions
+    below it. Empty on both counts never gets stored — the run records nothing at all rather
+    than a record saying nothing.
+    """
+
+    #: Every call, in the order it was made. Empty where the looking never got going.
+    lookups: list[InvestigationLookup] = Field(default_factory=list[InvestigationLookup])
+    #: The stage's own prose about which findings mattered, where it offered any. The one
+    #: thing the lookups cannot hold, and the reason it is stored beside them rather than
+    #: among them: it is a judgement about the results, not another result.
+    closing: str = ""
+    #: Why the looking stopped short — a failed turn, the size ceiling — or "" where it ran
+    #: to its own end. An investigation cut off found less than it could have, and a record
+    #: that did not say so would present the findings as everything there was.
+    abandoned: str = ""
+    #: The investigate-usage contract this ran under. A transcript with no identity cannot be
+    #: compared with a later one: a prompt bump changes what the stage looks for, and two
+    #: records under different contracts are two different investigations.
+    prompt_identity: str = Field(min_length=1)
+
+
 class BoundaryReview(DomainModel):
     """One immutable review, pinned to the exact inputs that produced it."""
 
@@ -589,6 +638,17 @@ class BoundaryReview(DomainModel):
     #: indexed before lineages existed; re-indexing and re-running fills it.
     repo_id: str | None = None
     branch_id: str | None = None
+    #: What this run looked up in the repository before it composed its questions, where it
+    #: looked at all. On the review rather than in the report because it is a fact about the
+    #: run and not about the verdicts: it is what the asking was informed by, and a first
+    #: pass keeps it whether it went on to ask or found it had nothing left to ask.
+    #:
+    #: `None` says nothing recorded an investigation — a review stored before this field
+    #: existed, or a provider with no way to offer tools, which is most of them. It never
+    #: says the repository was checked and was silent; that is a record with no lookups and a
+    #: reason. Optional with a default, so every stored document still parses: ADR 0002
+    #: refuses shims for a *narrowed* schema, and this widens.
+    investigation: RecordedInvestigation | None = None
     report: BoundaryReviewReport | None = None
     markdown_report: str | None = None
     duration_seconds: float = Field(default=0.0, ge=0)

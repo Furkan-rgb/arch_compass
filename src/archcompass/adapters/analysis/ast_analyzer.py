@@ -57,7 +57,7 @@ from archcompass.domain.atlas import (
 )
 from archcompass.domain.base import canonical_json, stable_id
 from archcompass.domain.errors import PathValidationError
-from archcompass.domain.scope import IGNORED_DIRECTORIES, excludes
+from archcompass.domain.scope import CONFIG_SUFFIXES, IGNORED_DIRECTORIES, excludes
 from archcompass.ports.atlas import (
     ConformanceQuestion,
     EdgeResolutionRequest,
@@ -75,7 +75,6 @@ from archcompass.ports.atlas import (
 # positions from a stored v4 atlas, so it is stale and re-analyzed rather than read with the
 # lines missing (ADR 0002). Re-analysis is cheap and lossless: an atlas is derived.
 PARSER_VERSION = "python-ast-3.12-v5"
-CONFIG_SUFFIXES = {".yaml", ".yml", ".toml", ".json", ".ini", ".cfg", ".env"}
 
 
 @dataclass(frozen=True)

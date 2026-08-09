@@ -47,6 +47,7 @@ import { useRun } from "../run";
 import { QuestionDiscussion } from "../question-discussion";
 import { BulkDecide } from "../triage";
 import { OpenQuestions, type SubmittedAnswer } from "../review-questions";
+import { InvestigationDisclosure } from "../investigation-disclosure";
 import type {
   BoundaryReview,
   BoundaryReviewSummary,
@@ -1267,6 +1268,13 @@ export function ReviewDetailPage() {
         ) : null}
         {id === "questions" ? (
           <>
+            {/* Before the questions, because it is their warrant: each one is asked on
+                the strength of the repository having been checked and stayed silent, and
+                a concluded pass keeps the record for the same reason — what was checked
+                is part of how the verdicts stood without asking. */}
+            {review.data?.investigation ? (
+              <InvestigationDisclosure investigation={review.data.investigation} />
+            ) : null}
             {holding ? <div className={cn(sheet, "max-w-[96ch] p-[var(--card-pad)]")}>{questions}</div> : null}
             {answered.length > 0 ? (
               <AnsweredHistory

@@ -7,21 +7,28 @@ what shape its answer must take are decided in `structured`, above this boundary
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import Final
 
 import httpx
 from ollama import Client, ResponseError
 
 from archcompass.adapters.models.structured import (
+    AssistantToolTurn,
     ChatMessage,
+    InvestigationMessage,
     StreamingChatTransport,
     StructuredReasoningProvider,
     ThinkLevel,
+    ToolCall,
+    ToolCallingChatTransport,
+    ToolExchange,
+    ToolResultTurn,
 )
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ProviderError
 from archcompass.domain.model_catalog import AvailableModel, ProbeResult
+from archcompass.ports.investigation import ToolSpec
 from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
 from archcompass.ports.reasoning import ReasoningTask
 
@@ -236,6 +243,57 @@ def probe_ollama(defaults: ProviderDefaults) -> ProbeResult:
     )
 
 
+def _investigation_messages(
+    messages: list[InvestigationMessage],
+) -> list[Mapping[str, object]]:
+    """The history as Ollama's chat endpoint wants it, calls and results included.
+
+    Three shapes, and only two of them need translating. A plain chat message already is what
+    this API takes, role and content and nothing else. An assistant turn becomes that same
+    message with its calls attached under `tool_calls`, in the order they were made, because
+    a server given results without the calls they answer has no way to pair them. A result is
+    its own `tool` message, naming the tool that produced it.
+
+    The name on a result is what this vendor asks for in place of a call id, and it does not
+    make the pairing: two calls of one tool in a turn are told apart by their order and by
+    nothing else, exactly as they were sent.
+    """
+
+    translated: list[Mapping[str, object]] = []
+    for message in messages:
+        if isinstance(message, AssistantToolTurn):
+            translated.append(
+                {
+                    "role": "assistant",
+                    "content": message.text,
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": call.name,
+                                # Already parsed on the way in — this client hands over a
+                                # mapping rather than the JSON string some vendors send —
+                                # so the arguments go back the way they arrived.
+                                "arguments": dict(call.arguments),
+                            }
+                        }
+                        for call in message.calls
+                    ],
+                }
+            )
+            continue
+        if isinstance(message, ToolResultTurn):
+            translated.append(
+                {
+                    "role": "tool",
+                    "content": message.content,
+                    "tool_name": message.call_name,
+                }
+            )
+            continue
+        translated.append(message)
+    return translated
+
+
 class OllamaChatTransport:
     """Encodes one already-assembled request for the Ollama chat endpoint."""
 
@@ -314,6 +372,85 @@ class OllamaChatTransport:
         except _REQUEST_FAILURES as error:
             raise _as_provider_error(error) from error
 
+    def complete_with_tools(
+        self,
+        messages: list[InvestigationMessage],
+        *,
+        tools: Sequence[ToolSpec],
+        require_call: bool,
+        task: ReasoningTask,
+        think: ThinkLevel,
+        temperature: float | None,
+    ) -> ToolExchange:
+        """One turn of an investigation: the history, the tools, and what came back.
+
+        Everything vendor-shaped about this request is shared with `complete` — the same
+        retry policy, the same error mapping, the same options — and what differs is stated
+        rather than inherited. There is no `format`, because an investigation turn is prose
+        and calls rather than a document with a grammar; the schema-constrained call that
+        composes the questions happens afterwards and is untouched by this.
+
+        `require_call` is accepted and cannot be honoured. `/api/chat` has no counterpart to
+        Gemini's must-call mode — the request carries tools and nothing that says the reply
+        has to use them — so on this vendor the forced first look degrades to what the stage
+        prompt already asks for. Simulating it by refusing a reply with no calls was
+        considered and rejected: that turns a model's honest "nothing here needs checking"
+        into a failed turn, and the loop above reads a failed turn as an abandoned
+        investigation.
+        """
+
+        del require_call
+        client = self._client
+        try:
+            response = _with_retry(
+                lambda: client.chat(
+                    model=self._config.model,
+                    messages=_investigation_messages(messages),
+                    tools=[
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": spec.name,
+                                "description": spec.description,
+                                # Passed through as JSON Schema, which is as far as it
+                                # travels: the client validates every tool into its own
+                                # typed `Tool` model, whose parameter shape is a subset of
+                                # the dialect — `minimum` and `additionalProperties` are
+                                # dropped on the way to the wire. Nothing enforceable is
+                                # lost, because a tool's arguments are checked by the
+                                # investigator that runs the call and answered in text the
+                                # model reads, never by the schema.
+                                "parameters": dict(spec.parameters),
+                            },
+                        }
+                        for spec in tools
+                    ],
+                    options=self._options(temperature),
+                    think=think,
+                )
+            )
+        except _REQUEST_FAILURES as error:
+            raise _as_provider_error(error) from error
+        message = response.message
+        calls = tuple(
+            ToolCall(name=item.function.name, arguments=dict(item.function.arguments))
+            for item in message.tool_calls or ()
+        )
+        # `content` only. Ollama reports reasoning in its own `thinking` field, so the rule
+        # the Gemini transport enforces by skipping thought parts holds here by not reading
+        # that field: the model's private reasoning is not addressed to the stage that reads
+        # this, and carried through it would be rendered into the transcript as though it
+        # were a finding about the repository.
+        text = (message.content or "").strip()
+        if not text and not calls:
+            raise ProviderError(
+                f"Ollama returned neither text nor a tool call for {task.value}"
+            )
+        # No `vendor_state`. Ollama's protocol carries nothing private back with a call —
+        # there is no signature to replay — so a turn rebuilt from its name and arguments is
+        # the whole of what the server sent.
+        return ToolExchange(text=text, calls=calls)
+
     def _options(self, temperature: float | None) -> dict[str, object]:
         """The generation options both calls send, derived from the configured window."""
 
@@ -353,3 +490,9 @@ DESCRIPTOR: Final = ProviderDescriptor(
 #: alone, and a transport is held as a `ChatTransport` everywhere else. This states the
 #: signature so `stream` cannot drift from what the streaming path calls.
 _conforms: type[StreamingChatTransport] = OllamaChatTransport
+
+#: And the same statement for the tool-calling capability, which is reached the same way and
+#: for which drift would be quieter still: the loop treats a failed turn as an investigation
+#: to abandon, so a `complete_with_tools` that no longer matched what the loop calls would
+#: show up as stages that quietly stopped looking things up.
+_conforms_with_tools: type[ToolCallingChatTransport] = OllamaChatTransport

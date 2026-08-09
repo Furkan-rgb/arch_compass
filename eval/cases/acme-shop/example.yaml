@@ -1,0 +1,11 @@
+# A manifest, not a case. It says what to call this repository in the workspace and
+# nothing about what a review should conclude: the case is written by answering the
+# questions a run comes back with, so anything stated here would be answers nobody gave.
+
+title: A small shop and the platform behind it
+description: >-
+  An e-commerce backend of four small subsystems: card payments behind one gateway,
+  invoices synced to a hosted platform, receipts sent by email, and a monthly PDF for
+  finance. Two pairs of constants agree with each other, and the code says — in one case
+  beside the definitions, in the other only where they are used — whether that agreement
+  means anything.

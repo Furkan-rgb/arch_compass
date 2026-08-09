@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from typing import Annotated, Literal
 
@@ -22,10 +23,15 @@ from archcompass.adapters.models.google import (
     _thinking_config,
 )
 from archcompass.adapters.models.structured import (
+    AssistantToolTurn,
+    InvestigationMessage,
     ProposedCandidateVerdict,
+    ToolCall,
+    ToolResultTurn,
 )
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ConfigurationError, ProviderError
+from archcompass.ports.investigation import ToolSpec
 from archcompass.ports.model_catalog import ProviderDefaults
 from archcompass.ports.reasoning import ReasoningTask
 
@@ -527,6 +533,339 @@ def test_model_identity_names_the_provider_and_model() -> None:
     assert GoogleReasoningProvider(_reasoning_config()).model_identity == (
         "google:reasoning-test"
     )
+
+
+_TOOLS = (
+    ToolSpec(
+        name="search_source",
+        description="Find text.",
+        parameters={
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    ),
+)
+
+
+def _investigation_request() -> list[InvestigationMessage]:
+    """One investigation part-way through: a prompt, a call made, a result returned."""
+
+    return [
+        {"role": "system", "content": "Look before you ask."},
+        {"role": "user", "content": "These are the verdicts."},
+        AssistantToolTurn(
+            text="Let me look.",
+            calls=(ToolCall(name="search_source", arguments={"query": "AudioSink"}),),
+        ),
+        ToolResultTurn(call_name="search_source", content="audio/sink.py:12: write()"),
+    ]
+
+
+def _tool_response(*parts: dict[str, object]) -> httpx.Response:
+    return _raw_response(
+        {
+            "candidates": [
+                {"content": {"role": "model", "parts": list(parts)}, "finishReason": "STOP"}
+            ]
+        }
+    )
+
+
+def test_an_investigation_request_carries_the_tools_and_the_turns_that_led_to_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole translation in one request: declarations, a call, and its answer.
+
+    The pairing is positional — result *n* answers call *n* of the turn before it — so both
+    halves have to survive as their own parts. Folding either into prose would leave the
+    model to re-read its own history out of a string.
+    """
+
+    captured: list[httpx.Request] = []
+
+    def send(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return _tool_response({"text": "Enough."})
+
+    _patch_transport(monkeypatch, send)
+    transport = GoogleChatTransport(_reasoning_config())
+
+    transport.complete_with_tools(
+        _investigation_request(),
+        tools=_TOOLS,
+        require_call=True,
+        task=ReasoningTask.INVESTIGATE_USAGE,
+        think=None,
+        temperature=None,
+    )
+
+    payload = json.loads(captured[0].content)
+    # The forced first turn rides as the vendor's own must-call mode, not as prompt text.
+    config = payload.get("toolConfig") or payload["tool_config"]
+    calling = config.get("functionCallingConfig") or config["function_calling_config"]
+    assert calling["mode"] == "ANY"
+    declaration = payload["tools"][0]["functionDeclarations"][0]
+    assert declaration["name"] == "search_source"
+    assert declaration["description"] == "Find text."
+    # Plain JSON Schema, not the typed OpenAPI subset: the same reason the response schema
+    # travels as `responseJsonSchema`. Either spelling — which one the SDK emits is its
+    # business, and it emits this one uncamelized while camelizing everything around it.
+    schema = declaration.get("parametersJsonSchema") or declaration["parameters_json_schema"]
+    assert schema["properties"]["query"]["type"] == "string"
+    assert "parameters" not in declaration
+    # No response grammar at all on an investigation turn.
+    assert "responseJsonSchema" not in payload.get("generationConfig", {})
+    assert payload["systemInstruction"]["parts"][0]["text"] == "Look before you ask."
+
+    contents = payload["contents"]
+    assert [item["role"] for item in contents] == ["user", "model", "user"]
+    assert contents[1]["parts"][0]["text"] == "Let me look."
+    assert contents[1]["parts"][1]["functionCall"] == {
+        "name": "search_source",
+        "args": {"query": "AudioSink"},
+    }
+    answer = contents[2]["parts"][0]["functionResponse"]
+    assert answer["name"] == "search_source"
+    assert answer["response"] == {"result": "audio/sink.py:12: write()"}
+
+
+def test_a_reply_asking_for_tools_comes_back_as_the_calls_it_asked_for(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_transport(
+        monkeypatch,
+        lambda _request: _tool_response(
+            {"text": "Two things to check."},
+            {"functionCall": {"name": "search_source", "args": {"query": "AudioSink"}}},
+            {"functionCall": {"name": "read_source", "args": {"path": "a.py"}}},
+        ),
+    )
+    transport = GoogleChatTransport(_reasoning_config())
+
+    exchange = transport.complete_with_tools(
+        _investigation_request(),
+        tools=_TOOLS,
+        require_call=False,
+        task=ReasoningTask.INVESTIGATE_USAGE,
+        think=None,
+        temperature=None,
+    )
+
+    assert exchange.text == "Two things to check."
+    assert exchange.calls == (
+        ToolCall(name="search_source", arguments={"query": "AudioSink"}),
+        ToolCall(name="read_source", arguments={"path": "a.py"}),
+    )
+
+
+def test_a_decoded_turn_keeps_the_content_the_model_actually_sent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The decoded text and calls are what the loop reads; the content is what it replays.
+
+    A 3-series function call carries a thought signature that no provider-neutral field has
+    a place for, so the candidate's own `Content` rides back untouched and unread. Asserted
+    on identity of the parts rather than on the signature here — that this is the object the
+    reply arrived in is the whole property; what it carries is the vendor's business.
+    """
+
+    _patch_transport(
+        monkeypatch,
+        lambda _request: _tool_response(
+            {
+                "functionCall": {"name": "search_source", "args": {"query": "AudioSink"}},
+                "thoughtSignature": base64.b64encode(b"signed").decode(),
+            }
+        ),
+    )
+    transport = GoogleChatTransport(_reasoning_config())
+
+    exchange = transport.complete_with_tools(
+        _investigation_request(),
+        tools=_TOOLS,
+        require_call=False,
+        task=ReasoningTask.INVESTIGATE_USAGE,
+        think=None,
+        temperature=None,
+    )
+
+    assert exchange.calls == (ToolCall(name="search_source", arguments={"query": "AudioSink"}),)
+    content = exchange.vendor_state
+    assert isinstance(content, types.Content)
+    assert content.parts is not None
+    assert content.parts[0].thought_signature == b"signed"
+
+
+def test_a_replayed_turn_sends_back_the_signature_the_model_attached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """What the vendor attached to a call has to come back with the history.
+
+    Gemini 3 signs its function calls and reads the signature on the next request as proof
+    that the reasoning behind the call is the reasoning it is being continued from. Rebuilt
+    from a name and an argument mapping the call is unsigned, so the turn is replayed as the
+    object it arrived as — and this asserts the signature on the wire, because that is the
+    only place the difference shows.
+    """
+
+    captured: list[httpx.Request] = []
+
+    def send(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return _tool_response({"text": "Enough."})
+
+    _patch_transport(monkeypatch, send)
+    transport = GoogleChatTransport(_reasoning_config())
+    signed = types.Content(
+        role="model",
+        parts=[
+            types.Part(
+                function_call=types.FunctionCall(
+                    name="search_source", args={"query": "AudioSink"}
+                ),
+                thought_signature=b"signed",
+            )
+        ],
+    )
+
+    transport.complete_with_tools(
+        [
+            {"role": "user", "content": "These are the verdicts."},
+            AssistantToolTurn(
+                text="",
+                calls=(ToolCall(name="search_source", arguments={"query": "AudioSink"}),),
+                vendor_state=signed,
+            ),
+            ToolResultTurn(call_name="search_source", content="audio/sink.py:12: write()"),
+        ],
+        tools=_TOOLS,
+        require_call=False,
+        task=ReasoningTask.INVESTIGATE_USAGE,
+        think=None,
+        temperature=None,
+    )
+
+    payload = json.loads(captured[0].content)
+    replayed = payload["contents"][1]["parts"][0]
+    assert replayed["functionCall"] == {"name": "search_source", "args": {"query": "AudioSink"}}
+    assert base64.b64decode(replayed["thoughtSignature"]) == b"signed"
+
+
+def test_a_turn_from_another_vendor_is_still_rebuilt_from_its_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No vendor state means no signature to replay, and the history still has to travel.
+
+    A turn carrying `None` is the ordinary case everywhere but a Gemini investigation this
+    transport itself produced — a fake, another provider's history — and reconstruction is
+    what keeps this transport able to continue a conversation it did not start.
+    """
+
+    captured: list[httpx.Request] = []
+
+    def send(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return _tool_response({"text": "Enough."})
+
+    _patch_transport(monkeypatch, send)
+    transport = GoogleChatTransport(_reasoning_config())
+
+    transport.complete_with_tools(
+        [
+            {"role": "user", "content": "These are the verdicts."},
+            AssistantToolTurn(
+                text="Let me look.",
+                calls=(ToolCall(name="search_source", arguments={"query": "AudioSink"}),),
+            ),
+        ],
+        tools=_TOOLS,
+        require_call=False,
+        task=ReasoningTask.INVESTIGATE_USAGE,
+        think=None,
+        temperature=None,
+    )
+
+    parts = json.loads(captured[0].content)["contents"][1]["parts"]
+    assert parts[0]["text"] == "Let me look."
+    assert parts[1]["functionCall"] == {"name": "search_source", "args": {"query": "AudioSink"}}
+    assert "thoughtSignature" not in parts[1]
+
+
+def test_a_reply_with_no_calls_is_how_an_investigation_ends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty calls is the terminating answer, so text alone must decode cleanly."""
+
+    _patch_transport(
+        monkeypatch, lambda _request: _tool_response({"text": "Both sit in one module."})
+    )
+    transport = GoogleChatTransport(_reasoning_config())
+
+    exchange = transport.complete_with_tools(
+        _investigation_request(),
+        tools=_TOOLS,
+        require_call=False,
+        task=ReasoningTask.INVESTIGATE_USAGE,
+        think=None,
+        temperature=None,
+    )
+
+    assert exchange.calls == ()
+    assert exchange.text == "Both sit in one module."
+
+
+def test_an_unforced_turn_sends_no_calling_mode_at_all(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Absent rather than AUTO: the default already means "the model decides", and a field
+    stating the default is a field whose drift nobody would notice."""
+
+    captured: list[httpx.Request] = []
+
+    def send(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return _tool_response({"text": "Enough."})
+
+    _patch_transport(monkeypatch, send)
+    transport = GoogleChatTransport(_reasoning_config())
+
+    transport.complete_with_tools(
+        _investigation_request(),
+        tools=_TOOLS,
+        require_call=False,
+        task=ReasoningTask.INVESTIGATE_USAGE,
+        think=None,
+        temperature=None,
+    )
+
+    payload = json.loads(captured[0].content)
+    assert "toolConfig" not in payload
+    assert "tool_config" not in payload
+
+
+def test_a_reply_with_neither_text_nor_a_call_is_a_provider_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Read as "done", an empty reply would end an investigation that never happened.
+
+    It surfaces as a `ProviderError` instead, which the loop above degrades into a note
+    saying the investigation was abandoned — an honest answer, where a silent stop would
+    have the stage report that it looked and found nothing.
+    """
+
+    _patch_transport(monkeypatch, lambda _request: _tool_response())
+    transport = GoogleChatTransport(_reasoning_config())
+
+    with pytest.raises(ProviderError, match="investigate_usage"):
+        transport.complete_with_tools(
+            _investigation_request(),
+            tools=_TOOLS,
+            require_call=False,
+            task=ReasoningTask.INVESTIGATE_USAGE,
+            think=None,
+            temperature=None,
+        )
 
 
 def _models_response(*entries: dict[str, object]) -> httpx.Response:

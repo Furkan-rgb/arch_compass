@@ -20,13 +20,22 @@ from tests.reasoning_support import candidate, case, policies, verdict_json
 
 from archcompass.adapters.models import ollama as ollama_adapters
 from archcompass.adapters.models.ollama import OllamaReasoningProvider
-from archcompass.adapters.models.structured import StreamingChatTransport
+from archcompass.adapters.models.structured import (
+    AssistantToolTurn,
+    InvestigationMessage,
+    StreamingChatTransport,
+    ToolCall,
+    ToolCallingChatTransport,
+    ToolExchange,
+    ToolResultTurn,
+)
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import (
     ModelOutputValidationError,
     PromptBudgetExceededError,
     ProviderError,
 )
+from archcompass.ports.investigation import ToolSpec
 from archcompass.ports.model_catalog import ProviderDefaults
 from archcompass.ports.reasoning import ReasoningTask
 
@@ -328,6 +337,208 @@ def test_the_transport_declares_the_streaming_capability() -> None:
 
     assert isinstance(
         ollama_adapters.OllamaChatTransport(_reasoning_config()), StreamingChatTransport
+    )
+
+
+_TOOLS = (
+    ToolSpec(
+        name="search_source",
+        description="Find text.",
+        parameters={
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    ),
+)
+
+
+def _investigation_request() -> list[InvestigationMessage]:
+    """One investigation part-way through: a prompt, a call made, a result returned."""
+
+    return [
+        {"role": "system", "content": "Look before you ask."},
+        {"role": "user", "content": "These are the verdicts."},
+        AssistantToolTurn(
+            text="Let me look.",
+            calls=(ToolCall(name="search_source", arguments={"query": "AudioSink"}),),
+        ),
+        ToolResultTurn(call_name="search_source", content="audio/sink.py:12: write()"),
+    ]
+
+
+def _tool_message(**message: object) -> httpx.Response:
+    return _http_response({"message": {"role": "assistant", **message}})
+
+
+def _investigate(
+    transport: ollama_adapters.OllamaChatTransport,
+    *,
+    require_call: bool = False,
+) -> object:
+    return transport.complete_with_tools(
+        _investigation_request(),
+        tools=_TOOLS,
+        require_call=require_call,
+        task=ReasoningTask.INVESTIGATE_USAGE,
+        think=None,
+        temperature=None,
+    )
+
+
+def test_an_investigation_request_carries_the_tools_and_the_turns_that_led_to_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole translation in one request: declarations, a call, and its answer.
+
+    The pairing is positional — result *n* answers call *n* of the turn before it — so the
+    calls travel attached to the turn that made them and each answer is its own `tool`
+    message. Folding either into prose would leave the model to re-read its own history out
+    of a string.
+    """
+
+    captured: dict[str, object] = {}
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        captured.update(url=url, **kwargs)
+        return _tool_message(content="Enough.")
+
+    _patch_transport(monkeypatch, post)
+
+    _investigate(ollama_adapters.OllamaChatTransport(_reasoning_config()))
+
+    body = captured["json"]
+    assert isinstance(body, dict)
+    # No response grammar at all on an investigation turn.
+    assert "format" not in body
+    declaration = body["tools"][0]
+    assert declaration["type"] == "function"
+    assert declaration["function"]["name"] == "search_source"
+    assert declaration["function"]["description"] == "Find text."
+    assert declaration["function"]["parameters"]["properties"]["query"]["type"] == "string"
+
+    messages = body["messages"]
+    assert [item["role"] for item in messages] == ["system", "user", "assistant", "tool"]
+    assert messages[2]["content"] == "Let me look."
+    assert messages[2]["tool_calls"] == [
+        {"function": {"name": "search_source", "arguments": {"query": "AudioSink"}}}
+    ]
+    assert messages[3]["content"] == "audio/sink.py:12: write()"
+    assert messages[3]["tool_name"] == "search_source"
+
+
+def test_a_forced_first_look_is_accepted_and_asks_for_nothing_this_api_has(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """There is no must-call mode here, so the flag changes nothing on the wire.
+
+    Pinned rather than left implicit: the loop forces the opening turn on every provider, and
+    on this one the forcing degrades to the instruction the stage prompt already carries. A
+    field invented to stand in for it would be a request this server rejects.
+    """
+
+    bodies: list[object] = []
+
+    def post(url: str, **kwargs: object) -> httpx.Response:
+        bodies.append(kwargs["json"])
+        return _tool_message(content="Enough.")
+
+    _patch_transport(monkeypatch, post)
+    transport = ollama_adapters.OllamaChatTransport(_reasoning_config())
+
+    _investigate(transport, require_call=True)
+    _investigate(transport, require_call=False)
+
+    assert bodies[0] == bodies[1]
+
+
+def test_a_reply_asking_for_tools_comes_back_as_the_calls_it_asked_for(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Arguments arrive parsed on this API, so they are carried as they came."""
+
+    _patch_transport(
+        monkeypatch,
+        lambda _url, **_: _tool_message(
+            content="Two things to check.",
+            tool_calls=[
+                {"function": {"name": "search_source", "arguments": {"query": "AudioSink"}}},
+                {"function": {"name": "read_source", "arguments": {"path": "a.py"}}},
+            ],
+        ),
+    )
+
+    exchange = _investigate(ollama_adapters.OllamaChatTransport(_reasoning_config()))
+
+    assert exchange == ToolExchange(
+        text="Two things to check.",
+        calls=(
+            ToolCall(name="search_source", arguments={"query": "AudioSink"}),
+            ToolCall(name="read_source", arguments={"path": "a.py"}),
+        ),
+    )
+
+
+def test_a_reply_with_no_calls_is_how_an_investigation_ends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty calls is the terminating answer, so text alone must decode cleanly.
+
+    The model's own reasoning arrives in its own field and stays there. Joined into the
+    prose it would be rendered into the transcript as though it were a finding about the
+    repository, which is the rule the Gemini transport keeps by skipping thought parts.
+    """
+
+    _patch_transport(
+        monkeypatch,
+        lambda _url, **_: _tool_message(
+            content="Both sit in one module.",
+            thinking="I should probably check the other module too.",
+        ),
+    )
+
+    exchange = _investigate(ollama_adapters.OllamaChatTransport(_reasoning_config()))
+
+    assert exchange == ToolExchange(text="Both sit in one module.", calls=())
+
+
+def test_a_reply_with_neither_text_nor_a_call_is_a_provider_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Read as "done", an empty reply would end an investigation that never happened.
+
+    It surfaces as a `ProviderError` instead, which the loop above degrades into a note
+    saying the investigation was abandoned — an honest answer, where a silent stop would
+    have the stage report that it looked and found nothing.
+    """
+
+    _patch_transport(monkeypatch, lambda _url, **_: _tool_message(content=""))
+    transport = ollama_adapters.OllamaChatTransport(_reasoning_config())
+
+    with pytest.raises(ProviderError, match="investigate_usage"):
+        _investigate(transport)
+
+
+def test_a_failed_investigation_turn_is_wrapped_as_a_provider_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same mapping the other two calls use, because the loop only handles that one type."""
+
+    def fail(_url: str, **_kwargs: object) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    _patch_transport(monkeypatch, fail)
+    transport = ollama_adapters.OllamaChatTransport(_reasoning_config())
+
+    with pytest.raises(ProviderError, match="Ollama"):
+        _investigate(transport)
+
+
+def test_the_transport_declares_the_tool_calling_capability() -> None:
+    """The provider asks with `isinstance`, so the shape has to actually satisfy it."""
+
+    assert isinstance(
+        ollama_adapters.OllamaChatTransport(_reasoning_config()), ToolCallingChatTransport
     )
 
 

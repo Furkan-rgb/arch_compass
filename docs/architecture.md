@@ -364,6 +364,28 @@ attached afterwards from the position. The response grammar fixes the array leng
 policy count and the stage re-checks it after parsing, because a short reply would not lose
 one answer — it would shift every later answer onto the wrong policy and still validate.
 
+**A candidate carries its usage, and the code at every span of it.** The judging stage used
+to be sent metadata alone — names, paths, roles, a count — and was asked from it whether two
+copies of a constant state one fact or two, which is a question about who reads them.
+`application/usage_evidence.py` attaches the answer before anything is judged: the consumers
+of a duplicated constant, the dependants of a seam, as ordinary participants, capped, with
+the overflow stated as a measurement. `ReviewSourceService.for_candidate` then reads the code
+at every one of those spans, definitions widened upward over the comment block that touches
+them, and it goes into the judging payload as `source_evidence` (ADR 0017).
+
+The split §12.0 now embodies, stated once because it is easy to get wrong in either
+direction:
+
+- **Verdict evidence is application-chosen**, and this widens what the application chooses
+  rather than loosening who chooses. A detector picks the spans, the application reads them,
+  and the stage has no way to ask for a line that is not among them — which is what lets
+  somebody who was not there check the verdict.
+- **Investigating before asking is model-driven and recorded.** Only elicitation holds the
+  toolbox (`application/investigation.py`), and every lookup travels with what it produced,
+  so a question can be traced to what was asked of the repository and what came back.
+- **Judging remains tool-free**, deliberately and with a test that says so. Showing a stage
+  code is the opposite of letting it go looking for code.
+
 **Answering a question about a review.** The whole review goes into every turn, about
 25,000 characters against an input budget near 490,000. There is no cumulative budget and
 no rolling summary, because the evidence fits. Boundaries are presented without their

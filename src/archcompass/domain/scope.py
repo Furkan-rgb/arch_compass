@@ -48,6 +48,17 @@ IGNORED_DIRECTORIES = {
 }
 
 
+#: What counts as configuration rather than code, by suffix. Beside `IGNORED_DIRECTORIES`
+#: for the reason that set is here: the analyser is no longer the only thing that has to know
+#: which files of a repository are worth reading. A stage investigating how a symbol is used
+#: searches the same files the atlas was built from, and a second copy of this set would let
+#: it report a match in a file the analysis had never opened — or miss one it had.
+#:
+#: Folded into the analysis configuration hash by the analyser, which is what makes changing
+#: it a decision rather than an edit: every stored atlas goes stale.
+CONFIG_SUFFIXES = {".yaml", ".yml", ".toml", ".json", ".ini", ".cfg", ".env"}
+
+
 def validate_excluded_paths(paths: Iterable[str]) -> tuple[str, ...]:
     """The subtrees to leave out, as relative POSIX directory paths, or a refusal.
 

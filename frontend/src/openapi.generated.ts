@@ -148,6 +148,7 @@ export interface components {
     "elicited_from"?: string | null;
     "repo_id"?: string | null;
     "branch_id"?: string | null;
+    "investigation"?: components["schemas"]["RecordedInvestigation"] | null;
     "report"?: components["schemas"]["BoundaryReviewReport"] | null;
     "markdown_report"?: string | null;
     "duration_seconds"?: number;
@@ -369,6 +370,13 @@ export interface components {
     "metric": string;
     "limit"?: number;
   };
+    "InvestigationLookup": {
+    "tool": string;
+    "arguments"?: {
+    [key: string]: unknown;
+  };
+    "result"?: string;
+  };
     "JoinedDecision": {
     "decision_id": string;
     "state": components["schemas"]["DecisionState"];
@@ -502,6 +510,12 @@ export interface components {
     "answer_belongs_in": components["schemas"]["CaseField"];
     "recorded_text": string;
   };
+    "RecordedInvestigation": {
+    "lookups"?: Array<components["schemas"]["InvestigationLookup"]>;
+    "closing"?: string;
+    "abandoned"?: string;
+    "prompt_identity": string;
+  };
     "RelationQuery": {
     "kind": "direct_dependencies" | "direct_dependants" | "known_callers" | "implementations" | "related_tests";
     "node_id": string;
@@ -616,6 +630,7 @@ export interface components {
     "elicited_from"?: string | null;
     "repo_id"?: string | null;
     "branch_id"?: string | null;
+    "investigation"?: components["schemas"]["RecordedInvestigation"] | null;
     "report"?: components["schemas"]["BoundaryReviewReport"] | null;
     "markdown_report"?: string | null;
     "duration_seconds"?: number;
