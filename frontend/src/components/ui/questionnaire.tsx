@@ -60,7 +60,12 @@ function QuestionnaireTitle({
     <QuestionnairePrimitive.Title
       data-slot="questionnaire-title"
       className={cn(
-        "text-base leading-snug font-medium text-pretty [&:not(:has(~[data-slot=questionnaire-description]))]:mb-4",
+        // `float-left` de-magics the legend: an unfloated legend is rendered into the
+        // fieldset's top border by the HTML spec itself, splitting the rule through
+        // the title, and browsers disagree about how that looks. Floated, it is an
+        // ordinary first child inside the padding (the item is a flex column, so the
+        // float never affects layout — only the legend magic).
+        "float-left text-base leading-snug font-medium text-pretty [&:not(:has(~[data-slot=questionnaire-description]))]:mb-4",
         className
       )}
       {...props}

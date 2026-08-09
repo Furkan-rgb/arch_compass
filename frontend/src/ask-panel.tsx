@@ -515,10 +515,7 @@ export function AskPanel({
                       it: the answer is what was asked for, and the checking is its
                       warrant. */}
                   {message.investigation ? (
-                    <InvestigationDisclosure
-                      investigation={message.investigation}
-                      title="What this answer checked"
-                    />
+                    <InvestigationDisclosure investigation={message.investigation} />
                   ) : null}
                   {/* The code the answer rests on, rendered from the file rather than retyped
                       into the answer. §12.0: where the application already holds a value, a

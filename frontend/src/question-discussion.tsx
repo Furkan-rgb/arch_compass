@@ -140,10 +140,7 @@ export function QuestionDiscussion({
                 <div data-slot="discussion-reply" className={reply}>
                   <AnswerProse text={message.answer.answer} />
                   {message.investigation ? (
-                    <InvestigationDisclosure
-                      investigation={message.investigation}
-                      title="What this answer checked"
-                    />
+                    <InvestigationDisclosure investigation={message.investigation} />
                   ) : null}
                   {message.answer.suggested_answer ? (
                     // Marked out as an offer rather than as a result, because that is

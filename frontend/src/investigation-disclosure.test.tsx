@@ -25,7 +25,6 @@ describe("InvestigationDisclosure", () => {
   it("names each lookup by what it did, with the transcript underneath", () => {
     render(<InvestigationDisclosure investigation={LOOKED} />);
 
-    expect(screen.getByText("What the review checked before asking")).toBeInTheDocument();
     expect(screen.getByText("2 lookups")).toBeInTheDocument();
     expect(screen.getByText("searched for “RETRY_LIMIT”")).toBeInTheDocument();
     expect(screen.getByText("read billing/settings.py:1")).toBeInTheDocument();
@@ -44,7 +43,8 @@ describe("InvestigationDisclosure", () => {
       />,
     );
 
-    expect(screen.getByText("2 lookups · cut short")).toBeInTheDocument();
+    expect(screen.getByText("2 lookups")).toBeInTheDocument();
+    expect(screen.getByText("cut short")).toBeInTheDocument();
     expect(
       screen.getByText(/the model's reply was truncated/),
     ).toBeInTheDocument();

@@ -42,14 +42,9 @@ function resultExtent(result: string): string {
 
 export function InvestigationDisclosure({
   investigation,
-  title = "What the review checked before asking",
   className,
 }: {
   investigation: RecordedInvestigation;
-  /** The fold's own line. The default fits a run's record; an answer's record says what
-      the answer checked, because the checking there belongs to one reply and not to the
-      review. */
-  title?: string;
   /** The mount's own spacing — `phoneFlush` where this sits on the page, nothing where it
       sits inside a chat bubble, whose walls a bleed would burst through. The bleed is the
       surroundings' decision because its negative margin has to equal exactly the space
@@ -75,11 +70,13 @@ export function InvestigationDisclosure({
         )}
       >
         <FileSearch aria-hidden className="size-[14px] flex-none self-center text-ink-3" />
-        <span className="font-semibold">{title}</span>
-        <span className="text-meta text-ink-3">
+        {/* The count is the whole label. What the fold is — the lookups behind this pass
+            or this answer — is said by where it sits, and a sentence repeating that cost
+            a line of every phone screen it appeared on. */}
+        <span className="font-semibold">
           {lookups.length} lookup{lookups.length === 1 ? "" : "s"}
-          {abandoned ? " · cut short" : ""}
         </span>
+        {abandoned ? <span className="text-meta text-ink-3">cut short</span> : null}
         <ChevronRight
           aria-hidden
           className={cn(
