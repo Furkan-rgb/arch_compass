@@ -216,8 +216,8 @@ const UNREVIEWED_FILTER: { id: Filter; label: string } = {
 /* The reasoning behind one verdict, at reading width and reading leading — the one passage
    on this page written to be read rather than scanned. Everything around it is 78ch, which
    is the width of substantiation you scan. */
-const reasoning = "mb-3 max-w-[72ch] text-body leading-reading";
-const evidence = "mb-3 max-w-[78ch]";
+const reasoning = "mb-3 max-w-[72ch] text-body leading-reading [overflow-wrap:anywhere]";
+const evidence = "mb-3 max-w-[78ch] [overflow-wrap:anywhere]";
 /* A heading inside a row: small caps with a rule running out to the edge of the column, so
    it divides the detail without adding a second border to it. */
 const subhead =
@@ -394,10 +394,10 @@ function LedgerRow({
                     data-slot="bearing"
                     className="rounded-control [border:var(--sheet-border)] bg-sunken px-3.5 py-2.5"
                   >
-                    <strong className="mb-0.5 block text-meta font-[650] leading-[1.35] text-ink">
+                    <strong className="mb-0.5 block text-meta font-[650] leading-[1.35] text-ink [overflow-wrap:anywhere]">
                       {bearing.policy_title}
                     </strong>
-                    <span className="block text-meta leading-[1.5] text-ink-2">
+                    <span className="block text-meta leading-[1.5] text-ink-2 [overflow-wrap:anywhere]">
                       {bearing.how}
                     </span>
                   </li>
@@ -417,7 +417,7 @@ function LedgerRow({
             // It draws its own rule, so it owns the space above that rule rather than taking
             // whatever the block before it left: against the bearing cards, an accent edge
             // starting flush with a card's bottom read as part of that card.
-            <p className="mt-4 mb-2 max-w-[78ch] border-l-2 border-accent-rule pl-3 text-ui leading-[1.6] text-ink-2">
+            <p className="mt-4 mb-2 max-w-[78ch] border-l-2 border-accent-rule pl-3 text-ui leading-[1.6] text-ink-2 [overflow-wrap:anywhere]">
               <strong className="text-accent-ink">
                 This verdict turns on an open question.
               </strong>{" "}
@@ -437,7 +437,7 @@ function LedgerRow({
               as one, so it takes the same 16px every other section here takes. */}
           <p
             data-slot="finding-limits"
-            className="m-0 mt-4 max-w-[78ch] text-meta leading-[1.5] text-ink-3"
+            className="m-0 mt-4 max-w-[78ch] text-meta leading-[1.5] text-ink-3 [overflow-wrap:anywhere]"
           >
             {item.candidate.limitations}
           </p>

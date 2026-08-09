@@ -76,7 +76,7 @@ export function FindingSource({
       <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] gap-3 p-0">
         {rows.map((row) => (
           <li key={`${row.qualified_name}-${row.location?.path ?? "none"}`}>
-            <p className="m-0 mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-meta [&_code]:text-meta [&_code]:text-ink-2 [&_em]:text-meta [&_em]:not-italic [&_em]:text-ink-3 [&_span]:text-meta [&_span]:text-ink-3">
+            <p className="m-0 mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-meta [overflow-wrap:anywhere] [&_code]:text-meta [&_code]:text-ink-2 [&_em]:text-meta [&_em]:not-italic [&_em]:text-ink-3 [&_span]:text-meta [&_span]:text-ink-3">
               <code>{row.qualified_name}</code>
               {row.location ? (
                 <span>
