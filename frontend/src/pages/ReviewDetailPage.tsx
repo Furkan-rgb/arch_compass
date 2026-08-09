@@ -1286,7 +1286,15 @@ export function ReviewDetailPage() {
           </>
         ) : null}
         {id === "runlog" && review.data ? (
-          <RunLog
+          <>
+            {/* The run's own record of what it checked before asking — or before
+                concluding it had nothing to ask, which is the outcome with no questions
+                tab to carry the disclosure. The run log always exists, so this is the
+                mount a reader can rely on finding. */}
+            {review.data.investigation ? (
+              <InvestigationDisclosure investigation={review.data.investigation} />
+            ) : null}
+            <RunLog
             review={review.data}
             progress={progress}
             reviewed={reviewed}
@@ -1296,6 +1304,7 @@ export function ReviewDetailPage() {
             answersRecorded={answered.length > 0 ? caseRevision : null}
             withVerdicts={!holding}
           />
+          </>
         ) : null}
         {id === "atlas" && repositoryRoot ? (
           <ReviewAtlas
