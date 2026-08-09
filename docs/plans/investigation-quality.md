@@ -10,6 +10,13 @@ end to end on `gemini-3.5-flash-lite` with thinking: six lookups including three
 `read_source` calls (a tool that model never used before §1 landed), grounded verdicts,
 zero code-answerable questions, transcript persisted. The section texts below are kept as
 written — they are the rationale of record for what was built.
+
+Since then, one step past this plan's scope: the two conversation stages investigate too
+(`investigate-for-answer` v1, first turn unforced because a chat turn is usually about the
+review's own words), gated on the same freshness answer the excerpts take, recorded on the
+message and disclosed under the answer. Verified live: asked what the AcmeHub client's
+docstring says, the discussion stage searched, read the file and quoted it exactly. All of
+it is on `main`.
 **The rule:** a question the code can answer must never reach the reader unchecked — and
 a verdict the code contradicts must never be the thing that decides which questions exist.
 **Scope:** judge evidence, investigation persistence, provider parity, and measurement.
