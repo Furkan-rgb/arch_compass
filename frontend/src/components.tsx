@@ -97,6 +97,24 @@ export const sheet = cn(
 );
 
 /**
+ * The sheet's phone rule, for the panels that are not the sheet.
+ *
+ * On a phone every card goes to canvas — full width, no corners, no side walls — and the
+ * sheet carries that inside itself. But not every card is a sheet: an accent card inside
+ * the questions sheet, a notice above the held ledger, the investigation's fold. Each of
+ * those drew its own box, so each was still a card on a phone, and a card inside a gutter
+ * inside a padded sheet spends two gutters of a 390px screen saying "this is a box".
+ *
+ * One name rather than the classes repeated, because the value `--gutter` appears in it:
+ * the negative margin must be exactly the horizontal space the surroundings added — the
+ * page gutter for a panel on the page, the sheet's phone padding for a card inside one —
+ * and those are the same token on purpose (`--card-pad`, styles.css). A card that bled by
+ * any other amount would either fall short of the edge or crop its neighbour.
+ */
+export const phoneFlush =
+  "max-sm:mx-[calc(var(--gutter)*-1)] max-sm:rounded-none max-sm:border-x-0 max-sm:shadow-none";
+
+/**
  * A labelled division inside a region: what this part of it is, then the part itself.
  *
  * Shared because two surfaces divide themselves the same way for the same reason — the

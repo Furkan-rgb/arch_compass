@@ -30,6 +30,7 @@ import {
   page,
   sheet,
   shortId,
+  phoneFlush,
 } from "../components";
 import { ask } from "../review-capabilities";
 import { HeldVerdicts, HoldBanner, contingentCount } from "../review-awaiting";
@@ -1273,7 +1274,10 @@ export function ReviewDetailPage() {
                 a concluded pass keeps the record for the same reason — what was checked
                 is part of how the verdicts stood without asking. */}
             {review.data?.investigation ? (
-              <InvestigationDisclosure investigation={review.data.investigation} />
+              <InvestigationDisclosure
+                investigation={review.data.investigation}
+                className={phoneFlush}
+              />
             ) : null}
             {holding ? <div className={cn(sheet, "max-w-[96ch] p-[var(--card-pad)]")}>{questions}</div> : null}
             {answered.length > 0 ? (
@@ -1292,7 +1296,10 @@ export function ReviewDetailPage() {
                 tab to carry the disclosure. The run log always exists, so this is the
                 mount a reader can rely on finding. */}
             {review.data.investigation ? (
-              <InvestigationDisclosure investigation={review.data.investigation} />
+              <InvestigationDisclosure
+                investigation={review.data.investigation}
+                className={phoneFlush}
+              />
             ) : null}
             <RunLog
             review={review.data}

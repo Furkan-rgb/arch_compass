@@ -43,12 +43,18 @@ function resultExtent(result: string): string {
 export function InvestigationDisclosure({
   investigation,
   title = "What the review checked before asking",
+  className,
 }: {
   investigation: RecordedInvestigation;
   /** The fold's own line. The default fits a run's record; an answer's record says what
       the answer checked, because the checking there belongs to one reply and not to the
       review. */
   title?: string;
+  /** The mount's own spacing — `phoneFlush` where this sits on the page, nothing where it
+      sits inside a chat bubble, whose walls a bleed would burst through. The bleed is the
+      surroundings' decision because its negative margin has to equal exactly the space
+      the surroundings added. */
+  className?: string;
 }) {
   const lookups = investigation.lookups ?? [];
   const closing = (investigation.closing ?? "").trim();
@@ -58,7 +64,8 @@ export function InvestigationDisclosure({
     <details
       className={cn(
         "group mb-[var(--gap-lg)] max-w-[96ch] rounded-panel border border-dashed",
-        "border-rule bg-surface px-[var(--card-pad)] py-3",
+        "border-rule bg-surface px-[var(--card-pad-x)] py-3",
+        className,
       )}
     >
       <summary

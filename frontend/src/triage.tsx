@@ -33,7 +33,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { formatDate } from "@/components";
+import { formatDate, phoneFlush } from "@/components";
 import { cn } from "@/lib/utils";
 import type {
   BoundaryTriage,
@@ -449,7 +449,7 @@ export function BulkDecide({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-panel [border:var(--sheet-border)] bg-surface px-[var(--row-pad-x)] py-3">
+      <div className={cn("mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-panel [border:var(--sheet-border)] bg-surface px-[var(--row-pad-x)] py-3", phoneFlush)}>
         <p className="m-0 text-ui text-ink-2">
           <strong className="text-ink">{boundaries.length} boundaries</strong> are material
           with no standing decision. Deciding them is what makes the next revision quiet.

@@ -3,6 +3,9 @@ import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 
 import type { ReviewedBoundary } from "./types";
+import { cn } from "@/lib/utils";
+
+import { phoneFlush } from "./components";
 
 /**
  * A review that judged everything and is now waiting on a person.
@@ -96,7 +99,7 @@ export function HeldVerdicts({
     <section className="mb-[var(--gap-lg)] grid gap-3.5">
       {revealed ? (
         <>
-          <p className="m-0 flex items-start gap-2 rounded-panel border border-material-rule bg-material-soft p-[var(--card-pad)] text-body leading-[1.65] text-ink-2 [&>svg]:mt-[3px] [&>svg]:flex-none">
+          <p className={cn("m-0 flex items-start gap-2 rounded-panel border border-material-rule bg-material-soft p-[var(--card-pad)] text-body leading-[1.65] text-ink-2 [&>svg]:mt-[3px] [&>svg]:flex-none", phoneFlush)}>
             <TriangleAlert size={15} aria-hidden />
             <span className="max-w-[92ch]">
               <strong>These verdicts are provisional.</strong> They were reached against a

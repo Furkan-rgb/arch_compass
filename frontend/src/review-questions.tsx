@@ -11,7 +11,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-import { ErrorPanel, Group } from "./components";
+import { ErrorPanel, Group, phoneFlush } from "./components";
 import {
   ANSWER_DRAFTS,
   draftsAreKept,
@@ -277,7 +277,7 @@ export function OpenQuestions({
           <QuestionnaireItem
             key={item.reference}
             name={item.reference}
-            className="rounded-panel border border-accent-rule bg-accent-soft p-[var(--card-pad)]"
+            className={cn("rounded-panel border border-accent-rule bg-accent-soft p-[var(--card-pad)]", phoneFlush)}
           >
             <QuestionnaireTitle className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-read leading-[1.5] font-semibold text-ink">
               <code className="rounded-pill border border-accent-rule bg-surface px-2 py-px font-mono text-meta font-normal tracking-[.04em] text-accent-ink">
@@ -380,7 +380,7 @@ export function OpenQuestions({
           {answered.length > 0 ? (
         <div
           data-slot="answer-preview"
-          className="rounded-panel border border-dashed border-accent-rule bg-surface p-[var(--card-pad)]"
+          className={cn("rounded-panel border border-dashed border-accent-rule bg-surface p-[var(--card-pad)]", phoneFlush)}
         >
           <p className="mb-2 text-ui font-semibold text-ink-2">
             {answered.length} of {questions.length} answered. Carrying on will record
