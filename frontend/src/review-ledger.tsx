@@ -1,5 +1,6 @@
 import { ChevronRight, Network } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import {
   Collapsible,
@@ -669,7 +670,17 @@ export function JudgingLedger({
                 </span>
                 {verdict === null ? (
                   <span className={current ? rowJudging : rowQueued}>
-                    {current ? "judging…" : "queued"}
+                    {/* The spinner is the word: a row under the model right now is doing
+                        exactly one thing, and a mark that moves says so without adding a
+                        second verb to a column of verdicts. */}
+                    {current ? (
+                      <>
+                        <Spinner className="size-3" aria-hidden role="presentation" />
+                        <span className="sr-only">judging…</span>
+                      </>
+                    ) : (
+                      "queued"
+                    )}
                   </span>
                 ) : (
                   <VerdictText verdict={verdict ? "material" : "cleared"}>

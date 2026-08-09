@@ -1,5 +1,6 @@
 import { cva } from "class-variance-authority";
-import { Check, CircleCheck, CircleDot, Loader, TriangleAlert } from "lucide-react";
+import { Check, CircleCheck, CircleDot, TriangleAlert } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
@@ -158,7 +159,7 @@ function Stage({
         {state === "done" ? (
           <Check size={13} />
         ) : state === "active" ? (
-          <Loader size={13} className="spin" />
+          <Spinner className="size-[13px]" />
         ) : (
           <CircleDot size={13} />
         )}
@@ -420,11 +421,9 @@ export function RunProgress({
                   )}
                 >
                   {verdict === null ? (
-                    current ? (
-                      <Loader size={12} className="spin" aria-hidden />
-                    ) : (
-                      <CircleDot size={12} aria-hidden />
-                    )
+                    // One moving mark per row, in the status column where the answer
+                    // will land; the leading dot stays still for queued and current alike.
+                    <CircleDot size={12} aria-hidden />
                   ) : verdict ? (
                     <TriangleAlert size={12} aria-hidden />
                   ) : (
@@ -436,7 +435,10 @@ export function RunProgress({
                   <span className="text-meta whitespace-nowrap">
                     {verdict === null
                       ? current
-                        ? "judging…"
+                        ? <>
+                        <Spinner className="size-3" aria-hidden role="presentation" />
+                        <span className="sr-only">judging…</span>
+                      </>
                         : "waiting"
                       : verdict
                         ? "should change"

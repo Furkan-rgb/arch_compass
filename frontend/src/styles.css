@@ -686,7 +686,7 @@ html body[data-scroll-locked] {
 
 /* The one wait with no shape to draw: the app's own first paint. */
 .booting { display: flex; min-height: 120px; gap: 8px; align-items: center; justify-content: center; color: var(--ink-3); font-size: var(--s-ui); }
-.booting__compass { color: var(--accent); animation: compassTurn 2.8s linear infinite; }
+.booting__compass { color: var(--accent); animation: compassTurn 2.8s linear infinite; transform-box: fill-box; transform-origin: center; }
 
 /* The atlas panel's own quiet sentence. Its one remaining user is drawn in this
    sheet rather than in utilities, so this stays with it. */
@@ -1393,7 +1393,11 @@ html body[data-scroll-locked] {
   text-align: right;
 }
 
-.spin { animation: compassTurn 1.4s linear infinite; }
+/* `transform-box: fill-box` on everything compassTurn rotates: WebKit resolves an
+   SVG's transform-origin against the viewport box without it, so the icon spun
+   around a point beside itself — orbiting — on exactly the phones the run log is
+   watched from. */
+.spin { animation: compassTurn 1.4s linear infinite; transform-box: fill-box; transform-origin: center; }
 @keyframes compassTurn { to { transform: rotate(360deg); } }
 
 /* The run's notice arrives while the reader is somewhere else in the app, so it enters rather

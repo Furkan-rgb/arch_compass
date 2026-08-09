@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Square } from "lucide-react";
 import { VERDICT_WORDS } from "@/components/ledger";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 import { api } from "./api";
@@ -222,13 +223,13 @@ export function RunLog({
             <li key={entry.position} className={cn(crawlLine, entry.live && liveLine)}>
               <span className={crawlPosition}>{entry.position}</span>
               <b className={crawlLabel}>
+                {/* The live row's verb is the spinner in the end column, so the label
+                    is just the name — one moving mark, no doubled "judging". */}
                 {entry.label
                   ? entry.live
-                    ? `judging ${entry.label}…`
+                    ? entry.label
                     : `${entry.label} ${entry.verdict === null && withVerdicts ? "queued" : "judged"}`
-                  : entry.live
-                    ? "judging boundary…"
-                    : `boundary ${entry.position}`}
+                  : `boundary ${entry.position}`}
               </b>
               <em
                 className={cn(
@@ -241,7 +242,12 @@ export function RunLog({
                 )}
               >
                 {entry.verdict === null
-                  ? ""
+                  ? entry.live && (
+                      <>
+                        <Spinner className="size-3" aria-hidden role="presentation" />
+                        <span className="sr-only">judging…</span>
+                      </>
+                    )
                   : entry.verdict
                     ? VERDICT_WORDS.material
                     : VERDICT_WORDS.cleared}
