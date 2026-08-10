@@ -538,7 +538,15 @@ export function FindingsLedger({
           // line — a label alone on a row it owns reads as a heading over emptiness, and
           // a count orphaned under the pills read as belonging to nothing. The pills take
           // the second line whole, where a filter at max-content would read as unfinished.
-          className="overflow-x-auto max-[620px]:w-full max-[620px]:order-last"
+          className={cn(
+            "overflow-x-auto max-[620px]:order-last",
+            // The pills' line reaches the rows' own outer edges: the bar's padding
+            // indents its text to match the rows' interior, but the pill track is an
+            // object like the row cards below it, and an object narrower than the
+            // objects it filters read as belonging to something else.
+            "max-[620px]:-mx-[var(--row-pad-x)]",
+            "max-[620px]:w-[calc(100%+2*var(--row-pad-x))]",
+          )}
           aria-label="Filter by verdict"
         >
           {filters.map(({ id, label }) => (

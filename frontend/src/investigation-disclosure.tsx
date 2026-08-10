@@ -42,9 +42,13 @@ function resultExtent(result: string): string {
 
 export function InvestigationDisclosure({
   investigation,
+  note,
   className,
 }: {
   investigation: RecordedInvestigation;
+  /** Whose checking this is, where that is not obvious from where it sits — a second
+      pass's run log shows the asking pass's record, and the line says so. */
+  note?: string;
   /** The mount's own spacing — `phoneFlush` where this sits on the page, nothing where it
       sits inside a chat bubble, whose walls a bleed would burst through. The bleed is the
       surroundings' decision because its negative margin has to equal exactly the space
@@ -80,6 +84,7 @@ export function InvestigationDisclosure({
             : `${lookups.length} lookup${lookups.length === 1 ? "" : "s"}`}
         </span>
         {abandoned ? <span className="text-meta text-ink-3">cut short</span> : null}
+        {note ? <span className="text-meta text-ink-3">{note}</span> : null}
         <ChevronRight
           aria-hidden
           className={cn(

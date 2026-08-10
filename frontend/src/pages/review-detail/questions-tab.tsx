@@ -3,7 +3,6 @@
 import { cn } from "@/lib/utils";
 
 import { phoneFlush, sheet } from "../../components";
-import { InvestigationDisclosure } from "../../investigation-disclosure";
 import { QuestionDiscussion } from "../../question-discussion";
 import { Citations } from "../../review-ledger";
 import { OpenQuestions, type SubmittedAnswer } from "../../review-questions";
@@ -63,7 +62,6 @@ function AnsweredHistory({
 
 export function QuestionsTab({
   reviewId,
-  investigation,
   holding,
   openQuestions,
   caseRevision,
@@ -76,7 +74,6 @@ export function QuestionsTab({
 }: {
   reviewId: string;
   /** The run's own record of what it read before asking, where it kept one. */
-  investigation: ReviewDetail["investigation"];
   holding: boolean;
   /** What this pass is asking, which is empty on a pass that concluded. */
   openQuestions: OpenQuestion[];
@@ -124,9 +121,6 @@ export function QuestionsTab({
           the strength of the repository having been checked and stayed silent, and
           a concluded pass keeps the record for the same reason — what was checked
           is part of how the verdicts stood without asking. */}
-      {investigation ? (
-        <InvestigationDisclosure investigation={investigation} className={phoneFlush} />
-      ) : null}
       {holding ? <div className={cn(sheet, "max-w-[96ch] p-[var(--card-pad)]")}>{questions}</div> : null}
       {answered.length > 0 ? (
         <AnsweredHistory

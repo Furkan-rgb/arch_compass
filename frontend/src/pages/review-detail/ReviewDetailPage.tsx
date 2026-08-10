@@ -418,7 +418,6 @@ export function ReviewDetailPage() {
         {id === "questions" ? (
           <QuestionsTab
             reviewId={reviewId}
-            investigation={review.data?.investigation}
             holding={holding}
             openQuestions={openQuestions}
             caseRevision={caseRevision}
