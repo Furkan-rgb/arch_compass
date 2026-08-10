@@ -18,6 +18,10 @@ is what makes re-asking a settled question structurally impossible rather than m
 away, and it is why a run over an untouched repository concludes in one pass having called
 nothing.
 
+The arithmetic that decides all of that lives next door, in `revision_partition`: this
+module orchestrates a run, that one answers "which boundaries does this revision owe a
+judgement, and why".
+
 The rest of the partition is about the line a boundary keeps while the code moves under it.
 A shape that disappeared and one that appeared with the same pattern and half its
 participants are declared predecessor and successor, so a rename carries the standing across
@@ -51,18 +55,18 @@ from archcompass.application.investigation import (
 from archcompass.application.policies import PolicyService
 from archcompass.application.review_rendering import render_report
 from archcompass.application.review_source import ReviewSourceService
+from archcompass.application.revision_partition import (
+    RevisionPartition,
+    inputs_identities,
+    partition_revision,
+)
 from archcompass.application.usage_evidence import UsageEvidenceService
 from archcompass.domain.atlas import Atlas, FindingCandidate
 from archcompass.domain.case import ArchitectureCase, CaseRevision
 from archcompass.domain.delta import (
-    AddressedBoundary,
     BoundaryLineEvent,
     BoundaryLineEventType,
-    BoundaryShape,
     BoundaryState,
-    JudgedBecause,
-    RevisionDelta,
-    match_successions,
 )
 from archcompass.domain.errors import (
     ArchCompassError,
@@ -86,12 +90,7 @@ from archcompass.domain.review import (
     first_pass_overview,
     reviewed_boundaries,
 )
-from archcompass.domain.verdict_cache import (
-    CachedVerdict,
-    case_fingerprint,
-    policy_corpus_fingerprint,
-    verdict_cache_key,
-)
+from archcompass.domain.verdict_cache import CachedVerdict
 from archcompass.ports.atlas import AtlasFreshnessChecker, SourceReader
 from archcompass.ports.reasoning import FocusedReasoningProvider, ReasoningTask
 from archcompass.ports.repositories import (
@@ -136,101 +135,14 @@ class JudgedCandidate:
     reused_from: str | None = None
 
 
-def _shape(fingerprint: str, candidate: FindingCandidate) -> BoundaryShape:
-    """A candidate reduced to what succession matching compares."""
-
-    return BoundaryShape(
-        fingerprint=fingerprint,
-        pattern=candidate.pattern,
-        participants=[
-            participant.qualified_name for participant in candidate.participants
-        ],
-    )
-
-
-def _what_moved(
-    seen: ReviewedBoundary,
-    previous: BoundaryReview | None,
-    content: str,
-    running: BoundaryReview,
-) -> JudgedBecause:
-    """Which input moved under a boundary the previous revision also had.
-
-    Named rather than left as "changed", which is the word that broke the baseline: a reader
-    hears it as a statement about their code and it was just as often the model having been
-    upgraded. Every answer here is something a person can point at.
-
-    The terms are checked in the order a reader cares about them, and the corpus is reached by
-    elimination rather than by comparison. A review records the case, model and prompt it ran
-    under and a boundary records its own content, so four of the five are a direct comparison;
-    the policy corpus is not stored on a review, and if none of the four moved then the corpus
-    is the only remaining term in the identity that could have.
-    """
-
-    if seen.content_fingerprint != content:
-        return JudgedBecause.CONTENT
-    if previous is None:
-        return JudgedBecause.NEW
-    if (
-        previous.case_id != running.case_id
-        or previous.case_revision != running.case_revision
-    ):
-        return JudgedBecause.CASE
-    if previous.reasoning_model != running.reasoning_model:
-        return JudgedBecause.MODEL
-    if previous.prompt_identity != running.prompt_identity:
-        return JudgedBecause.PROMPT
-    return JudgedBecause.POLICIES
-
-
-@dataclass(frozen=True)
-class _Delta:
-    """The partition of one revision against the previous one, before verdicts exist.
-
-    Computed from shapes and inputs alone, which is why it can be computed *before* the first
-    model call: what a boundary is, what its code says, and what the previous revision said
-    about the same fingerprint are all known at detection time. The verdicts then land on top
-    of it, and the elicitation stage is handed exactly the subset this named.
-    """
-
-    previous_review_id: str | None
-    #: Per `candidate_id`: where this boundary stands, and which input moved if one did.
-    state: dict[str, BoundaryState]
-    judged_because: dict[str, JudgedBecause]
-    #: Per `candidate_id`: the fingerprint this boundary succeeded, where one was matched.
-    succeeds: dict[str, str]
-    #: Per `candidate_id`: the review that closed this fingerprint, where it has come back.
-    resurfaced_from: dict[str, str]
-    addressed: list[AddressedBoundary]
-
-    @property
-    def first_revision(self) -> bool:
-        return self.previous_review_id is None
-
-    def counted(self) -> RevisionDelta:
-        """This partition as the number of boundaries in each state.
-
-        Counted from the placement rather than from the verdicts that land on top of it,
-        which is what lets the same arithmetic answer two questions: what a finished revision
-        records, and what a revision that has not been created would have found. If those two
-        were counted separately they could disagree, and the disagreement would show up as a
-        run refused as changing nothing that would have gone on to judge four boundaries.
-        """
-
-        states = list(self.state.values())
-        return RevisionDelta(
-            previous_review_id=self.previous_review_id,
-            first_revision=self.first_revision,
-            carried=states.count(BoundaryState.CARRIED),
-            judged=states.count(BoundaryState.JUDGED),
-            succeeded=states.count(BoundaryState.SUCCEEDED),
-            addressed=len(self.addressed),
-            resurfaced=len(self.resurfaced_from),
-            addressed_boundaries=self.addressed,
-        )
-
-
 class ReviewService:
+    """Runs one review, start to finish, and is the only thing that writes its record.
+
+    `review()` is the whole flow in one method: read the case, load the atlas, place every
+    candidate, refuse the run if nothing moved, open the record, judge, and conclude or ask.
+    Everything below it is a step of that sequence.
+    """
+
     def __init__(
         self,
         *,
@@ -346,14 +258,22 @@ class ReviewService:
         candidates = self._usage.augment(
             detect_finding_candidates(atlas), atlas, repository_root
         )
-        contents, keys = self._inputs_identities(
+        contents, keys = inputs_identities(
             running,
             candidates=candidates,
             revision=revision,
             policies=policies,
             repository_root=repository_root,
+            source=self._source,
         )
-        delta = self._partition(running, candidates=candidates, contents=contents, keys=keys)
+        delta = partition_revision(
+            running,
+            candidates=candidates,
+            contents=contents,
+            keys=keys,
+            reviews=self._reviews,
+            boundary_lines=self._boundary_lines,
+        )
         # A revision that would change nothing is reported, not recorded — refused here,
         # before anything is written, so every caller gets the same answer whichever button
         # or client asked. Only a first pass refuses: a second pass whose reader answered
@@ -407,53 +327,16 @@ class ReviewService:
             # The run's own message: it was raised by ArchCompass and is written for a
             # person to read, which is the same rule the web layer applies before putting
             # one in a response.
-            self._fail(running, str(error), started)
+            self._record_failure(running, str(error), started)
             raise
         except Exception:
             # Whatever this was, it is not something to quote back. The row still has to
             # stop saying "running", because a caller that crashed cannot come back to
             # correct it.
-            self._fail(running, "The review failed unexpectedly, and nothing was judged.", started)
-            raise
-
-    def _inputs_identities(
-        self,
-        running: BoundaryReview,
-        *,
-        candidates: Sequence[FindingCandidate],
-        revision: CaseRevision,
-        policies: list[PolicyDocument],
-        repository_root: Path,
-    ) -> tuple[dict[str, str], dict[str, str]]:
-        """Each candidate's content fingerprint and its inputs identity, by `candidate_id`.
-
-        The corpus and the case are computed once rather than per candidate: they are the same
-        question for every boundary in the run, and together they are most of what makes a
-        stored verdict still apply.
-
-        The content fingerprints are read before the first model call, because this is what
-        decides whether there is one to make — the code under a boundary is half of its inputs
-        identity. Which is also why the refusal is decided from these same keys: an answer
-        about whether anything moved is only worth having if the key it compares is the key
-        the run would have gone on to use.
-        """
-
-        corpus = policy_corpus_fingerprint(policies)
-        stated_case = case_fingerprint(revision.snapshot)
-        contents = self._source.content_fingerprints(candidates, root=repository_root)
-        keys = {
-            candidate.candidate_id: verdict_cache_key(
-                boundary=boundary_fingerprint(candidate),
-                content=contents[candidate.candidate_id],
-                policy_corpus=corpus,
-                case=stated_case,
-                case_revision=revision.revision,
-                model_identity=running.reasoning_model,
-                prompt_identity=running.prompt_identity,
+            self._record_failure(
+                running, "The review failed unexpectedly, and nothing was judged.", started
             )
-            for candidate in candidates
-        }
-        return contents, keys
+            raise
 
     def _judge(
         self,
@@ -466,7 +349,7 @@ class ReviewService:
         candidates: Sequence[FindingCandidate],
         contents: dict[str, str],
         keys: dict[str, str],
-        delta: _Delta,
+        delta: RevisionPartition,
         on_detected: Callable[[Sequence[FindingCandidate]], None] | None,
         on_verdict: Callable[[JudgedCandidate, int, int], None] | None,
         on_eliciting: Callable[[], None] | None,
@@ -546,11 +429,11 @@ class ReviewService:
         # Written before the last model call rather than after it, so a run cancelled while
         # summarising still leaves the branch's ledger saying what this revision observed.
         # The events are about the code, not about whether anyone read the conclusion.
-        self._record_the_line(running, boundaries=boundaries, delta=delta)
+        self._record_line_events(running, boundaries=boundaries, delta=delta)
         # Checked once more before the last call, which is the longest single wait in the
         # run: cancelling just as the verdicts land should not still cost a summarisation.
         self._stop_if_cancelled(running.review_id)
-        status, overview, investigation = self._read_the_set(
+        status, overview, investigation = self._conclude_or_ask(
             revision=revision,
             repository_root=repository_root,
             boundaries=boundaries,
@@ -598,163 +481,12 @@ class ReviewService:
         self._reviews.complete(review)
         return review
 
-    def _partition(
-        self,
-        running: BoundaryReview,
-        *,
-        candidates: Sequence[FindingCandidate],
-        contents: dict[str, str],
-        keys: dict[str, str],
-    ) -> _Delta:
-        """Place every candidate against the branch's previous revision, before judging.
-
-        The whole of the delta rule lives in this method, and it runs before the first model
-        call because that is the point: a boundary placed as `carried` costs nothing, and one
-        placed as `judged` is the only kind that may earn a question.
-
-        Carrying turns on one equality — this revision's inputs identity for a fingerprint
-        against the identity the previous revision recorded for it. Not on a cache hit, which
-        is a weaker claim: the cache remembers every question ever answered, so a boundary
-        that changed in revision 8 and changed back in revision 9 would hit on revision 7's
-        row and be reported as untouched by a revision that did touch it. The comparison is
-        against the revision immediately behind this one, and nothing else.
-
-        A run with no branch lineage — an atlas indexed before lineages existed — partitions
-        nothing and says so by leaving every state absent. That is honest: without a branch
-        there is no previous revision to be the same as or different from, and reporting
-        every boundary as `judged` would be a claim that a comparison was made.
-        """
-
-        branch_id = running.branch_id
-        if branch_id is None:
-            return _Delta(None, {}, {}, {}, {}, [])
-        previous = self._reviews.previous_revision_for_branch(
-            branch_id, excluding_review_id=running.review_id
-        )
-        report = None if previous is None else previous.report
-        before = (
-            {}
-            if report is None
-            else {
-                item.fingerprint: item
-                for item in report.reviewed
-                if item.fingerprint is not None
-            }
-        )
-
-        now = {
-            candidate.candidate_id: boundary_fingerprint(candidate) for candidate in candidates
-        }
-        state: dict[str, BoundaryState] = {}
-        because: dict[str, JudgedBecause] = {}
-        for candidate in candidates:
-            fingerprint = now[candidate.candidate_id]
-            seen = before.get(fingerprint)
-            if seen is None:
-                state[candidate.candidate_id] = BoundaryState.JUDGED
-                because[candidate.candidate_id] = JudgedBecause.NEW
-                continue
-            if seen.inputs_identity == keys[candidate.candidate_id]:
-                state[candidate.candidate_id] = BoundaryState.CARRIED
-                continue
-            state[candidate.candidate_id] = BoundaryState.JUDGED
-            because[candidate.candidate_id] = _what_moved(
-                seen, previous, contents[candidate.candidate_id], running
-            )
-
-        # Only shapes that are genuinely absent can be succeeded or addressed. A boundary
-        # present in both revisions has not moved anywhere, whatever happened to its code.
-        current_fingerprints = set(now.values())
-        gone = [
-            _shape(item.fingerprint or "", item.candidate)
-            for item in (report.reviewed if report is not None else [])
-            if item.fingerprint is not None and item.fingerprint not in current_fingerprints
-        ]
-        appeared = [
-            _shape(now[candidate.candidate_id], candidate)
-            for candidate in candidates
-            if now[candidate.candidate_id] not in before
-        ]
-        successions = match_successions(gone=gone, appeared=appeared)
-        succeeds: dict[str, str] = {}
-        for candidate in candidates:
-            predecessor = successions.get(now[candidate.candidate_id])
-            if predecessor is None:
-                continue
-            succeeds[candidate.candidate_id] = predecessor
-            state[candidate.candidate_id] = BoundaryState.SUCCEEDED
-            because[candidate.candidate_id] = JudgedBecause.SHAPE
-
-        # Everything that disappeared and was not claimed by a successor. Reported rather
-        # than confirmed: succession matching has already run, and nothing is deleted, so
-        # there is no loss to protect a reader from.
-        claimed = set(successions.values())
-        addressed = [
-            AddressedBoundary(
-                fingerprint=item.fingerprint or "",
-                pattern=item.candidate.pattern,
-                title=item.candidate.summary,
-                material=item.material,
-                verdict_label=item.verdict_label,
-                last_seen_in_review=previous.review_id if previous is not None else "",
-                last_reference=item.reference,
-            )
-            for item in (report.reviewed if report is not None else [])
-            if item.fingerprint is not None
-            and item.fingerprint not in current_fingerprints
-            and item.fingerprint not in claimed
-        ]
-
-        resurfaced = self._resurfaced(
-            branch_id,
-            fingerprints=[
-                now[candidate.candidate_id]
-                for candidate in candidates
-                if now[candidate.candidate_id] not in before
-            ],
-        )
-        by_candidate = {
-            candidate.candidate_id: resurfaced[now[candidate.candidate_id]]
-            for candidate in candidates
-            if now[candidate.candidate_id] in resurfaced
-        }
-        for candidate_id in by_candidate:
-            # Named ahead of `new`, which is what it would otherwise read as. A boundary that
-            # was addressed and is back is not news of the same kind, and the standing and
-            # discussion waiting on its fingerprint are the difference.
-            if state.get(candidate_id) is BoundaryState.JUDGED:
-                because[candidate_id] = JudgedBecause.RESURFACED
-        return _Delta(
-            previous_review_id=None if previous is None else previous.review_id,
-            state=state,
-            judged_because=because,
-            succeeds=succeeds,
-            resurfaced_from=by_candidate,
-            addressed=addressed,
-        )
-
-    def _resurfaced(self, branch_id: str, *, fingerprints: list[str]) -> dict[str, str]:
-        """Which of these fingerprints were closed as addressed on this branch, and by whom.
-
-        A line's state is its latest event, so `addressed` on top means the boundary went and
-        has now come back. Standings were never deleted — they key on `(branch_id,
-        fingerprint)` and nothing removes them — which is what makes an automatic closure safe
-        to take: resurrection restores nothing, because nothing was taken away.
-        """
-
-        latest = self._boundary_lines.latest_for(branch_id, fingerprints)
-        return {
-            fingerprint: event.review_id
-            for fingerprint, event in latest.items()
-            if event.event is BoundaryLineEventType.ADDRESSED
-        }
-
-    def _record_the_line(
+    def _record_line_events(
         self,
         running: BoundaryReview,
         *,
         boundaries: list[ReviewedBoundary],
-        delta: _Delta,
+        delta: RevisionPartition,
     ) -> None:
         """Append what this revision observed about the lines to the branch's ledger.
 
@@ -953,7 +685,7 @@ class ReviewService:
         )
         return JudgedCandidate(candidate=candidate, verdict=verdict)
 
-    def _read_the_set(
+    def _conclude_or_ask(
         self,
         *,
         revision: CaseRevision,
@@ -1055,7 +787,7 @@ class ReviewService:
         if not self._reviews.is_running(review_id):
             raise ReviewCancelledError(f"Boundary review {review_id} was cancelled.")
 
-    def _fail(self, running: BoundaryReview, reason: str, started: float) -> None:
+    def _record_failure(self, running: BoundaryReview, reason: str, started: float) -> None:
         self._reviews.complete(
             running.model_copy(
                 update={

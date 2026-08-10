@@ -103,17 +103,39 @@ def test_cli_commands_use_application_services_only() -> None:
         assert service in attributes, f"{command} does not delegate through {service}"
 
 
+#: The two modules under `presentation/web/` that may name an adapter, because building a
+#: runtime is what they do: one composes the local and per-session workspaces, the other is
+#: the hosted deployment's entry point. Everything else in the package — every router, every
+#: dependency, the streams and the error table — reaches the system through `Runtime`.
+_WEB_RUNTIME_BUILDERS = {"hosted.py", "runtimes.py"}
+
+
 def test_web_routes_use_application_services_only() -> None:
-    path = SOURCE_ROOT / "presentation" / "web" / "app.py"
-    imports = _imports(path)
+    """The whole web package, not just one file, and the routers most of all.
 
-    assert not any(
-        imported == "archcompass.adapters"
-        or imported.startswith("archcompass.adapters.")
-        for imported in imports
-    )
+    This used to read `app.py` alone, which was accurate while `app.py` was the whole HTTP
+    surface. Now that the routes are a package, a guard aimed at one file would pass over a
+    router that imported an adapter — so the sweep is the package, minus the two modules
+    whose job is to build a runtime out of adapters in the first place.
+    """
 
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    web_root = SOURCE_ROOT / "presentation" / "web"
+    routes_root = web_root / "routes"
+    assert routes_root.is_dir(), "presentation/web/routes is gone; this guard sweeps nothing"
+
+    swept = [
+        path
+        for path in web_root.rglob("*.py")
+        if path.name not in _WEB_RUNTIME_BUILDERS
+    ]
+    assert swept, "the web package is gone; this guard now sweeps nothing"
+    for path in swept:
+        assert not any(
+            imported == "archcompass.adapters"
+            or imported.startswith("archcompass.adapters.")
+            for imported in _imports(path)
+        ), f"{path.relative_to(SOURCE_ROOT)} imports an adapter"
+
     forbidden_runtime_attributes = {
         "analyzer",
         "atlas_repository",
@@ -124,16 +146,19 @@ def test_web_routes_use_application_services_only() -> None:
         "report_writer",
         "run_repository",
     }
-    used_attributes = {
-        node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
-    }
+    used_attributes: set[str] = set()
+    for path in routes_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        used_attributes |= {
+            node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+        }
     assert used_attributes.isdisjoint(forbidden_runtime_attributes)
     assert {
         "atlas_service",
         "case_service",
         "policy_service",
-            "repository_service",
-                } <= used_attributes
+        "repository_service",
+    } <= used_attributes
 
 
 def test_review_answers_are_assembled_before_model_adapters() -> None:
@@ -163,7 +188,7 @@ def test_review_answers_are_assembled_before_model_adapters() -> None:
     for path in (
         SOURCE_ROOT / "ports" / "reasoning.py",
         SOURCE_ROOT / "adapters" / "models" / "deterministic.py",
-        SOURCE_ROOT / "adapters" / "models" / "structured.py",
+        SOURCE_ROOT / "adapters" / "models" / "structured" / "reasoning_stages.py",
     ):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         methods = [
@@ -183,12 +208,12 @@ def test_review_answers_are_assembled_before_model_adapters() -> None:
             "investigator",
         ], path
 
-    adapters = ast.parse(
-        (SOURCE_ROOT / "adapters" / "models" / "structured.py").read_text(encoding="utf-8")
-    )
+    structured = SOURCE_ROOT / "adapters" / "models" / "structured"
+    assert structured.is_dir(), "the structured package is gone; this guard sweeps nothing"
     imported = {
         node.module or ""
-        for node in ast.walk(adapters)
+        for path in structured.rglob("*.py")
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.ImportFrom)
     }
     # A model adapter that could reach the application could choose its own evidence.

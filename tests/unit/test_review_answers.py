@@ -23,6 +23,7 @@ from archcompass.adapters.models.structured import (
     ChatMessage,
     StructuredReasoningProvider,
     ThinkLevel,
+    review_answer_schema,
 )
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.atlas import (
@@ -465,7 +466,7 @@ def test_the_schema_fixes_one_flag_per_boundary() -> None:
 
     schema = cast(
         dict[str, object],
-        StructuredReasoningProvider._review_answer_schema(boundary_count=len(BOUNDARIES)),
+        review_answer_schema(boundary_count=len(BOUNDARIES)),
     )
     properties = cast(dict[str, object], schema["properties"])
     supported = cast(dict[str, object], properties["supported_by"])

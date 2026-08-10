@@ -1,4 +1,10 @@
-"""SQLite persistence adapters."""
+"""SQLite persistence adapters.
+
+One repository per aggregate, each implementing a port and owning its own SQL. Read
+`database.py` first — it is the connection policy every one of them shares (WAL, a busy
+timeout, a connection per call) — then `migrations/`, which is the schema's history and the
+only place it changes.
+"""
 
 from archcompass.adapters.persistence.atlas_repository import SQLiteAtlasRepository
 from archcompass.adapters.persistence.boundary_line_repository import (

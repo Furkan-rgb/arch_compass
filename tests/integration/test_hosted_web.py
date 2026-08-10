@@ -401,9 +401,9 @@ def test_the_demo_analyses_one_repository_at_a_time(
 ) -> None:
     """Two overlapping analyses is how a container sized for one of them dies."""
 
-    from archcompass.presentation.web import app as web_app
+    from archcompass.presentation.web import dependencies as web_dependencies
 
-    monkeypatch.setattr(web_app, "INDEX_QUEUE_SECONDS", 0.1)
+    monkeypatch.setattr(web_dependencies, "INDEX_QUEUE_SECONDS", 0.1)
     application = create_hosted_app()
     assert application.state.index_lock is not None
 
