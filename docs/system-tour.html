@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- A point-in-time system tour, read from the code at main:742d4fe (2026-08-10).
+<!-- A point-in-time system tour, read from the code at main:e5b86a9 (2026-08-10).
      Self-contained: no scripts, no external assets; renders in light and dark.
      If it drifts far from the code, regenerate it rather than patching prose. -->
 <html lang="en">
@@ -101,7 +101,7 @@
 <header class="top">
   <p class="eyebrow">Arch Compass · Reference</p>
   <h1>The system as it stands</h1>
-  <p class="meta">read from the code at main·742d4fe — 2026-08-10 · 7 reasoning stages · 24 application services · 20 tables · 44 API routes · 6 pages</p>
+  <p class="meta">read from the code at main·e5b86a9 — 2026-08-10 · 7 reasoning stages · 24 application services · 20 tables · 44 API routes · 6 pages</p>
   <p class="lede">Arch Compass reviews a Python repository's architecture: it detects boundary
   shapes deterministically, has a model judge each one against a written case and a policy corpus,
   asks the person only what neither code nor case can settle, and remembers every verdict, question,
@@ -470,6 +470,12 @@
     <li><strong>Product surface debt</strong> — cases have an API but no UI; the standalone atlas explorer was folded into the review page but its server surface remains; the second tab of a watched run shows counts without names.</li>
     <li><strong>Deferred by design</strong> — languages beyond Python, cost controls, procurement-grade data handling (named in company-readiness as "buyable, not demonstrable").</li>
   </ul>
+  <p>Since this section was first drawn, the concentration concern entered by the product's own
+  order: the policy <code>judge-concentration-by-who-pays</code> in the corpus, the
+  <code>concentrated-scope</code> structural-proxy signal in the atlas (absolute three-part firing
+  rule, deliberately not a percentile), and <a href="conventions.md"><code>docs/conventions.md</code></a>
+  — the index of every rule here, where it is stated, and what enforces it. A fourth detector
+  pattern stays gated on the signal proving itself against a seeded fixture pair.</p>
   <p class="meta" style="margin-top:18px">Sources: the code at main·e1765a7; docs/architecture.md · master-plan.md · evaluation.md; ADRs 0001–0017. Companion: the investigation-quality plan artifact.</p>
 </section>
 </main>
