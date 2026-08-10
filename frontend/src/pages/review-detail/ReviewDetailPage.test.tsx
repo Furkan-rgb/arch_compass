@@ -15,20 +15,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { api, ApiError } from "../api";
-import { RunProvider } from "../run";
-import {
-  AskAction,
-  ExportAction,
-  Overview,
-  ReviewDetailPage,
-  ReviewUnavailable,
-  answersBehind,
-  chainAround,
-  findingForNode,
-  verdictChanges,
-} from "./ReviewDetailPage";
-import { AnswerProse } from "../markdown";
+import { api, ApiError } from "../../api";
+import { RunProvider } from "../../run";
+import { ReviewDetailPage } from "./ReviewDetailPage";
+import { findingForNode } from "./atlas-tab";
+import { Conclusion } from "./conclusion";
+import { AskAction, ExportAction } from "./header-actions";
+import { ReviewUnavailable } from "./review-dead-ends";
+import { chainAround } from "./review-chain";
+import { answersBehind, verdictChanges } from "./verdict-changes";
+import { AnswerProse } from "../../markdown";
 import type {
   BoundaryReviewSummary,
   OpenQuestion,
@@ -36,7 +32,7 @@ import type {
   ReviewDetail,
   ReviewStatus,
   ReviewedBoundary,
-} from "../types";
+} from "../../types";
 
 describe("AnswerProse", () => {
   it("renders a fenced block as code, keeping its line breaks", () => {
@@ -239,7 +235,7 @@ describe("ExportAction", () => {
  * were placed after was mostly wrong. Asking now happens on its own surface, before any
  * conclusion exists — and a review that has concluded has, by construction, nothing to ask.
  */
-describe("Overview", () => {
+describe("Conclusion", () => {
   const base = {
     situation: "One operator, one server.",
     themes: [],
@@ -248,7 +244,7 @@ describe("Overview", () => {
   };
 
   it("renders the bottom line and what the review could not see", () => {
-    render(<Overview overview={base} />);
+    render(<Conclusion overview={base} />);
 
     expect(screen.getByText("One operator, one server.")).toBeTruthy();
     expect(screen.getByText(/static count cannot see runtime registration/)).toBeTruthy();
@@ -257,7 +253,7 @@ describe("Overview", () => {
   it("has no answer surface, because a concluded review is not still asking", () => {
     // Structural rather than cosmetic: the summarising stage has no field for a question,
     // so a conclusion carrying one could only have come from somewhere it should not.
-    render(<Overview overview={base} />);
+    render(<Conclusion overview={base} />);
 
     expect(screen.queryByText("What it needs to know")).toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();

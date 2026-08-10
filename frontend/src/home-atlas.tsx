@@ -4,7 +4,7 @@
  * Hand-laid rather than laid out: the workbench's atlas takes a real graph and solves for
  * positions, and seven modules whose whole job is to stand still under a replay do not need a
  * solver — they need to be in the same place on every paint, in both themes, at every width.
- * So the geometry is written down here and the vocabulary is borrowed whole from `atlas.tsx`:
+ * So the geometry is written down here and the vocabulary is borrowed whole from `atlas/`:
  * the same node measurements, the same class names, the same tokens, the same grid pattern and
  * arrowhead. A node here and a node on a review page are the same drawing, and the day one of
  * them moves the other has to move with it.

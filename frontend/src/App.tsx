@@ -19,7 +19,7 @@ const PoliciesPage = lazy(() =>
   import("./pages/PoliciesPage").then(({ PoliciesPage }) => ({ default: PoliciesPage })),
 );
 const ReviewDetailPage = lazy(() =>
-  import("./pages/ReviewDetailPage").then(({ ReviewDetailPage }) => ({
+  import("./pages/review-detail/ReviewDetailPage").then(({ ReviewDetailPage }) => ({
     default: ReviewDetailPage,
   })),
 );

@@ -1,6 +1,6 @@
 import type { ElkNode } from "elkjs/lib/elk-api";
 
-import type { AtlasEdgeView, AtlasLens, AtlasNodeView } from "./atlas";
+import type { AtlasEdgeView, AtlasLens, AtlasNodeView } from "./atlas/graph-model";
 
 /**
  * Where the atlas decides what goes where.
