@@ -20,6 +20,10 @@ build/
 src/archcompass/presentation/web/static/
 .archcompass/
 reports/
+# ...except a fixture repository's own reports package: eval/cases ships whole
+# repositories to be analysed, and one of them keeps a subsystem by that name on
+# purpose — it is half of the seeded PAGE_SIZE coincidence.
+!eval/cases/**/reports/
 frontend/node_modules/
 frontend/coverage/
 frontend/*.tsbuildinfo
