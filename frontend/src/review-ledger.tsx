@@ -534,11 +534,11 @@ export function FindingsLedger({
           onValueChange={(value) => {
             if (value) setFilter(value as Filter);
           }}
-          // Full width below 620px, which is what this control did when it shared a class
-          // with the Policies filter bar and inherited that bar's stacking rule. Kept
-          // deliberately rather than by accident: on a phone the row it sits in has nothing
-          // else on it, and a filter floating at max-content there reads as unfinished.
-          className="overflow-x-auto max-[620px]:w-full"
+          // Full width below 620px, and last: the name and its count share the first
+          // line — a label alone on a row it owns reads as a heading over emptiness, and
+          // a count orphaned under the pills read as belonging to nothing. The pills take
+          // the second line whole, where a filter at max-content would read as unfinished.
+          className="overflow-x-auto max-[620px]:w-full max-[620px]:order-last"
           aria-label="Filter by verdict"
         >
           {filters.map(({ id, label }) => (

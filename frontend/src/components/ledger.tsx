@@ -45,7 +45,10 @@ export function LedgerBar({
     <div
       data-slot="ledger-bar"
       className={cn(
-        "flex flex-wrap items-center gap-2.5 px-[var(--row-pad-x)] pt-3 pb-2",
+        // Wrapped rows sit closer than side-by-side items: on a phone this bar is two
+        // lines — the name with its count, then the filter — and 10px between them read
+        // as a gap between sections rather than within one.
+        "flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-[var(--row-pad-x)] pt-3 pb-2 max-[620px]:pt-2",
         // Borderless by day, because the rows below it are already separate objects and a
         // rule over floating cards divides nothing from nothing.
         "[border-bottom:var(--lhead-rule)]",
