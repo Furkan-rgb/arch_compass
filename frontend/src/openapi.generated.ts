@@ -153,7 +153,6 @@ export interface components {
     "markdown_report"?: string | null;
     "duration_seconds"?: number;
     "sanitized_errors"?: Array<string>;
-    "failure_diagnostics"?: Array<components["schemas"]["FailureDiagnostic"]>;
     "created_at"?: string;
   };
     "BoundaryReviewReport": {
@@ -335,12 +334,6 @@ export interface components {
     "directories": Array<components["schemas"]["DirectoryEntry"]>;
   };
     "EdgeType": "contains" | "imports" | "calls" | "inherits" | "implements" | "references" | "tests" | "configures";
-    "FailureDiagnostic": {
-    "code": components["schemas"]["FailureDiagnosticCode"];
-    "force_handles"?: Array<string>;
-    "count"?: number | null;
-  };
-    "FailureDiagnosticCode": "cluster_count_out_of_range" | "unknown_force_references" | "missing_force_references" | "duplicate_force_references" | "duplicate_cluster_ids";
     "FindingCandidate": {
     "candidate_id"?: string;
     "pattern": components["schemas"]["FindingPattern"];
@@ -635,7 +628,6 @@ export interface components {
     "markdown_report"?: string | null;
     "duration_seconds"?: number;
     "sanitized_errors"?: Array<string>;
-    "failure_diagnostics"?: Array<components["schemas"]["FailureDiagnostic"]>;
     "created_at"?: string;
     "boundary_triage"?: Array<components["schemas"]["BoundaryTriage"]>;
   };

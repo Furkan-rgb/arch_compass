@@ -34,9 +34,10 @@ class ReasoningTask(StrEnum):
     JUDGE_FINDING_CANDIDATE = "judge_finding_candidate"
     #: The lookups a stage makes before it asks, which is a stage in its own right because
     #: it has its own contract and its own identity: what the model is told while it holds
-    #: tools is not what it is told while it composes questions. No review stores this
-    #: identity yet — the transcript is not persisted either — but versioning it from the
-    #: start is what makes pinning both later a matter of writing them down.
+    #: tools is not what it is told while it composes questions. Both halves are stored: a
+    #: review carries the transcript as its `RecordedInvestigation`, and this identity is the
+    #: `prompt_identity` on it — a lookup record under a superseded contract is a record of a
+    #: different investigation, and could not be compared with a later one without it.
     INVESTIGATE_USAGE = "investigate_usage"
     #: The same two tools held by a stage about to reply to a person rather than to question
     #: one. Its own task and not a second use of the one above, because the restraint differs:

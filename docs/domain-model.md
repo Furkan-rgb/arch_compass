@@ -1,165 +1,185 @@
 # Domain model
 
-## ArchitectureCase
+`domain/` holds the types and the rules that hold whatever the storage and the provider happen
+to be. Nothing here reads or writes anything, and nothing here is authored by a model: every
+identifier a record keys on is derived by the application from content it can see. Pydantic
+models forbid unknown fields and validate the current schema only — there are no compatibility
+shims, and a stored document written by a superseded schema is reported rather than reinterpreted
+(ADR 0002).
 
-An `ArchitectureCase` is the current immutable snapshot of an architectural decision. It contains
-the problem, outcome, actors, workflows, requirements, quality attributes, technical and
-organisational constraints, expected changes, non-goals, facts, derived constraints, assumptions,
-questions, user-authored design forces, advisor-observed design forces, optional repository
-reference, policy-applicability subjects, policy IDs, alternatives, recommendation, confidence,
-reversal conditions, revisit triggers, timestamps, and revision.
+## The case: stated intent
 
-Case statements have stable IDs, a kind, text, and optional provenance. `CaseUpdate` is partial:
-omitted fields are preserved and supplied collections replace their previous value. Each update
-creates a complete immutable `CaseRevision`.
+An `ArchitectureCase` is what a person says they are trying to do. Title, problem statement and
+desired outcome; actors and workflows, functional requirements, quality attributes, technical and
+organisational constraints, expected future changes and non-goals; four statement collections
+(`confirmed_facts`, `derived_constraints`, `assumptions`, `unresolved_questions`) and
+`design_forces`; an optional repository reference, policy subjects and alternatives.
 
-New cases use schema version 2. Facts, derived constraints, assumptions, questions, and design
-forces are distinct statement collections; validation rejects a statement placed in a collection
-with the wrong kind, and user-authored design-force IDs must be unique. A successful consultation
-replaces only `advisor_design_forces`.
-`design_forces` remains byte-for-byte user intent and is deterministically included in the next
-clustering pass. Force ownership is explicit in the schema: a case states its user-authored
-and advisor-authored forces in separate fields rather than inferring ownership from a source
-string.
+Only `title` is required. Requiring the problem statement made authoring a case the price of
+seeing a single verdict, which is the tax elicitation exists to remove: a review can run against
+a repository alone and ask for what it lacked.
 
-## RepositoryAtlas
+Nothing the advisor concludes is written back into the case — the case is intent, its conclusions
+live in the review that reached them (ADR 0007). The one thing that does come back is an answer,
+and it comes back as a `Clarification`: the question and the user's reply as a pair, first-class
+on the case, because the second pass sees the case alone and an answer without its question is
+not legible (ADR 0014).
 
-An `Atlas` contains one immutable `AtlasVersion`, nodes, edges, metric profiles, and objective
-signals. Node IDs are stable within and across analyses while path, node kind, and qualified name
-remain unchanged. An atlas version captures the content fingerprint, Git identity, parser, and
-analysis configuration at one repository state. Atlas and atlas-version outputs use schema
-version 2.
+A `CaseUpdate` is partial — omitted fields are preserved, supplied collections replace their
+previous value — and each update produces a complete immutable `CaseRevision`. A revision that
+answered a review carries `AnsweredQuestions`: the review it answered and, per answer, the `Q-n`
+it responds to, the `CaseField` the answer belongs in, and the raw text. Skipped questions are
+absent rather than flagged (ADR 0012).
 
-## PolicyCorpus
+## The atlas: observed structure
 
-`PolicyDocument` preserves authored metadata, applicability subject, and original Markdown, and
-is what every stage is shown — whole, never chunked or ranked. `PolicyApplicabilityContext`
-identifies the current user, organisation, and repository subjects; scope resolution fails closed
-for a scoped policy whose subject does not match, and missing identity never widens access.
-`PolicySourceRegistration` records a canonical persistent workspace source.
+An `Atlas` is one immutable `AtlasVersion` plus nodes, edges, metric profiles, obscurity signals
+and module facts. The version captures the content fingerprint, the git identity, the parser
+version and the analysis configuration at one repository state, so a review pins the exact
+evidence it saw. Node ids are stable across analyses while path, kind and qualified name are.
 
-`PolicyChunk`, `PolicyIndexVersion` and `RetrievedPolicy` are gone with the index they described
-(ADR 0013).
+Metrics carry their `MetricNature` and `MetricScope` with them, because a number presented
+without what it can and cannot mean is an invitation to over-read it.
 
-`PolicyEvidenceSummary` and `PolicyConflict` are gone for the same reason. Both described the
-result of ranking a corpus — which sections a query matched, how two retrieved policies were
-reconciled — and a review now records what it was shown instead: `policies_presented` names every
-policy the judging stage saw, and a `PolicyBearing` says which of them bore on one boundary and
-how.
+`AtlasQueryPlan` and the query types beside it are the read surface: the explorer and the
+investigation tools both go through them, so what a model may ask of a repository is a closed
+list of validated queries rather than an open door.
 
-## Concern analysis
+## Candidates: what detection found
 
-A `ConcernCluster` names and explains a group of design-force IDs. One to four clusters must form
-an exact partition of the discovered and preserved user forces. A `FocusedAnalysisPacket` carries
-one cluster's explicit node evidence and selection reasons, labelled metric observations, resolved
-relationship evidence, tests, source excerpts, applicable policies, assumptions, and uncertainty.
-Successful runs contain exactly one packet and one `ConcernAnalysis` for each cluster.
+A `FindingCandidate` is a structural shape derived from the atlas — the `FindingPattern` that
+recognised it, the participants involved, what was measured with each measurement's nature and
+limitations, the relationships between participants, and what the detection method could not see.
 
-The Ollama boundary does not ask a model to create or reproduce these internal IDs. Force
-discovery returns content and receives application-generated IDs.
+A candidate is N-ary by construction: duplicated knowledge is a fact about a set of modules, and
+a type holding one node would discard the finding while appearing to record it. It is explicitly
+not a violation — materiality depends on circumstances the static view cannot see, so "this does
+not matter here" stays a first-class answer downstream.
 
-## FindingCandidate
+`boundary_fingerprint` derives a candidate's run-independent identity from what it *is*: the
+detector and the qualified names that participate. Paths, line numbers and measurements are left
+out because they churn; anything a model wrote is left out because identity is not prose. The
+companion `content_fingerprint` hashes the code under the boundary. **Shape is identity, content
+is an input** — a team's opinion about a boundary is not undone by somebody editing it, but its
+verdict is.
 
-A structural shape derived from an `Atlas`, carrying the participants involved, what was
-measured with each measurement's nature and limitations, the relationships between the
-participants, and what the detection method could not see.
+## The review: one judgement, pinned
 
-A candidate is N-ary by construction. Duplicated knowledge is a fact about a set of
-modules, and a type holding one node would discard the finding while appearing to record
-it. It is explicitly not a violation: materiality depends on circumstances the static view
-cannot see, so "this does not matter here" stays a first-class answer downstream.
+A `BoundaryReview` is immutable and pinned to one case revision, one atlas version, one model
+identity and one prompt identity. Its `ReviewStatus` decides its shape, and validators enforce
+that rather than convention: exactly the two statuses that reached verdicts (`succeeded`,
+`awaiting_answers`) carry a report, and the three that did not carry none — a report on a failed
+run would be a claim about a repository nothing examined.
 
-## CandidateVerdict
+- `CandidateVerdict` — what the model made of one candidate: `material`, the reasoning, the
+  `PolicyBearing`s that bear on it, an optional `VerdictHinge`, and a recommended response
+  present only when material. It carries no identifier the model authored: `candidate_id` is
+  copied from the request and each bearing takes its policy identity from the position it
+  occupied in the presented corpus. A bearing asserted without saying how is dropped rather than
+  recorded as an unexplained flag.
+- `VerdictHinge` — what the verdict assumed because *the case* did not state it, and the verdict
+  under each answer. The other half of what a verdict rests on: the candidate already says what
+  the *method* could not see, and only this half is something the reader can fix. `None` is the
+  ordinary answer and is translated from an explicit declaration rather than inferred from a
+  blank field.
+- `ReviewedBoundary` — a `BR-nnn` reference assigned by the application in detection order, the
+  candidate, the verdict and its parts, and `BoundaryExcerpt`s showing the code. A non-material
+  boundary carrying a response is rejected: an advisor that always has a next action has not
+  answered the question.
+- `ReviewOverview` / `OpenQuestion` — themes, a sequence, and the questions the run would need
+  answered. A question holds a `Q-n` assigned in presentation order, the unknown, why it matters,
+  the `CaseField` an answer belongs in, and the `BR-nnn` values it rests on. Questions are
+  consolidated across boundaries, and one resting on no boundary is discarded exactly as an
+  ungrounded theme is. They are advisor output and live in the review; an answer enters the case
+  only as a user-authored revision (ADR 0011, ADR 0012).
+- `RecordedInvestigation` — the lookups the run made before it composed its questions, in order,
+  with the stage's closing note, why the looking stopped where it did, and the prompt identity it
+  ran under. This is what makes a question legible: a question asked because the repository is
+  silent and one asked because nobody looked are different questions.
 
-What the model made of one candidate: `material`, the reasoning, the policies that bear on
-it, an optional `hinge`, and a recommended response present only when material.
+Deliberately absent: design forces, alternatives, scenario analysis, an ADR, an implementation
+sequence. A review judges boundaries that already exist rather than weighing competing designs.
 
-The verdict carries no identifier the model authored. `candidate_id` is copied from the
-request, and each `PolicyBearing` gets its policy identity from the position it occupied in
-the presented corpus. A bearing asserted without saying how is dropped rather than recorded
-as an unexplained flag.
+## The delta: what one revision changed
 
-`VerdictHinge` is what the verdict assumed because *the case* did not state it — the
-unknown, and the verdict under each answer (master plan §6C). It is the other half of what
-a verdict rests on: the candidate already says what the *method* could not see, and only
-this half is something the reader can fix. `None` is the ordinary answer and means the
-verdict stands whichever way the unknown falls. It is translated from an explicit
-declaration in the reply rather than inferred from a blank field, because "nothing was
-open" and "the stage never considered it" are opposite facts that an omission cannot
-distinguish.
+`domain/delta.py` is the rule that makes the ninth revision readable by someone who read the
+eighth. Every boundary lands in exactly one `BoundaryState` against the branch's previous
+revision:
 
-## BoundaryReview
+- **carried** — the inputs identity is unchanged, so the verdict, the standing and the silence
+  carry. No model call, and no question may be asked about it.
+- **judged** — new, or something it rests on moved: its own source, the case, the policy corpus,
+  the model, the prompt (`JudgedBecause` says which). Only these may earn an elicitation question,
+  which is what makes re-asking a settled question structurally impossible rather than cached
+  away.
+- **succeeded** — the shape moved and was matched to one that disappeared, so the standing carries
+  across wearing a visible mark. Succession matching is a pure function of two sets of shapes.
+- **addressed** — present before, matched by nothing now: the loop closing. Nothing is deleted, so
+  a fingerprint that comes back resurfaces with its history.
 
-An immutable review pinned to one case revision, one atlas version, and the exact prompt
-identity that produced it. A succeeded review carries its report; a failed one carries
-diagnostics and no report, and both invariants are enforced by validators rather than
-convention.
+`RevisionDelta` is the counted form, stored on the review because it is a fact about two immutable
+revisions. `BoundaryLineEvent` is the append-only record of successions, closures and
+resurrections on a branch.
 
-`BoundaryReviewReport` holds the case title, the problem and desired outcome, the policies
-presented, and every `ReviewedBoundary` examined. `reviewed` may be empty: the detector ran
-and found no candidate, which is a result rather than a failure.
+`CachedVerdict` and `verdict_cache_key` are the other side of the same rule. The key is the whole
+question rather than its subject: boundary shape, content, policy-corpus fingerprint, case
+fingerprint and revision, model identity, prompt identity. Every component is content-derived and
+known before the model is called, so the lookup is free and unconditional. Deliberately outside
+the key: `repo_id`, `branch_id`, the atlas version and the review that produced the verdict — the
+same structure under the same code and the same question has the same answer wherever it is
+found, which is what makes a cached verdict useful to CI.
 
-`ReviewedBoundary` carries a `BR-nnn` reference assigned by the application in detection
-order, the candidate, the verdict, the reasoning, the policy bearings, the hinge where the
-verdict had one, and a recommended response. A boundary that is not material carrying a
-response is rejected — an advisor that always has a next action has not answered the
-question.
+## Lineage: durable identity
 
-`ReviewOverview` carries the review's `open_questions` alongside its themes and sequence.
-An `OpenQuestion` holds a `Q-n` reference assigned by the application in presentation
-order, the unknown, why it matters, the question itself, the `CaseField` an answer belongs
-in, and the `BR-nnn` values it rests on. Questions are consolidated across boundaries —
-several verdicts turning on one unknown are one question citing all of them — and one
-resting on no boundary is discarded rather than recorded, exactly as an ungrounded theme
-is. They are advisor output and live in the review; an answer enters the case only as a
-user-authored revision (master plan §6C.4, invariant 25).
+`repository_identity` — the hash of a canonical path — answers "where is this on this machine",
+and only that. `RepositoryLineage.repo_id` is the repository itself and `BranchLineage.branch_id`
+is one line of work in it, derived from the root commit and the branch name. That is the level at
+which humans hold opinions ("on main, this boundary is accepted"), which is why the standing
+decisions, the living case and the line of revisions attach here and not to any single run. A
+branch records the branch it came from, so a run can read through to its base.
 
-Deliberately absent: design forces, alternatives, scenario analysis, an ADR, an
-implementation sequence. A review judges boundaries that already exist rather than weighing
-competing designs, so there is nowhere to put those and nothing to invent to fill them.
+## Triage: what the team decided
 
-## ReviewConversation
+A judgement is not a disposition. `StandingDecision` records the team's, with an author, a reason
+and the verdict it was taken against, keyed on `(branch_id, boundary_fingerprint)` — never a
+review id or a `BR-nnn`, both of which are minted per run. Three states are written down
+(`accepted`, `waived`, `parked`); *unreviewed* is absence, because a stored "unreviewed" would
+claim somebody decided not to decide. History is append-only: changing a decision appends another,
+and the latest by `decided_at` stands. `DecisionComment`s thread on the boundary rather than on a
+decision row, because argument routinely precedes the decision it produces.
 
-An append-only aggregate pinned to one review and, through it, to the exact case revision
-the verdicts were reached against.
+The invariant the design rests on: nothing in the review pipeline reads this module. The model
+judges; the team disposes.
 
-Each turn presents the whole review — roughly 25,000 characters — so there is no retrieval
-plan to validate, no cumulative budget to spend and no rolling summary to revise. The
-answer marks supporting boundaries by position, and `ReviewAnswer.supporting_references`
-holds the `BR-nnn` values the application resolved from those positions. `grounded` is
-derived from that list rather than asked for.
+## Policies
 
-A `ReviewMessage` carries exactly one of an answer or a failure. A turn that produced
-nothing is still appended: silently discarding it makes the conversation read as though the
-question was never asked.
+`PolicyDocument` preserves the authored metadata, the applicability subject and the original
+Markdown, and is what every stage is shown — whole, never chunked or ranked.
+`PolicyApplicabilityContext` identifies the current user, organisation and repository subjects;
+scope resolution fails closed for a scoped policy whose subject does not match, and missing
+identity never widens access. `PolicySourceRegistration` records a workspace source by path; the
+documents themselves are re-read per request rather than stored.
 
-## Claims
+## Conversations
 
-Every important claim is one of:
+A `ReviewConversation` is append-only and pinned to one review and, through it, to the exact case
+revision the verdicts were reached against. Each turn presents the whole review, so there is no
+retrieval plan to validate, no cumulative budget to spend and no rolling summary to revise. A
+`ReviewAnswer` marks supporting boundaries by position and the application resolves those into
+`supporting_references`; `grounded` is derived from that list rather than asked for. A
+`ReviewMessage` carries exactly one of an answer or a failure, and a turn that produced nothing is
+still appended — silently discarding it makes the conversation read as though the question was
+never asked. A message may also carry its own `RecordedInvestigation`.
 
-- confirmed user requirement;
-- derived constraint;
-- repository observation;
-- policy guidance;
-- scenario assumption;
-- advisor inference.
+## What used to be here
 
-Repository observations require surfaced exact Atlas artifacts. Policy guidance requires IDs
-retrieved for the relevant cluster. Brownfield locations must use the artifact's exact path and
-an ordered, in-range source span. Relationships, metric values, signal observations, and source
-excerpts are validated by their complete persisted identity rather than accepted because their
-node ID happens to be known.
-
-Substantive report prose is a `SupportedStatement`: text, a claim classification, and supporting
-claim IDs. It is used for the decision, architecture, responsibility allocation, conceptual
-interfaces, blast-radius conclusion, trade-offs, implementation steps, reversal conditions,
-revisit triggers, and ADR decision/consequences. `RecommendationDisposition` separately records
-whether advice introduces a boundary, moves responsibility, keeps behavior local, delays,
-preserves, or gathers information.
-
-Pydantic models reject unknown fields and validate the current schema only. Reports and runs
-declare schema version 3 explicitly: the field is required, so a payload that omits it fails
-validation instead of being reinterpreted as an earlier shape. Migration heuristics never run
-against live model output, and findings are authored evidence that is never synthesized from
-claims. Rows written by an earlier, unreleased schema are reported through
-`UnreadableStoredRecordError`, which names the record and asks for the consultation to be re-run.
+The consultation era's vocabulary was removed rather than deprecated, per ADR 0002, and its
+storage went with migration 010. Gone: `ConsultationRun`, `ConcernCluster`, `FocusedAnalysisPacket`
+and `ConcernAnalysis`; the claim taxonomy and `SupportedStatement`; `RecommendationDisposition`;
+`FollowUp` and the report-conversation types. `PolicyChunk`, `PolicyIndexVersion`,
+`RetrievedPolicy`, `PolicyEvidenceSummary` and `PolicyConflict` went with the retrieval index
+(migrations 017 and 020) — a review now records what it was *shown* instead: `policies_presented`
+names every policy the judging stage saw, and a `PolicyBearing` says which of them bore on one
+boundary and how. `FailureDiagnostic` was the last of that vocabulary and left with migration 033;
+the baseline types (`BaselineEntry`, `BoundaryDisposition`) left with it, retired in favour of the
+delta rule above.

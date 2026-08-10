@@ -395,7 +395,6 @@
         <li><code>repository_lineages</code> · <code>branch_lineages</code></li>
         <li><code>reasoning_model_choice</code> (one row — workspace-global)</li>
         <li><code>scope_selections</code> · <code>policy_source_registrations</code> · <code>source_origins</code></li>
-        <li><code>branch_baselines</code> — <em>orphaned; see the ledger</em></li>
       </ul>
     </div>
   </div>
@@ -448,14 +447,16 @@
 <section id="ledger">
   <p class="eyebrow">09 · The honest ledger</p>
   <h2>Half-built, dead, or lying documentation</h2>
-  <p>Found by reading, not recalled. Ordered by how likely each is to mislead a decision.</p>
+  <p>Found by reading, not recalled. Ordered by how likely each is to mislead a decision.
+  Most of the backend half was buried on 2026-08-10; what that pass did is struck through, and
+  what it deliberately left says why.</p>
   <ul>
-    <li><strong>Baseline is dead code with live storage.</strong> Domain, service, port, repository and the <code>branch_baselines</code> table all exist; nothing constructs or reaches them. architecture.md decision 4 retired the concept in favour of the delta rule — the code just hasn't been buried.</li>
-    <li><strong>Two stale reference docs.</strong> <code>persistence-model.md</code> documents consultation-era tables dropped by migrations 010/017/020; <code>domain-model.md</code> describes types that no longer exist. architecture.md's closing paragraph still claims embedding-based retrieval its own body disavows.</li>
-    <li><strong>A ghost package makes one guard vacuous.</strong> <code>test_boundaries.py</code> iterates <code>workflows/</code>, which was deleted; globbing a missing directory passes silently.</li>
-    <li><strong>Streaming asymmetry</strong> (above): the only public deployment never streams.</li>
-    <li><strong>Frontend drift hazards:</strong> atlas/policy types are hand-written beside the generated file (the exact drift its own comments warn about); seven dead client methods; several server routes have no UI at all (cases CRUD, decision history).</li>
-    <li><strong>Small residue:</strong> a stale docstring pointing at a never-built <code>application/preflight</code>; consultation-era <code>FailureDiagnostic</code> still typed on reviews but unproducible; migration numbering skips 015; orphan <code>__pycache__</code> directories for deleted modules; one comment/status-code disagreement on the checkout route; the <code>INVESTIGATE_USAGE</code> enum comment predates the persistence that landed the same day.</li>
+    <li><del><strong>Baseline is dead code with live storage.</strong></del> <em>Buried.</em> Domain, service, port, repository, tests and the <code>branch_baselines</code> table are gone (migration 033). The concept was retired by architecture.md decision 4 in favour of the delta rule; the standings are the memory in its place.</li>
+    <li><del><strong>Two stale reference docs.</strong></del> <em>Rewritten.</em> <code>persistence-model.md</code> and <code>domain-model.md</code> now describe the live schema and the current aggregates, with dropped-era types named in one closing paragraph each. architecture.md's closing paragraph no longer claims embedding-based retrieval, and its Under-discussion section carries dated notes where shipped code has answered a point.</li>
+    <li><del><strong>A ghost package makes one guard vacuous.</strong></del> <em>Fixed.</em> <code>workflows/</code> is out of the iteration lists, and each package a guard sweeps is now asserted to exist, so the next deletion fails the test instead of silencing it.</li>
+    <li><strong>Streaming asymmetry</strong> (above): the only public deployment never streams. <em>Unchanged — a provider fact, not residue.</em></li>
+    <li><strong>Frontend drift hazards:</strong> atlas/policy types are hand-written beside the generated file (the exact drift its own comments warn about); seven dead client methods; several server routes have no UI at all (cases CRUD, decision history). <em>Owned by a separate pass.</em></li>
+    <li><strong>Small residue:</strong> the <code>application/preflight</code> docstring, the unproducible <code>FailureDiagnostic</code> (field, module and stored key, migration 033), the orphan <code>__pycache__</code> directories, the checkout route's comment/status disagreement (201 stands; the comment now agrees) and the <code>INVESTIGATE_USAGE</code> comment are all dealt with. <strong>The numbering gap at 015 stays</strong> — a retired migration number must never be reused, so the gap is now stated as a fact in <code>persistence-model.md</code> rather than closed.</li>
   </ul>
 </section>
 
@@ -464,7 +465,7 @@
   <h2>The live decision surface</h2>
   <ul>
     <li><strong>Multi-user / team use</strong> — identity, per-branch run lock, per-session model selection. The plan's own ordering (company-readiness) deferred auth last; the run lock is the smallest of the three and closes the ugliest race.</li>
-    <li><strong>Review-flow organisation</strong> — architecture.md's "Under discussion" section holds the standing decisions (repository → branch → revisions; delta rule; baseline retired) with several of its open questions since answered by shipped code; it needs a reconciliation pass more than new decisions.</li>
+    <li><strong>Review-flow organisation</strong> — architecture.md's "Under discussion" section holds the standing decisions (repository → branch → revisions; delta rule; baseline retired). Four of its open questions were reconciled against shipped code on 2026-08-10 with dated notes; what is left open there is what should block in CI and what a repository page leads with.</li>
     <li><strong>Measurement</strong> — the investigation/evidence work shipped with an eval fixture and a reading guide, but nothing quantitative runs routinely; judge variance across identical runs remains larger than most feature effects, so any prompt or evidence change still needs n≥10 discipline.</li>
     <li><strong>Product surface debt</strong> — cases have an API but no UI; the standalone atlas explorer was folded into the review page but its server surface remains; the second tab of a watched run shows counts without names.</li>
     <li><strong>Deferred by design</strong> — languages beyond Python, cost controls, procurement-grade data handling (named in company-readiness as "buyable, not demonstrable").</li>

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from archcompass.domain.diagnostics import FailureDiagnostic, format_failure_diagnostics
-
 
 class ArchCompassError(Exception):
     """Base error exposed to presentation adapters."""
@@ -160,28 +158,6 @@ class ReviewHasNoReportError(ArchCompassError):
     """
 
 
-class ReviewNotBaselineableError(ArchCompassError):
-    """The review reached no verdicts, so there is nothing in it to declare seen.
-
-    A state conflict rather than a malformed request: the review exists and the request is
-    right about everything except what that review is. Repeating it fails identically —
-    a failed or cancelled run never acquires a report — so the cure is another run.
-    """
-
-
-class ReviewHasNoBranchError(ArchCompassError):
-    """The review has no branch lineage, and the thing being asked for lives on a branch.
-
-    Its own type because its cure is unusual and specific: re-index the repository so the
-    atlas carries a lineage, then run the review again. Nothing about the request is wrong,
-    and nothing about the review is broken — it simply predates the identity model.
-    """
-
-
-class BaselineEntryNotFoundError(ArchCompassError):
-    """This branch has no baselined boundary under that fingerprint."""
-
-
 class ProviderError(ArchCompassError):
     pass
 
@@ -199,16 +175,6 @@ class PromptBudgetExceededError(ArchCompassError):
 
 class ModelOutputValidationError(ArchCompassError):
     pass
-
-
-class ClusterPartitionError(ModelOutputValidationError):
-    """Exact-partition failure carrying only allowlisted diagnostics."""
-
-    def __init__(self, diagnostics: list[FailureDiagnostic]) -> None:
-        if not diagnostics:
-            raise ValueError("ClusterPartitionError requires at least one diagnostic")
-        self.diagnostics = list(diagnostics)
-        super().__init__(format_failure_diagnostics(self.diagnostics))
 
 
 class EvidenceReferenceError(ArchCompassError):

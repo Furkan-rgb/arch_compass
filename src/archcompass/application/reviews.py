@@ -29,10 +29,11 @@ intact. All three are recorded as events on the branch's ledger, and the partiti
 stored on the review: it is a fact about two immutable revisions, so recomputing it later
 could only produce the same answer or a wrong one.
 
-Because the partition is settled before the first model call, it can also be asked *instead*
-of a run: `preflight` takes the same steps and stops there, so a revision that would move
-nothing is reported rather than recorded. See `application.preflight` for why a branch's
-history is better off without it.
+Because the partition is settled before the first model call, the run can also refuse
+itself on it: `review()` counts the partition, and a first pass over a branch nothing has
+moved on raises `NothingToReviewError` before anything is written, so a revision that would
+change nothing is reported rather than recorded. `allow_unchanged` is the one exemption,
+for a caller whose result *is* the delta.
 """
 
 from __future__ import annotations
@@ -213,7 +214,7 @@ class _Delta:
         which is what lets the same arithmetic answer two questions: what a finished revision
         records, and what a revision that has not been created would have found. If those two
         were counted separately they could disagree, and the disagreement would show up as a
-        pre-flight promising a quiet run that then reported four judged boundaries.
+        run refused as changing nothing that would have gone on to judge four boundaries.
         """
 
         states = list(self.state.values())
@@ -432,9 +433,9 @@ class ReviewService:
 
         The content fingerprints are read before the first model call, because this is what
         decides whether there is one to make — the code under a boundary is half of its inputs
-        identity. Which is also why the pre-flight computes them through this same method: an
-        answer about whether anything moved is only worth having if the key it compares is the
-        key the run would have gone on to use.
+        identity. Which is also why the refusal is decided from these same keys: an answer
+        about whether anything moved is only worth having if the key it compares is the key
+        the run would have gone on to use.
         """
 
         corpus = policy_corpus_fingerprint(policies)

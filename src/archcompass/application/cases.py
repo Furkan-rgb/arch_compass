@@ -168,10 +168,10 @@ class CaseService:
         """The case this branch would carry on with, or `None` if it would start one.
 
         The lookup half of `continue_from_repository`, without the creation half, for a caller
-        that needs to know which case a run *would* use without a run having happened. The
-        pre-flight check is that caller: it works out whether a new revision would find
-        anything, and a check that opened a blank case on the way to answering "nothing has
-        changed" would have changed something itself.
+        that needs to know which case a run *would* use without a run having happened.
+        `continue_from_repository` is the only caller today, and the halves are kept apart
+        because the question is worth asking without its consequence: answering "which case
+        is in play" by opening a blank one would have changed something in order to say so.
 
         `None` is therefore not an error and not a fallback — it is the answer that this
         branch has nothing behind it, which is precisely what makes its next revision a first

@@ -219,7 +219,7 @@ describe("an unreachable workspace", () => {
       ),
     );
 
-    await expect(api.cases()).rejects.toMatchObject({
+    await expect(api.reviews()).rejects.toMatchObject({
       code: "invalid_case",
       message: "case.title must not be empty",
       status: 422,

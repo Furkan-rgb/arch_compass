@@ -82,23 +82,10 @@ export interface SourceLocation {
   end_line: number;
 }
 
-export interface AtlasNodeSummary {
-  node_id: string;
-  qualified_name: string;
-  node_type: string;
-  path: string;
-  location?: SourceLocation | null;
-  is_public?: boolean | null;
-}
+export type AtlasNodeSummary = OpenAPIComponents["schemas"]["AtlasNodeSummary"];
 
-export interface AtlasRelationship {
-  edge_id: string;
-  source_id: string;
-  target_id: string;
-  edge_type: string;
-  confidence: number;
-  location?: SourceLocation | null;
-}
+/** The server calls this an AtlasEdge; the page has always said "relationship". */
+export type AtlasRelationship = OpenAPIComponents["schemas"]["AtlasEdge"];
 
 export type AtlasMetricNature = "objective_measurement" | "structural_proxy";
 
@@ -108,42 +95,12 @@ export type AtlasMetricScope =
   | "reverse_static_impact_neighbourhood"
   | "bounded_resolved_call_chain";
 
-export interface AtlasMetricValue {
-  node_id: string;
-  metric: string;
-  value: number;
-  rank?: number | null;
-  nature: AtlasMetricNature;
-  scope: AtlasMetricScope;
-  definition: string;
-  limitations: string;
-}
+export type AtlasMetricValue = OpenAPIComponents["schemas"]["AtlasMetricValue"];
 
-export interface AtlasSignal {
-  code: string;
-  message: string;
-  node_id: string;
-  location?: SourceLocation | null;
-  nature: AtlasMetricNature;
-  definition: string;
-  limitations: string;
-}
+/** The server calls this an ObscuritySignal; the page has always said "signal". */
+export type AtlasSignal = OpenAPIComponents["schemas"]["ObscuritySignal"];
 
-export interface AtlasQueryResult {
-  query: Record<string, unknown>;
-  node_ids: string[];
-  summary: string;
-  node_summaries: AtlasNodeSummary[];
-  metric_values: AtlasMetricValue[];
-  relationships: AtlasRelationship[];
-  test_ids: string[];
-  signals: AtlasSignal[];
-  excerpts: Array<{
-    node_id: string;
-    location: SourceLocation;
-    text: string;
-  }>;
-}
+export type AtlasQueryResult = OpenAPIComponents["schemas"]["AtlasQueryResult"];
 
 export type AtlasExploreOperation =
   | "children"
@@ -159,57 +116,14 @@ export type AtlasExploreOperation =
   | "cycles"
   | "signals";
 
-export interface AtlasExploreRequest {
-  root_path: string;
-  operation: AtlasExploreOperation;
-  node_id?: string;
-  target_id?: string;
-  terms?: string[];
-  signal_codes?: string[];
-  depth?: number;
-  limit?: number;
-}
-
-export type FailureDiagnosticCode =
-  | "cluster_count_out_of_range"
-  | "unknown_force_references"
-  | "missing_force_references"
-  | "duplicate_force_references"
-  | "duplicate_cluster_ids";
-
-export interface FailureDiagnostic {
-  code: FailureDiagnosticCode;
-  force_handles: string[];
-  count?: number | null;
-}
+export type AtlasExploreRequest = OpenAPIComponents["schemas"]["AtlasExploreRequest"];
 
 export type PolicyStrength = OpenAPIComponents["schemas"]["PolicyStrength"];
 export type PolicyOrigin = OpenAPIComponents["schemas"]["PolicyOrigin"];
 /** A policy as it is authored: what the form sends, and all the server accepts. */
 export type PolicyDraft = OpenAPIComponents["schemas"]["PolicyDraft"];
 
-export interface Policy {
-  id: string;
-  title: string;
-  /** The authored précis. Optional: policies from outside sources may not carry one. */
-  description?: string | null;
-  scope: string;
-  applies_to: string | null;
-  strength: string;
-  tags: string[];
-  source: { author: string; inspiration: string[] };
-  body: string;
-  source_path: string;
-  content_hash: string;
-  /**
-   * Whose file this is, and so whether this workspace may rewrite it.
-   *
-   * Read from the server and never worked out here. Which directory a policy came from is a
-   * fact the workspace holds — a page that guessed it from `source_path` would offer an edit
-   * the server then refuses, or worse, hide one it would have allowed.
-   */
-  origin?: PolicyOrigin;
-}
+export type Policy = OpenAPIComponents["schemas"]["PolicyDocument"];
 
 export interface PolicyApplicability {
   user?: string | null;
@@ -217,7 +131,4 @@ export interface PolicyApplicability {
   repository?: string | null;
 }
 
-export interface PolicySource {
-  canonical_path: string;
-  registered_at: string;
-}
+export type PolicySource = OpenAPIComponents["schemas"]["PolicySource"];

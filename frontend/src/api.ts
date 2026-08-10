@@ -188,8 +188,6 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(choice),
     }),
-  clearModelSelection: () =>
-    request<void>("/api/models/selection", { method: "DELETE" }),
 
   examples: () => request<BundledExample[]>("/api/examples"),
   // Indexes the example's repository and nothing else: no case exists until the review's
@@ -238,11 +236,6 @@ export const api = {
       `/api/decisions/${encodeURIComponent(branchId)}/${encodeURIComponent(fingerprint)}/comments`,
       { method: "POST", body: JSON.stringify(comment) },
     ),
-  createReview: (caseId: string, repositoryRoot: string) =>
-    request<BoundaryReview>("/api/reviews", {
-      method: "POST",
-      body: JSON.stringify({ case_id: caseId, repository_root: repositoryRoot }),
-    }),
   /**
    * The code one finding was measured from, at the spans the detector recorded.
    *
@@ -345,10 +338,6 @@ export const api = {
     request<ReviewConversation[]>(
       `/api/review-conversations?review_id=${encodeURIComponent(reviewId)}`,
     ),
-  reviewConversation: (conversationId: string) =>
-    request<ReviewConversation>(
-      `/api/review-conversations/${encodeURIComponent(conversationId)}`,
-    ),
   createReviewConversation: (
     reviewId: string,
     title?: string,
@@ -367,11 +356,6 @@ export const api = {
         ...(questionReference ? { question_reference: questionReference } : {}),
       }),
     }),
-  askReviewQuestion: (conversationId: string, question: string) =>
-    request<ReviewMessage>(
-      `/api/review-conversations/${encodeURIComponent(conversationId)}/messages`,
-      { method: "POST", body: JSON.stringify({ question }) },
-    ),
 
   /**
    * The same turn, with the answer's prose arriving as it is written.
@@ -410,7 +394,6 @@ export const api = {
     return message;
   },
 
-  cases: () => request<CaseSummary[]>("/api/cases"),
   case: (caseId: string, revision?: number) =>
     request<CaseRevision>(
       `/api/cases/${caseId}${revision ? `?revision=${revision}` : ""}`,
@@ -475,18 +458,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ root_path: rootPath }),
     }),
-  repositorySummary: (rootPath: string) =>
-    request<AtlasQueryResult>(
-      `/api/repositories/summary?root_path=${encodeURIComponent(rootPath)}`,
-    ),
-  repositoryHotspots: (rootPath: string, metric = "reverse_dependency_reach") =>
-    request<AtlasQueryResult>(
-      `/api/repositories/hotspots?root_path=${encodeURIComponent(rootPath)}&metric=${encodeURIComponent(metric)}`,
-    ),
-  repositoryInspect: (rootPath: string, nodeId: string) =>
-    request<AtlasQueryResult>(
-      `/api/repositories/inspect?root_path=${encodeURIComponent(rootPath)}&node_id=${encodeURIComponent(nodeId)}`,
-    ),
   /**
    * The neighbourhood of one review's boundaries, in a single call.
    *

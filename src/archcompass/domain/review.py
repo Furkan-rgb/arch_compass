@@ -26,7 +26,6 @@ from archcompass.domain.atlas_map import AtlasMap
 from archcompass.domain.base import DomainModel, new_id, utc_now
 from archcompass.domain.case import ArchitectureCase, CaseField
 from archcompass.domain.delta import BoundaryState, JudgedBecause, RevisionDelta
-from archcompass.domain.diagnostics import FailureDiagnostic
 from archcompass.domain.fingerprint import boundary_fingerprint
 
 
@@ -653,9 +652,6 @@ class BoundaryReview(DomainModel):
     markdown_report: str | None = None
     duration_seconds: float = Field(default=0.0, ge=0)
     sanitized_errors: list[str] = Field(default_factory=list[str])
-    failure_diagnostics: list[FailureDiagnostic] = Field(
-        default_factory=list[FailureDiagnostic]
-    )
     created_at: datetime = Field(default_factory=utc_now)
 
     @model_validator(mode="after")

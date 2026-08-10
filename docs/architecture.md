@@ -59,6 +59,17 @@ Cause 1 is mechanical. Cause 2 is the architectural question, and it survives an
 cause 1: it recurs whenever a *legitimate* re-judge happens (a policy edited, an answer
 added, a model upgraded).
 
+> **Note (2026-08-10).** Cause 1 is fixed in the code. `case_id` has left the verdict-cache
+> key and a **case fingerprint** — a hash of what the case *says* — has taken its place,
+> beside the revision number (`domain/verdict_cache.py`, migration 025). A random id in the
+> key had exactly one remaining effect once every visit stopped minting a fresh case, which
+> was to miss on everything for no reason anybody could name. Answering a question still
+> moves the fingerprint and re-judges the lot, which is what the second pass is for; a
+> deliberate "start clean" is a different case and gets its own judgements rather than
+> silently inheriting the conversation it was asked to leave. The "Verdict cache" and
+> "Baseline" bullets under *The flow as built* describe the flow as it was on 2026-08-05 and
+> no longer describe the code.
+
 ### The question to settle first
 
 > Is a verdict allowed to change when none of its inputs changed?
@@ -263,6 +274,28 @@ Two sharpenings the rule needs to be honest *(proposed)*:
 6. What does the repository page show as its headline: the latest run's verdicts, or the
    standing state (baseline + decisions) with runs as evidence beneath it?
 
+> **Note (2026-08-10).** Four of these have since been answered by shipped code, and the
+> answers are recorded here rather than by striking the questions out.
+>
+> - **1 — the branch owns the case.** `CaseService.continue_from_repository` walks the branch
+>   chain and carries on with the case the branch's latest review used, starting a fresh one
+>   only where the chain has nothing behind it. A revision pins the case revision it judged.
+> - **2 — no.** The delta rule shipped: a boundary whose inputs identity is unchanged carries
+>   its verdict, its standing and its silence with no model call, and only a boundary that was
+>   judged may earn a question (`domain/delta.py`, `application/reviews.py`). Direction C, as
+>   the consolidated round leaned.
+> - **4 — once per living case, and a start-clean earns fresh questions.** Both fall out of
+>   2: answers accrete into the branch's case, and a deliberately new case is a different case
+>   fingerprint, so it misses the cache and is asked about properly.
+> - **5 — moot for the baseline half.** There is no baseline to re-partition; a model upgrade
+>   changes the model identity in the cache key, so the world is re-judged and every row can
+>   name the input that moved it. Whether an upgrade deserves an announcement of its own is
+>   still open.
+>
+> Questions 3 and 6 remain open, though both have shrunk: `changed` is no longer a category
+> anywhere (CI blocks on material + undecided, `application/ci.py`), and there is no baseline
+> to put in a headline.
+
 ---
 
 ## Dependency direction
@@ -452,7 +485,7 @@ would otherwise shift every later answer onto the wrong policy and still validat
 that find nothing material are kept and printed alongside the rest: a report showing only
 problems reads the same whether the advisor cleared every candidate or never looked.
 
-Embedding retrieval and exact reference selection are intentionally separate. Policies are an
-open corpus, so their sections are embedded and retrieved before the original text is supplied to
-reasoning. The force list at clustering is already complete and bounded, so the adapter uses
-schema-constrained request-local handles and deterministic mapping instead of vector similarity.
+Nothing embeds and nothing ranks. Policies are an open corpus, but the whole of it fits in one
+request several times over, so every stage is shown every policy in a fixed application-chosen
+order and identity is attached by position — the paragraph above on background says why the
+index that used to sit here was measured and withdrawn.

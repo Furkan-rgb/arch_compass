@@ -1129,9 +1129,11 @@ def create_app(
 
         return folder_tree(hosted_mode.repository_root(Path(request.root_path), runtime))
 
-    # 200 rather than 201: this route stopped always creating something the moment a repeat
-    # visit began continuing the case it already had, and a client told "created" about a case
-    # written last week has been told the wrong thing about the only fact it could act on.
+    # 201 for both halves of what this does. A repeat visit refreshes a checkout rather than
+    # cloning one, but it still materialises the state the response names — the folder is on
+    # disk because this call put it there — and `created` on the body is what distinguishes
+    # the two. Narrowing the status to 200 for the refresh would break every client for the
+    # sake of a distinction the payload already carries.
     @app.post(
         "/api/repositories/checkout",
         status_code=201,

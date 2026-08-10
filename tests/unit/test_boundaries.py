@@ -21,6 +21,14 @@ def _imports(path: Path) -> list[str]:
 
 
 def test_core_layers_do_not_import_infrastructure_or_presentation() -> None:
+    """The core packages, each one asserted to be there before it is swept.
+
+    `rglob` over a directory that does not exist yields nothing and passes, so a guard named
+    after a package can outlive the package and go on reporting success over no files at all.
+    That happened: `workflows/` was deleted and this list kept naming it for months. Asserting
+    the directory exists is what makes a future deletion fail here instead of going quiet.
+    """
+
     forbidden = (
         "archcompass.adapters",
         "archcompass.presentation",
@@ -28,8 +36,9 @@ def test_core_layers_do_not_import_infrastructure_or_presentation() -> None:
         "httpx",
         "typer",
     )
-    for package in ("domain", "application", "workflows", "ports"):
+    for package in ("domain", "application", "ports"):
         root = SOURCE_ROOT / package
+        assert root.is_dir(), f"{package}/ is gone; this guard now sweeps nothing"
         for path in root.rglob("*.py"):
             imports = _imports(path)
             assert not any(
@@ -185,7 +194,7 @@ def test_review_answers_are_assembled_before_model_adapters() -> None:
     # A model adapter that could reach the application could choose its own evidence.
     assert not any(name.startswith("archcompass.application") for name in imported)
 
-def test_model_adapters_do_not_import_application_or_workflow_layers() -> None:
+def test_model_adapters_do_not_import_the_application_layer() -> None:
     """Adapters own transport and schema constraint, never application policy.
 
     `docs/architecture.md` states that model adapters "do not choose evidence,
@@ -193,14 +202,15 @@ def test_model_adapters_do_not_import_application_or_workflow_layers() -> None:
     makes the statement enforceable rather than aspirational.
     """
 
-    forbidden = ("archcompass.application", "archcompass.workflows")
-    for path in (SOURCE_ROOT / "adapters" / "models").rglob("*.py"):
+    root = SOURCE_ROOT / "adapters" / "models"
+    assert root.is_dir(), "adapters/models is gone; this guard now sweeps nothing"
+    for path in root.rglob("*.py"):
         imports = _imports(path)
         assert not any(
-            imported == prefix or imported.startswith(f"{prefix}.")
+            imported == "archcompass.application"
+            or imported.startswith("archcompass.application.")
             for imported in imports
-            for prefix in forbidden
-        ), f"{path.relative_to(SOURCE_ROOT)} imports the application or workflow layer"
+        ), f"{path.relative_to(SOURCE_ROOT)} imports the application layer"
 
 
 def test_the_deterministic_provider_contains_no_evaluation_vocabulary() -> None:

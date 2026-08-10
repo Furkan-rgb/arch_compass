@@ -1,7 +1,6 @@
 """SQLite persistence adapters."""
 
 from archcompass.adapters.persistence.atlas_repository import SQLiteAtlasRepository
-from archcompass.adapters.persistence.baseline_repository import SQLiteBaselineRepository
 from archcompass.adapters.persistence.boundary_line_repository import (
     SQLiteBoundaryLineRepository,
 )
@@ -33,7 +32,6 @@ from archcompass.adapters.persistence.verdict_cache_repository import (
 
 __all__ = [
     "SQLiteAtlasRepository",
-    "SQLiteBaselineRepository",
     "SQLiteBoundaryLineRepository",
     "SQLiteBoundaryReviewRepository",
     "SQLiteCaseRepository",
