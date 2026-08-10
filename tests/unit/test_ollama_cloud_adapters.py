@@ -104,20 +104,40 @@ def _patch_transport(
     return seen
 
 
-def test_a_missing_api_key_is_reported_rather_than_raised(
+def test_the_catalog_is_listed_without_a_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The most likely reason this provider is unusable, and the picker has to render it.
+    """No key is not "no catalog": ollama.com answers `/api/show` anonymously.
 
-    Named variable, named file: "unavailable" alone leaves a reader nothing to do.
+    The models are offered; the key is owed at the first judgement, which fails named and
+    is recorded against the selection — the registry's rule for what a listing cannot
+    promise. The request must carry no Authorization header at all: the SDK invents one
+    from the environment if given the chance, and a header of "Bearer" alone is a 401.
     """
 
     monkeypatch.delenv(_KEY_VARIABLE, raising=False)
+    seen = _patch_transport(
+        monkeypatch, lambda _url, **_kwargs: _shown("completion", "tools", "thinking")
+    )
 
-    def never(_url: str, **_kwargs: object) -> httpx.Response:
-        raise AssertionError("a probe with no key has nothing to ask")
+    result = cloud_adapters.probe_ollama_cloud(_probe_defaults())
 
-    _patch_transport(monkeypatch, never)
+    assert result.available
+    assert [item.name for item in result.models] == list(cloud_adapters.OFFERED_MODELS)
+    assert "authorization" not in {key.lower() for key in seen["headers"]}
+
+
+def test_an_anonymous_refusal_names_the_key_as_the_cure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Should the cloud ever stop answering anonymously, the picker still says what to do."""
+
+    monkeypatch.delenv(_KEY_VARIABLE, raising=False)
+    _patch_transport(
+        monkeypatch,
+        lambda _url, **_kwargs: _http_response({"error": "unauthorized"}, status_code=401),
+    )
+
     result = cloud_adapters.probe_ollama_cloud(_probe_defaults())
 
     assert not result.available

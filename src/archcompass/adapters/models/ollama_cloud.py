@@ -101,15 +101,34 @@ def probe_ollama_cloud(defaults: ProviderDefaults) -> ProbeResult:
             api_key_env=defaults.api_key_env,
             provider=PROVIDER_NAME,
         )
-    except ConfigurationError as error:
-        return ProbeResult(available=False, detail=str(error))
+    except ConfigurationError:
+        # No key is not "no catalog". ollama.com answers `/api/show` anonymously — measured,
+        # not assumed — so the models are listed from an uncredentialed client and the key
+        # is owed where it is actually spent: the first judgement, which fails named
+        # (`OLLAMA_API_KEY`, `.env`) and is recorded against the selection. That is the
+        # registry's standing rule for what a listing cannot promise, and a chooser hiding
+        # the whole cloud behind a variable nobody has heard of was the failure being fixed.
+        # Should the cloud ever stop answering anonymously, the 401 below reports it with
+        # the same cure in its detail.
+        client = client_for(
+            base_url=base_url,
+            timeout=PROBE_TIMEOUT_SECONDS,
+            api_key_env=None,
+            provider=PROVIDER_NAME,
+        )
     found: list[AvailableModel] = []
     for name in OFFERED_MODELS:
         try:
             found.append(_offered(client, name))
         except ResponseError as error:
             if error.status_code in _AUTH_STATUS_CODES:
-                return ProbeResult(available=False, detail=probe_detail(base_url, error))
+                detail = probe_detail(base_url, error)
+                if defaults.api_key_env:
+                    detail = (
+                        f"{detail} — set {defaults.api_key_env} in .env at the workspace "
+                        "root, or export it."
+                    )
+                return ProbeResult(available=False, detail=detail)
             # Any other answer is about this model — a 404 for a name this cloud has
             # retired or never served — and costs it its row, not the provider's.
             continue
