@@ -142,11 +142,18 @@ def create_hosted_app() -> FastAPI:
             "are opened with `archcompass web`."
         )
     providers = enabled_providers()
-    if "google" in providers and not os.environ.get("GOOGLE_API_KEY", "").strip():
-        raise ConfigurationError(
-            "This deployment offers the google provider but GOOGLE_API_KEY is unset, so "
-            "nothing it lists could answer. Set the key, or narrow ARCHCOMPASS_PROVIDERS."
-        )
+    # Every enabled provider that declares a credential, not google by name: a deployment
+    # that turns on a keyed provider without its key is the same misconfiguration wearing
+    # a different variable, and this guard exists to say it once, at startup, to the
+    # person deploying.
+    for descriptor in providers.values():
+        variable = descriptor.defaults.api_key_env
+        if variable and not os.environ.get(variable, "").strip():
+            raise ConfigurationError(
+                f"This deployment offers the {descriptor.name} provider but {variable} "
+                "is unset, so nothing it lists could answer. Set the key, or narrow "
+                "ARCHCOMPASS_PROVIDERS."
+            )
     root = Path(os.environ.get(SESSION_ROOT_VARIABLE, "").strip() or DEFAULT_SESSION_ROOT)
     source_hosts = _source_hosts()
     max_source_bytes = _positive_int(MAX_SOURCE_MB_VARIABLE, DEFAULT_MAX_SOURCE_MB) << 20

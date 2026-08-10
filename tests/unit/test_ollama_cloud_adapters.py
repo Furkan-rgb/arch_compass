@@ -42,6 +42,30 @@ def _api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _cloud_enforces(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Probe tests exercise the day the cloud enforces the grammar; one test flips back."""
+
+    monkeypatch.setattr(cloud_adapters, "CLOUD_ENFORCES_FORMAT", True)
+
+
+def test_an_unenforcing_cloud_is_declared_rather_than_offered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A model that fails its first review must not be in the chooser.
+
+    The gate is an authored, dated measurement — the registry's way of not offering what
+    a listing cannot promise — and the detail names where the switch lives.
+    """
+
+    monkeypatch.setattr(cloud_adapters, "CLOUD_ENFORCES_FORMAT", False)
+
+    result = cloud_adapters.probe_ollama_cloud(_probe_defaults())
+
+    assert not result.available
+    assert "structured outputs" in result.detail
+
+
 def _probe_defaults(**overrides: object) -> ProviderDefaults:
     values: dict[str, object] = {
         "base_url": "https://ollama.test",
@@ -170,7 +194,8 @@ def test_the_probe_offers_the_models_this_advisor_names_with_the_modes_the_cloud
     assert asked == list(cloud_adapters.OFFERED_MODELS)
     assert result.available
     assert [(model.name, model.label, model.thinking_modes) for model in result.models] == [
-        ("gpt-oss:20b", "20B", (True, False))
+        ("gpt-oss:20b", "20B", (True, False)),
+        ("gpt-oss:120b", "20B", (True, False)),
     ]
 
 
@@ -182,7 +207,7 @@ def test_a_model_the_cloud_does_not_report_as_thinking_is_offered_the_one_way(
     _patch_transport(monkeypatch, lambda _url, **_kwargs: _shown("completion"))
     result = cloud_adapters.probe_ollama_cloud(_probe_defaults())
 
-    assert [model.thinking_modes for model in result.models] == [(None,)]
+    assert [model.thinking_modes for model in result.models] == [(None,), (None,)]
 
 
 def test_a_key_the_cloud_rejects_reports_the_status_rather_than_an_empty_catalog(
@@ -340,3 +365,32 @@ def test_the_descriptor_reaches_the_cloud_with_a_credential_and_a_fleet(
     assert defaults.base_url == "https://ollama.com"
     assert defaults.api_key_env == "OLLAMA_API_KEY"
     assert defaults.concurrent_requests > 1
+
+
+def test_the_cloud_transport_states_the_schema_where_the_cloud_will_not_enforce_it() -> None:
+    """ollama.com accepts `format` and does not compile it — measured, so said in words.
+
+    The schema lands on the last user turn; validation and the repair round stay the
+    contract's enforcement, exactly as on every provider without grammar support.
+    """
+
+    messages = [
+        {"role": "system", "content": "Judge."},
+        {"role": "user", "content": "Input:\n{}"},
+    ]
+    schema = {"type": "object", "properties": {"a": {"type": "string"}}}
+
+    stated = cloud_adapters._stated_schema(messages, schema)
+
+    assert stated[0] == messages[0]
+    assert stated[1]["content"].startswith("Input:\n{}")
+    assert "conforming to this JSON Schema" in stated[1]["content"]
+    assert '"properties"' in stated[1]["content"]
+
+
+def test_a_fenced_reply_is_unwrapped_at_the_transport() -> None:
+    """Fence residue is transport punctuation, not content; the repair round is not spent on it."""
+
+    assert cloud_adapters._unfenced('```json\n{"a": 1}\n```') == '{"a": 1}'
+    assert cloud_adapters._unfenced('{"a": 1}') == '{"a": 1}'
+    assert cloud_adapters._unfenced('```\n{"a": 1}\n```') == '{"a": 1}'

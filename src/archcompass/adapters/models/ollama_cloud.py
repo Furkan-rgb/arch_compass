@@ -13,6 +13,8 @@ endpoint, a credential and the list of models the cloud is asked for.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator, Mapping
 from typing import Final
 
 from ollama import Client, ResponseError
@@ -25,11 +27,18 @@ from archcompass.adapters.models.ollama import (
     probe_detail,
     thinking_modes_for,
 )
-from archcompass.adapters.models.structured import StructuredReasoningProvider
+from archcompass.adapters.models.structured import (
+    ChatMessage,
+    StreamingChatTransport,
+    StructuredReasoningProvider,
+    ThinkLevel,
+    ToolCallingChatTransport,
+)
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ConfigurationError
 from archcompass.domain.model_catalog import AvailableModel, ProbeResult
 from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
+from archcompass.ports.reasoning import ReasoningTask
 
 PROVIDER_NAME: Final = "ollama-cloud"
 
@@ -47,7 +56,25 @@ PROVIDER_NAME: Final = "ollama-cloud"
 # serves, it thinks by default, and it is the one that has been tried. A second cloud model
 # is a line here and a probe run.
 # ─────────────────────────────────────────────────────────────────────────────────────────
-OFFERED_MODELS: Final[tuple[str, ...]] = ("gpt-oss:20b",)
+#: Whether ollama.com enforces the `format` grammar. It does not — measured 2026-08-10
+#: on both its native and OpenAI-compatible endpoints (a closed two-field schema with a
+#: trap invitation came back as fenced markdown with invented keys), and its own
+#: documentation says the cloud does not support structured outputs. Without enforcement
+#: the judge's reply cannot hold: one bearing per policy, 54 of them, bound by position —
+#: gpt-oss:20b answered 19 and gpt-oss:120b answered 67, through the repair round, because
+#: words cannot make a model count. The transport below already states the schema in the
+#: prompt and unwraps fences, which took the failure from unparseable to a near miss; the
+#: day Ollama ships cloud enforcement, flipping this single value is the whole of enabling
+#: the provider, and every test of the probing path runs with it flipped.
+CLOUD_ENFORCES_FORMAT: Final = False
+
+OFFERED_MODELS: Final[tuple[str, ...]] = (
+    #: The owner's opener: free tier, thinking and tools per its own capability report,
+    #: and it held a stated schema exactly when the trap prompt invited it not to.
+    "gpt-oss:20b",
+    #: The same family with more room to think, same free tier, same measured conformance.
+    "gpt-oss:120b",
+)
 
 #: Where the hosted models are. Ollama's own client speaks to this host with exactly the
 #: protocol it speaks to a local server with, which is what makes the transport shared.
@@ -93,6 +120,15 @@ def probe_ollama_cloud(defaults: ProviderDefaults) -> ProbeResult:
     Deliberately without `_with_retry`, again as the local probe is: a dropdown is waiting.
     """
 
+    if not CLOUD_ENFORCES_FORMAT:
+        return ProbeResult(
+            available=False,
+            detail=(
+                "ollama.com serves these models but does not yet enforce structured "
+                "outputs, so a review's verdicts cannot be validated against it. The "
+                "adapter is ready; see CLOUD_ENFORCES_FORMAT in its source."
+            ),
+        )
     base_url = defaults.resolved_base_url() or CLOUD_BASE_URL
     try:
         client = client_for(
@@ -149,9 +185,141 @@ def probe_ollama_cloud(defaults: ProviderDefaults) -> ProbeResult:
     return ProbeResult(available=True, models=found)
 
 
+
+
+def _stated_schema(messages: list[ChatMessage], schema: Mapping[str, object]) -> list[ChatMessage]:
+    """The schema, appended to the request's last user turn as text.
+
+    ollama.com accepts `format` and does not enforce it — measured, twice: told to sneak
+    extra fields past a closed schema, gpt-oss and gemma alike answered fenced markdown
+    with invented keys, which means the grammar never reached the sampler and the model
+    never saw the shape at all. Stated in the prompt, both gpt-oss models answered the
+    exact object and nothing else. So on this transport the schema travels as words, the
+    way every provider without grammar support takes it, and validation plus the one
+    repair round stay what they always were: the contract's real enforcement.
+
+    `format` is still sent. The day the cloud starts compiling it, enforcement arrives
+    for free and this instruction becomes harmless repetition.
+    """
+
+    stated = list(messages)
+    for index in range(len(stated) - 1, -1, -1):
+        if stated[index]["role"] == "user":
+            stated[index] = {
+                "role": "user",
+                "content": (
+                    f"{stated[index]['content']}\n\n"
+                    "Reply with exactly one JSON object conforming to this JSON Schema — "
+                    "no markdown fences, no extra keys, nothing outside the object:\n"
+                    + json.dumps(dict(schema), sort_keys=True)
+                ),
+            }
+            break
+    return stated
+
+
+def _unfenced(content: str) -> str:
+    """The reply without the markdown fence a cloud model may still wrap it in.
+
+    Tolerated at the transport rather than repaired by the model, because it is transport
+    residue and not content: the object inside is unchanged, and spending the one repair
+    round on punctuation would leave nothing for a reply that is actually wrong.
+    """
+
+    stripped = content.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.split("\n", 1)[1] if "\n" in stripped else ""
+        if stripped.rstrip().endswith("```"):
+            stripped = stripped.rstrip()[:-3]
+    return stripped.strip()
+
+
+class OllamaCloudChatTransport(OllamaChatTransport):
+    """The local transport against ollama.com, with the schema stated instead of assumed.
+
+    Everything else — retries, options, thinking, the tool loop (which never carries a
+    format) — is inherited unchanged.
+    """
+
+    provider_label = "Ollama cloud"
+
+    def complete(
+        self,
+        messages: list[ChatMessage],
+        *,
+        schema: Mapping[str, object],
+        task: ReasoningTask,
+        think: ThinkLevel,
+        temperature: float | None,
+    ) -> str:
+        return _unfenced(
+            super().complete(
+                _stated_schema(messages, schema),
+                schema=schema,
+                task=task,
+                think=think,
+                temperature=temperature,
+            )
+        )
+
+    def stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        schema: Mapping[str, object],
+        task: ReasoningTask,
+        think: ThinkLevel,
+        temperature: float | None,
+    ) -> Iterator[str]:
+        """The inherited stream, with any leading fence withheld and any trailing one cut.
+
+        A fence arrives split across chunks, so the guard buffers until it has seen either
+        the fence's own newline or proof there is none, and holds the last few characters
+        back until the stream ends — the accumulated whole must be the same text
+        `complete` would have returned, or validation would judge a reply nobody sent.
+        """
+
+        chunks = super().stream(
+            _stated_schema(messages, schema),
+            schema=schema,
+            task=task,
+            think=think,
+            temperature=temperature,
+        )
+        buffer = ""
+        opened = False
+        for chunk in chunks:
+            buffer += chunk
+            if not opened:
+                probe = buffer.lstrip()
+                if not probe:
+                    continue
+                if probe.startswith("`") and len(probe) <= 3:
+                    continue
+                if probe.startswith("```"):
+                    if "\n" not in probe:
+                        continue
+                    buffer = probe.split("\n", 1)[1]
+                opened = True
+            # Held back so a trailing fence can be cut before anyone reads it.
+            if len(buffer) > 4:
+                yield buffer[:-4]
+                buffer = buffer[-4:]
+        tail = buffer.rstrip()
+        if tail.endswith("```"):
+            tail = tail[:-3].rstrip()
+        yield tail
+
+
+#: See the local adapter's statements of the same name: conformance said where the class
+#: is defined, so an isinstance by method name cannot drift.
+_conforms_streaming: type[StreamingChatTransport] = OllamaCloudChatTransport
+_conforms_tools: type[ToolCallingChatTransport] = OllamaCloudChatTransport
+
+
 class OllamaCloudReasoningProvider(StructuredReasoningProvider):
     def __init__(self, config: ReasoningModelConfig) -> None:
-        super().__init__(config, OllamaChatTransport(config))
+        super().__init__(config, OllamaCloudChatTransport(config))
 
 
 #: How this build reaches Ollama's hosted models, stated once and read by the composition

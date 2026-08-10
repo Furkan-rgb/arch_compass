@@ -278,3 +278,13 @@ enforces it:
 ```bash
 gcloud artifacts repositories describe cloud-run-source-deploy   --location=europe-west1 --project=arch-compass --format='value(cleanupPolicies)'
 ```
+
+## Provider credentials
+
+The hosted app refuses to start when any enabled provider declares a credential that is
+unset — `ARCHCOMPASS_PROVIDERS` names the providers, and each keyed one must have its
+variable (`GOOGLE_API_KEY`, `OLLAMA_API_KEY`, …) present, from Secret Manager in the
+Cloud Run setup above. `ollama-cloud` ships gated off regardless: ollama.com does not yet
+enforce structured outputs, so its models cannot hold a review's reply contract — the
+adapter and its probe are ready, and `CLOUD_ENFORCES_FORMAT` in
+`adapters/models/ollama_cloud.py` is the one value to flip when that changes.
