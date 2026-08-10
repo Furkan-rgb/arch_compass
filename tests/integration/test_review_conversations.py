@@ -590,9 +590,15 @@ def test_a_repository_that_has_moved_on_is_never_read(
     )
 
     assert handed == [None], "a stale repository must not be handed to a stage"
-    # And `None` is what gets stored: nothing was checked, which is a different fact from
-    # a repository that was checked and had nothing to say.
-    assert message.investigation is None
+    # And the message says so. A fold that simply did not appear read as "nobody looked",
+    # which is the one ambiguity the record exists to kill: the reader is told nothing
+    # could look, in the application's own sentence, with the way back (re-index) inside it.
+    assert message.investigation is not None
+    assert message.investigation.lookups == []
+    assert "changed since" in message.investigation.withheld
+    stored = runtime.review_conversation_service.show(conversation.conversation_id)
+    assert stored.messages[-1].investigation is not None
+    assert stored.messages[-1].investigation.withheld == message.investigation.withheld
 
 
 def test_a_provider_that_cannot_look_records_no_investigation(runtime: Runtime) -> None:

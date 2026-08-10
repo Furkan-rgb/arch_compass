@@ -54,7 +54,8 @@ export function InvestigationDisclosure({
   const lookups = investigation.lookups ?? [];
   const closing = (investigation.closing ?? "").trim();
   const abandoned = (investigation.abandoned ?? "").trim();
-  if (lookups.length === 0 && !abandoned) return null;
+  const withheld = (investigation.withheld ?? "").trim();
+  if (lookups.length === 0 && !abandoned && !withheld) return null;
   return (
     <details
       className={cn(
@@ -74,7 +75,9 @@ export function InvestigationDisclosure({
             or this answer — is said by where it sits, and a sentence repeating that cost
             a line of every phone screen it appeared on. */}
         <span className="font-semibold">
-          {lookups.length} lookup{lookups.length === 1 ? "" : "s"}
+          {withheld && lookups.length === 0
+            ? "lookups unavailable"
+            : `${lookups.length} lookup${lookups.length === 1 ? "" : "s"}`}
         </span>
         {abandoned ? <span className="text-meta text-ink-3">cut short</span> : null}
         <ChevronRight
@@ -103,6 +106,20 @@ export function InvestigationDisclosure({
       {closing ? (
         <p className="m-0 mt-3 max-w-[78ch] text-ui leading-[1.55] text-ink-2 [overflow-wrap:anywhere]">
           {closing}
+        </p>
+      ) : null}
+      {withheld ? (
+        <p
+          className={cn(
+            "m-0 mt-3 max-w-[78ch] rounded-control border border-dashed border-rule",
+            "[overflow-wrap:anywhere]",
+            "px-3 py-2 text-ui leading-[1.55] text-ink-3",
+          )}
+        >
+          {/* The application's own sentence about why nothing could look — it names the
+              way back (re-index / a new revision), so it is shown verbatim rather than
+              paraphrased into something vaguer. */}
+          {withheld}
         </p>
       ) : null}
       {abandoned ? (

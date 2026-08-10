@@ -50,6 +50,24 @@ describe("InvestigationDisclosure", () => {
     ).toBeInTheDocument();
   });
 
+  it("says why nothing could look, instead of not appearing", () => {
+    render(
+      <InvestigationDisclosure
+        investigation={{
+          lookups: [],
+          withheld:
+            "This repository has changed since the review ran; rerun the index to restore lookups.",
+          prompt_identity: "investigate-for-answer:v1:abc123def456",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("lookups unavailable")).toBeInTheDocument();
+    expect(
+      screen.getByText(/changed since the review ran/),
+    ).toBeInTheDocument();
+  });
+
   it("renders nothing when there is nothing to disclose", () => {
     const { container } = render(
       <InvestigationDisclosure

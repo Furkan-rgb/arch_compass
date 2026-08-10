@@ -506,6 +506,7 @@ export interface components {
     "RecordedInvestigation": {
     "lookups"?: Array<components["schemas"]["InvestigationLookup"]>;
     "closing"?: string;
+    "withheld"?: string;
     "abandoned"?: string;
     "prompt_identity": string;
   };

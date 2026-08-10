@@ -582,8 +582,10 @@ class RecordedInvestigation(DomainModel):
 
     Empty `lookups` with a non-empty `abandoned` is a real state and not a gap: the first turn
     failed, so the stage asked without having looked, and that is a fact about the questions
-    below it. Empty on both counts never gets stored — the run records nothing at all rather
-    than a record saying nothing.
+    below it. Empty `lookups` with a non-empty `withheld` is the other real state: nothing
+    could look, and the reader is told why instead of being shown nothing. Empty on every
+    count never gets stored — the run records nothing at all rather than a record saying
+    nothing.
     """
 
     #: Every call, in the order it was made. Empty where the looking never got going.
@@ -592,6 +594,12 @@ class RecordedInvestigation(DomainModel):
     #: thing the lookups cannot hold, and the reason it is stored beside them rather than
     #: among them: it is a judgement about the results, not another result.
     closing: str = ""
+    #: Why no lookup was possible at all, in the application's own words — the repository
+    #: has moved past what this review judged, or was never recorded. Distinct from
+    #: `abandoned`, which is a looking that started and stopped; this is a looking that was
+    #: never offered, and silence here read as "nobody looked", which is the ambiguity the
+    #: whole record exists to kill.
+    withheld: str = ""
     #: Why the looking stopped short — a failed turn, the size ceiling — or "" where it ran
     #: to its own end. An investigation cut off found less than it could have, and a record
     #: that did not say so would present the findings as everything there was.

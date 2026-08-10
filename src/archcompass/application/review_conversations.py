@@ -178,7 +178,7 @@ class ReviewConversationService:
         review = self._load(
             conversation.review_id, about_question=conversation.question_reference
         )
-        investigator = self._investigator(review)
+        investigator, withheld = self._investigator(review)
         try:
             answer = self._answer(review, conversation, text, on_prose, investigator)
         except ProviderError as error:
@@ -193,14 +193,14 @@ class ReviewConversationService:
                 ordinal=conversation.next_ordinal,
                 question=text,
                 failure=str(error),
-                investigation=self._investigation(investigator),
+                investigation=self._investigation(investigator, withheld),
             )
         else:
             message = ReviewMessage(
                 ordinal=conversation.next_ordinal,
                 question=text,
                 answer=answer,
-                investigation=self._investigation(investigator),
+                investigation=self._investigation(investigator, withheld),
             )
         appended = conversation.model_copy(
             update={"messages": [*conversation.messages, message]}
@@ -208,7 +208,9 @@ class ReviewConversationService:
         self._conversations.append(appended)
         return message
 
-    def _investigator(self, review: BoundaryReview) -> RepositoryInvestigator | None:
+    def _investigator(
+        self, review: BoundaryReview
+    ) -> tuple[RepositoryInvestigator | None, str]:
         """A toolbox over this review's repository, where the repository is still it.
 
         The gate is the one live excerpt-widening already takes, and it is the same question:
@@ -228,24 +230,37 @@ class ReviewConversationService:
         everything it can find is code the reader already owns.
         """
 
-        root, _ = self._source.readable_root(review)
+        root, caption = self._source.readable_root(review)
         if root is None:
-            return None
-        return RepositoryInvestigator(root=root, source_reader=self._source_reader)
+            # The caption is the application's own sentence about why — the repository has
+            # moved past what was judged, or was never recorded — and it travels with the
+            # message instead of vanishing: a fold that simply did not appear read as
+            # "nobody looked", which is the ambiguity the record exists to kill.
+            return None, caption
+        return RepositoryInvestigator(root=root, source_reader=self._source_reader), ""
 
     def _investigation(
-        self, investigator: RepositoryInvestigator | None
+        self, investigator: RepositoryInvestigator | None, withheld: str
     ) -> RecordedInvestigation | None:
-        """What this turn looked up, as the record stored on the message.
+        """What this turn looked up — or why it could not — as the record on the message.
 
-        `None` from both directions and they mean the same thing to a reader: nothing here
-        could look, or nothing here did. A record is written only where something was
-        actually asked of the repository or where the looking broke off — the same rule the
-        review-level record follows, because it is the same function.
+        Three shapes. Lookups happened: the shared record, exactly as the review-level one.
+        Nothing could look: an empty record carrying `withheld`, so the fold says "the
+        repository has moved on" instead of not appearing — which read as "nobody looked",
+        the one thing this record exists to distinguish. Could look and chose not to:
+        `None`, because a stage that had the repository and needed nothing from it is the
+        ordinary case and not worth a card.
         """
 
         if investigator is None:
-            return None
+            if not withheld:
+                return None
+            return RecordedInvestigation(
+                withheld=withheld,
+                prompt_identity=self._reasoner.prompt_identity(
+                    ReasoningTask.INVESTIGATE_FOR_ANSWER
+                ),
+            )
         return recorded_investigation(
             investigator,
             self._reasoner.prompt_identity(ReasoningTask.INVESTIGATE_FOR_ANSWER),
