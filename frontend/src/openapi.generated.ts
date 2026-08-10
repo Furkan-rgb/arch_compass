@@ -653,6 +653,11 @@ export interface components {
     "verdict_reused_from"?: string | null;
     "carried"?: number;
   };
+    "ReviewJudging": {
+    "event"?: "judging";
+    "position": number;
+    "total": number;
+  };
     "ReviewMessage": {
     "message_id"?: string;
     "ordinal": number;
@@ -669,7 +674,7 @@ export interface components {
     "limits": string;
     "open_questions"?: Array<components["schemas"]["OpenQuestion"]>;
   };
-    "ReviewProgress": components["schemas"]["ReviewStarted"] | components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewEliciting"] | components["schemas"]["ReviewSummarising"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewUnchanged"] | components["schemas"]["ReviewFailed"];
+    "ReviewProgress": components["schemas"]["ReviewStarted"] | components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudging"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewEliciting"] | components["schemas"]["ReviewSummarising"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewUnchanged"] | components["schemas"]["ReviewFailed"];
     "ReviewQuestionRequest": {
     "question": string;
   };

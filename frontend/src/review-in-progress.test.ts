@@ -156,6 +156,26 @@ describe("runCrawl", () => {
     expect(crawl[0]).toEqual({ position: 1, label: "ports.Feed", verdict: true, live: false });
   });
 
+  it("marks every boundary the run announced, which may be more than one", () => {
+    // The crawl is the run's log, and against a provider that answers several at once the
+    // true log has several lines open. Position 2 is not among them: it was never announced.
+    const crawl = runCrawl(
+      {
+        total: 3,
+        boundaries: ["ports.Feed", "ports.Clock", "ports.Store"],
+        verdicts: [null, null, null],
+        judged: 0,
+        judging: [1, 3],
+        eliciting: false,
+        summarising: false,
+        concluded: false,
+      },
+      [],
+    );
+
+    expect(crawl.map((entry) => entry.live)).toEqual([true, false, true]);
+  });
+
   it("stops naming one as live once the set-wide call has started", () => {
     // Every boundary is judged by then, so a row still saying "judging" would be claiming a
     // model call that is not happening.

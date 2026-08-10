@@ -72,6 +72,22 @@ class ReviewDetected(APIModel):
     boundaries: list[str]
 
 
+class ReviewJudging(APIModel):
+    """One boundary has been handed to the model. `position` counts from one, as above.
+
+    Sent as the request goes out and never for a verdict that was looked up, so what a
+    client holds between this line and the `judged` line at the same position is exactly the
+    set of boundaries under the model right now. That set has more than one member on a
+    provider that answers several at once, and these lines arrive out of order and
+    interleaved with verdicts because the judgements do — the `judged` lines remain the run's
+    ordered account of itself, and these are its account of what it is doing.
+    """
+
+    event: Literal["judging"] = "judging"
+    position: int
+    total: int
+
+
 class ReviewJudged(APIModel):
     """One boundary judged. `position` counts from one, in the detected order."""
 
@@ -142,6 +158,7 @@ class ReviewFailed(APIModel):
 ReviewProgressLine = Annotated[
     ReviewStarted
     | ReviewDetected
+    | ReviewJudging
     | ReviewJudged
     | ReviewEliciting
     | ReviewSummarising
@@ -236,6 +253,7 @@ def review_progress_lines(
     def emit(
         event: ReviewStarted
         | ReviewDetected
+        | ReviewJudging
         | ReviewJudged
         | ReviewEliciting
         | ReviewSummarising
@@ -267,6 +285,13 @@ def review_progress_lines(
             )
         )
 
+    def report_judging(position: int, total: int) -> None:
+        # Called from whichever worker thread took the candidate, and putting a line on the
+        # queue is the whole of what it does — `Queue` is what makes that safe, and it is
+        # the same queue every other line here goes on. Nothing is accumulated: unlike the
+        # carried tally below, this line's two numbers arrive already known.
+        emit(ReviewJudging(position=position, total=total))
+
     carried = 0
 
     def report_verdict(judged: JudgedCandidate, position: int, total: int) -> None:
@@ -292,6 +317,7 @@ def review_progress_lines(
                 elicited_from=elicited_from,
                 on_started=report_start,
                 on_detected=report_detection,
+                on_judging=report_judging,
                 on_verdict=report_verdict,
                 on_eliciting=lambda: emit(ReviewEliciting(total=detected)),
                 on_summarising=lambda: emit(ReviewSummarising(total=detected)),

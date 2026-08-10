@@ -271,6 +271,12 @@ def test_a_streamed_review_counts_its_boundaries_before_judging_them(
     assert [event["position"] for event in judged] == list(range(1, total + 1))
     assert [event["abstraction"] for event in judged] == events[1]["boundaries"]
 
+    # Nothing was in flight, and the stream says so by saying nothing: this pass ran against
+    # the same code, corpus and case revision as the review above it, so every verdict came
+    # out of the cache and no candidate was ever handed to a model.
+    assert [event for event in events if event["event"] == "judging"] == []
+    assert all(event["verdict_reused_from"] for event in judged)
+
     assert events[-1]["event"] == "completed"
     review = events[-1]["review"]
     assert review["status"] == "succeeded"
@@ -279,6 +285,46 @@ def test_a_streamed_review_counts_its_boundaries_before_judging_them(
     # the end, so a page opened on that identifier mid-run becomes the page holding it.
     assert review["review_id"] == review_id
     assert client.get(f"/api/reviews/{review_id}").status_code == 200
+
+
+def test_a_streamed_review_says_which_boundaries_it_is_judging_right_now(
+    runtime: Runtime,
+) -> None:
+    """The other half of the account: not only what has been decided, but what is under way.
+
+    Verdicts are reported in the detected order however they finish, so a client holding
+    only those can mark exactly one boundary as current — while as many as the provider
+    allows are actually in flight. The `judging` line is what a client subtracts the
+    verdicts from to get that set, so what is asserted here is the pairing: every boundary
+    the run paid for is opened before it is closed, and none is opened twice.
+    """
+
+    with TestClient(create_app(runtime)) as client:
+        case_id, repository_root = _example(client)
+        with client.stream(
+            "POST",
+            "/api/reviews/stream",
+            json={"case_id": case_id, "repository_root": repository_root},
+        ) as response:
+            assert response.status_code == 200, response.read()
+            events = [json.loads(line) for line in response.iter_lines() if line.strip()]
+
+    total = next(event for event in events if event["event"] == "detected")["total"]
+    marks = [
+        (event["event"], event["position"])
+        for event in events
+        if event["event"] in {"judging", "judged"}
+    ]
+    # The offline substitute answers one at a time, so here they alternate. Against a
+    # provider that answers several at once several would be open at the same moment, which
+    # is the state this line exists to report and the reason it is not simply implied by
+    # the verdict before it.
+    assert marks == [
+        (kind, position)
+        for position in range(1, total + 1)
+        for kind in ("judging", "judged")
+    ]
+    assert {event["total"] for event in events if event["event"] == "judging"} == {total}
 
 
 def test_the_api_walks_both_passes_of_an_elicitation(runtime: Runtime) -> None:
@@ -766,6 +812,11 @@ def test_the_openapi_contract_declares_the_review_surface(runtime: Runtime) -> N
     # The progress line is a declared contract, not an undocumented convention: a client
     # that had to guess the shape would be parsing prose.
     assert schemas["ReviewProgress"]["discriminator"]["propertyName"] == "event"
+    # Including the line that says a boundary is under the model: a client drawing what is
+    # in flight reads its shape from the document rather than from the one build that
+    # happened to emit it.
+    assert "judging" in schemas["ReviewProgress"]["discriminator"]["mapping"]
+    assert "ReviewJudging" in schemas
     assert schemas["AnswerProgress"]["discriminator"]["propertyName"] == "event"
     stream = document.json()["paths"]["/api/reviews/stream"]["post"]["responses"]["200"]
     assert "application/x-ndjson" in stream["content"]

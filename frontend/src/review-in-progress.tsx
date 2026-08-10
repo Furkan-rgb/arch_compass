@@ -7,7 +7,13 @@ import { cn } from "@/lib/utils";
 
 import { api } from "./api";
 import { ErrorPanel, sheet } from "./components";
-import { RunProgress, type AwaitingAnswers, type RunPass, type RunState } from "./run-progress";
+import {
+  RunProgress,
+  judgingRows,
+  type AwaitingAnswers,
+  type RunPass,
+  type RunState,
+} from "./run-progress";
 import type { BoundaryReview, BoundaryReviewSummary, ReviewedBoundary } from "./types";
 
 /**
@@ -44,6 +50,13 @@ export function progressFromSummary(
     carriedFrom: [],
     carried: summary.boundaries_carried ?? 0,
     judged: summary.boundaries_reviewed,
+    // And no in-flight set, deliberately left absent rather than empty: which boundaries are
+    // under the model right now is in the stream the running tab holds and nowhere in the
+    // record, and an empty set here would claim the run is judging nothing. Absent, the
+    // surfaces mark the row after the last verdict — one row, which is what the counts can
+    // honestly support and what this view has always drawn. Nothing is stored per run to
+    // change that: in-flight state belongs to a run in progress, not to its record.
+    judging: undefined,
     // Which of the two set-wide calls is running is not in the counts — the record knows
     // only that every verdict has landed. It is reported as the one this pass will make,
     // which the row does know: a run that names the pass it answers concludes, and one that
@@ -74,7 +87,7 @@ export type CrawlEntry = {
   position: number;
   label: string | null;
   verdict: boolean | null;
-  /** The one under the model right now. */
+  /** Under the model right now — of which there may be several, or none. */
   live: boolean;
 };
 
@@ -104,12 +117,12 @@ export function runCrawl(
     }));
   }
   if (!progress) return [];
-  const settled = progress.eliciting || progress.summarising || progress.concluded;
+  const inFlight = judgingRows(progress);
   return Array.from({ length: progress.total }, (_, index) => ({
     position: index + 1,
     label: progress.boundaries[index] ?? null,
     verdict: progress.verdicts[index] ?? null,
-    live: index === progress.judged && !settled,
+    live: inFlight.has(index),
   }));
 }
 

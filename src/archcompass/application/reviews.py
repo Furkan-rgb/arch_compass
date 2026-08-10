@@ -45,6 +45,7 @@ from __future__ import annotations
 from collections.abc import Callable, Generator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from time import monotonic
 
@@ -183,6 +184,7 @@ class ReviewService:
         allow_unchanged: bool = False,
         on_started: Callable[[BoundaryReview], None] | None = None,
         on_detected: Callable[[Sequence[FindingCandidate]], None] | None = None,
+        on_judging: Callable[[int, int], None] | None = None,
         on_verdict: Callable[[JudgedCandidate, int, int], None] | None = None,
         on_eliciting: Callable[[], None] | None = None,
         on_summarising: Callable[[], None] | None = None,
@@ -206,9 +208,21 @@ class ReviewService:
         `on_started` is called once the run has a record, which is the first moment it has
         an identity: everything that could refuse the run has passed, and the review can be
         opened and watched from anywhere from here on. `on_detected` is called once, before
-        the first model call, with every candidate the sweep found. `on_verdict` is called
-        as each verdict lands, with the position and the total. Exactly one of `on_eliciting`
-        and `on_summarising` then fires, naming which last call this pass makes.
+        the first model call, with every candidate the sweep found. `on_judging` is called
+        with a position and the total at the moment that candidate is handed to the model —
+        so it does not fire for a boundary whose verdict was carried or looked up, which
+        never went anywhere and was never in flight. `on_verdict` is called as each verdict
+        lands, with the position and the total. Exactly one of `on_eliciting` and
+        `on_summarising` then fires, naming which last call this pass makes.
+
+        The two per-boundary callbacks report two different things and only one of them is
+        ordered. Verdicts land in the detected order whatever order they were produced in;
+        announcements come from the worker threads as the handovers happen, so they arrive
+        out of order and interleaved with verdicts on a provider that answers several at
+        once. That is the truth being reported rather than a wrinkle to smooth over: a
+        caller that assumed one boundary at a time would draw a run slower than the one it
+        is watching. The only order guaranteed between them is the one that means anything —
+        a boundary is announced before its verdict is reported.
 
         A review is one model call per candidate and takes minutes, so a caller that reports
         nothing until the last one has finished is the difference between a tool that looks
@@ -314,6 +328,7 @@ class ReviewService:
                 keys=keys,
                 delta=delta,
                 on_detected=on_detected,
+                on_judging=on_judging,
                 on_verdict=on_verdict,
                 on_eliciting=on_eliciting,
                 on_summarising=on_summarising,
@@ -351,6 +366,7 @@ class ReviewService:
         keys: dict[str, str],
         delta: RevisionPartition,
         on_detected: Callable[[Sequence[FindingCandidate]], None] | None,
+        on_judging: Callable[[int, int], None] | None,
         on_verdict: Callable[[JudgedCandidate, int, int], None] | None,
         on_eliciting: Callable[[], None] | None,
         on_summarising: Callable[[], None] | None,
@@ -377,6 +393,7 @@ class ReviewService:
             policies=policies,
             candidates=candidates,
             keys=keys,
+            on_judging=on_judging,
         )
         try:
             for position, candidate in enumerate(candidates, start=1):
@@ -544,6 +561,7 @@ class ReviewService:
         policies: list[PolicyDocument],
         candidates: Sequence[FindingCandidate],
         keys: dict[str, str],
+        on_judging: Callable[[int, int], None] | None,
     ) -> Generator[JudgedCandidate]:
         """Every candidate's verdict, always in the detected order, sometimes overlapping.
 
@@ -560,7 +578,15 @@ class ReviewService:
         whatever completes first — the run is as fast as its slowest judgement plus the
         tail, and every event is still in the order the sweep detected them.
 
-        Everything that reports, records or reads the run's own record stays with the
+        **One thing is reported out of order, and only because it is out of order.** A
+        worker announces its candidate through `on_judging` as it hands it over, which is
+        the one fact the ordered stream of verdicts cannot carry: up to `concurrent_requests`
+        boundaries are under the model at any moment, and a reader given verdicts alone can
+        only ever mark the next one. The announcement is bound to its position here, so the
+        worker carries no counter and the callback is the caller's to make thread-safe —
+        the streaming queue, which is what receives it, already is.
+
+        Everything else that reports, records or reads the run's own record stays with the
         caller. A worker does exactly `_verdict_for`, whose only shared state is a SQLite
         repository that opens a connection per call (WAL, with a busy timeout) and a
         reasoner that builds its transport once under a lock. Nothing here holds a cursor,
@@ -575,11 +601,22 @@ class ReviewService:
         sequential loop would have raised it, and closing cancels the rest.
         """
 
+        total = len(candidates)
+
+        def announce(position: int) -> Callable[[], None] | None:
+            """This position's announcement, or nothing where nobody is listening."""
+
+            if on_judging is None:
+                return None
+            return partial(on_judging, position, total)
+
         concurrency = self._reasoner.concurrent_requests
         if concurrency <= 1 or len(candidates) <= 1:
             # Not an executor with one worker. Where nothing may overlap, the run should be
             # the loop it has always been, so there is no pool, no thread and no difference.
-            for candidate in candidates:
+            # The announcement is made all the same: one boundary in flight is still the
+            # answer to which boundary is in flight, and it is the true answer for Ollama.
+            for position, candidate in enumerate(candidates, start=1):
                 yield self._verdict_for(
                     candidate,
                     running=running,
@@ -587,6 +624,7 @@ class ReviewService:
                     repository_root=repository_root,
                     policies=policies,
                     key=keys[candidate.candidate_id],
+                    announce=announce(position),
                 )
             return
         executor = ThreadPoolExecutor(
@@ -603,8 +641,9 @@ class ReviewService:
                     repository_root=repository_root,
                     policies=policies,
                     key=keys[candidate.candidate_id],
+                    announce=announce(position),
                 )
-                for candidate in candidates
+                for position, candidate in enumerate(candidates, start=1)
             ]
             for future in pending:
                 yield future.result()
@@ -620,6 +659,7 @@ class ReviewService:
         repository_root: Path,
         policies: list[PolicyDocument],
         key: str,
+        announce: Callable[[], None] | None = None,
     ) -> JudgedCandidate:
         """This candidate's verdict, saying whether it was reached here or carried forward.
 
@@ -640,6 +680,13 @@ class ReviewService:
         verdict came from. The write is not conditional on the run finishing: the verdict
         was genuinely reached, and a cancelled or failed run that already paid for a model
         call should not make the next run pay for it again.
+
+        `announce` is called between the two — after the miss is known and before the
+        request goes out — which is precisely the moment this boundary starts being in
+        flight. A hit never calls it: nothing was handed over, and a run that said otherwise
+        would be reporting a model call it did not make. It arrives already bound to this
+        candidate's position, so a worker announces itself without holding a counter, and
+        whatever is on the other end hears it from this thread.
 
         **This is the whole of what a worker thread runs** (see `_judgements`), and it is
         safe to run several of at once. The cache's `get` and `put` each open their own
@@ -664,6 +711,8 @@ class ReviewService:
                 verdict=carried,
                 reused_from=cached.review_id,
             )
+        if announce is not None:
+            announce()
         verdict = self._reasoner.judge_finding_candidate(
             revision.snapshot,
             candidate,

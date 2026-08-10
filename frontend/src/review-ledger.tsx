@@ -33,7 +33,7 @@ import { cn } from "@/lib/utils";
 
 import { DeltaMark } from "./delta";
 import { FindingSource } from "./finding-source";
-import type { RunState } from "./run-progress";
+import { judgingRows, type RunState } from "./run-progress";
 import { DecisionMark, StandingFooter } from "./triage";
 import type { BoundaryTriage, ReviewedBoundary } from "./types";
 
@@ -616,7 +616,10 @@ export function JudgingLedger({
   const named = progress?.boundaries ?? [];
   const judged = progress?.judged ?? 0;
   const carried = progress?.carried ?? 0;
-  const settled = progress?.eliciting || progress?.summarising || progress?.concluded;
+  // As many rows as the run actually has in flight, which against a provider that answers
+  // several at once is several. The ledger is the run's own account of itself and a single
+  // moving row would be a tidier account than the true one.
+  const inFlight = judgingRows(progress);
 
   return (
     <section className={ledgerSheet} aria-label="Boundaries examined">
@@ -634,10 +637,10 @@ export function JudgingLedger({
         {Array.from({ length: total }, (_, index) => {
           const verdict = progress?.verdicts[index] ?? null;
           const origin = progress?.carriedFrom?.[index] ?? null;
-          const current = index === judged && !settled;
+          const current = inFlight.has(index);
           const name = named[index];
           // "Queued" is not a verdict and gets no colour: the neutral rule is the row that
-          // has not been decided yet, and the accent is the one under the model right now.
+          // has not been decided yet, and the accent is a row under the model right now.
           const state: Stripe =
             verdict === null ? (current ? "judging" : "none") : verdict ? "material" : "cleared";
           return (

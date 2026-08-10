@@ -23,11 +23,13 @@ import type { ReviewProgress } from "./types";
  * record — but as a flow it plainly is, and drawing it as two unrelated three-stage runs
  * would hide the only part that needs explaining.
  *
- * `judged` counts finished verdicts, so the boundary under judgement is the next one: the
- * count is derived from what has landed rather than from a separate "starting" message that
- * could disagree with it. Shared by every place a review is watched — the start step, the
- * review page's revise-and-review-again, and the page that is holding for answers — because
- * it is the same run either way.
+ * `judged` counts finished verdicts and `judging` names what has been handed over and not
+ * come back. Two numbers rather than one because they answer two questions: the count is the
+ * run's ordered account of itself, and the set is what is happening right now — which on a
+ * provider that answers several at once is several boundaries, none of them necessarily the
+ * one after the last verdict. Shared by every place a review is watched — the start step,
+ * the review page's revise-and-review-again, and the page that is holding for answers —
+ * because it is the same run either way.
  */
 export type RunState = {
   total: number;
@@ -52,6 +54,21 @@ export type RunState = {
   /** How many verdicts so far were carried rather than reached — known from both sources. */
   carried?: number;
   judged: number;
+  /**
+   * Which positions — one-based, as the stream numbers them — are under the model right now.
+   *
+   * The run hands candidates over up to whatever its provider answers at once, and reports
+   * verdicts in the detected order however they finish, so the two are genuinely different
+   * facts: four boundaries can be in flight while the first verdict has yet to land. A
+   * boundary whose verdict was carried is never in here, because nothing was handed over.
+   *
+   * Optional, and absent means *unknown* rather than *none*: a state folded from the stream
+   * always has one, and a state built from the run's stored counts — a second tab, a reload —
+   * or by hand for a replay has no handovers to report. Where it is absent the surfaces below
+   * mark the row after the last verdict, which is the best the counts can support; where it
+   * is present and empty, the run has told them nothing is in flight.
+   */
+  judging?: number[];
   /** The first pass's last call: composing what it needs to ask. */
   eliciting: boolean;
   summarising: boolean;
@@ -75,10 +92,16 @@ export function applyProgress(current: RunState, event: ReviewProgress): RunStat
       carriedFrom: Array.from({ length: event.total }, () => null),
       carried: 0,
       judged: 0,
+      // Empty rather than absent from here on: this run reports its handovers, so an empty
+      // set is the true statement that nothing has been handed over yet.
+      judging: [],
       eliciting: false,
       summarising: false,
       concluded: false,
     };
+  }
+  if (event.event === "judging" && current) {
+    return { ...current, judging: [...(current.judging ?? []), event.position] };
   }
   if (event.event === "judged" && current) {
     // Written by position, which is the only thing that identifies a boundary in the
@@ -97,26 +120,58 @@ export function applyProgress(current: RunState, event: ReviewProgress): RunStat
       // which reports carry-through nowhere — from reading as a run that carried nothing.
       carried: event.carried ?? (current.carried ?? 0) + (origin === null ? 0 : 1),
       judged: event.position,
+      // Verdicts are reported in submission order, so a verdict at this position settles
+      // that nothing at or before it is still under the model — whatever order the
+      // announcements arrived in, and including the announcement for this position itself.
+      // A boundary further down that has already been handed over stays where it is.
+      judging: (current.judging ?? []).filter((position) => position > event.position),
     };
   }
   if (event.event === "eliciting" && current) {
-    return { ...current, judged: event.total, eliciting: true };
+    return { ...current, judged: event.total, eliciting: true, judging: [] };
   }
   if (event.event === "summarising" && current) {
-    return { ...current, judged: event.total, summarising: true };
+    return { ...current, judged: event.total, summarising: true, judging: [] };
   }
   if (event.event === "completed" && current) {
     // The line the run signs off with. It carries the review rather than a count, so the
     // counters are closed here from what detection already said: a run that reached its
     // conclusion judged everything it detected, whatever the last `judged` line happened to
     // number. `summarising` goes back to false because that call has returned.
-    return { ...current, judged: current.total, summarising: false, concluded: true };
+    return {
+      ...current,
+      judged: current.total,
+      summarising: false,
+      concluded: true,
+      judging: [],
+    };
   }
   // `failed` is deliberately not folded in. The stream's failure line makes the request
   // reject, so the run's holder drops this state entirely and the review's own status — not
   // this flow — is what the page then draws: a review that never reached a judgement gets the
   // unfinished view rather than a flow with a stage frozen mid-spin.
   return current;
+}
+
+/**
+ * Which rows are under the model right now, as indices into the boundary list.
+ *
+ * The one place the question is answered, because three surfaces draw it — this flow's list,
+ * the judging ledger and the run log's crawl — and three answers to "which boundary is being
+ * judged" drawn from one run is how they came to disagree in the first place.
+ *
+ * Where the run reported its handovers, that is the answer, and it may hold several at once
+ * or none. Where it did not — a watcher reading the stored counts, a replay built by hand —
+ * the row after the last verdict is marked, which is the most those counts can say: they know
+ * how many boundaries are done and nothing about what the run is doing. Once judging is over
+ * the set is empty however the run got there, so no row is left spinning under a stage that
+ * has moved on.
+ */
+export function judgingRows(progress: RunState): Set<number> {
+  if (!progress) return new Set();
+  if (progress.eliciting || progress.summarising || progress.concluded) return new Set();
+  if (progress.judging) return new Set(progress.judging.map((position) => position - 1));
+  return progress.judged < progress.total ? new Set([progress.judged]) : new Set();
 }
 
 type StageState = "waiting" | "active" | "done";
@@ -218,6 +273,7 @@ export function RunProgress({
   const eliciting = progress?.eliciting ?? false;
   const summarising = progress?.summarising ?? false;
   const concluded = progress?.concluded ?? false;
+  const inFlight = judgingRows(progress);
   const second = pass === 2;
   const judging: StageState = second
     ? "done"
@@ -409,14 +465,17 @@ export function RunProgress({
           >
             {progress!.boundaries.map((name, index) => {
               const verdict = progress!.verdicts[index];
-              const current = index === judged && !summarising && !eliciting && !concluded;
+              const current = inFlight.has(index);
               return (
                 <li
                   key={`${name}-${index}`}
                   className={cn(
                     "grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-control px-2 py-1 text-ui",
-                    // The one under the model right now is lifted onto a surface of its own:
-                    // it is what a reader watching their code be judged is looking for.
+                    // Every row under the model right now is lifted onto a surface of its
+                    // own: it is what a reader watching their code be judged is looking for.
+                    // Several at once against a provider that answers several at once, one
+                    // against a local model — the lift says what is happening, not how many
+                    // rows the design would rather light up.
                     current ? "bg-surface text-ink" : "text-ink-2",
                   )}
                 >

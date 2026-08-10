@@ -326,3 +326,30 @@ def test_a_carried_verdict_says_so_while_the_run_is_still_going(
         "and the record's tally moves with them"
     )
     assert _summary(runtime, second.review_id).boundaries_carried == len(origins)
+
+
+def test_a_carried_boundary_is_never_announced_as_being_under_the_model(
+    runtime: Runtime, case_id: str
+) -> None:
+    """Nothing is in flight on a fully cached run, and the run says so by saying nothing.
+
+    The announcement is about a candidate that has actually been handed over, so a lookup
+    must not produce one: a surface that spun a boundary on a cache hit would be showing the
+    reader a model call that never happened, in the run whose whole point is that it made
+    none.
+    """
+
+    first = runtime.review_service.review(case_id, repository_root=FIXTURE)
+    announced: list[int] = []
+    origins: list[str | None] = []
+
+    second = runtime.review_service.review(
+        case_id,
+        repository_root=FIXTURE,
+        on_judging=lambda position, _total: announced.append(position),
+        on_verdict=lambda item, *_rest: origins.append(item.reused_from),
+    )
+
+    assert origins and all(origin == first.review_id for origin in origins)
+    assert announced == [], "every verdict was looked up, so nothing was ever in flight"
+    assert second.status is ReviewStatus.SUCCEEDED

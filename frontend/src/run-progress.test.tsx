@@ -68,6 +68,40 @@ describe("applyProgress", () => {
     expect(first?.carried).toBe(1);
   });
 
+  it("holds every boundary the run has handed to the model at once", () => {
+    // Not one. Judging overlaps up to what the provider allows, and a flow that could mark
+    // only the row after the last verdict was drawing a slower run than the one happening.
+    const state = applyProgress(
+      applyProgress(detected, { event: "judging", position: 1, total: 3 }),
+      { event: "judging", position: 2, total: 3 },
+    );
+
+    expect(state?.judging).toEqual([1, 2]);
+  });
+
+  it("clears everything a verdict has overtaken, and leaves the rest in flight", () => {
+    // Verdicts are reported in submission order, so a verdict at position 2 settles that
+    // nothing before position 2 is still under the model — whatever order the announcements
+    // arrived in. A later boundary already announced stays where it is.
+    const state = applyProgress(
+      [1, 2, 4].reduce<RunState>(
+        (current, position) =>
+          applyProgress(current, { event: "judging", position, total: 3 }),
+        detected,
+      ),
+      { event: "judged", position: 2, total: 3, abstraction: "ports.Clock", material: true },
+    );
+
+    expect(state?.judging).toEqual([4]);
+  });
+
+  it("empties the in-flight set once judging is over, whichever way it ended", () => {
+    const judging = applyProgress(detected, { event: "judging", position: 3, total: 3 });
+
+    expect(applyProgress(judging, { event: "eliciting", total: 3 })?.judging).toEqual([]);
+    expect(applyProgress(judging, { event: "summarising", total: 3 })?.judging).toEqual([]);
+  });
+
   it("leaves the flow alone when the stream announces the review's identity", () => {
     // `started` is for navigation, not for the flow: it arrives before the sweep, when
     // there is genuinely nothing to draw yet.
@@ -126,6 +160,36 @@ describe("RunProgress", () => {
     expect(status).toHaveTextContent("earning its place");
     expect(status).toHaveTextContent("judging…");
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
+  });
+
+  it("spins every boundary that is under the model, not only the next one", () => {
+    render(
+      <RunProgress
+        progress={{ ...detected, verdicts: [null, null, null], judging: [1, 3] }}
+      />,
+    );
+
+    const status = screen.getByRole("status");
+    // Two spinning rows, because two boundaries are genuinely being judged. The row after
+    // the last verdict is *not* one of them here — position 2 was never announced.
+    expect(screen.getAllByText("judging…")).toHaveLength(2);
+    expect(status).toHaveTextContent("waiting");
+  });
+
+  it("marks nothing while a live run has announced nothing yet", () => {
+    // The moment between detection and the first handover. An empty set is a statement —
+    // the run is not judging anything — and it is different from having no set at all.
+    render(<RunProgress progress={{ ...detected, judging: [] }} />);
+
+    expect(screen.queryByText("judging…")).toBeNull();
+  });
+
+  it("falls back to the single mark where nothing said what is in flight", () => {
+    // A watcher reading the run's stored record: the counts say how many verdicts landed
+    // and nothing about handovers, so the row after the last one is marked, as before.
+    render(<RunProgress progress={{ ...detected, verdicts: [false, null, null], judged: 1 }} />);
+
+    expect(screen.getAllByText("judging…")).toHaveLength(1);
   });
 
   it("moves on to the asking stage rather than counting past the end", () => {

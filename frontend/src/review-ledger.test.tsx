@@ -192,6 +192,30 @@ describe("JudgingLedger", () => {
     expect(ledger).toHaveTextContent("queued");
   });
 
+  it("spins every row the run has handed to the model, not only the next one", () => {
+    // Judging overlaps up to what the provider answers at once, so a ledger with one moving
+    // row would be a tidier account of the run than the true one.
+    render(
+      <JudgingLedger
+        progress={{
+          total: 3,
+          boundaries: ["ports.Feed", "ports.Ledger", "ports.Digest"],
+          verdicts: [null, null, null],
+          judged: 0,
+          judging: [1, 3],
+          eliciting: false,
+          summarising: false,
+          concluded: false,
+        }}
+      />,
+    );
+
+    const rows = within(screen.getByLabelText("Boundaries examined")).getAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent("judging…");
+    expect(rows[1]).toHaveTextContent("queued");
+    expect(rows[2]).toHaveTextContent("judging…");
+  });
+
   it("says which verdicts were carried, while the run is still going", () => {
     // A carried verdict was looked up, not reached, and a row that said nothing about it
     // would have the run claim a model call it never made. The count says the same thing

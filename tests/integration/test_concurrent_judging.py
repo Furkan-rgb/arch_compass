@@ -283,6 +283,110 @@ def test_the_verdicts_are_reported_in_the_detected_order_however_they_finish(
     assert [item.candidate.candidate_id for item in report.reviewed] == detected
 
 
+def test_every_boundary_says_it_reached_the_model_before_its_verdict_lands(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What is in flight, not only what has landed.
+
+    Verdicts are reported in the detected order however they finish, so the positions
+    already reported say nothing about which boundaries are under the model right now — up
+    to `concurrent_requests` of them are, and a reader told only about verdicts can mark
+    exactly one. So a candidate announces itself as it is handed over, and the only order
+    that holds is the one that matters: a boundary is announced before it is decided.
+    """
+
+    case_id = _indexed_case(runtime)
+    _watching(runtime, monkeypatch, concurrent_requests=4, meeting=2)
+    events: list[tuple[str, int]] = []
+    totals: set[int] = set()
+
+    def note_judging(position: int, total: int) -> None:
+        events.append(("judging", position))
+        totals.add(total)
+
+    def note_verdict(_item: JudgedCandidate, position: int, _total: int) -> None:
+        events.append(("verdict", position))
+
+    runtime.review_service.review(
+        case_id,
+        repository_root=FIXTURE,
+        on_judging=note_judging,
+        on_verdict=note_verdict,
+    )
+
+    announced = [position for kind, position in events if kind == "judging"]
+    decided = [position for kind, position in events if kind == "verdict"]
+    assert len(decided) > 1, "the fixture has to offer more than one boundary"
+    # One announcement per boundary the run paid for, and every one of them a boundary this
+    # run went on to decide. Sorted, because the order they arrive in is the provider's.
+    assert sorted(announced) == decided
+    assert totals == {len(decided)}
+    for position in decided:
+        assert events.index(("judging", position)) < events.index(("verdict", position)), (
+            "a boundary is announced before it is decided, whatever else is in flight"
+        )
+
+
+def test_a_boundary_still_under_the_model_is_announced_while_an_earlier_one_lands(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The whole point of the announcement: more than one boundary in flight at once.
+
+    Read off the barrier rather than off the clock — the first two judgements are inside the
+    model together by construction, so by the time either verdict is reported both have been
+    announced. A run that announced a boundary only as its turn to be reported came would
+    fail this, and it is exactly the run every surface used to draw.
+    """
+
+    case_id = _indexed_case(runtime)
+    _watching(runtime, monkeypatch, concurrent_requests=4, meeting=2)
+    announced: list[int] = []
+    in_flight_at_first_verdict: list[int] = []
+
+    def note_verdict(_item: JudgedCandidate, position: int, _total: int) -> None:
+        if position == 1:
+            in_flight_at_first_verdict.extend(announced)
+
+    runtime.review_service.review(
+        case_id,
+        repository_root=FIXTURE,
+        on_judging=lambda position, _total: announced.append(position),
+        on_verdict=note_verdict,
+    )
+
+    assert len(in_flight_at_first_verdict) >= 2, (
+        "the second boundary was announced before the first one's verdict was reported"
+    )
+
+
+def test_one_concurrent_request_announces_and_decides_one_boundary_at_a_time(
+    runtime: Runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The provider that says one gets the strict alternation a reader can trust.
+
+    Nothing overlaps here, so the announcement and the verdict it belongs to are adjacent,
+    and a surface drawing this run marks one spinner — which is the truth about Ollama in
+    the same way several spinners are the truth about a hosted API.
+    """
+
+    case_id = _indexed_case(runtime)
+    _watching(runtime, monkeypatch, concurrent_requests=1)
+    events: list[tuple[str, int]] = []
+
+    runtime.review_service.review(
+        case_id,
+        repository_root=FIXTURE,
+        on_judging=lambda position, _total: events.append(("judging", position)),
+        on_verdict=lambda _item, position, _total: events.append(("verdict", position)),
+    )
+
+    decided = [position for kind, position in events if kind == "verdict"]
+    assert len(decided) > 1
+    assert events == [
+        (kind, position) for position in decided for kind in ("judging", "verdict")
+    ]
+
+
 def test_one_concurrent_request_judges_strictly_one_at_a_time(
     runtime: Runtime, monkeypatch: pytest.MonkeyPatch
 ) -> None:
