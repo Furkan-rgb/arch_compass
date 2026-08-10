@@ -30,6 +30,9 @@ from archcompass.adapters.analysis.boundary_signals import (
     broad_input_boundary_preparation_signals,
     parallel_boundary_preparation_signals,
 )
+from archcompass.adapters.analysis.concentration_signals import (
+    concentrated_scope_signals,
+)
 from archcompass.adapters.analysis.graph import (
     maximum_reachable_depth,
     reachable,
@@ -74,7 +77,12 @@ from archcompass.ports.atlas import (
 # evidence of a leaked name was a docstring that did not contain it. Nothing can recover the
 # positions from a stored v4 atlas, so it is stale and re-analyzed rather than read with the
 # lines missing (ADR 0002). Re-analysis is cheap and lossless: an atlas is derived.
-PARSER_VERSION = "python-ast-3.12-v5"
+#
+# v6 emits the `concentrated-scope` signal. Signals are stored, not recomputed on read, so a
+# v5 atlas of unchanged source would go on reporting nothing about concentration and give a
+# reader no way to tell that from a repository with none. Same rule as above: a stored atlas
+# that cannot answer a question the analyzer now answers is stale.
+PARSER_VERSION = "python-ast-3.12-v6"
 
 
 @dataclass(frozen=True)
@@ -525,6 +533,10 @@ class PythonAstRepositoryAnalyzer:
             )
         )
         metrics = self._compute_metrics(nodes, edges, modules, syntactic_metrics)
+        # After the metrics rather than beside the other signals, because it is derived from
+        # them: concentration is a statement about a module's surface and its dependants,
+        # both of which are already counted above.
+        signals.extend(concentrated_scope_signals(nodes, metrics))
         signals.extend(self._cycle_signals(nodes, edges, modules))
         return Atlas(
             version=version,

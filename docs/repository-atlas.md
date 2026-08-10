@@ -103,6 +103,11 @@ traversal.
   one resolved or structurally matched Protocol operation to share a substantial static
   input-to-request fingerprint. It makes those methods inspectable, but cannot prove semantic
   duplication, provider-neutral meaning, or misplaced ownership.
+- `concentrated-scope` is a structural proxy over counts the atlas already holds: public
+  top-level names, direct non-test dependants and their packages, and reverse impact reach. A
+  count cannot tell whether the things a module holds belong together, so a cohesive module with
+  a wide coherent surface, a deliberate facade, generated code, and a module mid-split all look
+  the same to it. It says where to read, never what to do.
 
 Confidence describes static resolution quality; it is not a probability that the architecture is
 good.

@@ -5,6 +5,9 @@
 > lives at [`system-tour.html`](system-tour.html) (open it in a browser). It is a dated
 > snapshot read from the code, not a living document: regenerate it when it drifts.
 
+> The rules this codebase holds itself to — where each is stated and what enforces it, or
+> that nothing does — are indexed in [`conventions.md`](conventions.md).
+
 This file carries two things: the settled reference (dependency direction and information
 flow, further down), and — first — whatever is currently *under discussion*. The working
 rule: when a flow feels wrong, the reasoning lands here before any code changes. What is

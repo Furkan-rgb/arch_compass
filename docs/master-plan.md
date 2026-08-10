@@ -1259,6 +1259,7 @@ This document governs product direction.
 
 - `docs/product-design.md` — product purpose and boundaries.
 - `docs/architecture.md` — dependency direction and subsystem relationships.
+- `docs/conventions.md` — the rules of the codebase, where stated and what enforces them.
 - `docs/domain-model.md` — central domain objects.
 - `docs/repository-atlas.md` — atlas construction and query model.
 - `docs/atlas-metrics.md` — exact metric definitions and limitations.

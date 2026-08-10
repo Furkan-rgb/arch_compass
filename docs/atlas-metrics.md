@@ -76,3 +76,13 @@ ownership verdict. `parallel-boundary-preparation` adds a separate proxy when mu
 implementations of one Protocol operation have substantially overlapping parameter-relative
 input-to-request fingerprints. Neither signal alone establishes semantic equivalence, duplicated
 knowledge, or incorrectly placed responsibility.
+
+`concentrated-scope` is a third structural proxy, and the only one derived from the metrics
+above rather than from syntax. It is emitted for a module that declares at least eight public
+top-level names, is imported directly by non-test modules in at least three packages other than
+its own, and sits under at least eight modules in the reverse import-and-call impact graph. The
+thresholds are absolute rather than percentile so that the same module reports the same way
+whatever else is in the checkout, and so that a repository in good order can report nothing. It
+locates a module whose concerns may each be pulling their own dependants through it; it is not a
+recommendation to split, and the `judge-concentration-by-who-pays` policy is where that judgement
+is made.
