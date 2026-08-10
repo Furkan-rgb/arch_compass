@@ -33,7 +33,7 @@ function renderTab(detail: ReviewDetail) {
     >
       <RunLogTab
         review={detail}
-        progress={undefined}
+        progress={null}
         reviewed={[]}
         watching={false}
         holding={false}
