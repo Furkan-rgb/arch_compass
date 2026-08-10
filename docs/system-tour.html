@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- A point-in-time system tour, read from the code at main:e1765a7 (2026-08-09).
+<!-- A point-in-time system tour, read from the code at main:742d4fe (2026-08-10).
      Self-contained: no scripts, no external assets; renders in light and dark.
      If it drifts far from the code, regenerate it rather than patching prose. -->
 <html lang="en">
@@ -101,7 +101,7 @@
 <header class="top">
   <p class="eyebrow">Arch Compass · Reference</p>
   <h1>The system as it stands</h1>
-  <p class="meta">read from the code at main·e1765a7 — 2026-08-09 · 7 reasoning stages · 23 application services · 19 live tables · 44 API routes · 6 pages</p>
+  <p class="meta">read from the code at main·742d4fe — 2026-08-10 · 7 reasoning stages · 24 application services · 20 tables · 44 API routes · 6 pages</p>
   <p class="lede">Arch Compass reviews a Python repository's architecture: it detects boundary
   shapes deterministically, has a model judge each one against a written case and a policy corpus,
   asks the person only what neither code nor case can settle, and remembers every verdict, question,
@@ -406,7 +406,7 @@
 <section id="web">
   <p class="eyebrow">07 · Web surface &amp; frontend</p>
   <h2>44 routes, two streams, six pages</h2>
-  <p>All routes live in one FastAPI factory. A review runs <strong>synchronously inside its request</strong>
+  <p>Routes live in a <code>routes/</code> package — one router per concern, assembled by a 145-line factory (decomposed 2026-08-10; the stage layer likewise became the <code>structured/</code> package, and the review page and atlas became folders of named files). A review runs <strong>synchronously inside its request</strong>
   — streaming is a worker thread feeding NDJSON lines; there is no job queue and therefore nothing to
   recover. Exactly two routes stream: the run itself and a chat message. Cancellation is out-of-band via
   the record. Errors are one <code>ProblemDetail</code> shape everywhere.</p>
@@ -455,7 +455,7 @@
     <li><del><strong>Two stale reference docs.</strong></del> <em>Rewritten.</em> <code>persistence-model.md</code> and <code>domain-model.md</code> now describe the live schema and the current aggregates, with dropped-era types named in one closing paragraph each. architecture.md's closing paragraph no longer claims embedding-based retrieval, and its Under-discussion section carries dated notes where shipped code has answered a point.</li>
     <li><del><strong>A ghost package makes one guard vacuous.</strong></del> <em>Fixed.</em> <code>workflows/</code> is out of the iteration lists, and each package a guard sweeps is now asserted to exist, so the next deletion fails the test instead of silencing it.</li>
     <li><strong>Streaming asymmetry</strong> (above): the only public deployment never streams. <em>Unchanged — a provider fact, not residue.</em></li>
-    <li><strong>Frontend drift hazards:</strong> atlas/policy types are hand-written beside the generated file (the exact drift its own comments warn about); seven dead client methods; several server routes have no UI at all (cases CRUD, decision history). <em>Owned by a separate pass.</em></li>
+    <li><strong>Resolved 2026-08-10:</strong> the hand-written type mirrors are aliases onto the generated schema (the swap surfaced 112 latent errors, including fixtures speaking vocabulary the server never had), the dead client methods are gone, and the vacuous root typecheck has an honest <code>typecheck</code> script beside it. Still open: several server routes have no UI (cases CRUD, decision history).</li>
     <li><strong>Small residue:</strong> the <code>application/preflight</code> docstring, the unproducible <code>FailureDiagnostic</code> (field, module and stored key, migration 033), the orphan <code>__pycache__</code> directories, the checkout route's comment/status disagreement (201 stands; the comment now agrees) and the <code>INVESTIGATE_USAGE</code> comment are all dealt with. <strong>The numbering gap at 015 stays</strong> — a retired migration number must never be reused, so the gap is now stated as a fact in <code>persistence-model.md</code> rather than closed.</li>
   </ul>
 </section>
