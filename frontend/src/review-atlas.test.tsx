@@ -12,12 +12,18 @@ import {
 } from "./review-atlas";
 import type {
   AtlasMetricValue,
+  AtlasNodeSummary,
+  AtlasRelationship,
   AtlasQueryResult,
   AtlasSignal,
   ReviewedBoundary,
 } from "./types";
 
-function node(nodeId: string, qualifiedName: string, nodeType = "interface") {
+function node(
+  nodeId: string,
+  qualifiedName: string,
+  nodeType: AtlasNodeSummary["node_type"] = "interface",
+): AtlasNodeSummary {
   return {
     node_id: nodeId,
     qualified_name: qualifiedName,
@@ -30,7 +36,7 @@ function node(nodeId: string, qualifiedName: string, nodeType = "interface") {
 
 function result(fields: Partial<AtlasQueryResult>): AtlasQueryResult {
   return {
-    query: { kind: "inspect" },
+    query: { kind: "signals" },
     node_ids: [],
     summary: "",
     node_summaries: [],
@@ -274,7 +280,7 @@ describe("reviewAtlasEdges", () => {
             edge_id: "e1",
             source_id: "node_a",
             target_id: "node_a",
-            edge_type: "defines",
+            edge_type: "contains",
             confidence: 1,
           },
           // An edge to a node no inspection returned would be drawn from nowhere.
@@ -294,7 +300,7 @@ describe("reviewAtlasEdges", () => {
   });
 
   it("draws an edge once however many inspections returned it", () => {
-    const relationship = {
+    const relationship: AtlasRelationship = {
       edge_id: "e1",
       source_id: "node_a",
       target_id: "node_b",
@@ -328,7 +334,7 @@ describe("ReviewAtlas", () => {
     boundary("BR-002", false, "node_b", "node_b_impl"),
   ];
   const context = result({
-    query: { kind: "review_context" },
+    query: { kind: "review_context", node_ids: ["node_a", "node_b"] },
     node_ids: ["node_a", "node_b"],
     node_summaries: [
       node("node_a", "ports.Clock"),
@@ -468,7 +474,7 @@ describe("ReviewAtlas", () => {
     const { explored, client, view } = renderMap();
     explored.mockResolvedValue(
       result({
-        query: { operation: "cycles" },
+        query: { kind: "cyclic_components" },
         node_summaries: [node("node_cycle", "adapters.Loop", "class")],
       }),
     );
@@ -502,7 +508,7 @@ describe("ReviewAtlas", () => {
     // the route's own answer: the nodes and edges it says the path runs through.
     const explored = vi.spyOn(api, "repositoryExplore").mockResolvedValue(
       result({
-        query: { operation: "shortest_path" },
+        query: { kind: "shortest_dependency_path", source_id: "node_a", target_id: "node_a_impl" },
         node_ids: ["node_a", "node_a_impl"],
         relationships: context.relationships,
       }),
@@ -552,7 +558,7 @@ describe("ReviewAtlas", () => {
     const { explored } = renderMap();
     explored.mockResolvedValue(
       result({
-        query: { operation: "cycles" },
+        query: { kind: "cyclic_components" },
         node_summaries: [node("node_cycle", "adapters.Loop", "class")],
       }),
     );

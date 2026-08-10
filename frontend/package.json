@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "check": "tsc -b && vitest run",
+    "typecheck": "tsc -b",
     "test": "vitest"
   },
   "dependencies": {

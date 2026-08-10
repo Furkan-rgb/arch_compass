@@ -178,6 +178,23 @@ async function streamLines<Line>(
   }
 }
 
+
+/** The server defaults every collection; the generator therefore marks them optional.
+    Filling the defaults here once is what lets `AtlasQueryResult` require them. */
+function atlasResult(value: AtlasQueryResult): AtlasQueryResult {
+  return {
+    ...value,
+    node_ids: value.node_ids ?? [],
+    summary: value.summary ?? "",
+    node_summaries: value.node_summaries ?? [],
+    metric_values: value.metric_values ?? [],
+    relationships: value.relationships ?? [],
+    test_ids: value.test_ids ?? [],
+    signals: value.signals ?? [],
+    excerpts: value.excerpts ?? [],
+  };
+}
+
 export const api = {
   workspace: () => request<WorkspaceSummary>("/api/workspace"),
 
@@ -477,12 +494,12 @@ export const api = {
         node_ids: nodeIds,
         ...(limit === undefined ? {} : { limit }),
       }),
-    }),
+    }).then(atlasResult),
   repositoryExplore: (value: AtlasExploreRequest) =>
     request<AtlasQueryResult>("/api/repositories/explore", {
       method: "POST",
       body: JSON.stringify(value),
-    }),
+    }).then(atlasResult),
   policies: () => request<Policy[]>("/api/policies"),
   /**
    * Write a policy of this workspace's own. The id is the server's to derive from the

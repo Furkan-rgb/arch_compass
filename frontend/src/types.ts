@@ -100,7 +100,23 @@ export type AtlasMetricValue = OpenAPIComponents["schemas"]["AtlasMetricValue"];
 /** The server calls this an ObscuritySignal; the page has always said "signal". */
 export type AtlasSignal = OpenAPIComponents["schemas"]["ObscuritySignal"];
 
-export type AtlasQueryResult = OpenAPIComponents["schemas"]["AtlasQueryResult"];
+type GeneratedAtlasQueryResult = OpenAPIComponents["schemas"]["AtlasQueryResult"];
+/**
+ * The generated shape, with the collections required. The generator marks every
+ * server-defaulted field optional, but pydantic always sends them; `api.ts` normalises
+ * the response so this stronger claim is true at runtime, and sixty use sites keep
+ * reading `result.relationships` without a guard each.
+ */
+export type AtlasQueryResult = GeneratedAtlasQueryResult & {
+  node_ids: string[];
+  summary: string;
+  node_summaries: AtlasNodeSummary[];
+  metric_values: AtlasMetricValue[];
+  relationships: AtlasRelationship[];
+  test_ids: string[];
+  signals: AtlasSignal[];
+  excerpts: NonNullable<GeneratedAtlasQueryResult["excerpts"]>;
+};
 
 export type AtlasExploreOperation =
   | "children"
@@ -131,4 +147,8 @@ export interface PolicyApplicability {
   repository?: string | null;
 }
 
-export type PolicySource = OpenAPIComponents["schemas"]["PolicySource"];
+/** A registered source directory. The server also has a schema named PolicySource —
+    a policy's authorship attribution — which is a different thing; this page's
+    "source" has always meant the directory, so the alias points at the
+    registration. */
+export type PolicySource = OpenAPIComponents["schemas"]["PolicySourceRegistration"];
