@@ -1,10 +1,7 @@
-"""Ollama transport: schema-constrained structured output from an Ollama server.
+"""Ollama transport: schema-constrained structured output from a local Ollama server.
 
 Only the vendor-specific half lives here. Which stage runs, what it may reference, and
 what shape its answer must take are decided in `structured`, above this boundary.
-
-The probe and the offered list below are the local server's. The transport is not: ollama.com
-serves the same API behind a key, and `ollama_cloud` reaches it through this very class.
 """
 
 from __future__ import annotations
@@ -28,7 +25,7 @@ from archcompass.adapters.models.structured import (
     ToolExchange,
     ToolResultTurn,
 )
-from archcompass.configuration import ReasoningModelConfig, resolve_api_key
+from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ProviderError
 from archcompass.domain.model_catalog import AvailableModel, ProbeResult
 from archcompass.ports.investigation import ToolSpec
@@ -119,7 +116,7 @@ def _with_retry[Result](operation: Callable[[], Result]) -> Result:
 
 #: What a failed request may raise once the client has done its own mapping. Listed rather
 #: than caught as `Exception`, so a fault in this package surfaces as itself.
-REQUEST_FAILURES: Final = (
+_REQUEST_FAILURES: Final = (
     ResponseError,
     httpx.HTTPError,
     ConnectionError,
@@ -153,7 +150,7 @@ def _as_provider_error(error: Exception) -> ProviderError:
 PROBE_TIMEOUT_SECONDS: Final = 2.0
 
 
-def probe_detail(base_url: str, error: Exception) -> str:
+def _probe_detail(base_url: str, error: Exception) -> str:
     """Why the server could not be asked, as something a reader can act on.
 
     A sentence rather than an exception's `str`: "nothing is listening at
@@ -173,50 +170,6 @@ def probe_detail(base_url: str, error: Exception) -> str:
     return str(error)
 
 
-def client_for(
-    *,
-    base_url: str,
-    timeout: float,
-    api_key_env: str | None,
-    provider: str,
-) -> Client:
-    """One client for this API, local or hosted, differing only in what it carries.
-
-    Ollama's cloud is this same protocol behind a credential, so the endpoint is the whole
-    of the difference plus one header. `Authorization: Bearer …` is the spelling the client
-    itself uses when it finds `OLLAMA_API_KEY` in the environment; it is passed explicitly
-    here because which variable holds the key is the descriptor's to name, and a provider
-    that names none must send nothing.
-
-    Absent a credential variable this is `Client(host=…, timeout=…)` and nothing else:
-    `headers=None` is the client's own default, so the local path is unchanged. What the
-    client does on its own is not: it reads `OLLAMA_API_KEY` whenever no `authorization`
-    header was passed, so a machine with one exported sends it to its local server too.
-    That is the library's behaviour and cannot be suppressed through its constructor.
-    """
-
-    headers = (
-        {"Authorization": f"Bearer {resolve_api_key(api_key_env, provider=provider)}"}
-        if api_key_env
-        else None
-    )
-    return Client(host=base_url, timeout=timeout, headers=headers)
-
-
-def thinking_modes_for(capabilities: Sequence[str] | None) -> tuple[bool | None, ...]:
-    """The modes to offer a model whose capabilities the server has just reported.
-
-    A model that can think is offered both ways; one that cannot is offered as the single row
-    that sends no `think` at all — not `False`, because forbidding reasoning is still a
-    request and Ollama rejects it outright for a model without the capability.
-
-    Shared with the cloud adapter, which reads the same `capabilities` list out of its own
-    `/api/show` call rather than asking twice.
-    """
-
-    return (True, False) if "thinking" in (capabilities or ()) else (None,)
-
-
 def _thinking_modes(client: Client, model: str | None) -> tuple[bool | None, ...]:
     """Whether this server will accept `think` for this model, asked model by model.
 
@@ -234,10 +187,10 @@ def _thinking_modes(client: Client, model: str | None) -> tuple[bool | None, ...
     if model is None:  # pragma: no cover - a listing entry always names its model
         return (None,)
     try:
-        capabilities = client.show(model).capabilities
-    except REQUEST_FAILURES:
+        capabilities = client.show(model).capabilities or []
+    except _REQUEST_FAILURES:
         return (None,)
-    return thinking_modes_for(capabilities)
+    return (True, False) if "thinking" in capabilities else (None,)
 
 
 def probe_ollama(defaults: ProviderDefaults) -> ProbeResult:
@@ -258,8 +211,8 @@ def probe_ollama(defaults: ProviderDefaults) -> ProbeResult:
     client = Client(host=base_url, timeout=PROBE_TIMEOUT_SECONDS)
     try:
         listed = client.list()
-    except REQUEST_FAILURES as error:
-        return ProbeResult(available=False, detail=probe_detail(base_url, error))
+    except _REQUEST_FAILURES as error:
+        return ProbeResult(available=False, detail=_probe_detail(base_url, error))
     found = {
         entry.model: AvailableModel(
             name=entry.model,
@@ -342,12 +295,7 @@ def _investigation_messages(
 
 
 class OllamaChatTransport:
-    """Encodes one already-assembled request for the Ollama chat endpoint.
-
-    Serves the hosted models at ollama.com as well as a local server: same endpoint, same
-    request, and a credential where the configuration names a variable holding one. See
-    `ollama_cloud`, whose descriptor builds this class unchanged.
-    """
+    """Encodes one already-assembled request for the Ollama chat endpoint."""
 
     provider_label = "Ollama"
 
@@ -355,12 +303,7 @@ class OllamaChatTransport:
         self._config = config
         if not config.base_url:
             raise ProviderError("The ollama provider requires a base_url")
-        self._client = client_for(
-            base_url=config.base_url,
-            timeout=config.timeout_seconds,
-            api_key_env=config.api_key_env,
-            provider=config.provider,
-        )
+        self._client = Client(host=config.base_url, timeout=config.timeout_seconds)
 
     def complete(
         self,
@@ -390,7 +333,7 @@ class OllamaChatTransport:
             if not isinstance(content, str):
                 raise TypeError("Ollama response content is not text")
             return content
-        except REQUEST_FAILURES as error:
+        except _REQUEST_FAILURES as error:
             raise _as_provider_error(error) from error
 
     def stream(
@@ -426,7 +369,7 @@ class OllamaChatTransport:
             ):
                 if part.message.content:
                     yield part.message.content
-        except REQUEST_FAILURES as error:
+        except _REQUEST_FAILURES as error:
             raise _as_provider_error(error) from error
 
     def complete_with_tools(
@@ -486,7 +429,7 @@ class OllamaChatTransport:
                     think=think,
                 )
             )
-        except REQUEST_FAILURES as error:
+        except _REQUEST_FAILURES as error:
             raise _as_provider_error(error) from error
         message = response.message
         calls = tuple(
