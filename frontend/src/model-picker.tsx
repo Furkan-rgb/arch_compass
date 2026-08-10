@@ -251,12 +251,25 @@ export function ModelChip({ workspace }: { workspace: WorkspaceSummary | undefin
           unfilled required field is exactly that. Not the danger hue: nothing is wrong yet,
           and spending the verdict colour on an unanswered question would leave nothing left
           to say with when a run against the chosen model actually fails. */}
-      <span
-        className={cn(
-          "size-1.5 flex-none rounded-full",
-          !chosen ? "bg-primary" : failing ? "bg-danger" : "bg-cleared",
-        )}
-      />
+      <span className="relative flex size-1.5 flex-none">
+        {/* The ping is the affordance turned up one notch: an unfilled required field is
+            the one chip state that wants to be noticed before it is looked for. Tailwind's
+            own notification-dot idiom — a ghost of the dot scaling outward behind it —
+            and only here: a pulse on the chosen or failing dot would nag about a state
+            the label already tells. Reduced motion drops the echo and keeps the dot. */}
+        {!chosen && workspace ? (
+          <span
+            aria-hidden
+            className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75 motion-reduce:hidden"
+          />
+        ) : null}
+        <span
+          className={cn(
+            "relative inline-flex size-1.5 rounded-full",
+            !chosen ? "bg-primary" : failing ? "bg-danger" : "bg-cleared",
+          )}
+        />
+      </span>
       <span className="overflow-hidden text-ellipsis whitespace-nowrap">{label}</span>
       {/* The static half of the affordance, and the load-bearing half. Hover only tells
           someone already reaching for it; this says it opens something before they do. */}
