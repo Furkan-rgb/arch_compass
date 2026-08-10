@@ -24,6 +24,9 @@ from archcompass.adapters.models import (
 from archcompass.adapters.models import (
     ollama as ollama_models,
 )
+from archcompass.adapters.models import (
+    ollama_cloud as ollama_cloud_models,
+)
 from archcompass.adapters.persistence import (
     SQLiteAtlasRepository,
     SQLiteBoundaryLineRepository,
@@ -377,9 +380,14 @@ def initialize_workspace(
 #: `"ollama" | "google" | "fake"` are three things that drift. It is also where the
 #: descriptors are type-checked: probes are plain functions held by name, so this is the one
 #: place their signatures have to agree with the port.
+#:
+#: The order is the chooser's order, so it is the order in which a reader meets these. Ollama's
+#: cloud comes first because it is the one provider a visitor can reach without installing or
+#: running anything; the local server follows, appearing only when there is one.
 _ALL_PROVIDERS: Final[dict[str, ProviderDescriptor]] = {
     descriptor.name: descriptor
     for descriptor in (
+        ollama_cloud_models.DESCRIPTOR,
         ollama_models.DESCRIPTOR,
         google_models.DESCRIPTOR,
         deterministic_models.DESCRIPTOR,
