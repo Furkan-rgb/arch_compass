@@ -8,11 +8,14 @@ from typing import Annotated
 
 import typer
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
-from archcompass.application.ci import FailOn
-from archcompass.application.ci_rendering import render_ci_comment, render_ci_summary
-from archcompass.application.review_rendering import render_review
+from archcompass.application.core_ci import CleanBreakCiRun, FailOn
+from archcompass.application.retrieval_evaluation import (
+    RetrievalExample,
+    choose_smallest_passing_k,
+)
+from archcompass.application.review_workflow import SubmittedAnswer
 from archcompass.application.safety import (
     validate_repository_directory,
 )
@@ -20,14 +23,23 @@ from archcompass.bootstrap import (
     Runtime,
     build_runtime,
     pinned_model,
+    workspace_epoch_service,
 )
 from archcompass.bootstrap import (
     initialize_workspace as initialize_workspace_runtime,
 )
 from archcompass.configuration import ReasoningModelConfig
-from archcompass.domain.case import ArchitectureCase, CaseUpdate
+from archcompass.domain.core import (
+    AnswerStatus,
+    ArchitectureCase,
+    CaseConstraint,
+    CaseDecision,
+    PolicyContext,
+    Review,
+)
+from archcompass.domain.core.repository import DEFAULT_BRANCH_NAME
 from archcompass.domain.errors import ArchCompassError
-from archcompass.domain.lineage import DEFAULT_BRANCH_NAME
+from archcompass.ports.review_conversation import ReviewConversation
 
 app = typer.Typer(
     name="archcompass",
@@ -40,12 +52,106 @@ repo_app = typer.Typer(help="Index a Python repository.")
 atlas_app = typer.Typer(help="Query repository atlases.")
 case_app = typer.Typer(help="Create and revise architecture cases.")
 reviews_app = typer.Typer(help="Inspect immutable boundary reviews.")
+workspace_app = typer.Typer(help="Inspect or explicitly replace workspace storage.")
+retrieval_app = typer.Typer(help="Evaluate and approve policy retriever configurations.")
 app.add_typer(policies_app, name="policies")
 policies_app.add_typer(policy_sources_app, name="sources")
 app.add_typer(repo_app, name="repo")
 app.add_typer(atlas_app, name="atlas")
 app.add_typer(case_app, name="case")
 app.add_typer(reviews_app, name="reviews")
+app.add_typer(workspace_app, name="workspace")
+app.add_typer(retrieval_app, name="retrieval")
+
+
+@workspace_app.command("export-legacy")
+def export_legacy_workspace(context: typer.Context, destination: Path) -> None:
+    """Export the legacy SQLite database without modifying the workspace."""
+
+    exported = workspace_epoch_service(_state(context).workspace).export_legacy(destination)
+    typer.echo(f"Legacy database exported to {exported}")
+
+
+@workspace_app.command("reset")
+def reset_workspace(context: typer.Context) -> None:
+    """Explicitly start the clean-break epoch, archiving legacy state first."""
+
+    archive = workspace_epoch_service(_state(context).workspace).reset()
+    if archive is None:
+        typer.echo("Clean-break workspace storage is ready.")
+    else:
+        typer.echo(f"Legacy state archived at {archive}")
+
+
+class RetrievalExampleFile(BaseModel):
+    pattern: str
+    expected_policy_ids: list[str]
+    selected_policy_ids: list[str]
+    required_policy_ids: list[str] = Field(default_factory=lambda: list[str]())
+    scoped_policy_ids: list[str] = Field(default_factory=lambda: list[str]())
+    reference_material: bool | None = None
+    retrieved_material: bool | None = None
+
+    def as_example(self) -> RetrievalExample:
+        return RetrievalExample(
+            self.pattern,
+            frozenset(self.expected_policy_ids),
+            tuple(self.selected_policy_ids),
+            frozenset(self.required_policy_ids),
+            frozenset(self.scoped_policy_ids),
+            self.reference_material,
+            self.retrieved_material,
+        )
+
+
+class RetrievalEvaluationFile(BaseModel):
+    embedding_identity: str
+    results: dict[int, list[RetrievalExampleFile]]
+
+
+class CaseWriteFile(BaseModel):
+    goal: str = ""
+    constraints: list[CaseConstraint] = Field(
+        default_factory=lambda: list[CaseConstraint]()
+    )
+    decisions: list[CaseDecision] = Field(
+        default_factory=lambda: list[CaseDecision]()
+    )
+    policy_context: PolicyContext = PolicyContext()
+
+
+class CaseUpdateFile(BaseModel):
+    goal: str | None = None
+    constraints: list[CaseConstraint] | None = None
+    decisions: list[CaseDecision] | None = None
+    policy_context: PolicyContext | None = None
+
+
+@retrieval_app.command("approve")
+def approve_retriever(
+    context: typer.Context,
+    source: Annotated[Path, typer.Option("--from", exists=True, dir_okay=False)],
+) -> None:
+    """Select and approve the smallest passing K from recorded reference runs."""
+
+    document = RetrievalEvaluationFile.model_validate(_read_yaml(source))
+    top_k, evaluation = choose_smallest_passing_k(
+        lambda candidate_k: tuple(
+            item.as_example() for item in document.results.get(candidate_k, [])
+        )
+    )
+    runtime = _state(context).runtime
+    runtime.retrieval_approval_repository.approve(
+        embedding_identity=document.embedding_identity,
+        retriever="dense-scoped",
+        version="1",
+        top_k=top_k,
+        evaluation=evaluation,
+    )
+    typer.echo(
+        f"Approved dense-scoped:1 for {document.embedding_identity} at K={top_k} "
+        f"(macro recall {evaluation.macro_recall:.3f})."
+    )
 
 
 class CLIState:
@@ -188,9 +294,8 @@ def web(
     )
 
 
-# No `rebuild`. Policies are read from their sources whenever they are asked for, so there
-# is no index to bring up to date and a command to do it would be a step that changes
-# nothing (ADR 0013). Editing a policy on disk is enough.
+# No manual `rebuild`. Policies are read from their sources whenever requested, and the
+# selected retriever updates its content-hashed derived index incrementally.
 
 
 @policies_app.command("list")
@@ -289,15 +394,19 @@ def case_create(
     context: typer.Context,
     source: Annotated[Path, typer.Option("--from", help="ArchitectureCase YAML file.")],
 ) -> None:
-    case = ArchitectureCase.model_validate(_read_yaml(source))
-    revision = _state(context).runtime.case_service.create(case)
-    typer.echo(revision.model_dump_json(indent=2))
+    request = CaseWriteFile.model_validate(_read_yaml(source))
+    case = _state(context).runtime.case_service.create(
+        goal=request.goal,
+        constraints=tuple(request.constraints),
+        decisions=tuple(request.decisions),
+        policy_context=request.policy_context,
+    )
+    typer.echo(_case_json(case))
 
 
 @case_app.command("show")
 def case_show(context: typer.Context, case_id: str) -> None:
-    revision = _state(context).runtime.case_service.show(case_id)
-    typer.echo(revision.model_dump_json(indent=2))
+    typer.echo(_case_json(_state(context).runtime.case_service.show(case_id)))
 
 
 @case_app.command("update")
@@ -306,9 +415,15 @@ def case_update(
     case_id: str,
     source: Annotated[Path, typer.Option("--from", help="Partial case update YAML file.")],
 ) -> None:
-    update = CaseUpdate.model_validate(_read_yaml(source))
-    revision = _state(context).runtime.case_service.update(case_id, update)
-    typer.echo(revision.model_dump_json(indent=2))
+    update = CaseUpdateFile.model_validate(_read_yaml(source))
+    case = _state(context).runtime.case_service.revise(
+        case_id,
+        goal=update.goal,
+        constraints=None if update.constraints is None else tuple(update.constraints),
+        decisions=None if update.decisions is None else tuple(update.decisions),
+        policy_context=update.policy_context,
+    )
+    typer.echo(_case_json(case))
 
 
 @case_app.command("history")
@@ -316,10 +431,20 @@ def case_history(context: typer.Context, case_id: str) -> None:
     revisions = _state(context).runtime.case_service.history(case_id)
     typer.echo(
         json.dumps(
-            [revision.model_dump(mode="json") for revision in revisions],
+            [_case_document(item) for item in revisions],
             indent=2,
         )
     )
+
+
+def _case_json(case: ArchitectureCase) -> str:
+    return json.dumps(_case_document(case), indent=2)
+
+
+def _case_document(case: ArchitectureCase) -> dict[str, object]:
+    document = TypeAdapter(ArchitectureCase).dump_python(case, mode="json")
+    case_id = document.pop("id")
+    return {"case_id": case_id, **document}
 
 
 @app.command("review")
@@ -330,16 +455,6 @@ def review(
         Path,
         typer.Option("--repo", help="Repository whose indexed atlas should be reviewed."),
     ],
-    answers: Annotated[
-        str | None,
-        typer.Option(
-            "--answers",
-            help=(
-                "The review this run answers. Judges and concludes without asking again, "
-                "against the case revision your answers created."
-            ),
-        ),
-    ] = None,
     as_json: Annotated[
         bool, typer.Option("--json", help="Print the stored review instead of its Markdown.")
     ] = False,
@@ -347,22 +462,58 @@ def review(
     """Judge every boundary the detector finds in a repository against one case."""
 
     state = _state(context)
-    stored = state.runtime_for_repository(repo).review_service.review(
-        case_id,
-        repository_root=repo,
-        elicited_from=answers,
+    runtime = state.runtime_for_repository(repo)
+    try:
+        repository_id, branch_id = runtime.atlas_service.repository_identity(repo)
+    except ArchCompassError as error:
+        raise typer.BadParameter(str(error)) from error
+    stored = runtime.review_workflow_service.start(
+        repository_id=repository_id,
+        branch_id=branch_id,
+        case_id=case_id,
     )
-    typer.echo(stored.model_dump_json(indent=2) if as_json else render_review(stored))
-    # A run that stopped to ask has to say what closes it, or the questions read as a report
-    # that happens to end in a list. The two steps are the same ones the page walks: the
-    # answer becomes a revision of the case, then the boundaries are judged again against it.
-    if stored.awaiting_answers and not as_json:
+    typer.echo(
+        TypeAdapter(Review).dump_json(stored, indent=2).decode()
+        if as_json
+        else stored.markdown_report
+    )
+    if stored.status.value == "awaiting_answers" and not as_json:
         typer.echo(
-            f"\nThis review is waiting on answers. Write each into the field its question "
-            f"names, apply them with `archcompass case update {case_id} --from answers.yaml`, "
-            f"then carry the review on with `archcompass review {case_id} --repo {repo} "
-            f"--answers {stored.review_id}`."
+            "\nThis review is waiting on answers. Resume it with "
+            f"`archcompass reviews answer {stored.id} --from answers.yaml`."
         )
+
+
+class CLIAnswer(BaseModel):
+    question_id: str = Field(min_length=1)
+    status: AnswerStatus
+    value: str | None = None
+    actor: str = "user"
+
+
+class CLIAnswerRound(BaseModel):
+    answers: list[CLIAnswer] = Field(default_factory=lambda: list[CLIAnswer]())
+    stop: bool = False
+
+
+@reviews_app.command("answer")
+def review_answer(
+    context: typer.Context,
+    review_id: str,
+    source: Annotated[Path, typer.Option("--from", exists=True, dir_okay=False)],
+) -> None:
+    """Record answers and skips, then resume the review's graph thread."""
+
+    payload = CLIAnswerRound.model_validate(_read_yaml(source))
+    review = _state(context).runtime.review_workflow_service.resume(
+        review_id,
+        tuple(
+            SubmittedAnswer(item.question_id, item.status, item.value, item.actor)
+            for item in payload.answers
+        ),
+        stop=payload.stop,
+    )
+    typer.echo(TypeAdapter(Review).dump_json(review, indent=2).decode())
 
 
 @app.command("ci")
@@ -444,7 +595,7 @@ def ci(
     """
 
     state = _state(context)
-    document = state.runtime_for_repository(repo).ci_service.run(
+    document = state.runtime_for_repository(repo).core_ci_service.run(
         case_id,
         repository_root=repo,
         base_branch=base_branch,
@@ -453,20 +604,19 @@ def ci(
     )
     if comment_file is not None:
         comment_file.parent.mkdir(parents=True, exist_ok=True)
-        comment_file.write_text(
-            render_ci_comment(document, workspace_url=workspace_url),
-            encoding="utf-8",
-        )
+        comment_file.write_text(document.review.markdown_report or "", encoding="utf-8")
     typer.echo(
-        document.model_dump_json(indent=2) if as_json else render_ci_summary(document)
+        TypeAdapter(CleanBreakCiRun).dump_json(document, indent=2).decode()
+        if as_json
+        else (document.review.markdown_report or "No report was produced.")
     )
     raise typer.Exit(code=document.exit_code)
 
 
 @reviews_app.command("show")
 def review_show(context: typer.Context, review_id: str) -> None:
-    stored = _state(context).runtime.review_repository.get(review_id)
-    typer.echo(render_review(stored))
+    stored = _state(context).runtime.review_workflow_service.get(review_id)
+    typer.echo(stored.markdown_report or TypeAdapter(Review).dump_json(stored).decode())
 
 
 @reviews_app.command("ask")
@@ -480,11 +630,10 @@ def review_ask(
     service = _state(context).runtime.review_conversation_service
     existing = service.list(review_id)
     conversation = existing[0] if existing else service.create(review_id)
-    message = service.ask(conversation.conversation_id, question)
-    if message.answer is None:
-        raise RuntimeError(message.failure)
-    typer.echo(message.answer.answer)
-    grounding = message.answer.supporting_references
+    conversation = service.ask(conversation.id, question)
+    message = conversation.messages[-1]
+    typer.echo(message.answer.text)
+    grounding = message.answer.supporting_candidate_ids
     typer.echo("")
     typer.echo(
         f"Grounded on {', '.join(grounding)}"
@@ -497,7 +646,9 @@ def review_ask(
 def review_history(context: typer.Context, review_id: str) -> None:
     conversations = _state(context).runtime.review_conversation_service.list(review_id)
     typer.echo(
-        json.dumps([item.model_dump(mode="json") for item in conversations], indent=2)
+        TypeAdapter(tuple[ReviewConversation, ...])
+        .dump_json(conversations, indent=2)
+        .decode()
     )
 
 
@@ -506,10 +657,8 @@ def review_list(
     context: typer.Context,
     case: Annotated[str | None, typer.Option("--case", help="Filter by case ID.")] = None,
 ) -> None:
-    summaries = _state(context).runtime.review_repository.list(case_id=case)
-    typer.echo(
-        json.dumps([item.model_dump(mode="json") for item in summaries], indent=2)
-    )
+    summaries = _state(context).runtime.review_workflow_service.list(case_id=case)
+    typer.echo(TypeAdapter(tuple[Review, ...]).dump_json(summaries, indent=2).decode())
 
 
 def _state(context: typer.Context) -> CLIState:

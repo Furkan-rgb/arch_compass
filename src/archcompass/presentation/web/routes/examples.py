@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from archcompass.domain.atlas import AtlasVersion
+from archcompass.boundary.atlas import AtlasVersion
 from archcompass.presentation.web.dependencies import RuntimeDep, SerialisesIndexing
 from archcompass.presentation.web.schemas import APIModel, problem_responses
 

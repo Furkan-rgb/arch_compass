@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.adapters.persistence.stored_records import decode_stored_json
+from archcompass.boundary.lineage import BranchLineage, RepositoryLineage
 from archcompass.domain.errors import PersistenceError
-from archcompass.domain.lineage import BranchLineage, RepositoryLineage
 
 _REPOSITORY_REMEDY = (
     "A lineage is derived from the repository itself, so re-indexing the repository "

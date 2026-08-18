@@ -1,494 +1,62 @@
 # Architecture
 
-> A rendered whole-system tour — layers, the review spine, the evidence doctrine, the
-> fingerprint algebra, deployment modes, and an honest ledger of what is half-built —
-> lives at [`system-tour.html`](system-tour.html) (open it in a browser). It is a dated
-> snapshot read from the code, not a living document: regenerate it when it drifts.
+ArchCompass separates product concepts, application capabilities, workflow, and
+infrastructure.
 
-> The rules this codebase holds itself to — where each is stated and what enforces it, or
-> that nothing does — are indexed in [`conventions.md`](conventions.md).
-
-This file carries two things: the settled reference (dependency direction and information
-flow, further down), and — first — whatever is currently *under discussion*. The working
-rule: when a flow feels wrong, the reasoning lands here before any code changes. What is
-actually happening, why, and the options — discussed, then decided with a dated note.
-Superseded thinking stays visible rather than being rewritten away.
-
-## Under discussion: the subsequent-review flow, and what the product is organised around
-*(opened 2026-08-05 — nothing in this section is decided)*
-
-### The flow as built
-
-- A **run** starts from a case, an atlas of the repository, and the policy corpus. It
-  detects boundaries, judges each one, and then either **asks** (first pass, when verdicts
-  rest on unstated things → `awaiting_answers`) or **concludes** (second pass, or a first
-  pass with nothing to ask). Answers append a case revision; the second pass judges
-  against it. Reviews are immutable documents; the listing folds a run's passes into one
-  row.
-- **Identity ladder:** `repo_id` from the root commit (path hash when the folder is not a
-  git root) → `branch_id` → `boundary_fingerprint` (pattern + sorted participants), which
-  is what baselines, standing decisions, and the verdict cache all key on.
-- **Verdict cache:** key = boundary fingerprint + policy corpus fingerprint + **case_id +
-  case revision** + model + prompt. Hit → the verdict is carried verbatim.
-- **Baseline:** per branch, per fingerprint. Disposition in a new run: `new` (not in the
-  baseline), `changed` (**the material flag differs from the baselined one**), `known`.
-- **Cases:** every run started from the start step creates a **fresh case with a random
-  id** (`new_id("case")`) — including a re-run of the same repository or example.
-
-### What stays
-
-The per-boundary **standing decision** — accept / waive / park, with its append-only
-discussion, attached to (branch, boundary fingerprint) and never influencing verdicts —
-is the keeper. Whatever the flow becomes, decisions and their threads must survive it
-unchanged.
-
-### The two symptoms, traced
-
-**"It asks the same questions again."** A fresh case is empty, so elicitation sees the
-same unstated things. The answers given last run exist — on the previous run's case,
-which nothing connects to the new one.
-
-**"Something turns to `changed` without any code change."** Two causes stacking:
-
-1. The fresh `case_id` defeats the verdict cache — its key includes `case_id`, so a
-   re-run from the UI re-judges every boundary even when repository, policies, case
-   content, model and prompt are all identical.
-2. A re-judge is sampling a model, and judgements are not deterministic: a material flag
-   can flip with nothing having moved. The baseline cannot tell that flip from a real one
-   because **disposition is keyed on the verdict (an output), while the reader hears
-   "changed" as a statement about the inputs** (the code, the answers, the policies).
-
-Cause 1 is mechanical. Cause 2 is the architectural question, and it survives any fix to
-cause 1: it recurs whenever a *legitimate* re-judge happens (a policy edited, an answer
-added, a model upgraded).
-
-> **Note (2026-08-10).** Cause 1 is fixed in the code. `case_id` has left the verdict-cache
-> key and a **case fingerprint** — a hash of what the case *says* — has taken its place,
-> beside the revision number (`domain/verdict_cache.py`, migration 025). A random id in the
-> key had exactly one remaining effect once every visit stopped minting a fresh case, which
-> was to miss on everything for no reason anybody could name. Answering a question still
-> moves the fingerprint and re-judges the lot, which is what the second pass is for; a
-> deliberate "start clean" is a different case and gets its own judgements rather than
-> silently inheriting the conversation it was asked to leave. The "Verdict cache" and
-> "Baseline" bullets under *The flow as built* describe the flow as it was on 2026-08-05 and
-> no longer describe the code.
-
-### The question to settle first
-
-> Is a verdict allowed to change when none of its inputs changed?
-
-A verdict's inputs are the cache key minus the case-identity accident: the boundary's
-shape, the policy corpus, what the case says, the model, the prompt. If **no**: the cache
-stops being an optimisation and becomes the **authority** — an unchanged question keeps
-its answered verdict, re-judging happens only when an input moved, and every `changed`
-can name the input that moved it. If **yes** (fresh judgement is a feature): instability
-must become a visible category of its own — "the verdict moved, nothing else did" — and
-must never wear the same word as a code change.
-
-### The grouping question
-
-The UI grew review-first: `/reviews` is the front page of results, and repositories were
-retrofitted as sections around the rows. But the durable objects are attached to the
-**repository and its branch** — baseline, standing decisions, the verdict history, and
-(if continuity wins above) the case itself. That suggests a repository-first shape:
-
-- A **repositories** surface: one entry per code base ArchCompass knows, named the way
-  the user names it (folder or git remote), branch visible only when real.
-- A **repository page** owning what belongs to the repo: its runs (newest first), its
-  baseline and what's unresolved against it, its standing decisions, its case.
-- A run's page stays what it is; `/reviews` as a flat cross-repo history either goes or
-  demotes to an archive view.
-
-How the user wants to *say* which code base a run is about (pick a folder, paste a git
-URL, re-pick a known repo in one click) is part of the same question — the start step and
-the grouping should agree on what a "repository" is.
-
-### Directions to weigh (they compose)
-
-- **A. Case continuity** — a re-run continues the repository's newest case (answers
-  included); "start clean" is explicit. Fixes re-asking directly and most of symptom 2 by
-  side effect (same case + revision → cache hits). *Built speculatively on branch
-  `w1-case-continuity`, deliberately unmerged pending this discussion.*
-- **B. The case belongs to the repository/branch outright** — the first-class version of
-  A: one living case per (repo, branch), runs pin its revisions, the start step edits
-  rather than creates it.
-- **C. Verdicts move only when inputs move** — replace `case_id` in the cache key with a
-  fingerprint of what the case says; carry-through becomes the rule; the re-judge
-  triggers are named explicitly (content, corpus, answers, model, or a person pressing
-  "re-judge").
-- **D. Split what `changed` can mean** — *code changed* / *answers changed* / *verdict
-  moved, nothing changed*; the last surfaced as instability, never as a red CHANGED chip,
-  and never blocking CI.
-- **E. Agreement before a flip counts** — where a genuine re-judge happens, a material
-  flip needs a second sample to agree before it earns `changed` (n=1 is not a
-  measurement).
-- **F. Repository-first UI** — the grouping question above, made the navigation model.
-
-### The shape the user described (2026-08-05, later the same day)
-
-Settled in intent, not yet in mechanics:
-
-- **Every code base is a git repository.** Reviewing a bare folder stays possible but is
-  the degraded case, not a peer; pasting an address is a first-class way in (shipped:
-  `POST /api/repositories/checkout` + the start-page picker).
-- **Repository → branch → one living review.** The repository is the parent section.
-  Each branch is its own scope — its own baseline, standing decisions, case. A branch has
-  *one* review with numbered **revisions**: a new run appends a revision, the review page
-  offers a revision picker with a `latest` tag, and older revisions stay readable. (This
-  is directions B + F; it also dissolves the reviews-page grouping question — the page
-  becomes repositories, each holding branches, each holding one review.)
-
-The named hard part: **keeping a line through revisions while the code itself changes** —
-baselines and accept/waive/park decisions must follow a boundary across runs, but a
-boundary is identified by its fingerprint (pattern + participant names), and code changes
-can move, rename, or dissolve the participants.
-
-**Three layers, worth separating, because they change at different speeds:**
-
-1. the **question** — "does this boundary earn its place?", identified by fingerprint;
-2. the **verdict** — what the model said about it in one revision;
-3. the **standing** — what the team decided about it (accept / waive / park), which today
-   survives runs via (branch, fingerprint) and must keep surviving.
-
-The exact fingerprint already carries layers 1 and 3 perfectly while the participants are
-untouched — most revisions, most boundaries. It breaks in exactly two ways, and each has
-an honest answer:
-
-- **Renamed or reshaped, still the same question.** A participant renamed → new
-  fingerprint → the standing silently orphans and the boundary reads as NEW. Proposal:
-  **succession matching** at revision time, like git's rename detection — a disappeared
-  fingerprint and an appeared one with the same pattern and majority-overlapping
-  participants are declared successor and predecessor. The standing carries across
-  wearing a visible mark ("carried across a change — still holds?"), never silently; the
-  succession edge is recorded so the line is auditable.
-- **Gone, with no successor.** Today it just vanishes from the run, which wastes the best
-  news the tool can deliver. Proposal: the revision diff reports it as **addressed** —
-  the user's word, and the right one: a material boundary that no longer exists after a
-  code change is the loop closing. `addressed` becomes a terminal state on the standing's
-  line (alongside accept/waive/park, which stay exactly as they are); its discussion
-  thread is archived with it rather than deleted.
-
-So a revision's report against the previous one partitions every boundary into:
-**same** (fingerprint match — everything carries silently) · **succeeded** (carried with
-a mark) · **addressed** (gone, celebrated, line closed) · **new**. That partition — not
-the raw verdict list — is what a revision is *about*, and what CI should speak in.
-
-Sub-questions this opens:
-
-- Does succession need a human confirm, or is majority-participant-overlap safe enough
-  with the visible mark as the safety valve? (Lean: auto-carry with the mark; a wrong
-  carry is one click to undo, a missed carry is a silently lost decision.)
-- Is `addressed` automatic when no successor matches, or offered for confirmation when
-  the vanished boundary carried an open material verdict?
-- Baseline mechanics under the new shape: does the explicit "baseline this review" button
-  survive, or does adopting revision N's partition become the act that closes it?
-
-### Decisions (2026-08-05)
-
-Reasoned from the goal, which is worth stating once: **ArchCompass keeps an architectural
-line on a code base.** Each revision should tell the team only what deserves attention;
-everything already handled stays quiet; and every quiet row is quiet for a reason someone
-can point to. The analogue is a test suite's green — green because every case passes, not
-because someone pressed a button that declared the current output fine.
-
-1. **One field for the project** *(decided, shipped)*: the start step's "Add a
-   repository" line recognises what it holds — a path walks, an address is fetched. The
-   reader never says which one they pasted.
-2. **Succession auto-carries, visibly** *(decided)*: a renamed/reshaped boundary carries
-   its standing across with the "carried across a change — still holds?" mark. No
-   confirmation gate; the mark is the safety valve.
-3. **`addressed` is automatic, loud, and resurrectable** *(decided here — the user was
-   unsure, this is the call and the reasoning)*: when a boundary vanishes with no
-   successor, the revision reports it as addressed without asking. A confirmation would
-   ask the reader to do bookkeeping the tool can do, and offers no protection the design
-   doesn't already have: succession matching runs first, the closure is *reported*
-   prominently rather than buried, and if the same fingerprint ever reappears its
-   standing and discussion **resurface automatically** with their history ("addressed in
-   rev 5, back in rev 9") instead of starting blank. Nothing can be silently lost, so
-   there is nothing to confirm. That resurrection rule is the real protection and is part
-   of the decision.
-4. **The baseline dies as an object** *(decided)*: standing decisions are the memory.
-   A boundary is quiet because the model cleared it, or because a person decided it
-   (accept / waive / park); **needs attention = material + undecided**. The bulk act
-   survives as bulk *decide* (select all → accept), which reaches the same quiet with an
-   author and a record — no button that silences boundaries nobody looked at.
-   Consequences: `branch_baselines` and the "Baseline this review" button are superseded;
-   the new/changed/known partition is replaced by the revision partition below; existing
-   baseline rows in dev workspaces are dropped, not migrated.
-5. **A revision's report speaks the partition**: **attention** (new, or *reopened* — a
-   decided boundary whose verdict or shape moved since the decision, generalising
-   `taken_on_current_verdict`) · **quiet** (decided, or cleared and uncontested) ·
-   **succeeded** (carried, marked) · **addressed**. CI blocks on material + undecided —
-   `changed` as a blocking category disappears along with the baseline.
-
-Still open: questions 2 (verdict stability — the standing lean is C: verdicts move only
-when inputs move, which case continuity mostly delivers) and 5 (model upgrades), plus the
-implementation order for the repository → branch → revisions restructure.
-
-### The iterative model, consolidated (2026-08-05, third round)
-
-The user named the centre: **the ArchitectureCase — composed through questions, iterated
-on — is the backbone of context throughout.** That settles open question 1: the case
-belongs to the **branch**, living; a revision pins the case revision it judged against.
-
-**The delta-review rule** *(decided in intent)*: a new revision re-analyses the code and
-then judges only the delta. A boundary whose inputs are unchanged is **not re-reviewed** —
-its verdict, standing, and silence all carry. A boundary that changed (or appeared) is
-judged, and only such a boundary may earn a question. Questions therefore only ever ask
-about what moved; the answers accrete into the case; re-asking a settled thing becomes
-structurally impossible rather than merely cached away. This *is* direction C adopted:
-verdicts move only when inputs move. It also independently re-derives decision 4 — with
-quiet meaning "carried or decided", the baseline button has no job.
-
-Two sharpenings the rule needs to be honest *(proposed)*:
-
-- **"Changed" has a content dimension.** A boundary's identity is its shape (the
-  fingerprint), but its *inputs* must include a content fingerprint of the participants'
-  source. Same shape + same content + same case/corpus/model → carried without a model
-  call. Same shape, content moved → re-judged (a question possible). Shape moved →
-  succession matching, then judged. Without the content term, a rewrite that keeps names
-  would carry a stale verdict for ever — the current cache key has exactly this gap.
-- **A branch reads through to its base.** A fully isolated branch scope would make every
-  boundary NEW on a fresh feature branch, and PR CI would block on history the team
-  settled on main long ago. A branch inherits its base branch's standings and case where
-  it has none of its own, diverging only where it explicitly decides differently — so a
-  PR revision says only "this branch changed these boundaries".
-
-**UI consequences** *(agreed direction)*:
-
-- The branch's review page gains **"New revision"**: refresh the checkout when managed,
-  re-index, judge the delta, ask only about the delta. The start step's job shrinks to
-  *adding* repositories.
-- The review page gains a **branch dropdown** — each branch is its own scope (revisions,
-  case, standings), and the dropdown switches which scope is on show.
-- The revision picker with its `latest` tag, per the shape already recorded above.
-
-### Open questions
-
-1. Who owns the case — the run, the repository, or the branch?
-2. Is a verdict allowed to move when no input moved? (Answer this first; C and D follow
-   from it.)
-3. What should block in CI? Today: new + material + no hinge + no decision. Should a
-   `changed` that traces to model instability ever block?
-4. Elicitation: asked once per repository (questions belong to the case), or does a
-   deliberate "start clean" earn fresh questions?
-5. When a model upgrade re-judges the world, what happens to the baseline — silent
-   re-partition, or an explicit "the model changed" adoption step?
-6. What does the repository page show as its headline: the latest run's verdicts, or the
-   standing state (baseline + decisions) with runs as evidence beneath it?
-
-> **Note (2026-08-10).** Four of these have since been answered by shipped code, and the
-> answers are recorded here rather than by striking the questions out.
->
-> - **1 — the branch owns the case.** `CaseService.continue_from_repository` walks the branch
->   chain and carries on with the case the branch's latest review used, starting a fresh one
->   only where the chain has nothing behind it. A revision pins the case revision it judged.
-> - **2 — no.** The delta rule shipped: a boundary whose inputs identity is unchanged carries
->   its verdict, its standing and its silence with no model call, and only a boundary that was
->   judged may earn a question (`domain/delta.py`, `application/reviews.py`). Direction C, as
->   the consolidated round leaned.
-> - **4 — once per living case, and a start-clean earns fresh questions.** Both fall out of
->   2: answers accrete into the branch's case, and a deliberately new case is a different case
->   fingerprint, so it misses the cache and is asked about properly.
-> - **5 — moot for the baseline half.** There is no baseline to re-partition; a model upgrade
->   changes the model identity in the cache key, so the world is re-judged and every row can
->   name the input that moved it. Whether an upgrade deserves an announcement of its own is
->   still open.
->
-> Questions 3 and 6 remain open, though both have shrunk: `changed` is no longer a category
-> anywhere (CI blocks on material + undecided, `application/ci.py`), and there is no baseline
-> to put in a headline.
-
----
-
-## Dependency direction
-
-The domain contains validated application data, explicit errors, and pure derivations over
-that data. Ports describe persistence, repository analysis, source/freshness checks,
-retrieval, and reasoning. Application services depend on domain contracts and cohesive
-ports. Adapters implement ports. The CLI and the local web adapter are thin presentation
-adapters. `bootstrap.py` is the composition root and the only module that chooses providers.
-
-```mermaid
-flowchart LR
-    PRESENTATION[Typer CLI / local FastAPI + React] --> BOOT[Composition root]
-    PRESENTATION --> APP[Application services]
-    APP --> DOMAIN[Domain models]
-    APP --> PORTS[Ports]
-    ADAPTERS[SQLite / AST / Ollama / Google adapters] --> PORTS
-    ADAPTERS --> DOMAIN
-    BOOT --> APP
-    BOOT --> ADAPTERS
+```text
+FastAPI / CLI / React
+        |
+        v
+application capabilities <---- workflow/graph.py
+        |
+        v
+stdlib dataclass domain
+        ^
+        |
+SQLite / LangChain / deterministic analysis / policy retrieval
 ```
 
-The domain, application, and port packages do not import Typer, HTTPX, SQLite, or adapter
-implementations. Structural tests enforce this boundary and ensure CLI commands use application
-services instead of concrete repositories, analyzers, or stores.
+The governing rule is:
+
+> LangGraph owns workflow orchestration. LangChain supplies model and retrieval
+> infrastructure. ArchCompass owns the domain.
 
 ## Responsibilities
 
-- Domain: immutable schemas, IDs, classifications, source locations, errors — and the
-  finding detectors, which are pure functions over an `Atlas`. They sit beside
-  `atlas_metrics` rather than behind a port, because a port here would be an interface with
-  a single implementation hiding nothing: the shape they exist to report.
-- Application: case operations, the boundary-review service, review conversations, bundled
-  examples, repository indexing, atlas queries, policy sources, workspace initialization,
-  safety, and Markdown rendering.
-- Ports: narrow reasoning, atlas/source/freshness, policy and persistence interfaces.
-- Persistence adapters: connection lifecycle, migrations, immutable reviews and revisions.
-- Analysis adapters: one-snapshot Python parsing, graph metrics, safe source reads, and
-  deterministic typed queries. Named `adapters/analysis` rather than `adapters/repository`,
-  which collided with the persistence sense of "repository" used by the ports.
-- Retrieval adapters: policy parsing and chunking. Embeddings and vector search remain built
-  and unused: the review path presents the whole corpus and retrieves nothing.
-- Model adapters: the two structured reasoning stages and the transports that carry them.
-- Presentation: input validation, application-service calls, output, and exit behavior only.
+- `domain/` contains frozen dataclasses, enums, typed identities, and invariants. It imports
+  only the standard library and other domain modules.
+- `application/` defines narrow capabilities and use cases. A capability describes an
+  ArchCompass operation without naming a framework.
+- `workflow/graph.py` declares review sequencing, fan-out, clarification branching,
+  interruption, and termination.
+- `workflow/nodes.py` contains thin adapters. Each node invokes one capability and does not
+  call downstream stages.
+- `adapters/analysis/` performs deterministic repository analysis and converts analyzer
+  records at the boundary.
+- `adapters/models/` uses LangChain chat models and Pydantic structured responses.
+- `adapters/retrieval/` implements policy-selection strategies and the vector index.
+- `adapters/persistence/` converts between immutable domain snapshots and SQLite records.
+- `presentation/` owns HTTP, CLI, and browser DTOs.
 
-The local web adapter adds no alternate domain path — FastAPI routes call the same
-application services as the CLI, and the React bundle consumes their JSON. A review runs
-synchronously inside its request: it is one model call per boundary against an
-already-indexed atlas, so there is no job queue and nothing to recover after an interrupted
-process.
+## Non-negotiable boundaries
 
-Reasoning stages are separated from model transport. `adapters/models/structured.py` owns
-every stage: what the model is told, which handles it may reference, how the response schema
-is narrowed, and the single repair round. A `ChatTransport` owns only what genuinely differs
-between vendors — request options, timeouts, retries, and translating a failure into
-`ProviderError`. `ollama.py` and `google.py` are transports; neither carries stage logic, so
-a prompt or schema change is made once. This is what the
-`separate-model-context-from-provider-transport` policy asks for.
+The model never chooses repository elements to inspect and never owns IDs, fingerprints,
+persistence keys, or human decisions. Repository analysis and candidate detection are
+deterministic. A `Finding` records ArchCompass's judgement; a `StandingDecision` separately
+records what people chose to do.
 
-Model transport is bounded and explicit. Before any request is sent, the shared stage layer
-estimates the serialized prompt plus the response schema against the context window and
-refuses with `PromptBudgetExceededError` when the request cannot fit, naming the stage and
-both sizes; Ollama would otherwise truncate from the front and discard the system prompt,
-producing degraded output that fails validation with no attributable cause. Gemini fails the
-same shape differently — it spends thinking tokens from the output allowance and can stop at
-`MAX_TOKENS` having emitted no JSON — so the Google transport reports that case by name
-instead of returning a truncated response. Transport
-failures that a later identical request might survive — timeouts, network and remote
-protocol errors, proxy errors, 408/429/5xx — are retried up to three times with
-exponential backoff. Configuration faults and structured-output failures are never
-retried; the single sanctioned schema-repair round remains the only second attempt at
-content. Stages are timed by class, with the single configured timeout as the fallback so
-a workspace written before the classes existed behaves identically.
+LangGraph checkpoint data is resumable execution state. It is not the domain history.
+Immutable `Review` snapshots are the audit record.
 
-Heavyweight or provider-specific behavior is constructed explicitly. Imports have no side effects.
-Each transport module exports a descriptor naming itself, its probe and its defaults; the
-composition root reads those and nothing else decides which providers exist. Workspace
-initialization copies no configuration, because there is none to copy.
+Policy selection is accessed only through `PolicyRetriever`. Dense similarity, lane names,
+authored priors, rerankers, and scores are implementation details, not domain concepts or
+workflow inputs.
 
-Review conversations use the same dependency direction and need far less machinery than
-the consultation conversations they replaced. A whole review serialises to roughly 25,000
-characters, so the service hands the pinned review, the history and the question to the
-stage; there is no cumulative ceiling to apply and no rolling summary to revise. A
-structural test enforces that `adapters/models` may not import the application package, so
-a model adapter cannot become the thing that decides what evidence an answer rests on —
-including the background described next, which the service assembles and passes in.
+## Composition
 
-Reasoning stages are named once by the `ReasoningTask` enum rather than by repeated string
-literals, and a test asserts the enum and the prompt registry are the same set, so a stage
-without a contract cannot reach a runtime `KeyError`.
+`bootstrap.py` is the composition root. It selects concrete analyzers, repositories,
+retrievers, models, and capability implementations, then builds the graph. Presentation
+code receives the composed runtime and does not instantiate infrastructure.
 
-`bootstrap.Runtime` names its dependencies by port, so nothing outside the composition root
-depends on a concrete SQLite, AST, or vector-store type.
-
-## Information flow
-
-Two stages exist, and the application decides the inputs to both.
-
-**Judging a candidate.** `domain/finding_detectors.py` derives candidates from an `Atlas`
-deterministically and completely — not sampled, not ranked. Each goes to the model with the
-case and the whole policy corpus. Policies are presented in a fixed order without their
-identifiers, and the reply returns one bearing per policy in that same order; identity is
-attached afterwards from the position. The response grammar fixes the array length to the
-policy count and the stage re-checks it after parsing, because a short reply would not lose
-one answer — it would shift every later answer onto the wrong policy and still validate.
-
-**A candidate carries its usage, and the code at every span of it.** The judging stage used
-to be sent metadata alone — names, paths, roles, a count — and was asked from it whether two
-copies of a constant state one fact or two, which is a question about who reads them.
-`application/usage_evidence.py` attaches the answer before anything is judged: the consumers
-of a duplicated constant, the dependants of a seam, as ordinary participants, capped, with
-the overflow stated as a measurement. `ReviewSourceService.for_candidate` then reads the code
-at every one of those spans, definitions widened upward over the comment block that touches
-them, and it goes into the judging payload as `source_evidence` (ADR 0017).
-
-The split §12.0 now embodies, stated once because it is easy to get wrong in either
-direction:
-
-- **Verdict evidence is application-chosen**, and this widens what the application chooses
-  rather than loosening who chooses. A detector picks the spans, the application reads them,
-  and the stage has no way to ask for a line that is not among them — which is what lets
-  somebody who was not there check the verdict.
-- **Investigating before speaking is model-driven and recorded.** Elicitation holds the
-  toolbox (`application/investigation.py`), and so do the two conversation stages, which have
-  the same defect for the same reason: a reader asking "where else is this used?" is asking
-  about the repository, and pinned excerpts cannot answer it. Every lookup travels with what
-  it produced — on the review for the questions, on the message for a turn — so a question or
-  an answer can be traced to what was asked of the repository and what came back. Only the
-  first turn of an elicitation is forced to look; a conversation turn is usually about text
-  already in front of it, and looking there is a judgement rather than a rule.
-- **A question-scoped discussion searches wide while its verdicts stay narrow**, which is not
-  a hole in §6C.7's scoping. That rule keeps a first pass's withheld verdicts out of the
-  input; a verdict is a judgement this run made and stored with the review, so no amount of
-  source text can leak one. The boundaries shown stay the ones the question cites; the
-  repository the lookups may reach is the reader's own code.
-- **Judging remains tool-free**, deliberately and with a test that says so. Showing a stage
-  code is the opposite of letting it go looking for code.
-
-**Answering a question about a review.** The whole review goes into every turn, about
-25,000 characters against an input budget near 490,000. There is no cumulative budget and
-no rolling summary, because the evidence fits. Boundaries are presented without their
-`BR-nnn` codes and the answer marks supporting ones by position.
-
-Alongside it goes *background*: the bundled method primer
-(`archcompass/knowledge/method.md`) and the whole policy corpus, so a reader can ask what a
-boundary is or what a policy argues rather than only what this review found. Evidence and
-background are different things and the separation is the point. The review is evidence —
-always present in full and the only thing that can ground an answer. Background says what
-the review's words *mean*, and is never citable.
-
-**Background is presented whole, not retrieved.** An sqlite-vec index over this corpus was
-built and measured before this was settled. Over 252 chunks and ten questions with known
-answers it scored 7/10 top-1 with `embeddinggemma` (768d) and 2/10 with the deterministic
-test embedder — and it missed the primer's own "what the detector cannot see" section when
-asked exactly that. The corpus is about 45,000 characters against an input budget near
-490,000, so it fits several times over and ranking only introduced a way to lose the passage
-that mattered. Retrieval earns its complexity when the evidence does not fit; here it does.
-
-The same measurement removed the policy index outright (ADR 0013). Nothing embeds, nothing
-ranks, and no workspace configures an embedding model: policies are read from their sources
-whenever they are asked for.
-
-A corpus that cannot be read is not a conversation failure: background degrades to the
-bundled primer alone and the question is still answered, rather than taking a working
-conversation off a person.
-
-Neither stage receives an `Atlas` aggregate, a repository root, or a complete source tree.
-
-Response field order is part of each contract. A structured-output model fills a schema in
-the order it is declared, so a conclusion declared before its reasoning is a conclusion
-reached before its reasoning: `rationale` precedes `material`, and `answer` precedes
-`supported_by`. This is not stylistic — declared the other way round, a live run returned
-`material: false` beside a rationale concluding that removing the abstraction would cost
-nothing, and both halves validated.
-
-The review path is deliberately short. `domain/finding_detectors.py` derives finding candidates from an `Atlas` — a pure
-function over domain data, beside `atlas_metrics` rather than behind a port, because a port
-here would be an interface with one implementation hiding nothing. `ReviewService`
-loads the case and the latest atlas, checks freshness, orders the whole policy corpus once,
-and calls the judgement stage once per candidate.
-
-That stage sends no policy identifier and reads none back. Policies are presented in the
-fixed order the application chose and the response returns one bearing per policy in the
-same order, so identity is attached by position; the response grammar fixes the array
-length to the policy count and the stage re-checks it after parsing, because a short reply
-would otherwise shift every later answer onto the wrong policy and still validate. Verdicts
-that find nothing material are kept and printed alongside the rest: a report showing only
-problems reads the same whether the advisor cleared every candidate or never looked.
-
-Nothing embeds and nothing ranks. Policies are an open corpus, but the whole of it fits in one
-request several times over, so every stage is shown every policy in a fixed application-chosen
-order and identity is attached by position — the paragraph above on background says why the
-index that used to sit here was measured and withdrawn.
+The architecture is enforced by tests that reject infrastructure imports from `domain/`
+and verify that graph nodes do not import one another.

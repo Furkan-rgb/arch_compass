@@ -13,7 +13,7 @@ docstring quietly becomes evidence for the wrong conclusion.
 
 from __future__ import annotations
 
-from archcompass.domain.atlas import (
+from archcompass.boundary.atlas import (
     Atlas,
     AtlasEdge,
     AtlasNode,
@@ -22,7 +22,7 @@ from archcompass.domain.atlas import (
     FindingPattern,
     NodeType,
 )
-from archcompass.domain.finding_detectors import (
+from archcompass.boundary.finding_detectors import (
     detect_finding_candidates,
     sole_implementation_candidates,
 )

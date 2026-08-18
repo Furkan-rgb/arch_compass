@@ -1,32 +1,27 @@
 """Where the policy corpus comes from, and what is in it.
 
-One truth about what policies exist, and it is the Markdown on disk. There used to be two:
-this service could answer from a built SQLite index or from the sources themselves, and the
-web read one while the CLI read the other — so the same workspace could report a different
-corpus depending on which you asked. The index existed for retrieval, retrieval is gone
-(ADR 0013), and what it left behind was a second answer to a question with one.
-
-Reading the sources on every call is affordable and is the point: the corpus is about 45,000
-characters, and a policy edited on disk is in the next review without a rebuild step
-standing between the two.
+Markdown sources are the authority for corpus content. Retrieval indexing is a derived,
+content-hashed concern behind `PolicyRetriever`; it never becomes a second policy catalog.
+A policy edited on disk is therefore visible to the next corpus read, while the retriever
+incrementally refreshes only the affected chunks.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from archcompass.domain.errors import (
-    PolicyConflictError,
-    PolicyFormatError,
-    PolicyNotFoundError,
-)
-from archcompass.domain.policy import (
+from archcompass.boundary.policy import (
     PolicyDocument,
     PolicyDraft,
     PolicyOrigin,
     PolicyScope,
     PolicySourceRegistration,
     policy_slug,
+)
+from archcompass.domain.errors import (
+    PolicyConflictError,
+    PolicyFormatError,
+    PolicyNotFoundError,
 )
 from archcompass.ports.policies import (
     PolicySourceInspector,

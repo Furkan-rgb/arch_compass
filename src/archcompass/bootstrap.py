@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
+
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 from archcompass.adapters.analysis import (
     UNLIMITED_ANALYSIS,
@@ -14,73 +18,90 @@ from archcompass.adapters.analysis import (
     PythonAstRepositoryAnalyzer,
     SafeSourceReader,
 )
-from archcompass.adapters.models import SelectedModelReasoner
-from archcompass.adapters.models import (
-    deterministic as deterministic_models,
+from archcompass.adapters.analysis.core_boundary import (
+    DataclassCandidateDetector,
+    DataclassRepositoryAnalyzer,
 )
-from archcompass.adapters.models import (
-    google as google_models,
+from archcompass.adapters.core_capabilities import DataclassPolicyCorpus, SQLiteContextLoader
+from archcompass.adapters.models.catalog import (
+    DETERMINISTIC_DESCRIPTOR,
+    GOOGLE_DESCRIPTOR,
+    OLLAMA_DESCRIPTOR,
 )
-from archcompass.adapters.models import (
-    ollama as ollama_models,
+from archcompass.adapters.models.selected_langchain import (
+    SelectedLangChainChatModel,
+    SelectedLangChainJudge,
+    SelectedLangChainQuestionGenerator,
+    SelectedLangChainReviewAnswerer,
 )
 from archcompass.adapters.persistence import (
     SQLiteAtlasRepository,
-    SQLiteBoundaryLineRepository,
-    SQLiteBoundaryReviewRepository,
-    SQLiteCaseRepository,
+    SQLiteCoreCaseRepository,
+    SQLiteCoreConversationRepository,
+    SQLiteCoreFindingCache,
+    SQLiteCoreModelSelectionRepository,
+    SQLiteCoreReviewRepository,
+    SQLiteCoreStandingDecisionRepository,
     SQLiteDatabase,
     SQLiteLineageRepository,
     SQLitePolicySourceRepository,
-    SQLiteReasoningModelSelectionRepository,
-    SQLiteReviewConversationRepository,
+    SQLiteReviewExecutionRepository,
     SQLiteScopeSelectionRepository,
     SQLiteSourceOriginRepository,
-    SQLiteStandingDecisionRepository,
-    SQLiteVerdictCacheRepository,
 )
+from archcompass.adapters.persistence.retrieval_approval_repository import (
+    SQLiteRetrievalApprovalRepository,
+)
+from archcompass.adapters.persistence.schema_epoch import WorkspaceSchemaEpoch
 from archcompass.adapters.retrieval import (
     MarkdownPolicySourceInspector,
     MarkdownPolicyStore,
-    load_method_primer,
+    SelectedDensePolicyRetriever,
 )
 from archcompass.adapters.sources import HttpsTarballFetcher
 from archcompass.adapters.vcs import GitCommandLineClient
 from archcompass.application.atlas_freshness import AtlasFreshnessService
 from archcompass.application.atlas_queries import AtlasService
 from archcompass.application.bundled_examples import BundledExampleService
-from archcompass.application.cases import CaseService
+from archcompass.application.case_management import ArchitectureCaseService
 from archcompass.application.checkouts import RepositoryCheckoutService
-from archcompass.application.ci import CiRunService
+from archcompass.application.core_ci import CleanBreakCiRunService
+from archcompass.application.core_defaults import (
+    ChangedAndNewCandidateSelector,
+    DeterministicReviewComposer,
+    DeterministicRevisionCalculator,
+    PersistentCaseReviser,
+    RejudgeAllCandidates,
+)
 from archcompass.application.model_catalog import ModelCatalogService, reasoning_config
 from archcompass.application.policies import PolicyService
+from archcompass.application.policy_retrieval import corpus_fingerprint
 from archcompass.application.repository_index import RepositoryIndexService
-from archcompass.application.review_conversations import ReviewConversationService
-from archcompass.application.review_source import ReviewSourceService
-from archcompass.application.reviews import ReviewService
+from archcompass.application.review_conversation_v2 import CoreReviewConversationService
+from archcompass.application.review_workflow import ReviewWorkflowService
 from archcompass.application.safety import (
     validate_repository_directory,
 )
 from archcompass.application.source_archives import SourceArchiveService
 from archcompass.application.source_storage import SourceStorage
-from archcompass.application.triage import TriageService
-from archcompass.application.usage_evidence import UsageEvidenceService
+from archcompass.application.standing_decisions import StandingDecisionService
+from archcompass.application.verdict_cache import (
+    CachingArchitectureJudge,
+    CachingReviewRecorder,
+)
+from archcompass.application.workspace_epoch import WorkspaceEpochService
 from archcompass.configuration import (
     ReasoningModelConfig,
     load_provider_environment,
 )
-from archcompass.domain.errors import ConfigurationError
+from archcompass.domain.errors import ConfigurationError, NoReasoningModelSelectedError
 from archcompass.ports.atlas import AtlasQueryService, EdgeResolver, RepositoryAnalyzer
 from archcompass.ports.model_catalog import ProviderDescriptor
-from archcompass.ports.reasoning import FocusedReasoningProvider
 from archcompass.ports.repositories import (
     AtlasRepository,
-    BoundaryLineRepository,
-    BoundaryReviewRepository,
-    CaseRepository,
     LineageRepository,
-    VerdictCacheRepository,
 )
+from archcompass.workflow import ReviewWorkflowCapabilities, build_review_graph
 
 BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
 
@@ -121,31 +142,31 @@ class Runtime:
 
     workspace: Path
     database: SQLiteDatabase
-    case_repository: CaseRepository
     atlas_repository: AtlasRepository
     lineage_repository: LineageRepository
-    review_repository: BoundaryReviewRepository
-    verdict_cache_repository: VerdictCacheRepository
-    boundary_line_repository: BoundaryLineRepository
-    review_conversation_service: ReviewConversationService
-    review_source_service: ReviewSourceService
+    review_conversation_service: CoreReviewConversationService
     bundled_example_service: BundledExampleService
     analyzer: RepositoryAnalyzer
     query_service: AtlasQueryService
     policy_sources: tuple[Path, ...]
-    case_service: CaseService
+    case_service: ArchitectureCaseService
     policy_service: PolicyService
     repository_service: RepositoryIndexService
     atlas_service: AtlasService
-    review_service: ReviewService
-    triage_service: TriageService
-    ci_service: CiRunService
     checkout_service: RepositoryCheckoutService
     #: Present only where a deployment named hosts to fetch from. `None` means this
     #: workspace puts repositories on disk with git, which is every local run.
     source_service: SourceArchiveService | None
     freshness_service: AtlasFreshnessService
     model_catalog_service: ModelCatalogService
+    core_case_repository: SQLiteCoreCaseRepository
+    core_review_repository: SQLiteCoreReviewRepository
+    review_workflow_service: ReviewWorkflowService
+    checkpoint_connection: sqlite3.Connection
+    retrieval_approval_repository: SQLiteRetrievalApprovalRepository
+    core_ci_service: CleanBreakCiRunService
+    workspace_epoch_service: WorkspaceEpochService
+    standing_decision_service: StandingDecisionService
 
 
 def build_runtime(
@@ -168,30 +189,29 @@ def build_runtime(
     # the environment, and a `.env` file is where an interactive run keeps it.
     load_provider_environment(canonical_workspace)
     canonical_workspace.mkdir(parents=True, exist_ok=True)
-    # Which model this workspace reasons with is a row in this database, so it is opened
-    # before anything asks. Nothing else here needs it.
-    database = SQLiteDatabase(
-        canonical_workspace / WORKSPACE_STATE_DIRECTORY / "archcompass.db",
-        workspace=canonical_workspace,
+    schema_epoch = WorkspaceSchemaEpoch(
+        canonical_workspace / WORKSPACE_STATE_DIRECTORY
     )
+    core_database = SQLiteDatabase(
+        schema_epoch.initialize(), workspace=canonical_workspace
+    )
+    # Repository-analysis records and clean-break aggregates share the epoch-2 database.
+    # `archcompass.db` is reserved exclusively for detecting/exporting pre-refactor data;
+    # a current runtime must never recreate it after an explicit reset.
+    database = core_database
     if initialize:
         database.initialize()
     model_catalog_service = ModelCatalogService(
         registry=enabled_providers(),
-        selections=SQLiteReasoningModelSelectionRepository(database),
+        selections=SQLiteCoreModelSelectionRepository(core_database.raw_connect),
         pin=pin,
     )
     # Resolved per call rather than built here: the choice can change while this process
     # runs, and a workspace that has not made one yet still has to start.
-    reasoning = SelectedModelReasoner(model_catalog_service, _build_reasoner)
-    cases = SQLiteCaseRepository(database)
     atlases = SQLiteAtlasRepository(database)
     lineages = SQLiteLineageRepository(database)
-    reviews = SQLiteBoundaryReviewRepository(database)
-    verdict_cache = SQLiteVerdictCacheRepository(database)
-    boundary_lines = SQLiteBoundaryLineRepository(database)
-    review_conversations = SQLiteReviewConversationRepository(database)
-    standing_decisions = SQLiteStandingDecisionRepository(database)
+    core_cases = SQLiteCoreCaseRepository(core_database.raw_connect)
+    core_reviews = SQLiteCoreReviewRepository(core_database.raw_connect)
     # Which folders a repository is reviewed without. Read by indexing and by the freshness
     # check, which is the whole reason it is stored rather than passed: the check recomputes
     # the fingerprint and has to leave out what the analysis left out.
@@ -235,7 +255,7 @@ def build_runtime(
         authored_source=canonical_workspace / AUTHORED_POLICY_DIRECTORY,
         policy_store=MarkdownPolicyStore(),
     )
-    case_service = CaseService(cases, reviews, lineages)
+    case_service = ArchitectureCaseService(core_cases, core_reviews, lineages)
     repository_service = RepositoryIndexService(
         analyzer=analyzer,
         atlases=atlases,
@@ -250,48 +270,153 @@ def build_runtime(
     bundled_example_service = BundledExampleService(
         repositories=repository_service,
     )
-    review_source_service = ReviewSourceService(
-        atlases=atlases,
-        source_reader=source_reader,
-        freshness=freshness,
+    executions = SQLiteReviewExecutionRepository(core_database.raw_connect)
+    core_decisions = SQLiteCoreStandingDecisionRepository(core_database.raw_connect)
+    core_finding_cache = SQLiteCoreFindingCache(core_database.raw_connect)
+    core_conversations = SQLiteCoreConversationRepository(core_database.raw_connect)
+    retrieval_approvals = SQLiteRetrievalApprovalRepository(core_database.raw_connect)
+    selected_chat = SelectedLangChainChatModel(model_catalog_service)
+    review_conversation_service = CoreReviewConversationService(
+        reviews=core_reviews,
+        conversations=core_conversations,
+        answerer=SelectedLangChainReviewAnswerer(selected_chat),
     )
-    review_conversation_service = ReviewConversationService(
-        reviews=reviews,
-        cases=cases,
-        conversations=review_conversations,
-        reasoner=reasoning,
-        policies=policy_service,
-        source=review_source_service,
-        source_reader=source_reader,
-        method_primer=load_method_primer(),
+    checkpoint_connection = sqlite3.connect(
+        canonical_workspace / WORKSPACE_STATE_DIRECTORY / "review-checkpoints.db",
+        check_same_thread=False,
     )
-    review_service = ReviewService(
-        cases=cases,
-        atlases=atlases,
-        reviews=reviews,
-        freshness=freshness,
-        policies=policy_service,
-        reasoner=reasoning,
-        source=review_source_service,
-        # No reader of its own, and that is the point of it: it finds where a flagged name
-        # occurs and hands back coordinates, and the code at those coordinates is read by
-        # the source service above, through the one reader that cannot leave the repository.
-        usage=UsageEvidenceService(),
-        # The same reader the source service was given, not a second one. It is the one path
-        # that cannot leave the analysed repository, and the elicitation toolbox reads
-        # through it for exactly that reason.
-        source_reader=source_reader,
-        verdict_cache=verdict_cache,
-        boundary_lines=boundary_lines,
+    checkpointer = SqliteSaver(
+        checkpoint_connection,
+        serde=JsonPlusSerializer(
+            allowed_msgpack_modules=[
+                ("archcompass.domain.core.repository", "RepositoryRef"),
+                *[
+                    ("archcompass.domain.core.case", name)
+                    for name in (
+                        "PolicyContext",
+                        "ArchitectureCase",
+                        "CaseConstraint",
+                        "CaseDecision",
+                        "CaseFacet",
+                        "Question",
+                        "AnswerStatus",
+                        "Answer",
+                    )
+                ],
+                ("archcompass.domain.core.atlas", "RepositoryAtlas"),
+                *[
+                    ("archcompass.domain.core.candidate", name)
+                    for name in ("Participant", "Candidate")
+                ],
+                *[
+                    ("archcompass.domain.core.values", name)
+                    for name in ("SourceLocation", "Evidence")
+                ],
+                *[
+                    ("archcompass.domain.core.finding", name)
+                    for name in ("Verdict", "PolicyBearing", "Finding")
+                ],
+                *[
+                    ("archcompass.domain.core.review", name)
+                    for name in (
+                        "ReviewStatus",
+                        "ChangeCause",
+                        "CandidateChange",
+                        "AddressedCandidate",
+                        "ReviewDelta",
+                        "RetrievalProvenance",
+                        "Review",
+                    )
+                ],
+                *[
+                    ("archcompass.domain.core.policy", name)
+                    for name in ("PolicyScope", "PolicyStrength", "Policy")
+                ],
+                *[
+                    ("archcompass.ports.policy_retrieval", name)
+                    for name in ("PolicySelection", "RetrievedPolicySet")
+                ],
+                ("archcompass.application.capabilities", "ReviewDraft"),
+            ],
+        ),
     )
-    triage_service = TriageService(
-        decisions=standing_decisions,
-        lineages=lineages,
+    checkpointer.setup()
+    policy_corpus = DataclassPolicyCorpus(policy_service)
+
+    def selected_model_identity() -> str:
+        selected = model_catalog_service.current()
+        if selected is None:
+            return ""
+        if selected.provider == "fake":
+            return f"fake:{selected.model}"
+        return f"{selected.provider}:{selected.model}:thinking={selected.thinking}"
+
+    def selected_prompt_identity() -> str:
+        selected = model_catalog_service.current()
+        return (
+            "judge:deterministic-v1"
+            if selected is not None and selected.provider == "fake"
+            else "judge:v1"
+        )
+
+    def deterministic_retrieval_mode() -> bool:
+        selected = model_catalog_service.current()
+        if selected is None:
+            raise NoReasoningModelSelectedError(
+                "No reasoning model is selected. Choose one with the model chip before "
+                "starting a review."
+            )
+        return selected.provider == "fake"
+
+    graph = build_review_graph(
+        ReviewWorkflowCapabilities(
+            context=SQLiteContextLoader(
+                database.raw_connect, core_cases, core_reviews
+            ),
+            analyzer=DataclassRepositoryAnalyzer(analyzer),
+            detector=DataclassCandidateDetector(),
+            revisions=DeterministicRevisionCalculator(
+                corpus_fingerprint=lambda repository_ref: corpus_fingerprint(
+                    policy_corpus.policies_for(repository_ref)
+                ),
+                model_identity=selected_model_identity,
+                prompt_identity=selected_prompt_identity,
+            ),
+            initial_candidates=ChangedAndNewCandidateSelector(),
+            corpus=policy_corpus,
+            retriever=SelectedDensePolicyRetriever(
+                core_database.raw_connect,
+                approved_top_k=lambda identity: retrieval_approvals.required_top_k(
+                    identity, retriever="dense-scoped", version="1"
+                ),
+                deterministic_mode=deterministic_retrieval_mode,
+            ),
+            judge=CachingArchitectureJudge(
+                SelectedLangChainJudge(selected_chat),
+                core_finding_cache,
+                model_identity=selected_model_identity,
+                prompt_identity=selected_prompt_identity,
+            ),
+            questions=SelectedLangChainQuestionGenerator(selected_chat),
+            rejudgements=RejudgeAllCandidates(),
+            cases=PersistentCaseReviser(core_cases),
+            composer=DeterministicReviewComposer(),
+            recorder=CachingReviewRecorder(core_reviews, core_finding_cache),
+        ),
+        checkpointer=checkpointer,
     )
-    ci_service = CiRunService(
+    review_workflow_service = ReviewWorkflowService(
+        graph,
+        reviews=core_reviews,
+        executions=executions,
+    )
+    standing_decision_service = StandingDecisionService(
+        decisions=core_decisions, reviews=core_reviews
+    )
+    core_ci_service = CleanBreakCiRunService(
         repositories=repository_service,
-        reviews=review_service,
-        triage=triage_service,
+        workflow=review_workflow_service,
+        decisions=standing_decision_service,
     )
     checkout_service = RepositoryCheckoutService(
         git=GitCommandLineClient(),
@@ -319,14 +444,9 @@ def build_runtime(
     return Runtime(
         workspace=canonical_workspace,
         database=database,
-        case_repository=cases,
         atlas_repository=atlases,
         lineage_repository=lineages,
-        review_repository=reviews,
-        verdict_cache_repository=verdict_cache,
-        boundary_line_repository=boundary_lines,
         review_conversation_service=review_conversation_service,
-        review_source_service=review_source_service,
         bundled_example_service=bundled_example_service,
         analyzer=analyzer,
         query_service=queries,
@@ -335,13 +455,18 @@ def build_runtime(
         policy_service=policy_service,
         repository_service=repository_service,
         atlas_service=atlas_service,
-        review_service=review_service,
-        triage_service=triage_service,
-        ci_service=ci_service,
         checkout_service=checkout_service,
         source_service=source_service,
         freshness_service=freshness,
         model_catalog_service=model_catalog_service,
+        core_case_repository=core_cases,
+        core_review_repository=core_reviews,
+        review_workflow_service=review_workflow_service,
+        checkpoint_connection=checkpoint_connection,
+        retrieval_approval_repository=retrieval_approvals,
+        core_ci_service=core_ci_service,
+        workspace_epoch_service=WorkspaceEpochService(schema_epoch),
+        standing_decision_service=standing_decision_service,
     )
 
 
@@ -368,6 +493,15 @@ def initialize_workspace(
     return build_runtime(canonical_workspace, pin=pin)
 
 
+def workspace_epoch_service(workspace: Path) -> WorkspaceEpochService:
+    """Compose only the explicit schema-epoch operations, without opening the runtime."""
+
+    canonical = workspace.expanduser().resolve()
+    return WorkspaceEpochService(
+        WorkspaceSchemaEpoch(canonical / WORKSPACE_STATE_DIRECTORY)
+    )
+
+
 #: Every provider this build knows how to reach, each registered by the module that
 #: implements it.
 #:
@@ -380,9 +514,9 @@ def initialize_workspace(
 _ALL_PROVIDERS: Final[dict[str, ProviderDescriptor]] = {
     descriptor.name: descriptor
     for descriptor in (
-        ollama_models.DESCRIPTOR,
-        google_models.DESCRIPTOR,
-        deterministic_models.DESCRIPTOR,
+        OLLAMA_DESCRIPTOR,
+        GOOGLE_DESCRIPTOR,
+        DETERMINISTIC_DESCRIPTOR,
     )
 }
 
@@ -451,10 +585,3 @@ def pinned_model(
             f"{', '.join(enabled_providers())}."
         )
     return reasoning_config(descriptor, model, thinking)
-
-
-def _build_reasoner(model: ReasoningModelConfig) -> FocusedReasoningProvider:
-    descriptor = _ALL_PROVIDERS.get(model.provider)
-    if descriptor is None:
-        raise ConfigurationError(f"Unsupported reasoning provider: {model.provider}")
-    return descriptor.build(model)

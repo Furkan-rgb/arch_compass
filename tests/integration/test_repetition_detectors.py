@@ -15,8 +15,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from archcompass.adapters.analysis import PythonAstRepositoryAnalyzer
-from archcompass.domain.atlas import FindingPattern
-from archcompass.domain.finding_detectors import detect_finding_candidates
+from archcompass.boundary.atlas import FindingPattern
+from archcompass.boundary.finding_detectors import detect_finding_candidates
 
 
 def _atlas(root: Path, files: dict[str, str]):

@@ -6,7 +6,6 @@ The failure this holds shut, and why editing one is silent, is written where the
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -64,7 +63,7 @@ def test_a_migration_edited_after_it_ran_is_refused_by_name(tmp_path: Path) -> N
         database.initialize()
 
     message = str(failure.value)
-    assert "001_initial.sql" in message
+    assert "001_clean_break_support.sql" in message
     assert "new migration" in message
 
 
@@ -84,64 +83,20 @@ def test_a_database_written_before_this_check_still_opens(tmp_path: Path) -> Non
     database.initialize()
 
 
-def test_the_choice_table_carries_the_columns_the_repository_writes(
+def test_clean_break_support_schema_contains_no_retired_review_tables(
     tmp_path: Path,
 ) -> None:
-    """The shape the original fault was actually about, asserted against the whole chain."""
-
     database = _database(tmp_path)
-
     with database.connect() as connection:
-        columns = {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(reasoning_model_choice)")
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
         }
 
-    assert {"thinking", "input_token_limit", "output_token_limit"} <= columns
-    # The table it replaces is gone rather than left beside it, so nothing can read a stale
-    # choice back out of a shape the application no longer writes.
-    assert "profile_id" not in columns
-
-
-def test_a_workspace_stopped_at_021_reaches_the_current_choice_table(tmp_path: Path) -> None:
-    """The upgrade path this actually has to serve: a database created before 022 existed.
-
-    The 021-era database is built by running the shipped files up to 021 and recording them,
-    which is the one way to get that shape without asserting anything about it: reading the
-    migrations is not editing them, and a stub written by hand goes stale the moment a later
-    migration widens a table the stub left out — 024 widens two of them.
-
-    The version rows are written without a checksum on purpose. That is what a database of
-    this age has, and reaching the current schema from it is exactly what the grandfathering
-    in `_verify_unchanged` is for.
-    """
-
-    path = tmp_path / ".archcompass" / "db.sqlite"
-    path.parent.mkdir(parents=True)
-    connection = sqlite3.connect(path)
-    connection.executescript(
-        "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);"
-    )
-    scripts = sorted(
-        (int(item.name.split("_", maxsplit=1)[0]), item)
-        for item in MIGRATIONS.iterdir()
-        if item.name.endswith(".sql") and int(item.name.split("_", maxsplit=1)[0]) <= 21
-    )
-    for _, script in scripts:
-        connection.executescript(script.read_text(encoding="utf-8"))
-    applied = [version for version, _ in scripts]
-    connection.executemany(
-        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, '2026-08-01T00:00:00Z')",
-        [(version,) for version in applied],
-    )
-    connection.commit()
-    connection.close()
-
-    SQLiteDatabase(path, workspace=tmp_path).initialize()
-
-    with sqlite3.connect(path) as opened:
-        columns = {
-            str(row[1])
-            for row in opened.execute("PRAGMA table_info(reasoning_model_choice)")
-        }
-    assert {"thinking", "input_token_limit", "output_token_limit"} <= columns
+    assert "atlas_versions" in tables
+    assert "repository_lineages" in tables
+    assert "boundary_reviews" not in tables
+    assert "case_revisions" not in tables
+    assert "consultation_runs" not in tables

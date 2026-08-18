@@ -12,15 +12,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from contextlib import suppress
 
-from archcompass.configuration import ReasoningModelConfig
-from archcompass.domain.errors import ConfigurationError, PersistenceError
-from archcompass.domain.model_catalog import (
+from archcompass.boundary.model_catalog import (
     ModelCandidate,
     ModelCatalog,
     ProviderAvailability,
     ReasoningModelSelection,
     ReasoningModelStatus,
 )
+from archcompass.configuration import ReasoningModelConfig
+from archcompass.domain.errors import ConfigurationError, PersistenceError
 from archcompass.ports.model_catalog import (
     ProviderDescriptor,
     ReasoningModelSelectionRepository,

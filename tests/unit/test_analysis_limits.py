@@ -16,7 +16,7 @@ from archcompass.adapters.analysis.ast_analyzer import (
     AnalysisLimits,
     PythonAstRepositoryAnalyzer,
 )
-from archcompass.domain.atlas import NodeType
+from archcompass.boundary.atlas import NodeType
 from archcompass.domain.errors import PathValidationError
 
 

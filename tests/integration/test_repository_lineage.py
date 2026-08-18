@@ -13,11 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from archcompass.adapters.models.deterministic import DETERMINISTIC_MODEL
+from archcompass.adapters.models.catalog import DETERMINISTIC_MODEL
 from archcompass.bootstrap import Runtime, build_runtime, pinned_model
-from archcompass.domain.case import ArchitectureCase, RepositoryReference
-from archcompass.domain.lineage import DEFAULT_BRANCH_NAME, derive_repo_id
-from archcompass.domain.review import ReviewStatus
+from archcompass.boundary.lineage import DEFAULT_BRANCH_NAME, derive_repo_id
 
 MODULE = """\
 class Store:
@@ -288,26 +286,22 @@ def test_a_review_is_recorded_against_the_branch_it_ran_on(
 ) -> None:
     repository = _committed_repository(tmp_path / "repository")
     version = workspace_runtime.repository_service.index(repository)
-    revision = workspace_runtime.case_repository.create(
-        ArchitectureCase(
-            title="Where should storage live",
-            problem_statement="Deciding where the store belongs.",
-            desired_outcome="One owner for storage.",
-            repository=RepositoryReference(root_path=str(repository)),
-        ),
-        actor="test",
+    case = workspace_runtime.case_service.create(
+        goal="Decide where the store belongs and give storage one owner."
     )
 
-    review = workspace_runtime.review_service.review(
-        revision.case_id, repository_root=repository
+    review = workspace_runtime.review_workflow_service.start(
+        repository_id=version.repo_id,
+        branch_id=version.branch_id,
+        case_id=case.id,
     )
 
-    assert review.status in {ReviewStatus.SUCCEEDED, ReviewStatus.AWAITING_ANSWERS}
-    assert review.repo_id == version.repo_id
-    assert review.branch_id == version.branch_id
-    stored = workspace_runtime.review_repository.get(review.review_id)
-    assert stored.repo_id == version.repo_id
-    listed = workspace_runtime.review_repository.list()
-    assert [(item.repo_id, item.branch_id) for item in listed] == [
+    assert review.status.value in {"completed", "awaiting_answers"}
+    assert review.repository.id == version.repo_id
+    assert review.repository.branch_id == version.branch_id
+    stored = workspace_runtime.review_workflow_service.get(review.id)
+    assert stored.repository.id == version.repo_id
+    listed = workspace_runtime.review_workflow_service.list()
+    assert [(item.repository.id, item.repository.branch_id) for item in listed] == [
         (version.repo_id, version.branch_id)
     ]

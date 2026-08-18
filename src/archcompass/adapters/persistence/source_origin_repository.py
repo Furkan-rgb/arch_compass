@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from archcompass.adapters.persistence.database import SQLiteDatabase
-from archcompass.domain.checkout import SourceOrigin
+from archcompass.boundary.checkout import SourceOrigin
 
 
 class SQLiteSourceOriginRepository:

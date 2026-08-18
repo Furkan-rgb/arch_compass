@@ -1,10 +1,8 @@
 """Policy source-registration ports.
 
-No index and no retriever. Both existed to rank a corpus against a query, and nothing
-ranks it any more: the judging stage is shown every policy in one request and the
-conversation's background carries the corpus whole (master plan §6A, ADR 0013). What is
-left is the pair of things that were never about retrieval — where policies come from, and
-how a directory of Markdown becomes documents.
+These ports own where authored policy documents come from. Selection and indexing are
+separate capabilities behind `PolicyRetriever`, so the source catalog remains authoritative
+regardless of the configured retrieval strategy.
 """
 
 from __future__ import annotations
@@ -12,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
-from archcompass.domain.policy import (
+from archcompass.boundary.policy import (
     PolicyDocument,
     PolicyDraft,
     PolicySourceRegistration,

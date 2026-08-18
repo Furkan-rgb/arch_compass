@@ -10,7 +10,7 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
 
-from archcompass.adapters.models.deterministic import DETERMINISTIC_MODEL
+from archcompass.adapters.models.catalog import DETERMINISTIC_MODEL
 from archcompass.bootstrap import Runtime, build_runtime, pinned_model
 from archcompass.domain.errors import ConfigurationError
 from archcompass.presentation.web import create_app
@@ -90,7 +90,10 @@ def test_a_review_asked_for_without_a_model_is_refused_by_name(tmp_path: Path) -
         problem = refusal.json()
         assert problem["code"] == "no_model_selected"
         assert "model chip" in problem["message"]
-        assert client.get("/api/reviews").json() == []
+        failed = client.get("/api/reviews").json()
+        assert len(failed) == 1
+        assert failed[0]["status"] == "failed"
+        assert "NoReasoningModelSelectedError" in failed[0]["failure"]
 
 
 def test_choosing_a_model_changes_what_the_workspace_reports(tmp_path: Path) -> None:
@@ -150,7 +153,7 @@ def test_a_chosen_model_reviews_and_the_review_records_which_one(tmp_path: Path)
         review = client.post("/api/reviews", json=request)
 
         assert review.status_code == 201, review.text
-        assert review.json()["reasoning_model"] == "fake:deterministic-architecture-v4"
+        assert review.json()["model_identity"] == "fake:deterministic-architecture-v4"
 
 
 def test_a_pinned_run_reports_its_model_and_refuses_to_change_it(tmp_path: Path) -> None:

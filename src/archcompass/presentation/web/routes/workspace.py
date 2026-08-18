@@ -31,11 +31,10 @@ class ModelIdentity(APIModel):
 
 
 class WorkspaceModels(APIModel):
-    """The one model a review needs, and what is currently known about it.
+    """The selected reasoning model and its current health.
 
-    An embedding identity was reported here too, for a policy index that no longer exists:
-    every policy is presented whole to the judging stage, so nothing is embedded and there
-    is nothing for a reader to check about a model that decided nothing (ADR 0013).
+    Embedding identity is recorded with each review's retrieval provenance because it is a
+    retriever concern configured independently from the reasoning model.
     """
 
     #: Absent where this workspace has not chosen a model and nothing configured one for it.

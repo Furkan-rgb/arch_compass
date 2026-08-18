@@ -16,7 +16,7 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
 
-from archcompass.adapters.models.deterministic import DETERMINISTIC_MODEL
+from archcompass.adapters.models.catalog import DETERMINISTIC_MODEL
 from archcompass.bootstrap import Runtime, build_runtime, pinned_model
 from archcompass.presentation.web import create_app
 

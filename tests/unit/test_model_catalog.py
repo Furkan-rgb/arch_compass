@@ -5,12 +5,12 @@ from __future__ import annotations
 import pytest
 
 from archcompass.application.model_catalog import ModelCatalogService, reasoning_config
-from archcompass.domain.errors import ConfigurationError
-from archcompass.domain.model_catalog import (
+from archcompass.boundary.model_catalog import (
     AvailableModel,
     ProbeResult,
     ReasoningModelSelection,
 )
+from archcompass.domain.errors import ConfigurationError
 from archcompass.ports.model_catalog import (
     CONCURRENT_REQUESTS_VARIABLE,
     MAX_CONCURRENT_REQUESTS,
@@ -82,9 +82,6 @@ def _descriptor(
 ) -> ProviderDescriptor:
     return ProviderDescriptor(
         name=name,
-        # Never called: nothing in this module builds a reasoner, and a factory that raised
-        # would say so loudly if that ever changed.
-        build=lambda config: (_ for _ in ()).throw(AssertionError(config.model)),
         probe=probe,
         defaults=defaults or ProviderDefaults(),
     )
@@ -336,9 +333,9 @@ def test_google_inherits_a_gemini_sized_context_window() -> None:
     still pulls the number down for a smaller model, so generosity here is safe.
     """
 
-    from archcompass.adapters.models.google import DESCRIPTOR
+    from archcompass.adapters.models.catalog import GOOGLE_DESCRIPTOR
 
-    assert DESCRIPTOR.defaults.context_window_tokens == 1_048_576
+    assert GOOGLE_DESCRIPTOR.defaults.context_window_tokens == 1_048_576
 
     service = _service(
         _descriptor(
@@ -347,7 +344,7 @@ def test_google_inherits_a_gemini_sized_context_window() -> None:
                 AvailableModel(name="gemini-huge"),
                 AvailableModel(name="gemini-small", input_token_limit=131072),
             ),
-            DESCRIPTOR.defaults,
+            GOOGLE_DESCRIPTOR.defaults,
         )
     )
 

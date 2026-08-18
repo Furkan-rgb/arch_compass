@@ -33,3 +33,4 @@ frontend/*.tsbuildinfo
 
 *.log
 *.impeccable/*
+.DS_Store

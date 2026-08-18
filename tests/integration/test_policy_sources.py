@@ -14,9 +14,9 @@ from archcompass.adapters.retrieval.policy_markdown import (
 )
 from archcompass.application.policies import PolicyService
 from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
-from archcompass.domain.base import stable_id
+from archcompass.boundary.base import stable_id
+from archcompass.boundary.policy import PolicyScope
 from archcompass.domain.errors import PolicyFormatError
-from archcompass.domain.policy import PolicyScope
 
 
 def _write_policy(

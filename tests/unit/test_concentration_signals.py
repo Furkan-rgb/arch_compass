@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from archcompass.adapters.analysis.ast_analyzer import PythonAstRepositoryAnalyzer
-from archcompass.domain.atlas import Atlas, MetricNature
+from archcompass.boundary.atlas import Atlas, MetricNature
 
 CODE = "concentrated-scope"
 

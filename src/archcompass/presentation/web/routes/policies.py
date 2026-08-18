@@ -16,7 +16,7 @@ from pathlib import Path
 from fastapi import APIRouter, Response
 from pydantic import Field
 
-from archcompass.domain.policy import (
+from archcompass.boundary.policy import (
     PolicyDocument,
     PolicyDraft,
     PolicySourceRegistration,

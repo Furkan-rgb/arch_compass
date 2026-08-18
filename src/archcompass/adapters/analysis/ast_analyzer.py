@@ -39,7 +39,7 @@ from archcompass.adapters.analysis.graph import (
     reverse_graph,
     strongly_connected_components,
 )
-from archcompass.domain.atlas import (
+from archcompass.boundary.atlas import (
     Atlas,
     AtlasEdge,
     AtlasNode,
@@ -58,9 +58,9 @@ from archcompass.domain.atlas import (
     RepositoryContentIdentity,
     SourceLocation,
 )
-from archcompass.domain.base import canonical_json, stable_id
+from archcompass.boundary.base import canonical_json, stable_id
+from archcompass.boundary.scope import CONFIG_SUFFIXES, IGNORED_DIRECTORIES, excludes
 from archcompass.domain.errors import PathValidationError
-from archcompass.domain.scope import CONFIG_SUFFIXES, IGNORED_DIRECTORIES, excludes
 from archcompass.ports.atlas import (
     ConformanceQuestion,
     EdgeResolutionRequest,
@@ -76,7 +76,7 @@ from archcompass.ports.atlas import (
 # — it said line 1, and line 1 of a Python file is the docstring, so the code shown as
 # evidence of a leaked name was a docstring that did not contain it. Nothing can recover the
 # positions from a stored v4 atlas, so it is stale and re-analyzed rather than read with the
-# lines missing (ADR 0002). Re-analysis is cheap and lossless: an atlas is derived.
+# lines missing. Re-analysis is cheap and lossless because an atlas is derived.
 #
 # v6 emits the `concentrated-scope` signal. Signals are stored, not recomputed on read, so a
 # v5 atlas of unchanged source would go on reporting nothing about concentration and give a

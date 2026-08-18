@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from archcompass.adapters.models.deterministic import DETERMINISTIC_MODEL
+from archcompass.adapters.models.catalog import DETERMINISTIC_MODEL
 from archcompass.bootstrap import Runtime, build_runtime, pinned_model
-from archcompass.domain.atlas import (
+from archcompass.boundary.atlas import (
     EdgeType,
     HotspotsQuery,
     NodeType,

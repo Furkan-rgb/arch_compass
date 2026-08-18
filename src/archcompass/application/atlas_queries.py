@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from archcompass.domain.atlas import (
+from archcompass.boundary.atlas import (
     AtlasQuery,
     AtlasQueryResult,
     CyclesQuery,
@@ -42,6 +42,18 @@ class AtlasService:
             repository,
             RepositorySummaryQuery(kind="repository_summary", limit=30),
         )
+
+    def repository_identity(self, repository: Path) -> tuple[str, str]:
+        """Return the stable repository/branch identity for an indexed path."""
+
+        atlas = self._atlases.latest_for_path(repository.expanduser().resolve())
+        if atlas is None or atlas.version.repo_id is None or atlas.version.branch_id is None:
+            raise AtlasNotFoundError(
+                "Index this repository before reviewing it so its repository and branch "
+                "identities are known."
+            )
+        self._freshness.ensure_fresh(atlas)
+        return atlas.version.repo_id, atlas.version.branch_id
 
     def inspect(self, repository: Path, node_id: str) -> AtlasQueryResult:
         return self._execute_latest(

@@ -16,8 +16,8 @@ from pathlib import Path
 import pytest
 
 from archcompass.adapters.analysis.ast_analyzer import PythonAstRepositoryAnalyzer
-from archcompass.domain.atlas import FindingPattern
-from archcompass.domain.finding_detectors import detect_finding_candidates
+from archcompass.boundary.atlas import FindingPattern
+from archcompass.boundary.finding_detectors import detect_finding_candidates
 
 FIXTURE = Path("eval/cases/boundary-review").resolve()
 

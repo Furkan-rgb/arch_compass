@@ -1,13 +1,15 @@
-"""Policy parsing and the bundled method primer."""
+"""Policy parsing and policy-retrieval infrastructure."""
 
-from archcompass.adapters.retrieval.method_primer import load_method_primer
 from archcompass.adapters.retrieval.policy_markdown import (
     MarkdownPolicySourceInspector,
     MarkdownPolicyStore,
 )
+from archcompass.adapters.retrieval.selected import SelectedDensePolicyRetriever
+from archcompass.adapters.retrieval.sqlite_policy_index import SQLitePolicyIndex
 
 __all__ = [
     "MarkdownPolicySourceInspector",
     "MarkdownPolicyStore",
-    "load_method_primer",
+    "SQLitePolicyIndex",
+    "SelectedDensePolicyRetriever",
 ]

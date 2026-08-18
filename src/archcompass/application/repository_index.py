@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from archcompass.domain.atlas import AtlasVersion
-from archcompass.domain.lineage import (
+from archcompass.boundary.atlas import AtlasVersion
+from archcompass.boundary.lineage import (
     DEFAULT_BRANCH_NAME,
     BranchLineage,
     RepositoryBranch,
@@ -15,8 +15,8 @@ from archcompass.domain.lineage import (
     resolve_branch_lineage,
     resolve_repository_lineage,
 )
-from archcompass.domain.scope import validate_excluded_paths
-from archcompass.domain.workspace import RepositorySummary
+from archcompass.boundary.scope import validate_excluded_paths
+from archcompass.boundary.workspace import RepositorySummary
 from archcompass.ports.atlas import RepositoryAnalyzer
 from archcompass.ports.repositories import (
     AtlasRepository,

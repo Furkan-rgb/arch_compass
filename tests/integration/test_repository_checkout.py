@@ -16,10 +16,10 @@ from pathlib import Path
 
 import pytest
 
-from archcompass.adapters.models.deterministic import DETERMINISTIC_MODEL
+from archcompass.adapters.models.catalog import DETERMINISTIC_MODEL
 from archcompass.bootstrap import CHECKOUT_DIRECTORY, Runtime, build_runtime, pinned_model
+from archcompass.boundary.lineage import derive_repo_id
 from archcompass.domain.errors import PathValidationError, RepositoryCheckoutError
-from archcompass.domain.lineage import derive_repo_id
 
 MODULE = """\
 class Store:

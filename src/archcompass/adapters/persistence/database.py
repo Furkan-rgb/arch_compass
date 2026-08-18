@@ -178,11 +178,7 @@ class SQLiteDatabase:
         self.path = self._validated_path()
         connection: sqlite3.Connection | None = None
         try:
-            connection = sqlite3.connect(self.path)
-            connection.row_factory = sqlite3.Row
-            connection.execute("PRAGMA foreign_keys = ON")
-            connection.execute("PRAGMA busy_timeout = 5000")
-            connection.execute("PRAGMA journal_mode = WAL")
+            connection = self.raw_connect()
             yield connection
         except sqlite3.Error as error:
             if connection is not None:
@@ -191,6 +187,17 @@ class SQLiteDatabase:
         finally:
             if connection is not None:
                 connection.close()
+
+    def raw_connect(self, *, check_same_thread: bool = True) -> sqlite3.Connection:
+        """A configured connection for adapters whose library owns its lifecycle."""
+
+        self.path = self._validated_path()
+        connection = sqlite3.connect(self.path, check_same_thread=check_same_thread)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA busy_timeout = 5000")
+        connection.execute("PRAGMA journal_mode = WAL")
+        return connection
 
     def _validated_path(self) -> Path:
         resolved = self._requested_path.resolve(strict=False)

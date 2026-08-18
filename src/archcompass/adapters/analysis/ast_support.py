@@ -18,8 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from archcompass.domain.atlas import AtlasEdge, AtlasNode, EdgeType, SourceLocation
-from archcompass.domain.base import stable_id
+from archcompass.boundary.atlas import AtlasEdge, AtlasNode, EdgeType, SourceLocation
+from archcompass.boundary.base import stable_id
 
 
 @dataclass

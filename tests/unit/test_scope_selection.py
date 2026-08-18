@@ -17,9 +17,9 @@ from archcompass.adapters.persistence import (
     SQLiteDatabase,
     SQLiteScopeSelectionRepository,
 )
-from archcompass.domain.atlas import Atlas
+from archcompass.boundary.atlas import Atlas
+from archcompass.boundary.scope import validate_excluded_paths
 from archcompass.domain.errors import ScopeValidationError
-from archcompass.domain.scope import validate_excluded_paths
 
 _REPOSITORY = {
     "src/service.py": "def serve():\n    return 1\n",

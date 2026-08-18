@@ -9,7 +9,7 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from archcompass.adapters.models.deterministic import DETERMINISTIC_MODEL
+from archcompass.adapters.models.catalog import DETERMINISTIC_MODEL
 from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
 from archcompass.domain.errors import StaleAtlasError
 from archcompass.presentation.cli import app as cli_module
@@ -136,22 +136,25 @@ def test_cli_commands_cover_local_workflow(tmp_path: Path) -> None:
     case_path.write_text(
         yaml.safe_dump(
             {
-                "title": "Task scheduler boundary review",
-                "problem_statement": (
+                "goal": (
                     "A small task scheduler declares six boundaries and has exactly one "
-                    "implementation behind each. Decide which are earning their place."
+                    "implementation behind each. Decide which are earning their place and "
+                    "produce a verdict for every boundary."
                 ),
-                "desired_outcome": (
-                    "A verdict per boundary, including the verdict that nothing needs to "
-                    "change."
-                ),
-                "technical_constraints": [
-                    "Python with SQLite for storage and SMTP for delivery.",
+                "constraints": [
+                    {
+                        "text": "Python with SQLite for storage and SMTP for delivery.",
+                        "facet": "constraint",
+                    },
+                    {
+                        "text": "SMS reminders are scheduled for the next release.",
+                        "facet": "expected_change",
+                    },
+                    {
+                        "text": "Alternative label formats are not in scope.",
+                        "facet": "non_goal",
+                    },
                 ],
-                "expected_future_changes": [
-                    "SMS reminders are scheduled for the next release.",
-                ],
-                "non_goals": ["Alternative label formats or output renderings."],
             },
             sort_keys=False,
         ),
@@ -171,21 +174,21 @@ def test_cli_commands_cover_local_workflow(tmp_path: Path) -> None:
         app, [*common, "review", case_id, "--repo", str(repository)]
     )
     assert reviewed.exit_code == 0, reviewed.output
-    assert "# Boundary review" in reviewed.output
+    assert "# Architecture review" in reviewed.output
     # Cleared boundaries appear too. A report of only problems reads the same whether the
     # advisor examined everything and cleared it or never ran.
-    assert "policies were presented in full" in reviewed.output
+    assert "**cleared**" in reviewed.output
 
     reviews = runner.invoke(app, [*common, "reviews", "list"])
     assert reviews.exit_code == 0, reviews.output
-    review_id = json.loads(reviews.output)[0]["review_id"]
+    review_id = json.loads(reviews.output)[0]["id"]
     assert runner.invoke(app, [*common, "reviews", "show", review_id]).exit_code == 0
 
     asked = runner.invoke(
         app, [*common, "reviews", "ask", review_id, "What did you make of the formatter?"]
     )
     assert asked.exit_code == 0, asked.output
-    assert "Grounded on BR-" in asked.output or "Not grounded" in asked.output
+    assert "Grounded on candidate_" in asked.output or "Not grounded" in asked.output
     history = runner.invoke(app, [*common, "reviews", "history", review_id])
     assert history.exit_code == 0
     assert json.loads(history.output)[0]["messages"]

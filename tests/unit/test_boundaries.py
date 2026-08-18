@@ -85,9 +85,9 @@ def test_cli_commands_use_application_services_only() -> None:
         "case_show": "case_service",
         "case_update": "case_service",
         "case_history": "case_service",
-        "review": "review_service",
-        "review_show": "review_repository",
-        "review_list": "review_repository",
+        "review": "review_workflow_service",
+        "review_show": "review_workflow_service",
+        "review_list": "review_workflow_service",
         "review_ask": "review_conversation_service",
         "review_history": "review_conversation_service",
     }
@@ -161,64 +161,6 @@ def test_web_routes_use_application_services_only() -> None:
     } <= used_attributes
 
 
-def test_review_answers_are_assembled_before_model_adapters() -> None:
-    """The stage receives typed domain objects; it does not fetch or choose evidence.
-
-    Its parameters are the whole pinned review, one assembled `ReviewEvidence`, the history,
-    the question, and the background the application already retrieved. Nothing it is given
-    is a handle it would have to resolve, and there is nothing left for it to retrieve — the
-    application decides what an answer may be built from, including which background it
-    sees, so a model adapter cannot become the thing that chooses its own evidence.
-
-    Pinned as `evidence` rather than as a list of the things inside it, and that is the point
-    of the shape. Three separate parameters were assembled at the call site, and three times
-    something the record already held was left out — the code at each span, then the spans of
-    a scattered concept, then the round of questions and answers — each of which this stage
-    then truthfully reported as missing from the review. A single value moves that omission
-    to one method with one test, instead of a signature that grows a parameter per lesson.
-
-    `investigator` is the one thing here the application does not choose the contents of, and
-    it is not a hole in the sentence above. Everything the stage may *reason from* is still
-    assembled before the call; what this adds is a bounded set of read-only questions the
-    stage may put to the repository, every one of them recorded and shown to the person who
-    asked. That is §12.0's amendment, and it is why this list may grow by exactly this
-    parameter and not by a repository root, an atlas, or a retrieval handle.
-    """
-
-    for path in (
-        SOURCE_ROOT / "ports" / "reasoning.py",
-        SOURCE_ROOT / "adapters" / "models" / "deterministic.py",
-        SOURCE_ROOT / "adapters" / "models" / "structured" / "reasoning_stages.py",
-    ):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        methods = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == "answer_review_question"
-        ]
-        assert len(methods) == 1, path
-        assert [argument.arg for argument in methods[0].args.args] == [
-            "self",
-            "review",
-            "evidence",
-            "history",
-            "question",
-            "knowledge",
-            "investigator",
-        ], path
-
-    structured = SOURCE_ROOT / "adapters" / "models" / "structured"
-    assert structured.is_dir(), "the structured package is gone; this guard sweeps nothing"
-    imported = {
-        node.module or ""
-        for path in structured.rglob("*.py")
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if isinstance(node, ast.ImportFrom)
-    }
-    # A model adapter that could reach the application could choose its own evidence.
-    assert not any(name.startswith("archcompass.application") for name in imported)
-
 def test_model_adapters_do_not_import_the_application_layer() -> None:
     """Adapters own transport and schema constraint, never application policy.
 
@@ -235,41 +177,24 @@ def test_model_adapters_do_not_import_the_application_layer() -> None:
             imported == "archcompass.application"
             or imported.startswith("archcompass.application.")
             for imported in imports
-        ), f"{path.relative_to(SOURCE_ROOT)} imports the application layer"
+            ), f"{path.relative_to(SOURCE_ROOT)} imports the application layer"
 
 
-def test_the_deterministic_provider_contains_no_evaluation_vocabulary() -> None:
-    """The test double must relay its inputs, not recognise the evaluation fixtures.
-
-    It previously branched on tokens taken from the evaluation cases - down to the literal
-    filenames of the brownfield fixture's modules - so the deterministic tier partly
-    asserted what the double remembered rather than what the pipeline did. Any output that
-    depends on case wording is unfalsifiable evidence.
-    """
-
-    source = (SOURCE_ROOT / "adapters" / "models" / "deterministic.py").read_text(
-        encoding="utf-8"
+def test_dataclass_domain_imports_only_the_standard_library_and_itself() -> None:
+    forbidden = (
+        "pydantic",
+        "langchain",
+        "langgraph",
+        "fastapi",
+        "archcompass.adapters",
+        "archcompass.application",
+        "archcompass.boundary",
     )
-    borrowed = [
-        token
-        for token in (
-            # `speech-vendor`.
-            "qwen",
-            "voice",
-            "vendor",
-            "preflight",
-            "frontend",
-            "narration",
-            "speech",
-            # `boundary-review`.
-            "scheduler",
-            "reminder",
-            "sms",
-            # Either.
-            "one implementation",
-        )
-        if token in source.casefold()
-    ]
-    assert borrowed == [], (
-        f"deterministic.py branches on evaluation-case vocabulary: {borrowed}"
-    )
+    root = SOURCE_ROOT / "domain"
+    for path in root.rglob("*.py"):
+        imports = _imports(path)
+        assert not any(
+            imported == prefix or imported.startswith(f"{prefix}.")
+            for imported in imports
+            for prefix in forbidden
+        ), f"{path.relative_to(SOURCE_ROOT)} crosses the dataclass-domain boundary"

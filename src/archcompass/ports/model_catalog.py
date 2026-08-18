@@ -13,10 +13,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final, Protocol
 
+from archcompass.boundary.model_catalog import ProbeResult, ReasoningModelSelection
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ConfigurationError
-from archcompass.domain.model_catalog import ProbeResult, ReasoningModelSelection
-from archcompass.ports.reasoning import FocusedReasoningProvider
 
 #: How many judgements a run may have in flight, overriding whatever the chosen provider's
 #: descriptor says. Read where a resolved configuration is built, so it reaches a local run
@@ -135,10 +134,6 @@ class ProviderDefaults:
 #: were the endpoint and the credential variable.
 type ReasoningModelProbe = Callable[[ProviderDefaults], ProbeResult]
 
-#: Building the reasoner for one resolved configuration.
-type ReasoningProviderFactory = Callable[[ReasoningModelConfig], FocusedReasoningProvider]
-
-
 @dataclass(frozen=True)
 class ProviderDescriptor:
     """One provider this application can reach, registered by the module that implements it.
@@ -149,7 +144,6 @@ class ProviderDescriptor:
     """
 
     name: str
-    build: ReasoningProviderFactory
     probe: ReasoningModelProbe
     defaults: ProviderDefaults
 

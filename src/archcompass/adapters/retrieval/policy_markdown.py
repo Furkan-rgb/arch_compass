@@ -1,9 +1,8 @@
 """Strict Markdown policy parser.
 
-Sections are still walked, and every rule about them still holds — the nine required
-headings must be present, distinct and non-empty. What they are no longer turned into is
-chunks: nothing ranks a policy against a query any more, so a section is a thing to validate
-rather than a unit to retrieve (ADR 0013). A policy reaches every stage whole.
+The nine required headings must be present, distinct and non-empty. The policy parser keeps
+the authored document authoritative; the retrieval index separately derives heading chunks
+with content hashes and policy metadata.
 """
 
 from __future__ import annotations
@@ -15,15 +14,15 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from archcompass.domain.base import stable_id
-from archcompass.domain.errors import PersistenceError, PolicyFormatError
-from archcompass.domain.policy import (
+from archcompass.boundary.base import stable_id
+from archcompass.boundary.policy import (
     PolicyDocument,
     PolicyDraft,
     PolicyScope,
     PolicySource,
     PolicyStrength,
 )
+from archcompass.domain.errors import PersistenceError, PolicyFormatError
 
 REQUIRED_SECTIONS = {
     "intent",

@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 from archcompass.bootstrap import initialize_workspace
 from archcompass.presentation.cli.app import app
 
-_DATABASE = Path(".archcompass") / "archcompass.db"
+_DATABASE = Path(".archcompass") / "archcompass-v2.db"
 
 
 def test_init_creates_the_workspace_and_its_database_and_nothing_else(
@@ -36,6 +36,7 @@ def test_init_creates_the_workspace_and_its_database_and_nothing_else(
 
     assert result.exit_code == 0, result.output
     assert (workspace / _DATABASE).is_file()
+    assert not (workspace / ".archcompass" / "archcompass.db").exists()
     assert not (workspace / "config").exists()
     assert sorted(item.name for item in workspace.iterdir()) == [".archcompass"]
 

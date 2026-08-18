@@ -29,6 +29,7 @@ from archcompass.domain.errors import (
     ConversationRevisionConflictError,
     ConversationValidationError,
     ExampleNotFoundError,
+    LegacySchemaError,
     ModelOutputValidationError,
     NoReasoningModelSelectedError,
     NothingToReviewError,
@@ -120,10 +121,8 @@ def install_error_handlers(app: FastAPI) -> None:
             + str(detail["msg"])
             for detail in error.errors()
         ]
-        # The fields are in the message, not only beside it. "The request did not match the
-        # API contract" is true of every possible cause and points at none of them; a reader
-        # who saw `body.elicited_from: Extra inputs are not permitted` would have known in one
-        # glance that their page and their server disagreed about what a review request is.
+        # Include field paths in the message so a caller can immediately distinguish a
+        # stale client contract from a malformed value.
         detail = f" ({'; '.join(fields)})" if fields else ""
         return JSONResponse(
             status_code=422,
@@ -197,6 +196,8 @@ def classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
         return 409, "no_model_selected", False
     if isinstance(error, ProviderError):
         return 503, "provider_unavailable", True
+    if isinstance(error, LegacySchemaError):
+        return 409, "legacy_schema", False
     if isinstance(error, PersistenceError):
         return 500, "persistence_error", False
     return 400, "archcompass_error", False

@@ -7,8 +7,8 @@ is a silent change of subject everywhere.
 
 from __future__ import annotations
 
-from archcompass.domain.base import stable_id
-from archcompass.domain.lineage import (
+from archcompass.boundary.base import stable_id
+from archcompass.boundary.lineage import (
     DEFAULT_BRANCH_NAME,
     derive_branch_id,
     derive_repo_id,

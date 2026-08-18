@@ -102,6 +102,10 @@ class PersistenceError(ArchCompassError):
     pass
 
 
+class LegacySchemaError(PersistenceError):
+    """A workspace belongs to the pre-clean-break schema epoch."""
+
+
 class UnreadableStoredRecordError(PersistenceError):
     """A stored row predates the current schema and cannot be reinterpreted.
 

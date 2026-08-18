@@ -7,7 +7,7 @@ from itertools import pairwise
 from pathlib import Path
 
 from archcompass.adapters.analysis.graph import shortest_path
-from archcompass.domain.atlas import (
+from archcompass.boundary.atlas import (
     Atlas,
     AtlasEdge,
     AtlasMetricValue,
@@ -32,7 +32,7 @@ from archcompass.domain.atlas import (
     SourceLocation,
     SubsystemSummaryQuery,
 )
-from archcompass.domain.atlas_metrics import (
+from archcompass.boundary.atlas_metrics import (
     canonical_metric_name,
     metric_observation,
     profile_observations,

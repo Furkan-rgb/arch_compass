@@ -15,8 +15,8 @@ import pytest
 
 from archcompass.adapters.analysis.ast_analyzer import PythonAstRepositoryAnalyzer
 from archcompass.bootstrap import build_edge_resolver
-from archcompass.domain.atlas import Atlas, EdgeType, NodeType
-from archcompass.domain.finding_detectors import detect_finding_candidates
+from archcompass.boundary.atlas import Atlas, EdgeType, NodeType
+from archcompass.boundary.finding_detectors import detect_finding_candidates
 from archcompass.ports.atlas import (
     EdgeResolutionRequest,
     EdgeResolutionResult,

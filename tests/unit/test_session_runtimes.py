@@ -6,7 +6,6 @@ from pathlib import Path
 
 from starlette.requests import Request
 
-from archcompass.domain.case import ArchitectureCase
 from archcompass.presentation.web.runtimes import (
     SESSION_COOKIE,
     SessionRuntimeProvider,
@@ -25,14 +24,8 @@ def _request(cookie: str | None = None) -> Request:
 
 
 def _write_case(provider: SessionRuntimeProvider, cookie: str, title: str) -> str:
-    created = provider.acquire(_request(cookie)).case_service.create(
-        ArchitectureCase(
-            title=title,
-            problem_statement="A responsibility is unclear.",
-            desired_outcome="Choose an owner.",
-        )
-    )
-    return created.case_id
+    created = provider.acquire(_request(cookie)).case_service.create(goal=title)
+    return created.id
 
 
 def _workspace_for(base: Path, cookie: str) -> Path:
@@ -64,7 +57,7 @@ def test_an_evicted_session_loses_nothing_but_its_handle(tmp_path: Path) -> None
     returning = provider.acquire(_request(TOKEN))
 
     assert returning.workspace == tmp_path / TOKEN
-    assert [item.case_id for item in returning.case_service.list()] == [case_id]
+    assert [item.id for item in returning.case_service.list()] == [case_id]
 
 
 def test_a_cookie_that_could_name_a_directory_is_replaced(tmp_path: Path) -> None:

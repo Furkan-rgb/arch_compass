@@ -6,53 +6,20 @@
 
 export interface components {
   schemas: {
-    "AddressedBoundary": {
-    "fingerprint": string;
-    "pattern": components["schemas"]["FindingPattern"];
+    "AddressedCandidateResponse": {
+    "candidate_id": string;
     "title": string;
-    "material": boolean;
-    "verdict_label": string;
-    "last_seen_in_review": string;
-    "last_reference": string;
+    "last_seen_review_id": string;
+    "last_verdict": string;
   };
-    "AnswerProgress": components["schemas"]["AnswerProse"] | components["schemas"]["QuestionAnswered"] | components["schemas"]["QuestionFailed"];
-    "AnswerProse": {
-    "event"?: "prose";
-    "text": string;
+    "AnswerResponse": {
+    "question": components["schemas"]["QuestionResponse"];
+    "status": string;
+    "value": string | null;
+    "actor": string;
+    "answered_at": string;
   };
-    "AnsweredQuestions": {
-    "review_id": string;
-    "answers": Array<components["schemas"]["RecordedAnswer"]>;
-  };
-    "ArchitectureCase": {
-    "schema_version"?: 2;
-    "case_id"?: string;
-    "title": string;
-    "problem_statement"?: string;
-    "desired_outcome"?: string;
-    "actors_and_workflows"?: Array<string>;
-    "functional_requirements"?: Array<string>;
-    "quality_attributes"?: Array<string>;
-    "technical_constraints"?: Array<string>;
-    "organisational_constraints"?: Array<string>;
-    "expected_future_changes"?: Array<string>;
-    "non_goals"?: Array<string>;
-    "confirmed_facts"?: Array<components["schemas"]["CaseStatement"]>;
-    "derived_constraints"?: Array<components["schemas"]["CaseStatement"]>;
-    "assumptions"?: Array<components["schemas"]["CaseStatement"]>;
-    "unresolved_questions"?: Array<components["schemas"]["CaseStatement"]>;
-    "design_forces"?: Array<components["schemas"]["CaseStatement"]>;
-    "clarifications"?: Array<components["schemas"]["Clarification"]>;
-    "repository"?: components["schemas"]["RepositoryReference"] | null;
-    "policy_applicability"?: components["schemas"]["PolicyApplicabilityContext"];
-    "referenced_policy_ids"?: Array<string>;
-    "candidate_alternatives"?: Array<components["schemas"]["CaseAlternative"]>;
-    "reversal_conditions"?: Array<string>;
-    "revisit_triggers"?: Array<string>;
-    "created_at"?: string;
-    "updated_at"?: string;
-    "revision"?: number;
-  };
+    "AnswerStatus": "answered" | "skipped";
     "AtlasEdge": {
     "edge_id": string;
     "source_id": string;
@@ -102,6 +69,18 @@ export interface components {
     "signals"?: Array<components["schemas"]["ObscuritySignal"]>;
     "excerpts"?: Array<components["schemas"]["SourceExcerpt"]>;
   };
+    "AtlasResponse": {
+    "id": string;
+    "repository": components["schemas"]["RepositoryResponse"];
+    "node_count": number;
+    "edge_count": number;
+    "metric_count": number;
+    "fact_count": number;
+    "signal_count": number;
+    "parser_configuration": {
+    [key: string]: string;
+  };
+  };
     "AtlasVersion": {
     "schema_version"?: number;
     "version_id"?: string;
@@ -126,76 +105,9 @@ export interface components {
     "output_token_limit"?: number | null;
     "is_selected"?: boolean;
   };
-    "BoundaryExcerpt": {
-    "reference": string;
-    "qualified_name": string;
-    "role": string;
-    "location"?: components["schemas"]["SourceLocation"] | null;
-    "text"?: string;
-    "unavailable"?: string;
-    "truncated_after_line"?: number | null;
-    "provenance"?: string;
-  };
-    "BoundaryReview": {
-    "schema_version"?: 1;
-    "review_id"?: string;
-    "status": components["schemas"]["ReviewStatus"];
-    "case_id": string;
-    "case_revision": number;
-    "atlas_version_id": string;
-    "reasoning_model": string;
-    "prompt_identity": string;
-    "elicited_from"?: string | null;
-    "repo_id"?: string | null;
-    "branch_id"?: string | null;
-    "investigation"?: components["schemas"]["RecordedInvestigation"] | null;
-    "report"?: components["schemas"]["BoundaryReviewReport"] | null;
-    "markdown_report"?: string | null;
-    "duration_seconds"?: number;
-    "sanitized_errors"?: Array<string>;
-    "created_at"?: string;
-  };
-    "BoundaryReviewReport": {
-    "schema_version"?: 3;
-    "report_id"?: string;
-    "case_title": string;
-    "problem_and_desired_outcome": string;
-    "reviewed"?: Array<components["schemas"]["ReviewedBoundary"]>;
-    "overview": components["schemas"]["ReviewOverview"];
-    "policies_presented"?: Array<string>;
-    "excerpts"?: Array<components["schemas"]["BoundaryExcerpt"]>;
-    "delta"?: components["schemas"]["RevisionDelta"] | null;
-  };
-    "BoundaryReviewSummary": {
-    "review_id": string;
-    "case_id": string;
-    "case_revision": number;
-    "atlas_version_id": string;
-    "status": string;
-    "boundaries_detected": number | null;
-    "boundaries_reviewed": number;
-    "boundaries_material": number;
-    "boundaries_carried"?: number;
-    "created_at": string;
-    "updated_at": string;
-    "case_title"?: string | null;
-    "elicited_from"?: string | null;
-    "repo_id"?: string | null;
-    "branch_id"?: string | null;
-  };
-    "BoundaryState": "carried" | "judged" | "succeeded" | "addressed";
-    "BoundaryTriage": {
-    "reference": string;
-    "fingerprint": string;
-    "decision"?: components["schemas"]["JoinedDecision"] | null;
-    "comment_count"?: number;
-  };
     "BranchDecisionsResponse": {
     "branch_id": string;
-    "decisions": Array<components["schemas"]["StandingDecision"]>;
-    "comment_counts": {
-    [key: string]: number;
-  };
+    "decisions": Array<components["schemas"]["DecisionResponse"]>;
   };
     "BranchLineage": {
     "branch_id": string;
@@ -204,24 +116,19 @@ export interface components {
     "base_branch_id"?: string | null;
     "first_seen_at"?: string;
   };
-    "BulkDecisionBoundary": {
-    "boundary_fingerprint": string;
-    "boundary_reference": string;
-    "material": boolean;
-    "verdict_label": string;
+    "BulkDecisionItem": {
+    "candidate_id": string;
   };
     "BulkDecisionRequest": {
-    "branch_id": string;
-    "state": components["schemas"]["DecisionState"];
-    "author": string;
-    "reason"?: string | null;
     "review_id": string;
-    "boundaries": Array<components["schemas"]["BulkDecisionBoundary"]>;
+    "disposition": components["schemas"]["DecisionDisposition"];
+    "author": string;
+    "reasoning"?: string | null;
+    "candidates": Array<components["schemas"]["BulkDecisionItem"]>;
   };
     "BulkDecisionResponse": {
-    "branch_id": string;
     "recorded": number;
-    "decisions": Array<components["schemas"]["StandingDecision"]>;
+    "decisions": Array<components["schemas"]["DecisionResponse"]>;
   };
     "BundledExample": {
     "name": string;
@@ -229,58 +136,44 @@ export interface components {
     "description": string;
     "repository_root": string;
   };
-    "CaseAlternative": {
-    "id"?: string;
-    "title": string;
+    "CandidateChangeResponse": {
+    "candidate_id": string;
+    "causes": Array<string>;
+    "predecessor_id": string | null;
+  };
+    "CandidateResponse": {
+    "id": string;
+    "pattern": string;
     "summary": string;
+    "participants": Array<components["schemas"]["ParticipantResponse"]>;
+    "evidence": Array<components["schemas"]["EvidenceResponse"]>;
+    "measurements": {
+    [key: string]: string;
   };
-    "CaseField": "expected_future_changes" | "confirmed_facts" | "technical_constraints" | "non_goals" | "assumptions";
-    "CaseRevision": {
-    "case_id": string;
-    "revision": number;
-    "snapshot": components["schemas"]["ArchitectureCase"];
-    "event_type": "created" | "user_update";
-    "actor": string;
-    "answered"?: components["schemas"]["AnsweredQuestions"] | null;
-    "created_at"?: string;
+    "detection_rationale": string;
+    "limitations": string;
   };
-    "CaseStatement": {
-    "id"?: string;
+    "CaseConstraintResponse": {
     "text": string;
-    "kind": components["schemas"]["StatementKind"];
-    "source"?: string | null;
+    "facet": string;
+    "source": string | null;
   };
-    "CaseSummary": {
-    "case_id": string;
-    "revision": number;
-    "title": string;
-    "problem_statement": string;
-    "repository_root"?: string | null;
-    "updated_at": string;
+    "CaseDecisionResponse": {
+    "text": string;
+    "source": string | null;
   };
-    "CaseUpdate": {
-    "title"?: string | null;
-    "problem_statement"?: string | null;
-    "desired_outcome"?: string | null;
-    "actors_and_workflows"?: Array<string> | null;
-    "functional_requirements"?: Array<string> | null;
-    "quality_attributes"?: Array<string> | null;
-    "technical_constraints"?: Array<string> | null;
-    "organisational_constraints"?: Array<string> | null;
-    "expected_future_changes"?: Array<string> | null;
-    "non_goals"?: Array<string> | null;
-    "confirmed_facts"?: Array<components["schemas"]["CaseStatement"]> | null;
-    "derived_constraints"?: Array<components["schemas"]["CaseStatement"]> | null;
-    "assumptions"?: Array<components["schemas"]["CaseStatement"]> | null;
-    "unresolved_questions"?: Array<components["schemas"]["CaseStatement"]> | null;
-    "design_forces"?: Array<components["schemas"]["CaseStatement"]> | null;
-    "clarifications"?: Array<components["schemas"]["Clarification"]> | null;
-    "repository"?: components["schemas"]["RepositoryReference"] | null;
-    "policy_applicability"?: components["schemas"]["PolicyApplicabilityContext"] | null;
-    "referenced_policy_ids"?: Array<string> | null;
-    "candidate_alternatives"?: Array<components["schemas"]["CaseAlternative"]> | null;
-    "reversal_conditions"?: Array<string> | null;
-    "revisit_triggers"?: Array<string> | null;
+    "CaseFacet": "goal" | "constraint" | "decision" | "assumption" | "expected_change" | "non_goal";
+    "CasePatch": {
+    "goal"?: string | null;
+    "constraints"?: Array<components["schemas"]["ConstraintDTO"]> | null;
+    "decisions"?: Array<components["schemas"]["DecisionDTO"]> | null;
+    "policy_context"?: components["schemas"]["PolicyContextDTO"] | null;
+  };
+    "CaseWrite": {
+    "goal"?: string;
+    "constraints"?: Array<components["schemas"]["ConstraintDTO"]>;
+    "decisions"?: Array<components["schemas"]["DecisionDTO"]>;
+    "policy_context"?: components["schemas"]["PolicyContextDTO"];
   };
     "CheckoutRefresh": {
     "root_path": string;
@@ -288,42 +181,56 @@ export interface components {
     "updated"?: boolean;
     "branch_name"?: string | null;
   };
-    "Clarification": {
-    "id"?: string;
+    "ConstraintDTO": {
+    "text": string;
+    "facet"?: components["schemas"]["CaseFacet"];
+    "source"?: string | null;
+  };
+    "ConversationAnswerResponse": {
+    "text": string;
+    "supporting_candidate_ids": Array<string>;
+  };
+    "ConversationMessageResponse": {
     "question": string;
-    "answer": string;
-    "bears_on": components["schemas"]["CaseField"];
+    "answer": components["schemas"]["ConversationAnswerResponse"];
+    "asked_at": string;
   };
     "CyclesQuery": {
     "kind": "cyclic_components";
     "limit"?: number;
   };
-    "DecisionComment": {
-    "schema_version"?: 1;
-    "comment_id"?: string;
-    "branch_id": string;
-    "boundary_fingerprint": string;
-    "author": string;
-    "body": string;
-    "created_at"?: string;
-    "ordinal"?: number;
+    "DecisionDTO": {
+    "text": string;
+    "source"?: string | null;
   };
-    "DecisionCommentRequest": {
-    "author": string;
-    "body": string;
-  };
+    "DecisionDisposition": "accept" | "waive" | "park";
     "DecisionRequest": {
-    "branch_id": string;
-    "boundary_fingerprint": string;
-    "state": components["schemas"]["DecisionState"];
-    "author": string;
-    "reason"?: string | null;
     "review_id": string;
-    "boundary_reference": string;
-    "material": boolean;
-    "verdict_label": string;
+    "candidate_id": string;
+    "disposition": components["schemas"]["DecisionDisposition"];
+    "author": string;
+    "reasoning"?: string | null;
   };
-    "DecisionState": "accepted" | "waived" | "parked";
+    "DecisionResponse": {
+    "id": string;
+    "branch_id": string;
+    "candidate_id": string;
+    "disposition": string;
+    "author": string;
+    "reasoning": string | null;
+    "decided_at": string;
+    "review_id": string;
+    "finding_verdict": string;
+    "finding_model_identity": string;
+    "finding_prompt_identity": string;
+    "finding_retrieval_identity": string;
+  };
+    "DeltaResponse": {
+    "unchanged": Array<string>;
+    "changed": Array<components["schemas"]["CandidateChangeResponse"]>;
+    "new": Array<string>;
+    "addressed": Array<components["schemas"]["AddressedCandidateResponse"]>;
+  };
     "DirectoryEntry": {
     "name": string;
     "path": string;
@@ -334,51 +241,29 @@ export interface components {
     "directories": Array<components["schemas"]["DirectoryEntry"]>;
   };
     "EdgeType": "contains" | "imports" | "calls" | "inherits" | "implements" | "references" | "tests" | "configures";
-    "FindingCandidate": {
-    "candidate_id"?: string;
-    "pattern": components["schemas"]["FindingPattern"];
-    "summary": string;
-    "participants": Array<components["schemas"]["FindingParticipant"]>;
-    "measurements"?: Array<components["schemas"]["FindingMeasurement"]>;
-    "relationships"?: Array<components["schemas"]["AtlasEdge"]>;
-    "limitations": string;
+    "EvidenceResponse": {
+    "description": string;
+    "location": components["schemas"]["SourceLocationResponse"] | null;
+    "excerpt": string | null;
   };
-    "FindingMeasurement": {
-    "name": string;
-    "value": number;
-    "unit"?: string;
-    "nature"?: components["schemas"]["MetricNature"];
-    "definition"?: string;
-    "limitations"?: string;
+    "FindingResponse": {
+    "candidate": components["schemas"]["CandidateResponse"];
+    "verdict": string;
+    "reasoning": string;
+    "policies": Array<components["schemas"]["PolicyBearingResponse"]>;
+    "evidence": Array<components["schemas"]["EvidenceResponse"]>;
+    "hinge": string | null;
+    "recommended_response": string | null;
+    "reused_from_review_id": string | null;
+    "model_identity": string;
+    "prompt_identity": string;
+    "retrieval_identity": string;
   };
-    "FindingParticipant": {
-    "node_id": string;
-    "qualified_name": string;
-    "location"?: components["schemas"]["SourceLocation"] | null;
-    "role": string;
-  };
-    "FindingPattern": "sole_implementation" | "duplicated_knowledge" | "scattered_concept";
     "HotspotsQuery": {
     "kind": "hotspots";
     "metric": string;
     "limit"?: number;
   };
-    "InvestigationLookup": {
-    "tool": string;
-    "arguments"?: {
-    [key: string]: unknown;
-  };
-    "result"?: string;
-  };
-    "JoinedDecision": {
-    "decision_id": string;
-    "state": components["schemas"]["DecisionState"];
-    "author": string;
-    "reason"?: string | null;
-    "decided_at": string;
-    "taken_on_current_verdict": boolean;
-  };
-    "JudgedBecause": "new" | "content" | "shape" | "case" | "policies" | "model" | "prompt" | "resurfaced";
     "MetricNature": "objective_measurement" | "structural_proxy";
     "MetricScope": "lexical_node" | "owning_module" | "reverse_static_impact_neighbourhood" | "bounded_resolved_call_chain";
     "ModelCatalogResponse": {
@@ -415,29 +300,19 @@ export interface components {
     "definition"?: string;
     "limitations"?: string;
   };
-    "OpenQuestion": {
-    "reference": string;
-    "what_the_review_saw": string;
-    "unknown": string;
-    "why_it_matters": string;
-    "question": string;
-    "answer_options"?: Array<string>;
-    "answer_belongs_in": components["schemas"]["CaseField"];
-    "supporting_references": Array<string>;
+    "ParticipantResponse": {
+    "qualified_name": string;
+    "role": string;
   };
-    "OverviewStatement": {
-    "text": string;
-    "supporting_references": Array<string>;
+    "PolicyBearingResponse": {
+    "policy_id": string;
+    "policy_title": string;
+    "reasoning": string;
   };
-    "PolicyApplicabilityContext": {
+    "PolicyContextDTO": {
     "user"?: string | null;
     "organisation"?: string | null;
     "repository"?: string | null;
-  };
-    "PolicyBearing": {
-    "policy_id": string;
-    "policy_title": string;
-    "how": string;
   };
     "PolicyDocument": {
     "schema_version"?: 2;
@@ -490,25 +365,13 @@ export interface components {
     "detail"?: string;
     "probed_at": string;
   };
-    "QuestionAnswered": {
-    "event"?: "answered";
-    "message": components["schemas"]["ReviewMessage"];
-  };
-    "QuestionFailed": {
-    "event"?: "failed";
-    "problem": components["schemas"]["ProblemDetail"];
-  };
-    "RecordedAnswer": {
-    "question_reference": string;
-    "answer_belongs_in": components["schemas"]["CaseField"];
-    "recorded_text": string;
-  };
-    "RecordedInvestigation": {
-    "lookups"?: Array<components["schemas"]["InvestigationLookup"]>;
-    "closing"?: string;
-    "withheld"?: string;
-    "abandoned"?: string;
-    "prompt_identity": string;
+    "QuestionResponse": {
+    "id": string;
+    "text": string;
+    "facet": string;
+    "candidate_ids": Array<string>;
+    "round": number;
+    "equivalence_key": string;
   };
     "RelationQuery": {
     "kind": "direct_dependencies" | "direct_dependants" | "known_callers" | "implementations" | "related_tests";
@@ -554,9 +417,14 @@ export interface components {
     "RepositoryPathRequest": {
     "root_path": string;
   };
-    "RepositoryReference": {
-    "root_path": string;
-    "atlas_version_id"?: string | null;
+    "RepositoryResponse": {
+    "id": string;
+    "path": string;
+    "branch_id": string;
+    "content_id": string;
+    "remote_url": string | null;
+    "branch": string | null;
+    "commit": string | null;
   };
     "RepositorySummary": {
     "version_id": string;
@@ -574,17 +442,21 @@ export interface components {
     "kind": "repository_summary";
     "limit"?: number;
   };
-    "ReviewAnswer": {
-    "answer": string;
-    "supporting_references"?: Array<string>;
-    "suggested_answer"?: string;
+    "RetrievalProvenanceResponse": {
+    "candidate_id": string;
+    "retriever": string;
+    "version": string;
+    "corpus_fingerprint": string;
+    "selected_policy_ids": Array<string>;
+    "model_identity": string | null;
+    "query_fingerprint": string | null;
+    "metadata": {
+    [key: string]: string;
+  };
   };
     "ReviewAnswersRequest": {
-    "answers": Array<components["schemas"]["SubmittedAnswer"]>;
-  };
-    "ReviewCompleted": {
-    "event"?: "completed";
-    "review": components["schemas"]["BoundaryReview"];
+    "answers"?: Array<components["schemas"]["SubmittedAnswerRequest"]>;
+    "stop"?: boolean;
   };
     "ReviewContextQuery": {
     "kind": "review_context";
@@ -596,138 +468,41 @@ export interface components {
     "node_ids": Array<string>;
     "limit"?: number;
   };
-    "ReviewConversation": {
-    "schema_version"?: 1;
-    "conversation_id"?: string;
-    "review_id": string;
-    "case_id": string;
-    "case_revision": number;
-    "title": string;
-    "question_reference"?: string | null;
-    "messages"?: Array<components["schemas"]["ReviewMessage"]>;
-    "created_at"?: string;
-  };
     "ReviewConversationCreateRequest": {
     "review_id": string;
-    "title"?: string | null;
-    "question_reference"?: string | null;
   };
-    "ReviewDetailResponse": {
-    "schema_version"?: 1;
-    "review_id"?: string;
-    "status": components["schemas"]["ReviewStatus"];
-    "case_id": string;
-    "case_revision": number;
-    "atlas_version_id": string;
-    "reasoning_model": string;
-    "prompt_identity": string;
-    "elicited_from"?: string | null;
-    "repo_id"?: string | null;
-    "branch_id"?: string | null;
-    "investigation"?: components["schemas"]["RecordedInvestigation"] | null;
-    "report"?: components["schemas"]["BoundaryReviewReport"] | null;
-    "markdown_report"?: string | null;
-    "duration_seconds"?: number;
-    "sanitized_errors"?: Array<string>;
-    "created_at"?: string;
-    "boundary_triage"?: Array<components["schemas"]["BoundaryTriage"]>;
+    "ReviewConversationResponse": {
+    "id": string;
+    "review_id": string;
+    "messages": Array<components["schemas"]["ConversationMessageResponse"]>;
   };
-    "ReviewDetected": {
-    "event"?: "detected";
-    "total": number;
-    "boundaries": Array<string>;
-  };
-    "ReviewEliciting": {
-    "event"?: "eliciting";
-    "total": number;
-  };
-    "ReviewFailed": {
-    "event"?: "failed";
-    "problem": components["schemas"]["ProblemDetail"];
-  };
-    "ReviewJudged": {
-    "event"?: "judged";
-    "position": number;
-    "total": number;
-    "abstraction": string;
-    "material": boolean;
-    "verdict_reused_from"?: string | null;
-    "carried"?: number;
-  };
-    "ReviewJudging": {
-    "event"?: "judging";
-    "position": number;
-    "total": number;
-  };
-    "ReviewMessage": {
-    "message_id"?: string;
-    "ordinal": number;
-    "question": string;
-    "answer"?: components["schemas"]["ReviewAnswer"] | null;
-    "failure"?: string;
-    "investigation"?: components["schemas"]["RecordedInvestigation"] | null;
-    "asked_at"?: string;
-  };
-    "ReviewOverview": {
-    "situation": string;
-    "themes"?: Array<components["schemas"]["OverviewStatement"]>;
-    "recommended_sequence"?: Array<components["schemas"]["OverviewStatement"]>;
-    "limits": string;
-    "open_questions"?: Array<components["schemas"]["OpenQuestion"]>;
-  };
-    "ReviewProgress": components["schemas"]["ReviewStarted"] | components["schemas"]["ReviewDetected"] | components["schemas"]["ReviewJudging"] | components["schemas"]["ReviewJudged"] | components["schemas"]["ReviewEliciting"] | components["schemas"]["ReviewSummarising"] | components["schemas"]["ReviewCompleted"] | components["schemas"]["ReviewUnchanged"] | components["schemas"]["ReviewFailed"];
     "ReviewQuestionRequest": {
     "question": string;
   };
     "ReviewRequest": {
     "case_id": string;
     "repository_root": string;
-    "elicited_from"?: string | null;
+    "case_revision"?: number | null;
+    "ci"?: boolean;
   };
-    "ReviewStarted": {
-    "event"?: "started";
-    "review_id": string;
-    "case_id": string;
-    "case_revision": number;
-    "elicited_from"?: string | null;
-  };
-    "ReviewStatus": "running" | "awaiting_answers" | "succeeded" | "failed" | "cancelled";
-    "ReviewSummarising": {
-    "event"?: "summarising";
-    "total": number;
-  };
-    "ReviewUnchanged": {
-    "event"?: "unchanged";
-    "current_against": string;
-    "message": string;
-  };
-    "ReviewedBoundary": {
-    "reference": string;
-    "candidate": components["schemas"]["FindingCandidate"];
-    "fingerprint"?: string | null;
-    "content_fingerprint"?: string | null;
-    "inputs_identity"?: string | null;
-    "verdict_reused_from"?: string | null;
-    "delta_state"?: components["schemas"]["BoundaryState"] | null;
-    "judged_because"?: components["schemas"]["JudgedBecause"] | null;
-    "succeeds"?: string | null;
-    "resurfaced_from_review"?: string | null;
-    "material": boolean;
-    "rationale": string;
-    "policy_bearings"?: Array<components["schemas"]["PolicyBearing"]>;
-    "hinge"?: components["schemas"]["VerdictHinge"] | null;
-    "recommended_response"?: string;
-    "verdict_label": string;
-  };
-    "RevisionDelta": {
-    "previous_review_id"?: string | null;
-    "first_revision"?: boolean;
-    "carried"?: number;
-    "judged"?: number;
-    "succeeded"?: number;
-    "addressed"?: number;
-    "resurfaced"?: number;
-    "addressed_boundaries"?: Array<components["schemas"]["AddressedBoundary"]>;
+    "ReviewResponse": {
+    "id": string;
+    "sequence": number;
+    "status": string;
+    "previous_review_id": string | null;
+    "repository": components["schemas"]["RepositoryResponse"];
+    "atlas": components["schemas"]["AtlasResponse"];
+    "case": components["schemas"]["archcompass__presentation__web__routes__core_reviews__CaseResponse"];
+    "findings": Array<components["schemas"]["FindingResponse"]>;
+    "questions": Array<components["schemas"]["QuestionResponse"]>;
+    "delta": components["schemas"]["DeltaResponse"];
+    "retrieval_manifest": Array<components["schemas"]["RetrievalProvenanceResponse"]>;
+    "markdown_report": string | null;
+    "model_identity": string;
+    "prompt_identity": string;
+    "started_at": string;
+    "finished_at": string | null;
+    "failure": string | null;
   };
     "SearchNodesQuery": {
     "kind": "search_nodes";
@@ -760,38 +535,30 @@ export interface components {
     "start_line": number;
     "end_line": number;
   };
-    "StandingDecision": {
-    "schema_version"?: 1;
-    "decision_id"?: string;
-    "branch_id": string;
-    "boundary_fingerprint": string;
-    "state": components["schemas"]["DecisionState"];
-    "author": string;
-    "reason"?: string | null;
-    "decided_at"?: string;
-    "review_id": string;
-    "boundary_reference": string;
-    "material": boolean;
-    "verdict_label": string;
+    "SourceLocationResponse": {
+    "path": string;
+    "start_line": number;
+    "end_line": number;
   };
     "StartFromRepositoryRequest": {
     "root_path": string;
     "start_clean"?: boolean;
   };
-    "StatementKind": "fact" | "derived_constraint" | "assumption" | "question" | "force";
-    "SubmittedAnswer": {
-    "question_reference": string;
-    "recorded_text": string;
+    "StartedCaseResponse": {
+    "case_id": string;
+    "revision": number;
+    "goal": string;
+  };
+    "SubmittedAnswerRequest": {
+    "question_id": string;
+    "status": components["schemas"]["AnswerStatus"];
+    "value"?: string | null;
+    "actor"?: string;
   };
     "SubsystemSummaryQuery": {
     "kind": "subsystem_summary";
     "node_id": string;
     "limit"?: number;
-  };
-    "VerdictHinge": {
-    "unknown": string;
-    "if_confirmed": string;
-    "if_denied": string;
   };
     "WorkspaceModels": {
     "reasoning"?: components["schemas"]["ModelIdentity"] | null;
@@ -804,27 +571,30 @@ export interface components {
     "hosted"?: boolean;
     "source_hosts"?: Array<string>;
   };
+    "archcompass__presentation__web__routes__cases__CaseResponse": {
+    "case_id": string;
+    "revision": number;
+    "goal": string;
+    "constraints": Array<components["schemas"]["ConstraintDTO"]>;
+    "decisions": Array<components["schemas"]["DecisionDTO"]>;
+    "policy_context": components["schemas"]["PolicyContextDTO"];
+    "created_at": string;
+    "updated_at": string;
+  };
+    "archcompass__presentation__web__routes__core_reviews__CaseResponse": {
+    "id": string;
+    "revision": number;
+    "goal": string;
+    "constraints": Array<components["schemas"]["CaseConstraintResponse"]>;
+    "decisions": Array<components["schemas"]["CaseDecisionResponse"]>;
+    "answers": Array<components["schemas"]["AnswerResponse"]>;
+    "created_at": string;
+    "updated_at": string;
+  };
   };
 }
 
 export interface operations {
-  "add_decision_comment_api_decisions__branch_id___fingerprint__comments_post": {
-    parameters: {
-      query: never;
-      path: {
-      "branch_id": string;
-      "fingerprint": string;
-      };
-      header: never;
-      cookie: never;
-    };
-    requestBody: components["schemas"]["DecisionCommentRequest"];
-    responses: {
-      "201": components["schemas"]["DecisionComment"];
-      "422": components["schemas"]["ProblemDetail"];
-      "404": components["schemas"]["ProblemDetail"];
-    };
-  };
   "add_policy_source_api_policies_sources_post": {
     parameters: {
       query: never;
@@ -838,7 +608,7 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
-  "answer_review_questions_api_reviews__review_id__answers_post": {
+  "answer_review_api_reviews__review_id__answers_post": {
     parameters: {
       query: never;
       path: {
@@ -849,10 +619,11 @@ export interface operations {
     };
     requestBody: components["schemas"]["ReviewAnswersRequest"];
     responses: {
-      "201": components["schemas"]["CaseRevision"];
+      "200": components["schemas"]["ReviewResponse"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
       "409": components["schemas"]["ProblemDetail"];
+      "503": components["schemas"]["ProblemDetail"];
     };
   };
   "ask_review_question_api_review_conversations__conversation_id__messages_post": {
@@ -866,10 +637,9 @@ export interface operations {
     };
     requestBody: components["schemas"]["ReviewQuestionRequest"];
     responses: {
-      "201": components["schemas"]["ReviewMessage"];
+      "200": components["schemas"]["ReviewConversationResponse"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
-      "409": components["schemas"]["ProblemDetail"];
       "503": components["schemas"]["ProblemDetail"];
     };
   };
@@ -886,7 +656,6 @@ export interface operations {
     responses: {
       "200": components["schemas"]["BranchDecisionsResponse"];
       "422": components["schemas"]["ProblemDetail"];
-      "404": components["schemas"]["ProblemDetail"];
     };
   };
   "cancel_review_api_reviews__review_id__cancel_post": {
@@ -900,7 +669,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      "200": components["schemas"]["BoundaryReview"];
+      "200": components["schemas"]["ReviewResponse"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
       "409": components["schemas"]["ProblemDetail"];
@@ -917,7 +686,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      "200": Array<components["schemas"]["CaseRevision"]>;
+      "200": Array<components["schemas"]["archcompass__presentation__web__routes__cases__CaseResponse"]>;
       "422": components["schemas"]["ProblemDetail"];
     };
   };
@@ -955,9 +724,9 @@ export interface operations {
       header: never;
       cookie: never;
     };
-    requestBody: components["schemas"]["ArchitectureCase"];
+    requestBody: components["schemas"]["CaseWrite"];
     responses: {
-      "201": components["schemas"]["CaseRevision"];
+      "201": components["schemas"]["archcompass__presentation__web__routes__cases__CaseResponse"];
       "422": components["schemas"]["ProblemDetail"];
     };
   };
@@ -984,7 +753,7 @@ export interface operations {
     };
     requestBody: components["schemas"]["ReviewRequest"];
     responses: {
-      "201": components["schemas"]["BoundaryReview"];
+      "201": components["schemas"]["ReviewResponse"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
       "503": components["schemas"]["ProblemDetail"];
@@ -999,43 +768,25 @@ export interface operations {
     };
     requestBody: components["schemas"]["ReviewConversationCreateRequest"];
     responses: {
-      "201": components["schemas"]["ReviewConversation"];
+      "201": components["schemas"]["ReviewConversationResponse"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
     };
   };
-  "decision_comments_api_decisions__branch_id___fingerprint__comments_get": {
+  "decision_history_api_decisions__branch_id___candidate_id__history_get": {
     parameters: {
       query: never;
       path: {
       "branch_id": string;
-      "fingerprint": string;
+      "candidate_id": string;
       };
       header: never;
       cookie: never;
     };
     requestBody?: never;
     responses: {
-      "200": Array<components["schemas"]["DecisionComment"]>;
+      "200": Array<components["schemas"]["DecisionResponse"]>;
       "422": components["schemas"]["ProblemDetail"];
-      "404": components["schemas"]["ProblemDetail"];
-    };
-  };
-  "decision_history_api_decisions__branch_id___fingerprint__history_get": {
-    parameters: {
-      query: never;
-      path: {
-      "branch_id": string;
-      "fingerprint": string;
-      };
-      header: never;
-      cookie: never;
-    };
-    requestBody?: never;
-    responses: {
-      "200": Array<components["schemas"]["StandingDecision"]>;
-      "422": components["schemas"]["ProblemDetail"];
-      "404": components["schemas"]["ProblemDetail"];
     };
   };
   "delete_policy_api_policies__policy_id__delete": {
@@ -1085,7 +836,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      "200": components["schemas"]["CaseRevision"];
+      "200": components["schemas"]["archcompass__presentation__web__routes__cases__CaseResponse"];
       "422": components["schemas"]["ProblemDetail"];
     };
   };
@@ -1118,7 +869,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      "200": components["schemas"]["ReviewDetailResponse"];
+      "200": components["schemas"]["ReviewResponse"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
     };
@@ -1134,7 +885,40 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      "200": components["schemas"]["ReviewConversation"];
+      "200": components["schemas"]["ReviewConversationResponse"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "get_review_report_api_reviews__review_id__report_get": {
+    parameters: {
+      query: never;
+      path: {
+      "review_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": unknown;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "get_review_source_api_reviews__review_id__source_get": {
+    parameters: {
+      query: never;
+      path: {
+      "review_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": Array<components["schemas"]["EvidenceResponse"]>;
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
     };
@@ -1148,7 +932,7 @@ export interface operations {
     };
     requestBody: string;
     responses: {
-      "201": components["schemas"]["CaseRevision"];
+      "201": components["schemas"]["archcompass__presentation__web__routes__cases__CaseResponse"];
       "422": components["schemas"]["ProblemDetail"];
     };
   };
@@ -1189,7 +973,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      "200": Array<components["schemas"]["CaseSummary"]>;
+      "200": Array<components["schemas"]["archcompass__presentation__web__routes__cases__CaseResponse"]>;
       "422": components["schemas"]["ProblemDetail"];
     };
   };
@@ -1275,7 +1059,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      "200": Array<components["schemas"]["ReviewConversation"]>;
+      "200": Array<components["schemas"]["ReviewConversationResponse"]>;
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
     };
@@ -1283,7 +1067,6 @@ export interface operations {
   "list_reviews_api_reviews_get": {
     parameters: {
       query: {
-      "case_id"?: string | null;
       "limit"?: number;
       };
       path: never;
@@ -1292,7 +1075,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      "200": Array<components["schemas"]["BoundaryReviewSummary"]>;
+      "200": Array<components["schemas"]["ReviewResponse"]>;
       "422": components["schemas"]["ProblemDetail"];
     };
   };
@@ -1334,7 +1117,7 @@ export interface operations {
     };
     requestBody: components["schemas"]["DecisionRequest"];
     responses: {
-      "201": components["schemas"]["StandingDecision"];
+      "201": components["schemas"]["DecisionResponse"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
     };
@@ -1468,42 +1251,6 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
-  "review_report_api_reviews__review_id__report_get": {
-    parameters: {
-      query: never;
-      path: {
-      "review_id": string;
-      };
-      header: never;
-      cookie: never;
-    };
-    requestBody?: never;
-    responses: {
-      "200": unknown;
-      "422": components["schemas"]["ProblemDetail"];
-      "404": components["schemas"]["ProblemDetail"];
-      "409": components["schemas"]["ProblemDetail"];
-    };
-  };
-  "review_source_api_reviews__review_id__source_get": {
-    parameters: {
-      query: {
-      "reference"?: string | null;
-      "context_lines"?: number;
-      };
-      path: {
-      "review_id": string;
-      };
-      header: never;
-      cookie: never;
-    };
-    requestBody?: never;
-    responses: {
-      "200": Array<components["schemas"]["BoundaryExcerpt"]>;
-      "422": components["schemas"]["ProblemDetail"];
-      "404": components["schemas"]["ProblemDetail"];
-    };
-  };
   "select_model_api_models_selection_put": {
     parameters: {
       query: never;
@@ -1527,7 +1274,7 @@ export interface operations {
     };
     requestBody: components["schemas"]["StartFromRepositoryRequest"];
     responses: {
-      "200": components["schemas"]["CaseRevision"];
+      "200": components["schemas"]["StartedCaseResponse"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
     };
@@ -1541,7 +1288,7 @@ export interface operations {
     };
     requestBody: components["schemas"]["ReviewRequest"];
     responses: {
-      "200": components["schemas"]["ReviewProgress"];
+      "200": unknown;
       "422": components["schemas"]["ProblemDetail"];
     };
   };
@@ -1556,11 +1303,8 @@ export interface operations {
     };
     requestBody: components["schemas"]["ReviewQuestionRequest"];
     responses: {
-      "200": components["schemas"]["AnswerProgress"];
+      "200": unknown;
       "422": components["schemas"]["ProblemDetail"];
-      "404": components["schemas"]["ProblemDetail"];
-      "409": components["schemas"]["ProblemDetail"];
-      "503": components["schemas"]["ProblemDetail"];
     };
   };
   "update_case_api_cases__case_id__patch": {
@@ -1572,9 +1316,9 @@ export interface operations {
       header: never;
       cookie: never;
     };
-    requestBody: components["schemas"]["CaseUpdate"];
+    requestBody: components["schemas"]["CasePatch"];
     responses: {
-      "200": components["schemas"]["CaseRevision"];
+      "200": components["schemas"]["archcompass__presentation__web__routes__cases__CaseResponse"];
       "422": components["schemas"]["ProblemDetail"];
     };
   };
@@ -1637,12 +1381,8 @@ export interface paths {
   "/api/decisions/bulk": {
     post: operations["record_decisions_api_decisions_bulk_post"];
   };
-  "/api/decisions/{branch_id}/{fingerprint}/comments": {
-    get: operations["decision_comments_api_decisions__branch_id___fingerprint__comments_get"];
-    post: operations["add_decision_comment_api_decisions__branch_id___fingerprint__comments_post"];
-  };
-  "/api/decisions/{branch_id}/{fingerprint}/history": {
-    get: operations["decision_history_api_decisions__branch_id___fingerprint__history_get"];
+  "/api/decisions/{branch_id}/{candidate_id}/history": {
+    get: operations["decision_history_api_decisions__branch_id___candidate_id__history_get"];
   };
   "/api/examples": {
     get: operations["list_examples_api_examples_get"];
@@ -1732,16 +1472,16 @@ export interface paths {
     delete: operations["delete_review_api_reviews__review_id__delete"];
   };
   "/api/reviews/{review_id}/answers": {
-    post: operations["answer_review_questions_api_reviews__review_id__answers_post"];
+    post: operations["answer_review_api_reviews__review_id__answers_post"];
   };
   "/api/reviews/{review_id}/cancel": {
     post: operations["cancel_review_api_reviews__review_id__cancel_post"];
   };
   "/api/reviews/{review_id}/report": {
-    get: operations["review_report_api_reviews__review_id__report_get"];
+    get: operations["get_review_report_api_reviews__review_id__report_get"];
   };
   "/api/reviews/{review_id}/source": {
-    get: operations["review_source_api_reviews__review_id__source_get"];
+    get: operations["get_review_source_api_reviews__review_id__source_get"];
   };
   "/api/workspace": {
     get: operations["workspace_summary_api_workspace_get"];

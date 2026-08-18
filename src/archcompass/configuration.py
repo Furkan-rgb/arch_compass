@@ -12,7 +12,7 @@ from pathlib import Path
 
 from pydantic import Field, model_validator
 
-from archcompass.domain.base import DomainModel
+from archcompass.boundary.base import DomainModel
 from archcompass.domain.errors import ConfigurationError
 
 ENVIRONMENT_FILE_NAME = ".env"

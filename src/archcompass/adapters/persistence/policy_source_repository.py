@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from archcompass.adapters.persistence.database import SQLiteDatabase
-from archcompass.domain.policy import PolicySourceRegistration
+from archcompass.boundary.policy import PolicySourceRegistration
 
 
 class SQLitePolicySourceRepository:

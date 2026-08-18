@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from archcompass.domain.policy import (
+from archcompass.boundary.policy import (
     PolicyApplicabilityContext,
     PolicyDocument,
     PolicyScope,
@@ -11,11 +11,8 @@ from archcompass.domain.policy import (
     PolicyStrength,
 )
 
-# No evidence-summary or conflict tests. `PolicyEvidenceSummary`, `RetrievedPolicy`,
-# `PolicyChunk` and `PolicyConflict` described the shape of a retrieval result — which
-# policy sections were matched, how far away they were, how two of them were reconciled —
-# and nothing retrieves. A policy reaches every stage whole (ADR 0013), so what is left to
-# test about the corpus is which policies apply to whom.
+# Retrieval-specific records are tested at the application/adapter boundary. This module
+# checks only policy authoring and applicability DTO behavior.
 
 
 def _policy(description: str | None = None) -> PolicyDocument:
@@ -34,19 +31,19 @@ def _policy(description: str | None = None) -> PolicyDocument:
     )
 
 
-def test_legacy_scoped_policy_json_without_applies_to_still_loads_safely() -> None:
+def test_scoped_policy_without_a_subject_never_applies_implicitly() -> None:
     policy = PolicyDocument.model_validate_json(
         """{
           "schema_version": 2,
-          "id": "legacy-organisation-policy",
-          "title": "Legacy organisation policy",
+          "id": "unassigned-organisation-policy",
+          "title": "Unassigned organisation policy",
           "scope": "organisation",
           "strength": "preferred",
           "tags": [],
           "source": {"author": "Test", "inspiration": []},
           "body": "Body",
-          "source_path": "/policies/legacy.md",
-          "content_hash": "legacy-hash"
+          "source_path": "/policies/unassigned.md",
+          "content_hash": "unassigned-hash"
         }"""
     )
 

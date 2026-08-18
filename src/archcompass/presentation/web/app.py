@@ -33,8 +33,10 @@ from archcompass.presentation.web.routes import (
     policies,
     repositories,
     review_conversations,
-    reviews,
     workspace,
+)
+from archcompass.presentation.web.routes import (
+    core_reviews as reviews,
 )
 from archcompass.presentation.web.runtimes import (
     RuntimeProvider,

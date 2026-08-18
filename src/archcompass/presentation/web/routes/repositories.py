@@ -19,12 +19,11 @@ from fastapi import APIRouter, Query
 from pydantic import Field, model_validator
 
 from archcompass.application.repository_tree import folder_tree
-from archcompass.domain.atlas import AtlasQueryResult, AtlasVersion
-from archcompass.domain.case import CaseRevision
-from archcompass.domain.checkout import CheckoutRefresh, RepositoryCheckout
-from archcompass.domain.lineage import RepositoryBranch
-from archcompass.domain.scope import RepositoryFolderTree
-from archcompass.domain.workspace import RepositorySummary
+from archcompass.boundary.atlas import AtlasQueryResult, AtlasVersion
+from archcompass.boundary.checkout import CheckoutRefresh, RepositoryCheckout
+from archcompass.boundary.lineage import RepositoryBranch
+from archcompass.boundary.scope import RepositoryFolderTree
+from archcompass.boundary.workspace import RepositorySummary
 from archcompass.presentation.web.dependencies import (
     RestrictionsDep,
     RuntimeDep,
@@ -76,6 +75,12 @@ class StartFromRepositoryRequest(APIModel):
 
     root_path: str = Field(min_length=1)
     start_clean: bool = False
+
+
+class StartedCaseResponse(APIModel):
+    case_id: str
+    revision: int
+    goal: str
 
 
 class AtlasExploreRequest(APIModel):
@@ -274,7 +279,7 @@ def routes() -> APIRouter:
         runtime: RuntimeDep,
         hosted_mode: RestrictionsDep,
         request: StartFromRepositoryRequest,
-    ) -> CaseRevision:
+    ) -> StartedCaseResponse:
         """Index a repository and answer with the case to review it against.
 
         The whole of the first step for someone who has not authored a case. Both halves
@@ -300,9 +305,19 @@ def routes() -> APIRouter:
         root = hosted_mode.repository_root(Path(request.root_path), runtime)
         version = runtime.repository_service.index(root)
         if request.start_clean:
-            return runtime.case_service.start_from_repository(root)
-        return runtime.case_service.continue_from_repository(
-            root, branch_id=version.branch_id
+            case = runtime.case_service.start_from_repository(root)
+        elif version.branch_id is not None:
+            latest = runtime.review_workflow_service.latest_for_branch(version.branch_id)
+            if latest is not None:
+                case = runtime.case_service.show(latest.case.id)
+            else:
+                case = runtime.case_service.continue_from_repository(
+                    root, branch_id=version.branch_id
+                )
+        else:
+            case = runtime.case_service.continue_from_repository(root, branch_id=None)
+        return StartedCaseResponse(
+            case_id=case.id, revision=case.revision, goal=case.goal
         )
 
     @router.get("/api/repositories/summary")

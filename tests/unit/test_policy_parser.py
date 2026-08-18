@@ -12,7 +12,7 @@ from archcompass.adapters.retrieval.policy_markdown import (
     parse_policy,
 )
 from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
-from archcompass.domain.base import stable_id
+from archcompass.boundary.base import stable_id
 from archcompass.domain.errors import PolicyFormatError
 
 

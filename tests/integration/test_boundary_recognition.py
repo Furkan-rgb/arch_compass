@@ -18,8 +18,8 @@ from textwrap import dedent
 import pytest
 
 from archcompass.adapters.analysis import PythonAstRepositoryAnalyzer
-from archcompass.domain.atlas import NodeType
-from archcompass.domain.finding_detectors import detect_finding_candidates
+from archcompass.boundary.atlas import NodeType
+from archcompass.boundary.finding_detectors import detect_finding_candidates
 
 
 def _atlas(tmp_path: Path, source: str):

@@ -13,7 +13,7 @@ whether they belong together, which is exactly the judgement the
 
 from __future__ import annotations
 
-from archcompass.domain.atlas import (
+from archcompass.boundary.atlas import (
     AtlasNode,
     MetricNature,
     MetricProfile,

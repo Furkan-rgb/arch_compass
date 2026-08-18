@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from archcompass.adapters.persistence.database import SQLiteDatabase
-from archcompass.domain.atlas import (
+from archcompass.boundary.atlas import (
     Atlas,
     AtlasEdge,
     AtlasNode,
@@ -15,8 +15,8 @@ from archcompass.domain.atlas import (
     ModuleFacts,
     ObscuritySignal,
 )
+from archcompass.boundary.workspace import RepositorySummary
 from archcompass.domain.errors import AtlasNotFoundError
-from archcompass.domain.workspace import RepositorySummary
 
 
 class SQLiteAtlasRepository:

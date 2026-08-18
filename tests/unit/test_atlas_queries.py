@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from archcompass.adapters.analysis.query_service import DeterministicAtlasQueryService
-from archcompass.domain.atlas import (
+from archcompass.boundary.atlas import (
     Atlas,
     AtlasEdge,
     AtlasNode,

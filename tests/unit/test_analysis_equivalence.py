@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from archcompass.adapters.analysis import PythonAstRepositoryAnalyzer
-from archcompass.domain.base import canonical_json
+from archcompass.boundary.base import canonical_json
 
 GOLDEN = Path(__file__).parent / "golden"
 

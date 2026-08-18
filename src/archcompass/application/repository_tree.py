@@ -15,12 +15,12 @@ from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path
 
-from archcompass.domain.errors import PathValidationError
-from archcompass.domain.scope import (
+from archcompass.boundary.scope import (
     IGNORED_DIRECTORIES,
     RepositoryFolder,
     RepositoryFolderTree,
 )
+from archcompass.domain.errors import PathValidationError
 
 #: Directory names that usually hold something other than the code under review. Advisory,
 #: and never applied on anybody's behalf: `examples/` is the product in a library of

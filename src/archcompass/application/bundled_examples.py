@@ -2,7 +2,7 @@
 
 Each example is a repository and a manifest naming it — no case. A visitor picks one, the
 review runs against the code alone, and the questions it comes back with are what write the
-case (master plan §6C.1). Shipping a case with the repository would hand over the answers
+case. Shipping a case with the repository would hand over the answers
 and hide the flow the product is: the first pass would conclude instead of asking.
 
 Nothing is cached between loads. Indexing again is how an edited example repository is
@@ -19,7 +19,7 @@ from typing import cast
 import yaml
 
 from archcompass.application.repository_index import RepositoryIndexService
-from archcompass.domain.atlas import AtlasVersion
+from archcompass.boundary.atlas import AtlasVersion
 from archcompass.domain.errors import ExampleNotFoundError
 
 #: Shipped alongside the package rather than resolved from the working directory, so a

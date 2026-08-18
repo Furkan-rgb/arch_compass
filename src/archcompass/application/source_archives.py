@@ -21,7 +21,7 @@ from pathlib import Path
 
 from archcompass.application.checkouts import directory_name
 from archcompass.application.source_storage import SourceStorage
-from archcompass.domain.checkout import RepositoryCheckout, SourceOrigin
+from archcompass.boundary.checkout import RepositoryCheckout, SourceOrigin
 from archcompass.domain.errors import PathValidationError
 from archcompass.ports.repositories import SourceOriginRepository
 from archcompass.ports.source_archive import SourceArchiveFetcher

@@ -20,7 +20,7 @@ import re
 from hashlib import sha256
 from pathlib import Path
 
-from archcompass.domain.checkout import CheckoutRefresh, RepositoryCheckout
+from archcompass.boundary.checkout import CheckoutRefresh, RepositoryCheckout
 from archcompass.domain.errors import PathValidationError, RepositoryCheckoutError
 from archcompass.ports.vcs import GitClient
 

@@ -19,5 +19,5 @@
     "types": ["vitest/globals", "@testing-library/jest-dom"],
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src"]
+  "files": ["src/main.tsx"]
 }

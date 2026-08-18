@@ -239,6 +239,5 @@ def _abandon_interrupted_reviews(runtime: Runtime) -> None:
     failed.
     """
 
-    runtime.review_repository.abandon_running(reason=_ABANDONED)
-
+    runtime.review_workflow_service.abandon_running()
 

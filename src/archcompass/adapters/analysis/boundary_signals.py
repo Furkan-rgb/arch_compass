@@ -8,7 +8,7 @@ together is more code than the rest of the analyzer's signal handling combined.
 
 Keeping them here leaves the analyzer core to parsing, graph construction and metrics,
 and makes the boundary heuristics reviewable as one subject. They remain structural
-proxies: `docs/repository-atlas.md` and `docs/atlas-metrics.md` state their limits.
+proxies whose limitations are carried on the resulting candidates.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from archcompass.adapters.analysis.ast_support import (
     build_edge,
     lexical_nodes,
 )
-from archcompass.domain.atlas import (
+from archcompass.boundary.atlas import (
     AtlasEdge,
     AtlasNode,
     EdgeType,
