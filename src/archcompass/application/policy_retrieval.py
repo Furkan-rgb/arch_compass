@@ -16,6 +16,8 @@ from archcompass.domain import (
 from archcompass.ports.dense_policy_index import DensePolicyIndex
 from archcompass.ports.policy_retrieval import PolicySelection, RetrievedPolicySet
 
+DENSE_RETRIEVER_RELEASE_TOP_K = 20
+
 
 def corpus_fingerprint(corpus: tuple[Policy, ...]) -> str:
     ordered = sorted(corpus, key=lambda policy: policy.id)
@@ -44,13 +46,18 @@ class DensePolicyRetriever:
     """Mandatory/applicable scoped policies plus dense top-K, deterministically merged."""
 
     implementation = "dense-scoped"
-    version = "1"
 
     def __init__(self, index: DensePolicyIndex, *, top_k: int) -> None:
         if top_k not in {8, 12, 16, 20}:
             raise ValueError("top_k must be one of the evaluated values: 8, 12, 16, 20")
         self._index = index
         self._top_k = top_k
+
+    @property
+    def version(self) -> str:
+        """Release identity includes the mechanically selected retrieval limit."""
+
+        return f"1-k{self._top_k}"
 
     def retrieve(
         self,

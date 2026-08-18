@@ -27,7 +27,9 @@ describe("clean-break review workbench", () => {
     const waiting = reviewFixture();
     const answer = vi.spyOn(coreApi, "answer").mockResolvedValue(reviewFixture({ id: "review-2", status: "completed", questions: [] }));
     render(<QueryClientProvider client={queryClient()}><MemoryRouter><QuestionsPanel review={waiting} /></MemoryRouter></QueryClientProvider>);
+    expect(screen.getByText("0/1")).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("Skip explicitly"));
+    expect(screen.getByText("1/1")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save and continue review" }));
     await waitFor(() => expect(answer).toHaveBeenCalledWith("review-1", [{ question_id: "question-1", status: "skipped", value: null }], false));
   });
@@ -39,6 +41,7 @@ describe("clean-break review workbench", () => {
     render(<QueryClientProvider client={queryClient()}><MemoryRouter initialEntries={["/reviews/review-1"]}><Routes><Route path="/reviews/:reviewId" element={<ReviewPage />} /></Routes></MemoryRouter></QueryClientProvider>);
     expect(await screen.findByText("The code cannot answer these")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: /Retrieval/ }));
+    expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "tab-provenance");
     expect(await screen.findByText(/dense-scoped/)).toBeInTheDocument();
     expect(screen.getByText(/dependency-direction/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: /Findings/ }));

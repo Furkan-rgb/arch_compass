@@ -51,7 +51,7 @@ repo_app = typer.Typer(help="Index a Python repository.")
 atlas_app = typer.Typer(help="Query repository atlases.")
 case_app = typer.Typer(help="Create and revise architecture cases.")
 reviews_app = typer.Typer(help="Inspect immutable boundary reviews.")
-retrieval_app = typer.Typer(help="Evaluate and approve policy retriever configurations.")
+retrieval_app = typer.Typer(help="Evaluate policy retriever release configurations.")
 app.add_typer(policies_app, name="policies")
 policies_app.add_typer(policy_sources_app, name="sources")
 app.add_typer(repo_app, name="repo")
@@ -105,12 +105,11 @@ class CaseUpdateFile(BaseModel):
     policy_context: PolicyContext | None = None
 
 
-@retrieval_app.command("approve")
-def approve_retriever(
-    context: typer.Context,
+@retrieval_app.command("evaluate")
+def evaluate_retriever(
     source: Annotated[Path, typer.Option("--from", exists=True, dir_okay=False)],
 ) -> None:
-    """Select and approve the smallest passing K from recorded reference runs."""
+    """Select the smallest passing K from recorded reference runs."""
 
     document = RetrievalEvaluationFile.model_validate(_read_yaml(source))
     top_k, evaluation = choose_smallest_passing_k(
@@ -118,16 +117,8 @@ def approve_retriever(
             item.as_example() for item in document.results.get(candidate_k, [])
         )
     )
-    runtime = _state(context).runtime
-    runtime.retrieval_approval_repository.approve(
-        embedding_identity=document.embedding_identity,
-        retriever="dense-scoped",
-        version="1",
-        top_k=top_k,
-        evaluation=evaluation,
-    )
     typer.echo(
-        f"Approved dense-scoped:1 for {document.embedding_identity} at K={top_k} "
+        f"dense-scoped evaluation passed for {document.embedding_identity} at K={top_k} "
         f"(macro recall {evaluation.macro_recall:.3f})."
     )
 

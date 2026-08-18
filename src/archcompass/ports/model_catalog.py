@@ -13,7 +13,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final, Protocol
 
-from archcompass.boundary.model_catalog import ProbeResult, ReasoningModelSelection
+from archcompass.boundary.model_catalog import (
+    EmbeddingModelCatalog,
+    EmbeddingModelSelection,
+    ProbeResult,
+    ReasoningModelSelection,
+)
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ConfigurationError
 
@@ -160,6 +165,18 @@ class ReasoningModelSelectionRepository(Protocol):
     def record_failure(self, detail: str) -> None: ...
 
     def clear_failure(self) -> None: ...
+
+
+class EmbeddingModelSelectionRepository(Protocol):
+    def get(self) -> EmbeddingModelSelection | None: ...
+
+    def set(self, selection: EmbeddingModelSelection) -> EmbeddingModelSelection: ...
+
+    def clear(self) -> None: ...
+
+
+class EmbeddingModelDiscovery(Protocol):
+    def discover(self, providers: tuple[ProviderDescriptor, ...]) -> EmbeddingModelCatalog: ...
 
 
 class SelectedReasoningModel(Protocol):

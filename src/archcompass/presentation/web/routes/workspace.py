@@ -30,6 +30,12 @@ class ModelIdentity(APIModel):
     thinking: bool | None = None
 
 
+class EmbeddingIdentity(APIModel):
+    provider: str
+    model: str
+    dimensions: int
+
+
 class WorkspaceModels(APIModel):
     """The selected reasoning model and its current health.
 
@@ -41,6 +47,7 @@ class WorkspaceModels(APIModel):
     #: A state to display rather than an error to raise: everything a review does not need a
     #: model for still works, and the interface asks for one where it is actually required.
     reasoning: ModelIdentity | None = None
+    embedding: EmbeddingIdentity | None = None
     #: What the last run against this model said when it failed. Empty when the last run
     #: succeeded, when none has run, or once a probe has since found the provider healthy.
     #: The half of a model's health no probe can see: a spent quota lists perfectly well.
@@ -49,6 +56,7 @@ class WorkspaceModels(APIModel):
     #: workspace's to change while it lasts. The chooser says so instead of offering a
     #: choice that would be ignored.
     pinned: bool = False
+    embedding_pinned: bool = False
 
 
 class WorkspaceSummaryResponse(APIModel):
@@ -125,6 +133,8 @@ def describe_workspace(
 
     status = runtime.model_catalog_service.status()
     selection = status.selection
+    embedding_status = runtime.embedding_model_service.status()
+    embedding = embedding_status.selection
     return WorkspaceSummaryResponse(
         # The path is withheld on the hosted demo rather than shortened: it ends in the
         # session token, and a page that could read it could hand another visitor's
@@ -140,8 +150,18 @@ def describe_workspace(
                 if status.provider and status.model
                 else None
             ),
+            embedding=(
+                EmbeddingIdentity(
+                    provider=embedding.provider,
+                    model=embedding.model,
+                    dimensions=embedding.dimensions,
+                )
+                if embedding is not None
+                else None
+            ),
             failure=selection.failure_detail if selection else "",
             pinned=status.pinned,
+            embedding_pinned=embedding_status.pinned,
         ),
         hosted=restrictions.hosted,
         source_hosts=sorted(runtime.source_service.hosts) if runtime.source_service else [],

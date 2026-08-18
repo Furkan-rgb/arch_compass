@@ -161,7 +161,7 @@ deterministic candidate succession. They never alter model judgement.
 ArchCompass uses separate storage roles:
 
 - `.archcompass/workspace.sqlite3` stores repository analysis, case revisions, immutable
-  reviews, decisions, conversations, cache entries, model selection, and retrieval approval.
+  reviews, decisions, conversations, cache entries, model selection, and retrieval provenance.
 - `.archcompass/review-checkpoints.db` stores LangGraph execution checkpoints.
 
 Checkpoint IDs are not domain IDs. Review lineage uses repository and branch identity,
@@ -188,6 +188,11 @@ Google therefore needs no separate embedding configuration. Advanced or self-hos
 can override `ARCHCOMPASS_EMBEDDING_PROVIDER`, `ARCHCOMPASS_EMBEDDING_MODEL`,
 `ARCHCOMPASS_EMBEDDING_DIMENSIONS`, `ARCHCOMPASS_EMBEDDING_BASE_URL`, and
 `ARCHCOMPASS_EMBEDDING_API_KEY_ENV`.
+
+The Models screen lists embedding models separately from reasoning models. It discovers
+installed Ollama models that advertise embedding support, reads their vector dimensions,
+and persists the selected embedder for the workspace. Environment configuration pins the
+embedding choice and takes precedence over the workspace selection.
 
 The deterministic provider and full-corpus retriever support offline testing and evaluation.
 Production retrieval refuses to spend reasoning budget when its required embedding/index

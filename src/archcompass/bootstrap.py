@@ -28,6 +28,7 @@ from archcompass.adapters.models.catalog import (
     GOOGLE_DESCRIPTOR,
     OLLAMA_DESCRIPTOR,
 )
+from archcompass.adapters.models.embedding_catalog import ProviderEmbeddingModelDiscovery
 from archcompass.adapters.models.selected_langchain import (
     SelectedLangChainChatModel,
     SelectedLangChainJudge,
@@ -43,19 +44,22 @@ from archcompass.adapters.persistence import (
     SQLiteCoreReviewRepository,
     SQLiteCoreStandingDecisionRepository,
     SQLiteDatabase,
+    SQLiteEmbeddingModelSelectionRepository,
     SQLiteLineageRepository,
     SQLitePolicySourceRepository,
     SQLiteReviewExecutionRepository,
     SQLiteScopeSelectionRepository,
     SQLiteSourceOriginRepository,
 )
-from archcompass.adapters.persistence.retrieval_approval_repository import (
-    SQLiteRetrievalApprovalRepository,
-)
 from archcompass.adapters.retrieval import (
     MarkdownPolicySourceInspector,
     MarkdownPolicyStore,
     SelectedDensePolicyRetriever,
+)
+from archcompass.adapters.retrieval.selected import (
+    DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS,
+    DEFAULT_GOOGLE_EMBEDDING_MODEL,
+    embedding_config_from_environment,
 )
 from archcompass.adapters.sources import HttpsTarballFetcher
 from archcompass.adapters.vcs import GitCommandLineClient
@@ -72,6 +76,7 @@ from archcompass.application.core_defaults import (
     PersistentCaseReviser,
     RejudgeAllCandidates,
 )
+from archcompass.application.embedding_models import EmbeddingModelService
 from archcompass.application.model_catalog import ModelCatalogService, reasoning_config
 from archcompass.application.policies import PolicyService
 from archcompass.application.policy_retrieval import corpus_fingerprint
@@ -88,6 +93,7 @@ from archcompass.application.verdict_cache import (
     CachingArchitectureJudge,
     CachingReviewRecorder,
 )
+from archcompass.boundary.model_catalog import EmbeddingModelSelection
 from archcompass.configuration import (
     ReasoningModelConfig,
     load_provider_environment,
@@ -158,11 +164,11 @@ class Runtime:
     source_service: SourceArchiveService | None
     freshness_service: AtlasFreshnessService
     model_catalog_service: ModelCatalogService
+    embedding_model_service: EmbeddingModelService
     core_case_repository: SQLiteCoreCaseRepository
     core_review_repository: SQLiteCoreReviewRepository
     review_workflow_service: ReviewWorkflowService
     checkpoint_connection: sqlite3.Connection
-    retrieval_approval_repository: SQLiteRetrievalApprovalRepository
     core_ci_service: CleanBreakCiRunService
     standing_decision_service: StandingDecisionService
 
@@ -195,10 +201,32 @@ def build_runtime(
     database = core_database
     if initialize:
         database.initialize()
+    provider_registry = enabled_providers()
     model_catalog_service = ModelCatalogService(
-        registry=enabled_providers(),
+        registry=provider_registry,
         selections=SQLiteCoreModelSelectionRepository(core_database.raw_connect),
         pin=pin,
+    )
+    explicit_embedding = any(
+        os.environ.get(name, "").strip()
+        for name in (
+            "ARCHCOMPASS_EMBEDDING_PROVIDER",
+            "ARCHCOMPASS_EMBEDDING_MODEL",
+            "ARCHCOMPASS_EMBEDDING_DIMENSIONS",
+            "ARCHCOMPASS_EMBEDDING_BASE_URL",
+            "ARCHCOMPASS_EMBEDDING_API_KEY_ENV",
+        )
+    )
+    embedding_model_service = EmbeddingModelService(
+        providers=tuple(provider_registry.values()),
+        discovery=ProviderEmbeddingModelDiscovery(),
+        selections=SQLiteEmbeddingModelSelectionRepository(core_database.raw_connect),
+        default=EmbeddingModelSelection(
+            provider="google",
+            model=DEFAULT_GOOGLE_EMBEDDING_MODEL,
+            dimensions=DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS,
+        ),
+        pin=embedding_config_from_environment() if explicit_embedding else None,
     )
     # Resolved per call rather than built here: the choice can change while this process
     # runs, and a workspace that has not made one yet still has to start.
@@ -268,7 +296,6 @@ def build_runtime(
     core_decisions = SQLiteCoreStandingDecisionRepository(core_database.raw_connect)
     core_finding_cache = SQLiteCoreFindingCache(core_database.raw_connect)
     core_conversations = SQLiteCoreConversationRepository(core_database.raw_connect)
-    retrieval_approvals = SQLiteRetrievalApprovalRepository(core_database.raw_connect)
     selected_chat = SelectedLangChainChatModel(model_catalog_service)
     review_conversation_service = CoreReviewConversationService(
         reviews=core_reviews,
@@ -380,9 +407,7 @@ def build_runtime(
             corpus=policy_corpus,
             retriever=SelectedDensePolicyRetriever(
                 core_database.raw_connect,
-                approved_top_k=lambda identity: retrieval_approvals.required_top_k(
-                    identity, retriever="dense-scoped", version="1"
-                ),
+                embedding_config=embedding_model_service.current,
                 deterministic_mode=deterministic_retrieval_mode,
             ),
             judge=CachingArchitectureJudge(
@@ -453,11 +478,11 @@ def build_runtime(
         source_service=source_service,
         freshness_service=freshness,
         model_catalog_service=model_catalog_service,
+        embedding_model_service=embedding_model_service,
         core_case_repository=core_cases,
         core_review_repository=core_reviews,
         review_workflow_service=review_workflow_service,
         checkpoint_connection=checkpoint_connection,
-        retrieval_approval_repository=retrieval_approvals,
         core_ci_service=core_ci_service,
         standing_decision_service=standing_decision_service,
     )

@@ -16,6 +16,7 @@ export type RepositorySummary = Schema["RepositorySummary"];
 export type RepositoryBranch = Schema["RepositoryBranch"];
 export type BundledExample = Schema["BundledExample"];
 export type ModelCatalog = Schema["ModelCatalogResponse"];
+export type EmbeddingCatalog = Schema["EmbeddingCatalogResponse"];
 export type Workspace = Schema["WorkspaceSummaryResponse"];
 export type AtlasQueryResult = Schema["AtlasQueryResult"];
 
@@ -69,6 +70,12 @@ export const coreApi = {
     request<Workspace>("/api/models/selection", {
       method: "PUT",
       body: JSON.stringify({ provider, model, thinking }),
+    }),
+  embeddings: () => request<EmbeddingCatalog>("/api/embeddings"),
+  selectEmbedding: (provider: string, model: string) =>
+    request<Workspace>("/api/embeddings/selection", {
+      method: "PUT",
+      body: JSON.stringify({ provider, model }),
     }),
   reviews: () => request<Review[]>("/api/reviews"),
   review: (id: string) => request<Review>(`/api/reviews/${encodeURIComponent(id)}`),

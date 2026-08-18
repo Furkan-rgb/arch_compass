@@ -241,6 +241,26 @@ export interface components {
     "directories": Array<components["schemas"]["DirectoryEntry"]>;
   };
     "EdgeType": "contains" | "imports" | "calls" | "inherits" | "implements" | "references" | "tests" | "configures";
+    "EmbeddingCatalogResponse": {
+    "providers": Array<components["schemas"]["ProviderAvailabilityResponse"]>;
+    "candidates": Array<components["schemas"]["EmbeddingModelResponse"]>;
+  };
+    "EmbeddingIdentity": {
+    "provider": string;
+    "model": string;
+    "dimensions": number;
+  };
+    "EmbeddingModelResponse": {
+    "provider": string;
+    "model": string;
+    "dimensions": number;
+    "label"?: string;
+    "is_selected"?: boolean;
+  };
+    "EmbeddingSelectionRequest": {
+    "provider": string;
+    "model": string;
+  };
     "EvidenceResponse": {
     "description": string;
     "location": components["schemas"]["SourceLocationResponse"] | null;
@@ -562,8 +582,10 @@ export interface components {
   };
     "WorkspaceModels": {
     "reasoning"?: components["schemas"]["ModelIdentity"] | null;
+    "embedding"?: components["schemas"]["EmbeddingIdentity"] | null;
     "failure"?: string;
     "pinned"?: boolean;
+    "embedding_pinned"?: boolean;
   };
     "WorkspaceSummaryResponse": {
     "workspace": string;
@@ -704,6 +726,19 @@ export interface operations {
       "409": components["schemas"]["ProblemDetail"];
     };
   };
+  "clear_embedding_selection_api_embeddings_selection_delete": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "204": unknown;
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
   "clear_model_selection_api_models_selection_delete": {
     parameters: {
       query: never;
@@ -821,6 +856,19 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
       "409": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "embedding_catalog_api_embeddings_get": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": components["schemas"]["EmbeddingCatalogResponse"];
+      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "get_case_api_cases__case_id__get": {
@@ -1251,6 +1299,20 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "select_embedding_model_api_embeddings_selection_put": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["EmbeddingSelectionRequest"];
+    responses: {
+      "200": components["schemas"]["WorkspaceSummaryResponse"];
+      "422": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
+    };
+  };
   "select_model_api_models_selection_put": {
     parameters: {
       query: never;
@@ -1383,6 +1445,13 @@ export interface paths {
   };
   "/api/decisions/{branch_id}/{candidate_id}/history": {
     get: operations["decision_history_api_decisions__branch_id___candidate_id__history_get"];
+  };
+  "/api/embeddings": {
+    get: operations["embedding_catalog_api_embeddings_get"];
+  };
+  "/api/embeddings/selection": {
+    put: operations["select_embedding_model_api_embeddings_selection_put"];
+    delete: operations["clear_embedding_selection_api_embeddings_selection_delete"];
   };
   "/api/examples": {
     get: operations["list_examples_api_examples_get"];

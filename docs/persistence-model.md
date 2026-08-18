@@ -15,7 +15,7 @@ workspace.sqlite3
   finding cache
   review conversations
   model selection
-  retrieval approvals and provenance
+  retrieval provenance
 ```
 
 Checkpoint IDs are never review IDs. Domain lineage uses repository/branch identity,

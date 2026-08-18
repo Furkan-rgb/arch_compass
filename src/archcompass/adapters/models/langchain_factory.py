@@ -6,21 +6,14 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_ollama import ChatOllama, OllamaEmbeddings
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import SecretStr
 
-from archcompass.configuration import ReasoningModelConfig, resolve_api_key
+from archcompass.configuration import (
+    EmbeddingModelConfig,
+    ReasoningModelConfig,
+    resolve_api_key,
+)
 from archcompass.domain.errors import ConfigurationError
-
-
-class EmbeddingModelConfig(BaseModel):
-    provider: LiteralProvider
-    model: str = Field(min_length=1)
-    dimensions: int = Field(ge=1)
-    base_url: str | None = None
-    api_key_env: str | None = None
-
-
-type LiteralProvider = str
 
 
 def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:

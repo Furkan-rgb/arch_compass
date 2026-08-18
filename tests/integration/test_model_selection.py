@@ -66,6 +66,7 @@ def test_a_workspace_that_has_chosen_nothing_still_opens(tmp_path: Path) -> None
         assert summary.status_code == 200
         models = summary.json()["models"]
         assert models["reasoning"] is None
+        assert models["embedding"] is None
         assert models["pinned"] is False
 
         # A read that has nothing to do with reasoning is unaffected.
@@ -136,6 +137,17 @@ def test_the_catalog_names_a_provider_that_did_not_answer(tmp_path: Path) -> Non
         # An unreachable provider contributes no candidates, which is why the row carrying
         # the reason has to exist separately from them.
         assert [item["model"] for item in body["candidates"]] == [DETERMINISTIC_MODEL]
+
+
+def test_embedding_catalog_reports_unavailable_local_provider(tmp_path: Path) -> None:
+    runtime = _unpinned(tmp_path)
+
+    with TestClient(create_app(runtime)) as client:
+        catalog = client.get("/api/embeddings")
+        assert catalog.status_code == 200, catalog.text
+        assert catalog.json()["providers"][0]["provider"] == "ollama"
+
+        assert catalog.json()["providers"][0]["available"] is False
 
 
 def test_a_chosen_model_reviews_and_the_review_records_which_one(tmp_path: Path) -> None:

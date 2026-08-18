@@ -90,4 +90,27 @@ describe("clean-break API client", () => {
     ]);
     expect(events[1]?.review?.id).toBe("review-1");
   });
+
+  it("selects embedding models independently from reasoning", async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ models: {} }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await coreApi.selectEmbedding("ollama", "nomic-embed-text:latest");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/embeddings/selection",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          provider: "ollama",
+          model: "nomic-embed-text:latest",
+        }),
+      }),
+    );
+  });
 });

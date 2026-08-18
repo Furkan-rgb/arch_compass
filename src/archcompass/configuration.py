@@ -157,3 +157,11 @@ class ReasoningModelConfig(BoundaryDTO):
                 "max_output_tokens must not exceed context_window_tokens"
             )
         return self
+
+
+class EmbeddingModelConfig(BoundaryDTO):
+    provider: str
+    model: str
+    dimensions: int = Field(ge=1)
+    base_url: str | None = None
+    api_key_env: str | None = None

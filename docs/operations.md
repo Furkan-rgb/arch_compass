@@ -36,8 +36,13 @@ Google run needs no separate embedding variables. Ollama requires a reachable lo
 and installed model. Embedding selection remains independent from reasoning selection:
 `ARCHCOMPASS_EMBEDDING_PROVIDER`, `ARCHCOMPASS_EMBEDDING_MODEL`,
 `ARCHCOMPASS_EMBEDDING_DIMENSIONS`, `ARCHCOMPASS_EMBEDDING_BASE_URL`, and
-`ARCHCOMPASS_EMBEDDING_API_KEY_ENV` can override the defaults. Production retrieval still
-requires a passing approval for the resulting embedding identity.
+`ARCHCOMPASS_EMBEDDING_API_KEY_ENV` can override the defaults. Retriever evaluation is a
+release check and does not require per-workspace approval.
+
+The Models screen offers reasoning and embedding choices independently. When Ollama is
+running, ArchCompass lists installed models that advertise the embedding capability and
+uses the dimension reported in their model metadata. Changing the embedding model creates a
+different content-addressed index namespace; existing review provenance remains unchanged.
 
 ## Useful CLI flows
 
@@ -64,7 +69,8 @@ available as `make test-google`, `make test-ollama`, and `make test-browser`.
 The retrieval gate consumes recorded reference results:
 
 ```bash
-uv run archcompass retrieval approve --from evaluation.yaml
+uv run archcompass retrieval evaluate --from evaluation.yaml
 ```
 
-The command tries K=8, 12, 16, and 20 and records only the smallest passing configuration.
+The command tries K=8, 12, 16, and 20 and reports the smallest passing configuration for a
+maintainer to record in the retriever's release version.

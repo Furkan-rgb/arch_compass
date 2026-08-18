@@ -8,12 +8,14 @@ from collections.abc import Callable
 from hashlib import sha256
 from threading import Lock
 
-from archcompass.adapters.models.langchain_factory import (
-    EmbeddingModelConfig,
-    build_embeddings,
-)
+from archcompass.adapters.models.langchain_factory import build_embeddings
 from archcompass.adapters.retrieval.sqlite_policy_index import SQLitePolicyIndex
-from archcompass.application.policy_retrieval import DensePolicyRetriever, corpus_fingerprint
+from archcompass.application.policy_retrieval import (
+    DENSE_RETRIEVER_RELEASE_TOP_K,
+    DensePolicyRetriever,
+    corpus_fingerprint,
+)
+from archcompass.configuration import EmbeddingModelConfig
 from archcompass.domain import (
     ArchitectureCase,
     Candidate,
@@ -80,11 +82,15 @@ class SelectedDensePolicyRetriever:
         self,
         connect: Callable[[], sqlite3.Connection],
         *,
-        approved_top_k: Callable[[str], int],
+        top_k: int = DENSE_RETRIEVER_RELEASE_TOP_K,
+        embedding_config: Callable[[], EmbeddingModelConfig] = (
+            embedding_config_from_environment
+        ),
         deterministic_mode: Callable[[], bool] | None = None,
     ) -> None:
         self._connect = connect
-        self._approved_top_k = approved_top_k
+        self._top_k = top_k
+        self._embedding_config = embedding_config
         self._cached: tuple[str, DensePolicyRetriever] | None = None
         self._lock = Lock()
         self._deterministic_mode = deterministic_mode or (lambda: False)
@@ -109,11 +115,10 @@ class SelectedDensePolicyRetriever:
                     query_fingerprint=sha256(str(candidate.id).encode()).hexdigest(),
                 ),
             )
-        config = embedding_config_from_environment()
+        config = self._embedding_config()
         identity = f"{config.provider}:{config.model}:{config.dimensions}"
-        top_k = self._approved_top_k(identity)
         with self._lock:
-            cache_identity = f"{identity}:k={top_k}"
+            cache_identity = f"{identity}:k={self._top_k}"
             if self._cached is None or self._cached[0] != cache_identity:
                 embeddings = build_embeddings(config)
                 index = SQLitePolicyIndex(
@@ -122,7 +127,10 @@ class SelectedDensePolicyRetriever:
                     embedding_identity=identity,
                     dimensions=config.dimensions,
                 )
-                self._cached = (cache_identity, DensePolicyRetriever(index, top_k=top_k))
+                self._cached = (
+                    cache_identity,
+                    DensePolicyRetriever(index, top_k=self._top_k),
+                )
             retriever = self._cached[1]
         # Synchronization and the first query happen before the judge is resolved, so an
         # unavailable embedding provider refuses the review before reasoning expenditure.

@@ -37,12 +37,12 @@ hash, embedding provider/model/dimensions, and vector. Changed/new chunks are em
 stale chunks are removed in the same transaction.
 
 Reasoning and embedding providers are configured independently. A review is refused before
-reasoning expenditure when the configured retriever lacks its embedding provider, index, or
-approved evaluation result.
+reasoning expenditure when the configured retriever lacks its embedding provider or index.
+The shipped minimum retriever uses K=20, recorded in its `1-k20` provenance version.
 
 ## Evaluation gate
 
-The harness evaluates K values 8, 12, 16, and 20 in ascending order and approves the
+The harness evaluates K values 8, 12, 16, and 20 in ascending order and identifies the
 smallest configuration satisfying all gates:
 
 - macro bearing recall at least 0.95;
@@ -53,6 +53,10 @@ smallest configuration satisfying all gates:
 - deterministic ordering for identical inputs and retriever identity.
 
 Full-corpus judgement is an evaluation oracle, never a production graph branch.
+
+This is a release gate, not workspace configuration. Maintainers run `archcompass retrieval
+evaluate --from evaluation.yaml` before changing the release-owned K/version constants.
+End users do not approve a shipped retriever in each workspace.
 
 ## Upgrade path
 

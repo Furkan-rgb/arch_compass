@@ -13,6 +13,7 @@ from archcompass.adapters.persistence.core_conversation_repository import (
 from archcompass.adapters.persistence.core_finding_cache import SQLiteCoreFindingCache
 from archcompass.adapters.persistence.core_model_selection_repository import (
     SQLiteCoreModelSelectionRepository,
+    SQLiteEmbeddingModelSelectionRepository,
 )
 from archcompass.adapters.persistence.core_review_repository import (
     SQLiteCoreCaseRepository,
@@ -41,6 +42,7 @@ __all__ = [
     "SQLiteCoreReviewRepository",
     "SQLiteCoreStandingDecisionRepository",
     "SQLiteDatabase",
+    "SQLiteEmbeddingModelSelectionRepository",
     "SQLiteLineageRepository",
     "SQLitePolicySourceRepository",
     "SQLiteReviewExecutionRepository",

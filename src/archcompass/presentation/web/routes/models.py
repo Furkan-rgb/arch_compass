@@ -63,6 +63,24 @@ class ModelSelectionRequest(APIModel):
     thinking: bool | None = None
 
 
+class EmbeddingModelResponse(APIModel):
+    provider: str
+    model: str
+    dimensions: int
+    label: str = ""
+    is_selected: bool = False
+
+
+class EmbeddingCatalogResponse(APIModel):
+    providers: list[ProviderAvailabilityResponse]
+    candidates: list[EmbeddingModelResponse]
+
+
+class EmbeddingSelectionRequest(APIModel):
+    provider: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+
+
 def routes() -> APIRouter:
     """The model catalogue and this workspace's selection."""
 
@@ -120,6 +138,40 @@ def routes() -> APIRouter:
         )
         return describe_workspace(runtime, hosted_mode)
 
+    @router.get("/api/embeddings")
+    def embedding_catalog(runtime: RuntimeDep) -> EmbeddingCatalogResponse:
+        catalog = runtime.embedding_model_service.catalog()
+        return EmbeddingCatalogResponse(
+            providers=[
+                ProviderAvailabilityResponse(
+                    provider=provider.provider,
+                    available=provider.available,
+                    detail=provider.detail,
+                    probed_at=provider.probed_at,
+                )
+                for provider in catalog.providers
+            ],
+            candidates=[
+                EmbeddingModelResponse(
+                    provider=candidate.provider,
+                    model=candidate.model,
+                    dimensions=candidate.dimensions,
+                    label=candidate.label,
+                    is_selected=candidate.is_selected,
+                )
+                for candidate in catalog.candidates
+            ],
+        )
+
+    @router.put("/api/embeddings/selection", responses=problem_responses(409))
+    def select_embedding_model(
+        runtime: RuntimeDep,
+        hosted_mode: RestrictionsDep,
+        request: EmbeddingSelectionRequest,
+    ) -> WorkspaceSummaryResponse:
+        runtime.embedding_model_service.select(request.provider, request.model)
+        return describe_workspace(runtime, hosted_mode)
+
     @router.delete("/api/models/selection", status_code=204)
     def clear_model_selection(runtime: RuntimeDep) -> Response:
         """Forget the choice, leaving this workspace with no model until it makes another.
@@ -129,6 +181,11 @@ def routes() -> APIRouter:
         """
 
         runtime.model_catalog_service.clear()
+        return Response(status_code=204)
+
+    @router.delete("/api/embeddings/selection", status_code=204)
+    def clear_embedding_selection(runtime: RuntimeDep) -> Response:
+        runtime.embedding_model_service.clear()
         return Response(status_code=204)
 
     return router

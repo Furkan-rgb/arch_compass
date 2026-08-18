@@ -158,3 +158,38 @@ class ReasoningModelStatus(BoundaryDTO):
         """`provider:model`, or empty where nothing is selected."""
 
         return f"{self.provider}:{self.model}" if self.provider and self.model else ""
+
+
+class EmbeddingModelSelection(BoundaryDTO):
+    """The embedding model chosen for this workspace's policy index."""
+
+    provider: str
+    model: str
+    dimensions: int = Field(ge=1)
+    selected_at: datetime = Field(default_factory=utc_now)
+
+    @property
+    def identity(self) -> str:
+        return f"{self.provider}:{self.model}:{self.dimensions}"
+
+
+class EmbeddingModelCandidate(BoundaryDTO):
+    provider: str
+    model: str
+    dimensions: int = Field(ge=1)
+    label: str = ""
+    is_selected: bool = False
+
+
+class EmbeddingModelCatalog(BoundaryDTO):
+    providers: list[ProviderAvailability] = Field(
+        default_factory=list[ProviderAvailability]
+    )
+    candidates: list[EmbeddingModelCandidate] = Field(
+        default_factory=list[EmbeddingModelCandidate]
+    )
+
+
+class EmbeddingModelStatus(BoundaryDTO):
+    selection: EmbeddingModelSelection | None = None
+    pinned: bool = False

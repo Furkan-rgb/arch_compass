@@ -1,109 +1,51 @@
 @import "tailwindcss";
 
-@font-face {
-  font-family: "Schibsted Grotesk";
-  src: url("./assets/fonts/schibsted.woff2") format("woff2");
-  font-weight: 400 900;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Instrument Sans";
-  src: url("./assets/fonts/instrument.woff2") format("woff2");
-  font-weight: 400 700;
-  font-display: swap;
-}
+@font-face { font-family: "Schibsted Grotesk"; src: url("./assets/fonts/schibsted.woff2") format("woff2"); font-weight: 400 900; font-display: swap; }
+@font-face { font-family: "Instrument Sans"; src: url("./assets/fonts/instrument.woff2") format("woff2"); font-weight: 400 700; font-display: swap; }
 
 :root {
   color-scheme: light;
-  --canvas: #f1f3f6;
-  --surface: #ffffff;
-  --rule: rgb(24 32 49 / 9%);
-  --ink: #182031;
-  --ink-2: #47536a;
-  --ink-3: #647084;
-  --primary: #2f5fe0;
-  --on-accent: #ffffff;
-  --success: #2f744c;
-  --danger: #a84e0e;
+  --canvas: #f5f6f8; --canvas-strong: #ebeef3; --surface: #ffffff;
+  --rule: rgb(25 35 52 / 9%); --rule-strong: rgb(25 35 52 / 16%);
+  --ink: #172033; --ink-2: #46536a; --ink-3: #6d788b;
+  --primary: #3158d3; --primary-strong: #2346b5; --primary-soft: #eef2ff; --on-accent: #ffffff;
+  --success: #23704b; --success-soft: #eaf7f0; --danger: #a13f35; --danger-soft: #fff0ed;
+  --warning: #8a5a13; --warning-soft: #fff7df;
   --font-display: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-ui: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
-  --shadow-card: 0 1px 1px rgb(24 32 49 / 3%), 0 12px 32px rgb(24 32 49 / 5%);
+  --shadow-card: 0 1px 1px rgb(24 32 49 / 3%), 0 12px 36px rgb(24 32 49 / 5%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --canvas: #0e1117;
-    --surface: #161a22;
-    --rule: rgb(255 255 255 / 9%);
-    --ink: #edf1f7;
-    --ink-2: #b2bdcd;
-    --ink-3: #8490a2;
-    --primary: #88a7ff;
-    --on-accent: #111827;
-    --success: #73c895;
-    --danger: #ed9a61;
-    --shadow-card: 0 18px 45px rgb(0 0 0 / 18%);
+    --canvas: #0d1118; --canvas-strong: #171c25; --surface: #141922;
+    --rule: rgb(255 255 255 / 8%); --rule-strong: rgb(255 255 255 / 15%);
+    --ink: #eef2f8; --ink-2: #b8c1d0; --ink-3: #8490a2;
+    --primary: #8ba8ff; --primary-strong: #a6bcff; --primary-soft: rgb(99 126 222 / 13%); --on-accent: #101522;
+    --success: #74c998; --success-soft: rgb(65 151 101 / 12%); --danger: #ef9a8e; --danger-soft: rgb(190 71 55 / 12%);
+    --warning: #e6bb68; --warning-soft: rgb(184 128 28 / 13%);
+    --shadow-card: 0 18px 48px rgb(0 0 0 / 18%);
   }
 }
 
 @theme inline {
-  --color-canvas: var(--canvas);
-  --color-surface: var(--surface);
-  --color-rule: var(--rule);
-  --color-ink: var(--ink);
-  --color-ink-2: var(--ink-2);
-  --color-ink-3: var(--ink-3);
-  --color-primary: var(--primary);
-  --color-on-accent: var(--on-accent);
-  --color-success: var(--success);
-  --color-danger: var(--danger);
-  --font-display: var(--font-display);
-  --font-sans: var(--font-ui);
-  --shadow-card: var(--shadow-card);
+  --color-canvas: var(--canvas); --color-canvas-strong: var(--canvas-strong); --color-surface: var(--surface);
+  --color-rule: var(--rule); --color-rule-strong: var(--rule-strong);
+  --color-ink: var(--ink); --color-ink-2: var(--ink-2); --color-ink-3: var(--ink-3);
+  --color-primary: var(--primary); --color-primary-strong: var(--primary-strong); --color-primary-soft: var(--primary-soft); --color-on-accent: var(--on-accent);
+  --color-success: var(--success); --color-success-soft: var(--success-soft); --color-danger: var(--danger); --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning); --color-warning-soft: var(--warning-soft);
+  --font-display: var(--font-display); --font-sans: var(--font-ui); --shadow-card: var(--shadow-card);
 }
 
-* {
-  box-sizing: border-box;
-}
-
-html {
-  min-width: 320px;
-  background: var(--canvas);
-  font-family: var(--font-ui);
-  text-rendering: optimizeLegibility;
-}
-
-body {
-  min-width: 320px;
-  min-height: 100vh;
-  margin: 0;
-}
-
-button,
-input,
-textarea,
-select {
-  font: inherit;
-}
-
-button,
-summary,
-a {
-  outline-color: var(--primary);
-  outline-offset: 3px;
-}
-
-button:not(:disabled),
-summary {
-  cursor: pointer;
-}
-
-::selection {
-  background: color-mix(in srgb, var(--primary) 24%, transparent);
-}
-
-pre {
-  tab-size: 2;
-}
+* { box-sizing: border-box; }
+html { min-width: 320px; background: var(--canvas); font-family: var(--font-ui); text-rendering: optimizeLegibility; }
+body { min-width: 320px; min-height: 100vh; margin: 0; }
+button, input, textarea, select { font: inherit; }
+button, summary, a { outline-color: var(--primary); outline-offset: 3px; }
+button:not(:disabled), summary { cursor: pointer; }
+::selection { background: color-mix(in srgb, var(--primary) 24%, transparent); }
+pre { tab-size: 2; }
+.scrollbar-none { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
