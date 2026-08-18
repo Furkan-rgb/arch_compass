@@ -1,4 +1,4 @@
-.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build test-ollama test-google eval check build full demo demo-local demo-all test-browser web web-google docker-build
+.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build test-ollama test-google eval check build full test-browser web web-google docker-build
 
 sync:
 	uv sync --locked
@@ -40,24 +40,6 @@ test-google:
 # demonstrated on. No model, no answer key — the examples ship neither.
 eval:
 	uv run pytest -m "evaluation and not ollama"
-
-# The standing example, run the way a visitor gets it: a repository with no case, judged in
-# full, followed by the questions it came back with. Nothing is scored.
-#
-# Runs against Google by default: it finishes in about two and a half minutes where the
-# local model takes four or five, which is the difference between a check you run on every
-# change and one you run when you remember to. `make demo-local` runs the local model.
-# Needs a live model either way, so both sit outside `check`.
-demo:
-	uv run python scripts/run_boundary_review.py --provider google --model gemini-3.6-flash
-
-demo-local:
-	uv run python scripts/run_boundary_review.py --provider ollama --model gemma4:26b
-
-# Every example repository. Tens of model calls, so it runs on the local model: a metered
-# free tier cannot serve it, and the workspace has no queue for work this long by design.
-demo-all:
-	uv run python scripts/run_boundary_review.py --all --provider ollama --model gemma4:26b
 
 # `web` opens the workspace and lets it choose its own model, which is what a reader of
 # this repository gets. `web-google` pins one for the length of the process, which is what
