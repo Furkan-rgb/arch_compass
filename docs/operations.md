@@ -18,11 +18,12 @@ uv sync --locked --extra resolution
 ## Local workspace
 
 ```bash
-make web
+make run
 ```
 
 The command builds the frontend, starts the FastAPI application on loopback, and opens the
-browser. Provider/model selection is stored per workspace. A run can be pinned explicitly:
+browser. `make web` is an equivalent alias. Provider/model selection is stored per
+workspace. A run can be pinned explicitly:
 
 ```bash
 uv run archcompass --provider google --model gemini-3.6-flash web

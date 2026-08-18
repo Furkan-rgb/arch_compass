@@ -160,22 +160,16 @@ deterministic candidate succession. They never alter model judgement.
 
 ArchCompass uses separate storage roles:
 
-- `.archcompass/archcompass-v2.db` stores repository analysis, case revisions, immutable
+- `.archcompass/workspace.sqlite3` stores repository analysis, case revisions, immutable
   reviews, decisions, conversations, cache entries, model selection, and retrieval approval.
 - `.archcompass/review-checkpoints.db` stores LangGraph execution checkpoints.
 
 Checkpoint IDs are not domain IDs. Review lineage uses repository and branch identity,
 sequence, and `previous_review_id`.
 
-Legacy workspaces are detected and never reset automatically. Use the explicit export/reset
-commands before adopting the epoch-2 schema:
-
-```bash
-uv run archcompass workspace export-legacy /path/to/export.db
-uv run archcompass workspace reset
-```
-
-Reset archives legacy files under `.archcompass/legacy-backups/` rather than deleting them.
+The runtime owns only `workspace.sqlite3`; unrelated database files in the state directory
+are ignored. Starting ArchCompass creates the application database when it is missing, so
+opening a workspace never requires a migration command.
 
 ## Providers
 
@@ -200,8 +194,11 @@ Requirements: Python 3.12, `uv`, Node.js, and `pnpm`.
 ```bash
 uv sync --locked
 cd frontend && pnpm install --frozen-lockfile && cd ..
-make web
+make run
 ```
+
+`make run` builds the frontend and starts the backend that serves it, then opens the browser.
+`make web` is retained as an equivalent alias.
 
 Run with an explicitly pinned provider/model:
 

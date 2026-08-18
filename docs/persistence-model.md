@@ -6,7 +6,7 @@ ArchCompass separates resumable execution storage from architectural history.
 review-checkpoints.db
   LangGraph thread/checkpoint state
 
-archcompass-v2.db
+workspace.sqlite3
   repository and atlas records
   case revisions
   immutable review snapshots
@@ -31,19 +31,11 @@ The finding cache is keyed from the candidate, case, generic retrieval identity,
 model, and prompt. It is an optimization, not a source of domain identity. Retrieval
 manifests persisted on reviews explain exactly which policies were selected.
 
-## Schema epoch
+## Startup
 
-The clean-break database is epoch 2. A pre-refactor `archcompass.db` is detected before the
-runtime opens and is never changed automatically.
-
-```bash
-archcompass workspace export-legacy /path/to/export.db
-archcompass workspace reset
-```
-
-Export copies the legacy database. Reset is explicit and recoverable: it moves the database
-and its WAL/SHM companions under `.archcompass/legacy-backups/` before initializing epoch 2.
-A fresh or reset runtime does not recreate the legacy database.
+The runtime opens `.archcompass/workspace.sqlite3` and initializes it when missing. This is
+the sole application database name; other files in `.archcompass/` are neither interpreted
+nor allowed to block startup.
 
 Explicit review deletion remains available to the user. Startup and normal execution never
 silently erase architectural history.

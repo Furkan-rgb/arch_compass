@@ -52,7 +52,6 @@ from archcompass.adapters.persistence import (
 from archcompass.adapters.persistence.retrieval_approval_repository import (
     SQLiteRetrievalApprovalRepository,
 )
-from archcompass.adapters.persistence.schema_epoch import WorkspaceSchemaEpoch
 from archcompass.adapters.retrieval import (
     MarkdownPolicySourceInspector,
     MarkdownPolicyStore,
@@ -89,7 +88,6 @@ from archcompass.application.verdict_cache import (
     CachingArchitectureJudge,
     CachingReviewRecorder,
 )
-from archcompass.application.workspace_epoch import WorkspaceEpochService
 from archcompass.configuration import (
     ReasoningModelConfig,
     load_provider_environment,
@@ -109,6 +107,7 @@ BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
 #: policies authored in it. Named once because it is also what an analysis of the workspace's
 #: own repository has to leave out.
 WORKSPACE_STATE_DIRECTORY = Path(".archcompass")
+WORKSPACE_DATABASE_NAME = "workspace.sqlite3"
 
 #: Where a workspace keeps the clones it was asked to make, beside the database and the
 #: policies. A checkout is state Arch Compass wrote and can throw away — deleting the
@@ -165,7 +164,6 @@ class Runtime:
     checkpoint_connection: sqlite3.Connection
     retrieval_approval_repository: SQLiteRetrievalApprovalRepository
     core_ci_service: CleanBreakCiRunService
-    workspace_epoch_service: WorkspaceEpochService
     standing_decision_service: StandingDecisionService
 
 
@@ -189,15 +187,11 @@ def build_runtime(
     # the environment, and a `.env` file is where an interactive run keeps it.
     load_provider_environment(canonical_workspace)
     canonical_workspace.mkdir(parents=True, exist_ok=True)
-    schema_epoch = WorkspaceSchemaEpoch(
-        canonical_workspace / WORKSPACE_STATE_DIRECTORY
-    )
     core_database = SQLiteDatabase(
-        schema_epoch.initialize(), workspace=canonical_workspace
+        canonical_workspace / WORKSPACE_STATE_DIRECTORY / WORKSPACE_DATABASE_NAME,
+        workspace=canonical_workspace,
     )
-    # Repository-analysis records and clean-break aggregates share the epoch-2 database.
-    # `archcompass.db` is reserved exclusively for detecting/exporting pre-refactor data;
-    # a current runtime must never recreate it after an explicit reset.
+    # Repository-analysis records and domain aggregates share one application database.
     database = core_database
     if initialize:
         database.initialize()
@@ -465,7 +459,6 @@ def build_runtime(
         checkpoint_connection=checkpoint_connection,
         retrieval_approval_repository=retrieval_approvals,
         core_ci_service=core_ci_service,
-        workspace_epoch_service=WorkspaceEpochService(schema_epoch),
         standing_decision_service=standing_decision_service,
     )
 
@@ -491,15 +484,6 @@ def initialize_workspace(
     # overwritten.
     load_provider_environment(canonical_workspace)
     return build_runtime(canonical_workspace, pin=pin)
-
-
-def workspace_epoch_service(workspace: Path) -> WorkspaceEpochService:
-    """Compose only the explicit schema-epoch operations, without opening the runtime."""
-
-    canonical = workspace.expanduser().resolve()
-    return WorkspaceEpochService(
-        WorkspaceSchemaEpoch(canonical / WORKSPACE_STATE_DIRECTORY)
-    )
 
 
 #: Every provider this build knows how to reach, each registered by the module that

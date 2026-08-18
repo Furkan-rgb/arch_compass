@@ -1,4 +1,4 @@
-.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build test-ollama test-google eval check build full test-browser web web-google docker-build
+.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build test-ollama test-google eval check build full test-browser run web web-google docker-build
 
 sync:
 	uv sync --locked
@@ -52,8 +52,10 @@ eval:
 # same way: rebuild the bundle, leave the older server running, and the page then sends a
 # field that process has never heard of. Restarting fixes it; building here means there is
 # nothing to fix, and it costs about two seconds.
-web: frontend-build
+run: frontend-build
 	uv run archcompass web
+
+web: run
 
 web-google: frontend-build
 	uv run archcompass --provider google --model gemini-3.6-flash web

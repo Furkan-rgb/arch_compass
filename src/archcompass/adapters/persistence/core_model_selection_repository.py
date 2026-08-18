@@ -1,4 +1,4 @@
-"""Reasoning-model selection stored in the clean-break schema epoch."""
+"""Reasoning-model selection stored in the application database."""
 
 from __future__ import annotations
 

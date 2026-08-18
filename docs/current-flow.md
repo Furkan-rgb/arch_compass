@@ -51,7 +51,7 @@ waiting record.
 
 The web streaming endpoint emits graph-stage updates and the resulting snapshot. LangGraph
 checkpoint state lives in `review-checkpoints.db`; review history, execution aliases, cases,
-atlases, findings, decisions, and retrieval manifests live in `archcompass-v2.db`.
+atlases, findings, decisions, and retrieval manifests live in `workspace.sqlite3`.
 
 ## Subsequent reviews and product surfaces
 

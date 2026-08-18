@@ -23,7 +23,6 @@ from archcompass.bootstrap import (
     Runtime,
     build_runtime,
     pinned_model,
-    workspace_epoch_service,
 )
 from archcompass.bootstrap import (
     initialize_workspace as initialize_workspace_runtime,
@@ -52,7 +51,6 @@ repo_app = typer.Typer(help="Index a Python repository.")
 atlas_app = typer.Typer(help="Query repository atlases.")
 case_app = typer.Typer(help="Create and revise architecture cases.")
 reviews_app = typer.Typer(help="Inspect immutable boundary reviews.")
-workspace_app = typer.Typer(help="Inspect or explicitly replace workspace storage.")
 retrieval_app = typer.Typer(help="Evaluate and approve policy retriever configurations.")
 app.add_typer(policies_app, name="policies")
 policies_app.add_typer(policy_sources_app, name="sources")
@@ -60,27 +58,7 @@ app.add_typer(repo_app, name="repo")
 app.add_typer(atlas_app, name="atlas")
 app.add_typer(case_app, name="case")
 app.add_typer(reviews_app, name="reviews")
-app.add_typer(workspace_app, name="workspace")
 app.add_typer(retrieval_app, name="retrieval")
-
-
-@workspace_app.command("export-legacy")
-def export_legacy_workspace(context: typer.Context, destination: Path) -> None:
-    """Export the legacy SQLite database without modifying the workspace."""
-
-    exported = workspace_epoch_service(_state(context).workspace).export_legacy(destination)
-    typer.echo(f"Legacy database exported to {exported}")
-
-
-@workspace_app.command("reset")
-def reset_workspace(context: typer.Context) -> None:
-    """Explicitly start the clean-break epoch, archiving legacy state first."""
-
-    archive = workspace_epoch_service(_state(context).workspace).reset()
-    if archive is None:
-        typer.echo("Clean-break workspace storage is ready.")
-    else:
-        typer.echo(f"Legacy state archived at {archive}")
 
 
 class RetrievalExampleFile(BaseModel):

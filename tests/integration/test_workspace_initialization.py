@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 from archcompass.bootstrap import initialize_workspace
 from archcompass.presentation.cli.app import app
 
-_DATABASE = Path(".archcompass") / "archcompass-v2.db"
+_DATABASE = Path(".archcompass") / "workspace.sqlite3"
 
 
 def test_init_creates_the_workspace_and_its_database_and_nothing_else(
@@ -36,7 +36,6 @@ def test_init_creates_the_workspace_and_its_database_and_nothing_else(
 
     assert result.exit_code == 0, result.output
     assert (workspace / _DATABASE).is_file()
-    assert not (workspace / ".archcompass" / "archcompass.db").exists()
     assert not (workspace / "config").exists()
     assert sorted(item.name for item in workspace.iterdir()) == [".archcompass"]
 
@@ -54,6 +53,19 @@ def test_init_is_safe_to_repeat(tmp_path: Path) -> None:
 
     assert repeated.exit_code == 0, repeated.output
     assert (workspace / _DATABASE).stat().st_mtime_ns == written
+
+
+def test_an_unrelated_database_file_does_not_block_startup(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    state = workspace / ".archcompass"
+    state.mkdir(parents=True)
+    unrelated = state / "archcompass.db"
+    unrelated.write_bytes(b"not opened by the current runtime")
+
+    runtime = initialize_workspace(workspace)
+
+    assert runtime.database.path == (workspace / _DATABASE).resolve()
+    assert unrelated.read_bytes() == b"not opened by the current runtime"
 
 
 def test_opening_a_workspace_reads_its_own_credentials_first(

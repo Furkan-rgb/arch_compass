@@ -29,7 +29,6 @@ from archcompass.domain.errors import (
     ConversationRevisionConflictError,
     ConversationValidationError,
     ExampleNotFoundError,
-    LegacySchemaError,
     ModelOutputValidationError,
     NoReasoningModelSelectedError,
     NothingToReviewError,
@@ -196,8 +195,6 @@ def classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
         return 409, "no_model_selected", False
     if isinstance(error, ProviderError):
         return 503, "provider_unavailable", True
-    if isinstance(error, LegacySchemaError):
-        return 409, "legacy_schema", False
     if isinstance(error, PersistenceError):
         return 500, "persistence_error", False
     return 400, "archcompass_error", False
