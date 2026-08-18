@@ -23,7 +23,7 @@ from archcompass.application.capabilities import (
     ReviewRecorder,
     RevisionCalculator,
 )
-from archcompass.domain.core import Answer
+from archcompass.domain import Answer
 from archcompass.workflow.state import ReviewState
 
 Node = Callable[[ReviewState], dict[str, object]]

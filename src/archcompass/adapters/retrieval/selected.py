@@ -14,7 +14,7 @@ from archcompass.adapters.models.langchain_factory import (
 )
 from archcompass.adapters.retrieval.sqlite_policy_index import SQLitePolicyIndex
 from archcompass.application.policy_retrieval import DensePolicyRetriever, corpus_fingerprint
-from archcompass.domain.core import (
+from archcompass.domain import (
     ArchitectureCase,
     Candidate,
     CandidateId,
@@ -24,16 +24,32 @@ from archcompass.domain.core import (
 from archcompass.domain.errors import ConfigurationError
 from archcompass.ports.policy_retrieval import PolicySelection, RetrievedPolicySet
 
+DEFAULT_GOOGLE_EMBEDDING_MODEL = "gemini-embedding-2"
+DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS = 3072
+DEFAULT_GOOGLE_API_KEY_ENV = "GOOGLE_API_KEY"
+DEFAULT_EMBEDDING_PROVIDER = "google"
+
 
 def embedding_config_from_environment() -> EmbeddingModelConfig:
-    provider = os.environ.get("ARCHCOMPASS_EMBEDDING_PROVIDER", "").strip()
-    model = os.environ.get("ARCHCOMPASS_EMBEDDING_MODEL", "").strip()
-    dimensions = os.environ.get("ARCHCOMPASS_EMBEDDING_DIMENSIONS", "").strip()
+    provider = (
+        os.environ.get("ARCHCOMPASS_EMBEDDING_PROVIDER", "").strip()
+        or DEFAULT_EMBEDDING_PROVIDER
+    )
+    configured_model = os.environ.get("ARCHCOMPASS_EMBEDDING_MODEL", "").strip()
+    configured_dimensions = os.environ.get(
+        "ARCHCOMPASS_EMBEDDING_DIMENSIONS", ""
+    ).strip()
+    if provider == DEFAULT_EMBEDDING_PROVIDER:
+        model = configured_model or DEFAULT_GOOGLE_EMBEDDING_MODEL
+        dimensions = configured_dimensions or str(DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS)
+    else:
+        model = configured_model
+        dimensions = configured_dimensions
     if not provider or not model or not dimensions:
         raise ConfigurationError(
-            "Policy retrieval is unavailable. Configure ARCHCOMPASS_EMBEDDING_PROVIDER, "
-            "ARCHCOMPASS_EMBEDDING_MODEL, and ARCHCOMPASS_EMBEDDING_DIMENSIONS before "
-            "starting a review."
+            "Policy retrieval is unavailable for the selected embedding provider. "
+            "Configure ARCHCOMPASS_EMBEDDING_MODEL and "
+            "ARCHCOMPASS_EMBEDDING_DIMENSIONS before starting a review."
         )
     try:
         parsed_dimensions = int(dimensions)
@@ -46,7 +62,14 @@ def embedding_config_from_environment() -> EmbeddingModelConfig:
         model=model,
         dimensions=parsed_dimensions,
         base_url=os.environ.get("ARCHCOMPASS_EMBEDDING_BASE_URL") or None,
-        api_key_env=os.environ.get("ARCHCOMPASS_EMBEDDING_API_KEY_ENV") or None,
+        api_key_env=(
+            os.environ.get("ARCHCOMPASS_EMBEDDING_API_KEY_ENV", "").strip()
+            or (
+                DEFAULT_GOOGLE_API_KEY_ENV
+                if provider == DEFAULT_EMBEDDING_PROVIDER
+                else None
+            )
+        ),
     )
 
 

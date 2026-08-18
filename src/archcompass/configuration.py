@@ -12,7 +12,7 @@ from pathlib import Path
 
 from pydantic import Field, model_validator
 
-from archcompass.boundary.base import DomainModel
+from archcompass.boundary.base import BoundaryDTO
 from archcompass.domain.errors import ConfigurationError
 
 ENVIRONMENT_FILE_NAME = ".env"
@@ -103,7 +103,7 @@ def resolve_api_key(variable_name: str | None, *, provider: str) -> str:
     return value
 
 
-class ReasoningModelConfig(DomainModel):
+class ReasoningModelConfig(BoundaryDTO):
     provider: str
     model: str
     #: Where the provider is reached. Required by a self-hosted provider such as

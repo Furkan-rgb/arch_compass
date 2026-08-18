@@ -13,7 +13,7 @@ from archcompass.application.retrieval_evaluation import (
     choose_smallest_passing_k,
     evaluate_retrieval,
 )
-from archcompass.domain.core import (
+from archcompass.domain import (
     ArchitectureCase,
     Candidate,
     Participant,

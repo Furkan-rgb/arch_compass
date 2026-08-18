@@ -9,8 +9,8 @@ from pathlib import Path
 from archcompass.application.repository_index import RepositoryIndexService
 from archcompass.application.review_workflow import ReviewWorkflowService
 from archcompass.application.standing_decisions import StandingDecisionService
-from archcompass.domain.core import Review, Verdict
-from archcompass.domain.core.repository import DEFAULT_BRANCH_NAME, derive_branch_id
+from archcompass.domain import Review, Verdict
+from archcompass.domain.repository import DEFAULT_BRANCH_NAME, derive_branch_id
 
 
 class FailOn(StrEnum):

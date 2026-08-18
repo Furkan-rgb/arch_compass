@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, TypedDict
 
 from archcompass.application.capabilities import ReviewDraft
-from archcompass.domain.core import (
+from archcompass.domain import (
     Answer,
     ArchitectureCase,
     Candidate,

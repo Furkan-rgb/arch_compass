@@ -10,7 +10,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
-from archcompass.domain.core import (
+from archcompass.domain import (
     Answer,
     AnswerStatus,
     ArchitectureCase,
@@ -22,7 +22,7 @@ from archcompass.domain.core import (
     ReviewDelta,
     ReviewStatus,
 )
-from archcompass.domain.core._support import new_id, stable_id, utc_now
+from archcompass.domain._support import new_id, stable_id, utc_now
 from archcompass.domain.errors import ReviewNotCancellableError
 from archcompass.workflow.state import ReviewInput, ReviewState
 

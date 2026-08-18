@@ -7,7 +7,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import Field, model_validator
 
-from archcompass.domain.core import DecisionDisposition, StandingDecision
+from archcompass.domain import DecisionDisposition, StandingDecision
 from archcompass.presentation.web.dependencies import RuntimeDep
 from archcompass.presentation.web.schemas import APIModel, problem_responses
 

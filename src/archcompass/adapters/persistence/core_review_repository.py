@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Callable
 
 from archcompass.adapters.persistence.dataclass_records import DataclassRecordCodec
-from archcompass.domain.core import (
+from archcompass.domain import (
     ArchitectureCase,
     CandidateId,
     Review,

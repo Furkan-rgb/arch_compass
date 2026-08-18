@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pydantic import Field
 
-from archcompass.boundary.base import DomainModel
+from archcompass.boundary.base import BoundaryDTO
 
 
-class RepositoryCheckout(DomainModel):
+class RepositoryCheckout(BoundaryDTO):
     """Where the code named by a URL or a path now sits, and what it is checked out at.
 
     The answer to "point Arch Compass at this repository", and the input to everything that
@@ -30,7 +30,7 @@ class RepositoryCheckout(DomainModel):
     managed: bool = False
 
 
-class SourceOrigin(DomainModel):
+class SourceOrigin(BoundaryDTO):
     """The address a directory was fetched from, and the revision that answered.
 
     Kept because an extracted archive cannot be asked. A clone records its remote and can
@@ -46,7 +46,7 @@ class SourceOrigin(DomainModel):
     revision: str | None = None
 
 
-class CheckoutRefresh(DomainModel):
+class CheckoutRefresh(BoundaryDTO):
     """What asking a folder to catch up with its remote did, if anything.
 
     The answer to "review this again, with whatever has landed since" for a folder that is

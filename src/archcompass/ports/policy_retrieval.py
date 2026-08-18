@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from archcompass.domain.core import Policy, RetrievalProvenance
-from archcompass.domain.core._support import freeze_pairs, freeze_sequences
+from archcompass.domain import Policy, RetrievalProvenance
+from archcompass.domain._support import freeze_pairs, freeze_sequences
 
 
 @dataclass(frozen=True, slots=True)

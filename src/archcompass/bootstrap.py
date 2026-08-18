@@ -283,9 +283,9 @@ def build_runtime(
         checkpoint_connection,
         serde=JsonPlusSerializer(
             allowed_msgpack_modules=[
-                ("archcompass.domain.core.repository", "RepositoryRef"),
+                ("archcompass.domain.repository", "RepositoryRef"),
                 *[
-                    ("archcompass.domain.core.case", name)
+                    ("archcompass.domain.case", name)
                     for name in (
                         "PolicyContext",
                         "ArchitectureCase",
@@ -297,21 +297,21 @@ def build_runtime(
                         "Answer",
                     )
                 ],
-                ("archcompass.domain.core.atlas", "RepositoryAtlas"),
+                ("archcompass.domain.atlas", "RepositoryAtlas"),
                 *[
-                    ("archcompass.domain.core.candidate", name)
+                    ("archcompass.domain.candidate", name)
                     for name in ("Participant", "Candidate")
                 ],
                 *[
-                    ("archcompass.domain.core.values", name)
+                    ("archcompass.domain.values", name)
                     for name in ("SourceLocation", "Evidence")
                 ],
                 *[
-                    ("archcompass.domain.core.finding", name)
+                    ("archcompass.domain.finding", name)
                     for name in ("Verdict", "PolicyBearing", "Finding")
                 ],
                 *[
-                    ("archcompass.domain.core.review", name)
+                    ("archcompass.domain.review", name)
                     for name in (
                         "ReviewStatus",
                         "ChangeCause",
@@ -323,7 +323,7 @@ def build_runtime(
                     )
                 ],
                 *[
-                    ("archcompass.domain.core.policy", name)
+                    ("archcompass.domain.policy", name)
                     for name in ("PolicyScope", "PolicyStrength", "Policy")
                 ],
                 *[

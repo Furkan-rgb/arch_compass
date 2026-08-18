@@ -8,7 +8,7 @@ from archcompass.adapters.persistence.core_review_repository import (
     SQLiteCoreReviewRepository,
 )
 from archcompass.application.case_management import ArchitectureCaseService
-from archcompass.domain.core import CaseConstraint, CaseFacet
+from archcompass.domain import CaseConstraint, CaseFacet
 
 
 class NoBranchParents:

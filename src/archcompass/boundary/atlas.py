@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
-from archcompass.boundary.base import DomainModel, new_id, utc_now
+from archcompass.boundary.base import BoundaryDTO, new_id, utc_now
 
 
 class NodeType(StrEnum):
@@ -51,7 +51,7 @@ class MetricScope(StrEnum):
     BOUNDED_RESOLVED_CALL_CHAIN = "bounded_resolved_call_chain"
 
 
-class SourceLocation(DomainModel):
+class SourceLocation(BoundaryDTO):
     path: str
     start_line: int = Field(ge=1)
     end_line: int = Field(ge=1)
@@ -63,7 +63,7 @@ class SourceLocation(DomainModel):
         return self
 
 
-class AtlasNode(DomainModel):
+class AtlasNode(BoundaryDTO):
     atlas_id: str
     path: str
     symbol_name: str
@@ -78,7 +78,7 @@ class AtlasNode(DomainModel):
     parser_version: str
 
 
-class AtlasEdge(DomainModel):
+class AtlasEdge(BoundaryDTO):
     edge_id: str
     source_id: str
     target_id: str
@@ -97,7 +97,7 @@ class AtlasEdge(DomainModel):
     conformance: Literal["strict", "structural"] | None = None
 
 
-class LocalStructuralMetrics(DomainModel):
+class LocalStructuralMetrics(BoundaryDTO):
     physical_lines: int = 0
     logical_statements: int = 0
     branch_count: int = 0
@@ -109,7 +109,7 @@ class LocalStructuralMetrics(DomainModel):
     incoming_known_callers: int = 0
 
 
-class DependencyMetrics(DomainModel):
+class DependencyMetrics(BoundaryDTO):
     fan_in: int = 0
     fan_out: int = 0
     direct_dependencies: list[str] = Field(default_factory=list[str])
@@ -125,7 +125,7 @@ class DependencyMetrics(DomainModel):
     transitively_affected_test_modules: int = 0
 
 
-class ChangeAmplificationMetrics(DomainModel):
+class ChangeAmplificationMetrics(BoundaryDTO):
     likely_affected_modules: int = 0
     public_call_targets_in_affected_modules: int = 0
     coordinated_implementations: int = 0
@@ -133,7 +133,7 @@ class ChangeAmplificationMetrics(DomainModel):
     reverse_neighbourhood_tests: int = 0
 
 
-class CognitiveScopeMetrics(DomainModel):
+class CognitiveScopeMetrics(BoundaryDTO):
     dependency_neighbourhood_modules: int = 0
     bounded_resolved_call_chain_nodes: int = 0
     abstraction_boundaries: int = 0
@@ -142,7 +142,7 @@ class CognitiveScopeMetrics(DomainModel):
     public_api_surface: int = 0
 
 
-class MetricProfile(DomainModel):
+class MetricProfile(BoundaryDTO):
     node_id: str
     local: LocalStructuralMetrics = Field(default_factory=LocalStructuralMetrics)
     dependency: DependencyMetrics = Field(default_factory=DependencyMetrics)
@@ -152,7 +152,7 @@ class MetricProfile(DomainModel):
     cognitive_scope: CognitiveScopeMetrics = Field(default_factory=CognitiveScopeMetrics)
 
 
-class ObscuritySignal(DomainModel):
+class ObscuritySignal(BoundaryDTO):
     code: str
     message: str
     node_id: str
@@ -162,7 +162,7 @@ class ObscuritySignal(DomainModel):
     limitations: str = ""
 
 
-class NamedMention(DomainModel):
+class NamedMention(BoundaryDTO):
     """One name this module refers to, and where it refers to it.
 
     The lines were not recorded before, and their absence reached a reader. A scattered
@@ -184,7 +184,7 @@ class NamedMention(DomainModel):
         return self.lines[0]
 
 
-class DefinedConstant(DomainModel):
+class DefinedConstant(BoundaryDTO):
     """One module-level constant, and enough of its value to compare two of them.
 
     The value is fingerprinted rather than stored. Two modules holding the same literal is
@@ -199,7 +199,7 @@ class DefinedConstant(DomainModel):
     line: int = Field(ge=1)
 
 
-class ModuleFacts(DomainModel):
+class ModuleFacts(BoundaryDTO):
     """What one module states and what it names, as facts a detector can derive from.
 
     Separate from `AtlasNode` because these are properties of a file's whole text rather
@@ -249,7 +249,7 @@ class FindingPattern(StrEnum):
     SCATTERED_CONCEPT = "scattered_concept"
 
 
-class FindingParticipant(DomainModel):
+class FindingParticipant(BoundaryDTO):
     """One node's part in a candidate, and why it is implicated."""
 
     node_id: str = Field(min_length=1)
@@ -260,7 +260,7 @@ class FindingParticipant(DomainModel):
     role: str = Field(min_length=1)
 
 
-class FindingMeasurement(DomainModel):
+class FindingMeasurement(BoundaryDTO):
     """One quantity that establishes the pattern, with its own honesty attached."""
 
     name: str = Field(min_length=1)
@@ -271,7 +271,7 @@ class FindingMeasurement(DomainModel):
     limitations: str = ""
 
 
-class FindingCandidate(DomainModel):
+class FindingCandidate(BoundaryDTO):
     """A structural pattern that could make a policy relevant — never a violation.
 
     N-ary by construction: duplicated knowledge is a fact about a set of modules, and a
@@ -300,7 +300,7 @@ class FindingCandidate(DomainModel):
         return [participant.node_id for participant in self.participants]
 
 
-class AtlasVersion(DomainModel):
+class AtlasVersion(BoundaryDTO):
     schema_version: int = Field(default=2, ge=1, le=2)
     version_id: str = Field(default_factory=lambda: new_id("atlas"))
     #: Where this checkout is, hashed. A location, not an identity: see `domain.lineage`.
@@ -323,7 +323,7 @@ class AtlasVersion(DomainModel):
     created_at: datetime = Field(default_factory=utc_now)
 
 
-class Atlas(DomainModel):
+class Atlas(BoundaryDTO):
     schema_version: int = Field(default=2, ge=1, le=2)
     version: AtlasVersion
     nodes: list[AtlasNode]
@@ -336,7 +336,7 @@ class Atlas(DomainModel):
     module_facts: list[ModuleFacts] = Field(default_factory=list[ModuleFacts])
 
 
-class RepositoryContentIdentity(DomainModel):
+class RepositoryContentIdentity(BoundaryDTO):
     root_path: str
     content_fingerprint: str
     git_commit_sha: str | None = None
@@ -344,23 +344,23 @@ class RepositoryContentIdentity(DomainModel):
     analysis_config_hash: str | None = None
 
 
-class RepositorySummaryQuery(DomainModel):
+class RepositorySummaryQuery(BoundaryDTO):
     kind: Literal["repository_summary"]
     limit: int = Field(default=20, ge=1, le=100)
 
 
-class SubsystemSummaryQuery(DomainModel):
+class SubsystemSummaryQuery(BoundaryDTO):
     kind: Literal["subsystem_summary"]
     node_id: str
     limit: int = Field(default=20, ge=1, le=100)
 
 
-class NodeDetailsQuery(DomainModel):
+class NodeDetailsQuery(BoundaryDTO):
     kind: Literal["node_details"]
     node_id: str
 
 
-class RelationQuery(DomainModel):
+class RelationQuery(BoundaryDTO):
     kind: Literal[
         "direct_dependencies",
         "direct_dependants",
@@ -372,50 +372,50 @@ class RelationQuery(DomainModel):
     limit: int = Field(default=30, ge=1, le=100)
 
 
-class NeighbourhoodQuery(DomainModel):
+class NeighbourhoodQuery(BoundaryDTO):
     kind: Literal["forward_neighbourhood", "reverse_neighbourhood"]
     node_id: str
     depth: int = Field(default=2, ge=1, le=5)
     limit: int = Field(default=30, ge=1, le=100)
 
 
-class ShortestPathQuery(DomainModel):
+class ShortestPathQuery(BoundaryDTO):
     kind: Literal["shortest_dependency_path"]
     source_id: str
     target_id: str
 
 
-class CyclesQuery(DomainModel):
+class CyclesQuery(BoundaryDTO):
     kind: Literal["cyclic_components"]
     limit: int = Field(default=30, ge=1, le=100)
 
 
-class SignalsQuery(DomainModel):
+class SignalsQuery(BoundaryDTO):
     kind: Literal["signals"]
     codes: list[str] = Field(default_factory=list[str], max_length=10)
     limit: int = Field(default=20, ge=1, le=100)
 
 
-class HotspotsQuery(DomainModel):
+class HotspotsQuery(BoundaryDTO):
     kind: Literal["hotspots"]
     metric: str
     limit: int = Field(default=10, ge=1, le=100)
 
 
-class SearchNodesQuery(DomainModel):
+class SearchNodesQuery(BoundaryDTO):
     kind: Literal["search_nodes"]
     terms: list[str] = Field(min_length=1, max_length=10)
     limit: int = Field(default=20, ge=1, le=100)
 
 
-class SourceExcerptQuery(DomainModel):
+class SourceExcerptQuery(BoundaryDTO):
     kind: Literal["source_excerpt"]
     node_id: str
     context_lines: int = Field(default=3, ge=0, le=20)
     max_lines: int = Field(default=80, ge=1, le=200)
 
 
-class ReviewContextQuery(DomainModel):
+class ReviewContextQuery(BoundaryDTO):
     """The union neighbourhood around several nodes at once, asked for in one question.
 
     A reader opening a review's map wants the boundaries it reports and enough around them
@@ -455,19 +455,19 @@ AtlasQuery = Annotated[
 ]
 
 
-class AtlasQueryPlan(DomainModel):
+class AtlasQueryPlan(BoundaryDTO):
     iteration: int = Field(ge=1, le=10)
     rationale: str
     queries: list[AtlasQuery] = Field(max_length=20)
 
 
-class SourceExcerpt(DomainModel):
+class SourceExcerpt(BoundaryDTO):
     node_id: str
     location: SourceLocation
     text: str
 
 
-class AtlasNodeSummary(DomainModel):
+class AtlasNodeSummary(BoundaryDTO):
     node_id: str
     qualified_name: str
     node_type: NodeType
@@ -476,7 +476,7 @@ class AtlasNodeSummary(DomainModel):
     is_public: bool | None = None
 
 
-class AtlasMetricValue(DomainModel):
+class AtlasMetricValue(BoundaryDTO):
     node_id: str
     metric: str
     value: int | float
@@ -500,14 +500,14 @@ class AtlasSelectionReasonKind(StrEnum):
     EXPLICIT_DETAILS = "explicit_details"
 
 
-class AtlasSelectionReason(DomainModel):
+class AtlasSelectionReason(BoundaryDTO):
     kind: AtlasSelectionReasonKind
     explanation: str = Field(min_length=1)
     metric: str | None = None
     related_node_id: str | None = None
 
 
-class AtlasNodeEvidence(DomainModel):
+class AtlasNodeEvidence(BoundaryDTO):
     """A self-describing, bounded view of one surfaced atlas node."""
 
     node: AtlasNodeSummary
@@ -516,7 +516,7 @@ class AtlasNodeEvidence(DomainModel):
     signals: list[ObscuritySignal] = Field(default_factory=list[ObscuritySignal])
 
 
-class AtlasRelationshipEvidence(DomainModel):
+class AtlasRelationshipEvidence(BoundaryDTO):
     """An atlas relationship with resolved endpoint identities."""
 
     edge_id: str
@@ -527,7 +527,7 @@ class AtlasRelationshipEvidence(DomainModel):
     location: SourceLocation | None = None
 
 
-class AtlasOverview(DomainModel):
+class AtlasOverview(BoundaryDTO):
     """Small deterministic repository map supplied before focused investigation."""
 
     atlas_version_id: str
@@ -553,7 +553,7 @@ class AtlasOverview(DomainModel):
     limitations: list[str] = Field(default_factory=list[str])
 
 
-class AtlasQueryResult(DomainModel):
+class AtlasQueryResult(BoundaryDTO):
     query: AtlasQuery
     node_ids: list[str] = Field(default_factory=list[str])
     summary: str = ""

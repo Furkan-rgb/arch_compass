@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from archcompass.boundary.base import DomainModel, utc_now
+from archcompass.boundary.base import BoundaryDTO, utc_now
 
 
 class PolicyScope(StrEnum):
@@ -40,12 +40,12 @@ class PolicyOrigin(StrEnum):
     WORKSPACE = "workspace"
 
 
-class PolicySource(DomainModel):
+class PolicySource(BoundaryDTO):
     author: str
     inspiration: list[str] = Field(default_factory=list[str])
 
 
-class PolicyApplicabilityContext(DomainModel):
+class PolicyApplicabilityContext(BoundaryDTO):
     """Subjects in whose context scoped policies may be retrieved."""
 
     user: str | None = None
@@ -63,7 +63,7 @@ class PolicyApplicabilityContext(DomainModel):
         return normalized
 
 
-class PolicyDocument(DomainModel):
+class PolicyDocument(BoundaryDTO):
     schema_version: Literal[2] = 2
     id: str
     title: str
@@ -112,7 +112,7 @@ class PolicyDocument(DomainModel):
         return self.applies_to == context.repository
 
 
-class PolicySourceRegistration(DomainModel):
+class PolicySourceRegistration(BoundaryDTO):
     canonical_path: str = Field(min_length=1)
     registered_at: datetime = Field(default_factory=utc_now)
 
@@ -128,7 +128,7 @@ def policy_slug(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", title.casefold()).strip("-")[:80].strip("-")
 
 
-class PolicyDraft(DomainModel):
+class PolicyDraft(BoundaryDTO):
     """A policy as its author states it, before it is a file.
 
     Scope is absent because it is not a choice: a policy written here is `general`, and the

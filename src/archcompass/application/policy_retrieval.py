@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 
-from archcompass.domain.core import (
+from archcompass.domain import (
     ArchitectureCase,
     Candidate,
     CandidateId,

@@ -28,7 +28,7 @@ from archcompass.bootstrap import (
     initialize_workspace as initialize_workspace_runtime,
 )
 from archcompass.configuration import ReasoningModelConfig
-from archcompass.domain.core import (
+from archcompass.domain import (
     AnswerStatus,
     ArchitectureCase,
     CaseConstraint,
@@ -36,8 +36,8 @@ from archcompass.domain.core import (
     PolicyContext,
     Review,
 )
-from archcompass.domain.core.repository import DEFAULT_BRANCH_NAME
 from archcompass.domain.errors import ArchCompassError
+from archcompass.domain.repository import DEFAULT_BRANCH_NAME
 from archcompass.ports.review_conversation import ReviewConversation
 
 app = typer.Typer(

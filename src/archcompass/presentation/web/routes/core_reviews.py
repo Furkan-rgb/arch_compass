@@ -16,7 +16,7 @@ from pydantic import Field
 
 from archcompass.application.review_workflow import SubmittedAnswer
 from archcompass.bootstrap import Runtime
-from archcompass.domain.core import AnswerStatus, Candidate, Evidence, Review
+from archcompass.domain import AnswerStatus, Candidate, Evidence, Review
 from archcompass.domain.errors import ReviewHasNoReportError
 from archcompass.presentation.web.dependencies import RuntimeDep, SpendsModelBudget
 from archcompass.presentation.web.schemas import APIModel, problem_responses

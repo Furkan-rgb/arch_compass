@@ -4,10 +4,14 @@ from typing import Any
 
 import pytest
 
-from archcompass.adapters.models.langchain_boundary import LangChainArchitectureJudge
-from archcompass.domain.core import (
+from archcompass.adapters.models.langchain_boundary import (
+    LangChainArchitectureJudge,
+    LangChainQuestionGenerator,
+)
+from archcompass.domain import (
     ArchitectureCase,
     Candidate,
+    Finding,
     Participant,
     Policy,
     PolicyScope,
@@ -24,7 +28,7 @@ class StructuredReply:
         self._document = document
 
     def invoke(self, prompt: str) -> object:
-        assert "POLICIES" in prompt
+        assert prompt
         return self._schema.model_validate(self._document)
 
 
@@ -102,3 +106,60 @@ def test_unknown_model_policy_position_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="only 1 policies"):
         judge.judge(candidate, case, policies)
+
+
+def test_hinge_and_recommendation_are_rejected_at_structured_boundary() -> None:
+    candidate, case, policies = _input()
+    judge = LangChainArchitectureJudge(
+        StructuredModel(
+            {
+                "material": True,
+                "reasoning": "Ownership could change the verdict.",
+                "hinge": "the owning team",
+                "recommended_response": "Move the module.",
+            }
+        ),  # type: ignore[arg-type]
+        model_identity="test:model",
+    )
+
+    with pytest.raises(ValueError, match="uncertainty hinge"):
+        judge.judge(candidate, case, policies)
+
+
+def test_question_position_without_a_hinge_is_structurally_rejected() -> None:
+    candidate, case, _ = _input()
+    settled = Finding(candidate, Verdict.CLEARED, "No conflict.", (), ())
+    uncertain_candidate = Candidate.identified(
+        pattern="dependency_direction",
+        summary="Ownership is unclear",
+        participants=(Participant("domain.order", "source"),),
+    )
+    uncertain = Finding(
+        uncertain_candidate,
+        Verdict.HELD,
+        "Ownership could change the verdict.",
+        (),
+        (),
+        hinge="the owning team",
+    )
+    generator = LangChainQuestionGenerator(
+        StructuredModel(
+            {
+                "questions": [
+                    {
+                        "text": "Who owns this?",
+                        "facet": "decision",
+                        "candidate_positions": [1],
+                    }
+                ]
+            }
+        )  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ValueError, match="finding without a hinge"):
+        generator.generate(
+            case,
+            (settled, uncertain),
+            round=1,
+            excluded_equivalence_keys=frozenset(),
+        )

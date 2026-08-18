@@ -7,7 +7,7 @@ from typing import Protocol
 
 from archcompass.application.capabilities import CandidateSelection, ReviewDraft
 from archcompass.application.policy_retrieval import RejudgeAllCandidates
-from archcompass.domain.core import (
+from archcompass.domain import (
     AddressedCandidate,
     Answer,
     ArchitectureCase,
@@ -19,7 +19,7 @@ from archcompass.domain.core import (
     ReviewDelta,
     ReviewStatus,
 )
-from archcompass.domain.core._support import stable_id, utc_now
+from archcompass.domain._support import stable_id, utc_now
 from archcompass.domain.errors import NothingToReviewError
 
 

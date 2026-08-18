@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from archcompass.domain.core import (
+from archcompass.domain import (
     Answer,
     ArchitectureCase,
     Candidate,

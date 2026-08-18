@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from archcompass.domain.core import (
+from archcompass.domain import (
     CandidateId,
     DecisionDisposition,
     Review,
     StandingDecision,
 )
-from archcompass.domain.core._support import new_id, utc_now
+from archcompass.domain._support import new_id, utc_now
 from archcompass.domain.errors import ReviewNotFoundError
 
 

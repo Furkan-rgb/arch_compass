@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from archcompass.application.core_defaults import DeterministicRevisionCalculator
-from archcompass.domain.core import (
+from archcompass.domain import (
     Answer,
     AnswerStatus,
     ArchitectureCase,
@@ -24,7 +24,7 @@ from archcompass.domain.core import (
     ReviewStatus,
     Verdict,
 )
-from archcompass.domain.core._support import utc_now
+from archcompass.domain._support import utc_now
 
 
 def test_case_revision_is_immutable_and_records_an_answer() -> None:
@@ -84,8 +84,8 @@ def test_skipped_answer_carries_no_invented_value() -> None:
         Answer(question, AnswerStatus.SKIPPED, "unknown", "reader", utc_now())
 
 
-def test_new_core_domain_has_no_infrastructure_imports() -> None:
-    root = Path(__file__).parents[2] / "src" / "archcompass" / "domain" / "core"
+def test_domain_has_no_infrastructure_imports() -> None:
+    root = Path(__file__).parents[2] / "src" / "archcompass" / "domain"
     forbidden = {"pydantic", "langchain", "langgraph", "fastapi", "google", "ollama"}
     for source in root.glob("*.py"):
         tree = ast.parse(source.read_text(encoding="utf-8"))
@@ -100,6 +100,25 @@ def test_new_core_domain_has_no_infrastructure_imports() -> None:
             for alias in node.names
         }
         assert imported.isdisjoint(forbidden), source
+
+
+def test_finding_with_hinge_cannot_recommend_a_response() -> None:
+    candidate = Candidate.identified(
+        pattern="dependency_direction",
+        summary="Ownership is unclear",
+        participants=(Participant("domain.order", "source"),),
+    )
+
+    with pytest.raises(ValueError, match="uncertainty hinge"):
+        Finding(
+            candidate,
+            Verdict.MATERIAL,
+            "The answer could change the verdict.",
+            (),
+            (),
+            hinge="the owning team",
+            recommended_response="Move the module.",
+        )
 
 
 def test_revision_calculator_rejudges_for_policy_model_and_prompt_changes(

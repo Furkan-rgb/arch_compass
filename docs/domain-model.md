@@ -1,7 +1,8 @@
 # Domain model
 
-The public domain is a small conceptual facade backed by focused value objects. All domain
-records use frozen stdlib dataclasses, immutable tuples, and explicit constructors.
+The public domain consists of focused implementations in `domain/*.py`. All domain records
+use frozen stdlib dataclasses, immutable tuples, and explicit constructors. There is no
+second `domain/core/` implementation or compatibility re-export layer.
 
 ```text
 ArchitectureCase                          RepositoryRef
@@ -49,6 +50,20 @@ Policy -----------------------+
 retain causes, predecessor identity, resurfacing, and last-seen provenance. The initial
 case-revision strategy rejudges every extant candidate, but that policy is replaceable and
 is not a domain invariant.
+
+### RepositoryAtlas migration boundary
+
+`RepositoryAtlas.nodes`, `edges`, `metrics`, `facts`, and `signals` currently contain
+canonical-JSON strings produced by the deterministic analyzer. The canonical encoding is
+intentional: it preserves stable fingerprints and the analyzer's complete representation
+without importing the existing Pydantic atlas DTO graph into the dataclass domain. Adapters
+own encoding and decoding, and consumers must not interpret tuple order as extra meaning.
+
+This is a migration boundary, not the final atlas design. A focused follow-up must choose
+one of two directions: introduce typed, immutable atlas domain records, or replace these
+collections with a deliberately opaque atlas snapshot value. That choice must preserve
+canonical serialization and fingerprint compatibility; this correctness pass does not
+redesign the atlas.
 
 ## Supporting values
 

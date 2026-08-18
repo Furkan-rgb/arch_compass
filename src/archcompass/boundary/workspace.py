@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from archcompass.boundary.base import DomainModel
+from archcompass.boundary.base import BoundaryDTO
 
 
-class RepositorySummary(DomainModel):
+class RepositorySummary(BoundaryDTO):
     version_id: str
     #: Where this checkout is. Kept as the location it has always been, beside the durable
     #: identity below rather than replaced by it.

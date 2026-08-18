@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from archcompass.application.core_ci import CleanBreakCiRunService, FailOn
-from archcompass.domain.core import (
+from archcompass.domain import (
     ArchitectureCase,
     Candidate,
     Finding,
@@ -16,7 +16,7 @@ from archcompass.domain.core import (
     ReviewStatus,
     Verdict,
 )
-from archcompass.domain.core._support import utc_now
+from archcompass.domain._support import utc_now
 
 
 class Repositories:

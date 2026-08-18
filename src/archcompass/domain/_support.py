@@ -1,3 +1,5 @@
+"""Private helpers shared by immutable domain records."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

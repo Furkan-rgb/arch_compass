@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
-from archcompass.domain.core import (
+from archcompass.domain import (
     ArchitectureCase,
     CaseConstraint,
     CaseDecision,

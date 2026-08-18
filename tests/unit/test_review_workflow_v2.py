@@ -18,7 +18,7 @@ from archcompass.application.capabilities import (
 )
 from archcompass.application.policy_retrieval import DensePolicyRetriever, RejudgeAllCandidates
 from archcompass.application.review_workflow import ReviewWorkflowService
-from archcompass.domain.core import (
+from archcompass.domain import (
     Answer,
     AnswerStatus,
     ArchitectureCase,
@@ -37,7 +37,7 @@ from archcompass.domain.core import (
     ReviewStatus,
     Verdict,
 )
-from archcompass.domain.core._support import new_id, utc_now
+from archcompass.domain._support import new_id, utc_now
 from archcompass.ports.dense_policy_index import DensePolicyMatch
 from archcompass.workflow import ReviewWorkflowCapabilities, build_review_graph
 

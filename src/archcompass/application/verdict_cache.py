@@ -7,7 +7,7 @@ from hashlib import sha256
 from typing import Protocol
 
 from archcompass.application.capabilities import ArchitectureJudge
-from archcompass.domain.core import ArchitectureCase, Candidate, Finding, Review
+from archcompass.domain import ArchitectureCase, Candidate, Finding, Review
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 
 

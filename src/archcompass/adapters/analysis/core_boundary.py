@@ -19,7 +19,7 @@ from archcompass.boundary.atlas import (
     ObscuritySignal,
 )
 from archcompass.boundary.finding_detectors import detect_finding_candidates
-from archcompass.domain.core import (
+from archcompass.domain import (
     Candidate,
     Evidence,
     Participant,

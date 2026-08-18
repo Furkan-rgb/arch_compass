@@ -8,7 +8,7 @@ from typing import Literal, cast
 from langchain_core.language_models import BaseChatModel
 from pydantic import BaseModel, Field, model_validator
 
-from archcompass.domain.core import (
+from archcompass.domain import (
     ArchitectureCase,
     Candidate,
     CaseFacet,
@@ -41,6 +41,8 @@ class FindingOutput(BaseModel):
 
     @model_validator(mode="after")
     def response_only_for_material_finding(self) -> FindingOutput:
+        if self.hinge and self.recommended_response:
+            raise ValueError("a finding with an uncertainty hinge cannot recommend a response")
         if not self.material and self.recommended_response:
             raise ValueError("only a material finding may recommend a response")
         return self
@@ -196,6 +198,10 @@ class LangChainQuestionGenerator:
             positions = tuple(sorted(set(proposed.candidate_positions)))
             if any(position < 1 or position > len(findings) for position in positions):
                 raise ValueError("model returned an unknown candidate position")
+            if any(not findings[position - 1].hinge for position in positions):
+                raise ValueError(
+                    "model returned a candidate position for a finding without a hinge"
+                )
             question = Question.create(
                 text=proposed.text,
                 facet=CaseFacet(proposed.facet),

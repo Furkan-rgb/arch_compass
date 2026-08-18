@@ -9,7 +9,7 @@ from typing import Protocol
 
 from archcompass.application.capabilities import LoadedReviewContext
 from archcompass.application.policies import PolicyService
-from archcompass.domain.core import (
+from archcompass.domain import (
     ArchitectureCase,
     Policy,
     PolicyScope,

@@ -20,7 +20,7 @@ from datetime import datetime
 
 from pydantic import Field
 
-from archcompass.boundary.base import DomainModel, stable_id, utc_now
+from archcompass.boundary.base import BoundaryDTO, stable_id, utc_now
 
 #: The branch a run is attributed to when git will not name one. A detached HEAD is the
 #: ordinary shape of a CI checkout, and a non-git directory has no branches at all; neither
@@ -31,7 +31,7 @@ from archcompass.boundary.base import DomainModel, stable_id, utc_now
 DEFAULT_BRANCH_NAME = "main"
 
 
-class RepositoryLineage(DomainModel):
+class RepositoryLineage(BoundaryDTO):
     """One repository, wherever it happens to be checked out.
 
     `canonical_root` is where it was first seen and is kept as a courtesy to a reader, not as
@@ -48,7 +48,7 @@ class RepositoryLineage(DomainModel):
     first_seen_at: datetime = Field(default_factory=utc_now)
 
 
-class BranchLineage(DomainModel):
+class BranchLineage(BoundaryDTO):
     """One named line of work under a repository.
 
     A renamed branch is a new lineage and the old one goes stale. Following renames would
@@ -70,7 +70,7 @@ class BranchLineage(DomainModel):
     first_seen_at: datetime = Field(default_factory=utc_now)
 
 
-class RepositoryBranch(DomainModel):
+class RepositoryBranch(BoundaryDTO):
     """A branch lineage together with the repository it belongs to."""
 
     repository: RepositoryLineage

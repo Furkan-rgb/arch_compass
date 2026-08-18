@@ -13,7 +13,7 @@ from archcompass.adapters.models.langchain_boundary import (
 )
 from archcompass.adapters.models.langchain_factory import build_chat_model
 from archcompass.configuration import ReasoningModelConfig
-from archcompass.domain.core import (
+from archcompass.domain import (
     ArchitectureCase,
     Candidate,
     CaseFacet,

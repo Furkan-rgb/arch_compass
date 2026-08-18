@@ -20,7 +20,7 @@ from collections.abc import Iterable
 
 from pydantic import Field
 
-from archcompass.boundary.base import DomainModel
+from archcompass.boundary.base import BoundaryDTO
 from archcompass.domain.errors import ScopeValidationError
 
 #: Directories no analysis ever descends into, whatever it was asked for. Not source, not
@@ -142,7 +142,7 @@ def excludes(relative_parts: tuple[str, ...], excluded_paths: tuple[str, ...]) -
     return False
 
 
-class RepositoryFolder(DomainModel):
+class RepositoryFolder(BoundaryDTO):
     """One directory of a repository, with how much Python is under it.
 
     Counted recursively, so a folder's number is what excluding it would cost — which is the
@@ -162,7 +162,7 @@ class RepositoryFolder(DomainModel):
     suggested: bool = False
 
 
-class RepositoryFolderTree(DomainModel):
+class RepositoryFolderTree(BoundaryDTO):
     """What is in a repository, shallowly, so a caller can choose what to leave out.
 
     Two levels deep and directories only. Deeper than that is a file browser, and the choice

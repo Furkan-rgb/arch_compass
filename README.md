@@ -180,8 +180,14 @@ Reasoning adapters use LangChain structured output:
 
 Embedding adapters are configured independently:
 
-- Google: `GoogleGenerativeAIEmbeddings`
+- Google: `GoogleGenerativeAIEmbeddings`, defaulting to `gemini-embedding-2` at 3,072
+  dimensions and reusing `GOOGLE_API_KEY`
 - Ollama: `OllamaEmbeddings`
+
+Google therefore needs no separate embedding configuration. Advanced or self-hosted setups
+can override `ARCHCOMPASS_EMBEDDING_PROVIDER`, `ARCHCOMPASS_EMBEDDING_MODEL`,
+`ARCHCOMPASS_EMBEDDING_DIMENSIONS`, `ARCHCOMPASS_EMBEDDING_BASE_URL`, and
+`ARCHCOMPASS_EMBEDDING_API_KEY_ENV`.
 
 The deterministic provider and full-corpus retriever support offline testing and evaluation.
 Production retrieval refuses to spend reasoning budget when its required embedding/index

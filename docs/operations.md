@@ -30,10 +30,14 @@ uv run archcompass --provider google --model gemini-3.6-flash web
 uv run archcompass --provider ollama --model gemma4:26b web
 ```
 
-Google requires its configured API-key environment variable. Ollama requires a reachable
-local server and installed model. Embedding configuration is independent from reasoning
-configuration, and production retrieval requires a passing approval for that embedding
-identity.
+Google requires `GOOGLE_API_KEY`. Its policy retriever uses Google's
+`gemini-embedding-2` model at 3,072 dimensions by default and shares that credential, so a
+Google run needs no separate embedding variables. Ollama requires a reachable local server
+and installed model. Embedding selection remains independent from reasoning selection:
+`ARCHCOMPASS_EMBEDDING_PROVIDER`, `ARCHCOMPASS_EMBEDDING_MODEL`,
+`ARCHCOMPASS_EMBEDDING_DIMENSIONS`, `ARCHCOMPASS_EMBEDDING_BASE_URL`, and
+`ARCHCOMPASS_EMBEDDING_API_KEY_ENV` can override the defaults. Production retrieval still
+requires a passing approval for the resulting embedding identity.
 
 ## Useful CLI flows
 

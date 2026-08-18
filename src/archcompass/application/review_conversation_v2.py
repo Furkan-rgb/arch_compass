@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from archcompass.domain.core._support import new_id, utc_now
+from archcompass.domain._support import new_id, utc_now
 from archcompass.ports.review_conversation import (
     ConversationMessage,
     ConversationReviewStore,

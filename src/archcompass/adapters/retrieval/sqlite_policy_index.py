@@ -9,7 +9,7 @@ from hashlib import sha256
 import sqlite_vec
 from langchain_core.embeddings import Embeddings
 
-from archcompass.domain.core import Policy
+from archcompass.domain import Policy
 from archcompass.ports.dense_policy_index import DensePolicyMatch
 
 

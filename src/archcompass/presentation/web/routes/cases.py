@@ -10,7 +10,7 @@ import yaml
 from fastapi import APIRouter, Body, Query
 from pydantic import Field, ValidationError
 
-from archcompass.domain.core import (
+from archcompass.domain import (
     ArchitectureCase,
     CaseConstraint,
     CaseDecision,

@@ -11,8 +11,8 @@ from pydantic import BaseModel, ConfigDict
 from pydantic_core import to_jsonable_python
 
 
-class DomainModel(BaseModel):
-    """Base for immutable, strict application data."""
+class BoundaryDTO(BaseModel):
+    """Base for immutable, strict data-transfer objects at system boundaries."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

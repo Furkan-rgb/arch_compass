@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import replace
 
 from archcompass.adapters.persistence.dataclass_records import DataclassRecordCodec
-from archcompass.domain.core import Finding, Review
+from archcompass.domain import Finding, Review
 
 
 class SQLiteCoreFindingCache:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from archcompass.domain.core import Policy
+from archcompass.domain import Policy
 
 
 @dataclass(frozen=True, slots=True)

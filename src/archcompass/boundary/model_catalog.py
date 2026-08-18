@@ -20,10 +20,10 @@ from datetime import datetime
 
 from pydantic import Field
 
-from archcompass.boundary.base import DomainModel, utc_now
+from archcompass.boundary.base import BoundaryDTO, utc_now
 
 
-class AvailableModel(DomainModel):
+class AvailableModel(BoundaryDTO):
     """One model a provider says it has, as the provider names it."""
 
     #: Verbatim what goes into `ReasoningModelConfig.model`. Vendor-shaped — `gemma4:26b`,
@@ -47,7 +47,7 @@ class AvailableModel(DomainModel):
     thinking_modes: tuple[bool | None, ...] = (None,)
 
 
-class ProbeResult(DomainModel):
+class ProbeResult(BoundaryDTO):
     """One adapter's answer to "are you there, and what do you have".
 
     Unavailability is a value here, never an exception. The reason is the picker: "Google is
@@ -62,7 +62,7 @@ class ProbeResult(DomainModel):
     models: list[AvailableModel] = Field(default_factory=list[AvailableModel])
 
 
-class ProviderAvailability(DomainModel):
+class ProviderAvailability(BoundaryDTO):
     """One provider's probe result, once the application has said which provider it was."""
 
     provider: str
@@ -71,7 +71,7 @@ class ProviderAvailability(DomainModel):
     probed_at: datetime = Field(default_factory=utc_now)
 
 
-class ModelCandidate(DomainModel):
+class ModelCandidate(BoundaryDTO):
     """One model a provider currently offers, in one of the thinking modes it has.
 
     The unit the picker lists and a selection names. A model appearing twice — once
@@ -91,7 +91,7 @@ class ModelCandidate(DomainModel):
     is_selected: bool = False
 
 
-class ModelCatalog(DomainModel):
+class ModelCatalog(BoundaryDTO):
     """Everything a chooser needs, in one answer.
 
     The providers are carried alongside the candidates rather than being inferable from
@@ -105,7 +105,7 @@ class ModelCatalog(DomainModel):
     candidates: list[ModelCandidate] = Field(default_factory=list[ModelCandidate])
 
 
-class ReasoningModelSelection(DomainModel):
+class ReasoningModelSelection(BoundaryDTO):
     """The choice this workspace has made, and what the last run made of it.
 
     Three fields make the choice, because three things vary between two runs that are
@@ -136,7 +136,7 @@ class ReasoningModelSelection(DomainModel):
     output_token_limit: int | None = None
 
 
-class ReasoningModelStatus(DomainModel):
+class ReasoningModelStatus(BoundaryDTO):
     """What the model is right now, answered without asking any provider anything.
 
     Separate from `ModelCatalog` because it is read on every page load and the catalog costs
