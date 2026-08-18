@@ -48,13 +48,25 @@ class ProviderEmbeddingModelDiscovery:
     ) -> tuple[ProviderAvailability, list[EmbeddingModelCandidate]]:
         try:
             api_key = resolve_api_key(descriptor.defaults.api_key_env, provider="google")
-            page = genai.Client(
+            # Keep the SDK client alive until the pager has been consumed. Accessing
+            # ``genai.Client(...).models.list(...)`` as one chained expression leaves the
+            # client temporary eligible for finalization after ``.models`` is resolved;
+            # the SDK then closes its HTTP transport before ``list`` sends the request.
+            # This surfaced as a 500 from /api/embeddings when the Models page requested
+            # the reasoning and embedding catalogues together.
+            client = genai.Client(
                 api_key=api_key,
                 http_options=types.HttpOptions(timeout=2_000),
-            ).models.list(
-                config=types.ListModelsConfig(query_base=True, page_size=100)
-            ).page
-            names = {(model.name or "").removeprefix("models/") for model in page}
+            )
+            try:
+                page = client.models.list(
+                    config=types.ListModelsConfig(query_base=True, page_size=100)
+                ).page
+                names = {
+                    (model.name or "").removeprefix("models/") for model in page
+                }
+            finally:
+                client.close()
         except (
             ConfigurationError,
             errors.APIError,
