@@ -15,9 +15,7 @@ from typing import Final
 
 from fastapi import FastAPI
 
-from archcompass.adapters.analysis import AnalysisLimits
-from archcompass.adapters.sources.https_tarball import ARCHIVE_URLS
-from archcompass.application.source_storage import SourceStorage
+from archcompass.analysis.adapters import AnalysisLimits
 from archcompass.bootstrap import enabled_providers
 from archcompass.domain.errors import ConfigurationError
 from archcompass.presentation.web.app import create_app
@@ -26,6 +24,8 @@ from archcompass.presentation.web.runtimes import (
     SessionCookieMiddleware,
     SessionRuntimeProvider,
 )
+from archcompass.repositories.adapters.https_tarball import ARCHIVE_URLS
+from archcompass.repositories.storage import SourceStorage
 
 #: Where session workspaces are written. A container's own filesystem by default, which is
 #: ephemeral and is the right lifetime for a demo: an instance that scales to zero takes the

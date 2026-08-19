@@ -245,6 +245,13 @@ make test-ollama
 make test-browser
 ```
 
+`make test-google` is the end-to-end one: it drives a whole review over the HTTP API against
+real services — a repository indexed, every candidate judged, a question answered, the review
+resumed on the same graph thread, a decision recorded and a grounded follow-up asked. Google
+does the judging and a local Ollama holding `embeddinggemma` does the embedding, which is also
+the sharpest demonstration that the two selections are independent. Anything missing skips with
+a message rather than failing.
+
 ## Documentation
 
 - [Current review flow](docs/current-flow.md)

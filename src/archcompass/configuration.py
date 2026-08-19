@@ -12,8 +12,8 @@ from pathlib import Path
 
 from pydantic import Field, model_validator
 
-from archcompass.boundary.base import BoundaryDTO
 from archcompass.domain.errors import ConfigurationError
+from archcompass.records import BoundaryDTO
 
 ENVIRONMENT_FILE_NAME = ".env"
 

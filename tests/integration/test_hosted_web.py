@@ -12,11 +12,11 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
 
-from archcompass.adapters.models.catalog import DETERMINISTIC_MODEL
 from archcompass.bootstrap import Runtime
 from archcompass.presentation.web import create_app
 from archcompass.presentation.web.hosted import create_hosted_app
 from archcompass.presentation.web.runtimes import SESSION_COOKIE
+from archcompass.reasoning.adapters.providers import DETERMINISTIC_MODEL
 
 FIXTURE = "boundary-review"
 
@@ -454,7 +454,7 @@ def test_a_swept_repository_comes_back_when_the_next_run_asks_for_it(
 
     import httpx
 
-    import archcompass.adapters.sources.https_tarball as tarball
+    import archcompass.repositories.adapters.https_tarball as tarball
 
     def archive() -> bytes:
         raw = io.BytesIO()

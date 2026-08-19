@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from archcompass.adapters.analysis.query_service import DeterministicAtlasQueryService
-from archcompass.boundary.atlas import (
+from archcompass.analysis.adapters.query_service import DeterministicAtlasQueryService
+from archcompass.analysis.atlas import (
     Atlas,
     AtlasEdge,
     AtlasNode,

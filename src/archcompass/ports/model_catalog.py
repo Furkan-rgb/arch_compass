@@ -13,14 +13,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final, Protocol
 
-from archcompass.boundary.model_catalog import (
+from archcompass.configuration import ReasoningModelConfig
+from archcompass.domain.errors import ConfigurationError
+from archcompass.reasoning.records import (
     EmbeddingModelCatalog,
     EmbeddingModelSelection,
     ProbeResult,
     ReasoningModelSelection,
 )
-from archcompass.configuration import ReasoningModelConfig
-from archcompass.domain.errors import ConfigurationError
 
 #: How many judgements a run may have in flight, overriding whatever the chosen provider's
 #: descriptor says. Read where a resolved configuration is built, so it reaches a local run

@@ -9,11 +9,11 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from archcompass.adapters.models.catalog import DETERMINISTIC_MODEL
 from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
 from archcompass.domain.errors import StaleAtlasError
 from archcompass.presentation.cli import app as cli_module
 from archcompass.presentation.cli.app import app
+from archcompass.reasoning.adapters.providers import DETERMINISTIC_MODEL
 
 runner = CliRunner()
 

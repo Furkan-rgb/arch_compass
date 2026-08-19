@@ -11,12 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from archcompass.adapters.analysis.ast_analyzer import (
+from archcompass.analysis.adapters.ast_analyzer import (
     UNLIMITED_ANALYSIS,
     AnalysisLimits,
     PythonAstRepositoryAnalyzer,
 )
-from archcompass.boundary.atlas import NodeType
+from archcompass.analysis.atlas import NodeType
 from archcompass.domain.errors import PathValidationError
 
 

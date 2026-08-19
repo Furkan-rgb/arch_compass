@@ -19,7 +19,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send
 
-from archcompass.application.capabilities import (
+from archcompass.ports.capabilities import (
     ArchitectureJudge,
     CandidateDetector,
     CaseReviser,

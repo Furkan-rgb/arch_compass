@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from archcompass.boundary.policy import (
+from archcompass.policies.records import (
     PolicyApplicabilityContext,
     PolicyDocument,
     PolicyScope,

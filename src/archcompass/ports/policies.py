@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
-from archcompass.boundary.policy import (
+from archcompass.policies.records import (
     PolicyDocument,
     PolicyDraft,
     PolicySourceRegistration,

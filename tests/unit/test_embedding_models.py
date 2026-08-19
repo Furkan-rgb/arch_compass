@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from archcompass.application.embedding_models import EmbeddingModelService
-from archcompass.boundary.model_catalog import (
+from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
+from archcompass.reasoning.embedding_models import EmbeddingModelService
+from archcompass.reasoning.records import (
     EmbeddingModelCandidate,
     EmbeddingModelCatalog,
     EmbeddingModelSelection,
     ProbeResult,
     ProviderAvailability,
 )
-from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
 
 
 class Selections:

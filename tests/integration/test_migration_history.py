@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from archcompass.adapters.persistence.database import SQLiteDatabase
 from archcompass.domain.errors import PersistenceError
+from archcompass.persistence.sqlite.database import SQLiteDatabase
 
 MIGRATIONS = Path(__file__).resolve().parents[2] / (
     "src/archcompass/adapters/persistence/migrations"

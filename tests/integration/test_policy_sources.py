@@ -4,19 +4,19 @@ from pathlib import Path
 
 import pytest
 
-from archcompass.adapters.persistence.database import SQLiteDatabase
-from archcompass.adapters.persistence.policy_source_repository import (
+from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
+from archcompass.domain.errors import PolicyFormatError
+from archcompass.persistence.policy_sources import (
     SQLitePolicySourceRepository,
 )
-from archcompass.adapters.retrieval.policy_markdown import (
+from archcompass.persistence.sqlite.database import SQLiteDatabase
+from archcompass.policies.adapters.markdown import (
     MarkdownPolicySourceInspector,
     MarkdownPolicyStore,
 )
-from archcompass.application.policies import PolicyService
-from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
-from archcompass.boundary.base import stable_id
-from archcompass.boundary.policy import PolicyScope
-from archcompass.domain.errors import PolicyFormatError
+from archcompass.policies.records import PolicyScope
+from archcompass.policies.service import PolicyService
+from archcompass.records import stable_id
 
 
 def _write_policy(

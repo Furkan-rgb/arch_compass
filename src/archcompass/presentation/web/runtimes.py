@@ -20,9 +20,9 @@ from starlette.datastructures import Headers, MutableHeaders
 from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from archcompass.adapters.analysis import UNLIMITED_ANALYSIS, AnalysisLimits
-from archcompass.application.source_storage import SourceStorage
+from archcompass.analysis.adapters import UNLIMITED_ANALYSIS, AnalysisLimits
 from archcompass.bootstrap import Runtime, build_runtime
+from archcompass.repositories.storage import SourceStorage
 
 #: The name a browser holds a session under. Opaque, and the only thing tying a visitor to
 #: their workspace: there is no account, and nothing else about the request is stable.

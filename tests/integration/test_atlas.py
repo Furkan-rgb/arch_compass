@@ -4,15 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from archcompass.adapters.models.catalog import DETERMINISTIC_MODEL
-from archcompass.bootstrap import Runtime, build_runtime, pinned_model
-from archcompass.boundary.atlas import (
+from archcompass.analysis.atlas import (
     EdgeType,
     HotspotsQuery,
     NodeType,
     SourceExcerptQuery,
 )
+from archcompass.bootstrap import Runtime, build_runtime, pinned_model
 from archcompass.domain.errors import AtlasQueryValidationError, PathValidationError
+from archcompass.reasoning.adapters.providers import DETERMINISTIC_MODEL
 
 FIXTURE = Path("eval/cases/speech-vendor/repository").resolve()
 

@@ -62,7 +62,7 @@ norecursedirs = ["tests/fixtures"]
 markers = [
   "evaluation: offline checks that the shipped example repositories still present the shapes a review is demonstrated on",
   "ollama: optional evaluation requiring a locally running Ollama service",
-  "google: optional evaluation requiring a Google AI Studio API key and quota",
+  "google: end-to-end review against live services, needing a Google AI Studio key with free-tier quota and a local Ollama holding embeddinggemma for the retrieval side",
   "browser: drives the built workspace in a real browser; needs `make frontend-build` and Playwright",
 ]
 

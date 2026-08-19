@@ -16,9 +16,9 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
 
-from archcompass.adapters.models.catalog import DETERMINISTIC_MODEL
 from archcompass.bootstrap import Runtime, build_runtime, pinned_model
 from archcompass.presentation.web import create_app
+from archcompass.reasoning.adapters.providers import DETERMINISTIC_MODEL
 
 #: A repository with an obvious thing to leave out and an obvious thing to keep. `tests` is
 #: bigger than `src`, which is the situation that makes a scope worth having.

@@ -5,6 +5,20 @@ from pathlib import Path
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2] / "src" / "archcompass"
 
+#: The feature packages the tree is navigated by. Each one is asserted to exist wherever it
+#: is swept, because `rglob` over a directory that does not exist yields nothing and passes:
+#: a guard named after a package can outlive the package and go on reporting success over no
+#: files at all. That happened once — `workflows/` was deleted and a guard kept naming it for
+#: months — and it is why every sweep below starts with `is_dir()`.
+FEATURES = (
+    "analysis",
+    "policies",
+    "reasoning",
+    "repositories",
+    "workflow",
+    "persistence",
+)
+
 
 def _imports(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -20,41 +34,186 @@ def _imports(path: Path) -> list[str]:
     ]
 
 
-def test_core_layers_do_not_import_infrastructure_or_presentation() -> None:
-    """The core packages, each one asserted to be there before it is swept.
+def _python_files(root: Path) -> list[Path]:
+    return sorted(root.rglob("*.py"))
 
-    `rglob` over a directory that does not exist yields nothing and passes, so a guard named
-    after a package can outlive the package and go on reporting success over no files at all.
-    That happened: `workflows/` was deleted and this list kept naming it for months. Asserting
-    the directory exists is what makes a future deletion fail here instead of going quiet.
+
+def _crosses(imported: str, prefix: str) -> bool:
+    return imported == prefix or imported.startswith(f"{prefix}.")
+
+
+def test_the_layer_named_packages_are_gone() -> None:
+    """Nothing may reappear beside the feature tree under its old technical-layer name.
+
+    The refactor's whole point is that there is one place to look for a thing. A revived
+    `adapters/` or `application/` would not be wrong so much as it would be a second answer
+    to "where does this live", which is the failure the tree was reorganised to remove.
+    """
+
+    for stale in ("adapters", "application", "boundary"):
+        assert not (SOURCE_ROOT / stale).exists(), (
+            f"{stale}/ is back; the tree is navigated by feature, not by layer"
+        )
+    for feature in FEATURES:
+        assert (SOURCE_ROOT / feature).is_dir(), f"{feature}/ is gone"
+
+
+def test_domain_imports_only_the_standard_library_and_itself() -> None:
+    """`domain/` is frozen dataclasses and nothing else — no vendor, no feature, no I/O.
+
+    The forbidden list is every feature package plus the libraries a domain record must
+    never carry. LangGraph checkpoints serialize these classes by module path, so a domain
+    module that grew a Pydantic or SQLite dependency would also be one that a stored
+    checkpoint can no longer be read back into.
     """
 
     forbidden = (
-        "archcompass.adapters",
-        "archcompass.presentation",
+        "pydantic",
+        "langchain",
+        "langgraph",
+        "fastapi",
         "sqlite3",
         "httpx",
         "typer",
+        "archcompass.records",
+        "archcompass.ports",
+        "archcompass.presentation",
+        *[f"archcompass.{feature}" for feature in FEATURES],
     )
-    for package in ("domain", "application", "ports"):
-        root = SOURCE_ROOT / package
-        assert root.is_dir(), f"{package}/ is gone; this guard now sweeps nothing"
-        for path in root.rglob("*.py"):
+    root = SOURCE_ROOT / "domain"
+    assert root.is_dir(), "domain/ is gone; this guard now sweeps nothing"
+    for path in _python_files(root):
+        imports = _imports(path)
+        assert not any(
+            _crosses(imported, prefix) for imported in imports for prefix in forbidden
+        ), f"{path.relative_to(SOURCE_ROOT)} crosses the domain boundary"
+
+
+#: The only modules inside a feature that a port may name. Each is a file of frozen Pydantic
+#: records and nothing else — no I/O, no vendor, no service — so a contract stated in their
+#: terms still points inward. Anything else in a feature is behaviour, and a port that
+#: imported it would be the arrow the ports exist to reverse.
+_FEATURE_RECORD_MODULES = frozenset(
+    {
+        "archcompass.analysis.atlas",
+        "archcompass.policies.records",
+        "archcompass.reasoning.records",
+        "archcompass.repositories.lineage",
+        "archcompass.repositories.records",
+    }
+)
+
+
+def test_ports_declare_contracts_without_reaching_for_implementations() -> None:
+    """A port names what is asked for. It may not know who answers.
+
+    `ports/` may reference `domain/`, `records.py`, and the record modules named above,
+    because a contract is stated in those terms. Importing a feature's service or adapter
+    would invert the arrow the ports exist to create.
+    """
+
+    forbidden = (
+        "sqlite3",
+        "httpx",
+        "typer",
+        "langgraph",
+        "fastapi",
+        "archcompass.presentation",
+        *[f"archcompass.{feature}" for feature in FEATURES],
+    )
+    root = SOURCE_ROOT / "ports"
+    assert root.is_dir(), "ports/ is gone; this guard now sweeps nothing"
+    for path in _python_files(root):
+        offending = [
+            imported
+            for imported in _imports(path)
+            if imported not in _FEATURE_RECORD_MODULES
+            and any(_crosses(imported, prefix) for prefix in forbidden)
+        ]
+        assert not offending, (
+            f"{path.relative_to(SOURCE_ROOT)} imports {offending[0]}, which is behaviour "
+            "rather than a record its contract can be stated in"
+        )
+
+
+def test_feature_logic_does_not_import_another_features_adapters() -> None:
+    """Concrete infrastructure stays inside the `adapters/` of the feature that owns it.
+
+    Every feature keeps its vendor code in one subpackage, and the modules above it are
+    reached through ports. The exception is `<feature>/adapters/` itself, which is where
+    the vendor is allowed to be named, and `bootstrap.py`, which is the composition root
+    and the one module whose job is to choose implementations.
+    """
+
+    forbidden = [f"archcompass.{feature}.adapters" for feature in FEATURES]
+    for feature in FEATURES:
+        root = SOURCE_ROOT / feature
+        for path in _python_files(root):
+            if "adapters" in path.relative_to(root).parts:
+                continue
             imports = _imports(path)
-            assert not any(
-                imported == prefix or imported.startswith(f"{prefix}.")
+            offending = [
+                imported
                 for imported in imports
                 for prefix in forbidden
-            ), f"{path.relative_to(SOURCE_ROOT)} imports infrastructure or presentation"
+                if _crosses(imported, prefix)
+            ]
+            assert not offending, (
+                f"{path.relative_to(SOURCE_ROOT)} imports {offending[0]}, which is "
+                "infrastructure it should reach through a port"
+            )
+
+
+def test_langgraph_is_confined_to_the_workflow_package() -> None:
+    """The orchestration library is an implementation detail of one package.
+
+    A review is sequenced by LangGraph and nothing else in the product may know that.
+    `bootstrap.py` is exempt because it builds the checkpointer the graph is compiled with.
+    """
+
+    allowed = {SOURCE_ROOT / "bootstrap.py"}
+    for path in _python_files(SOURCE_ROOT):
+        if path in allowed or path.relative_to(SOURCE_ROOT).parts[0] == "workflow":
+            continue
+        assert not any(
+            _crosses(imported, "langgraph") for imported in _imports(path)
+        ), f"{path.relative_to(SOURCE_ROOT)} imports LangGraph outside workflow/"
+
+
+def test_langchain_and_provider_sdks_stay_in_reasoning_and_policy_adapters() -> None:
+    """The model vendors are named in two places, both of them adapter packages.
+
+    `langchain_core` is deliberately absent from the list: it is LangGraph's own package,
+    and `workflow/service.py` types the graph's config with `RunnableConfig` from it. That
+    is the orchestration library, already confined by the guard above, not a provider SDK.
+    """
+
+    vendors = ("langchain", "langchain_google_genai", "google", "ollama")
+    allowed_roots = (
+        SOURCE_ROOT / "reasoning" / "adapters",
+        SOURCE_ROOT / "policies" / "adapters",
+    )
+    for path in _python_files(SOURCE_ROOT):
+        if any(path.is_relative_to(root) for root in allowed_roots):
+            continue
+        offending = [
+            imported
+            for imported in _imports(path)
+            for vendor in vendors
+            if _crosses(imported, vendor)
+        ]
+        assert not offending, (
+            f"{path.relative_to(SOURCE_ROOT)} imports {offending[0]}; provider SDKs "
+            "belong in reasoning/adapters or policies/adapters"
+        )
 
 
 def test_cli_commands_use_application_services_only() -> None:
     path = SOURCE_ROOT / "presentation" / "cli" / "app.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
+    forbidden = [f"archcompass.{feature}.adapters" for feature in FEATURES]
     assert not any(
-        imported == "archcompass.adapters"
-        or imported.startswith("archcompass.adapters.")
-        for imported in _imports(path)
+        _crosses(imported, prefix) for imported in _imports(path) for prefix in forbidden
     )
 
     forbidden_runtime_attributes = {
@@ -123,17 +282,18 @@ def test_web_routes_use_application_services_only() -> None:
     routes_root = web_root / "routes"
     assert routes_root.is_dir(), "presentation/web/routes is gone; this guard sweeps nothing"
 
+    forbidden = [f"archcompass.{feature}.adapters" for feature in FEATURES]
     swept = [
         path
-        for path in web_root.rglob("*.py")
+        for path in _python_files(web_root)
         if path.name not in _WEB_RUNTIME_BUILDERS
     ]
     assert swept, "the web package is gone; this guard now sweeps nothing"
     for path in swept:
         assert not any(
-            imported == "archcompass.adapters"
-            or imported.startswith("archcompass.adapters.")
+            _crosses(imported, prefix)
             for imported in _imports(path)
+            for prefix in forbidden
         ), f"{path.relative_to(SOURCE_ROOT)} imports an adapter"
 
     forbidden_runtime_attributes = {
@@ -147,7 +307,7 @@ def test_web_routes_use_application_services_only() -> None:
         "run_repository",
     }
     used_attributes: set[str] = set()
-    for path in routes_root.rglob("*.py"):
+    for path in _python_files(routes_root):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         used_attributes |= {
             node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
@@ -161,40 +321,26 @@ def test_web_routes_use_application_services_only() -> None:
     } <= used_attributes
 
 
-def test_model_adapters_do_not_import_the_application_layer() -> None:
+def test_reasoning_adapters_do_not_import_the_services_above_them() -> None:
     """Adapters own transport and schema constraint, never application policy.
 
-    `docs/architecture.md` states that model adapters "do not choose evidence,
-    history, citation, or truncation rules". This pins the import direction that
-    makes the statement enforceable rather than aspirational.
+    `docs/architecture.md` states that model adapters "do not choose evidence, history,
+    citation, or truncation rules". This pins the import direction that makes the statement
+    enforceable rather than aspirational: an adapter may know its port and the domain, and
+    may not know the service that calls it.
     """
 
-    root = SOURCE_ROOT / "adapters" / "models"
-    assert root.is_dir(), "adapters/models is gone; this guard now sweeps nothing"
-    for path in root.rglob("*.py"):
+    root = SOURCE_ROOT / "reasoning" / "adapters"
+    assert root.is_dir(), "reasoning/adapters is gone; this guard now sweeps nothing"
+    service_modules = {
+        "archcompass.reasoning.model_catalog",
+        "archcompass.reasoning.embedding_models",
+        "archcompass.reasoning.conversation",
+        "archcompass.reasoning.cache",
+        "archcompass.workflow",
+    }
+    for path in _python_files(root):
         imports = _imports(path)
         assert not any(
-            imported == "archcompass.application"
-            or imported.startswith("archcompass.application.")
-            for imported in imports
-            ), f"{path.relative_to(SOURCE_ROOT)} imports the application layer"
-
-
-def test_dataclass_domain_imports_only_the_standard_library_and_itself() -> None:
-    forbidden = (
-        "pydantic",
-        "langchain",
-        "langgraph",
-        "fastapi",
-        "archcompass.adapters",
-        "archcompass.application",
-        "archcompass.boundary",
-    )
-    root = SOURCE_ROOT / "domain"
-    for path in root.rglob("*.py"):
-        imports = _imports(path)
-        assert not any(
-            imported == prefix or imported.startswith(f"{prefix}.")
-            for imported in imports
-            for prefix in forbidden
-        ), f"{path.relative_to(SOURCE_ROOT)} crosses the dataclass-domain boundary"
+            _crosses(imported, prefix) for imported in imports for prefix in service_modules
+        ), f"{path.relative_to(SOURCE_ROOT)} imports the service layer above it"

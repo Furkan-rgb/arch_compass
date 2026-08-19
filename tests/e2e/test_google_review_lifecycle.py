@@ -1,0 +1,180 @@
+"""A whole review against a real model, asserted on shape rather than on prose.
+
+Nothing here checks what the model said. A test that pinned wording would fail on the day the
+model was upgraded, which is precisely the day it needs to keep working. What is checked is
+that the parts fit together against a live provider: that retrieval selected from the corpus
+rather than handing over all of it, that a verdict came back for every candidate in the
+vocabulary the domain allows, that answering resumed the same execution instead of starting a
+second one beside it, and that everything downstream — the standing decision, the grounded
+conversation — still keys off identities ArchCompass minted rather than anything the model
+wrote.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from tests.e2e.conftest import (
+    EMBEDDING_DIMENSIONS,
+    EMBEDDING_MODEL,
+    EMBEDDING_PROVIDER,
+    REASONING_MODEL,
+    Lifecycle,
+)
+
+pytestmark = pytest.mark.google
+
+
+def test_a_real_review_judges_every_candidate_within_the_domain_vocabulary(
+    lifecycle: Lifecycle,
+) -> None:
+    first = lifecycle.first
+
+    assert first["status"] in {"awaiting_answers", "completed"}
+    assert first["findings"], "a real judgement produced no findings at all"
+
+    # "Leave it exactly as it is" is a first-class answer, so which verdict came back is not
+    # asserted — only that the model was held to the vocabulary rather than inventing one,
+    # and that it said why.
+    verdicts = {finding["verdict"] for finding in first["findings"]}
+    assert verdicts <= {"material", "cleared", "held"}
+    assert all(finding["reasoning"].strip() for finding in first["findings"])
+
+    # The two invariants a JSON schema cannot express, and which the prompt therefore has to
+    # state: a judgement waiting on an answer recommends nothing, and only a material finding
+    # recommends at all. A response that breaks either is refused at the model boundary, so
+    # arriving here at all is most of the assertion; these restate it against what was stored.
+    for finding in first["findings"]:
+        assert not (finding["hinge"] and finding["recommended_response"])
+        if finding["recommended_response"]:
+            assert finding["verdict"] == "material"
+
+    # Policy citations are resolved from positions the application numbered, never from a
+    # name the model produced — so every cited policy is one that was actually presented.
+    cited = {
+        bearing["policy_id"]
+        for finding in first["findings"]
+        for bearing in finding["policies"]
+    }
+    assert cited <= lifecycle.corpus_policy_ids
+
+
+def test_questions_ground_in_candidates_the_application_identified(
+    lifecycle: Lifecycle,
+) -> None:
+    first = lifecycle.first
+    if first["status"] != "awaiting_answers":
+        pytest.skip(
+            f"{REASONING_MODEL} judged every candidate without stating a hinge, so this run "
+            "asked no questions; there is nothing to ground."
+        )
+
+    candidate_ids = {finding["candidate"]["id"] for finding in first["findings"]}
+    assert first["questions"]
+    for question in first["questions"]:
+        assert question["candidate_ids"], "a question that grounds in nothing is not usable"
+        assert set(question["candidate_ids"]) <= candidate_ids
+
+
+def test_answering_resumes_the_same_review_rather_than_starting_another(
+    lifecycle: Lifecycle,
+) -> None:
+    if lifecycle.resumed is None:
+        pytest.skip(
+            f"{REASONING_MODEL} completed this review in one pass, so there was no "
+            "clarification round to resume."
+        )
+    first, resumed = lifecycle.first, lifecycle.resumed
+
+    assert resumed["status"] == "completed"
+    # Carried forward on the same LangGraph thread rather than begun beside it.
+    assert resumed["previous_review_id"] == first["id"]
+    assert resumed["sequence"] == first["sequence"] + 1
+    assert resumed["case"]["id"] == first["case"]["id"]
+    assert resumed["case"]["revision"] > first["case"]["revision"]
+
+    answered = [
+        answer for answer in resumed["case"]["answers"] if answer["status"] == "answered"
+    ]
+    assert len(answered) == len(first["questions"])
+    assert all(answer["value"] for answer in answered)
+    assert resumed["findings"], "the second round judged nothing"
+
+
+def test_retrieval_selected_from_the_corpus_rather_than_handing_over_all_of_it(
+    lifecycle: Lifecycle,
+) -> None:
+    """The point of a real embedding provider: the manifest is a selection, not the corpus.
+
+    Under the deterministic substitute the retriever is a full-corpus oracle, so this is the
+    one property the offline suite structurally cannot check — `retriever` naming that oracle
+    here would mean the review never reached a real index at all.
+    """
+
+    manifest = lifecycle.first["retrieval_manifest"]
+    corpus = lifecycle.corpus_policy_ids
+
+    assert manifest, "a review with no retrieval provenance is not auditable"
+    assert corpus, "the bundled corpus is empty; this assertion would prove nothing"
+    for provenance in manifest:
+        assert provenance["retriever"] == "dense-scoped"
+        selected = provenance["selected_policy_ids"]
+        assert selected, "retrieval returned nothing for a candidate"
+        assert set(selected) <= corpus
+        assert len(selected) < len(corpus), (
+            "retrieval handed over the whole corpus, so nothing was actually selected"
+        )
+        assert provenance["corpus_fingerprint"]
+        assert provenance["query_fingerprint"]
+
+    # One provenance record per judged candidate, keyed by candidate identity.
+    judged = {finding["candidate"]["id"] for finding in lifecycle.first["findings"]}
+    assert {item["candidate_id"] for item in manifest} == judged
+
+
+def test_the_review_records_which_model_and_which_embedding_produced_it(
+    lifecycle: Lifecycle,
+) -> None:
+    """Two selections, recorded separately, because they are separately replaceable.
+
+    The reasoning model is stamped on the review; the embedding model is stamped on each
+    retrieval record. Swapping one must not read as having swapped the other, which is only
+    demonstrable when both are real — and here they are not even the same vendor.
+    """
+
+    final = lifecycle.final
+
+    assert final["model_identity"].startswith("google:")
+    assert REASONING_MODEL in final["model_identity"]
+    # The deterministic substitute has its own prompt identity, so this also proves the run
+    # did not quietly fall back to it.
+    assert final["prompt_identity"]
+    assert "deterministic" not in final["prompt_identity"]
+
+    embedding_identities = {
+        provenance["model_identity"] for provenance in final["retrieval_manifest"]
+    }
+    assert embedding_identities, "the completed review carried no retrieval provenance"
+    assert embedding_identities == {
+        f"{EMBEDDING_PROVIDER}:{EMBEDDING_MODEL}:{EMBEDDING_DIMENSIONS}"
+    }
+    assert EMBEDDING_PROVIDER not in final["model_identity"]
+
+    for provenance in final["retrieval_manifest"]:
+        assert dict(provenance["metadata"])["dimensions"] == str(EMBEDDING_DIMENSIONS)
+
+
+def test_a_decision_and_a_grounded_conversation_key_off_archcompass_identities(
+    lifecycle: Lifecycle,
+) -> None:
+    final = lifecycle.final
+    candidate_ids = {finding["candidate"]["id"] for finding in final["findings"]}
+
+    decision = lifecycle.decision
+    assert decision["candidate_id"] in candidate_ids
+    assert decision["finding_verdict"] == final["findings"][0]["verdict"]
+
+    message = lifecycle.conversation["messages"][-1]
+    assert message["answer"]["text"].strip(), "the model answered the follow-up with nothing"
+    # Whatever it said, the candidates it cited are ones ArchCompass minted.
+    assert set(message["answer"]["supporting_candidate_ids"]) <= candidate_ids

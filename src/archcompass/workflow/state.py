@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Annotated, TypedDict
 
-from archcompass.application.capabilities import ReviewDraft
 from archcompass.domain import (
     Answer,
     ArchitectureCase,
@@ -17,6 +16,7 @@ from archcompass.domain import (
     Review,
     ReviewDelta,
 )
+from archcompass.ports.capabilities import ReviewDraft
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 
 

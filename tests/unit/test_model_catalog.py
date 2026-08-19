@@ -4,12 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from archcompass.application.model_catalog import ModelCatalogService, reasoning_config
-from archcompass.boundary.model_catalog import (
-    AvailableModel,
-    ProbeResult,
-    ReasoningModelSelection,
-)
 from archcompass.domain.errors import ConfigurationError
 from archcompass.ports.model_catalog import (
     CONCURRENT_REQUESTS_VARIABLE,
@@ -17,6 +11,12 @@ from archcompass.ports.model_catalog import (
     ProviderDefaults,
     ProviderDescriptor,
     ReasoningModelProbe,
+)
+from archcompass.reasoning.model_catalog import ModelCatalogService, reasoning_config
+from archcompass.reasoning.records import (
+    AvailableModel,
+    ProbeResult,
+    ReasoningModelSelection,
 )
 
 _GOOGLE_DEFAULTS = ProviderDefaults(
@@ -333,7 +333,7 @@ def test_google_inherits_a_gemini_sized_context_window() -> None:
     still pulls the number down for a smaller model, so generosity here is safe.
     """
 
-    from archcompass.adapters.models.catalog import GOOGLE_DESCRIPTOR
+    from archcompass.reasoning.adapters.providers import GOOGLE_DESCRIPTOR
 
     assert GOOGLE_DESCRIPTOR.defaults.context_window_tokens == 1_048_576
 

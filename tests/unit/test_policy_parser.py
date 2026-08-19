@@ -5,15 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from archcompass.adapters.retrieval.policy_markdown import (
+from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
+from archcompass.domain.errors import PolicyFormatError
+from archcompass.policies.adapters.markdown import (
     REQUIRED_SECTIONS,
     MarkdownPolicySourceInspector,
     load_policy_sources,
     parse_policy,
 )
-from archcompass.bootstrap import BUNDLED_POLICY_SOURCE
-from archcompass.boundary.base import stable_id
-from archcompass.domain.errors import PolicyFormatError
+from archcompass.records import stable_id
 
 
 def _section(body: str, heading: str) -> str:

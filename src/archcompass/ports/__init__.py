@@ -2,8 +2,8 @@
 
 The protocols the application calls and the adapters implement — one per thing the outside
 world is asked for: analysing a repository, storing a record, reading source, reasoning.
-Read `reasoning.py` first; it is the widest of them and the one the whole advisory flow
-turns on.
+Read `capabilities.py` first; it is the widest of them and the one the review graph is
+sequenced entirely out of.
 """
 
 from archcompass.ports.atlas import (
@@ -11,10 +11,10 @@ from archcompass.ports.atlas import (
     RepositoryAnalyzer,
     SourceReader,
 )
-from archcompass.ports.policies import PolicySourceInspector, PolicySourceRepository
-from archcompass.ports.repositories import (
+from archcompass.ports.persistence import (
     AtlasRepository,
 )
+from archcompass.ports.policies import PolicySourceInspector, PolicySourceRepository
 
 __all__ = [
     "AtlasQueryService",

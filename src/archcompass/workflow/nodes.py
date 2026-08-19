@@ -7,7 +7,8 @@ from typing import cast
 
 from langgraph.types import interrupt
 
-from archcompass.application.capabilities import (
+from archcompass.domain import Answer
+from archcompass.ports.capabilities import (
     ArchitectureJudge,
     CandidateDetector,
     CaseReviser,
@@ -23,7 +24,6 @@ from archcompass.application.capabilities import (
     ReviewRecorder,
     RevisionCalculator,
 )
-from archcompass.domain import Answer
 from archcompass.workflow.state import ReviewState
 
 Node = Callable[[ReviewState], dict[str, object]]

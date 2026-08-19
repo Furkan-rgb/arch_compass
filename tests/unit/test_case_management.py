@@ -3,12 +3,10 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from archcompass.adapters.persistence.core_review_repository import (
-    SQLiteCoreCaseRepository,
-    SQLiteCoreReviewRepository,
-)
-from archcompass.application.case_management import ArchitectureCaseService
 from archcompass.domain import CaseConstraint, CaseFacet
+from archcompass.persistence.cases import SQLiteCoreCaseRepository
+from archcompass.persistence.reviews import SQLiteCoreReviewRepository
+from archcompass.workflow.cases import ArchitectureCaseService
 
 
 class NoBranchParents:

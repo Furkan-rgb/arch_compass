@@ -10,15 +10,6 @@ import typer
 import yaml
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
-from archcompass.application.core_ci import CleanBreakCiRun, FailOn
-from archcompass.application.retrieval_evaluation import (
-    RetrievalExample,
-    choose_smallest_passing_k,
-)
-from archcompass.application.review_workflow import SubmittedAnswer
-from archcompass.application.safety import (
-    validate_repository_directory,
-)
 from archcompass.bootstrap import (
     Runtime,
     build_runtime,
@@ -38,7 +29,16 @@ from archcompass.domain import (
 )
 from archcompass.domain.errors import ArchCompassError
 from archcompass.domain.repository import DEFAULT_BRANCH_NAME
+from archcompass.policies.evaluation import (
+    RetrievalExample,
+    choose_smallest_passing_k,
+)
 from archcompass.ports.review_conversation import ReviewConversation
+from archcompass.repositories.safety import (
+    validate_repository_directory,
+)
+from archcompass.workflow.ci import CleanBreakCiRun, FailOn
+from archcompass.workflow.service import SubmittedAnswer
 
 app = typer.Typer(
     name="archcompass",

@@ -10,10 +10,10 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
 
-from archcompass.adapters.models.catalog import DETERMINISTIC_MODEL
 from archcompass.bootstrap import Runtime, build_runtime, pinned_model
 from archcompass.domain.errors import ConfigurationError
 from archcompass.presentation.web import create_app
+from archcompass.reasoning.adapters.providers import DETERMINISTIC_MODEL
 
 #: The two providers these tests want in front of them: one that always answers and one that
 #: never will. Ollama is pointed at a closed port rather than mocked, because the row a

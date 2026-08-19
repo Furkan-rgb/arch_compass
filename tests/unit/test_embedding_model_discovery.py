@@ -4,10 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from archcompass.adapters.models import embedding_catalog
-from archcompass.adapters.models.embedding_catalog import ProviderEmbeddingModelDiscovery
-from archcompass.boundary.model_catalog import ProbeResult
 from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
+from archcompass.reasoning.adapters import embedding_catalog
+from archcompass.reasoning.adapters.embedding_catalog import ProviderEmbeddingModelDiscovery
+from archcompass.reasoning.records import ProbeResult
 
 
 def test_google_client_stays_open_while_embedding_models_are_listed(

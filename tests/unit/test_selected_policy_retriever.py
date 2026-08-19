@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from archcompass.adapters.retrieval.selected import (
+from archcompass.domain.errors import ConfigurationError
+from archcompass.policies.adapters.embeddings import (
     DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS,
     DEFAULT_GOOGLE_EMBEDDING_MODEL,
     embedding_config_from_environment,
 )
-from archcompass.domain.errors import ConfigurationError
 
 _EMBEDDING_VARIABLES = (
     "ARCHCOMPASS_EMBEDDING_PROVIDER",

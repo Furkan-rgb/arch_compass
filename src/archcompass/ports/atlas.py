@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
-from archcompass.boundary.atlas import (
+from archcompass.analysis.atlas import (
     Atlas,
     AtlasQuery,
     AtlasQueryResult,

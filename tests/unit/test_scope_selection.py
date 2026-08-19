@@ -12,14 +12,14 @@ from pathlib import Path
 
 import pytest
 
-from archcompass.adapters.analysis.ast_analyzer import PythonAstRepositoryAnalyzer
-from archcompass.adapters.persistence import (
+from archcompass.analysis.adapters.ast_analyzer import PythonAstRepositoryAnalyzer
+from archcompass.analysis.atlas import Atlas
+from archcompass.analysis.scope import validate_excluded_paths
+from archcompass.domain.errors import ScopeValidationError
+from archcompass.persistence import (
     SQLiteDatabase,
     SQLiteScopeSelectionRepository,
 )
-from archcompass.boundary.atlas import Atlas
-from archcompass.boundary.scope import validate_excluded_paths
-from archcompass.domain.errors import ScopeValidationError
 
 _REPOSITORY = {
     "src/service.py": "def serve():\n    return 1\n",

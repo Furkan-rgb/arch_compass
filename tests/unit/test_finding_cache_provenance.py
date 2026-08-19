@@ -3,9 +3,6 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from archcompass.adapters.persistence.core_finding_cache import SQLiteCoreFindingCache
-from archcompass.adapters.persistence.core_review_repository import SQLiteCoreReviewRepository
-from archcompass.application.verdict_cache import CachingReviewRecorder
 from archcompass.domain import (
     ArchitectureCase,
     Candidate,
@@ -19,6 +16,9 @@ from archcompass.domain import (
     Verdict,
 )
 from archcompass.domain._support import utc_now
+from archcompass.persistence.findings import SQLiteCoreFindingCache
+from archcompass.persistence.reviews import SQLiteCoreReviewRepository
+from archcompass.reasoning.cache import CachingReviewRecorder
 
 
 def test_cache_hit_names_the_review_that_first_recorded_the_finding(

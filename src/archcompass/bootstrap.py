@@ -11,31 +11,26 @@ from typing import Final
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from archcompass.adapters.analysis import (
+from archcompass.analysis.adapters import (
     UNLIMITED_ANALYSIS,
     AnalysisLimits,
     DeterministicAtlasQueryService,
     PythonAstRepositoryAnalyzer,
     SafeSourceReader,
 )
-from archcompass.adapters.analysis.core_boundary import (
+from archcompass.analysis.analyzer import (
     DataclassCandidateDetector,
     DataclassRepositoryAnalyzer,
 )
-from archcompass.adapters.core_capabilities import DataclassPolicyCorpus, SQLiteContextLoader
-from archcompass.adapters.models.catalog import (
-    DETERMINISTIC_DESCRIPTOR,
-    GOOGLE_DESCRIPTOR,
-    OLLAMA_DESCRIPTOR,
+from archcompass.analysis.delta import DeterministicRevisionCalculator
+from archcompass.analysis.freshness import AtlasFreshnessService
+from archcompass.analysis.queries import AtlasService
+from archcompass.configuration import (
+    ReasoningModelConfig,
+    load_provider_environment,
 )
-from archcompass.adapters.models.embedding_catalog import ProviderEmbeddingModelDiscovery
-from archcompass.adapters.models.selected_langchain import (
-    SelectedLangChainChatModel,
-    SelectedLangChainJudge,
-    SelectedLangChainQuestionGenerator,
-    SelectedLangChainReviewAnswerer,
-)
-from archcompass.adapters.persistence import (
+from archcompass.domain.errors import ConfigurationError, NoReasoningModelSelectedError
+from archcompass.persistence import (
     SQLiteAtlasRepository,
     SQLiteCoreCaseRepository,
     SQLiteCoreConversationRepository,
@@ -51,61 +46,65 @@ from archcompass.adapters.persistence import (
     SQLiteScopeSelectionRepository,
     SQLiteSourceOriginRepository,
 )
-from archcompass.adapters.retrieval import (
+from archcompass.persistence.context import SQLiteContextLoader
+from archcompass.policies.adapters import (
     MarkdownPolicySourceInspector,
     MarkdownPolicyStore,
     SelectedDensePolicyRetriever,
 )
-from archcompass.adapters.retrieval.selected import (
+from archcompass.policies.adapters.embeddings import (
     DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS,
     DEFAULT_GOOGLE_EMBEDDING_MODEL,
     embedding_config_from_environment,
 )
-from archcompass.adapters.sources import HttpsTarballFetcher
-from archcompass.adapters.vcs import GitCommandLineClient
-from archcompass.application.atlas_freshness import AtlasFreshnessService
-from archcompass.application.atlas_queries import AtlasService
-from archcompass.application.bundled_examples import BundledExampleService
-from archcompass.application.case_management import ArchitectureCaseService
-from archcompass.application.checkouts import RepositoryCheckoutService
-from archcompass.application.core_ci import CleanBreakCiRunService
-from archcompass.application.core_defaults import (
-    ChangedAndNewCandidateSelector,
-    DeterministicReviewComposer,
-    DeterministicRevisionCalculator,
-    PersistentCaseReviser,
-    RejudgeAllCandidates,
-)
-from archcompass.application.embedding_models import EmbeddingModelService
-from archcompass.application.model_catalog import ModelCatalogService, reasoning_config
-from archcompass.application.policies import PolicyService
-from archcompass.application.policy_retrieval import corpus_fingerprint
-from archcompass.application.repository_index import RepositoryIndexService
-from archcompass.application.review_conversation_v2 import CoreReviewConversationService
-from archcompass.application.review_workflow import ReviewWorkflowService
-from archcompass.application.safety import (
-    validate_repository_directory,
-)
-from archcompass.application.source_archives import SourceArchiveService
-from archcompass.application.source_storage import SourceStorage
-from archcompass.application.standing_decisions import StandingDecisionService
-from archcompass.application.verdict_cache import (
-    CachingArchitectureJudge,
-    CachingReviewRecorder,
-)
-from archcompass.boundary.model_catalog import EmbeddingModelSelection
-from archcompass.configuration import (
-    ReasoningModelConfig,
-    load_provider_environment,
-)
-from archcompass.domain.errors import ConfigurationError, NoReasoningModelSelectedError
+from archcompass.policies.corpus import DataclassPolicyCorpus
+from archcompass.policies.retrieval import RejudgeAllCandidates, corpus_fingerprint
+from archcompass.policies.service import PolicyService
 from archcompass.ports.atlas import AtlasQueryService, EdgeResolver, RepositoryAnalyzer
 from archcompass.ports.model_catalog import ProviderDescriptor
-from archcompass.ports.repositories import (
+from archcompass.ports.persistence import (
     AtlasRepository,
     LineageRepository,
 )
+from archcompass.reasoning.adapters.embedding_catalog import ProviderEmbeddingModelDiscovery
+from archcompass.reasoning.adapters.providers import (
+    DETERMINISTIC_DESCRIPTOR,
+    GOOGLE_DESCRIPTOR,
+    OLLAMA_DESCRIPTOR,
+)
+from archcompass.reasoning.adapters.selected import (
+    SelectedLangChainChatModel,
+    SelectedLangChainJudge,
+    SelectedLangChainQuestionGenerator,
+    SelectedLangChainReviewAnswerer,
+)
+from archcompass.reasoning.cache import (
+    CachingArchitectureJudge,
+    CachingReviewRecorder,
+)
+from archcompass.reasoning.conversation import CoreReviewConversationService
+from archcompass.reasoning.embedding_models import EmbeddingModelService
+from archcompass.reasoning.model_catalog import ModelCatalogService, reasoning_config
+from archcompass.reasoning.records import EmbeddingModelSelection
+from archcompass.repositories.adapters import GitCommandLineClient, HttpsTarballFetcher
+from archcompass.repositories.checkout import RepositoryCheckoutService
+from archcompass.repositories.examples import BundledExampleService
+from archcompass.repositories.safety import (
+    validate_repository_directory,
+)
+from archcompass.repositories.service import RepositoryIndexService
+from archcompass.repositories.sources import SourceArchiveService
+from archcompass.repositories.storage import SourceStorage
 from archcompass.workflow import ReviewWorkflowCapabilities, build_review_graph
+from archcompass.workflow.cases import ArchitectureCaseService
+from archcompass.workflow.ci import CleanBreakCiRunService
+from archcompass.workflow.decisions import StandingDecisionService
+from archcompass.workflow.defaults import (
+    ChangedAndNewCandidateSelector,
+    DeterministicReviewComposer,
+    PersistentCaseReviser,
+)
+from archcompass.workflow.service import ReviewWorkflowService
 
 BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
 
@@ -357,7 +356,7 @@ def build_runtime(
                     ("archcompass.ports.policy_retrieval", name)
                     for name in ("PolicySelection", "RetrievedPolicySet")
                 ],
-                ("archcompass.application.capabilities", "ReviewDraft"),
+                ("archcompass.ports.capabilities", "ReviewDraft"),
             ],
         ),
     )
@@ -377,7 +376,7 @@ def build_runtime(
         return (
             "judge:deterministic-v1"
             if selected is not None and selected.provider == "fake"
-            else "judge:v1"
+            else "judge:v2"
         )
 
     def deterministic_retrieval_mode() -> bool:
@@ -548,7 +547,7 @@ def build_edge_resolver(excluded_roots: tuple[Path, ...] = ()) -> EdgeResolver |
     """
 
     try:
-        from archcompass.adapters.analysis.mypy_resolver import MypyEdgeResolver
+        from archcompass.analysis.adapters.mypy_resolver import MypyEdgeResolver
     except ImportError:
         return None
     return MypyEdgeResolver(excluded_roots)

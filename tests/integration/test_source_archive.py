@@ -17,10 +17,10 @@ from pathlib import Path
 import httpx
 import pytest
 
-from archcompass.adapters.sources.https_tarball import HttpsTarballFetcher
-from archcompass.application.source_archives import SourceArchiveService
-from archcompass.application.source_storage import SourceStorage
 from archcompass.domain.errors import RepositoryCheckoutError
+from archcompass.repositories.adapters.https_tarball import HttpsTarballFetcher
+from archcompass.repositories.sources import SourceArchiveService
+from archcompass.repositories.storage import SourceStorage
 
 HOSTS = frozenset({"github.com", "gitlab.com", "codeberg.org"})
 
@@ -81,7 +81,7 @@ def served(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, bytes]]:
         client = httpx.Client(transport=_serving(state["body"]))
         return client.stream(method, url)
 
-    monkeypatch.setattr("archcompass.adapters.sources.https_tarball.httpx.stream", stream)
+    monkeypatch.setattr("archcompass.repositories.adapters.https_tarball.httpx.stream", stream)
     yield state
 
 

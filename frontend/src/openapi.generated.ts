@@ -512,7 +512,7 @@ export interface components {
     "previous_review_id": string | null;
     "repository": components["schemas"]["RepositoryResponse"];
     "atlas": components["schemas"]["AtlasResponse"];
-    "case": components["schemas"]["archcompass__presentation__web__routes__core_reviews__CaseResponse"];
+    "case": components["schemas"]["archcompass__presentation__web__routes__reviews__CaseResponse"];
     "findings": Array<components["schemas"]["FindingResponse"]>;
     "questions": Array<components["schemas"]["QuestionResponse"]>;
     "delta": components["schemas"]["DeltaResponse"];
@@ -603,7 +603,7 @@ export interface components {
     "created_at": string;
     "updated_at": string;
   };
-    "archcompass__presentation__web__routes__core_reviews__CaseResponse": {
+    "archcompass__presentation__web__routes__reviews__CaseResponse": {
     "id": string;
     "revision": number;
     "goal": string;

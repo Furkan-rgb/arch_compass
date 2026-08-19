@@ -31,8 +31,15 @@ frontend-build:
 test-ollama:
 	uv run pytest -m "ollama"
 
-# Calls Google AI Studio, so it needs GOOGLE_API_KEY in .env and spends free-tier quota.
-# Outside `check` for the same reason `test-ollama` is: it depends on a live service.
+# The end-to-end review, run against live services. Needs GOOGLE_API_KEY in `.env` and
+# spends free-tier quota, and needs a local Ollama holding `embeddinggemma` — Google does the
+# judging, Ollama does the embedding. The split is not arbitrary: the free tier allows 100
+# embedded texts a minute and the policy corpus is 486 chunks, so retrieval would exhaust the
+# minute before the first verdict. It also makes the sharper test of an invariant this product
+# holds, that embedding selection is independent of reasoning selection.
+# Outside `check` for the same reason `test-ollama` is: it depends on live services. Anything
+# missing skips with a message rather than failing, including an exhausted quota — so a rerun
+# a minute later is the fix, not a code change.
 test-google:
 	uv run pytest -m "google"
 

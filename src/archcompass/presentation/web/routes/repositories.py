@@ -18,12 +18,9 @@ from typing import Annotated, Literal, cast
 from fastapi import APIRouter, Query
 from pydantic import Field, model_validator
 
-from archcompass.application.repository_tree import folder_tree
-from archcompass.boundary.atlas import AtlasQueryResult, AtlasVersion
-from archcompass.boundary.checkout import CheckoutRefresh, RepositoryCheckout
-from archcompass.boundary.lineage import RepositoryBranch
-from archcompass.boundary.scope import RepositoryFolderTree
-from archcompass.boundary.workspace import RepositorySummary
+from archcompass.analysis.atlas import AtlasQueryResult, AtlasVersion
+from archcompass.analysis.scope import RepositoryFolderTree
+from archcompass.analysis.tree import folder_tree
 from archcompass.presentation.web.dependencies import (
     RestrictionsDep,
     RuntimeDep,
@@ -31,6 +28,8 @@ from archcompass.presentation.web.dependencies import (
     SpendsFetchBudget,
 )
 from archcompass.presentation.web.schemas import APIModel, problem_responses
+from archcompass.repositories.lineage import RepositoryBranch
+from archcompass.repositories.records import CheckoutRefresh, RepositoryCheckout, RepositorySummary
 
 
 class RepositoryPathRequest(APIModel):

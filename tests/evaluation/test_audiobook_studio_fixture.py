@@ -19,9 +19,9 @@ from pathlib import Path
 
 import pytest
 
-from archcompass.adapters.analysis.ast_analyzer import PythonAstRepositoryAnalyzer
-from archcompass.boundary.atlas import FindingPattern
-from archcompass.boundary.finding_detectors import detect_finding_candidates
+from archcompass.analysis.adapters.ast_analyzer import PythonAstRepositoryAnalyzer
+from archcompass.analysis.atlas import FindingPattern
+from archcompass.analysis.detectors import detect_finding_candidates
 
 FIXTURE = Path("eval/cases/audiobook-studio").resolve()
 
