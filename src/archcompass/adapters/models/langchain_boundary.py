@@ -6,6 +6,7 @@ import json
 from typing import Literal, cast
 
 from langchain_core.language_models import BaseChatModel
+from archcompass.domain.errors import ModelOutputValidationError
 from pydantic import BaseModel, Field, model_validator
 
 from archcompass.domain import (
@@ -42,7 +43,9 @@ class FindingOutput(BaseModel):
     @model_validator(mode="after")
     def response_only_for_material_finding(self) -> FindingOutput:
         if self.hinge and self.recommended_response:
-            raise ValueError("a finding with an uncertainty hinge cannot recommend a response")
+            raise ValueError(
+                "a finding with an uncertainty hinge cannot recommend a response"
+            )
         if not self.material and self.recommended_response:
             raise ValueError("only a material finding may recommend a response")
         return self
@@ -109,7 +112,9 @@ class LangChainArchitectureJudge:
                 "Judge whether this detected structure costs more than it earns. "
                 "Use only the supplied evidence and case. Policies are numbered from 1; "
                 "refer to them only by position. If missing human context could change the "
-                "verdict, state one concise hinge.",
+                "verdict, state one concise hinge. "
+                "Return only the structured response required by the supplied output schema. "
+                "Do not return Markdown or explanatory prose outside the structured response.",
                 f"CASE\n{_case_text(case)}",
                 f"CANDIDATE\n{candidate}",
                 "POLICIES\n"
@@ -119,8 +124,43 @@ class LangChainArchitectureJudge:
                 ),
             )
         )
-        runnable = self._model.with_structured_output(FindingOutput)
-        output = cast(FindingOutput, runnable.invoke(prompt))
+        runnable = self._model.with_structured_output(
+            FindingOutput,
+            method="json_schema",
+            include_raw=True,
+        )
+
+        result = cast(dict[str, object], runnable.invoke(prompt))
+
+        parsing_error = result.get("parsing_error")
+        output = result.get("parsed")
+
+        if parsing_error is not None or not isinstance(output, FindingOutput):
+            raw = result.get("raw")
+            raw_content = getattr(raw, "content", "")
+            preview = " ".join(str(raw_content).split())
+
+            if len(preview) > 240:
+                preview = preview[:237] + "..."
+
+            message = (
+                f"Reasoning model {self._model_identity} returned output that did not "
+                "match the required JSON schema for a review finding."
+            )
+
+            if preview:
+                message += f" Response started with: {preview!r}."
+
+            message += (
+                " If you are using Ollama, try enabling Thinking or choose a model/runtime "
+                "that supports structured JSON output."
+            )
+
+            if isinstance(parsing_error, Exception):
+                raise ModelOutputValidationError(message) from parsing_error
+
+            raise ModelOutputValidationError(message)
+
         bearings: list[PolicyBearing] = []
         seen: set[int] = set()
         for bearing in output.policy_bearings:
@@ -140,9 +180,7 @@ class LangChainArchitectureJudge:
         verdict = (
             Verdict.HELD
             if output.hinge
-            else Verdict.MATERIAL
-            if output.material
-            else Verdict.CLEARED
+            else Verdict.MATERIAL if output.material else Verdict.CLEARED
         )
         return Finding(
             candidate=candidate,
@@ -159,7 +197,9 @@ class LangChainArchitectureJudge:
 
 
 class LangChainQuestionGenerator:
-    def __init__(self, model: BaseChatModel, *, prompt_identity: str = "questions:v1") -> None:
+    def __init__(
+        self, model: BaseChatModel, *, prompt_identity: str = "questions:v1"
+    ) -> None:
         self._model = model
         self._prompt_identity = prompt_identity
 
@@ -190,7 +230,9 @@ class LangChainQuestionGenerator:
                 ),
             )
         )
-        runnable = self._model.with_structured_output(QuestionsOutput)
+        runnable = self._model.with_structured_output(
+            QuestionsOutput, method="json_schema", include_raw=True
+        )
         output = cast(QuestionsOutput, runnable.invoke(prompt))
         questions: list[Question] = []
         seen: set[str] = set()
@@ -249,10 +291,14 @@ class LangChainReviewAnswerer:
         )
         output = cast(
             ConversationAnswerOutput,
-            self._model.with_structured_output(ConversationAnswerOutput).invoke(prompt),
+            self._model.with_structured_output(
+                ConversationAnswerOutput, method="json_schema", include_raw=True
+            ).invoke(prompt),
         )
         positions = tuple(sorted(set(output.candidate_positions)))
-        if any(position < 1 or position > len(review.findings) for position in positions):
+        if any(
+            position < 1 or position > len(review.findings) for position in positions
+        ):
             raise ValueError("model returned an unknown finding position")
         return ConversationAnswer(
             output.answer,

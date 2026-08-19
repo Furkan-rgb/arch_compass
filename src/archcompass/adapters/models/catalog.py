@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Final
+from dataclasses import dataclass
 
 import httpx
 from google import genai
@@ -20,12 +21,31 @@ GOOGLE_MODELS: Final = (
     "gemini-2.5-pro",
     "gemini-3.5-flash-lite",
 )
+
+
+@dataclass(frozen=True, slots=True)
+class SupportedOllamaModel:
+    """An Ollama model ArchCompass has deliberately approved for reasoning."""
+
+    name: str
+    label: str
+    recommended: bool = False
+
+
 OLLAMA_MODELS: Final = (
-    "gemma4:26b",
-    "gemma4:31b",
-    "gemma4:12b",
-    "qwen3.6:35b",
-    "qwen3.6:27b",
+    SupportedOllamaModel(
+        name="gemma4:26b-mlx",
+        label="Gemma 4 26B MLX",
+        recommended=True,
+    ),
+    SupportedOllamaModel(
+        name="gemma4:12b-mlx",
+        label="Gemma 4 12B MLX",
+    ),
+    SupportedOllamaModel(
+        name="gemma4:e4b-mlx",
+        label="Gemma 4 e4B MLX",
+    ),
 )
 
 
@@ -33,7 +53,9 @@ def probe_deterministic(defaults: ProviderDefaults) -> ProbeResult:
     del defaults
     return ProbeResult(
         available=True,
-        models=[AvailableModel(name=DETERMINISTIC_MODEL, label="deterministic substitute")],
+        models=[
+            AvailableModel(name=DETERMINISTIC_MODEL, label="deterministic substitute")
+        ],
     )
 
 
@@ -80,33 +102,53 @@ def probe_google(defaults: ProviderDefaults) -> ProbeResult:
 def probe_ollama(defaults: ProviderDefaults) -> ProbeResult:
     base_url = defaults.resolved_base_url()
     if not base_url:
-        return ProbeResult(available=False, detail="this provider sets no base URL")
+        return ProbeResult(
+            available=False,
+            detail="this provider sets no base URL",
+        )
+
     client = Client(host=base_url, timeout=2.0)
+
     try:
         listed = client.list()
     except (ResponseError, httpx.HTTPError, ConnectionError, ValueError) as error:
-        return ProbeResult(available=False, detail=f"{base_url}: {error}")
+        return ProbeResult(
+            available=False,
+            detail=f"{base_url}: {error}",
+        )
+
+    supported = {model.name: model for model in OLLAMA_MODELS}
     found: dict[str, AvailableModel] = {}
+
     for entry in listed.models:
-        if entry.model not in OLLAMA_MODELS:
+        model_name = entry.model
+        if not model_name:
             continue
+
+        support = supported.get(model_name)
+        if support is None:
+            continue
+
         try:
-            capabilities = client.show(entry.model).capabilities or []
+            capabilities = client.show(model_name).capabilities or []
         except (ResponseError, httpx.HTTPError, ConnectionError, ValueError):
             capabilities = []
-        found[entry.model] = AvailableModel(
-            name=entry.model,
-            label=(entry.details.parameter_size or "") if entry.details else "",
+
+        found[model_name] = AvailableModel(
+            name=model_name,
+            label=support.label,
             thinking_modes=(True, False) if "thinking" in capabilities else (None,),
         )
+
     if not found:
         return ProbeResult(
             available=False,
             detail=f"{base_url} has none of the supported Ollama models",
         )
+
     return ProbeResult(
         available=True,
-        models=[found[name] for name in OLLAMA_MODELS if name in found],
+        models=[found[model.name] for model in OLLAMA_MODELS if model.name in found],
     )
 
 
