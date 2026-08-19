@@ -113,4 +113,65 @@ describe("clean-break API client", () => {
       }),
     );
   });
+
+  it("updates a workspace policy in place rather than creating a second one", async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: "team-convention" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await coreApi.updatePolicy("team convention/1", {
+      title: "Team convention",
+      description: "Authored here",
+      body: "Local guidance",
+      tags: [],
+      strength: "guidance",
+    });
+
+    expect(fetch.mock.calls[0]?.[0]).toBe("/api/policies/team%20convention%2F1");
+    expect((fetch.mock.calls[0]?.[1] as RequestInit).method).toBe("PUT");
+  });
+
+  it("browses the machine's folders one directory at a time", async () => {
+    // A fresh Response per call: a body can only be read once.
+    const fetch = vi.fn().mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ path: "/work", parent: "/", directories: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await coreApi.directories("/work/payments platform");
+    expect(fetch.mock.calls[0]?.[0]).toBe(
+      "/api/filesystem/directories?path=%2Fwork%2Fpayments%20platform",
+    );
+
+    await coreApi.directories();
+    expect(fetch.mock.calls[1]?.[0]).toBe("/api/filesystem/directories");
+  });
+
+  it("re-indexes a repository without asking the caller for a scope", async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ root_path: "/work/repository" }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await coreApi.indexRepository("/work/repository");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/repositories/index",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ root_path: "/work/repository" }),
+      }),
+    );
+  });
 });

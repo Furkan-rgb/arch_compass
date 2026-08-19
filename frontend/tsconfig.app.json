@@ -17,7 +17,12 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "types": ["vitest/globals", "@testing-library/jest-dom"],
-    "paths": { "@/*": ["./src/*"] }
+    "paths": { "@/*": ["./src/*"] },
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
   },
-  "files": ["src/main.tsx"]
+  // The whole of `src`, tests included: a component test that no longer matches the component
+  // it renders should fail the typecheck, not wait for the run.
+  "include": ["src"]
 }

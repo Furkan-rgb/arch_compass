@@ -1,28 +1,126 @@
-import type { Review } from "./api";
+import type {
+  Finding,
+  ModelCatalog,
+  EmbeddingCatalog,
+  PolicyDocument,
+  Review,
+  Workspace,
+} from "./api";
+
+const repository = {
+  id: "repo-1",
+  path: "/work/payments-platform",
+  branch_id: "branch-1",
+  content_id: "content-1",
+  remote_url: null,
+  branch: "main",
+  commit: "8f31c2a91b4d",
+};
+
+function finding(overrides: Partial<Finding> & { candidateId: string }): Finding {
+  const { candidateId, ...rest } = overrides;
+  const evidence = [
+    {
+      description: "The domain module imports the persistence adapter directly",
+      location: { path: "domain/orders.py", start_line: 4, end_line: 4 },
+      excerpt: "from adapters.db import Store",
+    },
+  ];
+  return {
+    candidate: {
+      id: candidateId,
+      pattern: "dependency_direction",
+      summary: "Domain depends on an adapter",
+      participants: [{ qualified_name: "domain.orders", role: "source" }],
+      evidence,
+      measurements: { imports: "1" },
+      detection_rationale: "Detected from the repository atlas.",
+      limitations: "Static imports only.",
+    },
+    verdict: "held",
+    reasoning: "Ownership determines whether this dependency is intentional.",
+    policies: [
+      {
+        policy_id: "dependency-direction",
+        policy_title: "Dependencies point inward",
+        reasoning: "The import may reverse the intended direction.",
+      },
+    ],
+    evidence,
+    hinge: "Who owns persistence?",
+    recommended_response: null,
+    reused_from_review_id: null,
+    model_identity: "fake:deterministic",
+    prompt_identity: "judge:v1",
+    retrieval_identity: "retrieval-1",
+    ...rest,
+  };
+}
 
 export function reviewFixture(overrides: Partial<Review> = {}): Review {
-  const candidate = {
-    id: "candidate-1",
-    pattern: "dependency_direction",
-    summary: "Domain depends on an adapter",
-    participants: [{ qualified_name: "domain.orders", role: "source" }],
-    evidence: [{ description: "Import crosses the boundary", location: { path: "domain/orders.py", start_line: 4, end_line: 4 }, excerpt: "from adapters.db import Store" }],
-    measurements: { imports: "1" },
-    detection_rationale: "Detected from the repository atlas.",
-    limitations: "Static imports only.",
-  };
+  const held = finding({ candidateId: "candidate-1" });
+  const material = finding({
+    candidateId: "candidate-2",
+    verdict: "material",
+    hinge: null,
+    recommended_response: "Introduce a port owned by the domain.",
+  });
+  material.candidate.pattern = "sole_implementation";
+  material.candidate.summary = "The provider abstraction carries one implementation";
+  const cleared = finding({ candidateId: "candidate-3", verdict: "cleared", hinge: null });
+  cleared.candidate.pattern = "boundary_shape";
+  cleared.candidate.summary = "The invoice boundary is appropriate";
+
   return {
     id: "review-1",
     sequence: 1,
     status: "awaiting_answers",
     previous_review_id: null,
-    repository: { id: "repo-1", path: "/work/repository", branch_id: "branch-1", content_id: "content-1", remote_url: null, branch: "main", commit: "abcdef123456" },
-    atlas: { id: "atlas-1", repository: { id: "repo-1", path: "/work/repository", branch_id: "branch-1", content_id: "content-1", remote_url: null, branch: "main", commit: "abcdef123456" }, node_count: 12, edge_count: 18, metric_count: 4, fact_count: 3, signal_count: 1, parser_configuration: { parser: "python-ast" } },
-    case: { id: "case-1", revision: 1, goal: "Keep the domain independent", constraints: [], decisions: [], answers: [], created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" },
-    findings: [{ candidate, verdict: "held", reasoning: "Ownership determines whether this dependency is intentional.", policies: [{ policy_id: "dependency-direction", policy_title: "Dependencies point inward", reasoning: "The import may reverse the intended direction." }], evidence: candidate.evidence, hinge: "Who owns persistence?", recommended_response: null, reused_from_review_id: null, model_identity: "fake:deterministic", prompt_identity: "judge:v1", retrieval_identity: "retrieval-1" }],
-    questions: [{ id: "question-1", text: "Who owns persistence?", facet: "decision", candidate_ids: ["candidate-1"], round: 1, equivalence_key: "decision:candidate-1" }],
-    delta: { unchanged: [], changed: [], new: ["candidate-1"], addressed: [] },
-    retrieval_manifest: [{ candidate_id: "candidate-1", retriever: "dense-scoped", version: "1-k8", corpus_fingerprint: "corpus-fingerprint", selected_policy_ids: ["dependency-direction"], model_identity: "google:text-embedding", query_fingerprint: "query-fingerprint", metadata: { top_k: "8" } }],
+    repository,
+    atlas: {
+      id: "atlas-1",
+      repository,
+      node_count: 128,
+      edge_count: 214,
+      metric_count: 12,
+      fact_count: 7,
+      signal_count: 3,
+      parser_configuration: { parser: "python-ast" },
+    },
+    case: {
+      id: "case-1",
+      revision: 1,
+      goal: "Keep the domain independent of delivery mechanisms",
+      constraints: [{ text: "Stripe is the only provider today", facet: "constraint", source: null }],
+      decisions: [{ text: "Provider code stays at the infrastructure edge", source: null }],
+      answers: [],
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    },
+    findings: [cleared, held, material],
+    questions: [
+      {
+        id: "question-1",
+        text: "Who owns persistence?",
+        facet: "decision",
+        candidate_ids: ["candidate-1"],
+        round: 1,
+        equivalence_key: "decision:candidate-1",
+      },
+    ],
+    delta: { unchanged: ["candidate-3"], changed: [], new: ["candidate-1", "candidate-2"], addressed: [] },
+    retrieval_manifest: [
+      {
+        candidate_id: "candidate-1",
+        retriever: "dense-scoped",
+        version: "1-k8",
+        corpus_fingerprint: "corpus-fingerprint",
+        selected_policy_ids: ["dependency-direction"],
+        model_identity: "ollama:nomic-embed-text",
+        query_fingerprint: "query-fingerprint",
+        metadata: { top_k: "8" },
+      },
+    ],
     markdown_report: null,
     model_identity: "fake:deterministic",
     prompt_identity: "judge:v1",
@@ -30,5 +128,68 @@ export function reviewFixture(overrides: Partial<Review> = {}): Review {
     finished_at: null,
     failure: null,
     ...overrides,
+  };
+}
+
+export function policyFixture(overrides: Partial<PolicyDocument> = {}): PolicyDocument {
+  return {
+    id: "dependency-direction",
+    title: "Dependencies point inward",
+    description: "Domain code should not import its adapters.",
+    scope: "general",
+    applies_to: null,
+    strength: "required",
+    tags: ["boundaries", "domain"],
+    source: { author: "ArchCompass", inspiration: [] },
+    body: "## When this applies\n\nDomain modules **must not** import adapters.\n\n- Ports belong to the domain\n- Adapters implement them\n",
+    source_path: "policies/dependency-direction.md",
+    content_hash: "abc123def456789",
+    origin: "external",
+    ...overrides,
+  };
+}
+
+export function workspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
+  return {
+    workspace: "/home/engineer/.archcompass",
+    models: {
+      reasoning: { provider: "fake", model: "deterministic", thinking: null },
+      embedding: { provider: "ollama", model: "nomic-embed-text", dimensions: 768 },
+      pinned: false,
+      embedding_pinned: false,
+    },
+    hosted: false,
+    source_hosts: [],
+    ...overrides,
+  };
+}
+
+export function modelCatalogFixture(): ModelCatalog {
+  return {
+    providers: [
+      { provider: "ollama", available: true, detail: "3 models", probed_at: "2026-01-01T00:00:00Z" },
+      { provider: "google", available: false, detail: "No API key", probed_at: "2026-01-01T00:00:00Z" },
+    ],
+    candidates: [
+      { provider: "ollama", model: "qwen3:8b", thinking: true, label: "local", is_selected: true },
+      { provider: "google", model: "gemini-3.6-flash", thinking: false, label: "hosted", is_selected: false },
+    ],
+  };
+}
+
+export function embeddingCatalogFixture(): EmbeddingCatalog {
+  return {
+    providers: [
+      { provider: "ollama", available: true, detail: "1 model", probed_at: "2026-01-01T00:00:00Z" },
+    ],
+    candidates: [
+      {
+        provider: "ollama",
+        model: "nomic-embed-text",
+        dimensions: 768,
+        label: "local",
+        is_selected: true,
+      },
+    ],
   };
 }

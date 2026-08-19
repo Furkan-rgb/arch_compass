@@ -4,21 +4,31 @@ type Schema = components["schemas"];
 
 export type Review = Schema["ReviewResponse"];
 export type Finding = Schema["FindingResponse"];
+export type Candidate = Schema["CandidateResponse"];
 export type Question = Schema["QuestionResponse"];
 export type Evidence = Schema["EvidenceResponse"];
 export type RetrievalProvenance = Schema["RetrievalProvenanceResponse"];
 export type PolicyDocument = Schema["PolicyDocument"];
+export type PolicyDraft = Schema["PolicyDraft"];
+export type PolicySourceRegistration = Schema["PolicySourceRegistration"];
 export type DecisionDisposition = Schema["DecisionDisposition"];
 export type Decision = Schema["DecisionResponse"];
 export type ReviewConversation = Schema["ReviewConversationResponse"];
 export type CaseSummary = Schema["archcompass__presentation__web__routes__cases__CaseResponse"];
+export type ReviewCase = Schema["archcompass__presentation__web__routes__reviews__CaseResponse"];
 export type RepositorySummary = Schema["RepositorySummary"];
 export type RepositoryBranch = Schema["RepositoryBranch"];
+export type RepositoryCheckout = Schema["RepositoryCheckout"];
+export type CheckoutRefresh = Schema["CheckoutRefresh"];
 export type BundledExample = Schema["BundledExample"];
 export type ModelCatalog = Schema["ModelCatalogResponse"];
 export type EmbeddingCatalog = Schema["EmbeddingCatalogResponse"];
 export type Workspace = Schema["WorkspaceSummaryResponse"];
 export type AtlasQueryResult = Schema["AtlasQueryResult"];
+export type AtlasNodeSummary = Schema["AtlasNodeSummary"];
+export type AtlasVersion = Schema["AtlasVersion"];
+export type DirectoryListing = Schema["DirectoryListing"];
+export type RepositoryFolderTree = Schema["RepositoryFolderTree"];
 
 export type ReviewProgress = { event: string; review?: Review; message?: string };
 
@@ -63,7 +73,10 @@ async function* ndjson(response: Response): AsyncGenerator<ReviewProgress> {
   if (buffered.trim()) yield JSON.parse(buffered) as ReviewProgress;
 }
 
+const encode = encodeURIComponent;
+
 export const coreApi = {
+  // Workspace and models -----------------------------------------------------------------
   workspace: () => request<Workspace>("/api/workspace"),
   models: () => request<ModelCatalog>("/api/models"),
   selectModel: (provider: string, model: string, thinking: boolean | null) =>
@@ -77,53 +90,15 @@ export const coreApi = {
       method: "PUT",
       body: JSON.stringify({ provider, model }),
     }),
+  directories: (path?: string) =>
+    request<DirectoryListing>(`/api/filesystem/directories${path ? `?path=${encode(path)}` : ""}`),
+
+  // Reviews ------------------------------------------------------------------------------
   reviews: () => request<Review[]>("/api/reviews"),
-  review: (id: string) => request<Review>(`/api/reviews/${encodeURIComponent(id)}`),
-  reviewSource: (id: string) => request<Evidence[]>(`/api/reviews/${encodeURIComponent(id)}/source`),
-  reviewReport: (id: string) => requestText(`/api/reviews/${encodeURIComponent(id)}/report`),
-  deleteReview: (id: string) => request<void>(`/api/reviews/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  repositories: () => request<RepositorySummary[]>("/api/repositories"),
-  checkoutRepository: (url: string, branch: string | null) =>
-    request<Schema["RepositoryCheckout"]>("/api/repositories/checkout", {
-      method: "POST",
-      body: JSON.stringify({ url, branch }),
-    }),
-  branches: () => request<RepositoryBranch[]>("/api/branches"),
-  repositorySummary: (root: string) =>
-    request<AtlasQueryResult>(`/api/repositories/summary?root_path=${encodeURIComponent(root)}`),
-  exploreRepository: (root: string, terms: string[]) =>
-    request<AtlasQueryResult>("/api/repositories/explore", {
-      method: "POST",
-      body: JSON.stringify({
-        root_path: root,
-        operation: "search",
-        terms,
-        limit: 40,
-      }),
-    }),
-  examples: () => request<BundledExample[]>("/api/examples"),
-  loadExample: (name: string) =>
-    request<Schema["AtlasVersion"]>(`/api/examples/${encodeURIComponent(name)}/load`, { method: "POST" }),
-  cases: () => request<CaseSummary[]>("/api/cases"),
-  caseHistory: (id: string) => request<CaseSummary[]>(`/api/cases/${encodeURIComponent(id)}/history`),
-  createCase: (goal: string) =>
-    request<CaseSummary>("/api/cases", {
-      method: "POST",
-      body: JSON.stringify({ goal, constraints: [], decisions: [], policy_context: {} }),
-    }),
-  policies: () => request<PolicyDocument[]>("/api/policies"),
-  createPolicy: (draft: Schema["PolicyDraft"]) =>
-    request<PolicyDocument>("/api/policies", {
-      method: "POST",
-      body: JSON.stringify(draft),
-    }),
-  deletePolicy: (id: string) =>
-    request<void>(`/api/policies/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  startRepository: (root: string, startClean = false) =>
-    request<Schema["StartedCaseResponse"]>("/api/repositories/start", {
-      method: "POST",
-      body: JSON.stringify({ root_path: root, start_clean: startClean }),
-    }),
+  review: (id: string) => request<Review>(`/api/reviews/${encode(id)}`),
+  reviewSource: (id: string) => request<Evidence[]>(`/api/reviews/${encode(id)}/source`),
+  reviewReport: (id: string) => requestText(`/api/reviews/${encode(id)}/report`),
+  deleteReview: (id: string) => request<void>(`/api/reviews/${encode(id)}`, { method: "DELETE" }),
   startReview: (caseId: string, root: string) =>
     request<Review>("/api/reviews", {
       method: "POST",
@@ -137,21 +112,126 @@ export const coreApi = {
     });
     yield* ndjson(response);
   },
-  answer: (reviewId: string, answers: Array<{ question_id: string; status: "answered" | "skipped"; value?: string | null }>, stop = false) =>
-    request<Review>(`/api/reviews/${encodeURIComponent(reviewId)}/answers`, {
+  answer: (
+    reviewId: string,
+    answers: Array<{ question_id: string; status: "answered" | "skipped"; value?: string | null }>,
+    stop = false,
+  ) =>
+    request<Review>(`/api/reviews/${encode(reviewId)}/answers`, {
       method: "POST",
       body: JSON.stringify({ answers, stop }),
     }),
-  cancel: (reviewId: string) => request<Review>(`/api/reviews/${encodeURIComponent(reviewId)}/cancel`, { method: "POST" }),
-  decide: (reviewId: string, candidateId: string, disposition: DecisionDisposition, reasoning: string | null) =>
+  cancel: (reviewId: string) =>
+    request<Review>(`/api/reviews/${encode(reviewId)}/cancel`, { method: "POST" }),
+
+  // Repositories -------------------------------------------------------------------------
+  repositories: () => request<RepositorySummary[]>("/api/repositories"),
+  branches: () => request<RepositoryBranch[]>("/api/branches"),
+  checkoutRepository: (url: string, branch: string | null) =>
+    request<RepositoryCheckout>("/api/repositories/checkout", {
+      method: "POST",
+      body: JSON.stringify({ url, branch }),
+    }),
+  refreshRepository: (root: string) =>
+    request<CheckoutRefresh>("/api/repositories/refresh", {
+      method: "POST",
+      body: JSON.stringify({ root_path: root }),
+    }),
+  indexRepository: (root: string) =>
+    request<AtlasVersion>("/api/repositories/index", {
+      method: "POST",
+      body: JSON.stringify({ root_path: root }),
+    }),
+  repositorySummary: (root: string) =>
+    request<AtlasQueryResult>(`/api/repositories/summary?root_path=${encode(root)}`),
+  repositoryHotspots: (root: string, metric = "reverse_dependency_reach") =>
+    request<AtlasQueryResult>(
+      `/api/repositories/hotspots?root_path=${encode(root)}&metric=${encode(metric)}`,
+    ),
+  inspectNode: (root: string, nodeId: string) =>
+    request<AtlasQueryResult>(
+      `/api/repositories/inspect?root_path=${encode(root)}&node_id=${encode(nodeId)}`,
+    ),
+  exploreRepository: (
+    root: string,
+    body: Partial<Schema["AtlasExploreRequest"]> & { operation: Schema["AtlasExploreRequest"]["operation"] },
+  ) =>
+    request<AtlasQueryResult>("/api/repositories/explore", {
+      method: "POST",
+      body: JSON.stringify({ root_path: root, limit: 40, ...body }),
+    }),
+  searchAtlas: (root: string, terms: string[]) =>
+    coreApi.exploreRepository(root, { operation: "search", terms }),
+  startRepository: (root: string, startClean = false) =>
+    request<Schema["StartedCaseResponse"]>("/api/repositories/start", {
+      method: "POST",
+      body: JSON.stringify({ root_path: root, start_clean: startClean }),
+    }),
+
+  // Examples -----------------------------------------------------------------------------
+  examples: () => request<BundledExample[]>("/api/examples"),
+  loadExample: (name: string) =>
+    request<AtlasVersion>(`/api/examples/${encode(name)}/load`, { method: "POST" }),
+
+  // Cases --------------------------------------------------------------------------------
+  cases: () => request<CaseSummary[]>("/api/cases"),
+  caseHistory: (id: string) => request<CaseSummary[]>(`/api/cases/${encode(id)}/history`),
+  createCase: (goal: string) =>
+    request<CaseSummary>("/api/cases", {
+      method: "POST",
+      body: JSON.stringify({ goal, constraints: [], decisions: [], policy_context: {} }),
+    }),
+  updateCase: (id: string, patch: Schema["CasePatch"]) =>
+    request<CaseSummary>(`/api/cases/${encode(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  // Policies -----------------------------------------------------------------------------
+  policies: () => request<PolicyDocument[]>("/api/policies"),
+  policySources: () => request<PolicySourceRegistration[]>("/api/policies/sources"),
+  createPolicy: (draft: PolicyDraft) =>
+    request<PolicyDocument>("/api/policies", { method: "POST", body: JSON.stringify(draft) }),
+  updatePolicy: (id: string, draft: PolicyDraft) =>
+    request<PolicyDocument>(`/api/policies/${encode(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(draft),
+    }),
+  deletePolicy: (id: string) => request<void>(`/api/policies/${encode(id)}`, { method: "DELETE" }),
+
+  // Decisions ----------------------------------------------------------------------------
+  decide: (
+    reviewId: string,
+    candidateId: string,
+    disposition: DecisionDisposition,
+    reasoning: string | null,
+  ) =>
     request<Decision>("/api/decisions", {
       method: "POST",
-      body: JSON.stringify({ review_id: reviewId, candidate_id: candidateId, disposition, author: "user", reasoning }),
+      body: JSON.stringify({
+        review_id: reviewId,
+        candidate_id: candidateId,
+        disposition,
+        author: "user",
+        reasoning,
+      }),
     }),
-  decisions: (branchId: string) => request<Schema["BranchDecisionsResponse"]>(`/api/branches/${encodeURIComponent(branchId)}/decisions`),
+  decisions: (branchId: string) =>
+    request<Schema["BranchDecisionsResponse"]>(`/api/branches/${encode(branchId)}/decisions`),
   decisionHistory: (branchId: string, candidateId: string) =>
-    request<Decision[]>(`/api/decisions/${encodeURIComponent(branchId)}/${encodeURIComponent(candidateId)}/history`),
-  conversations: (reviewId: string) => request<ReviewConversation[]>(`/api/review-conversations?review_id=${encodeURIComponent(reviewId)}`),
-  createConversation: (reviewId: string) => request<ReviewConversation>("/api/review-conversations", { method: "POST", body: JSON.stringify({ review_id: reviewId }) }),
-  ask: (conversationId: string, question: string) => request<ReviewConversation>(`/api/review-conversations/${encodeURIComponent(conversationId)}/messages`, { method: "POST", body: JSON.stringify({ question }) }),
+    request<Decision[]>(`/api/decisions/${encode(branchId)}/${encode(candidateId)}/history`),
+
+  // Grounded follow-up questions -----------------------------------------------------------
+  conversations: (reviewId: string) =>
+    request<ReviewConversation[]>(`/api/review-conversations?review_id=${encode(reviewId)}`),
+  createConversation: (reviewId: string) =>
+    request<ReviewConversation>("/api/review-conversations", {
+      method: "POST",
+      body: JSON.stringify({ review_id: reviewId }),
+    }),
+  ask: (conversationId: string, question: string) =>
+    request<ReviewConversation>(`/api/review-conversations/${encode(conversationId)}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
 };

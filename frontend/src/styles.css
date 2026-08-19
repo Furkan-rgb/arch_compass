@@ -1,51 +1,361 @@
 @import "tailwindcss";
 
-@font-face { font-family: "Schibsted Grotesk"; src: url("./assets/fonts/schibsted.woff2") format("woff2"); font-weight: 400 900; font-display: swap; }
-@font-face { font-family: "Instrument Sans"; src: url("./assets/fonts/instrument.woff2") format("woff2"); font-weight: 400 700; font-display: swap; }
+/* ---------------------------------------------------------------------------------------
+   Arch Compass design tokens.
+
+   One warm-neutral paper canvas, one restrained indigo accent, and a three-value verdict
+   palette. Verdict colour never carries meaning alone — every badge that uses it also
+   carries a glyph and a word, so the workbench stays readable without colour.
+
+   The dark values appear twice on purpose. `index.html` stamps `data-theme` before first
+   paint, so the attribute selector is what actually runs; the media query is the fallback
+   for a reader whose browser never executed that script.
+--------------------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Schibsted Grotesk";
+  src: url("./assets/fonts/schibsted.woff2") format("woff2");
+  font-weight: 400 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("./assets/fonts/instrument.woff2") format("woff2");
+  font-weight: 400 700;
+  font-display: swap;
+}
 
 :root {
   color-scheme: light;
-  --canvas: #f5f6f8; --canvas-strong: #ebeef3; --surface: #ffffff;
-  --rule: rgb(25 35 52 / 9%); --rule-strong: rgb(25 35 52 / 16%);
-  --ink: #172033; --ink-2: #46536a; --ink-3: #6d788b;
-  --primary: #3158d3; --primary-strong: #2346b5; --primary-soft: #eef2ff; --on-accent: #ffffff;
-  --success: #23704b; --success-soft: #eaf7f0; --danger: #a13f35; --danger-soft: #fff0ed;
-  --warning: #8a5a13; --warning-soft: #fff7df;
+
+  --canvas: #f7f6f3;
+  --sunken: #efeeea;
+  --surface: #ffffff;
+  --surface-2: #fbfaf8;
+  --overlay: rgb(22 24 20 / 38%);
+
+  --rule: rgb(24 26 21 / 10%);
+  --rule-strong: rgb(24 26 21 / 19%);
+
+  --ink: #191b19;
+  --ink-2: #4e524e;
+  --ink-3: #767b76;
+
+  --accent: #3f4ed2;
+  --accent-strong: #2f3cae;
+  --accent-soft: #eceeff;
+  --on-accent: #ffffff;
+
+  --material: #ac4630;
+  --material-soft: #fdf0ec;
+  --held: #8f6210;
+  --held-soft: #fcf4e3;
+  --cleared: #197551;
+  --cleared-soft: #e9f6ef;
+
   --font-display: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-ui: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
-  --shadow-card: 0 1px 1px rgb(24 32 49 / 3%), 0 12px 36px rgb(24 32 49 / 5%);
+  --font-code: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  --shadow-panel: 0 1px 2px rgb(20 22 18 / 4%);
+  --shadow-float: 0 2px 6px rgb(20 22 18 / 5%), 0 18px 44px rgb(20 22 18 / 10%);
+  --shadow-hero: 0 2px 8px rgb(20 22 18 / 4%), 0 32px 72px rgb(20 22 18 / 12%);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --canvas: #0d1118; --canvas-strong: #171c25; --surface: #141922;
-    --rule: rgb(255 255 255 / 8%); --rule-strong: rgb(255 255 255 / 15%);
-    --ink: #eef2f8; --ink-2: #b8c1d0; --ink-3: #8490a2;
-    --primary: #8ba8ff; --primary-strong: #a6bcff; --primary-soft: rgb(99 126 222 / 13%); --on-accent: #101522;
-    --success: #74c998; --success-soft: rgb(65 151 101 / 12%); --danger: #ef9a8e; --danger-soft: rgb(190 71 55 / 12%);
-    --warning: #e6bb68; --warning-soft: rgb(184 128 28 / 13%);
-    --shadow-card: 0 18px 48px rgb(0 0 0 / 18%);
+
+    --canvas: #0d0e0c;
+    --sunken: #121412;
+    --surface: #161815;
+    --surface-2: #1b1e1a;
+    --overlay: rgb(0 0 0 / 62%);
+
+    --rule: rgb(255 255 255 / 10%);
+    --rule-strong: rgb(255 255 255 / 19%);
+
+    --ink: #edefea;
+    --ink-2: #b2b7b0;
+    --ink-3: #838982;
+
+    --accent: #97a5ff;
+    --accent-strong: #b3bcff;
+    --accent-soft: rgb(105 120 230 / 16%);
+    --on-accent: #10121f;
+
+    --material: #f0a48f;
+    --material-soft: rgb(180 82 58 / 16%);
+    --held: #e7be6e;
+    --held-soft: rgb(176 128 30 / 16%);
+    --cleared: #6fcb9d;
+    --cleared-soft: rgb(48 140 98 / 16%);
+
+    --shadow-panel: 0 1px 2px rgb(0 0 0 / 30%);
+    --shadow-float: 0 2px 6px rgb(0 0 0 / 30%), 0 18px 44px rgb(0 0 0 / 40%);
+    --shadow-hero: 0 2px 8px rgb(0 0 0 / 30%), 0 32px 72px rgb(0 0 0 / 45%);
   }
 }
 
-@theme inline {
-  --color-canvas: var(--canvas); --color-canvas-strong: var(--canvas-strong); --color-surface: var(--surface);
-  --color-rule: var(--rule); --color-rule-strong: var(--rule-strong);
-  --color-ink: var(--ink); --color-ink-2: var(--ink-2); --color-ink-3: var(--ink-3);
-  --color-primary: var(--primary); --color-primary-strong: var(--primary-strong); --color-primary-soft: var(--primary-soft); --color-on-accent: var(--on-accent);
-  --color-success: var(--success); --color-success-soft: var(--success-soft); --color-danger: var(--danger); --color-danger-soft: var(--danger-soft);
-  --color-warning: var(--warning); --color-warning-soft: var(--warning-soft);
-  --font-display: var(--font-display); --font-sans: var(--font-ui); --shadow-card: var(--shadow-card);
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas: #0d0e0c;
+  --sunken: #121412;
+  --surface: #161815;
+  --surface-2: #1b1e1a;
+  --overlay: rgb(0 0 0 / 62%);
+
+  --rule: rgb(255 255 255 / 10%);
+  --rule-strong: rgb(255 255 255 / 19%);
+
+  --ink: #edefea;
+  --ink-2: #b2b7b0;
+  --ink-3: #838982;
+
+  --accent: #97a5ff;
+  --accent-strong: #b3bcff;
+  --accent-soft: rgb(105 120 230 / 16%);
+  --on-accent: #10121f;
+
+  --material: #f0a48f;
+  --material-soft: rgb(180 82 58 / 16%);
+  --held: #e7be6e;
+  --held-soft: rgb(176 128 30 / 16%);
+  --cleared: #6fcb9d;
+  --cleared-soft: rgb(48 140 98 / 16%);
+
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 30%);
+  --shadow-float: 0 2px 6px rgb(0 0 0 / 30%), 0 18px 44px rgb(0 0 0 / 40%);
+  --shadow-hero: 0 2px 8px rgb(0 0 0 / 30%), 0 32px 72px rgb(0 0 0 / 45%);
 }
 
-* { box-sizing: border-box; }
-html { min-width: 320px; background: var(--canvas); font-family: var(--font-ui); text-rendering: optimizeLegibility; }
-body { min-width: 320px; min-height: 100vh; margin: 0; }
-button, input, textarea, select { font: inherit; }
-button, summary, a { outline-color: var(--primary); outline-offset: 3px; }
-button:not(:disabled), summary { cursor: pointer; }
-::selection { background: color-mix(in srgb, var(--primary) 24%, transparent); }
-pre { tab-size: 2; }
-.scrollbar-none { scrollbar-width: none; }
-.scrollbar-none::-webkit-scrollbar { display: none; }
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-sunken: var(--sunken);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-overlay: var(--overlay);
+
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+
+  --color-material: var(--material);
+  --color-material-soft: var(--material-soft);
+  --color-held: var(--held);
+  --color-held-soft: var(--held-soft);
+  --color-cleared: var(--cleared);
+  --color-cleared-soft: var(--cleared-soft);
+
+  --font-display: var(--font-display);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
+
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  --shadow-panel: var(--shadow-panel);
+  --shadow-float: var(--shadow-float);
+  --shadow-hero: var(--shadow-hero);
+}
+
+@theme {
+  --animate-rise: rise 0.42s cubic-bezier(0.22, 0.7, 0.3, 1) both;
+  --animate-fade: fade 0.32s ease-out both;
+  --animate-slide-left: slide-left 0.28s cubic-bezier(0.22, 0.7, 0.3, 1) both;
+  --animate-slide-up: slide-up 0.3s cubic-bezier(0.22, 0.7, 0.3, 1) both;
+  --animate-expand: expand 0.24s ease-out both;
+  --animate-shimmer: shimmer 1.5s ease-in-out infinite;
+  --animate-breathe: breathe 2.4s ease-in-out infinite;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 10px, 0);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes slide-left {
+    from {
+      opacity: 0;
+      transform: translate3d(16px, 0, 0);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes slide-up {
+    from {
+      transform: translate3d(0, 100%, 0);
+    }
+    to {
+      transform: none;
+    }
+  }
+  @keyframes expand {
+    from {
+      opacity: 0;
+      transform: translate3d(0, -4px, 0);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes shimmer {
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+    50% {
+      opacity: 0.85;
+    }
+  }
+  @keyframes breathe {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.55;
+      transform: scale(0.86);
+    }
+  }
+}
+
+/* Element defaults belong in `base`, not outside it.
+
+   Unlayered CSS outranks everything Tailwind emits, so an unlayered `button { color: inherit }`
+   quietly beat every text-colour utility on every button — a selected tab was ink on ink and
+   its label disappeared. Inside `@layer base` the same rules are defaults again, and a
+   utility on the element wins as it should. */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    min-width: 320px;
+    background: var(--canvas);
+    font-family: var(--font-ui);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-width: 320px;
+    min-height: 100vh;
+    margin: 0;
+    color: var(--ink);
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  button:not(:disabled),
+  summary,
+  [role="tab"]:not([disabled]) {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
+  }
+
+  pre {
+    tab-size: 2;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-slim {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-strong) transparent;
+}
+
+/* Scroll reveal. The element is hidden until `useReveal` marks it, so a reader who never
+   scrolls past it never pays for the animation — and a reader who has asked for reduced
+   motion is handed the finished state below. */
+.reveal {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+  transition:
+    opacity 0.6s cubic-bezier(0.22, 0.7, 0.3, 1),
+    transform 0.6s cubic-bezier(0.22, 0.7, 0.3, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+.reveal[data-revealed="true"] {
+  opacity: 1;
+  transform: none;
+}
+
+.grid-lines {
+  background-image:
+    linear-gradient(to right, var(--rule) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--rule) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
+}

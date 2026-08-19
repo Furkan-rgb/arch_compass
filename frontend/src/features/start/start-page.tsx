@@ -1,0 +1,298 @@
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+
+import { coreApi } from "../../api";
+import { cn } from "../../lib/cn";
+import { repositoryName } from "../../lib/format";
+import { StatusDot } from "../../ui/badge";
+import { Button, ButtonLink } from "../../ui/button";
+import { Checkbox } from "../../ui/field";
+import { Mono } from "../../ui/meta";
+import { PageHeader } from "../../ui/page";
+import { Label, Panel, PanelBody, PanelFooter, PanelHeader } from "../../ui/panel";
+import { ErrorNotice, LiveRegion, Spinner } from "../../ui/states";
+import { RepositoryPicker } from "./repository-picker";
+
+/** Graph events, said the way a reader would describe the step. */
+const STAGE_LABELS: Record<string, string> = {
+  analyze_repository: "Analysing the repository",
+  repository_analyzed: "Repository analysed",
+  detect_candidates: "Detecting architecture candidates",
+  candidates_detected: "Architecture candidates detected",
+  retrieve_policies: "Retrieving relevant policies",
+  policies_retrieved: "Relevant policies retrieved",
+  judge_candidates: "Judging candidates against policy",
+  candidates_judged: "Candidates judged",
+  generate_questions: "Preparing clarification questions",
+  questions_generated: "Clarification questions prepared",
+  compose_review: "Composing the review",
+  review_composed: "Review composed",
+  record_review: "Recording the review",
+  review_recorded: "Review recorded",
+  awaiting_answers: "Waiting for clarification",
+};
+
+const PIPELINE = [
+  ["Repository", "Parsed into a deterministic atlas — nodes, edges, metrics, signals."],
+  ["Candidates", "Structural patterns detected by rule, not by the model."],
+  ["Policies", "Retrieved per candidate, with the retrieval recorded."],
+  ["Judgement", "The model decides what the evidence means, inside the policy it was given."],
+  ["Clarification", "Only what the repository genuinely cannot answer."],
+  ["Review", "Recorded as an immutable revision with its own delta."],
+] as const;
+
+export function StartPage() {
+  const navigate = useNavigate();
+  const workspace = useQuery({ queryKey: ["workspace"], queryFn: coreApi.workspace });
+  // `?root=` is how the repositories page hands a repository over: the choice was already made
+  // there, and re-picking it here would be the same click twice.
+  const [params] = useSearchParams();
+  const [root, setRoot] = useState(() => params.get("root") ?? "");
+  const [clean, setClean] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [stages, setStages] = useState<string[]>([]);
+  const [failure, setFailure] = useState<unknown>(null);
+
+  const reasoning = workspace.data?.models.reasoning;
+  const embedding = workspace.data?.models.embedding;
+  const ready = Boolean(reasoning && embedding);
+
+  async function start() {
+    setRunning(true);
+    setFailure(null);
+    setStages(["Preparing the repository"]);
+    try {
+      const started = await coreApi.startRepository(root.trim(), clean);
+      let finalId: string | null = null;
+      for await (const progress of coreApi.streamReview(started.case_id, root.trim())) {
+        const label = STAGE_LABELS[progress.event] ?? progress.event.replaceAll("_", " ");
+        setStages((current) => (current.at(-1) === label ? current : [...current, label]));
+        if (progress.message) throw new Error(progress.message);
+        if (progress.review) finalId = progress.review.id;
+      }
+      if (!finalId) throw new Error("The review stream ended without a review");
+      navigate(`/reviews/${finalId}`);
+    } catch (error) {
+      setFailure(error);
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div>
+      <PageHeader
+        eyebrow="New review"
+        title="Review a repository"
+        description="ArchCompass indexes the code deterministically, detects architecture candidates, retrieves the policies that bear on them, and judges each one with the evidence attached."
+        actions={
+          <ButtonLink to="/reviews" variant="secondary">
+            Review history
+          </ButtonLink>
+        }
+      />
+
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.65fr)]">
+        <div className="grid gap-4">
+          <Panel>
+            <PanelHeader
+              title="1 · Choose the repository"
+              description="Local folders and cloned checkouts are both reviewed the same way."
+            />
+            <PanelBody>
+              <RepositoryPicker value={root} onChange={setRoot} />
+              {root ? (
+                <div className="mt-4 flex flex-wrap items-center gap-2 rounded-md border border-accent/25 bg-accent-soft px-3 py-2.5">
+                  <span className="text-xs font-semibold text-accent">Selected</span>
+                  <Mono className="min-w-0 flex-1 truncate text-[12px] text-ink">{root}</Mono>
+                  <Button variant="ghost" size="sm" onClick={() => setRoot("")}>
+                    Clear
+                  </Button>
+                </div>
+              ) : null}
+            </PanelBody>
+          </Panel>
+
+          <Panel>
+            <PanelHeader
+              title="2 · Confirm the architecture case"
+              description="A repeat review continues the case for this branch, so earlier answers still apply."
+              actions={
+                <Button variant="ghost" size="sm" onClick={() => setAdvanced((open) => !open)}>
+                  {advanced ? "Hide options" : "Options"}
+                </Button>
+              }
+            />
+            {advanced ? (
+              <PanelBody className="animate-expand">
+                <Checkbox
+                  checked={clean}
+                  onChange={setClean}
+                  title="Start from a clean architecture case"
+                  description="Do not carry the goal, constraints, decisions and clarification answers recorded for this branch. Use this when the next review asks a different question about the same code."
+                />
+              </PanelBody>
+            ) : (
+              <PanelBody className="text-sm text-ink-3">
+                {clean
+                  ? "This review will start from an empty case."
+                  : "This review continues the newest case on the repository's branch."}
+              </PanelBody>
+            )}
+          </Panel>
+
+          <Panel>
+            <PanelHeader
+              title="3 · Run"
+              description="The run pauses for clarification only when the code genuinely cannot answer."
+            />
+            <PanelBody>
+              <ModelReadiness
+                reasoning={reasoning?.model}
+                embedding={embedding?.model}
+                ready={ready}
+              />
+            </PanelBody>
+            <PanelFooter>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  size="lg"
+                  disabled={!root.trim() || running || !ready}
+                  onClick={start}
+                >
+                  {running ? (
+                    <>
+                      <Spinner /> Review in progress…
+                    </>
+                  ) : (
+                    "Run review"
+                  )}
+                </Button>
+                <span className="text-xs text-ink-3">
+                  {root
+                    ? `Reviewing ${repositoryName(root)}`
+                    : "Choose a repository to enable the run."}
+                </span>
+              </div>
+              {failure ? (
+                <div className="mt-3">
+                  <ErrorNotice error={failure} title="The review stopped" />
+                </div>
+              ) : null}
+            </PanelFooter>
+          </Panel>
+
+          {running || stages.length ? (
+            <Panel tone="flat">
+              <PanelHeader
+                title="Review progress"
+                description="Each stage is the application deciding what to inspect next."
+                actions={
+                  <span className="text-xs tabular-nums text-ink-3">{stages.length} stages</span>
+                }
+              />
+              <PanelBody>
+                <ol className="grid gap-2.5" aria-label="Review progress">
+                  {stages.map((stage, index) => {
+                    const last = index === stages.length - 1;
+                    return (
+                      <li key={`${stage}-${index}`} className="flex items-center gap-2.5 text-sm">
+                        <span
+                          aria-hidden="true"
+                          className={cn(
+                            "size-2 rounded-full",
+                            last && running ? "animate-breathe bg-accent" : "bg-cleared",
+                          )}
+                        />
+                        <span className={last ? "font-semibold text-ink" : "text-ink-2"}>
+                          {stage}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+                <LiveRegion>{stages.at(-1) ?? ""}</LiveRegion>
+              </PanelBody>
+            </Panel>
+          ) : null}
+        </div>
+
+        <div className="grid gap-4">
+          <Panel tone="sunken">
+            <PanelBody>
+              <Label>How a review runs</Label>
+              <ol className="mt-3 grid gap-3.5">
+                {PIPELINE.map(([title, text], index) => (
+                  <li key={title} className="flex gap-3">
+                    <span className="mt-0.5 font-mono text-[11px] font-bold text-accent">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <span>
+                      <span className="block text-sm font-semibold text-ink">{title}</span>
+                      <span className="mt-0.5 block text-xs leading-5 text-ink-3">{text}</span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </PanelBody>
+          </Panel>
+
+          <Panel>
+            <PanelBody>
+              <Label>What ArchCompass will not do</Label>
+              <ul className="mt-2.5 grid gap-2 text-xs leading-5 text-ink-2">
+                <li>It does not edit your code, open branches, or run anything in the repository.</li>
+                <li>It does not invent repository identity or policy identity.</li>
+                <li>It does not decide on the team's behalf — standing decisions stay yours.</li>
+              </ul>
+            </PanelBody>
+          </Panel>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModelReadiness({
+  reasoning,
+  embedding,
+  ready,
+}: {
+  reasoning?: string;
+  embedding?: string;
+  ready: boolean;
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {[
+        ["Reasoning model", reasoning, "judges candidates"],
+        ["Embedding model", embedding, "retrieves policies"],
+      ].map(([label, model, role]) => (
+        <div
+          key={label}
+          className={cn(
+            "rounded-md border px-3 py-2.5",
+            model ? "border-rule bg-surface-2" : "border-held/35 bg-held-soft/50",
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <StatusDot tone={model ? "cleared" : "held"} />
+            <span className="text-xs font-semibold text-ink">{label}</span>
+            <span className="text-[11px] text-ink-3">· {role}</span>
+          </div>
+          <Mono className="mt-1 block truncate text-[12px]">{model ?? "not selected"}</Mono>
+        </div>
+      ))}
+      {!ready ? (
+        <p className="text-xs leading-5 text-held sm:col-span-2">
+          Both are needed before a review can run.{" "}
+          <Link to="/settings" className="font-semibold underline">
+            Choose models
+          </Link>
+          .
+        </p>
+      ) : null}
+    </div>
+  );
+}

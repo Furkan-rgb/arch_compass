@@ -3,29 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- The browser's own chrome, painted to match the page behind it. Rewritten by the
-         script below before first paint and by theme.ts on every change after that; the
-         literal is only what a device with no preference yet would flash. Both values are
-         `--canvas` from styles.css, copied because a meta tag cannot read a token. -->
-    <meta name="theme-color" content="#eef0f4" />
+    <!-- The browser's own chrome, painted to match the page behind it. Rewritten by the script
+         below before first paint, and by `lib/theme.ts` on every change after that; the literal
+         here is only what a device with no stored preference would flash. Both values are
+         `--canvas` from styles.css, copied because a meta tag cannot read a custom property —
+         `lib/theme.test.ts` reads this file and the stylesheet and fails if the two disagree. -->
+    <meta name="theme-color" content="#f7f6f3" />
     <meta
       name="description"
-      content="Arch Compass — evidence-grounded software architecture guidance."
+      content="ArchCompass — architecture review grounded in your code, policies, and decisions."
     />
-    <!-- Declared here rather than left to the default /favicon.ico, because the run
-         notifications swap it: while a finished or holding run is waiting to be seen the href
-         moves to the badged variant, and it moves back the moment the reader returns. See
-         run-notice.tsx. Both files carry their own light and dark values — the tab strip is
-         painted in the system theme, not in whatever this workspace is stamped with. -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>Arch Compass</title>
+    <title>ArchCompass — architecture review workbench</title>
     <script>
       (() => {
         const saved = localStorage.getItem("archcompass.theme");
         const preference =
-          saved === "light" || saved === "dark" || saved === "system"
-            ? saved
-            : "system";
+          saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
         const theme =
           preference === "system"
             ? matchMedia("(prefers-color-scheme: dark)").matches
@@ -34,12 +28,9 @@
             : preference;
         document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme;
-        // The same pair as THEME_COLORS in theme.ts, which cannot be imported here: this
-        // runs before the bundle does, and the tab is painted either way. `theme.test.tsx`
-        // reads this file and the stylesheet and fails if the two stop agreeing.
         document
           .querySelector('meta[name="theme-color"]')
-          .setAttribute("content", theme === "dark" ? "#0b0d11" : "#eef0f4");
+          .setAttribute("content", theme === "dark" ? "#0d0e0c" : "#f7f6f3");
       })();
     </script>
   </head>
