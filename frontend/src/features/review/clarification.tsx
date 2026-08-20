@@ -34,7 +34,7 @@ function ChoiceRow({
   return (
     <label
       className={cn(
-        "flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 text-sm leading-6 transition",
+        "flex min-h-11 cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 text-sm leading-6 transition",
         disabled && "cursor-not-allowed opacity-50",
         checked
           ? "border-rule-strong bg-sunken text-ink"
@@ -132,28 +132,26 @@ export function ClarificationRound({
     <section
       aria-labelledby="clarification-heading"
       className={cn(
-        "animate-fade overflow-hidden rounded-lg border border-held/35 bg-surface",
+        "animate-fade overflow-hidden rounded-lg border border-rule bg-surface",
         className,
       )}
     >
-      <header className="border-b border-held/25 bg-held-soft/50 px-4 py-4 sm:px-5">
+      <header className="border-b border-rule px-4 py-5 sm:px-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <Label className="text-held">
-              Clarification round {review.questions[0]?.round ?? 1}
-            </Label>
+            <Label>Clarification round {review.questions[0]?.round ?? 1}</Label>
             <h2
               id="clarification-heading"
-              className="mt-1.5 font-display text-xl font-semibold tracking-tight text-ink sm:text-2xl"
+              className="mt-1.5 font-display text-lg font-semibold tracking-tight text-ink sm:text-xl"
             >
               The repository cannot answer these
             </h2>
-            <p className="mt-1.5 max-w-2xl text-sm leading-6 text-ink-2">
+            <p className="mt-2 max-w-[58ch] text-sm leading-6 text-ink-2">
               Answers are recorded on the architecture case as a new revision, and the affected
               candidates are judged again. Skip anything that should stay explicitly unknown.
             </p>
           </div>
-          <div className="rounded-md border border-rule bg-surface px-3 py-2 text-center">
+          <div className="rounded-md border border-rule bg-surface-2 px-3 py-2 text-center">
             <div className="font-display text-lg font-semibold tabular-nums text-ink">
               {resolved.length}/{review.questions.length}
             </div>
@@ -183,20 +181,24 @@ export function ClarificationRound({
                   {index + 1}
                 </span>
                 <div className="min-w-0 flex-1">
+                  {/* The question is the point of the panel, so it is the one thing in the
+                      row set at the reading size. Nothing else in a row goes above 14px —
+                      the facet, the affected candidates and the skip are all context for
+                      this one sentence, and the panel's own heading is read once. */}
                   <label
                     htmlFor={`question-${question.id}`}
-                    className="block font-display text-base font-semibold leading-6 text-ink"
+                    className="block max-w-[54ch] text-[17px] font-medium leading-7 text-ink"
                   >
                     {question.text}
                   </label>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                     <Tag>{humanise(question.facet)}</Tag>
                     {/* Named, not described: a reviewer scanning a round wants to know
                         *which* candidates turn on this, and a sentence beginning "Affects
                         ports.TaskFormatter is implemented only by…" is neither. Not links,
                         either — this is a form with answers in it, and nothing here is
                         allowed to unmount it. */}
-                    <span className="text-xs text-ink-3">
+                    <span className="min-w-0 text-xs text-ink-3 wrap-anywhere">
                       {affected.length ? (
                         <>
                           Affects{" "}
@@ -262,7 +264,9 @@ export function ClarificationRound({
                     aria-pressed={isSkipped}
                     onClick={() => toggleSkip(question.id)}
                     className={cn(
-                      "mt-2 rounded-sm px-2 py-1 text-xs font-semibold transition",
+                      // A line of text that is still a 44px target: the negative margin keeps
+                      // the words where they read best and lets the hit area be thumb-sized.
+                      "-ml-2.5 mt-1.5 inline-flex min-h-11 items-center rounded-sm px-2.5 text-xs font-semibold transition",
                       isSkipped
                         ? "bg-sunken text-ink"
                         : "text-ink-3 hover:bg-sunken hover:text-ink",
@@ -282,15 +286,23 @@ export function ClarificationRound({
           <p className="text-xs leading-5 text-ink-3">
             Anything left blank is recorded as skipped. Nothing is inferred on your behalf.
           </p>
-          <div className="flex flex-wrap gap-2">
+          {/* Two full-width rows on a phone rather than one squashed one: the longer of
+              these labels is a sentence, and flex-wrap has no answer for a single item that
+              is wider than the row it is in. */}
+          <div className="grid gap-2 sm:flex sm:flex-wrap">
             <Button
               variant="secondary"
+              className="min-h-11"
               disabled={resume.isPending}
               onClick={() => resume.mutate(true)}
             >
               Conclude with remaining uncertainty
             </Button>
-            <Button disabled={resume.isPending} onClick={() => resume.mutate(false)}>
+            <Button
+              className="min-h-11"
+              disabled={resume.isPending}
+              onClick={() => resume.mutate(false)}
+            >
               {resume.isPending ? (
                 <>
                   <Spinner /> Saving context…
