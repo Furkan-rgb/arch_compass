@@ -6,6 +6,7 @@ import { api, type Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { humanise, plural } from "../../lib/format";
 import { Tag } from "../../ui/badge";
+import { Mono } from "../../ui/meta";
 import { Button } from "../../ui/button";
 import { Textarea } from "../../ui/field";
 import { Label } from "../../ui/panel";
@@ -190,12 +191,21 @@ export function ClarificationRound({
                   </label>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     <Tag>{humanise(question.facet)}</Tag>
+                    {/* Named, not described: a reviewer scanning a round wants to know
+                        *which* candidates turn on this, and a sentence beginning "Affects
+                        ports.TaskFormatter is implemented only by…" is neither. Not links,
+                        either — this is a form with answers in it, and nothing here is
+                        allowed to unmount it. */}
                     <span className="text-xs text-ink-3">
                       {affected.length ? (
                         <>
-                          Affects {affected[0].candidate.summary}
+                          Affects{" "}
+                          <Mono className="text-[11px] text-ink-2">
+                            {affected[0].candidate.participants[0]?.qualified_name ??
+                              affected[0].candidate.summary}
+                          </Mono>
                           {affected.length > 1
-                            ? ` and ${plural(affected.length - 1, "other candidate")}`
+                            ? ` and ${plural(affected.length - 1, "other")}`
                             : ""}
                         </>
                       ) : (

@@ -110,10 +110,13 @@ describe("the reviews page", () => {
 
     render(wrap(<ReviewsPage />));
 
-    const entry = await screen.findByRole("link", { name: /payments-platform/ });
+    // Under the line of work it belongs to, not in a separate list of jobs above the
+    // history: a run is filed under the same repository, branch and case a review is.
+    const lineage = (await screen.findByText("payments-platform")).closest("article")!;
+    const entry = within(lineage).getByRole("link");
     expect(entry).toHaveAttribute("href", "/runs/thread-9");
     expect(within(entry).getByText("In progress")).toBeInTheDocument();
-    expect(within(entry).getByText(/Judge candidate/)).toBeInTheDocument();
+    expect(within(entry).getByText(/Judging candidates/)).toBeInTheDocument();
     // A page holding only a run must not also claim there is nothing here.
     expect(screen.queryByText("No reviews yet")).not.toBeInTheDocument();
   });

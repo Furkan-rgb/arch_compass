@@ -326,6 +326,6 @@ kept apart in the model. That is the second commitment paying for itself.
   registration. Whether that is enough on a phone is not yet answered by anything but taste.
 - **Newsreader at 17px on Windows.** Tested on macOS only. If the low contrast fails against
   a different rasteriser, the weight goes to 400 before the face does.
-- **The Atlas surface.** It is the one region with no attribution, because exploring a
-  structure is not one of the three jobs. It may need a fourth register, or it may need to
-  stop being a surface.
+- **The Atlas surface.** Settled: it stopped being a surface. Exploring a structure is not
+  one of the three jobs, so it is now the Structure tab of the judgement-context drawer,
+  scoped to the candidate being decided. See [the experience](experience.md).

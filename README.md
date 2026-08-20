@@ -287,6 +287,7 @@ a message rather than failing.
 - [Persistence model](docs/persistence-model.md)
 - [Operations](docs/operations.md)
 - [Design system](docs/design-system.md) — the three typographic voices, the palette, and what enforces them
+- [The experience](docs/experience.md) — what a person does in the workbench, in what order, and what each surface owes them
 - [What each region on screen is called](docs/frontend-regions.md)
 
 Licensed under Apache-2.0.

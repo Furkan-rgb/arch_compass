@@ -1,20 +1,31 @@
-import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 
-import type { Finding, Review } from "../../api";
+import { api, type Finding, type Review } from "../../api";
 import { cn } from "../../lib/cn";
-import { absoluteTime, humanise, shortId } from "../../lib/format";
+import { absoluteTime, humanise, shortId, splitQualified } from "../../lib/format";
 import { Tag } from "../../ui/badge";
+import { Button } from "../../ui/button";
+import { Input } from "../../ui/field";
 import { MetaList, MetaRow, Mono } from "../../ui/meta";
 import { Label } from "../../ui/panel";
 import { Tabs, TabPanel } from "../../ui/tabs";
-import { EmptyState } from "../../ui/states";
+import { EmptyState, ErrorNotice, Spinner } from "../../ui/states";
 
 /**
  * Why ArchCompass reached the conclusion beside it.
  *
- * Three answers, in the order a sceptical reader asks for them: the human context the
- * judgement was made against, the policies retrieval put in front of the model, and the
- * machinery that produced both.
+ * Four answers, in the order a sceptical reader asks for them: the human context the
+ * judgement was made against, the policies retrieval put in front of the model, the
+ * structure around the code it judged, and the machinery that produced all three.
+ *
+ * Structure and Provenance used to be surfaces of their own across the top of the review,
+ * where they competed with the queue and answered nobody's question in particular. They
+ * belong here because here they are scoped to the candidate a reader is deciding — which
+ * is the only scope at which either of them helps decide anything.
+ *
+ * No heading of its own: the drawer that holds this already carries the title, and the two
+ * printed it twice.
  */
 export function ContextRail({
   review,
@@ -32,12 +43,11 @@ export function ContextRail({
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
-      <div className="border-b border-rule px-3 pt-3">
-        <h2 className="font-display text-sm font-semibold tracking-tight text-ink">
-          Judgement context
-        </h2>
-        <p className="mb-2 mt-0.5 text-xs text-ink-3">
-          {finding ? "For the selected candidate" : "For this review"}
+      <div className="border-b border-rule px-3 pt-2.5">
+        <p className="mb-2 text-xs text-ink-3">
+          {finding
+            ? `For ${finding.candidate.participants[0]?.qualified_name ?? "the selected candidate"}`
+            : "For this review"}
         </p>
         <Tabs
           label="Judgement context"
@@ -46,6 +56,7 @@ export function ContextRail({
           items={[
             { id: "case", label: "Case" },
             { id: "policies", label: "Policies", count: finding?.policies.length },
+            { id: "structure", label: "Structure" },
             { id: "provenance", label: "Provenance" },
           ]}
         />
@@ -66,91 +77,302 @@ export function ContextRail({
               Retrieval returned no policy that bears on this candidate.
             </EmptyState>
           ) : (
-            <ul className="grid gap-2">
-              {finding.policies.map((bearing) => (
-                <li
-                  key={bearing.policy_id}
-                  className="rounded-md border border-rule bg-surface-2 p-3"
-                >
-                  <div className="text-sm font-semibold leading-5 text-ink">
-                    {bearing.policy_title}
-                  </div>
-                  <Mono className="mt-1 block text-[11px] text-ink-3">{bearing.policy_id}</Mono>
-                  <p className="mt-1.5 text-xs leading-5 text-ink-2">{bearing.reasoning}</p>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="grid gap-2">
+                {finding.policies.map((bearing) => (
+                  <li
+                    key={bearing.policy_id}
+                    className="rounded-md border border-rule bg-surface-2 p-3"
+                  >
+                    <div className="text-sm font-semibold leading-5 text-ink">
+                      {bearing.policy_title}
+                    </div>
+                    <Mono className="mt-1 block text-[11px] text-ink-3">{bearing.policy_id}</Mono>
+                    <p className="mt-1.5 text-xs leading-5 text-ink-2">{bearing.reasoning}</p>
+                  </li>
+                ))}
+              </ul>
+              {/* Retrieved against bore-on: the count the status ribbon used to print at
+                  review scale, said where it can be compared with what it counts. */}
+              {provenance ? (
+                <p className="mt-2.5 font-mono text-[10.5px] leading-relaxed text-ink-3">
+                  {provenance.selected_policy_ids.length} policies retrieved for this candidate;{" "}
+                  {finding.policies.length} bore on the judgement.
+                </p>
+              ) : null}
+            </>
           )}
         </TabPanel>
 
+        <TabPanel id="structure" active={tab}>
+          <StructureContext
+            key={finding?.candidate.id ?? "review"}
+            review={review}
+            finding={finding}
+          />
+        </TabPanel>
+
         <TabPanel id="provenance" active={tab}>
-          <MetaList>
-            <MetaRow label="Judge">
-              <Mono>{finding?.model_identity ?? review.model_identity}</Mono>
-            </MetaRow>
-            <MetaRow label="Prompt">
-              <Mono>{finding?.prompt_identity ?? review.prompt_identity}</Mono>
-            </MetaRow>
-            {provenance ? (
-              <>
-                <MetaRow label="Retriever">
-                  <Mono>
-                    {provenance.retriever} · v{provenance.version}
-                  </Mono>
-                </MetaRow>
-                <MetaRow label="Embedding">
-                  <Mono>{provenance.model_identity || "non-embedding strategy"}</Mono>
-                </MetaRow>
-                <MetaRow label="Corpus">
-                  <Mono className="break-all">{shortId(provenance.corpus_fingerprint, 24)}</Mono>
-                </MetaRow>
-                {provenance.query_fingerprint ? (
-                  <MetaRow label="Query">
-                    <Mono className="break-all">{shortId(provenance.query_fingerprint, 24)}</Mono>
+          {finding ? (
+            <MetaList>
+              <MetaRow label="Judge">
+                <Mono>{finding.model_identity}</Mono>
+              </MetaRow>
+              <MetaRow label="Prompt">
+                <Mono>{finding.prompt_identity}</Mono>
+              </MetaRow>
+              {provenance ? (
+                <>
+                  <MetaRow label="Retriever">
+                    <Mono>
+                      {provenance.retriever} · v{provenance.version}
+                    </Mono>
                   </MetaRow>
-                ) : null}
-                <MetaRow label="Selected">
-                  <span className="flex flex-wrap gap-1">
-                    {provenance.selected_policy_ids.length ? (
-                      provenance.selected_policy_ids.map((id) => (
-                        <Tag key={id}>
-                          <Mono className="text-[11px]">{id}</Mono>
-                        </Tag>
-                      ))
-                    ) : (
-                      <span className="text-ink-3">None</span>
-                    )}
-                  </span>
-                </MetaRow>
-                {Object.entries(provenance.metadata).map(([key, value]) => (
-                  <MetaRow key={key} label={humanise(key)}>
-                    <Mono className="break-all">{value}</Mono>
+                  <MetaRow label="Embedding">
+                    <Mono>{provenance.model_identity || "non-embedding strategy"}</Mono>
                   </MetaRow>
-                ))}
-              </>
-            ) : (
-              <MetaRow label="Retrieval">
-                <span className="text-ink-3">
-                  Select a candidate to see the retrieval that fed its judgement.
+                  <MetaRow label="Corpus">
+                    <Mono className="break-all">{provenance.corpus_fingerprint}</Mono>
+                  </MetaRow>
+                  {provenance.query_fingerprint ? (
+                    <MetaRow label="Query">
+                      <Mono className="break-all">{provenance.query_fingerprint}</Mono>
+                    </MetaRow>
+                  ) : null}
+                  <MetaRow label="Selected">
+                    <span className="flex flex-wrap gap-1">
+                      {provenance.selected_policy_ids.length ? (
+                        provenance.selected_policy_ids.map((id) => (
+                          <Tag key={id}>
+                            <Mono className="text-[11px]">{id}</Mono>
+                          </Tag>
+                        ))
+                      ) : (
+                        <span className="text-ink-3">None</span>
+                      )}
+                    </span>
+                  </MetaRow>
+                  {Object.entries(provenance.metadata).map(([key, value]) => (
+                    <MetaRow key={key} label={humanise(key)}>
+                      <Mono className="break-all">{value}</Mono>
+                    </MetaRow>
+                  ))}
+                </>
+              ) : (
+                <MetaRow label="Retrieval">
+                  <span className="text-ink-3">Nothing was retrieved for this candidate.</span>
+                </MetaRow>
+              )}
+              <MetaRow label="Atlas">
+                <span>
+                  {review.atlas.node_count.toLocaleString()} nodes ·{" "}
+                  {review.atlas.edge_count.toLocaleString()} edges
                 </span>
               </MetaRow>
-            )}
-            <MetaRow label="Atlas">
-              <span>
-                {review.atlas.node_count.toLocaleString()} nodes ·{" "}
-                {review.atlas.edge_count.toLocaleString()} edges
-              </span>
-            </MetaRow>
-            <MetaRow label="Parser">
-              <Mono>
-                {Object.entries(review.atlas.parser_configuration)
-                  .map(([key, value]) => `${key}=${value}`)
-                  .join(" ") || "—"}
-              </Mono>
-            </MetaRow>
-          </MetaList>
+              <MetaRow label="Parser">
+                <Mono>
+                  {Object.entries(review.atlas.parser_configuration)
+                    .map(([key, value]) => `${key}=${value}`)
+                    .join(" ") || "—"}
+                </Mono>
+              </MetaRow>
+            </MetaList>
+          ) : (
+            <ReviewProvenance review={review} />
+          )}
         </TabPanel>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The audit view: every candidate's retrieval at once.
+ *
+ * This was a surface of its own, sitting beside the queue as though a reviewer working
+ * down a list might switch to reading a table of corpus fingerprints. It is an audit, and
+ * an audit belongs behind the thing being audited — reachable in one action, from the same
+ * drawer that answers the same question about one candidate.
+ */
+function ReviewProvenance({ review }: { review: Review }) {
+  if (!review.retrieval_manifest.length) {
+    return (
+      <EmptyState title="No retrieval recorded" className="border-0 bg-transparent py-8">
+        This review judged no candidate, so no policy retrieval was performed.
+      </EmptyState>
+    );
+  }
+  return (
+    <div className="grid gap-2">
+      <p className="text-xs leading-5 text-ink-3">
+        Every candidate in this review, and what retrieval put in front of the model for it.
+      </p>
+      {review.retrieval_manifest.map((item) => {
+        const finding = review.findings.find((entry) => entry.candidate.id === item.candidate_id);
+        const identity =
+          finding?.candidate.participants[0]?.qualified_name ?? shortId(item.candidate_id, 16);
+        return (
+          <div
+            key={item.candidate_id}
+            className="rounded-md border border-rule bg-surface-2 px-3 py-2.5"
+          >
+            <Mono className="block break-all text-[12px] text-ink">{identity}</Mono>
+            <MetaList className="mt-1.5">
+              <MetaRow label="Retriever">
+                <Mono>
+                  {item.retriever} · v{item.version}
+                </Mono>
+              </MetaRow>
+              <MetaRow label="Embedding">
+                <Mono>{item.model_identity || "non-embedding strategy"}</Mono>
+              </MetaRow>
+              <MetaRow label="Corpus">
+                <Mono className="break-all">{item.corpus_fingerprint}</Mono>
+              </MetaRow>
+              {item.query_fingerprint ? (
+                <MetaRow label="Query">
+                  <Mono className="break-all">{item.query_fingerprint}</Mono>
+                </MetaRow>
+              ) : null}
+              <MetaRow label="Selected">
+                <span className="flex flex-wrap gap-1">
+                  {item.selected_policy_ids.length ? (
+                    item.selected_policy_ids.map((id) => (
+                      <Tag key={id}>
+                        <Mono className="text-[11px]">{id}</Mono>
+                      </Tag>
+                    ))
+                  ) : (
+                    <span className="text-ink-3">None</span>
+                  )}
+                </span>
+              </MetaRow>
+              {Object.entries(item.metadata).map(([key, value]) => (
+                <MetaRow key={key} label={humanise(key)}>
+                  <Mono>{value}</Mono>
+                </MetaRow>
+              ))}
+            </MetaList>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * What else touches the code this candidate is about.
+ *
+ * The atlas used to be a surface: a search box over the whole repository, seeded from the
+ * review's first five participant names and then entirely the reader's. It answered "what
+ * is in this codebase", which is a real question and not one the review page is for.
+ *
+ * Seeded from *this candidate* instead, it answers the question a reviewer actually has
+ * while judging a coupling finding — what else is in the neighbourhood — and the box is
+ * still there for when the seed is not what they meant. Repository-wide exploration lives
+ * on the repositories page, which is the page for a repository.
+ *
+ * One term, not five. The atlas ANDs its terms: every one has to appear in the same node's
+ * name or path. Seeding it with a list of participants therefore asked for a single node
+ * called both `ports.Clock` and `adapters.SystemClock`, which is why the surface this
+ * replaces returned nothing almost every time it was opened. The leaf of the first
+ * participant is the term that finds the abstraction *and* what implements it.
+ */
+function StructureContext({ review, finding }: { review: Review; finding: Finding | null }) {
+  const root = review.repository.path;
+  const primary = finding?.candidate.participants[0]?.qualified_name ?? "";
+  const seeds = primary ? [splitQualified(primary).leaf] : [];
+  const [query, setQuery] = useState(seeds.join(" "));
+  const explore = useMutation({ mutationFn: (terms: string[]) => api.searchAtlas(root, terms) });
+
+  const { mutate } = explore;
+  useEffect(() => {
+    if (seeds.length) mutate(seeds.slice(0, 10));
+    // Seeded once from this candidate; every search after that is the reader's.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [root, mutate]);
+
+  function search() {
+    const terms = query
+      .split(/\s+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 10);
+    if (terms.length) mutate(terms);
+  }
+
+  return (
+    <div className="grid gap-3">
+      <div className="flex gap-2">
+        <Input
+          aria-label="Search the repository structure"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") search();
+          }}
+          className="min-w-0 flex-1"
+          placeholder="module, class, function"
+        />
+        <Button size="sm" onClick={search} disabled={!query.trim() || explore.isPending}>
+          Search
+        </Button>
+      </div>
+
+      {explore.error ? <ErrorNotice error={explore.error} /> : null}
+
+      {explore.isPending ? (
+        <div className="flex items-center gap-2 text-sm text-ink-3">
+          <Spinner /> Reading the atlas…
+        </div>
+      ) : !explore.data ? (
+        <EmptyState title="Nothing searched yet" className="border-0 bg-transparent py-8">
+          Search for a module, class or function to see where it sits in the structure.
+        </EmptyState>
+      ) : !explore.data.node_summaries?.length ? (
+        <EmptyState title="No node matches all of that" className="border-0 bg-transparent py-8">
+          Every term has to appear in the same node&rsquo;s name or path. Try one of them on its
+          own.
+        </EmptyState>
+      ) : (
+        <>
+          <p className="font-mono text-[10.5px] text-ink-3">
+            {explore.data.node_summaries?.length ?? 0} matched ·{" "}
+            {explore.data.relationships?.length ?? 0} relations ·{" "}
+            {explore.data.signals?.length ?? 0} signals
+          </p>
+          <ul className="grid gap-1.5">
+            {explore.data.node_summaries?.map((node) => (
+              <li
+                key={node.node_id}
+                className="rounded-md border border-rule bg-surface-2 px-2.5 py-2"
+              >
+                <Mono className="block break-all text-[12px] text-ink">{node.qualified_name}</Mono>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <Tag>{humanise(node.node_type)}</Tag>
+                  <span className="truncate font-mono text-[10.5px] text-ink-3">{node.path}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {explore.data.signals?.length ? (
+            <div className="border-t border-rule pt-2.5">
+              <Label>Architectural signals</Label>
+              <ul className="mt-1.5 grid gap-1.5">
+                {explore.data.signals.slice(0, 12).map((signal, index) => (
+                  <li
+                    key={`${signal.code}-${index}`}
+                    className="rounded-md border border-rule bg-surface-2 px-2.5 py-2 text-xs leading-5 text-ink-2"
+                  >
+                    <Mono className="mr-2 text-[11px] text-ink-3">{signal.code}</Mono>
+                    {signal.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

@@ -4,16 +4,81 @@ import { Link } from "react-router-dom";
 
 import { api, type Review, type ReviewRun } from "../../api";
 import { humanise, relativeTime, repositoryName, shortId } from "../../lib/format";
-import { StatusBadge, Tag } from "../../ui/badge";
+import { StatusBadge } from "../../ui/badge";
 import { Button, ButtonLink, ToggleButton } from "../../ui/button";
 import { SearchInput } from "../../ui/field";
-import { MetaLine, Mono } from "../../ui/meta";
+import { GitBranchIcon } from "../../ui/icons";
+import { Mono } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
+import { Panel } from "../../ui/panel";
 import { EmptyState, ErrorNotice, LoadingPanel, Spinner } from "../../ui/states";
+import { stageLabel } from "../start/run-progress";
 
 const STATUS_FILTERS = ["all", "completed", "awaiting_answers", "failed", "cancelled"] as const;
 
-function ReviewRow({
+/**
+ * One line of work: the same repository, the same branch, the same case.
+ *
+ * Reviews are immutable and sequenced under exactly these three things — that is the
+ * charter's third commitment and the reason a delta can exist at all. This page used to
+ * render them as a flat list of identical cards, each titled with the repository folder, so
+ * eight revisions of one branch read as eight unrelated peers and the sequence was a line of
+ * small grey text. What makes review 4 worth keeping is that it succeeded review 3.
+ */
+type Lineage = {
+  key: string;
+  path: string;
+  branch: string | null;
+  reviews: Review[];
+  run: ReviewRun | null;
+};
+
+function lineagesOf(reviews: Review[], runs: ReviewRun[]): Lineage[] {
+  const groups = new Map<string, Lineage>();
+  for (const review of reviews) {
+    const key = `${review.repository.path}::${review.repository.branch_id}::${review.case.id}`;
+    const existing = groups.get(key);
+    if (existing) existing.reviews.push(review);
+    else {
+      groups.set(key, {
+        key,
+        path: review.repository.path,
+        branch: review.repository.branch,
+        reviews: [review],
+        run: null,
+      });
+    }
+  }
+  // A run in flight is the next revision of a lineage, not a separate kind of thing sitting
+  // in its own list above everything. It only becomes one when its lineage has no reviews.
+  for (const run of runs) {
+    const key = `${run.repository_root ?? ""}::${run.branch_id}::${run.case_id}`;
+    const existing = groups.get(key);
+    if (existing) existing.run = run;
+    else {
+      groups.set(key, {
+        key,
+        path: run.repository_root ?? run.repository_name ?? "",
+        branch: run.branch_name ?? null,
+        reviews: [],
+        run,
+      });
+    }
+  }
+  return [...groups.values()]
+    .map((lineage) => ({
+      ...lineage,
+      reviews: [...lineage.reviews].sort((left, right) => right.sequence - left.sequence),
+    }))
+    .sort((left, right) => Date.parse(latestAt(right)) - Date.parse(latestAt(left)));
+}
+
+function latestAt(lineage: Lineage): string {
+  if (lineage.run) return new Date().toISOString();
+  return lineage.reviews[0]?.started_at ?? "1970-01-01T00:00:00Z";
+}
+
+function RevisionRow({
   review,
   onDelete,
   deleting,
@@ -23,119 +88,144 @@ function ReviewRow({
   deleting: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const attention = review.findings.filter((finding) => finding.verdict !== "cleared").length;
+  const outstanding = review.findings.filter((finding) => finding.verdict !== "cleared").length;
+  const moved = review.delta.new.length + review.delta.changed.length;
   return (
-    <article className="group rounded-lg border border-rule bg-surface p-4 transition hover:border-rule-strong sm:p-5">
-      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-        <Link to={`/reviews/${review.id}`} className="min-w-0 flex-1 rounded-md">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="font-display text-lg font-semibold tracking-tight text-ink">
-              {repositoryName(review.repository.path)}
-            </h2>
-            <StatusBadge status={review.status} />
-          </div>
-          <MetaLine
-            className="mt-2"
-            items={[
-              `Review ${review.sequence}`,
-              `Case revision ${review.case.revision}`,
-              `${review.findings.length} candidates`,
-              attention ? `${attention} need attention` : "nothing outstanding",
-              relativeTime(review.started_at),
-            ]}
-          />
-          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-            <Mono className="truncate text-[11px] text-ink-3">{review.repository.path}</Mono>
-            {review.repository.branch ? <Tag>{review.repository.branch}</Tag> : null}
-            {review.repository.commit ? (
-              <Tag>
-                <Mono className="text-[11px]">{shortId(review.repository.commit, 8)}</Mono>
-              </Tag>
-            ) : null}
-          </div>
-          {/* How much moved since the review before, as three counts. Not three hues: the
-              card already carries the review's status in the one palette that means
-              something, and "changed" painted amber claimed a held judgement nothing had
-              made. The numbers are what is being compared, so the numbers carry the weight. */}
-          <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
-            {(
-              [
-                [review.delta.new.length, "new"],
-                [review.delta.changed.length, "changed"],
-                [review.delta.addressed.length, "addressed"],
-              ] as const
-            ).map(([count, label]) => (
-              <span
-                key={label}
-                className="rounded-xs border border-rule bg-sunken px-2 py-0.5 text-ink-3"
-              >
-                <strong className="font-semibold tabular-nums text-ink">{count}</strong> {label}
-              </span>
-            ))}
-          </div>
-        </Link>
-
-        <div className="flex shrink-0 items-center gap-2">
-          {confirming ? (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-rule px-4 py-3 transition hover:bg-sunken/50 sm:px-5">
+      <Link to={`/reviews/${review.id}`} className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="font-mono text-[13px] font-medium tabular-nums text-ink">
+          Review {review.sequence}
+        </span>
+        <StatusBadge status={review.status} />
+        <span className="text-[11.5px] text-ink-3">
+          case revision {review.case.revision}
+          {review.repository.commit ? (
+            <> · {shortId(review.repository.commit, 8)}</>
+          ) : null}{" "}
+          · {relativeTime(review.started_at)}
+        </span>
+        <span className="min-w-0 flex-1 text-right text-[11.5px] tabular-nums text-ink-3">
+          <span className="text-ink-2">{review.findings.length}</span> judged ·{" "}
+          <span className="text-ink-2">{outstanding}</span> not cleared
+          {review.previous_review_id ? (
             <>
-              <span className="text-xs text-ink-3">Delete this review?</span>
-              <Button size="sm" variant="danger" disabled={deleting} onClick={onDelete}>
-                Confirm
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
-                Keep
-              </Button>
+              {" · "}
+              <span className="text-ink-2">{moved}</span> moved
             </>
-          ) : (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setConfirming(true)}
-              aria-label={`Delete review ${review.sequence}`}
-            >
-              Delete
+          ) : null}
+        </span>
+      </Link>
+
+      <span className="flex shrink-0 items-center gap-2">
+        {confirming ? (
+          <>
+            <span className="text-xs text-ink-3">Delete this review?</span>
+            <Button size="sm" variant="danger" disabled={deleting} onClick={onDelete}>
+              Confirm
             </Button>
-          )}
-        </div>
-      </div>
-    </article>
+            <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+              Keep
+            </Button>
+          </>
+        ) : (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setConfirming(true)}
+            aria-label={`Delete review ${review.sequence}`}
+          >
+            Delete
+          </Button>
+        )}
+      </span>
+    </li>
   );
 }
 
 /**
- * A review that is still being produced.
+ * The revision being made, in the lineage it will belong to.
  *
- * Sits at the top of the same list as the finished ones, because it is the same thing seen
- * earlier — and because until it was here a run was only reachable by an id somebody was
- * already holding. Starting a review and then looking at anything else lost it, which is
- * the ordinary way to use a page whose work takes as long as a batch takes.
- *
- * Not styled as a review card. It has no verdicts, no delta and no sequence yet, and a card
- * with those spaces left blank would read as a review that came back empty.
+ * Every identifier a review is filed under is known before the review exists, so the next
+ * revision can be listed and opened while it is still being made — at the top of its own
+ * line of work rather than in a separate list of jobs above the history.
  */
-function RunRow({ run }: { run: ReviewRun }) {
+function PendingRow({ run, sequence }: { run: ReviewRun; sequence: number }) {
   return (
-    <article className="rounded-lg border border-rule-strong bg-sunken/50 p-4 transition hover:border-rule-strong sm:p-5">
-      <Link to={`/runs/${run.run_id}`} className="block min-w-0 rounded-md">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="font-display text-lg font-semibold tracking-tight text-ink">
-            {run.repository_name}
-          </h2>
-          <span className="inline-flex items-center gap-1.5 rounded-sm border border-rule-strong px-2 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-ink-3">
-            <Spinner /> In progress
-          </span>
-        </div>
-        <MetaLine
-          className="mt-2"
-          items={[
-            run.stage ? humanise(run.stage) : "starting",
-            `${run.stages.length} ${run.stages.length === 1 ? "stage" : "stages"} so far`,
-            run.branch_name || null,
-          ]}
-        />
-        <Mono className="mt-2.5 block truncate text-[11px] text-ink-3">{run.repository_root}</Mono>
+    <li className="border-t border-rule bg-sunken/40">
+      <Link
+        to={`/runs/${run.run_id}`}
+        className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3 transition hover:bg-sunken sm:px-5"
+      >
+        <span className="font-mono text-[13px] font-medium tabular-nums text-ink">
+          Review {run.sequence ?? sequence}
+        </span>
+        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-ink-3">
+          <Spinner /> In progress
+        </span>
+        <span className="text-[11.5px] text-ink-3">
+          {run.stage ? stageLabel(run.stage) : "starting"}
+        </span>
       </Link>
-    </article>
+    </li>
+  );
+}
+
+function LineageBlock({
+  lineage,
+  onDelete,
+  deleting,
+}: {
+  lineage: Lineage;
+  onDelete: (id: string) => void;
+  deleting: boolean;
+}) {
+  const newest = lineage.reviews[0];
+  return (
+    <Panel as="article">
+      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3.5 sm:px-5">
+        <div className="min-w-0">
+          <h2 className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[15px] leading-tight text-ink-3">
+            <span className="font-medium text-ink [overflow-wrap:anywhere]">
+              {repositoryName(lineage.path)}
+            </span>
+            {lineage.branch ? (
+              <>
+                <GitBranchIcon className="size-3.5 shrink-0" aria-hidden="true" />
+                <span className="sr-only">branch</span>
+                <span className="[overflow-wrap:anywhere]">{lineage.branch}</span>
+              </>
+            ) : null}
+          </h2>
+          <Mono className="mt-1 block truncate text-[11px] text-ink-3">{lineage.path}</Mono>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-ink-3">
+            {lineage.reviews.length === 1
+              ? "1 revision"
+              : `${lineage.reviews.length} revisions`}
+          </span>
+          {/* Only where it summarises. With one revision the row beneath says the same
+              thing three centimetres away. */}
+          {newest && lineage.reviews.length > 1 ? (
+            <StatusBadge status={newest.status} />
+          ) : null}
+        </div>
+      </header>
+
+      <ul>
+        {lineage.run ? (
+          <PendingRow run={lineage.run} sequence={lineage.reviews.length + 1} />
+        ) : null}
+        {lineage.reviews.map((review) => (
+          <RevisionRow
+            key={review.id}
+            review={review}
+            deleting={deleting}
+            onDelete={() => onDelete(review.id)}
+          />
+        ))}
+      </ul>
+    </Panel>
   );
 }
 
@@ -161,7 +251,6 @@ export function ReviewsPage() {
   if (reviews.isLoading) return <LoadingPanel label="Opening review history…" rows={4} />;
   if (reviews.error) return <ErrorNotice error={reviews.error} />;
 
-  const inFlight = runs.data ?? [];
   const all = reviews.data ?? [];
   const visible = all.filter((review) => {
     const matchesStatus = status === "all" || review.status === status;
@@ -169,22 +258,15 @@ export function ReviewsPage() {
       `${review.repository.path} ${review.repository.branch ?? ""}`.toLowerCase();
     return matchesStatus && haystack.includes(query.toLowerCase());
   });
+  const lineages = lineagesOf(visible, runs.data ?? []);
 
   return (
     <div>
       <PageHeader
         eyebrow="Immutable history"
         title="Reviews"
-        description="Every review is a recorded revision: the repository snapshot it read, the case revision it judged against, and the findings it composed."
+        description="Reviews are sequenced per branch and case. Each one records the repository snapshot it read, the case revision it judged against, and the findings it composed — and each is readable exactly as it was recorded."
       />
-
-      {inFlight.length ? (
-        <div className="mb-2.5 grid gap-2.5">
-          {inFlight.map((run) => (
-            <RunRow key={run.run_id} run={run} />
-          ))}
-        </div>
-      ) : null}
 
       {all.length ? (
         <div className="mb-4 flex flex-col gap-2 rounded-lg border border-rule bg-surface p-2 sm:flex-row sm:items-center">
@@ -192,7 +274,7 @@ export function ReviewsPage() {
             label="Search reviews"
             value={query}
             onValueChange={setQuery}
-            placeholder="Search goal, repository or branch"
+            placeholder="Repository or branch"
             className="sm:max-w-sm"
           />
           <div
@@ -209,7 +291,7 @@ export function ReviewsPage() {
         </div>
       ) : null}
 
-      {!visible.length && !inFlight.length ? (
+      {!lineages.length ? (
         <EmptyState
           title={all.length ? "No review matches that" : "No reviews yet"}
           action={all.length ? undefined : <ButtonLink to="/start">Review a repository</ButtonLink>}
@@ -219,13 +301,13 @@ export function ReviewsPage() {
             : "Point ArchCompass at a repository to record the first architecture review."}
         </EmptyState>
       ) : (
-        <div className="grid gap-2.5">
-          {visible.map((review) => (
-            <ReviewRow
-              key={review.id}
-              review={review}
+        <div className="grid gap-3">
+          {lineages.map((lineage) => (
+            <LineageBlock
+              key={lineage.key}
+              lineage={lineage}
               deleting={remove.isPending}
-              onDelete={() => remove.mutate(review.id)}
+              onDelete={(id) => remove.mutate(id)}
             />
           ))}
         </div>

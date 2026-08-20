@@ -163,29 +163,39 @@ def test_the_landing_page_leads_into_a_review(page, workspace_url: str) -> None:
 def test_a_review_produces_a_workbench_with_a_clarification(page, review_url: str) -> None:  # type: ignore[no-untyped-def]
     page.goto(review_url, wait_until="networkidle")
 
-    # The queue is the first thing a reviewer sees, and it opens on what needs a human.
+    # The queue is the page, not a tab on it, and it opens on what needs a human.
     page.get_by_text("Attention queue").first.wait_for(timeout=REVIEW_TIMEOUT_MS)
     page.get_by_text("The repository cannot answer these").wait_for(timeout=REVIEW_TIMEOUT_MS)
     assert _visible(page.get_by_role("button", name="Save and rejudge"))
     assert _visible(page.get_by_role("button", name="Conclude with remaining uncertainty"))
     assert _visible(page.get_by_text("Review lineage"))
 
-    # A finding reads as an assessment, with its provenance folded away until asked for.
+    # A finding reads as an assessment in three voices, with its provenance folded away
+    # until asked for.
     page.get_by_role("button", name="All", exact=False).click()
     page.get_by_role("list", name="Candidates").get_by_role("button").first.click()
-    assert _visible(page.get_by_text("Why this matters"))
-    assert _visible(page.get_by_text("Standing decision · human"))
+    assert _visible(page.get_by_text("Measured").first)
+    assert _visible(page.get_by_text("Judged").first)
+    assert _visible(page.get_by_text("Standing decision").first)
     assert page.get_by_text("judge:deterministic-v1").count() == 0
     page.get_by_role("button", name="Technical detail").click()
     assert _visible(page.get_by_text("judge:deterministic-v1").first)
 
-    # Retrieval is auditable from its own surface, naming the retriever that ran.
-    page.get_by_role("tab", name="Retrieval").click()
-    page.get_by_text("full-corpus-test-oracle").first.wait_for()
+    # Reading something else about the review does not cost the list.
+    page.get_by_role("tab", name="Delta").click()
+    assert _visible(page.get_by_role("list", name="Candidates"))
+    page.get_by_role("tab", name="Workbench").click()
 
-    # Deterministic retrieval takes the whole corpus and embeds nothing, and the provenance
-    # says exactly that rather than naming a model it never called.
-    assert _visible(page.get_by_text("non-embedding strategy").first)
+    # Retrieval is auditable from behind the judgement it audits, naming the retriever that
+    # ran — and deterministic retrieval takes the whole corpus and embeds nothing, which the
+    # provenance says rather than naming a model it never called.
+    page.get_by_role("button", name="Judgement context").first.click()
+    drawer = page.get_by_role("dialog", name="Judgement context")
+    drawer.wait_for()
+    drawer.get_by_role("tab", name="Provenance").click()
+    assert _visible(drawer.get_by_text("full-corpus-test-oracle").first)
+    assert _visible(drawer.get_by_text("non-embedding strategy").first)
+    drawer.get_by_role("button", name="Close panel").click()
 
     # The embedding this workspace would use is still stated in the shell, beside the
     # reasoning model, because they are two independent selections.

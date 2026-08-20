@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { useMemo } from "react";
 
 import { api, type Decision, type Finding, type Review } from "../../api";
@@ -49,19 +50,60 @@ export function deltaStateOf(review: Review, candidateId: string): string | null
   return null;
 }
 
+/** Whether this candidate is one of the ones that moved since the review before. */
+export function movedSincePrevious(review: Review, candidateId: string): boolean {
+  const state = deltaStateOf(review, candidateId);
+  return state === "new" || state === "changed";
+}
+
+/**
+ * Whether the team decided this against a judgement that has since changed.
+ *
+ * `StandingDecision` records the verdict it was taken against — that is what
+ * `finding_verdict` is for, and it crosses the boundary on every decision. Until now
+ * nothing in the interface read it, so a team that accepted a material finding and then saw
+ * it re-judged `held` after answering a clarification was never told: the row stayed
+ * settled and silent.
+ *
+ * The decision is not withdrawn or amended by this. It is a record and records do not
+ * change. What this says is that the record was made about something else.
+ */
+export function decisionIsStale(finding: Finding, decision?: Decision | null): boolean {
+  return Boolean(decision && decision.finding_verdict !== finding.verdict);
+}
+
 /**
  * Whether this candidate still wants something from a person.
  *
- * Two ways to stop wanting one: ArchCompass cleared it, or the team decided what to do
- * about it. The second is why this takes the decision — a waived material finding is
- * settled, and a queue that keeps asking about it is a queue people stop trusting.
+ * Three ways to stop wanting one: ArchCompass cleared it, or the team decided what to do
+ * about it, or both. The second is why this takes the decision — a waived material finding
+ * is settled, and a queue that keeps asking about it is a queue people stop trusting. The
+ * exception is a decision taken against a different verdict, which is not a settled
+ * question but an open one nobody has been shown yet.
  */
 export function needsAttention(finding: Finding, decision?: Decision | null): boolean {
+  if (decisionIsStale(finding, decision)) return true;
   return finding.verdict !== "cleared" && !decision;
 }
 
+/**
+ * The order a reviewer meets candidates in.
+ *
+ * What moved comes first. The charter says the second visit is the important one and that
+ * what a returning reviewer wants is the short list of what is different — and this sort
+ * used to be verdict rank and then the summary *alphabetically*, which put two new findings
+ * wherever their sentences happened to fall among thirty unchanged ones.
+ *
+ * Movement leads and the verdict orders within it, which is only an honest ranking because
+ * the list is grouped under headings that say so. A flat list that put a moved-and-cleared
+ * candidate above an unmoved material one would be claiming a priority nothing supports.
+ */
 export function orderedFindings(review: Review): Finding[] {
   return [...review.findings].sort((left, right) => {
+    const moved =
+      Number(movedSincePrevious(review, right.candidate.id)) -
+      Number(movedSincePrevious(review, left.candidate.id));
+    if (moved !== 0) return moved;
     const rank = verdictRank(left.verdict) - verdictRank(right.verdict);
     if (rank !== 0) return rank;
     return left.candidate.summary.localeCompare(right.candidate.summary);
@@ -78,13 +120,32 @@ export function inFilter(
   return needsAttention(finding, decision) === (filter === "attention");
 }
 
+/** The row a reader is on, moved by a key. Returns null when there is nowhere to go. */
+function neighbour(
+  ids: string[],
+  current: string | undefined,
+  step: number,
+): string | null {
+  if (!ids.length) return null;
+  const at = current ? ids.indexOf(current) : -1;
+  if (at === -1) return ids[step > 0 ? 0 : ids.length - 1];
+  const next = at + step;
+  if (next < 0 || next >= ids.length) return null;
+  return ids[next];
+}
+
 /**
  * The list a reviewer works down.
  *
- * Ordered by what needs a human rather than by detection order: material findings, then
- * held ones waiting on context, then everything that was cleared. Clarification sits at the
- * top when the review is waiting, because nothing below it can be finished until it is
- * answered.
+ * Ordered by what moved and then by what needs a human, and grouped so the second visit
+ * reads as the short list of what is different followed by everything carried forward.
+ * Clarification sits above both when the review is waiting, because nothing below it can be
+ * finished until it is answered.
+ *
+ * This is the one thing on the page that is touched a hundred times in a sitting, so it
+ * moves from the keyboard: the arrow keys and `j`/`k` walk the rows and open what they land
+ * on. That is not a shortcut for power users; it is the difference between triage and
+ * clicking.
  */
 export function AttentionQueue({
   review,
@@ -92,6 +153,7 @@ export function AttentionQueue({
   onSelect,
   filter,
   onFilterChange,
+  onReadReport,
   className,
 }: {
   review: Review;
@@ -99,6 +161,8 @@ export function AttentionQueue({
   onSelect: (selection: QueueSelection) => void;
   filter: QueueFilter;
   onFilterChange: (filter: QueueFilter) => void;
+  /** Offered when the review is worked through, because reading it is what happens next. */
+  onReadReport?: () => void;
   className?: string;
 }) {
   const list = useScrollEdges<HTMLDivElement>();
@@ -116,7 +180,12 @@ export function AttentionQueue({
   // Whatever is open stays listed. Deciding a candidate settles it, and a row vanishing from
   // under the cursor at the moment you act on it loses your place in the list — so the
   // counts move immediately and the row does not.
+  //
+  // Except when it was the last one. Holding a settled row in an otherwise empty attention
+  // filter says one thing still wants a person when nothing does, and deciding the last
+  // item is exactly the moment the page should say the work is finished.
   const visible =
+    matching.length &&
     selection?.kind === "finding" &&
     !matching.some((finding) => finding.candidate.id === selection.candidateId)
       ? findings.filter(
@@ -125,6 +194,53 @@ export function AttentionQueue({
         )
       : matching;
   const waiting = review.status === "awaiting_answers" && review.questions.length > 0;
+
+  // Two groups, and only when there is a review to have moved since and both groups have
+  // something in them. A heading over every row in the list is a heading that says nothing.
+  const moved = visible.filter((finding) => movedSincePrevious(review, finding.candidate.id));
+  const carried = visible.filter((finding) => !movedSincePrevious(review, finding.candidate.id));
+  const grouped = Boolean(review.previous_review_id) && moved.length > 0 && carried.length > 0;
+  const groups: Array<{ label: string | null; findings: Finding[] }> = grouped
+    ? [
+        { label: `Moved since review ${review.sequence - 1} · ${moved.length}`, findings: moved },
+        { label: `Carried forward · ${carried.length}`, findings: carried },
+      ]
+    : [{ label: null, findings: visible }];
+
+  /**
+   * Walk the rows.
+   *
+   * Bound to the scroller rather than to the document, so it never competes with a text
+   * field elsewhere on the page — and `j`/`k` are ignored while something typeable has
+   * focus, because a reviewer writing a waiver's reasoning means the letter.
+   */
+  function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement;
+    if (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) {
+      return;
+    }
+    const step =
+      event.key === "ArrowDown" || event.key === "j"
+        ? 1
+        : event.key === "ArrowUp" || event.key === "k"
+          ? -1
+          : 0;
+    if (!step) return;
+    const rows = Array.from(
+      list.ref.current?.querySelectorAll<HTMLButtonElement>("[data-candidate]") ?? [],
+    );
+    const next = neighbour(
+      rows.map((row) => row.dataset.candidate ?? ""),
+      selection?.kind === "finding" ? selection.candidateId : undefined,
+      step,
+    );
+    if (!next) return;
+    event.preventDefault();
+    onSelect({ kind: "finding", candidateId: next });
+    const row = rows.find((item) => item.dataset.candidate === next);
+    row?.focus();
+    row?.scrollIntoView?.({ block: "nearest" });
+  }
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
@@ -168,6 +284,7 @@ export function AttentionQueue({
           visible row sliced against the footer's rule with nothing saying there is more. */}
       <div
         ref={list.ref}
+        onKeyDown={onKeyDown}
         data-edge-top={list.edges.top}
         data-edge-bottom={list.edges.bottom}
         className="scroll-edge scrollbar-slim min-h-0 flex-1 overflow-y-auto overflow-x-clip"
@@ -200,95 +317,197 @@ export function AttentionQueue({
         ) : null}
 
         {!visible.length ? (
-          <EmptyState title={filter === "attention" ? "Nothing waiting" : "Nothing here"} className="border-0 bg-transparent py-8">
-            {filter === "attention"
-              ? "Everything in this review is either cleared or decided."
-              : "Choose another filter to see the rest of this review."}
-          </EmptyState>
+          filter === "attention" && !waiting && findings.length ? (
+            <WorkedThrough review={review} decisions={decisions} onReadReport={onReadReport} />
+          ) : (
+            <EmptyState
+              title={findings.length ? "Nothing here" : "No candidates"}
+              className="border-0 bg-transparent py-8"
+            >
+              {findings.length
+                ? "Choose another filter to see the rest of this review."
+                : "This review composed no findings. The delta still describes what was analysed."}
+            </EmptyState>
+          )
         ) : (
           <ul aria-label="Candidates" className="grid">
-            {visible.map((finding) => {
-              const descriptor = verdictOf(finding.verdict);
-              const active =
-                selection?.kind === "finding" && selection.candidateId === finding.candidate.id;
-              const decision = decisions.get(finding.candidate.id);
-              const disposition = decision ? dispositionOf(decision.disposition) : null;
-              const delta = deltaStateOf(review, finding.candidate.id);
-              const identity =
-                finding.candidate.participants[0]?.qualified_name ?? finding.candidate.summary;
-              const { namespace, leaf } = splitQualified(identity);
-              return (
-                <li key={finding.candidate.id}>
-                  <button
-                    type="button"
-                    onClick={() => onSelect({ kind: "finding", candidateId: finding.candidate.id })}
-                    aria-current={active ? "true" : undefined}
-                    title={identity}
-                    className={cn(
-                      "w-full border-b border-l-2 border-b-rule px-3 py-2.5 text-left transition",
-                      // Selection is weight and position, never colour: in this interface a
-                      // hue states a verdict, so a coloured row reads as a grade.
-                      active
-                        ? "border-l-ink bg-sunken"
-                        : "border-l-transparent hover:bg-sunken/60",
-                    )}
-                  >
-                    <div className="grid grid-cols-[0.75rem_minmax(0,1fr)] gap-2.5">
-                      {/* Where the verdict glyph used to sit. The glyph moved down beside its
-                          own word, which is where it always belonged, and the column now
-                          carries how far through the three jobs this candidate is. */}
-                      <Spine
-                        verdict={finding.verdict}
-                        decided={Boolean(disposition)}
-                        className="mt-[3px]"
-                      />
-                      <span className="min-w-0">
-                        {namespace ? (
-                          <span className="block truncate font-mono text-[10.5px] text-ink-3">
-                            {namespace}
-                          </span>
-                        ) : null}
-                        <span className="block line-clamp-2 font-mono text-[12.5px] font-medium leading-[1.35] text-ink [overflow-wrap:anywhere]">
-                          {leaf}
-                        </span>
-                        <span className="mt-0.5 block line-clamp-2 text-[12.5px] leading-[1.4] text-ink-2 [overflow-wrap:anywhere]">
-                          {finding.candidate.summary}
-                        </span>
-                        <span className="mt-1 block truncate text-[10.5px] text-ink-3">
-                          <span
-                            className={cn(
-                              "font-semibold",
-                              descriptor.tone === "material" && "text-material",
-                              descriptor.tone === "held" && "text-held",
-                              descriptor.tone === "cleared" && "text-cleared",
-                            )}
-                          >
-                            <span aria-hidden="true" className="mr-1">
-                              {descriptor.glyph}
-                            </span>
-                            {descriptor.label}
-                          </span>
-                          {" · "}
-                          {humanise(finding.candidate.pattern)}
-                          {delta ? ` · ${humanise(delta)}` : ""}
-                        </span>
-                        {/* The verdict is ArchCompass's; this is the team's, and the two are
-                            never merged into one word. It is the row's last line because it
-                            is the newest thing to have happened to the candidate. */}
-                        {disposition ? (
-                          <span className="mt-1 flex items-center gap-1 text-[10.5px] font-semibold text-ink-2">
-                            <span aria-hidden="true">{disposition.glyph}</span>
-                            {disposition.label} by the team
-                          </span>
-                        ) : null}
-                      </span>
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
+            {groups.map((group) => (
+              <li key={group.label ?? "all"}>
+                {group.label ? (
+                  <h3 className="sticky top-0 z-10 border-b border-rule-strong bg-surface-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-ink-3">
+                    {group.label}
+                  </h3>
+                ) : null}
+                <ul className="grid">
+                  {group.findings.map((finding) => (
+                    <QueueRow
+                      key={finding.candidate.id}
+                      review={review}
+                      finding={finding}
+                      decision={decisions.get(finding.candidate.id)}
+                      active={
+                        selection?.kind === "finding" &&
+                        selection.candidateId === finding.candidate.id
+                      }
+                      onSelect={() =>
+                        onSelect({ kind: "finding", candidateId: finding.candidate.id })
+                      }
+                    />
+                  ))}
+                </ul>
+              </li>
+            ))}
           </ul>
         )}
+      </div>
+    </div>
+  );
+}
+
+function QueueRow({
+  review,
+  finding,
+  decision,
+  active,
+  onSelect,
+}: {
+  review: Review;
+  finding: Finding;
+  decision?: Decision;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const descriptor = verdictOf(finding.verdict);
+  const disposition = decision ? dispositionOf(decision.disposition) : null;
+  const stale = decisionIsStale(finding, decision);
+  const delta = deltaStateOf(review, finding.candidate.id);
+  const identity = finding.candidate.participants[0]?.qualified_name ?? finding.candidate.summary;
+  const { namespace, leaf } = splitQualified(identity);
+
+  return (
+    <li>
+      <button
+        type="button"
+        data-candidate={finding.candidate.id}
+        onClick={onSelect}
+        aria-current={active ? "true" : undefined}
+        title={identity}
+        className={cn(
+          "w-full border-b border-l-2 border-b-rule px-3 py-2.5 text-left transition",
+          // Selection is weight and position, never colour: in this interface a hue states
+          // a verdict, so a coloured row reads as a grade.
+          active ? "border-l-ink bg-sunken" : "border-l-transparent hover:bg-sunken/60",
+        )}
+      >
+        <div className="grid grid-cols-[0.75rem_minmax(0,1fr)] gap-2.5">
+          {/* Where the verdict glyph used to sit. The glyph moved down beside its own word,
+              which is where it always belonged, and the column now carries how far through
+              the three jobs this candidate is. */}
+          <Spine
+            verdict={finding.verdict}
+            decided={Boolean(disposition) && !stale}
+            className="mt-[3px]"
+          />
+          <span className="min-w-0">
+            {namespace ? (
+              <span className="block truncate font-mono text-[10.5px] text-ink-3">{namespace}</span>
+            ) : null}
+            <span className="block line-clamp-2 font-mono text-[12.5px] font-medium leading-[1.35] text-ink [overflow-wrap:anywhere]">
+              {leaf}
+            </span>
+            <span className="mt-0.5 block line-clamp-2 text-[12.5px] leading-[1.4] text-ink-2 [overflow-wrap:anywhere]">
+              {finding.candidate.summary}
+            </span>
+            <span className="mt-1 block truncate text-[10.5px] text-ink-3">
+              <span
+                className={cn(
+                  "font-semibold",
+                  descriptor.tone === "material" && "text-material",
+                  descriptor.tone === "held" && "text-held",
+                  descriptor.tone === "cleared" && "text-cleared",
+                )}
+              >
+                <span aria-hidden="true" className="mr-1">
+                  {descriptor.glyph}
+                </span>
+                {descriptor.label}
+              </span>
+              {" · "}
+              {humanise(finding.candidate.pattern)}
+              {delta ? ` · ${humanise(delta)}` : ""}
+            </span>
+            {/* The verdict is ArchCompass's; this is the team's, and the two are never
+                merged into one word. It is the row's last line because it is the newest
+                thing to have happened to the candidate — unless the judgement moved
+                underneath it, in which case that is the newest thing. */}
+            {stale && decision ? (
+              <span className="mt-1 flex items-start gap-1 text-[10.5px] font-semibold leading-snug text-ink">
+                <span aria-hidden="true">↺</span>
+                {dispositionOf(decision.disposition).label} against{" "}
+                {verdictOf(decision.finding_verdict).label.toLowerCase()} — now{" "}
+                {descriptor.label.toLowerCase()}
+              </span>
+            ) : disposition ? (
+              <span className="mt-1 flex items-center gap-1 text-[10.5px] font-semibold text-ink-2">
+                <span aria-hidden="true">{disposition.glyph}</span>
+                {disposition.label} by the team
+              </span>
+            ) : null}
+          </span>
+        </div>
+      </button>
+    </li>
+  );
+}
+
+/**
+ * The end of the work, said as the end of the work.
+ *
+ * The charter's rule is that the queue is the product and that every surface is the list,
+ * something that helps decide an item, or the record of what was decided. Reaching the
+ * bottom of the list is the one moment worth marking, and it used to be an empty state
+ * reading "Nothing here".
+ */
+function WorkedThrough({
+  review,
+  decisions,
+  onReadReport,
+}: {
+  review: Review;
+  decisions: Map<string, Decision>;
+  onReadReport?: () => void;
+}) {
+  const decided = review.findings.filter((finding) => decisions.has(finding.candidate.id)).length;
+  const cleared = review.findings.filter((finding) => finding.verdict === "cleared").length;
+  return (
+    <div className="px-3 py-6">
+      <div className="text-[10px] font-bold uppercase tracking-[0.13em] text-cleared">
+        <span aria-hidden="true" className="mr-1.5">
+          ●
+        </span>
+        <span>Worked through</span>
+      </div>
+      <p className="mt-2 text-[13px] leading-6 text-ink-2">
+        Nothing in this review is waiting on a person.{" "}
+        {plural(decided, "candidate")} {decided === 1 ? "was" : "were"} decided by the team and{" "}
+        {plural(cleared, "other")} came back cleared.
+      </p>
+      <div className="mt-3 grid gap-1.5">
+        {review.status === "completed" && onReadReport ? (
+          <button
+            type="button"
+            onClick={onReadReport}
+            className="rounded-sm border border-rule-strong px-2.5 py-1.5 text-left text-xs font-semibold text-ink transition hover:bg-sunken"
+          >
+            Read the report →
+          </button>
+        ) : null}
+        <Link
+          to="/start"
+          className="rounded-sm border border-rule px-2.5 py-1.5 text-xs font-semibold text-ink-2 transition hover:border-rule-strong hover:text-ink"
+        >
+          Run the next review →
+        </Link>
       </div>
     </div>
   );

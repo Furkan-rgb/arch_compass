@@ -2,15 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { api, type Decision, type Review } from "../../api";
+import { api, type Finding, type Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { useIsTabletUp } from "../../lib/media";
-import { type Tone, relativeTime, repositoryName, shortId, verdictOf } from "../../lib/format";
-import { StatusBadge, Tag } from "../../ui/badge";
+import { relativeTime, repositoryName, shortId } from "../../lib/format";
+import { StatusBadge } from "../../ui/badge";
 import { Button, ButtonLink } from "../../ui/button";
 import { Drawer } from "../../ui/drawer";
-import { GitBranchIcon } from "../../ui/icons";
-import { Mono, PathRef, TONE_TEXT } from "../../ui/meta";
 import { Panel, PanelBody } from "../../ui/panel";
 import { ErrorNotice, LoadingPanel } from "../../ui/states";
 import { Tabs, TabPanel } from "../../ui/tabs";
@@ -27,25 +25,34 @@ import { ClarificationRound } from "./clarification";
 import { ContextRail } from "./context-rail";
 import { FindingBackBar, FindingDetail } from "./finding-detail";
 import { RevisionRail, lineageOf } from "./revision-rail";
-import {
-  AskSurface,
-  AtlasSurface,
-  DeltaSurface,
-  EvidenceSurface,
-  ProvenanceSurface,
-  ReportSurface,
-} from "./surfaces";
+import { AskSurface, DeltaSurface, ReportSurface } from "./surfaces";
 
+/**
+ * What the detail column is showing.
+ *
+ * These used to be seven peers across the top of the whole page, and six of them unmounted
+ * the queue — which the charter calls the product. They were never views of the review;
+ * they were modes of the column beside the queue, and they are labelled and placed as that
+ * now. Evidence and Retrieval are gone: both printed, one click further away, what the open
+ * finding and its judgement context already show. Atlas is gone from here and scoped to the
+ * selected candidate inside the judgement context, because an unscoped repository search
+ * helps decide nothing in particular.
+ */
 const SURFACES = [
   { id: "workbench", label: "Workbench" },
   { id: "delta", label: "Delta" },
-  { id: "atlas", label: "Atlas" },
-  { id: "evidence", label: "Evidence" },
-  { id: "retrieval", label: "Retrieval" },
   { id: "report", label: "Report" },
   { id: "ask", label: "Ask" },
 ];
 
+/**
+ * Which review this is, in one line.
+ *
+ * The heading was "Architecture review of payments-platform" at 30px — the largest type on
+ * the page spent on the fact its reader was least in doubt about. What identifies a review
+ * is the repository, the branch and the commit it read, so that is the heading, in the
+ * measured voice, and it fits on one line with the status and the way out.
+ */
 function ReviewHead({
   review,
   onCancel,
@@ -59,123 +66,53 @@ function ReviewHead({
 }) {
   const waiting = review.status === "awaiting_answers" && review.questions.length > 0;
   return (
-    <header className="mb-5">
-      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-        <div className="min-w-0">
-          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-3">
-            Review {review.sequence} · case revision {review.case.revision}
-          </div>
-          <h1 className="mt-1.5 max-w-3xl font-display text-2xl font-semibold tracking-[-0.02em] text-ink sm:text-[30px]">
-            {`Architecture review of ${repositoryName(review.repository.path)}`}
-          </h1>
-          <div className="mt-2.5 flex max-w-full flex-wrap items-center gap-1.5">
-            <PathRef path={review.repository.path} className="min-w-0" />
-            {review.repository.branch ? (
-              <Tag>
-                {/* The icon carries the noun, so the pill can spend its width on the name.
-                    It stays labelled for anything not reading the shape. */}
-                <GitBranchIcon className="size-3.5 shrink-0 text-ink-3" aria-hidden="true" />
-                <span className="sr-only">branch</span>
-                {review.repository.branch}
-              </Tag>
-            ) : null}
-            {review.repository.commit ? (
-              <Tag>
-                <Mono className="text-[11px]">{shortId(review.repository.commit, 10)}</Mono>
-              </Tag>
-            ) : null}
-            <Tag>started {relativeTime(review.started_at)}</Tag>
-            <StatusBadge status={review.status} />
-          </div>
+    <header className="mb-4 flex flex-col justify-between gap-3 border-b border-rule pb-4 lg:flex-row lg:items-end">
+      <div className="min-w-0">
+        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-3">
+          Review {review.sequence} · case revision {review.case.revision} · started{" "}
+          {relativeTime(review.started_at)}
         </div>
-
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {waiting ? (
+        <h1 className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[17px] leading-tight tracking-[-0.01em] text-ink-3 sm:text-[19px]">
+          <span className="font-medium text-ink [overflow-wrap:anywhere]">
+            {repositoryName(review.repository.path)}
+          </span>
+          {review.repository.branch ? (
             <>
-              <Button onClick={onAnswer}>Answer {review.questions.length}</Button>
-              <Button variant="danger" disabled={cancelling} onClick={onCancel}>
-                Cancel review
-              </Button>
+              <span aria-hidden="true">·</span>
+              <span className="[overflow-wrap:anywhere]">{review.repository.branch}</span>
             </>
-          ) : (
-            <ButtonLink to="/start" variant="secondary">
-              Run a new review
-            </ButtonLink>
-          )}
-        </div>
+          ) : null}
+          {review.repository.commit ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="text-[0.85em]">{shortId(review.repository.commit, 10)}</span>
+            </>
+          ) : null}
+        </h1>
+        <p
+          title={review.repository.path}
+          className="mt-1.5 truncate font-mono text-[11px] text-ink-3"
+        >
+          {review.repository.path}
+        </p>
+      </div>
+
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <StatusBadge status={review.status} />
+        {waiting ? (
+          <>
+            <Button onClick={onAnswer}>Answer {review.questions.length}</Button>
+            <Button variant="danger" disabled={cancelling} onClick={onCancel}>
+              Cancel review
+            </Button>
+          </>
+        ) : (
+          <ButtonLink to="/start" variant="secondary">
+            Run a new review
+          </ButtonLink>
+        )}
       </div>
     </header>
-  );
-}
-
-function StatusRibbon({
-  review,
-  decisions,
-}: {
-  review: Review;
-  decisions: Map<string, Decision>;
-}) {
-  const attention = review.findings.filter((finding) =>
-    needsAttention(finding, decisions.get(finding.candidate.id)),
-  ).length;
-  const decided = review.findings.filter((finding) =>
-    decisions.has(finding.candidate.id),
-  ).length;
-  const material = review.findings.filter((finding) => finding.verdict === "material").length;
-  const held = review.findings.filter((finding) => finding.verdict === "held").length;
-  const policies = new Set(
-    review.retrieval_manifest.flatMap((item) => item.selected_policy_ids),
-  ).size;
-  const waiting = review.status === "awaiting_answers" ? review.questions.length : 0;
-
-  // A line rather than a panel of four big numbers: this is orientation, read once, and it
-  // used to cost about 120px above the work it was orienting you to.
-  // The first cell counts what a person still has to deal with, so it is the one cell that
-  // carries a verdict's tone — taken from the table that decides them rather than written
-  // out here, because a hue written out here is one nothing stops from spreading.
-  const cells: Array<[number, string, Tone | null]> = [
-    [attention + waiting, `need you · ${material} material · ${held} held`, verdictOf("material").tone],
-    // The team's half of the review, counted next to ArchCompass's, because "how far
-    // through this am I" is answered by decisions and not by verdicts.
-    [decided, "decided by the team", null],
-    [review.findings.length, "judged", null],
-    [policies, "policies retrieved", null],
-    [
-      review.delta.new.length + review.delta.changed.length,
-      review.previous_review_id ? `new or changed since review ${review.sequence - 1}` : "new",
-      null,
-    ],
-  ];
-
-  // Readings on a scale rather than five boxed numbers. A count here is orientation, read
-  // once on the way to the queue, and the charter is explicit that a number nobody acts on
-  // is decoration — so it sits on a rule like an instrument's scale instead of in a card
-  // that asks to be looked at.
-  return (
-    <div className="mb-5 flex flex-wrap items-end border-b border-rule">
-      {cells.map(([value, label, tone], index) => (
-        <div
-          key={label}
-          className={cn(
-            "relative pb-3 pr-7",
-            index < cells.length - 1 &&
-              "mr-7 after:absolute after:bottom-0 after:right-0 after:h-2.5 after:w-px after:bg-rule-strong",
-          )}
-        >
-          <div
-            className={cn(
-              "font-mono text-[21px] font-medium leading-none tabular-nums tracking-[-0.02em]",
-              tone && value > 0 ? TONE_TEXT[tone] : "text-ink",
-            )}
-          >
-            {value}
-          </div>
-          <div className="mt-2 text-[10.5px] font-semibold uppercase tracking-[0.11em] text-ink-3">
-            {label}
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -190,9 +127,6 @@ export function ReviewPage() {
   const [selection, setSelection] = useState<QueueSelection | null>(null);
   const [contextOpen, setContextOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
-  // Choosing what to look at and working down the list are different jobs; the rail is only
-  // needed for the first, so it can be put away for the second.
-  const [railOpen, setRailOpen] = useState(true);
 
   const review = useQuery({ queryKey: ["review", reviewId], queryFn: () => api.review(reviewId) });
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: api.reviews });
@@ -247,6 +181,23 @@ export function ReviewPage() {
       ? (value?.findings.find((finding) => finding.candidate.id === active.candidateId) ?? null)
       : null;
 
+  /**
+   * The next thing that still wants a person, in the order the queue lists them.
+   *
+   * Offered at the foot of a finding rather than jumped to when a decision is recorded:
+   * deciding something and being moved somewhere else without being asked is the interface
+   * concluding you were finished, which is the one thing the charter says never to do on a
+   * person's behalf.
+   */
+  const nextUp = useMemo<Finding | null>(() => {
+    if (!value || active?.kind !== "finding") return null;
+    const outstanding = orderedFindings(value).filter((finding) =>
+      needsAttention(finding, decisions.get(finding.candidate.id)),
+    );
+    const at = outstanding.findIndex((finding) => finding.candidate.id === active.candidateId);
+    return at === -1 ? (outstanding[0] ?? null) : (outstanding[at + 1] ?? null);
+  }, [value, active, decisions]);
+
   if (review.isLoading) return <LoadingPanel label="Opening the review…" rows={5} />;
   if (review.error || !value) {
     return <ErrorNotice error={review.error || new Error("That review could not be found")} />;
@@ -255,6 +206,9 @@ export function ReviewPage() {
   function select(next: QueueSelection) {
     setSelection(next);
     setQueueOpen(false);
+    // The queue's job is to hand the column an item; a mode that ignored what it handed
+    // over would make the list ornamental.
+    setSurface("workbench");
   }
 
   /**
@@ -270,7 +224,6 @@ export function ReviewPage() {
     if (finding && !inFilter(finding, filter, decisions.get(candidateId))) {
       setFilter(needsAttention(finding, decisions.get(candidateId)) ? "attention" : "settled");
     }
-    setSurface("workbench");
     select({ kind: "finding", candidateId });
   }
 
@@ -281,14 +234,16 @@ export function ReviewPage() {
       <FindingDetail
         review={value}
         finding={selectedFinding}
+        next={nextUp}
+        onNext={nextUp ? () => select({ kind: "finding", candidateId: nextUp.candidate.id }) : undefined}
+        onAnswer={() => select({ kind: "clarification" })}
         onOpenContext={() => setContextOpen(true)}
       />
     ) : (
       <Panel>
         <PanelBody>
           <p className="text-sm text-ink-3">
-            This review composed no findings. The delta and atlas surfaces still describe what was
-            analysed.
+            This review composed no findings. The delta still describes what was analysed.
           </p>
         </PanelBody>
       </Panel>
@@ -301,6 +256,7 @@ export function ReviewPage() {
       onSelect={select}
       filter={filter}
       onFilterChange={setFilter}
+      onReadReport={() => setSurface("report")}
       className="min-h-0 flex-1"
     />
   );
@@ -311,108 +267,82 @@ export function ReviewPage() {
         review={value}
         cancelling={cancel.isPending}
         onCancel={() => cancel.mutate()}
-        onAnswer={() => {
-          setSurface("workbench");
-          select({ kind: "clarification" });
-        }}
+        onAnswer={() => select({ kind: "clarification" })}
       />
 
       {value.failure ? (
-        <div className="mb-5">
+        <div className="mb-4">
           <ErrorNotice error={new Error(value.failure)} title="This review failed" />
         </div>
       ) : null}
 
-      <StatusRibbon review={value} decisions={decisions} />
+      {/* The queue is the page, not a tab on it. Every mode of the column beside it is read
+          with the list still on screen, because choosing what to look at next is what a
+          reviewer is doing between every other action. */}
+      <div
+        className={cn(
+          "grid min-h-0 items-start gap-6",
+          isTabletUp && "lg:grid-cols-[19rem_minmax(0,1fr)]",
+        )}
+      >
+        {isTabletUp ? (
+          <div className="grid gap-4 lg:sticky lg:top-20">
+            {/* The height has to be spent, not just capped: the queue's own scroller only
+                bounds itself if this box lays its children out as a column with a height
+                to divide. Capped alone, the list overruns and the clip eats its last row. */}
+            <Panel className="flex max-h-[calc(100vh-8rem)] flex-col overflow-hidden">{queue}</Panel>
+            <Panel>
+              <RevisionRail
+                reviews={lineageOf(
+                  reviews.data ?? [value],
+                  value.repository.branch_id,
+                  value.case.id,
+                )}
+                currentReviewId={value.id}
+                pending={pendingRun}
+              />
+            </Panel>
+          </div>
+        ) : null}
 
-      <Tabs
-        label="Review surfaces"
-        items={SURFACES}
-        active={surface}
-        onChange={setSurface}
-        className="mb-5"
-      />
+        <div className="min-w-0">
+          <Tabs
+            label="What to read about this review"
+            items={SURFACES}
+            active={surface}
+            onChange={setSurface}
+            className="mb-4"
+          />
 
-      <TabPanel id="workbench" active={surface}>
-        <div
-          className={cn(
-            "grid min-h-0 items-start gap-6",
-            isTabletUp && railOpen
-              ? "lg:grid-cols-[19rem_minmax(0,1fr)]"
-              : "grid-cols-1",
-          )}
-        >
-          {isTabletUp && railOpen ? (
-            <div className="grid gap-4 lg:sticky lg:top-20">
-              {/* The height has to be spent, not just capped: the queue's own scroller only
-                  bounds itself if this box lays its children out as a column with a height
-                  to divide. Capped alone, the list overruns and the clip eats its last row. */}
-              <Panel className="flex max-h-[calc(100vh-9rem)] flex-col overflow-hidden">
-                {queue}
-                <button
-                  type="button"
-                  onClick={() => setRailOpen(false)}
-                  className="w-full shrink-0 border-t border-rule px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-3 transition hover:bg-sunken hover:text-ink"
-                >
-                  Hide the queue
-                </button>
-              </Panel>
-              <Panel>
-                <RevisionRail
-                  reviews={lineageOf(
-                    reviews.data ?? [value],
-                    value.repository.branch_id,
-                    value.case.id,
-                  )}
-                  currentReviewId={value.id}
-                  pending={pendingRun}
-                />
-              </Panel>
+          {!isTabletUp ? (
+            <div className="mb-3">
+              <Button variant="secondary" size="sm" onClick={() => setQueueOpen(true)}>
+                Attention queue
+              </Button>
             </div>
           ) : null}
 
-          <div className="min-w-0">
-            <div className="mb-3 flex flex-wrap gap-2">
-              {isTabletUp && !railOpen ? (
-                <Button variant="secondary" size="sm" onClick={() => setRailOpen(true)}>
-                  Show the queue
-                </Button>
-              ) : null}
-              {!isTabletUp ? (
-                <Button variant="secondary" size="sm" onClick={() => setQueueOpen(true)}>
-                  Attention queue
-                </Button>
-              ) : null}
-            </div>
+          <TabPanel id="workbench" active={surface}>
             {!isTabletUp && selectedFinding ? (
               <FindingBackBar finding={selectedFinding} onBack={() => setQueueOpen(true)} />
             ) : null}
             {detail}
-          </div>
-        </div>
-      </TabPanel>
+          </TabPanel>
 
-      <TabPanel id="delta" active={surface}>
-        {/* Seeing that something changed and looking at it are one action, not two: the
-            delta hands the candidate to the workbench rather than naming it and leaving
-            the reader to find it in the queue. */}
-        <DeltaSurface review={value} onOpen={open} />
-      </TabPanel>
-      <TabPanel id="atlas" active={surface}>
-        <AtlasSurface review={value} />
-      </TabPanel>
-      <TabPanel id="evidence" active={surface}>
-        <EvidenceSurface review={value} />
-      </TabPanel>
-      <TabPanel id="retrieval" active={surface}>
-        <ProvenanceSurface review={value} />
-      </TabPanel>
-      <TabPanel id="report" active={surface}>
-        <ReportSurface review={value} />
-      </TabPanel>
-      <TabPanel id="ask" active={surface}>
-        <AskSurface review={value} onOpen={open} />
-      </TabPanel>
+          <TabPanel id="delta" active={surface}>
+            {/* Seeing that something changed and looking at it are one action, not two: the
+                delta hands the candidate to the workbench rather than naming it and leaving
+                the reader to find it in the queue. */}
+            <DeltaSurface review={value} onOpen={open} />
+          </TabPanel>
+          <TabPanel id="report" active={surface}>
+            <ReportSurface review={value} />
+          </TabPanel>
+          <TabPanel id="ask" active={surface}>
+            <AskSurface review={value} onOpen={open} />
+          </TabPanel>
+        </div>
+      </div>
 
       <Drawer
         open={queueOpen}
@@ -425,15 +355,15 @@ export function ReviewPage() {
       </Drawer>
 
       {/* The finding is one reading column registered against the attribution gutter, so
-          the case, the policies and the provenance behind a judgement are one action away
-          rather than crowding a second margin. Opened at every width, not only the narrow
-          ones — there is no inline margin left at any width. */}
+          the case, the policies, the structure around it and the provenance behind a
+          judgement are one action away rather than crowding a second margin. Opened at
+          every width, not only the narrow ones — there is no inline margin left at any. */}
       <Drawer
         open={contextOpen}
         onClose={() => setContextOpen(false)}
         side="right"
         title="Judgement context"
-        description="Case, policies and provenance"
+        description="Case, policies, structure and provenance"
       >
         <ContextRail review={value} finding={selectedFinding} />
       </Drawer>

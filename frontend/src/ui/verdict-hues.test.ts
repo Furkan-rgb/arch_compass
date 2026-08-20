@@ -40,6 +40,10 @@ const ALLOWED = new Map([
   ["ui/button.tsx", "the destructive variant is the red end of the scale"],
   ["features/review/clarification.tsx", "the review is held for exactly as long as this shows"],
   ["features/review/finding-detail.tsx", "the hinge note is what a held verdict turns on"],
+  [
+    "features/review/decision-bar.tsx",
+    "a decision taken against a verdict that has since moved is waiting on a person again",
+  ],
   ["features/review/attention-queue.tsx", "the clarification row, shown only while held"],
   ["features/review/surfaces.tsx", "an addressed candidate is one that is settled"],
   ["features/landing/preview.tsx", "a mock workbench; those really are verdicts"],

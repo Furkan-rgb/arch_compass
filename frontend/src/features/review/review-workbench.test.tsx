@@ -130,7 +130,7 @@ describe("the review workbench", () => {
     expect(await screen.findByText(/ArchCompass does not decide this/)).toBeInTheDocument();
     // Waiving without a reason is refused by the form itself, not by the server.
     expect(screen.getByRole("button", { name: "Waive" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Accept the work" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept and act" }));
     await waitFor(() =>
       expect(decide).toHaveBeenCalledWith("review-1", "candidate-2", "accept", null),
     );
@@ -395,19 +395,174 @@ describe("the review workbench", () => {
     expect(within(queue).getByText("The invoice boundary is appropriate")).toBeInTheDocument();
   });
 
-  it("exposes retrieval provenance on its own surface", async () => {
+  it("keeps the audit behind the judgement it audits", async () => {
+    // Retrieval provenance was a surface of its own, sitting beside the queue as though a
+    // reviewer working down a list might switch to reading corpus fingerprints. It answers
+    // "why this candidate", so it belongs where that candidate is.
     const review = reviewFixture({ status: "completed", questions: [] });
     vi.spyOn(api, "review").mockResolvedValue(review);
     vi.spyOn(api, "reviews").mockResolvedValue([review]);
 
     render(wrap(<ReviewPage />));
 
-    fireEvent.click(await screen.findByRole("tab", { name: /Retrieval/ }));
-    const panel = screen.getByRole("tabpanel");
-    expect(panel).toHaveAttribute("aria-labelledby", "tab-retrieval");
-    expect(within(panel).getByText(/dense-scoped/)).toBeInTheDocument();
-    expect(within(panel).getByText("corpus-fingerprint")).toBeInTheDocument();
-    expect(within(panel).getByText("ollama:nomic-embed-text")).toBeInTheDocument();
+    const queue = await screen.findByRole("list", { name: "Candidates" });
+    fireEvent.click(within(queue).getAllByRole("button")[1]);
+    fireEvent.click(await screen.findByRole("button", { name: "Judgement context" }));
+
+    const drawer = await screen.findByRole("dialog", { name: "Judgement context" });
+    fireEvent.click(within(drawer).getByRole("tab", { name: /Provenance/ }));
+    expect(within(drawer).getByText(/dense-scoped/)).toBeInTheDocument();
+    expect(within(drawer).getByText("corpus-fingerprint")).toBeInTheDocument();
+    expect(within(drawer).getByText("ollama:nomic-embed-text")).toBeInTheDocument();
+  });
+
+  it("keeps the queue on screen while another surface is read", async () => {
+    // The charter's first interface rule is that the queue is the product. It used to be
+    // one of seven peer tabs, six of which unmounted it.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Delta/ }));
+    expect(screen.getByRole("list", { name: "Candidates" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: /Ask/ }));
+    expect(screen.getByRole("list", { name: "Candidates" })).toBeInTheDocument();
+  });
+
+  it("walks the queue with the keyboard and opens what it lands on", async () => {
+    // The most repeated action in the product, and it was pointer-only.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    const queue = await screen.findByRole("list", { name: "Candidates" });
+    const first = within(queue).getAllByRole("button")[0];
+    expect(first).toHaveAttribute("aria-current", "true");
+
+    fireEvent.keyDown(first, { key: "j" });
+    const moved = within(screen.getByRole("list", { name: "Candidates" })).getAllByRole("button");
+    expect(moved[1]).toHaveAttribute("aria-current", "true");
+    // And the column beside it is showing what the queue landed on.
+    await waitFor(() =>
+      expect(document.querySelector("#finding-candidate-1")).not.toBeNull(),
+    );
+
+    fireEvent.keyDown(moved[1], { key: "ArrowUp" });
+    const back = within(screen.getByRole("list", { name: "Candidates" })).getAllByRole("button");
+    expect(back[0]).toHaveAttribute("aria-current", "true");
+  });
+
+  it("puts what moved since the last review at the top of the queue", async () => {
+    // The second visit is the important one: the sort used to be verdict rank and then the
+    // summary alphabetically, which knew nothing about the delta at all.
+    const review = reviewFixture({
+      status: "completed",
+      questions: [],
+      sequence: 2,
+      previous_review_id: "review-0",
+      delta: {
+        unchanged: ["candidate-1", "candidate-2"],
+        changed: [],
+        new: ["candidate-3"],
+        addressed: [],
+      },
+    });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(await screen.findByRole("button", { name: /^All/ }));
+    const queue = await screen.findByRole("list", { name: "Candidates" });
+    expect(within(queue).getByText("Moved since review 1 · 1")).toBeInTheDocument();
+    expect(within(queue).getByText("Carried forward · 2")).toBeInTheDocument();
+    // The one that moved leads, even though it came back cleared and two material and held
+    // candidates were carried forward — the headings are what make that honest.
+    const rows = within(queue).getAllByRole("button");
+    expect(rows[0].textContent).toContain("The invoice boundary is appropriate");
+  });
+
+  it("marks a review that is worked through, rather than showing an empty list", async () => {
+    // Reaching the bottom of the queue is the one moment in the product worth marking, and
+    // it used to be an empty state reading "Nothing here".
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "decisions").mockResolvedValue({
+      branch_id: "branch-1",
+      decisions: ["candidate-1", "candidate-2"].map((candidate_id, index) => ({
+        id: `decision-${index}`,
+        branch_id: "branch-1",
+        candidate_id,
+        disposition: "accept",
+        author: "user",
+        reasoning: null,
+        decided_at: "2026-01-01T00:00:00Z",
+        review_id: "review-1",
+        // Decided against exactly what this review says, so nothing is re-raised.
+        finding_verdict: candidate_id === "candidate-1" ? "held" : "material",
+        finding_model_identity: "fake:deterministic",
+        finding_prompt_identity: "judge:v1",
+        finding_retrieval_identity: "retrieval-1",
+      })),
+    });
+
+    render(wrap(<ReviewPage />));
+
+    expect(await screen.findByText("Worked through")).toBeInTheDocument();
+    expect(screen.getByText(/Nothing in this review is waiting on a person/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Read the report/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Run the next review/ })).toBeInTheDocument();
+
+    // And it is a way into the record, not a dead end.
+    fireEvent.click(screen.getByRole("button", { name: /Read the report/ }));
+    expect(screen.getByRole("tab", { name: /Report/ })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("re-raises a decision taken against a verdict that has since moved", async () => {
+    // `StandingDecision` records the verdict it was decided against. Nothing read it, so a
+    // team that accepted a material finding and saw it re-judged held was never told.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "decisions").mockResolvedValue({
+      branch_id: "branch-1",
+      decisions: [
+        {
+          id: "decision-1",
+          branch_id: "branch-1",
+          candidate_id: "candidate-1",
+          disposition: "accept",
+          author: "user",
+          reasoning: null,
+          decided_at: "2026-01-01T00:00:00Z",
+          review_id: "review-0",
+          finding_verdict: "material",
+          finding_model_identity: "fake:deterministic",
+          finding_prompt_identity: "judge:v1",
+          finding_retrieval_identity: "retrieval-1",
+        },
+      ],
+    });
+
+    render(wrap(<ReviewPage />));
+
+    // Still in the attention filter, which counts what wants a person, and saying why.
+    const queue = await screen.findByRole("list", { name: "Candidates" });
+    const stale = within(queue)
+      .getAllByRole("button")
+      .find((row) => row.textContent?.includes("Domain depends on an adapter"))!;
+    expect(stale.textContent).toContain("against material");
+    expect(stale.textContent).toContain("now held");
+
+    fireEvent.click(stale);
+    expect(
+      await screen.findByText("Decided against a different verdict"),
+    ).toBeInTheDocument();
   });
 
   it("keeps separate lines of questioning apart, and lets one be thrown away", async () => {

@@ -44,10 +44,17 @@ function Footnote({ children }: { children: React.ReactNode }) {
 export function FindingDetail({
   review,
   finding,
+  next,
+  onNext,
+  onAnswer,
   onOpenContext,
 }: {
   review: Review;
   finding: Finding;
+  /** The next candidate still wanting a person, so the control can name where it goes. */
+  next?: Finding | null;
+  onNext?: () => void;
+  onAnswer?: () => void;
   onOpenContext?: () => void;
 }) {
   const [technical, setTechnical] = useState(false);
@@ -61,6 +68,14 @@ export function FindingDetail({
   const answered = review.case.answers.filter((answer) => answer.status === "answered");
   const decision = decisions.get(finding.candidate.id);
   const identity = finding.candidate.participants[0]?.qualified_name;
+  // A held verdict says it is waiting on a person. Which person, and on what — the open
+  // question that would settle it, if the round is still open.
+  const waitingOn =
+    review.status === "awaiting_answers"
+      ? review.questions.find((question) =>
+          question.candidate_ids.includes(finding.candidate.id),
+        )
+      : undefined;
 
   return (
     <article
@@ -198,8 +213,20 @@ export function FindingDetail({
                 {finding.hinge}
               </p>
             </div>
+            {waitingOn && onAnswer ? (
+              // "Waiting on a person" followed by no way to be that person is a dead end.
+              <button
+                type="button"
+                onClick={onAnswer}
+                className="mt-3 rounded-sm border border-held/40 px-2.5 py-1.5 text-xs font-semibold text-held transition hover:bg-held-soft"
+              >
+                Answer it → {waitingOn.text}
+              </button>
+            ) : null}
             <Footnote>
-              Answering produces the next case revision and re-judges what it touches.{" "}
+              {waitingOn
+                ? "Answering produces the next case revision and re-judges what it touches."
+                : "No open question covers this. The round was concluded with the uncertainty preserved."}{" "}
               {answered.length} {answered.length === 1 ? "answer" : "answers"} recorded so far.
             </Footnote>
           </GutterBlock>
@@ -326,6 +353,30 @@ export function FindingDetail({
           </div>
         ) : null}
       </div>
+
+      {/* Where a reader arrives once they have decided. Named rather than jumped to: being
+          moved somewhere else the moment a decision lands is the interface concluding you
+          were finished with this one. */}
+      {onNext && next ? (
+        <button
+          type="button"
+          onClick={onNext}
+          aria-label={`Next needing you: ${
+            next.candidate.participants[0]?.qualified_name ?? next.candidate.summary
+          }`}
+          className="flex w-full items-baseline gap-2.5 border-t border-rule bg-surface-2 px-4 py-3 text-left transition hover:bg-sunken sm:px-5"
+        >
+          <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.12em] text-ink-3">
+            Next needing you
+          </span>
+          <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink">
+            {next.candidate.participants[0]?.qualified_name ?? next.candidate.summary}
+          </span>
+          <span aria-hidden="true" className="shrink-0 text-ink-3">
+            &rarr;
+          </span>
+        </button>
+      ) : null}
     </article>
   );
 }
