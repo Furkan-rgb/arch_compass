@@ -25,7 +25,13 @@ from archcompass.domain.review import (
     ReviewDelta,
     ReviewStatus,
 )
-from archcompass.domain.values import Evidence, SourceLocation
+from archcompass.domain.values import (
+    Evidence,
+    Measurement,
+    MetricNature,
+    Relationship,
+    SourceLocation,
+)
 
 __all__ = [
     "AddressedCandidate",
@@ -42,6 +48,8 @@ __all__ = [
     "DecisionDisposition",
     "Evidence",
     "Finding",
+    "Measurement",
+    "MetricNature",
     "Participant",
     "Policy",
     "PolicyBearing",
@@ -49,6 +57,7 @@ __all__ = [
     "PolicyScope",
     "PolicyStrength",
     "Question",
+    "Relationship",
     "RepositoryAtlas",
     "RepositoryRef",
     "RetrievalProvenance",

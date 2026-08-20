@@ -1,12 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { api } from "../../api";
 import { AppShell } from "../../app/shell";
 import { splitQualified } from "../../lib/format";
 import { AttentionQueue } from "./attention-queue";
+import { ReviewPage } from "./review-page";
 import { reviewFixture, workspaceFixture } from "../../test-fixtures";
 
 /**
@@ -161,5 +162,63 @@ describe("the sidebar's width", () => {
       node = node.parentElement;
     }
     expect(shrinkable).toBeGreaterThanOrEqual(3);
+  });
+});
+
+/**
+ * The other axis, and the bug that shipped with it.
+ *
+ * The queue's scroller is `flex-1 min-h-0 overflow-y-auto`, which only bounds itself if
+ * every box above it is laying its children out with a height to divide. The rail's panel
+ * was capped (`max-h-… overflow-hidden`) but still block flow, so the list grew to its full
+ * content height and the cap clipped it: no scrollbar, and the last row cut in half.
+ *
+ * jsdom does no layout, so this asserts the chain instead of the pixels — from the capped
+ * box down to the scroller, every element is a flex column and the scroller may shrink.
+ */
+describe("the attention queue's height", () => {
+  it("spends the height it caps, so the last row is reachable", async () => {
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
+    vi.spyOn(api, "decisions").mockResolvedValue({ branch_id: "branch-1", decisions: [] });
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/reviews/review-1"]}>
+          <Routes>
+            <Route path="/reviews/:reviewId" element={<ReviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("list", { name: "Candidates" });
+
+    const scroller = container.querySelector<HTMLElement>(".overflow-y-auto");
+    expect(scroller).not.toBeNull();
+    expect(scroller?.className).toContain("min-h-0");
+
+    // Walk up to the box that caps the height. Everything in between must be a flex column,
+    // and everything in between must be allowed to be shorter than its content — otherwise
+    // the cap is a pair of scissors rather than a budget.
+    let node = scroller?.parentElement ?? null;
+    let capped: HTMLElement | null = null;
+    while (node && node !== container) {
+      expect(node.className).toContain("flex-col");
+      if (node.className.includes("max-h-")) {
+        capped = node;
+        break;
+      }
+      // Only the box that sets the cap is allowed to insist on its own height.
+      expect(node.className).toContain("min-h-0");
+      node = node.parentElement;
+    }
+    expect(capped).not.toBeNull();
+    expect(capped?.className).toContain("overflow-hidden");
   });
 });

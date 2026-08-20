@@ -152,7 +152,11 @@ describe("the review workbench", () => {
   });
 
   it("carries an answer through as answered rather than skipped", async () => {
-    const review = reviewFixture();
+    // A question with nothing proposed is answered by writing, which is the shape every
+    // question had before the model started offering answers.
+    const review = reviewFixture({
+      questions: [{ ...reviewFixture().questions[0], options: [] }],
+    });
     vi.spyOn(api, "review").mockResolvedValue(review);
     vi.spyOn(api, "reviews").mockResolvedValue([review]);
     const answer = vi
@@ -179,6 +183,145 @@ describe("the review workbench", () => {
         true,
       ),
     );
+  });
+
+  it("answers with a proposed option, verbatim", async () => {
+    const review = reviewFixture();
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    const answer = vi
+      .spyOn(api, "answer")
+      .mockResolvedValue(reviewFixture({ id: "review-2", status: "completed", questions: [] }));
+
+    render(wrap(<ReviewPage />));
+
+    // The model proposed these, so the reviewer's whole job here is one click.
+    fireEvent.click(
+      await screen.findByRole("radio", {
+        name: "The domain owns it and adapters implement its ports",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Conclude with remaining uncertainty" }));
+
+    await waitFor(() =>
+      expect(answer).toHaveBeenCalledWith(
+        "review-1",
+        [
+          {
+            question_id: "question-1",
+            status: "answered",
+            value: "The domain owns it and adapters implement its ports",
+          },
+        ],
+        true,
+      ),
+    );
+  });
+
+  it("keeps a menu escapable — an answer nobody proposed is still writable", async () => {
+    const review = reviewFixture();
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    const answer = vi
+      .spyOn(api, "answer")
+      .mockResolvedValue(reviewFixture({ id: "review-2", status: "completed", questions: [] }));
+
+    render(wrap(<ReviewPage />));
+
+    // There is no box while the offered answers stand — the menu is the shorter path, and
+    // two ways to answer the same question at once is a worse question.
+    expect(screen.queryByLabelText("Who owns persistence?")).not.toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("radio", { name: /Something else/ }));
+    fireEvent.change(screen.getByLabelText("Who owns persistence?"), {
+      target: { value: "Neither — it is a shared kernel." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Conclude with remaining uncertainty" }));
+
+    await waitFor(() =>
+      expect(answer).toHaveBeenCalledWith(
+        "review-1",
+        [
+          {
+            question_id: "question-1",
+            status: "answered",
+            value: "Neither — it is a shared kernel.",
+          },
+        ],
+        true,
+      ),
+    );
+  });
+
+  it("does not hand the reviewer the model's sentence to edit", async () => {
+    const review = reviewFixture();
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(
+      await screen.findByRole("radio", {
+        name: "The domain owns it and adapters implement its ports",
+      }),
+    );
+    fireEvent.click(screen.getByRole("radio", { name: /Something else/ }));
+
+    expect(screen.getByLabelText("Who owns persistence?")).toHaveValue("");
+  });
+
+  it("scans the delta by name and opens what it names", async () => {
+    const review = reviewFixture({
+      status: "completed",
+      questions: [],
+      previous_review_id: "review-0",
+    });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Delta/ }));
+    const panel = screen.getByRole("tabpanel");
+
+    // The row is led by the candidate's name, not by its sentence, because the delta is
+    // scanned for which things moved rather than read.
+    const rows = within(panel).getAllByTitle("domain.orders");
+    expect(rows).toHaveLength(3);
+    // Split for the eye — the namespace is dimmed context, the leaf is the identity — and
+    // kept whole for anything that has to read it back.
+    expect(within(rows[0]).getByText("orders")).toBeInTheDocument();
+
+    // And seeing it is the same action as opening it.
+    fireEvent.click(rows[0]);
+    expect(screen.getByRole("tab", { name: /Workbench/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("filters the delta by change rather than stacking a panel per state", async () => {
+    const review = reviewFixture({
+      status: "completed",
+      questions: [],
+      previous_review_id: "review-0",
+    });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Delta/ }));
+    const panel = screen.getByRole("tabpanel");
+    const list = within(panel).getByRole("list", { name: "Candidates by change" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(3);
+
+    fireEvent.click(within(panel).getByRole("button", { name: /Unchanged 1/ }));
+    expect(
+      within(within(panel).getByRole("list", { name: "Candidates by change" })).getAllByRole(
+        "listitem",
+      ),
+    ).toHaveLength(1);
   });
 
   it("exposes retrieval provenance on its own surface", async () => {

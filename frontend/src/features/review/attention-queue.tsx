@@ -1,5 +1,6 @@
 import type { Finding, Review } from "../../api";
 import { cn } from "../../lib/cn";
+import { useScrollEdges } from "../../lib/motion";
 import { humanise, plural, splitQualified, verdictOf, verdictRank } from "../../lib/format";
 import { Badge } from "../../ui/badge";
 import { ToggleButton } from "../../ui/button";
@@ -52,6 +53,7 @@ export function AttentionQueue({
   onFilterChange: (filter: QueueFilter) => void;
   className?: string;
 }) {
+  const list = useScrollEdges<HTMLDivElement>();
   const findings = orderedFindings(review);
   const attention = findings.filter(needsAttention);
   const cleared = findings.filter((finding) => !needsAttention(finding));
@@ -93,8 +95,17 @@ export function AttentionQueue({
       {/* `overflow-y-auto` alone makes this a scroller sideways too — CSS resolves the
           other axis to `auto` — and one long dotted identifier then drags the rail out to
           its full width. Clipping the axis nothing should ever scroll on is half the fix;
-          the other half is that no row is allowed to be wider than its column. */}
-      <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto overflow-x-clip p-1.5">
+          the other half is that no row is allowed to be wider than its column.
+
+          The fade is the vertical counterpart: this list is usually taller than the rail,
+          and an overlay scrollbar the platform hides until you touch it leaves the last
+          visible row sliced against the footer's rule with nothing saying there is more. */}
+      <div
+        ref={list.ref}
+        data-edge-top={list.edges.top}
+        data-edge-bottom={list.edges.bottom}
+        className="scroll-edge scrollbar-slim min-h-0 flex-1 overflow-y-auto overflow-x-clip p-1.5"
+      >
         {waiting ? (
           <button
             type="button"

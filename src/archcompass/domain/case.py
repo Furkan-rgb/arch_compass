@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
@@ -55,15 +56,28 @@ class PolicyContext:
 
 @dataclass(frozen=True, slots=True)
 class Question:
+    """A question the repository cannot answer, put to a human.
+
+    ``options`` are answers the reasoning model thinks likely, offered so that the common
+    case is a click rather than an essay. They are a shortcut, never a closed set: an
+    answer's value is free text whichever way it was produced, and the interface always
+    offers writing one instead. An empty tuple simply means nothing was proposed.
+
+    They stay out of ``equivalence_key`` deliberately — two rounds asking the same thing of
+    the same candidates are the same question even if the model proposes different answers
+    the second time, and the point of the key is to stop asking it twice.
+    """
+
     id: str
     text: str
     facet: CaseFacet
     candidate_ids: tuple[str, ...]
     round: int
     equivalence_key: str
+    options: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        freeze_sequences(self, "candidate_ids")
+        freeze_sequences(self, "candidate_ids", "options")
         require_text(self.id, "question id")
         require_text(self.text, "question")
         require_text(self.equivalence_key, "question equivalence key")
@@ -71,6 +85,10 @@ class Question:
             raise ValueError("question round must be positive")
         if not self.candidate_ids:
             raise ValueError("a question must name at least one candidate")
+        for option in self.options:
+            require_text(option, "question option")
+        if len(set(self.options)) != len(self.options):
+            raise ValueError("a question cannot offer the same answer twice")
 
     @classmethod
     def create(
@@ -80,10 +98,23 @@ class Question:
         facet: CaseFacet,
         candidate_ids: tuple[str, ...],
         round: int,
+        options: Sequence[str] = (),
     ) -> Question:
         candidates = tuple(sorted(set(candidate_ids)))
         key = stable_id("qeq", facet.value, *candidates)
-        return cls(new_id("question"), text, facet, candidates, round, key)
+        # Order is the model's — it proposes the likeliest answer first — so duplicates are
+        # dropped where they appear rather than by sorting the offer into another shape.
+        seen: set[str] = set()
+        offered: list[str] = []
+        for option in options:
+            text_value = option.strip()
+            if not text_value or text_value.casefold() in seen:
+                continue
+            seen.add(text_value.casefold())
+            offered.append(text_value)
+        return cls(
+            new_id("question"), text, facet, candidates, round, key, tuple(offered)
+        )
 
 
 @dataclass(frozen=True, slots=True)

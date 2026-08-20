@@ -147,9 +147,8 @@ export interface components {
     "summary": string;
     "participants": Array<components["schemas"]["ParticipantResponse"]>;
     "evidence": Array<components["schemas"]["EvidenceResponse"]>;
-    "measurements": {
-    [key: string]: string;
-  };
+    "measurements": Array<components["schemas"]["MeasurementResponse"]>;
+    "relationships": Array<components["schemas"]["RelationshipResponse"]>;
     "detection_rationale": string;
     "limitations": string;
   };
@@ -265,6 +264,7 @@ export interface components {
     "description": string;
     "location": components["schemas"]["SourceLocationResponse"] | null;
     "excerpt": string | null;
+    "note": string | null;
   };
     "FindingResponse": {
     "candidate": components["schemas"]["CandidateResponse"];
@@ -283,6 +283,14 @@ export interface components {
     "kind": "hotspots";
     "metric": string;
     "limit"?: number;
+  };
+    "MeasurementResponse": {
+    "name": string;
+    "value": number;
+    "unit": string;
+    "nature": string;
+    "definition": string;
+    "limitations": string;
   };
     "MetricNature": "objective_measurement" | "structural_proxy";
     "MetricScope": "lexical_node" | "owning_module" | "reverse_static_impact_neighbourhood" | "bounded_resolved_call_chain";
@@ -393,11 +401,18 @@ export interface components {
     "candidate_ids": Array<string>;
     "round": number;
     "equivalence_key": string;
+    "options": Array<string>;
   };
     "RelationQuery": {
     "kind": "direct_dependencies" | "direct_dependants" | "known_callers" | "implementations" | "related_tests";
     "node_id": string;
     "limit"?: number;
+  };
+    "RelationshipResponse": {
+    "source": string;
+    "target": string;
+    "kind": string;
+    "resolved_by": string;
   };
     "RepositoryBranch": {
     "repository": components["schemas"]["RepositoryLineage"];

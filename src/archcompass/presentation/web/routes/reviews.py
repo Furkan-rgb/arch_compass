@@ -105,6 +105,23 @@ class EvidenceResponse(APIModel):
     description: str
     location: SourceLocationResponse | None
     excerpt: str | None
+    note: str | None
+
+
+class MeasurementResponse(APIModel):
+    name: str
+    value: float
+    unit: str
+    nature: str
+    definition: str
+    limitations: str
+
+
+class RelationshipResponse(APIModel):
+    source: str
+    target: str
+    kind: str
+    resolved_by: str
 
 
 class ParticipantResponse(APIModel):
@@ -118,7 +135,8 @@ class CandidateResponse(APIModel):
     summary: str
     participants: list[ParticipantResponse]
     evidence: list[EvidenceResponse]
-    measurements: dict[str, str]
+    measurements: list[MeasurementResponse]
+    relationships: list[RelationshipResponse]
     detection_rationale: str
     limitations: str
 
@@ -150,6 +168,9 @@ class QuestionResponse(APIModel):
     candidate_ids: list[str]
     round: int
     equivalence_key: str
+    # Answers the model proposed. Empty means it had none worth offering, not that the
+    # question is closed — an answer is free text however it was chosen.
+    options: list[str]
 
 
 class AnswerResponse(APIModel):
@@ -247,6 +268,7 @@ def _evidence(value: Evidence) -> EvidenceResponse:
             )
         ),
         excerpt=value.excerpt,
+        note=value.note,
     )
 
 
@@ -263,7 +285,26 @@ def _candidate(value: Candidate) -> CandidateResponse:
             for item in value.participants
         ],
         evidence=[_evidence(item) for item in value.evidence],
-        measurements=dict(value.measurements),
+        measurements=[
+            MeasurementResponse(
+                name=item.name,
+                value=item.value,
+                unit=item.unit,
+                nature=item.nature.value,
+                definition=item.definition,
+                limitations=item.limitations,
+            )
+            for item in value.measurements
+        ],
+        relationships=[
+            RelationshipResponse(
+                source=item.source,
+                target=item.target,
+                kind=item.kind,
+                resolved_by=item.resolved_by,
+            )
+            for item in value.relationships
+        ],
         detection_rationale=value.detection_rationale,
         limitations=value.limitations,
     )
@@ -309,6 +350,7 @@ class ReviewResponse(APIModel):
                 candidate_ids=list(item.candidate_ids),
                 round=item.round,
                 equivalence_key=item.equivalence_key,
+                options=list(item.options),
             )
             for item in review.questions
         }
@@ -320,6 +362,7 @@ class ReviewResponse(APIModel):
                 candidate_ids=list(item.question.candidate_ids),
                 round=item.question.round,
                 equivalence_key=item.question.equivalence_key,
+                options=list(item.question.options),
             )
             for item in review.case.answers
         }

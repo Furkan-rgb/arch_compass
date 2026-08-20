@@ -82,7 +82,10 @@ ArchCompass deterministically:
 - parses source without importing or executing the reviewed repository;
 - builds the atlas and its structural relationships, metrics, facts, and signals;
 - detects candidates and assigns stable IDs;
-- pins source evidence and excerpts;
+- carries the relationships between a candidate's participants, and measurements that state
+  their own nature and limits;
+- pins bounded source excerpts, widened to include a definition's leading comment and
+  captioned when they were truncated;
 - calculates review deltas, succession, resurfacing, and addressed candidates;
 - selects and resolves application-owned candidates and policies;
 - persists provenance and immutable review snapshots.
@@ -168,8 +171,14 @@ Checkpoint IDs are not domain IDs. Review lineage uses repository and branch ide
 sequence, and `previous_review_id`.
 
 The runtime owns only `workspace.sqlite3`; unrelated database files in the state directory
-are ignored. Starting ArchCompass creates the application database when it is missing, so
-opening a workspace never requires a migration command.
+are ignored. Starting ArchCompass creates the application database when it is missing and
+applies pending schema migrations, so opening a workspace never requires a migration command.
+
+ArchCompass does not reinterpret records an earlier schema wrote. When a persisted domain
+record changes shape, a numbered migration retires what can no longer be read: derived
+output — review snapshots, the finding cache, executions, conversations — is produced again
+by re-running a review, while authored input such as case revisions and standing decisions is
+kept. See [docs/persistence-model.md](docs/persistence-model.md).
 
 ## Providers
 
@@ -269,6 +278,7 @@ a message rather than failing.
 
 ## Documentation
 
+- [Charter](docs/charter.md) — what ArchCompass is for, and the rules that settle a design argument
 - [Current review flow](docs/current-flow.md)
 - [Architecture](docs/architecture.md)
 - [Domain model](docs/domain-model.md)
@@ -276,5 +286,6 @@ a message rather than failing.
 - [Policy retrieval](docs/policy-retrieval.md)
 - [Persistence model](docs/persistence-model.md)
 - [Operations](docs/operations.md)
+- [What each region on screen is called](docs/frontend-regions.md)
 
 Licensed under Apache-2.0.

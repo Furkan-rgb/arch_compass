@@ -346,6 +346,39 @@
   scrollbar-color: var(--rule-strong) transparent;
 }
 
+/* A list that continues past its own edge has to say so.
+   macOS keeps overlay scrollbars hidden until you touch the trackpad, so a capped list just
+   ends — mid-row, against a rule — and reads as a rendering fault rather than as a scroller.
+   The fade sits on the container, so it stays at the edge while the content moves under it,
+   and each side only appears when there is something past it. `useScrollEdges` sets the
+   attributes; the sizes here are a row's worth of hint, not a curtain over the row. */
+.scroll-edge {
+  --edge-top: 0px;
+  --edge-bottom: 0px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--edge-top),
+    #000 calc(100% - var(--edge-bottom)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--edge-top),
+    #000 calc(100% - var(--edge-bottom)),
+    transparent 100%
+  );
+}
+
+.scroll-edge[data-edge-top="true"] {
+  --edge-top: 1.5rem;
+}
+
+.scroll-edge[data-edge-bottom="true"] {
+  --edge-bottom: 1.75rem;
+}
+
 /* Scroll reveal. The element is hidden until `useReveal` marks it, so a reader who never
    scrolls past it never pays for the animation — and a reader who has asked for reduced
    motion is handed the finished state below. */

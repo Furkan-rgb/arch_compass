@@ -31,6 +31,24 @@ The `ArchitectureJudge` receives only the candidate, current case, and that stab
 result. Structured model positions are resolved back to application-owned policies before a
 domain `Finding` is created.
 
+The candidate reaches the model through `candidate_text()` in
+[`reasoning/adapters/langchain.py`](../src/archcompass/reasoning/adapters/langchain.py),
+which lays it out as addressable sections — pattern, summary, participants, relationships,
+measurements, evidence, detection limits. It is not a dataclass repr: a repr escapes every
+newline, so code would arrive as one long line punctuated by literal `\n`, and a
+measurement's `structural_proxy` tag would be present and unreadable at the same time.
+
+Source excerpts are bounded at `MAX_EXCERPT_LINES = 60` per participant and widened upward
+over at most `MAX_LEADING_COMMENT_LINES = 12` contiguous comment lines. Both numbers are
+deliberate. A detector picks declaration spans — one line for a duplicated constant, a
+handful for a class — so the ceiling guards against a pathological span rather than
+budgeting a view; raising it to 200 bought no more understanding, because the longest span
+in this repository is 1,676 lines and the excerpt is a fragment at either ceiling. What
+changed was only whether it *looked* like one, which is why a truncated excerpt now carries
+a note saying so. The upward widening exists because a constant's recorded span is the line
+that assigns it while the sentence explaining it sits directly above, and a judge shown the
+assignment alone was deciding with that sentence out of frame.
+
 `generate_questions` then either settles the review or returns application-identified
 clarifications. When clarification is needed, ArchCompass composes and records an immutable
 `awaiting_answers` review before `await_answers` interrupts. The client resumes the same

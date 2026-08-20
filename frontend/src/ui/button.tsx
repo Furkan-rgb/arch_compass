@@ -85,6 +85,9 @@ export function ToggleButton({
       aria-pressed={pressed}
       className={cn(
         "inline-flex min-h-8 items-center gap-1.5 whitespace-nowrap rounded-sm px-2.5 text-xs font-semibold transition",
+        // A toggle for an empty set stays readable — it is telling you the count is zero,
+        // which is information — but stops offering to filter to nothing.
+        "disabled:pointer-events-none disabled:opacity-40",
         pressed
           ? "bg-ink text-canvas shadow-panel"
           : "text-ink-3 hover:bg-sunken hover:text-ink",

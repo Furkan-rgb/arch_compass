@@ -25,6 +25,7 @@ function finding(overrides: Partial<Finding> & { candidateId: string }): Finding
       description: "The domain module imports the persistence adapter directly",
       location: { path: "domain/orders.py", start_line: 4, end_line: 4 },
       excerpt: "from adapters.db import Store",
+      note: null,
     },
   ];
   return {
@@ -34,7 +35,24 @@ function finding(overrides: Partial<Finding> & { candidateId: string }): Finding
       summary: "Domain depends on an adapter",
       participants: [{ qualified_name: "domain.orders", role: "source" }],
       evidence,
-      measurements: { imports: "1" },
+      measurements: [
+        {
+          name: "imports",
+          value: 1,
+          unit: "imports",
+          nature: "objective_measurement",
+          definition: "Static imports of the adapter from the domain module.",
+          limitations: "Static imports only.",
+        },
+      ],
+      relationships: [
+        {
+          source: "domain.orders",
+          target: "adapters.db.Store",
+          kind: "imports",
+          resolved_by: "parse",
+        },
+      ],
       detection_rationale: "Detected from the repository atlas.",
       limitations: "Static imports only.",
     },
@@ -107,6 +125,10 @@ export function reviewFixture(overrides: Partial<Review> = {}): Review {
         candidate_ids: ["candidate-1"],
         round: 1,
         equivalence_key: "decision:candidate-1",
+        options: [
+          "The domain owns it and adapters implement its ports",
+          "The persistence layer owns it and the domain adapts",
+        ],
       },
     ],
     delta: { unchanged: ["candidate-3"], changed: [], new: ["candidate-1", "candidate-2"], addressed: [] },

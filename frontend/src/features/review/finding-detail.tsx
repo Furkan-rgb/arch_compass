@@ -100,7 +100,7 @@ export function FindingDetail({
   const [technical, setTechnical] = useState(false);
   const descriptor = verdictOf(finding.verdict);
   const delta = deltaStateOf(review, finding.candidate.id);
-  const measurements = Object.entries(finding.candidate.measurements);
+  const measurements = finding.candidate.measurements;
   const retrieval = review.retrieval_manifest.find(
     (entry) => entry.candidate_id === finding.candidate.id,
   );
@@ -212,7 +212,13 @@ export function FindingDetail({
           measurements.length ? (
             <Note label="Measured">
               <NoteList
-                items={measurements.map(([key, value]) => `${humanise(key)}: ${value}`)}
+                items={measurements.map((item) =>
+                  // A structural proxy is a hint the parse could not confirm, and a reader
+                  // deciding on the number has to be told which kind of number it is.
+                  `${humanise(item.name)}: ${item.value}${item.unit ? ` ${item.unit}` : ""}${
+                    item.nature === "structural_proxy" ? " (proxy)" : ""
+                  }`,
+                )}
               />
             </Note>
           ) : (
@@ -313,9 +319,21 @@ export function FindingDetail({
               {measurements.length ? (
                 <MetaRow label="Measurements">
                   <span className="flex flex-wrap gap-1.5">
-                    {measurements.map(([key, value]) => (
-                      <Tag key={key}>
-                        {humanise(key)} <Mono className="text-[11px]">{value}</Mono>
+                    {measurements.map((item) => (
+                      <Tag key={item.name}>
+                        {humanise(item.name)}{" "}
+                        <Mono className="text-[11px]">
+                          {item.value}
+                          {item.unit ? ` ${item.unit}` : ""}
+                        </Mono>
+                        {item.nature === "structural_proxy" ? (
+                          <span
+                            className="ml-1 text-[10px] uppercase tracking-[0.08em] text-ink-3"
+                            title={item.limitations || "A structural proxy, not a count."}
+                          >
+                            proxy
+                          </span>
+                        ) : null}
                       </Tag>
                     ))}
                   </span>

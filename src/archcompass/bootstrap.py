@@ -331,9 +331,18 @@ def build_runtime(
                     ("archcompass.domain.candidate", name)
                     for name in ("Participant", "Candidate")
                 ],
+                # Every nested record a checkpointed candidate holds has to be named here.
+                # An unlisted type is not refused — it is revived as a raw dict, so the
+                # failure surfaces much later as an attribute error on a resumed run.
                 *[
                     ("archcompass.domain.values", name)
-                    for name in ("SourceLocation", "Evidence")
+                    for name in (
+                        "SourceLocation",
+                        "Evidence",
+                        "Measurement",
+                        "MetricNature",
+                        "Relationship",
+                    )
                 ],
                 *[
                     ("archcompass.domain.finding", name)

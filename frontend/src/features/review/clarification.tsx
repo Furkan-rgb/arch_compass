@@ -12,6 +12,48 @@ import { Label } from "../../ui/panel";
 import { ErrorNotice, LiveRegion, Spinner } from "../../ui/states";
 
 /**
+ * One proposed answer.
+ *
+ * A real radio, so a keyboard moves through the group with the arrow keys and a screen
+ * reader announces it as a choice among several rather than as a button that does something.
+ */
+function ChoiceRow({
+  name,
+  checked,
+  disabled,
+  onSelect,
+  children,
+}: {
+  name: string;
+  checked: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 text-sm leading-6 transition",
+        disabled && "cursor-not-allowed opacity-50",
+        checked
+          ? "border-accent/40 bg-accent-soft text-ink"
+          : "border-rule bg-surface-2 text-ink hover:border-rule-strong",
+      )}
+    >
+      <input
+        type="radio"
+        name={name}
+        checked={checked}
+        disabled={disabled}
+        onChange={onSelect}
+        className="mt-1.5 size-3.5 shrink-0 accent-[var(--accent)]"
+      />
+      <span className="min-w-0">{children}</span>
+    </label>
+  );
+}
+
+/**
  * A clarification round.
  *
  * Not a chat. Each question is a numbered item in a form with its own reason for existing,
@@ -29,6 +71,9 @@ export function ClarificationRound({
   const client = useQueryClient();
   const [values, setValues] = useState<Record<string, string>>({});
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  // Which questions the reviewer has taken off the menu. Tracked separately from the value
+  // because "I will write my own" is chosen before there is anything written.
+  const [own, setOwn] = useState<Set<string>>(new Set());
 
   const answered = review.questions.filter((question) => Boolean(values[question.id]?.trim()));
   const resolved = review.questions.filter(
@@ -55,6 +100,23 @@ export function ClarificationRound({
       navigate(`/reviews/${next.id}`);
     },
   });
+
+  function choose(questionId: string, option: string) {
+    setValues((current) => ({ ...current, [questionId]: option }));
+    setOwn((current) => {
+      if (!current.has(questionId)) return current;
+      const next = new Set(current);
+      next.delete(questionId);
+      return next;
+    });
+  }
+
+  function chooseOwn(questionId: string) {
+    // Picking an option and then changing your mind should leave the box empty rather than
+    // handing you the model's sentence to edit into something it never said.
+    setValues((current) => ({ ...current, [questionId]: "" }));
+    setOwn((current) => new Set(current).add(questionId));
+  }
 
   function toggleSkip(questionId: string) {
     setSkipped((current) => {
@@ -141,16 +203,50 @@ export function ClarificationRound({
                       )}
                     </span>
                   </div>
-                  <Textarea
-                    id={`question-${question.id}`}
-                    value={values[question.id] || ""}
-                    disabled={isSkipped}
-                    onChange={(event) =>
-                      setValues((current) => ({ ...current, [question.id]: event.target.value }))
-                    }
-                    className="mt-2.5 min-h-24"
-                    placeholder="Add the architectural context that is not visible in the code…"
-                  />
+                  {question.options.length ? (
+                    <div
+                      role="radiogroup"
+                      aria-label={`Answers to: ${question.text}`}
+                      className="mt-2.5 grid gap-1.5"
+                    >
+                      {question.options.map((option) => (
+                        <ChoiceRow
+                          key={option}
+                          name={`answer-${question.id}`}
+                          checked={values[question.id] === option}
+                          disabled={isSkipped}
+                          onSelect={() => choose(question.id, option)}
+                        >
+                          {option}
+                        </ChoiceRow>
+                      ))}
+                      <ChoiceRow
+                        name={`answer-${question.id}`}
+                        checked={own.has(question.id)}
+                        disabled={isSkipped}
+                        onSelect={() => chooseOwn(question.id)}
+                      >
+                        <span className="text-ink-2">Something else — I will write it</span>
+                      </ChoiceRow>
+                    </div>
+                  ) : null}
+
+                  {/* The box is always reachable, but it only takes the floor when there is
+                      no shorter way to answer or the reviewer has said none of these fit.
+                      A menu that cannot be escaped would be a worse question than a blank
+                      one — the model proposed these, it did not establish them. */}
+                  {!question.options.length || own.has(question.id) ? (
+                    <Textarea
+                      id={`question-${question.id}`}
+                      value={values[question.id] || ""}
+                      disabled={isSkipped}
+                      onChange={(event) =>
+                        setValues((current) => ({ ...current, [question.id]: event.target.value }))
+                      }
+                      className="mt-2.5 min-h-24"
+                      placeholder="Add the architectural context that is not visible in the code…"
+                    />
+                  ) : null}
                   <button
                     type="button"
                     aria-pressed={isSkipped}

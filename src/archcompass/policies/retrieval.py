@@ -27,7 +27,9 @@ def corpus_fingerprint(corpus: tuple[Policy, ...]) -> str:
 
 def retrieval_query(candidate: Candidate, case: ArchitectureCase) -> str:
     participants = ", ".join(item.qualified_name for item in candidate.participants)
-    measurements = "; ".join(f"{key}: {value}" for key, value in candidate.measurements)
+    measurements = "; ".join(
+        f"{item.name}: {item.display}" for item in candidate.measurements
+    )
     constraints = "; ".join(item.text for item in case.constraints)
     return "\n".join(
         (

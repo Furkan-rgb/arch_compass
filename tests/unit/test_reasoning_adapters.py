@@ -187,3 +187,81 @@ def test_question_position_without_a_hinge_is_structurally_rejected() -> None:
             round=1,
             excluded_equivalence_keys=frozenset(),
         )
+
+
+def test_proposed_answers_survive_but_escape_hatches_do_not() -> None:
+    """The interface already offers writing your own answer and skipping the question.
+
+    A model that proposes "Other" is spending one of a handful of choices on something the
+    reviewer has anyway, so it is dropped here rather than shown twice.
+    """
+
+    candidate, case, _ = _input()
+    uncertain = Finding(
+        candidate,
+        Verdict.HELD,
+        "Ownership could change the verdict.",
+        (),
+        (),
+        hinge="the owning team",
+    )
+    generator = LangChainQuestionGenerator(
+        StructuredModel(
+            {
+                "questions": [
+                    {
+                        "text": "Who owns this?",
+                        "facet": "decision",
+                        "candidate_positions": [1],
+                        "options": [
+                            "The domain team owns it",
+                            "The platform team owns it",
+                            "Other",
+                            "Not sure",
+                        ],
+                    }
+                ]
+            }
+        )  # type: ignore[arg-type]
+    )
+
+    questions = generator.generate(
+        case, (uncertain,), round=1, excluded_equivalence_keys=frozenset()
+    )
+
+    assert questions[0].options == (
+        "The domain team owns it",
+        "The platform team owns it",
+    )
+
+
+def test_a_choice_of_one_is_not_offered_as_a_choice() -> None:
+    candidate, case, _ = _input()
+    uncertain = Finding(
+        candidate,
+        Verdict.HELD,
+        "Ownership could change the verdict.",
+        (),
+        (),
+        hinge="the owning team",
+    )
+    generator = LangChainQuestionGenerator(
+        StructuredModel(
+            {
+                "questions": [
+                    {
+                        "text": "Who owns this?",
+                        "facet": "decision",
+                        "candidate_positions": [1],
+                        "options": ["The domain team owns it", "None of these"],
+                    }
+                ]
+            }
+        )  # type: ignore[arg-type]
+    )
+
+    questions = generator.generate(
+        case, (uncertain,), round=1, excluded_equivalence_keys=frozenset()
+    )
+
+    assert questions[0].options == ()

@@ -38,7 +38,12 @@ Policy -----------------------+
 - `Policy` is architectural guidance with identity, applicability, strength, source, body,
   tags, and content hash. It contains no retrieval score.
 - `Candidate` is a deterministic structural shape with participants, evidence,
-  measurements, detector rationale, and limitations. It is not a violation.
+  measurements, relationships, detector rationale, and limitations. It is not a violation.
+  Its identity is derived from the pattern and the sorted participant names only, so the
+  same structural situation keys the same on every run. Measurements, evidence, and
+  relationships are deliberately excluded from that derivation: they move under ordinary
+  editing, and an identity that moved with them could not anchor a standing decision or a
+  line across revisions.
 - `Finding` contains the verdict, reasoning, pinned evidence, policy bearings, uncertainty,
   recommendation, reuse provenance, and model/prompt/retrieval identities.
 - `StandingDecision` records accept, waive, or park independently from the finding. Waivers
@@ -67,9 +72,29 @@ redesign the atlas.
 
 ## Supporting values
 
-Focused values include `SourceLocation`, `Evidence`, `PolicyBearing`, candidate IDs,
-verdicts, dispositions, change causes, and retrieval provenance. Infrastructure records,
-vectors, model requests, checkpoints, and database rows never enter the domain.
+Focused values include `SourceLocation`, `Evidence`, `Measurement`, `Relationship`,
+`PolicyBearing`, candidate IDs, verdicts, dispositions, change causes, and retrieval
+provenance. Infrastructure records, vectors, model requests, checkpoints, and database rows
+never enter the domain.
+
+Three of these carry an explicit epistemic claim, because a judge shown a bare number or a
+bare fragment cannot tell what it is looking at:
+
+- `Measurement` keeps `value` numeric alongside `unit`, `definition`, `limitations`, and a
+  `MetricNature` of `objective_measurement` or `structural_proxy`. The distinction is the
+  point: `dependants_of_abstraction = 0` reads the same for an abstraction nothing uses and
+  for one reached only through wiring the parse cannot see, and the two lead to opposite
+  verdicts. The value stays numeric rather than pre-formatted because comparing or bucketing
+  candidates has to read the number, and a string that must be parsed back is a number that
+  has been lost; `display` renders it for a reader.
+- `Relationship` names the edge between participants — `source`, `target`, `kind`, and the
+  `resolved_by` pass that established it. Endpoints are qualified names rather than atlas
+  node IDs, resolved at the one boundary where the atlas is still in hand. A pattern judged
+  from participants in isolation is a lint rather than an architectural finding, so this is
+  the placement evidence a verdict rests on.
+- `Evidence` carries an optional `note` beside its excerpt: a caption about the text rather
+  than a line of it, saying when a span was truncated at the ceiling or widened upward to
+  pick up a definition's leading comment.
 
 ## Boundary conversion
 

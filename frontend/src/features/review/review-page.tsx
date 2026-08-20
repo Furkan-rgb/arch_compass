@@ -258,6 +258,7 @@ export function ReviewPage() {
       onSelect={select}
       filter={filter}
       onFilterChange={setFilter}
+      className="min-h-0 flex-1"
     />
   );
 
@@ -300,12 +301,15 @@ export function ReviewPage() {
         >
           {isTabletUp && railOpen ? (
             <div className="grid gap-4 lg:sticky lg:top-20">
-              <Panel className="max-h-[calc(100vh-9rem)] overflow-hidden">
+              {/* The height has to be spent, not just capped: the queue's own scroller only
+                  bounds itself if this box lays its children out as a column with a height
+                  to divide. Capped alone, the list overruns and the clip eats its last row. */}
+              <Panel className="flex max-h-[calc(100vh-9rem)] flex-col overflow-hidden">
                 {queue}
                 <button
                   type="button"
                   onClick={() => setRailOpen(false)}
-                  className="w-full border-t border-rule px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-3 transition hover:bg-sunken hover:text-ink"
+                  className="w-full shrink-0 border-t border-rule px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-3 transition hover:bg-sunken hover:text-ink"
                 >
                   Hide the queue
                 </button>
@@ -346,7 +350,16 @@ export function ReviewPage() {
       </TabPanel>
 
       <TabPanel id="delta" active={surface}>
-        <DeltaSurface review={value} />
+        {/* Seeing that something changed and looking at it are one action, not two: the
+            delta hands the candidate to the workbench rather than naming it and leaving
+            the reader to find it in the queue. */}
+        <DeltaSurface
+          review={value}
+          onOpen={(candidateId) => {
+            setSurface("workbench");
+            select({ kind: "finding", candidateId });
+          }}
+        />
       </TabPanel>
       <TabPanel id="atlas" active={surface}>
         <AtlasSurface review={value} />
@@ -371,7 +384,7 @@ export function ReviewPage() {
         title="Attention queue"
         description="What this review needs from a human"
       >
-        <div className="max-h-[70vh]">{queue}</div>
+        <div className="flex max-h-[70vh] flex-col">{queue}</div>
       </Drawer>
 
       {/* The context rail is a document margin now, so this only exists for the width

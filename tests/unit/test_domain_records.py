@@ -221,3 +221,54 @@ def test_revision_calculator_records_succession_and_resurfacing(tmp_path: Path) 
     assert changes[str(successor.id)].causes == (ChangeCause.SHAPE,)
     assert changes[str(resurfaced.id)].causes == (ChangeCause.RESURFACED,)
     assert delta.addressed == ()
+
+
+def test_offered_answers_keep_the_model_s_order_and_drop_repeats() -> None:
+    """The model puts the likeliest answer first, so the offer is not sorted into another
+    shape. A repeat in a different case is the same answer twice, which is one choice."""
+
+    question = Question.create(
+        text="Who owns persistence?",
+        facet=CaseFacet.DECISION,
+        candidate_ids=("candidate-1",),
+        round=1,
+        options=[
+            "  The domain owns it  ",
+            "The platform team owns it",
+            "the domain owns it",
+        ],
+    )
+
+    assert question.options == ("The domain owns it", "The platform team owns it")
+
+
+def test_a_question_without_proposed_answers_is_still_a_question() -> None:
+    question = Question.create(
+        text="What changes next?",
+        facet=CaseFacet.EXPECTED_CHANGE,
+        candidate_ids=("candidate-1",),
+        round=1,
+    )
+
+    assert question.options == ()
+
+
+def test_proposed_answers_do_not_change_what_counts_as_the_same_question() -> None:
+    """Equivalence stops the same question being asked twice. Two rounds proposing
+    different answers to the same question of the same candidates are still one question."""
+
+    first = Question.create(
+        text="Who owns persistence?",
+        facet=CaseFacet.DECISION,
+        candidate_ids=("candidate-1",),
+        round=1,
+        options=("The domain owns it", "The platform team owns it"),
+    )
+    second = Question.create(
+        text="Who owns persistence, exactly?",
+        facet=CaseFacet.DECISION,
+        candidate_ids=("candidate-1",),
+        round=2,
+    )
+
+    assert first.equivalence_key == second.equivalence_key

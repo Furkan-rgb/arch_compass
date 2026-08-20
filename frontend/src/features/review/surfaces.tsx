@@ -3,18 +3,193 @@ import { useEffect, useState } from "react";
 
 import { api, type Review } from "../../api";
 import { cn } from "../../lib/cn";
-import { humanise, shortId } from "../../lib/format";
+import { humanise, plural, shortId, splitQualified } from "../../lib/format";
 import { Tag, VerdictBadge } from "../../ui/badge";
-import { Button, ExternalButtonLink } from "../../ui/button";
+import { Button, ExternalButtonLink, ToggleButton } from "../../ui/button";
 import { EvidenceBlock } from "../../ui/code";
 import { Input } from "../../ui/field";
 import { Markdown } from "../../ui/markdown";
 import { MetaList, MetaRow, Mono, Statistic } from "../../ui/meta";
 import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
 import { EmptyState, ErrorNotice, LoadingPanel, Spinner } from "../../ui/states";
+import { orderedFindings } from "./attention-queue";
 
-/** Every candidate compared against the preceding immutable review. */
-export function DeltaSurface({ review }: { review: Review }) {
+type DeltaState = "new" | "changed" | "addressed" | "unchanged";
+
+const DELTA_STATES: ReadonlyArray<{
+  id: DeltaState;
+  label: string;
+  glyph: string;
+  tone: string;
+  says: string;
+}> = [
+  { id: "new", label: "New", glyph: "+", tone: "text-accent", says: "Not in the previous review" },
+  { id: "changed", label: "Changed", glyph: "~", tone: "text-held", says: "The same candidate, moved" },
+  {
+    id: "addressed",
+    label: "Addressed",
+    glyph: "✓",
+    tone: "text-cleared",
+    says: "Raised last time, gone now",
+  },
+  { id: "unchanged", label: "Unchanged", glyph: "=", tone: "text-ink-3", says: "As it was" },
+];
+
+type DeltaEntry = {
+  state: DeltaState;
+  candidateId: string;
+  /** The name to scan for. Falls back to the summary, then to the bare id. */
+  identity: string;
+  summary: string | null;
+  finding: Review["findings"][number] | null;
+  causes: readonly string[];
+  lastVerdict: string | null;
+};
+
+/**
+ * One row of the delta.
+ *
+ * Led by the identifier rather than by the sentence: a returning reviewer is scanning for
+ * *which* things moved, and a column of full sentences has to be read rather than scanned.
+ * The name is the key — the same mono treatment the queue uses, so the two surfaces are
+ * visibly about the same objects — and the sentence sits under it, at one line, for when
+ * the name alone is not enough.
+ */
+function DeltaRow({ entry, onOpen }: { entry: DeltaEntry; onOpen?: () => void }) {
+  const state = DELTA_STATES.find((item) => item.id === entry.state)!;
+  const { namespace, leaf } = splitQualified(entry.identity);
+  const body = (
+    <div className="grid grid-cols-[1rem_minmax(0,1fr)_auto] items-start gap-3">
+      <span
+        aria-hidden="true"
+        title={state.label}
+        className={cn("mt-0.5 text-center font-mono text-sm font-bold leading-6", state.tone)}
+      >
+        {state.glyph}
+      </span>
+      <span className="min-w-0">
+        <span className="sr-only">{state.label}: </span>
+        {namespace ? (
+          <span className="block truncate font-mono text-[10.5px] text-ink-3">{namespace}</span>
+        ) : null}
+        <span className="block truncate font-mono text-[13px] font-medium text-ink">{leaf}</span>
+        {entry.summary ? (
+          <span className="mt-0.5 block truncate text-xs leading-5 text-ink-2">
+            {entry.summary}
+          </span>
+        ) : null}
+        {entry.causes.length ? (
+          <span className="mt-1.5 flex flex-wrap gap-1.5">
+            {entry.causes.map((cause) => (
+              <Tag key={cause}>{humanise(cause)}</Tag>
+            ))}
+          </span>
+        ) : null}
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        {entry.finding ? (
+          <VerdictBadge verdict={entry.finding.verdict} />
+        ) : entry.lastVerdict ? (
+          <Tag>last: {humanise(entry.lastVerdict)}</Tag>
+        ) : null}
+      </span>
+    </div>
+  );
+
+  // An addressed candidate is not in this review, so there is nothing to open — it is shown
+  // as a record, not as a destination.
+  if (!onOpen) {
+    return <li className="px-4 py-3 sm:px-5">{body}</li>;
+  }
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onOpen}
+        title={entry.identity}
+        className="w-full px-4 py-3 text-left transition hover:bg-sunken sm:px-5"
+      >
+        {body}
+      </button>
+    </li>
+  );
+}
+
+/**
+ * What moved since the previous review.
+ *
+ * The review history is the point of keeping reviews immutable, and this is the surface a
+ * reviewer opens on their second visit: everything they already dealt with is noise, and
+ * what they want is the short list of what is different. So this is one list under one
+ * filter rather than four stacked panels — the change state belongs to the row, not to the
+ * container it happens to be in — ordered by how much it demands of a person.
+ */
+export function DeltaSurface({
+  review,
+  onOpen,
+}: {
+  review: Review;
+  onOpen?: (candidateId: string) => void;
+}) {
+  const [state, setState] = useState<DeltaState | "all">("all");
+  const findingOf = (candidateId: string) =>
+    review.findings.find((item) => item.candidate.id === candidateId) ?? null;
+  const nameOf = (candidateId: string) => {
+    const finding = findingOf(candidateId);
+    return (
+      finding?.candidate.participants[0]?.qualified_name ??
+      finding?.candidate.summary ??
+      shortId(candidateId, 16)
+    );
+  };
+
+  const entries: DeltaEntry[] = [
+    ...review.delta.new.map((candidateId) => ({
+      state: "new" as const,
+      candidateId,
+      identity: nameOf(candidateId),
+      summary: findingOf(candidateId)?.candidate.summary ?? null,
+      finding: findingOf(candidateId),
+      causes: [],
+      lastVerdict: null,
+    })),
+    ...review.delta.changed.map((change) => ({
+      state: "changed" as const,
+      candidateId: change.candidate_id,
+      identity: nameOf(change.candidate_id),
+      summary: findingOf(change.candidate_id)?.candidate.summary ?? null,
+      finding: findingOf(change.candidate_id),
+      causes: change.causes,
+      lastVerdict: null,
+    })),
+    ...review.delta.addressed.map((item) => ({
+      state: "addressed" as const,
+      candidateId: item.candidate_id,
+      identity: item.title,
+      summary: null,
+      finding: null,
+      causes: [],
+      lastVerdict: item.last_verdict,
+    })),
+    ...review.delta.unchanged.map((candidateId) => ({
+      state: "unchanged" as const,
+      candidateId,
+      identity: nameOf(candidateId),
+      summary: findingOf(candidateId)?.candidate.summary ?? null,
+      finding: findingOf(candidateId),
+      causes: [],
+      lastVerdict: null,
+    })),
+  ];
+
+  const counts = Object.fromEntries(
+    DELTA_STATES.map((item) => [
+      item.id,
+      entries.filter((entry) => entry.state === item.id).length,
+    ]),
+  ) as Record<DeltaState, number>;
+  const visible = state === "all" ? entries : entries.filter((entry) => entry.state === state);
+
   return (
     <div className="grid gap-4">
       <Panel>
@@ -22,100 +197,54 @@ export function DeltaSurface({ review }: { review: Review }) {
           title="Change since the previous review"
           description={
             review.previous_review_id
-              ? `Compared against review ${shortId(review.previous_review_id, 8)} by candidate identity.`
+              ? `Compared against review ${shortId(review.previous_review_id, 8)} by candidate identity — not by what the model said either time.`
               : "This is the first review in this lineage, so everything is new."
           }
         />
-        <PanelBody className="grid grid-cols-2 gap-5 sm:grid-cols-4">
-          <Statistic label="New" value={review.delta.new.length} tone="accent" />
-          <Statistic label="Changed" value={review.delta.changed.length} tone="held" />
-          <Statistic label="Unchanged" value={review.delta.unchanged.length} />
-          <Statistic label="Addressed" value={review.delta.addressed.length} tone="cleared" />
+        {/* The counts are the filter. Four numbers you can only read, next to a list you
+            then have to scan by hand, is two controls' worth of screen doing one job. */}
+        <PanelBody className="flex flex-wrap gap-1.5">
+          <ToggleButton pressed={state === "all"} onClick={() => setState("all")}>
+            All
+            <span className="tabular-nums opacity-70">{entries.length}</span>
+          </ToggleButton>
+          {DELTA_STATES.map((item) => (
+            <ToggleButton
+              key={item.id}
+              pressed={state === item.id}
+              disabled={!counts[item.id]}
+              onClick={() => setState(item.id)}
+              title={item.says}
+            >
+              <span className={cn("font-mono font-bold", item.tone)} aria-hidden="true">
+                {item.glyph}
+              </span>
+              {item.label}
+              <span className="tabular-nums opacity-70">{counts[item.id]}</span>
+            </ToggleButton>
+          ))}
         </PanelBody>
       </Panel>
 
-      {/* On the first review every candidate is new and the queue already lists them, so the
-          list is only worth showing once there is a predecessor to be new against. */}
-      {review.previous_review_id && review.delta.new.length ? (
+      {!visible.length ? (
+        <EmptyState title="Nothing in this state">
+          {review.previous_review_id
+            ? "Choose another state to see the rest of the comparison."
+            : "The first review in a lineage has nothing to be different from."}
+        </EmptyState>
+      ) : (
         <Panel>
-          <PanelHeader
-            title="New candidates"
-            description="Detected in this snapshot and absent from the previous one."
-          />
-          <PanelBody className="grid gap-2">
-            {review.delta.new.map((candidateId) => {
-              const finding = review.findings.find((item) => item.candidate.id === candidateId);
-              return (
-                <div
-                  key={candidateId}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-rule bg-surface-2 px-3 py-2.5"
-                >
-                  <span className="min-w-0 text-sm text-ink">
-                    {finding?.candidate.summary ?? shortId(candidateId, 16)}
-                  </span>
-                  {finding ? <VerdictBadge verdict={finding.verdict} /> : null}
-                </div>
-              );
-            })}
-          </PanelBody>
-        </Panel>
-      ) : null}
-
-      {review.delta.changed.length ? (
-        <Panel>
-          <PanelHeader
-            title="Changed candidates"
-            description="What about the candidate moved, not what the model said about it."
-          />
-          <PanelBody className="grid gap-2">
-            {review.delta.changed.map((change) => {
-              const finding = review.findings.find(
-                (item) => item.candidate.id === change.candidate_id,
-              );
-              return (
-                <div
-                  key={change.candidate_id}
-                  className="rounded-md border border-rule bg-surface-2 px-3 py-2.5"
-                >
-                  <div className="text-sm font-semibold text-ink">
-                    {finding?.candidate.summary ?? shortId(change.candidate_id, 16)}
-                  </div>
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {change.causes.map((cause) => (
-                      <Tag key={cause}>{humanise(cause)}</Tag>
-                    ))}
-                  </div>
-                  {change.predecessor_id ? (
-                    <Mono className="mt-1.5 block text-[11px] text-ink-3">
-                      was {shortId(change.predecessor_id, 16)}
-                    </Mono>
-                  ) : null}
-                </div>
-              );
-            })}
-          </PanelBody>
-        </Panel>
-      ) : null}
-
-      {review.delta.addressed.length ? (
-        <Panel>
-          <PanelHeader
-            title="Addressed since last time"
-            description="Candidates the previous review raised that this one no longer detects."
-          />
-          <PanelBody className="grid gap-2">
-            {review.delta.addressed.map((item) => (
-              <div
-                key={item.candidate_id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-cleared/25 bg-cleared-soft/50 px-3 py-2.5"
-              >
-                <span className="text-sm text-ink">{item.title}</span>
-                <Tag>last verdict: {humanise(item.last_verdict)}</Tag>
-              </div>
+          <ul aria-label="Candidates by change" className="divide-y divide-rule">
+            {visible.map((entry) => (
+              <DeltaRow
+                key={`${entry.state}-${entry.candidateId}`}
+                entry={entry}
+                onOpen={entry.finding && onOpen ? () => onOpen(entry.candidateId) : undefined}
+              />
             ))}
-          </PanelBody>
+          </ul>
         </Panel>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -254,27 +383,104 @@ export function AtlasSurface({ review }: { review: Review }) {
 }
 
 /** Every excerpt pinned by this review, in one place, for reading the code itself. */
+/**
+ * Every pinned excerpt, under the candidate it was pinned for.
+ *
+ * An excerpt only means something next to the claim it supports — a flat list of file
+ * fragments makes the reader match line numbers against the queue by hand. The review
+ * already carries the evidence on each finding, so this groups what is there rather than
+ * re-fetching `/source`, which flattens the grouping away.
+ *
+ * Two kinds sit under each candidate and are labelled apart, because they were pinned by
+ * different steps and carry different weight: what the analyser found to raise the
+ * candidate at all, and what the judgement leant on to reach its verdict.
+ */
 export function EvidenceSurface({ review }: { review: Review }) {
-  const evidence = useQuery({
-    queryKey: ["review-source", review.id],
-    queryFn: () => api.reviewSource(review.id),
-  });
-  if (evidence.isLoading) return <LoadingPanel label="Loading pinned evidence…" />;
-  if (evidence.error) return <ErrorNotice error={evidence.error} />;
-  if (!evidence.data?.length)
+  const findings = orderedFindings(review);
+  const groups = findings.map((finding) => ({
+    finding,
+    judgement: finding.evidence,
+    detection: finding.candidate.evidence,
+  }));
+  const withEvidence = groups.filter(
+    (group) => group.judgement.length > 0 || group.detection.length > 0,
+  );
+  const excerpts = withEvidence.reduce(
+    (total, group) => total + group.judgement.length + group.detection.length,
+    0,
+  );
+
+  if (!withEvidence.length) {
     return <EmptyState title="No pinned evidence">This review pinned no source excerpts.</EmptyState>;
+  }
+
+  const silent = groups.length - withEvidence.length;
+
   return (
-    <div className="grid gap-2">
-      {evidence.data.map((item, index) => (
-        <EvidenceBlock
-          key={`${item.location?.path}-${index}`}
-          description={item.description}
-          path={item.location?.path}
-          startLine={item.location?.start_line}
-          endLine={item.location?.end_line}
-          excerpt={item.excerpt}
+    <div className="grid gap-4">
+      <Panel>
+        <PanelHeader
+          title="Evidence by candidate"
+          description={`${plural(excerpts, "excerpt")} across ${plural(
+            withEvidence.length,
+            "candidate",
+          )}.${silent ? ` ${plural(silent, "other candidate")} pinned none.` : ""}`}
         />
-      ))}
+      </Panel>
+
+      {withEvidence.map(({ finding, judgement, detection }) => {
+        const identity = finding.candidate.participants[0]?.qualified_name;
+        return (
+          <Panel key={finding.candidate.id}>
+            <PanelHeader
+              title={finding.candidate.summary}
+              description={
+                identity ? (
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <Mono className="text-[11px]">{identity}</Mono>
+                    <Tag>{humanise(finding.candidate.pattern)}</Tag>
+                  </span>
+                ) : (
+                  <Tag>{humanise(finding.candidate.pattern)}</Tag>
+                )
+              }
+              actions={<VerdictBadge verdict={finding.verdict} />}
+            />
+            <PanelBody className="grid gap-4">
+              {judgement.length ? (
+                <div className="grid gap-2">
+                  <Label>Pinned by the judgement</Label>
+                  {judgement.map((item, index) => (
+                    <EvidenceBlock
+                      key={`judgement-${item.location?.path}-${index}`}
+                      description={item.description}
+                      path={item.location?.path}
+                      startLine={item.location?.start_line}
+                      endLine={item.location?.end_line}
+                      excerpt={item.excerpt}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {detection.length ? (
+                <div className="grid gap-2">
+                  <Label>Pinned by detection</Label>
+                  {detection.map((item, index) => (
+                    <EvidenceBlock
+                      key={`detection-${item.location?.path}-${index}`}
+                      description={item.description}
+                      path={item.location?.path}
+                      startLine={item.location?.start_line}
+                      endLine={item.location?.end_line}
+                      excerpt={item.excerpt}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </PanelBody>
+          </Panel>
+        );
+      })}
     </div>
   );
 }
