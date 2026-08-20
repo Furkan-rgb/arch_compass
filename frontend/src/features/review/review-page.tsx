@@ -434,8 +434,15 @@ export function ReviewPage() {
                 is what says there is something below the queue at all. Written as the sum
                 because the total looks like a header height, and the next person to add a
                 row to the head would otherwise retune it against a head that has nothing to
-                do with it. */}
-            <Panel className="flex max-h-[calc(100vh-5rem-3rem)] flex-col overflow-hidden">
+                do with it.
+
+                `h-` as well as `max-h-`, and they are not redundant. A cap alone leaves the
+                panel content-sized, so the list inside it has no spare height to claim and
+                `flex-1` resolves to nothing — which is how the queue ended up half empty
+                below its last row while still being told to fill the column. The cap is what
+                `overflow.test.tsx` asserts on and what bounds a long queue; the height is
+                what a short one grows into. */}
+            <Panel className="flex h-[calc(100vh-5rem-3rem)] max-h-[calc(100vh-5rem-3rem)] flex-col overflow-hidden">
               {queue}
             </Panel>
             <Panel>
@@ -501,10 +508,10 @@ export function ReviewPage() {
         <div className="flex max-h-[70vh] flex-col">{queue}</div>
       </Drawer>
 
-      {/* The finding is one reading column registered against the attribution gutter, so
-          the case, the policies, the structure around it and the provenance behind a
-          judgement are one action away rather than crowding a second margin. Opened at
-          every width, not only the narrow ones — there is no inline margin left at any. */}
+      {/* The finding is one reading column, so the case, the policies, the structure around
+          it and the provenance behind a judgement are one action away rather than crowding a
+          second margin. Opened at every width, not only the narrow ones — there is no inline
+          margin left at any. */}
       <Drawer
         open={contextOpen}
         onClose={() => setContextOpen(false)}

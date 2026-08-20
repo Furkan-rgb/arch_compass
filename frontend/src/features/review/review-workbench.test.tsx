@@ -45,7 +45,13 @@ describe("the review workbench", () => {
 
     expect(await screen.findByText("The repository cannot answer these")).toBeInTheDocument();
     expect(screen.getByText("Who owns persistence?")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Answer 1/ })).toBeInTheDocument();
+    // And exactly one way to answer it. The chrome used to carry an "Answer 1" button while
+    // the queue listed the clarification and the finding offered it again under "Hinges on" —
+    // one action with four affordances, which reads as nagging rather than as confident. The
+    // queue keeps its row, because the queue is the list of things needing a person; a button
+    // in the header is not.
+    expect(screen.queryByRole("button", { name: /^Answer \d/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/waiting on 1 unanswered question/)).toBeInTheDocument();
   });
 
   it("orders the queue by what needs a human, cleared findings last", async () => {
@@ -73,8 +79,13 @@ describe("the review workbench", () => {
 
   it("names whose voice produced each part of the assessment", async () => {
     // The charter keeps three jobs apart — the machine assembles, the model judges, the
-    // person decides — and they were apart in the domain and identical on screen. The
-    // attribution gutter is what makes them apart here, so it is worth failing a build over.
+    // person decides — and they were apart in the domain and identical on screen.
+    //
+    // What makes them apart is no longer a typeface or a gutter. It is placement and an
+    // attribution line: the model's sentence is the only reading-size text in the article and
+    // it is introduced by who produced it, the machine's numbers are behind a disclosure that
+    // names itself, and the decision is the bar that says whose it is. That is worth failing a
+    // build over in exactly the way the gutter was.
     const review = reviewFixture({ status: "completed", questions: [] });
     vi.spyOn(api, "review").mockResolvedValue(review);
     vi.spyOn(api, "reviews").mockResolvedValue([review]);
@@ -86,9 +97,10 @@ describe("the review workbench", () => {
     const article = heading.closest("article")!;
     expect(within(article).getByText("Measured")).toBeInTheDocument();
     expect(within(article).getByText("Judged")).toBeInTheDocument();
-    expect(within(article).getByText("Decided")).toBeInTheDocument();
-    // And each voice says who, not only what.
-    expect(within(article).getByText(/nobody yet/)).toBeInTheDocument();
+    expect(within(article).getByText("Standing decision")).toBeInTheDocument();
+    // And each voice says who, not only what. The decision states its own emptiness rather
+    // than a second heading printing the attribution the bar underneath already carries.
+    expect(within(article).getByText(/Nobody has decided this/)).toBeInTheDocument();
     expect(
       within(article).getByText("The provider abstraction carries one implementation"),
     ).toBeInTheDocument();
@@ -100,10 +112,13 @@ describe("the review workbench", () => {
     expect(excerpt?.textContent).toContain("from adapters.db import Store");
     expect(excerpt?.querySelector(".hljs-keyword")).not.toBeNull();
 
-    // Model, prompt and retrieval identity are real, but they are not the argument.
-    expect(within(article).queryByText("judge:v1")).not.toBeInTheDocument();
-    fireEvent.click(within(article).getByRole("button", { name: /Technical detail/ }));
-    expect(await within(article).findByText("judge:v1")).toBeInTheDocument();
+    // Model, prompt and retrieval identity are real, but they are not the argument. The
+    // prompt identity is in the DOM inside a closed <details> rather than absent — which is
+    // the point of a disclosure, and is also why this asks whether it is *visible* rather
+    // than whether it exists.
+    expect(within(article).getByText("judge:v1")).not.toBeVisible();
+    fireEvent.click(within(article).getByText("Provenance"));
+    expect(within(article).getByText("judge:v1")).toBeVisible();
   });
 
   it("keeps the standing decision separate from the model's verdict", async () => {
@@ -127,9 +142,17 @@ describe("the review workbench", () => {
 
     render(wrap(<ReviewPage />));
 
-    expect(await screen.findByText(/ArchCompass does not decide this/)).toBeInTheDocument();
-    // Waiving without a reason is refused by the form itself, not by the server.
-    expect(screen.getByRole("button", { name: "Waive" })).toBeDisabled();
+    expect(await screen.findByText(/Nobody has decided this/)).toBeInTheDocument();
+
+    // Waiving without a reason is still refused by the form rather than by the server — but
+    // the refusal moved to where the reason is. Waive is a disclosure now: the field it needs
+    // does not exist until it is pressed, because it was the widest control in the bar and
+    // empty in the two states that do not want it.
+    const waive = screen.getByRole("button", { name: "Waive" });
+    expect(waive).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(waive);
+    expect(waive).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /Record waiver/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Accept and act" }));
     await waitFor(() =>
       expect(decide).toHaveBeenCalledWith("review-1", "candidate-2", "accept", null),

@@ -1,11 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import type React from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { api } from "../../api";
 import { AppShell } from "../../app/shell";
+import { Tag } from "../../ui/badge";
+import { Markdown } from "../../ui/markdown";
 import { splitQualified } from "../../lib/format";
 import { AttentionQueue } from "./attention-queue";
 import { ReviewPage } from "./review-page";
@@ -237,19 +239,23 @@ describe("the attention queue's height", () => {
 });
 
 /**
- * The attribution gutter is a fixed grid track, so what it holds has to fit in it.
+ * A fixed label beside a line that is as long as the data made it.
  *
- * `6.75rem` is a fixed column: a label wider than it does not widen the track, it hangs out
- * of the left edge of the article. The cell was padded on the right and not on the left, so
- * "Involved code · 2" — the longest label the finding uses — sat flush against the border
- * with about a pixel to spare, and the next longer label would have escaped the panel.
+ * This used to guard the attribution gutter, a `6.75rem` grid track that the finding no
+ * longer has: the gutter charged that width to every row to print section labels that were
+ * not voices, and it went with the serif. The shape of the bug outlived it, though, and moved
+ * one component down. A disclosure summary is the same arrangement — a label that must not
+ * shrink, beside a line that holds counts, a repository-relative path and a line range, none
+ * of which the component chooses the length of.
  *
- * jsdom does no layout, so this asserts the two properties that make the overflow
- * impossible: the track is inset on both sides, and every text node inside it may break at
- * any character.
+ * jsdom does no layout, so this asserts the three properties that make the overflow
+ * impossible rather than measuring it: the label refuses to shrink, the line beside it is
+ * allowed to, and its text may break at any character — because
+ * `dependants_of_abstraction (proxy)` and `src/archcompass/domain/orders.py:118-140` are each
+ * one token to the line breaker.
  */
-describe("the attribution gutter's width", () => {
-  it("keeps every label inside the track, however long the label is", async () => {
+describe("a disclosure summary's width", () => {
+  it("lets the line beside a fixed label shrink, and break", async () => {
     const review = reviewFixture({ status: "completed", questions: [] });
     vi.spyOn(api, "review").mockResolvedValue(review);
     vi.spyOn(api, "reviews").mockResolvedValue([review]);
@@ -269,18 +275,105 @@ describe("the attribution gutter's width", () => {
       </QueryClientProvider>,
     );
 
-    // Both kinds of gutter content: the voice that names a speaker, and the quiet label on a
-    // block that continues one.
-    const voice = await screen.findByText("Measured");
-    const label = screen.getByText(/^Involved code/);
+    // All three closed disclosures, because each one's summary is built from different data
+    // and only one of them is the section that happens to be shortest today.
+    for (const name of ["Measured", "Policies", "Provenance"]) {
+      const label = await screen.findByText(name);
+      expect(label.className).toContain("shrink-0");
 
-    for (const node of [voice, label]) {
-      expect(node.className).toContain("overflow-wrap:anywhere");
-      const cell = node.parentElement!;
-      // Padded on the side the text is aligned to *and* on the side it grows towards.
-      expect(cell.className).toMatch(/\blg:pl-\d/);
-      expect(cell.className).toMatch(/\blg:pr-[\d.]+/);
-      expect(cell.className).not.toContain("lg:px-0");
+      const line = label.nextElementSibling as HTMLElement;
+      expect(line.className).toContain("min-w-0");
+      expect(line.className).toContain("overflow-wrap:anywhere");
+
+      // And the row itself lays them out along the axis it is allowed to grow on, so a long
+      // line pushes the chevron nowhere.
+      expect(label.parentElement!.className).toContain("flex");
     }
+  });
+});
+
+/**
+ * The same rule again, one component down: a chip is not always a word.
+ *
+ * `flex-wrap` was doing the work everywhere a row of chips appears — the finding's involved
+ * code, an answer's citations, the delta's causes — and `flex-wrap` wraps *between* items.
+ * It has no answer for a single chip wider than the row, and half of these hold a qualified
+ * name, which is one token to the line breaker. On the finding that was invisible rather
+ * than obvious: the article is `overflow-hidden`, so the chip was not escaping the panel,
+ * it was being sliced mid-identifier inside it.
+ */
+describe("a chip that holds a name", () => {
+  function renderFindingWith(qualifiedName: string) {
+    const base = reviewFixture({ status: "completed", questions: [] });
+    const review = {
+      ...base,
+      findings: base.findings.map((item) => ({
+        ...item,
+        candidate: {
+          ...item.candidate,
+          participants: [{ qualified_name: qualifiedName, role: "implementation" }],
+        },
+      })),
+    };
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
+    vi.spyOn(api, "decisions").mockResolvedValue({ branch_id: "branch-1", decisions: [] });
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    return render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/reviews/review-1"]}>
+          <Routes>
+            <Route path="/reviews/:reviewId" element={<ReviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  it("caps a participant at the row and breaks the name instead", async () => {
+    renderFindingWith(LONG_IDENTIFIER);
+
+    // The name is on screen more than once — the queue lists it too — so this asks the
+    // involved-code list for its own copy. Found by its accessible name rather than by a
+    // visible heading: the count moved onto the chips themselves, and the list keeps the
+    // label for assistive tech, which is the more durable hook of the two anyway.
+    const list = await screen.findByRole("list", { name: "Involved code" });
+    const name = within(list).getByText(LONG_IDENTIFIER);
+    // The name may break at any character, because there is no other place to break it.
+    expect(name.className).toContain("wrap-anywhere");
+    // And the chip around it, and the list item around that, may be narrower than it.
+    expect(name.parentElement?.className).toContain("max-w-full");
+    expect(name.parentElement?.parentElement?.className).toContain("max-w-full");
+  });
+
+  it("caps every tag, wherever the row it sits in happens to be", () => {
+    const { container } = render(<Tag>{LONG_IDENTIFIER}</Tag>);
+    const tag = container.firstElementChild!;
+    expect(tag.className).toContain("max-w-full");
+    expect(tag.className).toContain("wrap-anywhere");
+  });
+});
+
+/**
+ * The report is Markdown, and its headings are names.
+ *
+ * Every finding in the report leads with its identifier, so `## \`…base.SynthesisProvider\``
+ * is a heading whose whole content is one token — at `text-lg` that is wider than a phone,
+ * and nothing above it was clipping, so the *page* scrolled sideways rather than the
+ * heading. Prose still breaks on spaces; `overflow-wrap: anywhere` only acts on a word with
+ * nowhere else to go.
+ */
+describe("a heading that is a name", () => {
+  it("breaks the identifier rather than the page", () => {
+    const { container } = render(<Markdown>{`## \`${LONG_IDENTIFIER}\` is implemented once`}</Markdown>);
+
+    const heading = container.querySelector("h3")!;
+    expect(heading.className).toContain("wrap-anywhere");
+    // Inline code carries the same names inside a sentence, and the same rule.
+    expect(container.querySelector("code")!.className).toContain("wrap-anywhere");
   });
 });

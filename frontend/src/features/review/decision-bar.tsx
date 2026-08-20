@@ -233,22 +233,25 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
         </div>
       ) : null}
 
-      {/* The controls, and the only part of this that is pinned.
+      {/* The controls. Deliberately not pinned.
 
-          The record above scrolls; the three decisions stay reachable at every scroll
-          position, because the finding is long and the decision is the reason for reading it.
-          Sticky only where there is height to spend: on a short phone viewport a pinned bar
-          is a third of the screen and would sit over the last row of the finding rather than
-          under it — so it only pins above 34rem of viewport height, and is in the flow below
-          that. Written as one `min-height` variant rather than a `sticky` plus a `static`
-          override: the two are the same utility group, and which of them won would be decided
-          by the order Tailwind happens to emit them in.
+          This was `sticky bottom-0`, and it was inert: `finding-detail.tsx` wraps the article
+          in `overflow-hidden` — it has to, because the article is `rounded-lg` and its last
+          child paints a background into the corner — and an `overflow` ancestor becomes the
+          scrollport for anything sticky inside it, so the bar pinned to a box that never
+          scrolls.
 
-          Known limit: `finding-detail.tsx` wraps the article in `overflow-hidden`, which
-          makes that article the scrollport for anything sticky inside it — so this pins to a
-          box that never scrolls and the effect is currently inert. The declaration is here
-          because this is where the rule belongs; the ancestor is the thing to fix. */}
-      <div className="bottom-0 z-20 mt-3.5 border-t border-rule bg-surface pt-3.5 [@media(min-height:34rem)]:sticky">
+          It was removed rather than repaired, because the reason for pinning it went away.
+          A floating bar was compensating for a finding long enough that the decision fell off
+          the bottom of it; folding measurement, policies and provenance behind honest closed
+          states is what actually fixed that, and it cut the article by roughly a quarter. The
+          decision now sits a short scroll from the verdict that prompts it. `A`, `P` and `W`
+          reach it from anywhere on the page without scrolling at all.
+
+          If a finding ever grows long enough that this stops being true, the fix is to make
+          the bar a direct child of the article and drop the `overflow-hidden` in favour of
+          rounding the last child — not to re-add a declaration the ancestor cancels. */}
+      <div className="mt-3.5 border-t border-rule bg-surface pt-3.5">
         {/* Deliberate wrapping, not accidental. At 390px the three labels plus their key caps
             do not fit on one line, and letting flex-wrap decide gives "Accept and act" and
             "Park" a row and leaves "Waive" alone under them. Two columns with the primary
