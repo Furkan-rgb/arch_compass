@@ -24,6 +24,7 @@ from archcompass.domain import (
 )
 from archcompass.domain._support import new_id, stable_id, utc_now
 from archcompass.domain.errors import ReviewNotCancellableError
+from archcompass.persistence.executions import InFlightExecution
 from archcompass.workflow.runs import ReviewRunner, RunState
 from archcompass.workflow.state import ReviewInput, ReviewState
 
@@ -57,6 +58,8 @@ class ReviewExecutionStore(Protocol):
     def status(self, thread_id: str) -> str: ...
 
     def current_review_id(self, thread_id: str) -> str | None: ...
+
+    def in_flight(self, *, limit: int = 50) -> tuple[InFlightExecution, ...]: ...
 
     def fail(self, thread_id: str) -> None: ...
 
@@ -309,6 +312,16 @@ class ReviewWorkflowService:
 
     def latest_for_branch(self, branch_id: str) -> Review | None:
         return self._reviews.latest_for_branch(branch_id)
+
+    def in_flight(self, *, limit: int = 50) -> tuple[InFlightExecution, ...]:
+        """Runs that have begun and have no review yet.
+
+        Listed beside the reviews rather than instead of them: a run becomes a review the
+        moment the graph composes one, and until then there is no review to list — the
+        atlas it would have to carry has not been built.
+        """
+
+        return self._executions.in_flight(limit=limit)
 
     def abandon_running(self) -> None:
         self._executions.abandon_running()

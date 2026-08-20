@@ -57,6 +57,31 @@ class ReviewRunResponse(APIModel):
         )
 
 
+class ReviewRunSummaryResponse(APIModel):
+    """A run in flight, as a listing shows it.
+
+    Deliberately not a `ReviewResponse` with the fields blanked out. A review carries the
+    atlas it was made from, and a run that has not finished analysing does not have one — so
+    a listing entry that pretended to be a review would be a review record that is edited
+    into existence later, which is the one thing reviews are not. This is the run, named the
+    way the reader would name it, and it is replaced by the review as soon as there is one.
+    """
+
+    run_id: str
+    stage: str
+    stages: list[str]
+    #: Where the code is and which line of work it is on, resolved from lineage so the entry
+    #: reads like the review it is about to become rather than like two identifiers.
+    repository_name: str
+    repository_root: str
+    branch_name: str
+    #: The lineage this run belongs to. Carried as ids as well as names because the review
+    #: page matches on them: a run for this branch and this case is the next revision of the
+    #: lineage the reader is already looking at, and belongs in its rail.
+    branch_id: str
+    case_id: str
+
+
 class SubmittedAnswerRequest(APIModel):
     question_id: str = Field(min_length=1)
     status: AnswerStatus
@@ -514,6 +539,42 @@ def routes() -> APIRouter:
             stop=request.stop,
         )
         return ReviewResponse.from_domain(review)
+
+    @router.get("/api/reviews/runs")
+    def list_review_runs(
+        runtime: RuntimeDep,
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    ) -> list[ReviewRunSummaryResponse]:
+        """Every run that has begun and has no review yet.
+
+        Registered above `/api/reviews/{review_id}` so `runs` is not read as an id.
+
+        This exists because a run was only ever addressable by an id somebody was already
+        holding: start a review, navigate away, and there was no way back to it short of the
+        browser's history. A batch judgement takes as long as a batch takes, which makes
+        "navigate away" the ordinary case rather than the careless one.
+        """
+
+        lineages = runtime.lineage_repository
+        summaries: list[ReviewRunSummaryResponse] = []
+        for execution in runtime.review_workflow_service.in_flight(limit=limit):
+            repository = lineages.repository(execution.repository_id)
+            branch = lineages.get_branch(execution.branch_id)
+            root = repository.canonical_root if repository else ""
+            state = runtime.review_workflow_service.run_state(execution.thread_id)
+            summaries.append(
+                ReviewRunSummaryResponse(
+                    run_id=execution.thread_id,
+                    stage=state.stage,
+                    stages=list(state.stages),
+                    repository_name=Path(root).name if root else "this repository",
+                    repository_root=root,
+                    branch_name=branch.branch_name if branch else "",
+                    branch_id=execution.branch_id,
+                    case_id=execution.case_id,
+                )
+            )
+        return summaries
 
     @router.get("/api/reviews")
     def list_reviews(

@@ -4,6 +4,7 @@ import type {
   EmbeddingCatalog,
   PolicyDocument,
   Review,
+  ReviewRunSummary,
   Workspace,
 } from "./api";
 
@@ -127,6 +128,21 @@ export function reviewFixture(overrides: Partial<Review> = {}): Review {
     started_at: "2026-01-01T00:00:00Z",
     finished_at: null,
     failure: null,
+    ...overrides,
+  };
+}
+
+/** A run that has begun and has no review yet, as the listings show it. */
+export function runFixture(overrides: Partial<ReviewRunSummary> = {}): ReviewRunSummary {
+  return {
+    run_id: "thread-9",
+    stage: "judge_candidate",
+    stages: ["load_context", "analyze_repository", "judge_candidate"],
+    repository_name: "payments-platform",
+    repository_root: "/work/payments-platform",
+    branch_name: "main",
+    branch_id: "branch-1",
+    case_id: "case-1",
     ...overrides,
   };
 }

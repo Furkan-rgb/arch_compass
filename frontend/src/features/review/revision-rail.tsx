@@ -1,8 +1,10 @@
 import { Link } from "react-router-dom";
 
-import type { Review } from "../../api";
+import type { Review, ReviewRunSummary } from "../../api";
 import { cn } from "../../lib/cn";
-import { relativeTime, statusOf } from "../../lib/format";
+import { humanise, relativeTime, statusOf } from "../../lib/format";
+import { TONE_TEXT } from "../../ui/meta";
+import { Spinner } from "../../ui/states";
 import { Timeline, TimelineItem } from "../../ui/timeline";
 
 /**
@@ -14,10 +16,17 @@ import { Timeline, TimelineItem } from "../../ui/timeline";
 export function RevisionRail({
   current,
   reviews,
+  pending,
+  pendingSelected = false,
+  onSelectPending,
   className,
 }: {
   current: Review;
   reviews: Review[];
+  /** A run for this same branch and case, still being made. The next entry, before it exists. */
+  pending?: ReviewRunSummary | null;
+  pendingSelected?: boolean;
+  onSelectPending?: () => void;
   className?: string;
 }) {
   const lineage = reviews
@@ -36,6 +45,7 @@ export function RevisionRail({
         {entries.length === 1
           ? "The first review of this case"
           : `${entries.length} immutable revisions`}
+        {pending ? ", and one being made" : ""}
       </p>
       <Timeline>
         {entries.map((review) => {
@@ -58,11 +68,7 @@ export function RevisionRail({
                   <span
                     className={cn(
                       "text-[10px] font-bold uppercase tracking-[0.08em]",
-                      status.tone === "cleared" && "text-cleared",
-                      status.tone === "held" && "text-held",
-                      status.tone === "material" && "text-material",
-                      status.tone === "neutral" && "text-ink-3",
-                      status.tone === "accent" && "text-accent",
+                      status.tone === "neutral" ? "text-ink-3" : TONE_TEXT[status.tone],
                     )}
                   >
                     <span aria-hidden="true" className="mr-1">
@@ -78,6 +84,41 @@ export function RevisionRail({
             </TimelineItem>
           );
         })}
+
+        {/* The revision being made right now, in the same rail as the ones that exist. It
+            has no id, no sequence and no findings yet — the atlas it will be composed from
+            is still being built — so it is a button rather than a link, and it says what it
+            is instead of borrowing the shape of a finished review. */}
+        {pending ? (
+          <TimelineItem current={pendingSelected}>
+            <button
+              type="button"
+              onClick={onSelectPending}
+              aria-current={pendingSelected ? "true" : undefined}
+              className={cn(
+                "block w-full rounded-md px-2.5 py-2 text-left transition",
+                pendingSelected ? "bg-accent-soft" : "hover:bg-sunken",
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span
+                  className={cn(
+                    "text-[13px] font-semibold",
+                    pendingSelected ? "text-accent" : "text-ink",
+                  )}
+                >
+                  Review {entries[entries.length - 1].sequence + 1}
+                </span>
+                <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.08em] text-accent">
+                  <Spinner /> In progress
+                </span>
+              </div>
+              <div className="mt-0.5 text-[11px] text-ink-3">
+                {pending.stage ? humanise(pending.stage) : "starting"}
+              </div>
+            </button>
+          </TimelineItem>
+        ) : null}
       </Timeline>
     </div>
   );

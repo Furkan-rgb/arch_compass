@@ -9,6 +9,7 @@ import {
   embeddingCatalogFixture,
   modelCatalogFixture,
   reviewFixture,
+  runFixture,
   workspaceFixture,
 } from "../test-fixtures";
 import { CasesPage } from "./cases/cases-page";
@@ -100,6 +101,23 @@ describe("the repositories page", () => {
 });
 
 describe("the reviews page", () => {
+  it("lists a review that is still being made, so navigating away does not lose it", async () => {
+    // A run used to be reachable only by an id somebody was already holding. Batch judging
+    // takes as long as a batch takes, which makes "look at something else meanwhile" the
+    // ordinary way to use this, not the careless one.
+    vi.spyOn(api, "reviews").mockResolvedValue([]);
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([runFixture()]);
+
+    render(wrap(<ReviewsPage />));
+
+    const entry = await screen.findByRole("link", { name: /payments-platform/ });
+    expect(entry).toHaveAttribute("href", "/runs/thread-9");
+    expect(within(entry).getByText("In progress")).toBeInTheDocument();
+    expect(within(entry).getByText(/Judge candidate/)).toBeInTheDocument();
+    // A page holding only a run must not also claim there is nothing here.
+    expect(screen.queryByText("No reviews yet")).not.toBeInTheDocument();
+  });
+
   it("filters history by status and by search", async () => {
     vi.spyOn(api, "reviews").mockResolvedValue([
       reviewFixture(),

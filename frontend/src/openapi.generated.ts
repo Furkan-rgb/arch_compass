@@ -533,6 +533,16 @@ export interface components {
     "stages": Array<string>;
     "failure": string;
   };
+    "ReviewRunSummaryResponse": {
+    "run_id": string;
+    "stage": string;
+    "stages": Array<string>;
+    "repository_name": string;
+    "repository_root": string;
+    "branch_name": string;
+    "branch_id": string;
+    "case_id": string;
+  };
     "SearchNodesQuery": {
     "kind": "search_nodes";
     "terms": Array<string>;
@@ -1122,6 +1132,21 @@ export interface operations {
       "404": components["schemas"]["ProblemDetail"];
     };
   };
+  "list_review_runs_api_reviews_runs_get": {
+    parameters: {
+      query: {
+      "limit"?: number;
+      };
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": Array<components["schemas"]["ReviewRunSummaryResponse"]>;
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
   "list_reviews_api_reviews_get": {
     parameters: {
       query: {
@@ -1575,6 +1600,7 @@ export interface paths {
     post: operations["create_review_api_reviews_post"];
   };
   "/api/reviews/runs": {
+    get: operations["list_review_runs_api_reviews_runs_get"];
     post: operations["start_review_run_api_reviews_runs_post"];
   };
   "/api/reviews/runs/{run_id}": {

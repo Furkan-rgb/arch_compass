@@ -93,3 +93,65 @@ def _settle(runner: ReviewRunner, run_id: str) -> None:
             return
         threading.Event().wait(0.01)
     raise AssertionError(f"run {run_id} never finished")
+
+
+def test_a_run_is_listed_until_it_has_a_review_to_be_listed_as(tmp_path) -> None:
+    """The half of findability the id could never provide.
+
+    An address is only findable by somebody still holding it, and a run that judges in a
+    batch is answered in minutes or hours — long enough that looking at something else in
+    between is the ordinary way to use the page, not a mistake. So a run that has begun and
+    has no review yet is listed, and stops being listed the moment there is a review to list
+    in its place. Never both: one row per thing.
+    """
+
+    import sqlite3
+
+    from archcompass.domain import ReviewStatus
+    from archcompass.persistence.executions import SQLiteReviewExecutionRepository
+
+    path = tmp_path / "executions.sqlite3"
+    executions = SQLiteReviewExecutionRepository(lambda: sqlite3.connect(path))
+    executions.begin(
+        thread_id="thread-1",
+        repository_id="repo-1",
+        branch_id="branch-1",
+        case_id="case-1",
+    )
+
+    in_flight = executions.in_flight()
+    assert [item.thread_id for item in in_flight] == ["thread-1"]
+    assert in_flight[0].branch_id == "branch-1"
+    assert in_flight[0].case_id == "case-1"
+
+    class _Review:
+        id = "review-1"
+        status = ReviewStatus.COMPLETED
+
+    executions.bind("thread-1", _Review())  # type: ignore[arg-type]
+
+    assert executions.in_flight() == ()
+
+
+def test_the_newest_run_is_listed_first(tmp_path) -> None:
+    import sqlite3
+
+    from archcompass.persistence.executions import SQLiteReviewExecutionRepository
+
+    executions = SQLiteReviewExecutionRepository(
+        lambda: sqlite3.connect(tmp_path / "executions.sqlite3")
+    )
+    for index in range(3):
+        executions.begin(
+            thread_id=f"thread-{index}",
+            repository_id="repo-1",
+            branch_id="branch-1",
+            case_id=f"case-{index}",
+        )
+
+    # No timestamp is stored, so insertion order is start order and that is what is used.
+    assert [item.thread_id for item in executions.in_flight()] == [
+        "thread-2",
+        "thread-1",
+        "thread-0",
+    ]

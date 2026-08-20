@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../../api";
 import { VIEWPORT, setViewportWidth } from "../../test-setup";
-import { reviewFixture } from "../../test-fixtures";
+import { reviewFixture, runFixture } from "../../test-fixtures";
 import { ReviewPage } from "./review-page";
 
 function wrap(children: ReactNode, path = "/reviews/review-1") {
@@ -27,6 +27,7 @@ function wrap(children: ReactNode, path = "/reviews/review-1") {
 beforeEach(() => {
   setViewportWidth(VIEWPORT.desktop);
   vi.spyOn(api, "decisions").mockResolvedValue({ branch_id: "branch-1", decisions: [] });
+  vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -230,5 +231,47 @@ describe("the review workbench", () => {
       "The embedding provider was unreachable",
     );
     expect(screen.getByText("Domain depends on an adapter")).toBeInTheDocument();
+  });
+
+  it("shows the revision being made in the same rail as the ones that exist", async () => {
+    // A run is only addressable by an id somebody is holding. The lineage a reader already
+    // has open is where the next revision of it belongs, so starting a review and then
+    // looking at the previous one still finds it.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([
+      runFixture({ branch_id: review.repository.branch_id, case_id: review.case.id }),
+    ]);
+    vi.spyOn(api, "reviewRun").mockResolvedValue({
+      run_id: "thread-9",
+      status: "running",
+      review_id: null,
+      stage: "judge_candidate",
+      stages: ["load_context", "analyze_repository", "judge_candidate"],
+      failure: "",
+    });
+
+    render(wrap(<ReviewPage />));
+
+    const pending = await screen.findByRole("button", { name: /Review 2/ });
+    fireEvent.click(pending);
+
+    // The pane where the findings go shows the only thing there is to say about a review
+    // that has not been composed: how far the run has got.
+    expect(await screen.findByText("Reviewing the repository")).toBeInTheDocument();
+    expect(await screen.findByText("Judging candidates")).toBeInTheDocument();
+  });
+
+  it("leaves the rail alone when the run in flight belongs to another case", async () => {
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([runFixture({ case_id: "some-other-case" })]);
+
+    render(wrap(<ReviewPage />));
+
+    await screen.findByText("Review lineage");
+    expect(screen.queryByText(/In progress/)).not.toBeInTheDocument();
   });
 });

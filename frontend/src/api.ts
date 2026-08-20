@@ -34,6 +34,7 @@ export type ProviderAvailability = Schema["ProviderAvailabilityResponse"];
 
 export type ReviewProgress = { event: string; review?: Review; message?: string };
 export type ReviewRun = Schema["ReviewRunResponse"];
+export type ReviewRunSummary = Schema["ReviewRunSummaryResponse"];
 
 async function problem(response: Response): Promise<Error> {
   const detail = (await response.json().catch(() => null)) as
@@ -97,6 +98,7 @@ export const api = {
     request<DirectoryListing>(`/api/filesystem/directories${path ? `?path=${encode(path)}` : ""}`),
 
   // Reviews ------------------------------------------------------------------------------
+  reviewRuns: () => request<ReviewRunSummary[]>("/api/reviews/runs"),
   reviews: () => request<Review[]>("/api/reviews"),
   review: (id: string) => request<Review>(`/api/reviews/${encode(id)}`),
   reviewSource: (id: string) => request<Evidence[]>(`/api/reviews/${encode(id)}/source`),

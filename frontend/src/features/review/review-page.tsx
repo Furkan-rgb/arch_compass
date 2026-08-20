@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { api, type Review } from "../../api";
+import { api, type Review, type ReviewRunSummary } from "../../api";
 import { cn } from "../../lib/cn";
 import { useIsTabletUp } from "../../lib/media";
 import { type Tone, relativeTime, repositoryName, shortId, verdictOf } from "../../lib/format";
@@ -11,8 +11,8 @@ import { Button, ButtonLink } from "../../ui/button";
 import { Drawer } from "../../ui/drawer";
 import { GitBranchIcon } from "../../ui/icons";
 import { Mono, PathRef, TONE_TEXT } from "../../ui/meta";
-import { Panel, PanelBody } from "../../ui/panel";
-import { ErrorNotice, LoadingPanel } from "../../ui/states";
+import { Panel, PanelBody, PanelHeader } from "../../ui/panel";
+import { ErrorNotice, LoadingPanel, Spinner } from "../../ui/states";
 import { Tabs, TabPanel } from "../../ui/tabs";
 import {
   AttentionQueue,
@@ -24,6 +24,7 @@ import {
 import { ClarificationRound } from "./clarification";
 import { ContextRail } from "./context-rail";
 import { FindingBackBar, FindingDetail } from "./finding-detail";
+import { RunProgress, useReviewRun } from "../start/run-progress";
 import { RevisionRail } from "./revision-rail";
 import {
   AskSurface,
@@ -156,6 +157,34 @@ function StatusRibbon({ review }: { review: Review }) {
   );
 }
 
+/**
+ * The revision that is still being made, in the pane where its findings will go.
+ *
+ * The reader has asked to look at a review that does not exist yet, so the pane shows the
+ * only thing there is to show about it: how far the run has got. It is the same component
+ * the run's own address renders, because it is the same question.
+ */
+function RunSurface({ run }: { run: ReviewRunSummary }) {
+  const state = useReviewRun(run.run_id);
+  return (
+    <Panel>
+      <PanelHeader
+        title="Reviewing the repository"
+        description="This is running in the workspace, not in this tab. Its findings appear here as soon as they are composed."
+      />
+      <PanelBody>
+        {state.data ? (
+          <RunProgress state={state.data} />
+        ) : (
+          <p className="flex items-center gap-2 text-sm text-ink-3">
+            <Spinner /> Asking the workspace where it has got to…
+          </p>
+        )}
+      </PanelBody>
+    </Panel>
+  );
+}
+
 export function ReviewPage() {
   const { reviewId = "" } = useParams();
   const navigate = useNavigate();
@@ -170,9 +199,19 @@ export function ReviewPage() {
   // Choosing what to look at and working down the list are different jobs; the rail is only
   // needed for the first, so it can be put away for the second.
   const [railOpen, setRailOpen] = useState(true);
+  // Whether the rail's in-progress entry is what the right-hand pane is showing.
+  const [watchingRun, setWatchingRun] = useState(false);
 
   const review = useQuery({ queryKey: ["review", reviewId], queryFn: () => api.review(reviewId) });
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: api.reviews });
+  // A run for this same branch and case is the next revision of the lineage this page is
+  // already showing, so it belongs in this page's rail rather than only at an address
+  // somebody had to keep hold of.
+  const runs = useQuery({
+    queryKey: ["review-runs"],
+    queryFn: api.reviewRuns,
+    refetchInterval: (query) => (query.state.data?.length ? 4000 : false),
+  });
   const cancel = useMutation({
     mutationFn: () => api.cancel(reviewId),
     onSuccess: async (next) => {
@@ -195,7 +234,21 @@ export function ReviewPage() {
 
   useEffect(() => {
     setSelection(null);
+    setWatchingRun(false);
   }, [reviewId]);
+
+  const pendingRun =
+    (value &&
+      (runs.data ?? []).find(
+        (run) =>
+          run.branch_id === value.repository.branch_id && run.case_id === value.case.id,
+      )) ||
+    null;
+  // The run finished while this page was open: there is a newer review to read, so the
+  // pane goes back to the findings rather than to a progress list that has stopped moving.
+  useEffect(() => {
+    if (!pendingRun) setWatchingRun(false);
+  }, [pendingRun]);
 
   const active = selection ?? defaultSelection;
   const selectedFinding =
@@ -210,11 +263,13 @@ export function ReviewPage() {
 
   function select(next: QueueSelection) {
     setSelection(next);
+    setWatchingRun(false);
     setQueueOpen(false);
   }
 
-  const detail =
-    active?.kind === "clarification" ? (
+  const detail = watchingRun && pendingRun ? (
+    <RunSurface run={pendingRun} />
+  ) : active?.kind === "clarification" ? (
       <ClarificationRound review={value} />
     ) : selectedFinding ? (
       <FindingDetail
@@ -293,7 +348,13 @@ export function ReviewPage() {
                 </button>
               </Panel>
               <Panel>
-                <RevisionRail current={value} reviews={reviews.data ?? [value]} />
+                <RevisionRail
+                  current={value}
+                  reviews={reviews.data ?? [value]}
+                  pending={pendingRun}
+                  pendingSelected={watchingRun}
+                  onSelectPending={() => setWatchingRun(true)}
+                />
               </Panel>
             </div>
           ) : null}
