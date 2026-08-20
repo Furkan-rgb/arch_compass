@@ -4,6 +4,18 @@ import remarkGfm from "remark-gfm";
 import { cn } from "../lib/cn";
 import { highlight, isSupported } from "../lib/highlight";
 
+/**
+ * A heading may be a name.
+ *
+ * The report leads every finding with its identifier in backticks, because scanning beats
+ * reading and a heading is what the eye lands on. Inline code elsewhere is a chip — a border
+ * and a fill, so a symbol inside a sentence is visibly not part of it — and a chip is the
+ * wrong shape for a heading, which reads as a tag rather than as a title. Inside a heading
+ * the code keeps the mono face, which is the part that carries meaning, and drops the box.
+ */
+const NAMED_HEADING =
+  "[&>code]:border-0 [&>code]:bg-transparent [&>code]:px-0 [&>code]:py-0 [&>code]:text-[0.92em]";
+
 /** Everything after `language-` on a fence, which is all the fence tells us. */
 function fenceLanguage(className: string | undefined): string | undefined {
   const found = /language-([\w+-]+)/.exec(className ?? "");
@@ -24,17 +36,32 @@ export function Markdown({ children, className }: { children: string; className?
         remarkPlugins={[remarkGfm]}
         components={{
           h1: ({ children }) => (
-            <h2 className="mt-7 mb-3 font-display text-xl font-semibold tracking-tight text-ink first:mt-0">
+            <h2
+              className={cn(
+                "mt-7 mb-3 font-display text-xl font-semibold tracking-tight text-ink first:mt-0",
+                NAMED_HEADING,
+              )}
+            >
               {children}
             </h2>
           ),
           h2: ({ children }) => (
-            <h3 className="mt-6 mb-2.5 font-display text-lg font-semibold tracking-tight text-ink first:mt-0">
+            <h3
+              className={cn(
+                "mt-6 mb-2.5 font-display text-lg font-semibold tracking-tight text-ink first:mt-0",
+                NAMED_HEADING,
+              )}
+            >
               {children}
             </h3>
           ),
           h3: ({ children }) => (
-            <h4 className="mt-5 mb-2 font-display text-base font-semibold text-ink first:mt-0">
+            <h4
+              className={cn(
+                "mt-5 mb-2 font-display text-base font-semibold text-ink first:mt-0",
+                NAMED_HEADING,
+              )}
+            >
               {children}
             </h4>
           ),

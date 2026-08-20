@@ -24,7 +24,7 @@ from archcompass.policies.retrieval import (
     corpus_fingerprint,
 )
 from archcompass.ports.policy_retrieval import PolicySelection, RetrievedPolicySet
-from archcompass.reasoning.adapters.factory import build_embeddings
+from archcompass.reasoning.adapters.factory import build_embeddings, embedding_identity
 
 DEFAULT_GOOGLE_EMBEDDING_MODEL = "gemini-embedding-2"
 DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS = 3072
@@ -116,7 +116,9 @@ class SelectedDensePolicyRetriever:
                 ),
             )
         config = self._embedding_config()
-        identity = f"{config.provider}:{config.model}:{config.dimensions}"
+        # Not `provider:model:dimensions` assembled here: what the index may reuse is
+        # decided by what `build_embeddings` does to the text, and only it knows that.
+        identity = embedding_identity(config)
         with self._lock:
             cache_identity = f"{identity}:k={self._top_k}"
             if self._cached is None or self._cached[0] != cache_identity:

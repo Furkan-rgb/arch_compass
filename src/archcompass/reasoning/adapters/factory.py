@@ -22,7 +22,66 @@ from archcompass.reasoning.adapters.google_batch import (
 from archcompass.reasoning.adapters.openai_compatible import (
     OPENAI_COMPATIBLE_PROVIDERS,
 )
-from archcompass.reasoning.adapters.providers import GOOGLE_FIXED_SAMPLING_MODELS
+from archcompass.reasoning.adapters.providers import (
+    EMBEDDINGGEMMA_DOCUMENT_PROMPT,
+    EMBEDDINGGEMMA_QUERY_PROMPT,
+    GOOGLE_FIXED_SAMPLING_MODELS,
+    TASK_PROMPTED_OLLAMA_MODELS,
+    ollama_model_family,
+)
+
+
+class TaskPromptedEmbeddings(Embeddings):
+    """A model's own task prompts, applied where the provider has no field to carry them.
+
+    Google takes `task_type` on the request, so its embeddings already say whether a text is
+    a query or a document to be found. Ollama takes text and nothing else, which leaves the
+    prefix as the only way to say it — and for a model trained with these prompts, saying
+    nothing is not a neutral default but an input shaped unlike anything it was trained on.
+
+    Wrapping rather than subclassing the provider's own class: what varies is the text going
+    in, and every other thing `OllamaEmbeddings` does should keep being done by it.
+    """
+
+    def __init__(self, inner: Embeddings, *, query: str, document: str) -> None:
+        self._inner = inner
+        self._query = query
+        self._document = document
+
+    @property
+    def inner(self) -> Embeddings:
+        """The unprompted model, so the evaluation can still price what the prompts buy."""
+
+        return self._inner
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self._inner.embed_documents(
+            [self._document.format(text=text) for text in texts]
+        )
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._inner.embed_query(self._query.format(text=text))
+
+
+def _sends_task_prompts(config: EmbeddingModelConfig) -> bool:
+    return (
+        config.provider == "ollama"
+        and ollama_model_family(config.model) in TASK_PROMPTED_OLLAMA_MODELS
+    )
+
+
+def embedding_identity(config: EmbeddingModelConfig) -> str:
+    """What the stored vectors are, so an index is reused only where they still compare.
+
+    `SQLitePolicyIndex` namespaces its chunks by this string, which is what lets a workspace
+    keep an index across runs. Task prompts change the vectors a model returns, so an index
+    built before them must not be asked to answer a prompted query: the suffix makes those
+    two sets of vectors separate stores rather than one quietly mixed one, and the corpus is
+    re-embedded once instead of every query being compared against the wrong neighbourhood.
+    """
+
+    base = f"{config.provider}:{config.model}:{config.dimensions}"
+    return f"{base}:task-prompted" if _sends_task_prompts(config) else base
 
 
 def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:
@@ -99,9 +158,16 @@ def build_embeddings(config: EmbeddingModelConfig) -> Embeddings:
             ),
         )
     if config.provider == "ollama":
-        return OllamaEmbeddings(
+        embeddings = OllamaEmbeddings(
             model=config.model,
             base_url=config.base_url,
             dimensions=config.dimensions,
+        )
+        if not _sends_task_prompts(config):
+            return embeddings
+        return TaskPromptedEmbeddings(
+            embeddings,
+            query=EMBEDDINGGEMMA_QUERY_PROMPT,
+            document=EMBEDDINGGEMMA_DOCUMENT_PROMPT,
         )
     raise ConfigurationError(f"Unsupported LangChain embedding provider: {config.provider}")

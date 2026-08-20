@@ -175,9 +175,17 @@ def test_cli_commands_cover_local_workflow(tmp_path: Path) -> None:
     )
     assert reviewed.exit_code == 0, reviewed.output
     assert "# Architecture review" in reviewed.output
-    # Cleared boundaries appear too. A report of only problems reads the same whether the
-    # advisor examined everything and cleared it or never ran.
-    assert "**cleared**" in reviewed.output
+    # Every candidate appears under the verdict it got, cleared ones included. A report of
+    # only problems reads the same whether the advisor examined everything and cleared it or
+    # never ran, so the headline count is there whichever way this snapshot is judged.
+    assert "candidates judged:" in reviewed.output
+    headings = ("## Material", "## Held", "## Cleared")
+    assert any(heading in reviewed.output for heading in headings), reviewed.output
+    # And a heading names the code rather than restating the sentence about it: every
+    # finding heading is an identifier in backticks, never a summary sentence.
+    import re as _re
+
+    assert _re.search(r"^### `[\w.]+`$", reviewed.output, _re.MULTILINE), reviewed.output
 
     reviews = runner.invoke(app, [*common, "reviews", "list"])
     assert reviews.exit_code == 0, reviews.output

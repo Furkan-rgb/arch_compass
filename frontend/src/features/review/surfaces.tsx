@@ -247,26 +247,29 @@ export function DeltaSurface({
   );
 }
 
+/**
+ * The review as one document.
+ *
+ * Not gated on the review being finished any more. The report is composed for a waiting
+ * review too and opens on a line saying it is not final, which is the same thing the empty
+ * state used to say and a great deal more use — a reviewer part-way through a clarification
+ * round can still hand somebody what has been judged so far.
+ *
+ * The description used to read "The same Markdown the API serves, rendered", which tells a
+ * reviewer about the API rather than about their review.
+ */
 export function ReportSurface({ review }: { review: Review }) {
   const report = useQuery({
     queryKey: ["review-report", review.id],
     queryFn: () => api.reviewReport(review.id),
-    enabled: review.status === "completed",
   });
-  if (review.status !== "completed") {
-    return (
-      <EmptyState title="The report is written when the review completes">
-        A review that is waiting on clarification has no final text yet.
-      </EmptyState>
-    );
-  }
   if (report.isLoading) return <LoadingPanel label="Rendering the report…" />;
   if (report.error) return <ErrorNotice error={report.error} />;
   return (
     <Panel>
       <PanelHeader
         title="Review report"
-        description="The same Markdown the API serves, rendered."
+        description="The whole review as one document — what was found, what moved since last time, and the context it was judged against. Written to be read away from here."
         actions={
           <ExternalButtonLink
             size="sm"

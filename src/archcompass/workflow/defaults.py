@@ -16,6 +16,7 @@ from archcompass.domain import (
 from archcompass.domain._support import stable_id, utc_now
 from archcompass.domain.errors import NothingToReviewError
 from archcompass.ports.capabilities import CandidateSelection, ReviewDraft
+from archcompass.workflow.report import compose_markdown_report
 
 
 class AppendAnswersCaseReviser:
@@ -109,14 +110,26 @@ class DeterministicReviewComposer:
             {item.prompt_identity for item in draft.findings if item.prompt_identity}
         )
         now = utc_now()
-        findings = "\n\n".join(
-            f"## {finding.candidate.summary}\n\n"
-            f"**{finding.verdict.value}** — {finding.reasoning}"
-            for finding in draft.findings
-        )
-        report = (
-            f"# Architecture review\n\n"
-            f"{findings or 'No architectural candidates were found.'}\n"
+        # The document the review becomes when it leaves the product — attached to a pull
+        # request, printed by the CLI, downloaded. `report.py` owns it, because a readable
+        # record is a body of formatting decisions and this class composes identity.
+        report = compose_markdown_report(
+            repository=draft.repository,
+            atlas=draft.atlas,
+            case=draft.case,
+            findings=draft.findings,
+            questions=draft.questions,
+            delta=draft.delta,
+            previous=draft.previous,
+            retrievers=sorted(
+                {
+                    f"{item.retriever}/{item.version}"
+                    for item in retrieval_manifest
+                    if item.retriever
+                }
+            ),
+            sequence=sequence,
+            waiting=waiting,
         )
         return Review(
             id=review_id,
