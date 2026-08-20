@@ -107,9 +107,7 @@
 
   --font-display: "Onest", ui-sans-serif, system-ui, sans-serif;
   --font-ui: "Onest", ui-sans-serif, system-ui, sans-serif;
-  /* Kept as a name, not as a face. The model's reasoning is the only thing on the page set
-     at the reading size; the register is the size and the attribution above it, not a serif. */
-  --font-read: "Onest", ui-sans-serif, system-ui, sans-serif;
+
   --font-code: "IBM Plex Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
   /* A shadow is for something that actually floats. Panels do not; they have a rule. */
@@ -212,7 +210,6 @@
 
   --font-display: var(--font-display);
   --font-sans: var(--font-ui);
-  --font-read: var(--font-read);
   --font-mono: var(--font-code);
 
   /* Radius encodes kind, and the five steps are five real values again. Square panels were

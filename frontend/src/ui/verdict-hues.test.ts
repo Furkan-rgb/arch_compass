@@ -38,8 +38,6 @@ const ALLOWED = new Map([
   ["ui/states.tsx", "ErrorNotice — a failed request is the red end of the scale"],
   ["ui/field.tsx", "a rejected field is the red end of the scale"],
   ["ui/button.tsx", "the destructive variant is the red end of the scale"],
-  ["features/review/clarification.tsx", "the review is held for exactly as long as this shows"],
-  ["features/review/finding-detail.tsx", "the hinge note is what a held verdict turns on"],
   [
     "features/review/decision-bar.tsx",
     "a decision taken against a verdict that has since moved is waiting on a person again",

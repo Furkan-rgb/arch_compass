@@ -44,22 +44,22 @@ describe("the design system", () => {
   });
 
   /**
-   * The serif is the model's voice and only the model's voice.
+   * There is no serif to reach for either.
    *
-   * This is the whole thesis of the system: a reader can tell who is speaking without
-   * reading a word, because the machine is in mono, the model is in the serif and a person
-   * acts in the sans. Spending `font-read` on a heading somewhere would cost exactly that,
-   * and would cost it one reasonable-looking commit at a time.
+   * The thesis has not changed — a reader should be able to tell who is speaking without
+   * reading a word — but the serif is no longer what says it. Three faces read as authored;
+   * one family at 400/500/600 reads as engineered, which is what this product is. So the
+   * model's voice is carried by placement, by the attribution line naming who produced the
+   * sentence, and by that sentence being the only reading-size text in the article.
+   *
+   * `--font-read` is deleted rather than aliased, for the same reason the accent tokens were:
+   * an alias would let `font-read` keep compiling to something, and the class would drift back
+   * one reasonable-looking commit at a time while quietly meaning nothing.
    */
-  it("keeps the serif on the model's voice", () => {
-    const allowed = new Set([
-      "features/review/finding-detail.tsx",
-      "features/review/surfaces.tsx",
-      "features/review/clarification.tsx",
-    ]);
+  it("has no second face to reach for", () => {
     expect(
-      offenders(/\bfont-read\b/, allowed),
-      "the serif sets what the model concluded, never a label or a heading",
+      offenders(/\bfont-(?:read|serif)\b/),
+      "the model's voice is placement, attribution and the reading size — not a typeface",
     ).toEqual([]);
   });
 
