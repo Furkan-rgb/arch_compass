@@ -35,34 +35,6 @@ GOOGLE_FIXED_SAMPLING_MODELS: Final = frozenset(
 )
 
 
-#: Which Ollama embedding models were trained to be told what the text is *for*.
-#:
-#: A task prompt is a prefix on the input naming the job — searching, or being searched —
-#: and it is how a model knows to place a short question near the long answer to it instead
-#: of treating them as two unlike texts. Google takes the same instruction as a `task_type`
-#: on the request and `build_embeddings` already sends it there. Ollama's API takes only
-#: text, and its modelfile for EmbeddingGemma is a bare `{{ .Prompt }}`, so the instruction
-#: has to be part of the text or it is not sent at all.
-#:
-#: Named per family rather than applied to every Ollama model, because the prefixes are not
-#: a generic trick: `nomic-embed-text` was trained on `search_query: ` and
-#: `search_document: `, and a model trained without prompts reads one as part of the text it
-#: is meant to be embedding.
-TASK_PROMPTED_OLLAMA_MODELS: Final = frozenset({"embeddinggemma"})
-
-#: The strings Google documents for EmbeddingGemma retrieval. The document form takes `none`
-#: for the title because a chunk already opens with its policy's title, and naming it twice
-#: is not the documented shape either.
-EMBEDDINGGEMMA_QUERY_PROMPT: Final = "task: search result | query: {text}"
-EMBEDDINGGEMMA_DOCUMENT_PROMPT: Final = "title: none | text: {text}"
-
-
-def ollama_model_family(model: str) -> str:
-    """`embeddinggemma:latest` and `embeddinggemma:300m` are one model with two tags."""
-
-    return model.split(":", 1)[0]
-
-
 @dataclass(frozen=True, slots=True)
 class SupportedOllamaModel:
     """An Ollama model ArchCompass has deliberately approved for reasoning."""
