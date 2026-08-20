@@ -128,7 +128,16 @@ type DeltaEntry = {
  * transition is two badges and an arrow, and a 390px phone has no fixed column to spare for
  * it: pinned right it either squashed the name or pushed the list wider than the page.
  */
-function DeltaRow({ entry, onOpen }: { entry: DeltaEntry; onOpen?: () => void }) {
+function DeltaRow({
+  entry,
+  hoisted,
+  onOpen,
+}: {
+  entry: DeltaEntry;
+  /** What the header above already said, and this row therefore does not repeat. */
+  hoisted: { movement: boolean; verdict: boolean };
+  onOpen?: () => void;
+}) {
   const state = DELTA_STATES.find((item) => item.id === entry.state)!;
   const { namespace, leaf } = entry.identityIsName
     ? splitQualified(entry.identity)
@@ -165,10 +174,15 @@ function DeltaRow({ entry, onOpen }: { entry: DeltaEntry; onOpen?: () => void })
         ) : null}
         {/* Wrapping, not truncating: on a phone the transition takes the first line and the
             sentence the next two, and neither of them is allowed to set the row's width. */}
+        {/* Nothing to say when the group header said all of it — and on the first review of
+            a lineage it says all of it for every row, which is how six identical HELD pills
+            over six copies of one sentence got onto one phone screen. Same rule as the
+            queue: a fact shared by every row belongs on the group. */}
+        {hoisted.movement && hoisted.verdict ? null : (
         <span className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">
           {/* The arrow is the whole sentence for the eye and says nothing at all to a screen
               reader, so the two words it stands for are spelled out beside it. */}
-          {entry.wasVerdict ? (
+          {entry.wasVerdict && !hoisted.verdict ? (
             <>
               <span className="sr-only">was </span>
               <VerdictBadge verdict={entry.wasVerdict} className="px-2 py-0.5 text-[10px]" />
@@ -178,17 +192,20 @@ function DeltaRow({ entry, onOpen }: { entry: DeltaEntry; onOpen?: () => void })
               <span className="sr-only">, now </span>
             </>
           ) : null}
-          {entry.nowVerdict ? (
+          {entry.nowVerdict && !hoisted.verdict ? (
             <VerdictBadge verdict={entry.nowVerdict} className="px-2 py-0.5 text-[10px]" />
-          ) : entry.state === "addressed" ? (
+          ) : !hoisted.verdict && entry.state === "addressed" ? (
             <Tag className="text-[10px] font-bold uppercase tracking-[0.08em]">
               No longer detected
             </Tag>
           ) : null}
-          <span className="text-[11px] leading-5 text-ink-3">
-            <span className="font-semibold text-ink-2">{state.label}</span> · {entry.reason}
-          </span>
+          {hoisted.movement ? null : (
+            <span className="text-[11px] leading-5 text-ink-3">
+              <span className="font-semibold text-ink-2">{state.label}</span> · {entry.reason}
+            </span>
+          )}
         </span>
+        )}
       </span>
     </div>
   );
@@ -354,6 +371,26 @@ export function DeltaSurface({
       : DELTA_STATES.filter((item) => item.id !== state && counts[item.id] > 0).map(
           (item) => `${counts[item.id]} ${item.label.toLowerCase()}`,
         );
+  /**
+   * What every visible row agrees about, said once above them instead of once each.
+   *
+   * The same rule the queue follows, and for the same reason: on the first review of a
+   * lineage every candidate is new, for the same reason, carrying the same verdict — so six
+   * rows carried six identical badges under six identical sentences, restating a fact the
+   * panel description had already given. A group of one hoists nothing, because there is no
+   * repetition to remove and the row would lose facts to a header saying the same thing.
+   */
+  const agreesOn = <T,>(read: (entry: DeltaEntry) => T): T | null => {
+    if (visible.length < 2) return null;
+    const first = read(visible[0]);
+    return visible.every((entry) => read(entry) === first) ? first : null;
+  };
+  const sharedMovement = agreesOn((entry) => `${entry.state}\u0000${entry.reason}`);
+  const sharedVerdict = visible.some((entry) => entry.wasVerdict)
+    ? null
+    : agreesOn((entry) => entry.nowVerdict);
+  const hoisted = { movement: Boolean(sharedMovement), verdict: Boolean(sharedVerdict) };
+
   const moved = counts.addressed + counts.changed + counts.new;
   // The reader came for the change. When there is none, the answer is a sentence — not four
   // zeroes on four chips for them to add up themselves.
@@ -416,11 +453,30 @@ export function DeltaSurface({
         </EmptyState>
       ) : (
         <Panel>
+          {hoisted.movement || hoisted.verdict ? (
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-rule px-4 py-2.5 sm:px-5">
+              <span className="text-[11px] font-semibold text-ink-2">
+                All {visible.length}
+              </span>
+              {sharedVerdict ? (
+                <VerdictBadge verdict={sharedVerdict} className="px-2 py-0.5 text-[10px]" />
+              ) : null}
+              {sharedMovement ? (
+                <span className="text-[11px] leading-5 text-ink-3">
+                  <span className="font-semibold text-ink-2">
+                    {DELTA_STATES.find((item) => item.id === visible[0].state)!.label}
+                  </span>{" "}
+                  · {visible[0].reason}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           <ul aria-label="Candidates by change" className="divide-y divide-rule">
             {visible.map((entry) => (
               <DeltaRow
                 key={`${entry.state}-${entry.candidateId}`}
                 entry={entry}
+                hoisted={hoisted}
                 onOpen={entry.finding && onOpen ? () => onOpen(entry.candidateId) : undefined}
               />
             ))}
