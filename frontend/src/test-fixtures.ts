@@ -167,11 +167,37 @@ export function workspaceFixture(overrides: Partial<Workspace> = {}): Workspace 
 export function modelCatalogFixture(): ModelCatalog {
   return {
     providers: [
-      { provider: "ollama", available: true, detail: "3 models", probed_at: "2026-01-01T00:00:00Z" },
-      { provider: "google", available: false, detail: "No API key", probed_at: "2026-01-01T00:00:00Z" },
+      {
+        provider: "ollama",
+        label: "Ollama",
+        available: true,
+        detail: "",
+        probed_at: "2026-01-01T00:00:00Z",
+      },
+      {
+        provider: "groq",
+        label: "Groq",
+        available: true,
+        detail: "",
+        probed_at: "2026-01-01T00:00:00Z",
+      },
+      {
+        provider: "google",
+        label: "Google",
+        available: false,
+        detail: "The google provider needs an API key: set GOOGLE_API_KEY",
+        probed_at: "2026-01-01T00:00:00Z",
+      },
     ],
     candidates: [
       { provider: "ollama", model: "qwen3:8b", thinking: true, label: "local", is_selected: true },
+      {
+        provider: "groq",
+        model: "openai/gpt-oss-120b",
+        thinking: null,
+        label: "GPT-OSS 120B",
+        is_selected: false,
+      },
       { provider: "google", model: "gemini-3.6-flash", thinking: false, label: "hosted", is_selected: false },
     ],
   };
@@ -180,7 +206,13 @@ export function modelCatalogFixture(): ModelCatalog {
 export function embeddingCatalogFixture(): EmbeddingCatalog {
   return {
     providers: [
-      { provider: "ollama", available: true, detail: "1 model", probed_at: "2026-01-01T00:00:00Z" },
+      {
+        provider: "ollama",
+        label: "Ollama",
+        available: true,
+        detail: "",
+        probed_at: "2026-01-01T00:00:00Z",
+      },
     ],
     candidates: [
       {

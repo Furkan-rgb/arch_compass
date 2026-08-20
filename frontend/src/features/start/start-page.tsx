@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
-import { coreApi } from "../../api";
+import { api } from "../../api";
 import { cn } from "../../lib/cn";
 import { repositoryName } from "../../lib/format";
 import { StatusDot } from "../../ui/badge";
@@ -13,6 +13,7 @@ import { PageHeader } from "../../ui/page";
 import { Label, Panel, PanelBody, PanelFooter, PanelHeader } from "../../ui/panel";
 import { ErrorNotice, LiveRegion, Spinner } from "../../ui/states";
 import { RepositoryPicker } from "./repository-picker";
+import { ScopePicker } from "./scope-picker";
 
 /** Graph events, said the way a reader would describe the step. */
 
@@ -27,11 +28,14 @@ const PIPELINE = [
 
 export function StartPage() {
   const navigate = useNavigate();
-  const workspace = useQuery({ queryKey: ["workspace"], queryFn: coreApi.workspace });
+  const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
   // `?root=` is how the repositories page hands a repository over: the choice was already made
   // there, and re-picking it here would be the same click twice.
   const [params] = useSearchParams();
   const [root, setRoot] = useState(() => params.get("root") ?? "");
+  // Reset with the repository, because a folder chosen in one is meaningless in another —
+  // `src/vendor` exists in both and is not the same subtree.
+  const [excluded, setExcluded] = useState<string[]>([]);
   const [clean, setClean] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [running, setRunning] = useState(false);
@@ -55,8 +59,11 @@ export function StartPage() {
     setFailure(null);
     setStages(["Preparing the repository"]);
     try {
-      const started = await coreApi.startRepository(root.trim(), clean);
-      const run = await coreApi.startReviewRun(started.case_id, root.trim());
+      // Sent on every run, including as `[]`. Absent would mean "keep whatever this
+      // repository was last indexed under", and the reader has the folders on screen in
+      // front of them — so what the screen shows is what the review reads.
+      const started = await api.startRepository(root.trim(), clean, excluded);
+      const run = await api.startReviewRun(started.case_id, root.trim());
       navigate(`/runs/${run.run_id}`);
     } catch (error) {
       setFailure(error);
@@ -85,12 +92,25 @@ export function StartPage() {
               description="Local folders and cloned checkouts are both reviewed the same way."
             />
             <PanelBody>
-              <RepositoryPicker value={root} onChange={setRoot} />
+              <RepositoryPicker
+                value={root}
+                onChange={(next) => {
+                  setRoot(next);
+                  setExcluded([]);
+                }}
+              />
               {root ? (
                 <div className="mt-4 flex flex-wrap items-center gap-2 rounded-md border border-accent/25 bg-accent-soft px-3 py-2.5">
                   <span className="text-xs font-semibold text-accent">Selected</span>
                   <Mono className="min-w-0 flex-1 truncate text-[12px] text-ink">{root}</Mono>
-                  <Button variant="ghost" size="sm" onClick={() => setRoot("")}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setRoot("");
+                      setExcluded([]);
+                    }}
+                  >
                     Clear
                   </Button>
                 </div>
@@ -100,7 +120,17 @@ export function StartPage() {
 
           <Panel>
             <PanelHeader
-              title="2 · Confirm the architecture case"
+              title="2 · Choose how much of it to read"
+              description="Left-out folders are not parsed, not detected in, and not judged. The counts are Python files, counted recursively."
+            />
+            <PanelBody>
+              <ScopePicker root={root} excluded={excluded} onChange={setExcluded} />
+            </PanelBody>
+          </Panel>
+
+          <Panel>
+            <PanelHeader
+              title="3 · Confirm the architecture case"
               description="A repeat review continues the case for this branch, so earlier answers still apply."
               actions={
                 <Button variant="ghost" size="sm" onClick={() => setAdvanced((open) => !open)}>
@@ -128,7 +158,7 @@ export function StartPage() {
 
           <Panel>
             <PanelHeader
-              title="3 · Run"
+              title="4 · Run"
               description="The run pauses for clarification only when the code genuinely cannot answer."
             />
             <PanelBody>

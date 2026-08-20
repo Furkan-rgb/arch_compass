@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
-import { coreApi } from "../../api";
+import { api } from "../../api";
 import { AppShell } from "../../app/shell";
 import { splitQualified } from "../../lib/format";
 import { AttentionQueue } from "./attention-queue";
@@ -131,7 +131,7 @@ describe("the attention queue's width", () => {
  */
 describe("the sidebar's width", () => {
   it("keeps a long workspace path inside the rail", async () => {
-    vi.spyOn(coreApi, "workspace").mockResolvedValue(
+    vi.spyOn(api, "workspace").mockResolvedValue(
       workspaceFixture({
         workspace: "/Users/someone/Documents/work/platform/services/notifications/.archcompass",
       }),

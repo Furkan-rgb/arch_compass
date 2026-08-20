@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
-import { coreApi } from "../../api";
+import { api, type ProviderAvailability } from "../../api";
 import { cn } from "../../lib/cn";
+import { plural } from "../../lib/format";
 import { useTheme } from "../../lib/theme";
 import { Badge, StatusDot, Tag } from "../../ui/badge";
 import { CheckIcon } from "../../ui/icons";
@@ -11,20 +12,36 @@ import { PageHeader } from "../../ui/page";
 import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
 import { ErrorNotice, LoadingPanel } from "../../ui/states";
 
-type Provider = { provider: string; available: boolean; detail?: string };
+/** One model on offer, in the terms this page renders rather than the terms it arrived in. */
+type Choice = {
+  key: string;
+  provider: string;
+  title: string;
+  detail: string;
+  selected: boolean;
+  extra?: ReactNode;
+  select: () => void;
+};
+
+/** A provider and everything it currently offers, which is what a section is. */
+type Group = { provider: ProviderAvailability; choices: Choice[] };
 
 /**
- * Two independent choices, presented as two.
+ * A section per provider, because a provider is what a reader is actually deciding between.
  *
- * Reasoning decides what the evidence means; embedding decides which policies are put in
- * front of it. They come from different providers as often as not, and the page never
- * implies that choosing one chooses the other.
+ * The models used to be one flat grid with the provider printed inside each tile, which read
+ * as one list of fifteen unrelated things — and put the reason a provider had nothing to
+ * offer ("GROQ_API_KEY is unset") in a separate availability panel, several rows away from
+ * the empty space it explained. Grouping puts the cure beside the absence.
+ *
+ * Providers with nothing to offer are kept and shown last. They are the rows that say what
+ * to fix, and dropping them would answer "why is Groq not here" with silence.
  */
 export function SettingsPage() {
   const client = useQueryClient();
-  const catalog = useQuery({ queryKey: ["models"], queryFn: coreApi.models });
-  const embeddings = useQuery({ queryKey: ["embeddings"], queryFn: coreApi.embeddings });
-  const workspace = useQuery({ queryKey: ["workspace"], queryFn: coreApi.workspace });
+  const catalog = useQuery({ queryKey: ["models"], queryFn: api.models });
+  const embeddings = useQuery({ queryKey: ["embeddings"], queryFn: api.embeddings });
+  const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
 
   const refresh = async () => {
     await Promise.all([
@@ -36,12 +53,12 @@ export function SettingsPage() {
 
   const selectReasoning = useMutation({
     mutationFn: (choice: { provider: string; model: string; thinking: boolean | null }) =>
-      coreApi.selectModel(choice.provider, choice.model, choice.thinking),
+      api.selectModel(choice.provider, choice.model, choice.thinking),
     onSuccess: refresh,
   });
   const selectEmbedding = useMutation({
     mutationFn: (choice: { provider: string; model: string }) =>
-      coreApi.selectEmbedding(choice.provider, choice.model),
+      api.selectEmbedding(choice.provider, choice.model),
     onSuccess: refresh,
   });
 
@@ -55,6 +72,40 @@ export function SettingsPage() {
   const reasoningPinned = Boolean(workspace.data?.models.pinned);
   const embeddingPinned = Boolean(workspace.data?.models.embedding_pinned);
   const failure = workspace.data?.models.failure;
+
+  const reasoningGroups = grouped(
+    catalog.data?.providers ?? [],
+    (catalog.data?.candidates ?? []).map((model) => ({
+      key: `${model.provider}:${model.model}:${model.thinking}`,
+      provider: model.provider,
+      title: model.model,
+      detail: model.label || "chat model",
+      selected: Boolean(model.is_selected),
+      extra:
+        model.thinking === null || model.thinking === undefined ? null : (
+          <Tag>{model.thinking ? "thinking" : "direct"}</Tag>
+        ),
+      select: () =>
+        selectReasoning.mutate({
+          provider: model.provider,
+          model: model.model,
+          thinking: model.thinking ?? null,
+        }),
+    })),
+  );
+
+  const embeddingGroups = grouped(
+    embeddings.data?.providers ?? [],
+    (embeddings.data?.candidates ?? []).map((model) => ({
+      key: `${model.provider}:${model.model}:${model.dimensions}`,
+      provider: model.provider,
+      title: model.model,
+      detail: model.label || "embedding model",
+      selected: Boolean(model.is_selected),
+      extra: <Tag>{model.dimensions.toLocaleString()} dimensions</Tag>,
+      select: () => selectEmbedding.mutate({ provider: model.provider, model: model.model }),
+    })),
+  );
 
   return (
     <div>
@@ -73,91 +124,48 @@ export function SettingsPage() {
 
       <div className="grid gap-6">
         <ModelSection
-          index="01"
           title="Reasoning model"
-          role="Architecture judgement"
+          role="Judges the evidence"
           description="Reads the candidate, its evidence, the case and the retrieved policies, and decides what the evidence means. It never invents repository or policy identity."
-          providers={catalog.data?.providers ?? []}
+          groups={reasoningGroups}
           pinned={reasoningPinned}
           pinnedNotice="Pinned by environment configuration. Remove the provider override to choose here."
-        >
-          <div className="grid gap-2 md:grid-cols-2">
-            {catalog.data?.candidates.map((model) => {
-              const provider = catalog.data.providers.find(
-                (item) => item.provider === model.provider,
-              );
-              return (
-                <ModelChoice
-                  key={`${model.provider}:${model.model}:${model.thinking}`}
-                  title={model.model}
-                  provider={model.provider}
-                  detail={model.label || "chat model"}
-                  selected={Boolean(model.is_selected)}
-                  unavailable={!provider?.available}
-                  disabled={reasoningPinned || !provider?.available || selectReasoning.isPending}
-                  extra={
-                    model.thinking === null || model.thinking === undefined ? null : (
-                      <Tag>{model.thinking ? "thinking" : "direct"}</Tag>
-                    )
-                  }
-                  onSelect={() =>
-                    selectReasoning.mutate({
-                      provider: model.provider,
-                      model: model.model,
-                      thinking: model.thinking ?? null,
-                    })
-                  }
-                />
-              );
-            })}
-          </div>
-          {selectReasoning.error ? (
-            <div className="mt-3">
-              <ErrorNotice error={selectReasoning.error} />
-            </div>
-          ) : null}
-        </ModelSection>
+          busy={selectReasoning.isPending}
+          error={selectReasoning.error}
+          emptyNotice="This provider has no reasoning models to offer."
+        />
 
         <ModelSection
-          index="02"
           title="Embedding model"
-          role="Policy retrieval"
+          role="Retrieves the policy"
           description="Builds and queries the local policy index. Retrieval provenance records the identity of whichever model is selected here, so a review can be audited later."
-          providers={embeddings.data?.providers ?? []}
+          groups={embeddingGroups}
           pinned={embeddingPinned}
           pinnedNotice="Pinned by environment configuration. Remove the ARCHCOMPASS_EMBEDDING_* overrides to choose here."
-        >
-          <div className="grid gap-2 md:grid-cols-2">
-            {embeddings.data?.candidates.map((model) => {
-              const provider = embeddings.data.providers.find(
-                (item) => item.provider === model.provider,
-              );
-              return (
-                <ModelChoice
-                  key={`${model.provider}:${model.model}:${model.dimensions}`}
-                  title={model.model}
-                  provider={model.provider}
-                  detail={model.label || "embedding model"}
-                  selected={Boolean(model.is_selected)}
-                  unavailable={!provider?.available}
-                  disabled={embeddingPinned || !provider?.available || selectEmbedding.isPending}
-                  extra={<Tag>{model.dimensions.toLocaleString()} dimensions</Tag>}
-                  onSelect={() =>
-                    selectEmbedding.mutate({ provider: model.provider, model: model.model })
-                  }
-                />
-              );
-            })}
-          </div>
-          {selectEmbedding.error ? (
-            <div className="mt-3">
-              <ErrorNotice error={selectEmbedding.error} />
-            </div>
-          ) : null}
-        </ModelSection>
+          busy={selectEmbedding.isPending}
+          error={selectEmbedding.error}
+          emptyNotice="This provider serves no embeddings."
+        />
       </div>
     </div>
   );
+}
+
+/**
+ * Choices filed under the provider that offers them, available providers first.
+ *
+ * The order within each half is the order the backend named them, which is the order the
+ * deployment enabled them in — so a workspace that put Ollama first still reads that way.
+ */
+function grouped(providers: ProviderAvailability[], choices: Choice[]): Group[] {
+  const groups = providers.map((provider) => ({
+    provider,
+    choices: choices.filter((choice) => choice.provider === provider.provider),
+  }));
+  return [
+    ...groups.filter((group) => group.provider.available),
+    ...groups.filter((group) => !group.provider.available),
+  ];
 }
 
 function ThemeChoice() {
@@ -187,129 +195,154 @@ function ThemeChoice() {
 }
 
 function ModelSection({
-  index,
   title,
   role,
   description,
-  providers,
+  groups,
   pinned,
   pinnedNotice,
-  children,
+  busy,
+  error,
+  emptyNotice,
 }: {
-  index: string;
   title: string;
   role: string;
   description: string;
-  providers: Provider[];
+  groups: Group[];
   pinned: boolean;
   pinnedNotice: string;
-  children: ReactNode;
+  busy: boolean;
+  error: unknown;
+  emptyNotice: string;
 }) {
   return (
     <section className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)] xl:gap-6">
+      {/* The eyebrow is the model's job, not its position in a list. These two choices are
+          independent — a numbered marker above them would claim an order that does not
+          exist, and the thing that actually distinguishes them is what each one does. */}
       <div className="xl:sticky xl:top-20 xl:self-start">
-        <Mono className="text-[11px] font-bold text-accent">{index}</Mono>
+        <Label className="text-accent">{role}</Label>
         <h2 className="mt-1.5 font-display text-xl font-semibold tracking-tight text-ink">
           {title}
         </h2>
-        <Label className="mt-1">{role}</Label>
         <p className="mt-2 text-sm leading-6 text-ink-3">{description}</p>
       </div>
 
       <div className="grid gap-3">
-        <Panel tone="flat">
-          <PanelHeader title="Providers" description="Availability is checked when this page loads." />
-          <PanelBody className="grid gap-2 sm:grid-cols-2">
-            {providers.length ? (
-              providers.map((provider) => (
-                <div
-                  key={provider.provider}
-                  className="flex items-center justify-between gap-3 rounded-md border border-rule bg-surface-2 px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <StatusDot tone={provider.available ? "cleared" : "material"} />
-                      <span className="text-sm font-semibold capitalize text-ink">
-                        {provider.provider}
-                      </span>
-                    </div>
-                    <p className="mt-0.5 truncate text-xs text-ink-3">
-                      {provider.detail || "No detail reported"}
-                    </p>
-                  </div>
-                  <Badge tone={provider.available ? "cleared" : "material"} glyph={provider.available ? "●" : "▲"}>
-                    {provider.available ? "Available" : "Unavailable"}
-                  </Badge>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-ink-3">No provider is configured.</p>
-            )}
-          </PanelBody>
-        </Panel>
-
         {pinned ? (
           <p className="rounded-md border border-held/30 bg-held-soft/60 px-3 py-2.5 text-sm leading-6 text-held">
             {pinnedNotice}
           </p>
         ) : null}
 
-        {children}
+        {groups.length ? (
+          groups.map((group) => (
+            <ProviderSection
+              key={group.provider.provider}
+              group={group}
+              disabled={pinned || busy}
+              emptyNotice={emptyNotice}
+            />
+          ))
+        ) : (
+          <p className="text-sm text-ink-3">No provider is configured.</p>
+        )}
+
+        {error ? <ErrorNotice error={error} /> : null}
       </div>
     </section>
   );
 }
 
-function ModelChoice({
-  title,
-  provider,
-  detail,
-  selected,
-  unavailable,
+function ProviderSection({
+  group,
   disabled,
-  extra,
-  onSelect,
+  emptyNotice,
 }: {
-  title: string;
-  provider: string;
-  detail: string;
-  selected: boolean;
-  unavailable: boolean;
+  group: Group;
   disabled: boolean;
-  extra?: ReactNode;
-  onSelect: () => void;
+  emptyNotice: string;
 }) {
+  const { provider, choices } = group;
+  const available = provider.available;
+  return (
+    <Panel tone={available ? "raised" : "flat"}>
+      <PanelHeader
+        title={
+          <span className="flex items-center gap-2">
+            <StatusDot tone={available ? "cleared" : "material"} />
+            {provider.label || provider.provider}
+          </span>
+        }
+        // The reason a provider offers nothing, in the section where nothing is offered.
+        // Held one panel away it read as an unrelated status list.
+        description={provider.detail || undefined}
+        actions={
+          available ? (
+            <span className="text-xs tabular-nums text-ink-3">
+              {plural(choices.length, "model")}
+            </span>
+          ) : (
+            <Badge tone="material" glyph="▲">
+              Unavailable
+            </Badge>
+          )
+        }
+      />
+      <PanelBody>
+        {choices.length ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            {choices.map((choice) => (
+              <ModelChoice
+                key={choice.key}
+                choice={choice}
+                disabled={disabled || !available}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-ink-3">
+            {available ? emptyNotice : "Nothing to choose from until this provider answers."}
+          </p>
+        )}
+      </PanelBody>
+    </Panel>
+  );
+}
+
+function ModelChoice({ choice, disabled }: { choice: Choice; disabled: boolean }) {
   return (
     <button
       type="button"
       disabled={disabled}
-      onClick={onSelect}
-      aria-pressed={selected}
+      onClick={choice.select}
+      aria-pressed={choice.selected}
       className={cn(
         "rounded-md border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50",
-        selected
+        choice.selected
           ? "border-accent bg-accent-soft ring-1 ring-accent/25"
           : "border-rule bg-surface hover:border-rule-strong",
       )}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <Mono className="block truncate text-[13px] font-semibold text-ink">{title}</Mono>
-          <div className="mt-1 text-xs text-ink-3">
-            <span className="capitalize">{provider}</span> · {detail}
-          </div>
+          <Mono className="block truncate text-[13px] font-semibold text-ink" title={choice.title}>
+            {choice.title}
+          </Mono>
+          {/* The provider is the heading above this tile now, so the tile says what the
+              model is instead of repeating where it came from. */}
+          <div className="mt-1 text-xs text-ink-3">{choice.detail}</div>
         </div>
-        {selected ? (
+        {choice.selected ? (
           <span className="inline-flex items-center gap-1 rounded-sm bg-accent px-1.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-on-accent">
             <CheckIcon className="size-3" />
             Selected
           </span>
         ) : null}
       </div>
-      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-        {extra}
-        {unavailable ? <Tag>provider unavailable</Tag> : null}
-      </div>
+      {/* The provider's own heading says whether it answered; repeating it on every tile
+          under that heading is the same fact said twice. */}
+      {choice.extra ? <div className="mt-2.5 flex flex-wrap gap-1.5">{choice.extra}</div> : null}
     </button>
   );
 }

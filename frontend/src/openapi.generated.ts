@@ -383,6 +383,7 @@ export interface components {
     "provider": string;
     "available": boolean;
     "detail"?: string;
+    "label"?: string;
     "probed_at": string;
   };
     "QuestionResponse": {
@@ -571,6 +572,7 @@ export interface components {
     "StartFromRepositoryRequest": {
     "root_path": string;
     "start_clean"?: boolean;
+    "excluded_paths"?: Array<string> | null;
   };
     "StartedCaseResponse": {
     "case_id": string;

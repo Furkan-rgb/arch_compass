@@ -166,11 +166,13 @@ def probe_ollama(defaults: ProviderDefaults) -> ProbeResult:
 
 DETERMINISTIC_DESCRIPTOR = ProviderDescriptor(
     name="fake",
+    label="Deterministic",
     probe=probe_deterministic,
     defaults=ProviderDefaults(),
 )
 GOOGLE_DESCRIPTOR = ProviderDescriptor(
     name="google",
+    label="Google",
     probe=probe_google,
     defaults=ProviderDefaults(
         api_key_env="GOOGLE_API_KEY",
@@ -181,6 +183,7 @@ GOOGLE_DESCRIPTOR = ProviderDescriptor(
 )
 OLLAMA_DESCRIPTOR = ProviderDescriptor(
     name="ollama",
+    label="Ollama",
     probe=probe_ollama,
     defaults=ProviderDefaults(
         base_url="http://127.0.0.1:11434",

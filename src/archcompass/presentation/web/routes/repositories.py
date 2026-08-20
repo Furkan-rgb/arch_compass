@@ -63,17 +63,25 @@ class RepositoryCheckoutRequest(APIModel):
 
 
 class StartFromRepositoryRequest(APIModel):
-    """Which repository to open, and whether to carry on from where it was left.
+    """Which repository to open, whether to carry on, and how much of it to read.
 
     Continuing is the default because a repeat visit almost always means the same
     conversation: the questions the last run asked and the answers the reader gave are on
     that case, and starting beside them would ask for them again. Starting clean is the
     stated exception — a different question about the same code — and it has to be stated
     rather than reached by deleting something.
+
+    The scope means here exactly what it means on `/api/repositories/index`, because this
+    route indexes through the same service: absent keeps whatever this repository was last
+    indexed under, and `[]` is somebody saying "all of it" and undoing an earlier choice.
+    Carried on the start request rather than asked for in a separate call, because the two
+    are one decision — which repository, and how much of it — and a scope recorded by a
+    call the run does not wait for would apply to the review after next.
     """
 
     root_path: str = Field(min_length=1)
     start_clean: bool = False
+    excluded_paths: list[str] | None = None
 
 
 class StartedCaseResponse(APIModel):
@@ -302,7 +310,9 @@ def routes() -> APIRouter:
         """
 
         root = hosted_mode.repository_root(Path(request.root_path), runtime)
-        version = runtime.repository_service.index(root)
+        version = runtime.repository_service.index(
+            root, excluded_paths=request.excluded_paths
+        )
         if request.start_clean:
             case = runtime.case_service.start_from_repository(root)
         elif version.branch_id is not None:

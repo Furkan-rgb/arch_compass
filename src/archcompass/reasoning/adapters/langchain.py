@@ -143,8 +143,9 @@ def _structured[Output: BaseModel](
     if preview:
         message += f" Response started with: {preview!r}."
     message += (
-        " If you are using Ollama, try enabling Thinking or choose a model/runtime "
-        "that supports structured JSON output."
+        " Judging is a structured call against a JSON schema, and not every model honours "
+        "one. Choose a model whose runtime supports structured JSON output, or — on a "
+        "model that offers it — enable Thinking."
     )
     if isinstance(parsing_error, Exception):
         raise ModelOutputValidationError(message) from parsing_error

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { coreApi, type RepositorySummary, type Review } from "../../api";
+import { api, type RepositorySummary, type Review } from "../../api";
 import { cn } from "../../lib/cn";
 import {
   atlasFreshness,
@@ -41,13 +41,13 @@ function RepositoryCard({
   const navigate = useNavigate();
   const freshness = atlasFreshness(repository.created_at);
   const reindex = useMutation({
-    mutationFn: () => coreApi.indexRepository(repository.root_path),
+    mutationFn: () => api.indexRepository(repository.root_path),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["repositories"] });
     },
   });
   const refresh = useMutation({
-    mutationFn: () => coreApi.refreshRepository(repository.root_path),
+    mutationFn: () => api.refreshRepository(repository.root_path),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["repositories"] });
     },
@@ -157,7 +157,7 @@ function AtlasPreview({ repository }: { repository: RepositorySummary }) {
   const root = repository.root_path;
   const hotspots = useQuery({
     queryKey: ["repository-hotspots", root],
-    queryFn: () => coreApi.repositoryHotspots(root),
+    queryFn: () => api.repositoryHotspots(root),
   });
 
   return (
@@ -220,10 +220,10 @@ export function RepositoriesPage() {
   const [url, setUrl] = useState("");
   const [branch, setBranch] = useState("");
 
-  const repositories = useQuery({ queryKey: ["repositories"], queryFn: coreApi.repositories });
-  const reviews = useQuery({ queryKey: ["reviews"], queryFn: coreApi.reviews });
+  const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
+  const reviews = useQuery({ queryKey: ["reviews"], queryFn: api.reviews });
   const checkout = useMutation({
-    mutationFn: () => coreApi.checkoutRepository(url.trim(), branch.trim() || null),
+    mutationFn: () => api.checkoutRepository(url.trim(), branch.trim() || null),
     onSuccess: async (result) => {
       setSelected(result.root_path);
       setUrl("");

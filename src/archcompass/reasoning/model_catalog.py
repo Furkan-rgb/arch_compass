@@ -134,6 +134,7 @@ class ModelCatalogService:
                     provider=descriptor.name,
                     available=result.available,
                     detail=result.detail,
+                    label=descriptor.label,
                 )
             )
             if result.available and chosen is not None and chosen.provider == descriptor.name:

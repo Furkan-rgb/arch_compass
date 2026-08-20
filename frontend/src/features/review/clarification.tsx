@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { coreApi, type Review } from "../../api";
+import { api, type Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { humanise, plural } from "../../lib/format";
 import { Tag } from "../../ui/badge";
@@ -37,7 +37,7 @@ export function ClarificationRound({
 
   const resume = useMutation({
     mutationFn: (stop: boolean) =>
-      coreApi.answer(
+      api.answer(
         review.id,
         review.questions.map((question) => {
           const value = values[question.id]?.trim();

@@ -67,6 +67,9 @@ from archcompass.ports.persistence import (
     LineageRepository,
 )
 from archcompass.reasoning.adapters.embedding_catalog import ProviderEmbeddingModelDiscovery
+from archcompass.reasoning.adapters.openai_compatible import (
+    descriptors as openai_compatible_descriptors,
+)
 from archcompass.reasoning.adapters.providers import (
     DETERMINISTIC_DESCRIPTOR,
     GOOGLE_DESCRIPTOR,
@@ -393,7 +396,7 @@ def build_runtime(
             context=SQLiteContextLoader(
                 database.raw_connect, core_cases, core_reviews
             ),
-            analyzer=DataclassRepositoryAnalyzer(analyzer),
+            analyzer=DataclassRepositoryAnalyzer(analyzer, scope_selections),
             detector=DataclassCandidateDetector(),
             revisions=DeterministicRevisionCalculator(
                 corpus_fingerprint=lambda repository_ref: corpus_fingerprint(
@@ -524,6 +527,10 @@ _ALL_PROVIDERS: Final[dict[str, ProviderDescriptor]] = {
     for descriptor in (
         OLLAMA_DESCRIPTOR,
         GOOGLE_DESCRIPTOR,
+        # Groq, Cerebras and anything else that answers OpenAI's chat API. Spread rather
+        # than listed one by one, so the vendor list lives in the module that knows what a
+        # vendor of that API needs and this table keeps saying only which providers exist.
+        *openai_compatible_descriptors(),
         DETERMINISTIC_DESCRIPTOR,
     )
 }

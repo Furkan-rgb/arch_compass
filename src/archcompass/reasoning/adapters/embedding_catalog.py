@@ -77,7 +77,7 @@ class ProviderEmbeddingModelDiscovery:
             ValueError,
         ) as error:
             return ProviderAvailability(
-                provider="google", available=False, detail=str(error)
+                provider="google", label="Google", available=False, detail=str(error)
             ), []
         candidates = [
             EmbeddingModelCandidate(
@@ -91,6 +91,7 @@ class ProviderEmbeddingModelDiscovery:
         ]
         return ProviderAvailability(
             provider="google",
+            label="Google",
             available=bool(candidates),
             detail="" if candidates else "no supported Google embedding model is available",
         ), candidates
@@ -102,7 +103,10 @@ class ProviderEmbeddingModelDiscovery:
         base_url = descriptor.defaults.resolved_base_url()
         if not base_url:
             return ProviderAvailability(
-                provider="ollama", available=False, detail="no Ollama base URL configured"
+                provider="ollama",
+                label="Ollama",
+                available=False,
+                detail="no Ollama base URL configured",
             ), []
         client = Client(host=base_url, timeout=2.0)
         try:
@@ -130,10 +134,11 @@ class ProviderEmbeddingModelDiscovery:
                 )
         except (ResponseError, httpx.HTTPError, ConnectionError, ValueError) as error:
             return ProviderAvailability(
-                provider="ollama", available=False, detail=f"{base_url}: {error}"
+                provider="ollama", label="Ollama", available=False, detail=f"{base_url}: {error}"
             ), []
         return ProviderAvailability(
             provider="ollama",
+            label="Ollama",
             available=True,
             detail="" if candidates else "no installed Ollama model supports embeddings",
         ), candidates

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
-import { coreApi, type PolicyDocument } from "../../api";
+import { api, type PolicyDocument } from "../../api";
 import { cn } from "../../lib/cn";
 import { humanise, strengthOf } from "../../lib/format";
 import { StrengthBadge, Tag } from "../../ui/badge";
@@ -134,8 +134,8 @@ function PolicyCard({
 
 export function PoliciesPage() {
   const client = useQueryClient();
-  const policies = useQuery({ queryKey: ["policies"], queryFn: coreApi.policies });
-  const sources = useQuery({ queryKey: ["policy-sources"], queryFn: coreApi.policySources });
+  const policies = useQuery({ queryKey: ["policies"], queryFn: api.policies });
+  const sources = useQuery({ queryKey: ["policy-sources"], queryFn: api.policySources });
   const [query, setQuery] = useState("");
   const [strength, setStrength] = useState<(typeof STRENGTHS)[number]>("all");
   const [scope, setScope] = useState<(typeof SCOPES)[number]>("all");
@@ -144,7 +144,7 @@ export function PoliciesPage() {
   const [authoring, setAuthoring] = useState(false);
 
   const remove = useMutation({
-    mutationFn: (id: string) => coreApi.deletePolicy(id),
+    mutationFn: (id: string) => api.deletePolicy(id),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["policies"] });
     },

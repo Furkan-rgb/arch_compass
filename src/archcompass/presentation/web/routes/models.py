@@ -47,6 +47,11 @@ class ProviderAvailabilityResponse(APIModel):
     available: bool
     #: Why not, naming the cure where there is one. Empty when available.
     detail: str = ""
+    #: The provider's name written for a reader — `Google`, `Groq`, `Ollama`. Empty where
+    #: the key already reads as one. The chooser groups by provider and a group needs a
+    #: heading; a page that titled its own would need a table of every provider this build
+    #: can reach, which is this table again in another language.
+    label: str = ""
     probed_at: datetime
 
 
@@ -103,6 +108,7 @@ def routes() -> APIRouter:
                     provider=provider.provider,
                     available=provider.available,
                     detail=provider.detail,
+                    label=provider.label,
                     probed_at=provider.probed_at,
                 )
                 for provider in catalog.providers
@@ -147,6 +153,7 @@ def routes() -> APIRouter:
                     provider=provider.provider,
                     available=provider.available,
                     detail=provider.detail,
+                    label=provider.label,
                     probed_at=provider.probed_at,
                 )
                 for provider in catalog.providers

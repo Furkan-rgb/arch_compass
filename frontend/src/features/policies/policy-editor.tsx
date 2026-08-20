@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { coreApi, type PolicyDocument, type PolicyDraft } from "../../api";
+import { api, type PolicyDocument, type PolicyDraft } from "../../api";
 import { cn } from "../../lib/cn";
 import { Button } from "../../ui/button";
 import { Field, Input, Select, Textarea } from "../../ui/field";
@@ -61,7 +61,7 @@ export function PolicyEditor({
 
   const save = useMutation({
     mutationFn: () =>
-      policy ? coreApi.updatePolicy(policy.id, payload()) : coreApi.createPolicy(payload()),
+      policy ? api.updatePolicy(policy.id, payload()) : api.createPolicy(payload()),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["policies"] });
       onClose();

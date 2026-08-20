@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { coreApi } from "./api";
+import { api } from "./api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -16,7 +16,7 @@ describe("clean-break API client", () => {
     );
     vi.stubGlobal("fetch", fetch);
 
-    await coreApi.startReview("case-1", "/work/repository");
+    await api.startReview("case-1", "/work/repository");
 
     expect(fetch).toHaveBeenCalledWith(
       "/api/reviews",
@@ -39,7 +39,7 @@ describe("clean-break API client", () => {
     );
     vi.stubGlobal("fetch", fetch);
 
-    await coreApi.answer(
+    await api.answer(
       "review-1",
       [{ question_id: "question-1", status: "skipped", value: null }],
       true,
@@ -64,7 +64,7 @@ describe("clean-break API client", () => {
       ),
     );
 
-    await expect(coreApi.reviews()).rejects.toThrow("Policy index unavailable");
+    await expect(api.reviews()).rejects.toThrow("Policy index unavailable");
   });
 
   it("exposes graph stages from the NDJSON review stream", async () => {
@@ -80,7 +80,7 @@ describe("clean-break API client", () => {
     );
 
     const events = [];
-    for await (const event of coreApi.streamReview("case-1", "/work/repository")) {
+    for await (const event of api.streamReview("case-1", "/work/repository")) {
       events.push(event);
     }
 
@@ -100,7 +100,7 @@ describe("clean-break API client", () => {
     );
     vi.stubGlobal("fetch", fetch);
 
-    await coreApi.selectEmbedding("ollama", "nomic-embed-text:latest");
+    await api.selectEmbedding("ollama", "nomic-embed-text:latest");
 
     expect(fetch).toHaveBeenCalledWith(
       "/api/embeddings/selection",
@@ -123,7 +123,7 @@ describe("clean-break API client", () => {
     );
     vi.stubGlobal("fetch", fetch);
 
-    await coreApi.updatePolicy("team convention/1", {
+    await api.updatePolicy("team convention/1", {
       title: "Team convention",
       description: "Authored here",
       body: "Local guidance",
@@ -146,12 +146,12 @@ describe("clean-break API client", () => {
     );
     vi.stubGlobal("fetch", fetch);
 
-    await coreApi.directories("/work/payments platform");
+    await api.directories("/work/payments platform");
     expect(fetch.mock.calls[0]?.[0]).toBe(
       "/api/filesystem/directories?path=%2Fwork%2Fpayments%20platform",
     );
 
-    await coreApi.directories();
+    await api.directories();
     expect(fetch.mock.calls[1]?.[0]).toBe("/api/filesystem/directories");
   });
 
@@ -164,7 +164,7 @@ describe("clean-break API client", () => {
     );
     vi.stubGlobal("fetch", fetch);
 
-    await coreApi.indexRepository("/work/repository");
+    await api.indexRepository("/work/repository");
 
     expect(fetch).toHaveBeenCalledWith(
       "/api/repositories/index",

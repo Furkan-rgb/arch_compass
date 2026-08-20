@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { coreApi } from "../../api";
+import { api } from "../../api";
 import { policyFixture } from "../../test-fixtures";
 import { PoliciesPage } from "./policies-page";
 import { policyTemplate } from "./sections";
@@ -43,8 +43,8 @@ const corpus = [
 ];
 
 beforeEach(() => {
-  vi.spyOn(coreApi, "policies").mockResolvedValue(corpus);
-  vi.spyOn(coreApi, "policySources").mockResolvedValue([]);
+  vi.spyOn(api, "policies").mockResolvedValue(corpus);
+  vi.spyOn(api, "policySources").mockResolvedValue([]);
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -98,7 +98,7 @@ describe("the policy corpus", () => {
   });
 
   it("previews the Markdown while it is being authored", async () => {
-    const create = vi.spyOn(coreApi, "createPolicy").mockResolvedValue(corpus[2]);
+    const create = vi.spyOn(api, "createPolicy").mockResolvedValue(corpus[2]);
     const body = `${policyTemplate()}\n## Rule\n\nAdapters **translate**.\n`;
     render(wrap(<PoliciesPage />));
 
@@ -128,7 +128,7 @@ describe("the policy corpus", () => {
   });
 
   it("refuses to save a policy the workspace parser would reject", async () => {
-    const create = vi.spyOn(coreApi, "createPolicy");
+    const create = vi.spyOn(api, "createPolicy");
     render(wrap(<PoliciesPage />));
 
     fireEvent.click(await screen.findByRole("button", { name: "Author policy" }));
@@ -148,7 +148,7 @@ describe("the policy corpus", () => {
   });
 
   it("edits an existing workspace policy through the same form", async () => {
-    const update = vi.spyOn(coreApi, "updatePolicy").mockResolvedValue(corpus[2]);
+    const update = vi.spyOn(api, "updatePolicy").mockResolvedValue(corpus[2]);
     render(wrap(<PoliciesPage />));
 
     fireEvent.click(await screen.findByRole("button", { name: /Team convention/ }));

@@ -16,7 +16,10 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
 
+from archcompass.analysis.analyzer import DataclassRepositoryAnalyzer
 from archcompass.bootstrap import Runtime, build_runtime, pinned_model
+from archcompass.domain import RepositoryRef
+from archcompass.persistence.scopes import SQLiteScopeSelectionRepository
 from archcompass.presentation.web import create_app
 from archcompass.reasoning.adapters.providers import DETERMINISTIC_MODEL
 
@@ -172,3 +175,68 @@ def test_a_folder_that_could_name_somewhere_else_is_refused_as_a_scope(
 
         assert refused.status_code == 422, refused.text
         assert refused.json()["code"] == "validation_error"
+
+
+def test_starting_a_review_carries_the_scope_the_reader_chose(
+    workspace: Runtime, repository: Path
+) -> None:
+    """The scope is chosen and applied in one call, because it is one decision.
+
+    Recording it separately would leave a window in which the run had already begun against
+    the wider atlas, and the choice would first take effect on the review after the one it
+    was made for.
+    """
+
+    with TestClient(create_app(workspace)) as client:
+        started = client.post(
+            "/api/repositories/start",
+            json={"root_path": str(repository), "excluded_paths": ["tests", "docs"]},
+        )
+
+        assert started.status_code == 200, started.text
+        listed = client.get("/api/repositories").json()
+        version_id = next(
+            item["version_id"]
+            for item in listed
+            if item["root_path"] == str(repository.resolve())
+        )
+        paths = _paths(workspace, version_id)
+        assert "src/service.py" in paths
+        assert not any(path.startswith(("tests", "docs")) for path in paths)
+
+
+def test_the_review_reads_the_repository_under_the_scope_it_was_given(
+    workspace: Runtime, repository: Path
+) -> None:
+    """The analysis a review runs for itself is the one this was easiest to forget in.
+
+    Indexing applies the scope and the freshness check honours it, but the graph analyses
+    the repository again on its way to detecting candidates. Without the same scope there,
+    a narrowed review judges boundaries that are not in the atlas the reader was shown, and
+    nothing in the interface would say where they came from.
+    """
+
+    with TestClient(create_app(workspace)) as client:
+        indexed = client.post(
+            "/api/repositories/index",
+            json={"root_path": str(repository), "excluded_paths": ["tests"]},
+        )
+        assert indexed.status_code == 201, indexed.text
+
+    # Built exactly as the graph builds it, so the assertion is about the wiring rather
+    # than about a shape assembled for the test.
+    analyzer = DataclassRepositoryAnalyzer(
+        workspace.analyzer, SQLiteScopeSelectionRepository(workspace.database)
+    )
+
+    atlas = analyzer.analyze(
+        RepositoryRef(
+            id="repository",
+            path=repository,
+            branch_id="branch",
+            content_id="unread",
+        )
+    )
+
+    assert not any('"path":"tests/' in node for node in atlas.nodes)
+    assert any('"path":"src/service.py"' in node for node in atlas.nodes)

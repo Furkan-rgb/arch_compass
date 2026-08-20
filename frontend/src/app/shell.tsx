@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 
-import { coreApi } from "../api";
+import { api } from "../api";
 import { cn } from "../lib/cn";
 import { useTheme } from "../lib/theme";
 import { StatusDot } from "../ui/badge";
@@ -101,7 +101,7 @@ function ThemeToggle() {
 
 /** Reasoning and embedding, side by side, because they are two independent choices. */
 function ModelChips({ className }: { className?: string }) {
-  const workspace = useQuery({ queryKey: ["workspace"], queryFn: coreApi.workspace });
+  const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
   const reasoning = workspace.data?.models.reasoning;
   const embedding = workspace.data?.models.embedding;
   const chip = (role: string, value: string | undefined, pinned: boolean | undefined) => (
@@ -130,7 +130,7 @@ function ModelChips({ className }: { className?: string }) {
 }
 
 function WorkspaceCard() {
-  const workspace = useQuery({ queryKey: ["workspace"], queryFn: coreApi.workspace });
+  const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
   // `truncate` sets `white-space: nowrap`, which makes the element's min-content width the
   // whole string — so without `min-w-0` on everything above it, a deep workspace path stops
   // being truncated and starts widening the sidebar instead. Truncation is a promise the

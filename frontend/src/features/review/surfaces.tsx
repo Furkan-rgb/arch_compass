@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { coreApi, type Review } from "../../api";
+import { api, type Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { humanise, shortId } from "../../lib/format";
 import { Tag, VerdictBadge } from "../../ui/badge";
@@ -127,10 +127,10 @@ export function AtlasSurface({ review }: { review: Review }) {
     .flatMap((finding) => finding.candidate.participants.map((item) => item.qualified_name))
     .slice(0, 5);
   const [query, setQuery] = useState(seedTerms.join(" "));
-  const explore = useMutation({ mutationFn: (terms: string[]) => coreApi.searchAtlas(root, terms) });
+  const explore = useMutation({ mutationFn: (terms: string[]) => api.searchAtlas(root, terms) });
   const summary = useQuery({
     queryKey: ["repository-summary", root],
-    queryFn: () => coreApi.repositorySummary(root),
+    queryFn: () => api.repositorySummary(root),
   });
 
   const { mutate } = explore;
@@ -257,7 +257,7 @@ export function AtlasSurface({ review }: { review: Review }) {
 export function EvidenceSurface({ review }: { review: Review }) {
   const evidence = useQuery({
     queryKey: ["review-source", review.id],
-    queryFn: () => coreApi.reviewSource(review.id),
+    queryFn: () => api.reviewSource(review.id),
   });
   if (evidence.isLoading) return <LoadingPanel label="Loading pinned evidence…" />;
   if (evidence.error) return <ErrorNotice error={evidence.error} />;
@@ -282,7 +282,7 @@ export function EvidenceSurface({ review }: { review: Review }) {
 export function ReportSurface({ review }: { review: Review }) {
   const report = useQuery({
     queryKey: ["review-report", review.id],
-    queryFn: () => coreApi.reviewReport(review.id),
+    queryFn: () => api.reviewReport(review.id),
     enabled: review.status === "completed",
   });
   if (review.status !== "completed") {
@@ -326,7 +326,7 @@ export function AskSurface({ review }: { review: Review }) {
   const client = useQueryClient();
   const conversations = useQuery({
     queryKey: ["conversations", review.id],
-    queryFn: () => coreApi.conversations(review.id),
+    queryFn: () => api.conversations(review.id),
   });
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
@@ -337,9 +337,9 @@ export function AskSurface({ review }: { review: Review }) {
 
   const ask = useMutation({
     mutationFn: async () => {
-      const id = conversationId || (await coreApi.createConversation(review.id)).id;
+      const id = conversationId || (await api.createConversation(review.id)).id;
       setConversationId(id);
-      return coreApi.ask(id, question.trim());
+      return api.ask(id, question.trim());
     },
     onSuccess: async () => {
       setQuestion("");

@@ -29,6 +29,8 @@ export type AtlasNodeSummary = Schema["AtlasNodeSummary"];
 export type AtlasVersion = Schema["AtlasVersion"];
 export type DirectoryListing = Schema["DirectoryListing"];
 export type RepositoryFolderTree = Schema["RepositoryFolderTree"];
+export type RepositoryFolder = Schema["RepositoryFolder"];
+export type ProviderAvailability = Schema["ProviderAvailabilityResponse"];
 
 export type ReviewProgress = { event: string; review?: Review; message?: string };
 export type ReviewRun = Schema["ReviewRunResponse"];
@@ -76,7 +78,7 @@ async function* ndjson(response: Response): AsyncGenerator<ReviewProgress> {
 
 const encode = encodeURIComponent;
 
-export const coreApi = {
+export const api = {
   // Workspace and models -----------------------------------------------------------------
   workspace: () => request<Workspace>("/api/workspace"),
   models: () => request<ModelCatalog>("/api/models"),
@@ -152,8 +154,16 @@ export const coreApi = {
       method: "POST",
       body: JSON.stringify({ root_path: root }),
     }),
-  indexRepository: (root: string) =>
+  indexRepository: (root: string, excludedPaths?: string[]) =>
     request<AtlasVersion>("/api/repositories/index", {
+      method: "POST",
+      // Omitted, not null: absent keeps the scope this repository was last indexed under,
+      // and `[]` is somebody saying "all of it". Re-indexing from a page that never asked
+      // about scope must not silently widen a review somebody narrowed.
+      body: JSON.stringify({ root_path: root, ...(excludedPaths ? { excluded_paths: excludedPaths } : {}) }),
+    }),
+  repositoryTree: (root: string) =>
+    request<RepositoryFolderTree>("/api/repositories/tree", {
       method: "POST",
       body: JSON.stringify({ root_path: root }),
     }),
@@ -176,11 +186,15 @@ export const coreApi = {
       body: JSON.stringify({ root_path: root, limit: 40, ...body }),
     }),
   searchAtlas: (root: string, terms: string[]) =>
-    coreApi.exploreRepository(root, { operation: "search", terms }),
-  startRepository: (root: string, startClean = false) =>
+    api.exploreRepository(root, { operation: "search", terms }),
+  startRepository: (root: string, startClean = false, excludedPaths?: string[]) =>
     request<Schema["StartedCaseResponse"]>("/api/repositories/start", {
       method: "POST",
-      body: JSON.stringify({ root_path: root, start_clean: startClean }),
+      body: JSON.stringify({
+        root_path: root,
+        start_clean: startClean,
+        ...(excludedPaths ? { excluded_paths: excludedPaths } : {}),
+      }),
     }),
 
   // Examples -----------------------------------------------------------------------------

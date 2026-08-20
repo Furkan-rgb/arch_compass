@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { coreApi } from "../api";
+import { api } from "../api";
 import { VIEWPORT, setViewportWidth } from "../test-setup";
 import { workspaceFixture } from "../test-fixtures";
 import { AppShell } from "./shell";
@@ -23,7 +23,7 @@ function wrap(entry = "/reviews") {
 
 beforeEach(() => {
   setViewportWidth(VIEWPORT.desktop);
-  vi.spyOn(coreApi, "workspace").mockResolvedValue(workspaceFixture());
+  vi.spyOn(api, "workspace").mockResolvedValue(workspaceFixture());
   window.localStorage.clear();
 });
 

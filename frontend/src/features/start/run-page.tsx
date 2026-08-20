@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { coreApi } from "../../api";
+import { api } from "../../api";
 import { humanise } from "../../lib/format";
 import { Button, ButtonLink } from "../../ui/button";
 import { CheckIcon } from "../../ui/icons";
@@ -45,7 +45,7 @@ export function RunPage() {
 
   const run = useQuery({
     queryKey: ["review-run", runId],
-    queryFn: () => coreApi.reviewRun(runId),
+    queryFn: () => api.reviewRun(runId),
     // Stop asking once there is nothing left to change.
     refetchInterval: (query) => {
       const status = query.state.data?.status;

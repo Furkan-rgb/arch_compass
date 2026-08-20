@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { coreApi, type DecisionDisposition, type Finding, type Review } from "../../api";
+import { api, type DecisionDisposition, type Finding, type Review } from "../../api";
 import { absoluteTime } from "../../lib/format";
 import { DispositionBadge } from "../../ui/badge";
 import { Button } from "../../ui/button";
@@ -28,14 +28,14 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
   const branchId = review.repository.branch_id;
   const decisions = useQuery({
     queryKey: ["decisions", branchId],
-    queryFn: () => coreApi.decisions(branchId),
+    queryFn: () => api.decisions(branchId),
   });
   const current = decisions.data?.decisions.find(
     (item) => item.candidate_id === finding.candidate.id,
   );
   const decide = useMutation({
     mutationFn: (disposition: DecisionDisposition) =>
-      coreApi.decide(review.id, finding.candidate.id, disposition, reasoning.trim() || null),
+      api.decide(review.id, finding.candidate.id, disposition, reasoning.trim() || null),
     onSuccess: async () => {
       setReasoning("");
       await client.invalidateQueries({ queryKey: ["decisions", branchId] });

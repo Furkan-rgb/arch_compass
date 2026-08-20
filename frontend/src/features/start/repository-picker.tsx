@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { coreApi } from "../../api";
+import { api } from "../../api";
 import { cn } from "../../lib/cn";
 import { relativeTime, repositoryName } from "../../lib/format";
 import { Tag } from "../../ui/badge";
@@ -26,8 +26,8 @@ export function RepositoryPicker({
   onChange: (root: string) => void;
 }) {
   const [tab, setTab] = useState("recent");
-  const repositories = useQuery({ queryKey: ["repositories"], queryFn: coreApi.repositories });
-  const examples = useQuery({ queryKey: ["examples"], queryFn: coreApi.examples });
+  const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
+  const examples = useQuery({ queryKey: ["examples"], queryFn: api.examples });
 
   const hasRecent = Boolean(repositories.data?.length);
 
@@ -122,7 +122,7 @@ function DirectoryBrowser({
   const [path, setPath] = useState<string | undefined>(undefined);
   const listing = useQuery({
     queryKey: ["directories", path ?? "~"],
-    queryFn: () => coreApi.directories(path),
+    queryFn: () => api.directories(path),
   });
 
   if (listing.error) {
@@ -210,7 +210,7 @@ function CloneForm({ onCheckedOut }: { onCheckedOut: (root: string) => void }) {
   const [url, setUrl] = useState("");
   const [branch, setBranch] = useState("");
   const checkout = useMutation({
-    mutationFn: () => coreApi.checkoutRepository(url.trim(), branch.trim() || null),
+    mutationFn: () => api.checkoutRepository(url.trim(), branch.trim() || null),
     onSuccess: async (result) => {
       onCheckedOut(result.root_path);
       await client.invalidateQueries({ queryKey: ["repositories"] });
@@ -262,12 +262,12 @@ function CloneForm({ onCheckedOut }: { onCheckedOut: (root: string) => void }) {
 }
 
 function ExampleList({ value, onChange }: { value: string; onChange: (root: string) => void }) {
-  const examples = useQuery({ queryKey: ["examples"], queryFn: coreApi.examples });
+  const examples = useQuery({ queryKey: ["examples"], queryFn: api.examples });
   const load = useMutation({
     mutationFn: async (name: string) => {
       const example = examples.data?.find((item) => item.name === name);
       if (!example) throw new Error("That example is no longer bundled");
-      await coreApi.loadExample(name);
+      await api.loadExample(name);
       return example.repository_root;
     },
     onSuccess: (root) => onChange(root),

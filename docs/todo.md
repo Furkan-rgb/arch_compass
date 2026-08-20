@@ -175,3 +175,5 @@ Before finishing, show:
 5. test/type/lint results
 
 Do not use this task as an excuse to redesign behavior. The primary success criterion is navigational simplicity while preserving the current architecture and semantics.
+
+Also implement end to end tests to verify full behavior (limit this to the backend, frontend will be taken care of as long as the backend does what it needs to do). Please use gemini flash lite as the model to test and their embedding model. I have a free tier account and the value in the .env file is for the free tier.

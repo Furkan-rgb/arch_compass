@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { coreApi, type CaseSummary } from "../../api";
+import { api, type CaseSummary } from "../../api";
 import { cn } from "../../lib/cn";
 import { absoluteTime, humanise, relativeTime, shortId } from "../../lib/format";
 import { Tag } from "../../ui/badge";
@@ -22,8 +22,8 @@ import { Timeline, TimelineItem } from "../../ui/timeline";
  */
 export function CasesPage() {
   const client = useQueryClient();
-  const cases = useQuery({ queryKey: ["cases"], queryFn: coreApi.cases });
-  const reviews = useQuery({ queryKey: ["reviews"], queryFn: coreApi.reviews });
+  const cases = useQuery({ queryKey: ["cases"], queryFn: api.cases });
+  const reviews = useQuery({ queryKey: ["reviews"], queryFn: api.reviews });
   const [selected, setSelected] = useState<string | null>(null);
   const [goal, setGoal] = useState("");
   const [authoring, setAuthoring] = useState(false);
@@ -31,11 +31,11 @@ export function CasesPage() {
   const selectedId = selected ?? cases.data?.[0]?.case_id ?? null;
   const history = useQuery({
     queryKey: ["case-history", selectedId],
-    queryFn: () => coreApi.caseHistory(selectedId!),
+    queryFn: () => api.caseHistory(selectedId!),
     enabled: Boolean(selectedId),
   });
   const create = useMutation({
-    mutationFn: () => coreApi.createCase(goal.trim()),
+    mutationFn: () => api.createCase(goal.trim()),
     onSuccess: async (created) => {
       setSelected(created.case_id);
       setGoal("");

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { coreApi, type Review } from "../../api";
+import { api, type Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { useIsTabletUp } from "../../lib/media";
 import { relativeTime, repositoryName, shortId } from "../../lib/format";
@@ -168,10 +168,10 @@ export function ReviewPage() {
   // needed for the first, so it can be put away for the second.
   const [railOpen, setRailOpen] = useState(true);
 
-  const review = useQuery({ queryKey: ["review", reviewId], queryFn: () => coreApi.review(reviewId) });
-  const reviews = useQuery({ queryKey: ["reviews"], queryFn: coreApi.reviews });
+  const review = useQuery({ queryKey: ["review", reviewId], queryFn: () => api.review(reviewId) });
+  const reviews = useQuery({ queryKey: ["reviews"], queryFn: api.reviews });
   const cancel = useMutation({
-    mutationFn: () => coreApi.cancel(reviewId),
+    mutationFn: () => api.cancel(reviewId),
     onSuccess: async (next) => {
       await client.invalidateQueries({ queryKey: ["reviews"] });
       navigate(`/reviews/${next.id}`);

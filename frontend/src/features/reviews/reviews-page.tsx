@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { coreApi, type Review } from "../../api";
+import { api, type Review } from "../../api";
 import { humanise, relativeTime, repositoryName, shortId } from "../../lib/format";
 import { StatusBadge, Tag } from "../../ui/badge";
 import { Button, ButtonLink, ToggleButton } from "../../ui/button";
@@ -97,9 +97,9 @@ export function ReviewsPage() {
   const client = useQueryClient();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<(typeof STATUS_FILTERS)[number]>("all");
-  const reviews = useQuery({ queryKey: ["reviews"], queryFn: coreApi.reviews });
+  const reviews = useQuery({ queryKey: ["reviews"], queryFn: api.reviews });
   const remove = useMutation({
-    mutationFn: (id: string) => coreApi.deleteReview(id),
+    mutationFn: (id: string) => api.deleteReview(id),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["reviews"] });
     },

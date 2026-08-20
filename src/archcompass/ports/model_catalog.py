@@ -151,6 +151,11 @@ class ProviderDescriptor:
     name: str
     probe: ReasoningModelProbe
     defaults: ProviderDefaults
+    #: How the name is written for a reader: `Google`, `Groq`, `Ollama`. Empty where the
+    #: name already reads as one. Held here rather than in the interface because a chooser
+    #: that titled its own sections would need a table of every provider this build can
+    #: reach — the second copy of `_ALL_PROVIDERS`, kept in another language.
+    label: str = ""
 
 
 class ReasoningModelSelectionRepository(Protocol):

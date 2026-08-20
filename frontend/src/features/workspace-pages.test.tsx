@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { coreApi } from "../api";
+import { api } from "../api";
 import {
   embeddingCatalogFixture,
   modelCatalogFixture,
@@ -44,16 +44,16 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("the repositories page", () => {
   beforeEach(() => {
-    vi.spyOn(coreApi, "repositories").mockResolvedValue([repository]);
-    vi.spyOn(coreApi, "reviews").mockResolvedValue([reviewFixture()]);
-    vi.spyOn(coreApi, "repositorySummary").mockResolvedValue({
+    vi.spyOn(api, "repositories").mockResolvedValue([repository]);
+    vi.spyOn(api, "reviews").mockResolvedValue([reviewFixture()]);
+    vi.spyOn(api, "repositorySummary").mockResolvedValue({
       query: { kind: "repository_summary" },
       summary: "Six packages, one of which owns the payment boundary.",
       node_ids: ["node-1"],
       relationships: [],
       signals: [],
     });
-    vi.spyOn(coreApi, "repositoryHotspots").mockResolvedValue({
+    vi.spyOn(api, "repositoryHotspots").mockResolvedValue({
       query: { kind: "hotspots", metric: "reverse_dependency_reach" },
       metric_values: [
         { node_id: "node-1", metric: "reverse_dependency_reach", value: 12 },
@@ -84,7 +84,7 @@ describe("the repositories page", () => {
   });
 
   it("re-indexes a repository in place", async () => {
-    const index = vi.spyOn(coreApi, "indexRepository").mockResolvedValue({
+    const index = vi.spyOn(api, "indexRepository").mockResolvedValue({
       repository_identity: "identity-1",
       root_path: repository.root_path,
       content_fingerprint: "fingerprint",
@@ -101,7 +101,7 @@ describe("the repositories page", () => {
 
 describe("the reviews page", () => {
   it("filters history by status and by search", async () => {
-    vi.spyOn(coreApi, "reviews").mockResolvedValue([
+    vi.spyOn(api, "reviews").mockResolvedValue([
       reviewFixture(),
       reviewFixture({
         id: "review-2",
@@ -130,8 +130,8 @@ describe("the reviews page", () => {
   });
 
   it("asks before deleting an immutable review", async () => {
-    vi.spyOn(coreApi, "reviews").mockResolvedValue([reviewFixture()]);
-    const remove = vi.spyOn(coreApi, "deleteReview").mockResolvedValue(undefined);
+    vi.spyOn(api, "reviews").mockResolvedValue([reviewFixture()]);
+    const remove = vi.spyOn(api, "deleteReview").mockResolvedValue(undefined);
 
     render(wrap(<ReviewsPage />));
 
@@ -153,12 +153,12 @@ describe("the cases page", () => {
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
     };
-    vi.spyOn(coreApi, "cases").mockResolvedValue([{ ...base, revision: 2 }]);
-    vi.spyOn(coreApi, "caseHistory").mockResolvedValue([
+    vi.spyOn(api, "cases").mockResolvedValue([{ ...base, revision: 2 }]);
+    vi.spyOn(api, "caseHistory").mockResolvedValue([
       { ...base, revision: 1 },
       { ...base, revision: 2, goal: "Keep the domain independent of delivery" },
     ]);
-    vi.spyOn(coreApi, "reviews").mockResolvedValue([reviewFixture()]);
+    vi.spyOn(api, "reviews").mockResolvedValue([reviewFixture()]);
 
     render(wrap(<CasesPage />));
 
@@ -173,30 +173,33 @@ describe("the cases page", () => {
 
 describe("the models page", () => {
   beforeEach(() => {
-    vi.spyOn(coreApi, "models").mockResolvedValue(modelCatalogFixture());
-    vi.spyOn(coreApi, "embeddings").mockResolvedValue(embeddingCatalogFixture());
+    vi.spyOn(api, "models").mockResolvedValue(modelCatalogFixture());
+    vi.spyOn(api, "embeddings").mockResolvedValue(embeddingCatalogFixture());
   });
 
   it("separates architecture judgement from policy retrieval", async () => {
-    vi.spyOn(coreApi, "workspace").mockResolvedValue(workspaceFixture());
+    vi.spyOn(api, "workspace").mockResolvedValue(workspaceFixture());
 
     render(wrap(<SettingsPage />));
 
     expect(await screen.findByRole("heading", { name: "Reasoning model" })).toBeInTheDocument();
-    expect(screen.getByText("Architecture judgement")).toBeInTheDocument();
+    expect(screen.getByText("Judges the evidence")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Embedding model" })).toBeInTheDocument();
-    expect(screen.getByText("Policy retrieval")).toBeInTheDocument();
+    expect(screen.getByText("Retrieves the policy")).toBeInTheDocument();
 
-    // A provider that is not reachable cannot be selected, and says so in words.
+    // A provider that is not reachable cannot be selected, and the reason sits on the
+    // section rather than on each tile inside it — said once, where the absence is.
     const unavailable = screen.getByRole("button", { name: /gemini-3.6-flash/ });
     expect(unavailable).toBeDisabled();
-    expect(within(unavailable).getByText("provider unavailable")).toBeInTheDocument();
+    const section = unavailable.closest("section")!;
+    expect(within(section).getByRole("heading", { name: /Google/ })).toBeInTheDocument();
+    expect(within(section).getByText("Unavailable")).toBeInTheDocument();
   });
 
   it("selects a reasoning model without touching the embedding selection", async () => {
-    vi.spyOn(coreApi, "workspace").mockResolvedValue(workspaceFixture());
-    const select = vi.spyOn(coreApi, "selectModel").mockResolvedValue(workspaceFixture());
-    const selectEmbedding = vi.spyOn(coreApi, "selectEmbedding");
+    vi.spyOn(api, "workspace").mockResolvedValue(workspaceFixture());
+    const select = vi.spyOn(api, "selectModel").mockResolvedValue(workspaceFixture());
+    const selectEmbedding = vi.spyOn(api, "selectEmbedding");
 
     render(wrap(<SettingsPage />));
 
@@ -206,7 +209,7 @@ describe("the models page", () => {
   });
 
   it("explains a pinned embedding rather than silently disabling it", async () => {
-    vi.spyOn(coreApi, "workspace").mockResolvedValue(
+    vi.spyOn(api, "workspace").mockResolvedValue(
       workspaceFixture({
         models: { ...workspaceFixture().models, embedding_pinned: true },
       }),

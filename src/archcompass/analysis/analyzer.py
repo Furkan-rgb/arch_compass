@@ -28,6 +28,7 @@ from archcompass.domain import (
     SourceLocation,
 )
 from archcompass.ports.atlas import RepositoryAnalyzer as AnalyzerRecordSource
+from archcompass.ports.persistence import ScopeSelectionRepository
 
 
 def _documents(values: Sequence[BaseModel]) -> tuple[str, ...]:
@@ -35,11 +36,33 @@ def _documents(values: Sequence[BaseModel]) -> tuple[str, ...]:
 
 
 class DataclassRepositoryAnalyzer:
-    def __init__(self, analyzer: AnalyzerRecordSource) -> None:
+    """The graph's own analysis of a repository, under the scope that repository was given.
+
+    The scope is read here rather than passed in because the graph has no field for one and
+    should not grow one: a review is about a repository, and how much of that repository is
+    read is a property of the repository rather than of this run. Every other reader of an
+    atlas already resolves it the same way — the index that built it, the freshness check
+    that validates it — and this was the one that did not, so a review of a repository
+    somebody had narrowed re-read the folders they left out and judged boundaries the atlas
+    on the repositories page did not contain.
+    """
+
+    def __init__(
+        self,
+        analyzer: AnalyzerRecordSource,
+        scope_selections: ScopeSelectionRepository,
+    ) -> None:
         self._analyzer = analyzer
+        self._scope_selections = scope_selections
 
     def analyze(self, repository: RepositoryRef) -> RepositoryAtlas:
-        atlas = self._analyzer.analyze(repository.path)
+        # Keyed by the canonical root, which is the string a recorded selection is filed
+        # under and the string a stored atlas holds. `strict=False` because a root that is
+        # not there is the analyzer's error to report, in its own words, a line below.
+        recorded = self._scope_selections.get(
+            str(repository.path.expanduser().resolve(strict=False))
+        )
+        atlas = self._analyzer.analyze(repository.path, excluded_paths=recorded or ())
         version = atlas.version
         current = RepositoryRef(
             id=repository.id,

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { coreApi } from "../../api";
+import { api } from "../../api";
 import { VIEWPORT, setViewportWidth } from "../../test-setup";
 import { reviewFixture } from "../../test-fixtures";
 import { ReviewPage } from "./review-page";
@@ -26,7 +26,7 @@ function wrap(children: ReactNode, path = "/reviews/review-1") {
 
 beforeEach(() => {
   setViewportWidth(VIEWPORT.desktop);
-  vi.spyOn(coreApi, "decisions").mockResolvedValue({ branch_id: "branch-1", decisions: [] });
+  vi.spyOn(api, "decisions").mockResolvedValue({ branch_id: "branch-1", decisions: [] });
 });
 
 afterEach(() => {
@@ -37,8 +37,8 @@ afterEach(() => {
 describe("the review workbench", () => {
   it("opens on the clarification when the review is waiting for a human", async () => {
     const review = reviewFixture();
-    vi.spyOn(coreApi, "review").mockResolvedValue(review);
-    vi.spyOn(coreApi, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
 
     render(wrap(<ReviewPage />));
 
@@ -49,8 +49,8 @@ describe("the review workbench", () => {
 
   it("orders the queue by what needs a human, cleared findings last", async () => {
     const review = reviewFixture({ status: "completed", questions: [] });
-    vi.spyOn(coreApi, "review").mockResolvedValue(review);
-    vi.spyOn(coreApi, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
 
     render(wrap(<ReviewPage />));
 
@@ -72,8 +72,8 @@ describe("the review workbench", () => {
 
   it("shows the selected finding as a structured assessment, with provenance behind a disclosure", async () => {
     const review = reviewFixture({ status: "completed", questions: [] });
-    vi.spyOn(coreApi, "review").mockResolvedValue(review);
-    vi.spyOn(coreApi, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
 
     render(wrap(<ReviewPage />));
 
@@ -98,9 +98,9 @@ describe("the review workbench", () => {
 
   it("keeps the standing decision separate from the model's verdict", async () => {
     const review = reviewFixture({ status: "completed", questions: [] });
-    vi.spyOn(coreApi, "review").mockResolvedValue(review);
-    vi.spyOn(coreApi, "reviews").mockResolvedValue([review]);
-    const decide = vi.spyOn(coreApi, "decide").mockResolvedValue({
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    const decide = vi.spyOn(api, "decide").mockResolvedValue({
       id: "decision-1",
       branch_id: "branch-1",
       candidate_id: "candidate-2",
@@ -128,10 +128,10 @@ describe("the review workbench", () => {
 
   it("records an explicit skip and resumes by review identity", async () => {
     const review = reviewFixture();
-    vi.spyOn(coreApi, "review").mockResolvedValue(review);
-    vi.spyOn(coreApi, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
     const answer = vi
-      .spyOn(coreApi, "answer")
+      .spyOn(api, "answer")
       .mockResolvedValue(reviewFixture({ id: "review-2", status: "completed", questions: [] }));
 
     render(wrap(<ReviewPage />));
@@ -152,10 +152,10 @@ describe("the review workbench", () => {
 
   it("carries an answer through as answered rather than skipped", async () => {
     const review = reviewFixture();
-    vi.spyOn(coreApi, "review").mockResolvedValue(review);
-    vi.spyOn(coreApi, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
     const answer = vi
-      .spyOn(coreApi, "answer")
+      .spyOn(api, "answer")
       .mockResolvedValue(reviewFixture({ id: "review-2", status: "completed", questions: [] }));
 
     render(wrap(<ReviewPage />));
@@ -182,8 +182,8 @@ describe("the review workbench", () => {
 
   it("exposes retrieval provenance on its own surface", async () => {
     const review = reviewFixture({ status: "completed", questions: [] });
-    vi.spyOn(coreApi, "review").mockResolvedValue(review);
-    vi.spyOn(coreApi, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
 
     render(wrap(<ReviewPage />));
 
@@ -198,8 +198,8 @@ describe("the review workbench", () => {
   it("moves the queue and the context into drawers on a phone", async () => {
     setViewportWidth(VIEWPORT.phone);
     const review = reviewFixture({ status: "completed", questions: [] });
-    vi.spyOn(coreApi, "review").mockResolvedValue(review);
-    vi.spyOn(coreApi, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
 
     render(wrap(<ReviewPage />));
 
@@ -221,8 +221,8 @@ describe("the review workbench", () => {
       questions: [],
       failure: "The embedding provider was unreachable",
     });
-    vi.spyOn(coreApi, "review").mockResolvedValue(review);
-    vi.spyOn(coreApi, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
 
     render(wrap(<ReviewPage />));
 
