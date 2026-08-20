@@ -80,7 +80,7 @@ def test_sqlite_dense_retriever_records_deterministic_provenance(tmp_path: Path)
             applies_to="repo-1",
         ),
     )
-    case = ArchitectureCase.create("Remove needless interfaces")
+    case = ArchitectureCase.create()
     case = replace(
         case,
         policy_context=case.policy_context.__class__(repository="repo-1"),

@@ -88,7 +88,6 @@ class RetrievalEvaluationFile(BaseModel):
 
 
 class CaseWriteFile(BaseModel):
-    goal: str = ""
     constraints: list[CaseConstraint] = Field(
         default_factory=lambda: list[CaseConstraint]()
     )
@@ -99,7 +98,6 @@ class CaseWriteFile(BaseModel):
 
 
 class CaseUpdateFile(BaseModel):
-    goal: str | None = None
     constraints: list[CaseConstraint] | None = None
     decisions: list[CaseDecision] | None = None
     policy_context: PolicyContext | None = None
@@ -365,7 +363,6 @@ def case_create(
 ) -> None:
     request = CaseWriteFile.model_validate(_read_yaml(source))
     case = _state(context).runtime.case_service.create(
-        goal=request.goal,
         constraints=tuple(request.constraints),
         decisions=tuple(request.decisions),
         policy_context=request.policy_context,
@@ -387,7 +384,6 @@ def case_update(
     update = CaseUpdateFile.model_validate(_read_yaml(source))
     case = _state(context).runtime.case_service.revise(
         case_id,
-        goal=update.goal,
         constraints=None if update.constraints is None else tuple(update.constraints),
         decisions=None if update.decisions is None else tuple(update.decisions),
         policy_context=update.policy_context,

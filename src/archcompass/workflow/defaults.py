@@ -115,7 +115,7 @@ class DeterministicReviewComposer:
             for finding in draft.findings
         )
         report = (
-            f"# Architecture review\n\n{draft.case.goal or 'No goal stated.'}\n\n"
+            f"# Architecture review\n\n"
             f"{findings or 'No architectural candidates were found.'}\n"
         )
         return Review(

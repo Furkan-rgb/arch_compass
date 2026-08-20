@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from fastapi.responses import StreamingResponse
 from pydantic import Field
 
@@ -97,6 +97,15 @@ def routes() -> APIRouter:
         return ReviewConversationResponse.from_application(
             runtime.review_conversation_service.show(conversation_id)
         )
+
+    @router.delete(
+        "/api/review-conversations/{conversation_id}",
+        status_code=204,
+        responses=problem_responses(404, 422),
+    )
+    def delete_review_conversation(runtime: RuntimeDep, conversation_id: str) -> Response:
+        runtime.review_conversation_service.delete(conversation_id)
+        return Response(status_code=204)
 
     @router.post(
         "/api/review-conversations/{conversation_id}/messages",

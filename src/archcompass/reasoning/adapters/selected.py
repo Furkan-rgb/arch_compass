@@ -91,12 +91,19 @@ class SelectedLangChainJudge:
     ) -> Finding:
         config = self._selected.configuration()
         if config is not None and config.provider == "fake":
-            hinge = None if case.goal else "the architecture goal"
+            # This provider does not judge; it stands in for one. It holds while the case
+            # says nothing at all about intent, so that the clarification path is
+            # exercised rather than skipped, and clears once anything has been recorded.
+            # It used to hold on the architecture goal, which no longer exists — intent
+            # now arrives as constraints, decisions and answered questions.
+            stated = case.constraints or case.decisions or case.answers
+            hinge = None if stated else "the constraints this architecture has to respect"
             return Finding(
                 candidate,
                 Verdict.HELD if hinge else Verdict.CLEARED,
                 (
-                    "The deterministic provider holds this finding until the goal is stated."
+                    "The deterministic provider holds this finding until the case says "
+                    "something about intent."
                     if hinge
                     else "The deterministic provider found no material conflict in the case."
                 ),

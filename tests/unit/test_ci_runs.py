@@ -65,7 +65,7 @@ def _review(tmp_path: Path) -> Review:
         1,
         repository,
         atlas,
-        ArchitectureCase.create("Keep dependencies clear"),
+        ArchitectureCase.create(),
         findings,
         (),
         ReviewStatus.COMPLETED,

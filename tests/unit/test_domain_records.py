@@ -28,7 +28,7 @@ from archcompass.domain._support import utc_now
 
 
 def test_case_revision_is_immutable_and_records_an_answer() -> None:
-    original = ArchitectureCase.create("Keep changes local")
+    original = ArchitectureCase.create()
     question = Question.create(
         text="Is another provider planned?",
         facet=CaseFacet.EXPECTED_CHANGE,
@@ -46,7 +46,7 @@ def test_case_revision_is_immutable_and_records_an_answer() -> None:
 
 
 def test_one_clarification_submission_creates_one_revision() -> None:
-    original = ArchitectureCase.create("Keep ownership explicit")
+    original = ArchitectureCase.create()
     first = Question.create(
         text="Who owns the boundary?",
         facet=CaseFacet.DECISION,
@@ -126,7 +126,7 @@ def test_revision_calculator_rejudges_for_policy_model_and_prompt_changes(
 ) -> None:
     repository = RepositoryRef("repo", tmp_path, "branch", "content")
     atlas = RepositoryAtlas("atlas", repository)
-    case = ArchitectureCase.create("Keep dependencies inward")
+    case = ArchitectureCase.create()
     candidate = Candidate.identified(
         pattern="dependency_direction",
         summary="Domain imports an adapter",
@@ -176,7 +176,7 @@ def test_revision_calculator_rejudges_for_policy_model_and_prompt_changes(
 def test_revision_calculator_records_succession_and_resurfacing(tmp_path: Path) -> None:
     repository = RepositoryRef("repo", tmp_path, "branch", "content")
     atlas = RepositoryAtlas("atlas", repository)
-    case = ArchitectureCase.create("Keep dependencies inward")
+    case = ArchitectureCase.create()
     predecessor = Candidate.identified(
         pattern="dependency_direction",
         summary="Old boundary",

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import type React from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
@@ -23,6 +24,12 @@ import { reviewFixture, workspaceFixture } from "../../test-fixtures";
  * that make the pixels impossible instead: the axis is clipped, and every element on the
  * path from the column to the text either wraps at any character or is truncated.
  */
+/** The queue reads the branch's standing decisions, so it needs a client even alone. */
+function withClient(node: React.ReactNode) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return <QueryClientProvider client={client}>{node}</QueryClientProvider>;
+}
+
 const LONG_IDENTIFIER =
   "infrastructure.persistence.repositories.SqlAlchemyNotificationPreferenceRepository";
 
@@ -52,13 +59,15 @@ describe("the attention queue's width", () => {
   it("clips the axis a vertical scroller must never scroll on", () => {
     const review = queueWithLongIdentifier();
     const { container } = render(
-      <AttentionQueue
-        review={review}
-        selection={null}
-        onSelect={() => {}}
-        filter="all"
-        onFilterChange={() => {}}
-      />,
+      withClient(
+        <AttentionQueue
+          review={review}
+          selection={null}
+          onSelect={() => {}}
+          filter="all"
+          onFilterChange={() => {}}
+        />,
+      ),
     );
 
     const scroller = container.querySelector(".overflow-y-auto");
@@ -69,13 +78,15 @@ describe("the attention queue's width", () => {
   it("gives every part of a row a way not to grow", () => {
     const review = queueWithLongIdentifier();
     render(
-      <AttentionQueue
-        review={review}
-        selection={null}
-        onSelect={() => {}}
-        filter="all"
-        onFilterChange={() => {}}
-      />,
+      withClient(
+        <AttentionQueue
+          review={review}
+          selection={null}
+          onSelect={() => {}}
+          filter="all"
+          onFilterChange={() => {}}
+        />,
+      ),
     );
 
     const { namespace, leaf } = splitQualified(LONG_IDENTIFIER);
@@ -97,13 +108,15 @@ describe("the attention queue's width", () => {
   it("keeps the whole identifier readable even though the row is not", () => {
     const review = queueWithLongIdentifier();
     render(
-      <AttentionQueue
-        review={review}
-        selection={null}
-        onSelect={() => {}}
-        filter="all"
-        onFilterChange={() => {}}
-      />,
+      withClient(
+        <AttentionQueue
+          review={review}
+          selection={null}
+          onSelect={() => {}}
+          filter="all"
+          onFilterChange={() => {}}
+        />,
+      ),
     );
 
     // Truncating for the eye is not the same as hiding: hovering still names the thing.

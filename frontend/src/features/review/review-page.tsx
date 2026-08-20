@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { api, type Review } from "../../api";
+import { api, type Decision, type Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { useIsTabletUp } from "../../lib/media";
 import { type Tone, relativeTime, repositoryName, shortId, verdictOf } from "../../lib/format";
@@ -18,8 +18,10 @@ import {
   AttentionQueue,
   type QueueFilter,
   type QueueSelection,
+  inFilter,
   needsAttention,
   orderedFindings,
+  useStandingDecisions,
 } from "./attention-queue";
 import { ClarificationRound } from "./clarification";
 import { ContextRail } from "./context-rail";
@@ -64,7 +66,7 @@ function ReviewHead({
             Review {review.sequence} · case revision {review.case.revision}
           </div>
           <h1 className="mt-1.5 max-w-3xl font-display text-2xl font-semibold tracking-[-0.02em] text-ink sm:text-[30px]">
-            {review.case.goal || `Architecture review of ${repositoryName(review.repository.path)}`}
+            {`Architecture review of ${repositoryName(review.repository.path)}`}
           </h1>
           <div className="mt-2.5 flex max-w-full flex-wrap items-center gap-1.5">
             <PathRef path={review.repository.path} className="min-w-0" />
@@ -106,8 +108,19 @@ function ReviewHead({
   );
 }
 
-function StatusRibbon({ review }: { review: Review }) {
-  const attention = review.findings.filter(needsAttention).length;
+function StatusRibbon({
+  review,
+  decisions,
+}: {
+  review: Review;
+  decisions: Map<string, Decision>;
+}) {
+  const attention = review.findings.filter((finding) =>
+    needsAttention(finding, decisions.get(finding.candidate.id)),
+  ).length;
+  const decided = review.findings.filter((finding) =>
+    decisions.has(finding.candidate.id),
+  ).length;
   const material = review.findings.filter((finding) => finding.verdict === "material").length;
   const held = review.findings.filter((finding) => finding.verdict === "held").length;
   const policies = new Set(
@@ -122,6 +135,9 @@ function StatusRibbon({ review }: { review: Review }) {
   // out here, because a hue written out here is one nothing stops from spreading.
   const cells: Array<[number, string, Tone | null]> = [
     [attention + waiting, `need you — ${material} material, ${held} held`, verdictOf("material").tone],
+    // The team's half of the review, counted next to ArchCompass's, because "how far
+    // through this am I" is answered by decisions and not by verdicts.
+    [decided, "decided by the team", null],
     [review.findings.length, "judged", null],
     [policies, "policies retrieved", null],
     [
@@ -190,6 +206,7 @@ export function ReviewPage() {
   });
 
   const value = review.data;
+  const decisions = useStandingDecisions(value);
 
   // The queue's opening position: the clarification when one is waiting, otherwise the first
   // thing that needs a human, otherwise the first finding at all.
@@ -197,9 +214,11 @@ export function ReviewPage() {
     if (!value) return null;
     if (value.status === "awaiting_answers" && value.questions.length) return { kind: "clarification" };
     const ordered = orderedFindings(value);
-    const first = ordered.find(needsAttention) ?? ordered[0];
+    const first =
+      ordered.find((finding) => needsAttention(finding, decisions.get(finding.candidate.id))) ??
+      ordered[0];
     return first ? { kind: "finding", candidateId: first.candidate.id } : null;
-  }, [value]);
+  }, [value, decisions]);
 
   useEffect(() => {
     setSelection(null);
@@ -229,6 +248,23 @@ export function ReviewPage() {
   function select(next: QueueSelection) {
     setSelection(next);
     setQueueOpen(false);
+  }
+
+  /**
+   * Open a candidate from somewhere that is not the queue.
+   *
+   * The queue's filter is the reader's, so nothing moves it while they work down the list.
+   * But arriving from another surface is not working down the list — it is being handed a
+   * specific candidate, and a filter that hides it would answer the request with an empty
+   * rail. So the filter widens to one that contains it, and only then.
+   */
+  function open(candidateId: string) {
+    const finding = value?.findings.find((item) => item.candidate.id === candidateId);
+    if (finding && !inFilter(finding, filter, decisions.get(candidateId))) {
+      setFilter(needsAttention(finding, decisions.get(candidateId)) ? "attention" : "settled");
+    }
+    setSurface("workbench");
+    select({ kind: "finding", candidateId });
   }
 
   const detail =
@@ -280,7 +316,7 @@ export function ReviewPage() {
         </div>
       ) : null}
 
-      <StatusRibbon review={value} />
+      <StatusRibbon review={value} decisions={decisions} />
 
       <Tabs
         label="Review surfaces"
@@ -353,13 +389,7 @@ export function ReviewPage() {
         {/* Seeing that something changed and looking at it are one action, not two: the
             delta hands the candidate to the workbench rather than naming it and leaving
             the reader to find it in the queue. */}
-        <DeltaSurface
-          review={value}
-          onOpen={(candidateId) => {
-            setSurface("workbench");
-            select({ kind: "finding", candidateId });
-          }}
-        />
+        <DeltaSurface review={value} onOpen={open} />
       </TabPanel>
       <TabPanel id="atlas" active={surface}>
         <AtlasSurface review={value} />
@@ -374,7 +404,7 @@ export function ReviewPage() {
         <ReportSurface review={value} />
       </TabPanel>
       <TabPanel id="ask" active={surface}>
-        <AskSurface review={value} />
+        <AskSurface review={value} onOpen={open} />
       </TabPanel>
 
       <Drawer

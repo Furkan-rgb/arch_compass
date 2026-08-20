@@ -26,7 +26,7 @@ Policy -----------------------+
 
 ## Primary concepts
 
-- `ArchitectureCase` is revisioned human context: goal, categorized constraints,
+- `ArchitectureCase` is revisioned human context: categorized constraints,
   contextual decisions, answers, and timestamps. `with_answer()` returns a new revision.
 - `Question` has application-owned identity and an equivalence key derived from case facet
   plus sorted supporting candidate IDs.

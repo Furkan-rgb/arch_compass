@@ -38,7 +38,6 @@ def retrieval_query(candidate: Candidate, case: ArchitectureCase) -> str:
             f"Participants: {participants}",
             f"Measurements: {measurements or 'none'}",
             f"Detection limits: {candidate.limitations or 'none stated'}",
-            f"Architecture goal: {case.goal or 'not stated'}",
             f"Constraints: {constraints or 'none stated'}",
         )
     )

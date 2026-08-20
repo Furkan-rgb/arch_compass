@@ -82,5 +82,11 @@ Standing decisions are appended separately from findings. Waivers require reason
 decision lineage can read through deterministic succession without influencing the judge.
 Post-review conversation uses the persisted review, pinned evidence, case, and
 application-assembled context; it does not restore an autonomous repository investigation
-loop. Source/report/repository/case/revision endpoints project the same stored domain
-records through boundary Pydantic DTOs.
+loop. Every fact in an answer comes from that context, but the answer is not held to
+extraction: what to do about a finding follows from the finding, the policies it bears on
+and any recommended response already recorded, and the answer distinguishes what the review
+records from what it reasons. It is shown where evidence sits, never the code at those
+lines, so a proposed fix is structure and placement with a citation, never a patch.
+
+Source/report/repository/case/revision endpoints project the same stored domain records
+through boundary Pydantic DTOs.

@@ -16,6 +16,7 @@ from archcompass.domain import (
     Evidence,
     Finding,
     Measurement,
+    Policy,
     PolicyBearing,
     Question,
     Review,
@@ -114,7 +115,6 @@ class ConversationAnswerOutput(BaseModel):
 def _case_text(case: ArchitectureCase) -> str:
     return json.dumps(
         {
-            "goal": case.goal,
             "constraints": [item.text for item in case.constraints],
             "decisions": [item.text for item in case.decisions],
             "answers": [
@@ -459,6 +459,159 @@ class LangChainQuestionGenerator:
         return tuple(questions)
 
 
+# The contract a conversation is held to. It is deliberately not the judgement contract.
+#
+# A reader arrives at this box having already read a finding, and the question they type is
+# usually "so what do I do about it". Answering that with "the review does not contain any
+# information on how to fix the identified issues" is technically true of a document and
+# useless to a person: what to do follows from what was found, and following from it is the
+# job. So facts stay pinned to the review while reasoning over those facts is expected, and
+# the answer says which of the two the reader is looking at.
+CONVERSATION_CONTRACT = (
+    "A reader has this architecture review open and is asking you about it.\n\n"
+    "Two kinds of question arrive here. Some ask what the review found — answer those from "
+    "the review alone. Others ask what to do about what it found: how a finding would be "
+    "fixed, what the options are, which to take first. Answer those too. They are not "
+    "outside the review; they are why somebody read it. Reason from the findings, the "
+    "policies they bear on and any recommended response already recorded, and make plain "
+    "which part of your answer the review records and which part is you reasoning from "
+    "it.\n\n"
+    "Facts about this codebase come only from the review. Do not invent a module, a call "
+    "site or a name you were not shown. Where a fix turns on something the review does not "
+    "establish, say what would have to be true and which finding's evidence would settle "
+    "it. Say the review cannot answer only when it lacks the facts the question needs — "
+    "never merely because the question asks for judgement.\n\n"
+    "You are told where each piece of evidence sits, but not what the code at those lines "
+    "says. So describe a fix as structure and placement, cite the locations, and do not "
+    "write a patch as though you had read the file.\n\n"
+    "Cite the findings you relied on by their numbered positions. Write prose a reader can "
+    "act on: no headings, no restating the question."
+)
+
+
+def _conversation_policies(review: Review) -> tuple[Policy, ...]:
+    """Every policy this review's findings bear on, once each.
+
+    Gathered here rather than repeated under each finding because the rule a fix has to
+    respect is the same rule however many findings bore on it, and its wording is what makes
+    a proposed fix answerable against it.
+    """
+
+    seen: dict[str, Policy] = {}
+    for finding in review.findings:
+        for bearing in finding.policies:
+            seen.setdefault(bearing.policy.id, bearing.policy)
+    return tuple(seen.values())
+
+
+def _conversation_finding_text(position: int, finding: Finding) -> str:
+    """One finding as breadth rather than depth.
+
+    Judgement reads a single candidate in full, code included. A conversation ranges over
+    every finding at once and cannot afford that, so it is given what each finding is, what
+    it bears on, what was recommended, and where the evidence sits — but not the code at
+    those lines. That is a click away in the workbench, which is exactly where citing a
+    finding puts the reader.
+    """
+
+    candidate = finding.candidate
+    lines = [
+        f"[{position}] {candidate.summary}",
+        f"    pattern: {candidate.pattern}",
+        f"    verdict: {finding.verdict.value}",
+        f"    reasoning: {finding.reasoning}",
+    ]
+    if finding.recommended_response:
+        lines.append(f"    recommended response: {finding.recommended_response}")
+    if finding.hinge:
+        lines.append(f"    held, waiting on: {finding.hinge}")
+    lines.extend(
+        f"    bears on '{bearing.policy.title}' ({bearing.policy.strength.value}): "
+        f"{bearing.reasoning}"
+        for bearing in finding.policies
+    )
+    if candidate.participants:
+        lines.append(
+            "    participants: "
+            + ", ".join(
+                f"{item.qualified_name} ({item.role})" for item in candidate.participants
+            )
+        )
+    lines.extend(
+        f"    {item.source} --{item.kind}--> {item.target}"
+        for item in candidate.relationships
+    )
+    lines.extend(
+        f"    measured: {item.name} = {item.display} [{item.nature.value}]"
+        + (f"; counts {item.definition}" if item.definition else "")
+        for item in candidate.measurements
+    )
+    # `finding.evidence` is not a second, judged selection: every producer copies
+    # `candidate.evidence` into it whole. Listing both put every excerpt in twice.
+    lines.extend(
+        f"    evidence: {_conversation_evidence_text(item)}"
+        for item in candidate.evidence
+    )
+    if candidate.limitations:
+        lines.append(f"    this detection cannot see: {candidate.limitations}")
+    return "\n".join(lines)
+
+
+def _conversation_evidence_text(evidence: Evidence) -> str:
+    where = (
+        "location not recorded"
+        if evidence.location is None
+        else f"{evidence.location.path}:{evidence.location.start_line}"
+        f"-{evidence.location.end_line}"
+    )
+    note = f"; {evidence.note}" if evidence.note else ""
+    return f"{evidence.description} ({where}){note}"
+
+
+def conversation_prompt(
+    review: Review, history: Sequence[ConversationMessage], question: str
+) -> str:
+    repository = review.repository
+    where = str(repository.path)
+    if repository.branch:
+        where += f" on {repository.branch}"
+    if repository.commit:
+        where += f" at {repository.commit[:12]}"
+    sections = [
+        CONVERSATION_CONTRACT,
+        f"REVIEW\nnumber {review.sequence} of {where}\nstatus: {review.status.value}",
+        f"CASE\n{_case_text(review.case)}",
+    ]
+    if review.questions:
+        sections.append(
+            "STILL UNANSWERED BY THE TEAM\n"
+            + "\n".join(f"  - {item.text}" for item in review.questions)
+        )
+    policies = _conversation_policies(review)
+    if policies:
+        sections.append(
+            "POLICIES THESE FINDINGS BEAR ON\n"
+            + "\n\n".join(
+                f"'{policy.title}' ({policy.strength.value})\n{policy.body}"
+                for policy in policies
+            )
+        )
+    sections.append(
+        "FINDINGS\n"
+        + "\n\n".join(
+            _conversation_finding_text(position, finding)
+            for position, finding in enumerate(review.findings, start=1)
+        )
+    )
+    if history:
+        sections.append(
+            "WHAT HAS ALREADY BEEN ASKED HERE\n"
+            + "\n".join(f"Q: {item.question}\nA: {item.answer.text}" for item in history)
+        )
+    sections.append(f"QUESTION\n{question}")
+    return "\n\n".join(sections)
+
+
 class LangChainReviewAnswerer:
     def __init__(self, model: BaseChatModel) -> None:
         self._model = model
@@ -469,28 +622,10 @@ class LangChainReviewAnswerer:
         history: tuple[ConversationMessage, ...],
         question: str,
     ) -> ConversationAnswer:
-        prompt = "\n\n".join(
-            (
-                "Answer the question using only this immutable architecture review. "
-                "Cite supporting findings by their numbered positions. If the review "
-                "does not answer it, say so explicitly.",
-                "FINDINGS\n"
-                + "\n".join(
-                    f"[{position}] {finding.candidate.summary}: {finding.verdict.value}; "
-                    f"{finding.reasoning}"
-                    for position, finding in enumerate(review.findings, start=1)
-                ),
-                "HISTORY\n"
-                + "\n".join(
-                    f"Q: {item.question}\nA: {item.answer.text}" for item in history
-                ),
-                f"QUESTION\n{question}",
-            )
-        )
         output = _structured(
             self._model,
             ConversationAnswerOutput,
-            prompt,
+            conversation_prompt(review, history, question),
             subject="a grounded answer",
         )
         positions = tuple(sorted(set(output.candidate_positions)))

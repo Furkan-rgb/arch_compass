@@ -206,10 +206,10 @@ export const api = {
   // Cases --------------------------------------------------------------------------------
   cases: () => request<CaseSummary[]>("/api/cases"),
   caseHistory: (id: string) => request<CaseSummary[]>(`/api/cases/${encode(id)}/history`),
-  createCase: (goal: string) =>
+  createCase: () =>
     request<CaseSummary>("/api/cases", {
       method: "POST",
-      body: JSON.stringify({ goal, constraints: [], decisions: [], policy_context: {} }),
+      body: JSON.stringify({ constraints: [], decisions: [], policy_context: {} }),
     }),
   updateCase: (id: string, patch: Schema["CasePatch"]) =>
     request<CaseSummary>(`/api/cases/${encode(id)}`, {
@@ -259,6 +259,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ review_id: reviewId }),
     }),
+  deleteConversation: (conversationId: string) =>
+    request<void>(`/api/review-conversations/${encode(conversationId)}`, { method: "DELETE" }),
   ask: (conversationId: string, question: string) =>
     request<ReviewConversation>(`/api/review-conversations/${encode(conversationId)}/messages`, {
       method: "POST",

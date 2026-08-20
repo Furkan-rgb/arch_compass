@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -10,19 +11,31 @@ from pydantic import ValidationError
 from archcompass.domain import (
     ArchitectureCase,
     Candidate,
+    Evidence,
     Finding,
     Participant,
     Policy,
+    PolicyBearing,
     PolicyScope,
     PolicyStrength,
+    RepositoryAtlas,
+    RepositoryRef,
     RetrievalProvenance,
+    Review,
+    ReviewDelta,
+    ReviewStatus,
+    SourceLocation,
     Verdict,
 )
+from archcompass.domain._support import utc_now
 from archcompass.domain.errors import ModelOutputValidationError
 from archcompass.ports.policy_retrieval import PolicySelection, RetrievedPolicySet
 from archcompass.reasoning.adapters.langchain import (
+    CONVERSATION_CONTRACT,
     LangChainArchitectureJudge,
     LangChainQuestionGenerator,
+    LangChainReviewAnswerer,
+    conversation_prompt,
 )
 
 
@@ -80,7 +93,7 @@ def _input() -> tuple[Candidate, ArchitectureCase, RetrievedPolicySet]:
     )
     return (
         candidate,
-        ArchitectureCase.create("Keep changes local"),
+        ArchitectureCase.create(),
         RetrievedPolicySet(
             str(candidate.id), (PolicySelection(policy),), provenance
         ),
@@ -265,3 +278,86 @@ def test_a_choice_of_one_is_not_offered_as_a_choice() -> None:
     )
 
     assert questions[0].options == ()
+
+
+def _answered_review(tmp_path: Path) -> Review:
+    """A review whose material finding already says what to do about it."""
+
+    candidate = Candidate.identified(
+        pattern="leaky_abstraction",
+        summary="Provider named outside its boundary",
+        participants=(Participant("audiobook.synthesis.providers.qwen", "adapter"),),
+        evidence=(
+            Evidence(
+                "'qwen' is named in 5 modules outside its package",
+                SourceLocation("src/audiobook/synthesis/pipeline.py", 42, 48),
+            ),
+        ),
+    )
+    policy = Policy(
+        "policy-a",
+        "Keep a provider behind its port",
+        "An implementation name outside its package is a boundary that is not holding.",
+        PolicyScope.GENERAL,
+        PolicyStrength.REQUIRED,
+        "hash-a",
+    )
+    finding = Finding(
+        candidate,
+        Verdict.MATERIAL,
+        "Five modules reach past the port.",
+        (PolicyBearing(policy, "The port is named around, not through."),),
+        (),
+        recommended_response="Resolve the provider through a factory at composition time.",
+    )
+    repository = RepositoryRef("repo", tmp_path, "branch", "content")
+    now = utc_now()
+    return Review(
+        "review-1",
+        1,
+        repository,
+        RepositoryAtlas("atlas", repository),
+        ArchitectureCase.create(),
+        (finding,),
+        (),
+        ReviewStatus.COMPLETED,
+        ReviewDelta(new=(candidate,)),
+        now,
+        now,
+    )
+
+
+def test_a_conversation_is_shown_what_the_review_says_to_do(tmp_path: Path) -> None:
+    # "How would it be fixed?" was answered with "the review does not contain any
+    # information on how to fix the identified issues" while the finding it was about
+    # carried a recommended response the prompt never included. What a fix has to respect —
+    # the policy wording — and where the evidence sits were missing for the same reason.
+    prompt = conversation_prompt(_answered_review(tmp_path), (), "How would it be fixed?")
+
+    assert "Resolve the provider through a factory at composition time." in prompt
+    assert "An implementation name outside its package" in prompt
+    assert "src/audiobook/synthesis/pipeline.py:42-48" in prompt
+
+
+def test_a_conversation_may_reason_past_what_the_review_records() -> None:
+    # Asking what to do about a finding is not a question the review is missing the facts
+    # for; it is the question the reader came with. The contract has to permit an answer
+    # and still pin every fact in it to the review.
+    assert "how a finding would be fixed" in CONVERSATION_CONTRACT
+    assert "Facts about this codebase come only from the review." in CONVERSATION_CONTRACT
+
+
+def test_a_cited_finding_is_returned_as_the_candidate_it_belongs_to(tmp_path: Path) -> None:
+    review = _answered_review(tmp_path)
+    answerer = LangChainReviewAnswerer(
+        StructuredModel(
+            {
+                "answer": "Resolve it through a factory; the review recommends as much.",
+                "candidate_positions": [1],
+            }
+        )  # type: ignore[arg-type]
+    )
+
+    answer = answerer.answer(review, (), "How would it be fixed?")
+
+    assert answer.supporting_candidate_ids == (str(review.findings[0].candidate.id),)

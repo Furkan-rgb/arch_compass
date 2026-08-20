@@ -286,9 +286,7 @@ def test_a_review_is_recorded_against_the_branch_it_ran_on(
 ) -> None:
     repository = _committed_repository(tmp_path / "repository")
     version = workspace_runtime.repository_service.index(repository)
-    case = workspace_runtime.case_service.create(
-        goal="Decide where the store belongs and give storage one owner."
-    )
+    case = workspace_runtime.case_service.create()
 
     review = workspace_runtime.review_workflow_service.start(
         repository_id=version.repo_id,

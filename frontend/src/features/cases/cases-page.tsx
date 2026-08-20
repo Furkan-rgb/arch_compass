@@ -4,10 +4,9 @@ import { Link } from "react-router-dom";
 
 import { api, type CaseSummary } from "../../api";
 import { cn } from "../../lib/cn";
-import { absoluteTime, humanise, relativeTime, shortId } from "../../lib/format";
+import { absoluteTime, humanise, relativeTime, repositoryName, shortId } from "../../lib/format";
 import { Tag } from "../../ui/badge";
 import { Button, ButtonLink } from "../../ui/button";
-import { Field, Input } from "../../ui/field";
 import { MetaLine, Mono } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
 import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
@@ -25,8 +24,6 @@ export function CasesPage() {
   const cases = useQuery({ queryKey: ["cases"], queryFn: api.cases });
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: api.reviews });
   const [selected, setSelected] = useState<string | null>(null);
-  const [goal, setGoal] = useState("");
-  const [authoring, setAuthoring] = useState(false);
 
   const selectedId = selected ?? cases.data?.[0]?.case_id ?? null;
   const history = useQuery({
@@ -35,11 +32,9 @@ export function CasesPage() {
     enabled: Boolean(selectedId),
   });
   const create = useMutation({
-    mutationFn: () => api.createCase(goal.trim()),
+    mutationFn: () => api.createCase(),
     onSuccess: async (created) => {
       setSelected(created.case_id);
-      setGoal("");
-      setAuthoring(false);
       await client.invalidateQueries({ queryKey: ["cases"] });
     },
   });
@@ -48,6 +43,10 @@ export function CasesPage() {
   if (cases.error) return <ErrorNotice error={cases.error} />;
 
   const all = cases.data ?? [];
+  const repositoryFor = (caseId: string) => {
+    const review = (reviews.data ?? []).find((item) => item.case.id === caseId);
+    return review ? repositoryName(review.repository.path) : null;
+  };
   const related = (reviews.data ?? []).filter((review) => review.case.id === selectedId);
   const latest = history.data?.at(-1) ?? all.find((item) => item.case_id === selectedId);
 
@@ -56,44 +55,17 @@ export function CasesPage() {
       <PageHeader
         eyebrow="Human context"
         title="Architecture cases"
-        description="A case carries the goal, constraints, decisions and clarification answers a review is judged against. It grows by revision; nothing is overwritten."
+        description="A case carries the constraints, decisions and clarification answers a review is judged against. It starts empty and grows by revision as reviews ask for what they need; nothing is overwritten."
         actions={
-          <Button variant={authoring ? "secondary" : "primary"} onClick={() => setAuthoring(!authoring)}>
-            {authoring ? "Close" : "New case"}
+          <Button disabled={create.isPending} onClick={() => create.mutate()}>
+            {create.isPending ? <Spinner /> : "New case"}
           </Button>
         }
       />
-
-      {authoring ? (
-        <Panel className="mb-5 animate-expand" tone="accent">
-          <PanelBody>
-            <Label className="text-accent">State the architecture goal</Label>
-            <p className="mt-1.5 max-w-2xl text-sm leading-6 text-ink-2">
-              What should this architecture make easy, protect, or deliberately trade off? Everything
-              else — constraints, decisions, answers — accumulates as reviews run.
-            </p>
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
-              <Field label="Goal" className="flex-1">
-                {(props) => (
-                  <Input
-                    {...props}
-                    value={goal}
-                    onChange={(event) => setGoal(event.target.value)}
-                    placeholder="Keep domain behaviour independent from delivery mechanisms"
-                  />
-                )}
-              </Field>
-              <Button disabled={!goal.trim() || create.isPending} onClick={() => create.mutate()}>
-                {create.isPending ? <Spinner /> : "Create case"}
-              </Button>
-            </div>
-            {create.error ? (
-              <div className="mt-3">
-                <ErrorNotice error={create.error} />
-              </div>
-            ) : null}
-          </PanelBody>
-        </Panel>
+      {create.error ? (
+        <div className="mb-5">
+          <ErrorNotice error={create.error} />
+        </div>
       ) : null}
 
       {!all.length ? (
@@ -101,8 +73,8 @@ export function CasesPage() {
           title="No architecture case yet"
           action={<ButtonLink to="/start">Start a review</ButtonLink>}
         >
-          A case is opened automatically when a repository review starts, or you can state the goal
-          first.
+          A case is opened automatically when a repository review starts. Opening one here gives
+          you an empty case that reviews will fill in.
         </EmptyState>
       ) : (
         <div className="grid items-start gap-4 xl:grid-cols-[minmax(280px,0.75fr)_minmax(0,1.25fr)]">
@@ -113,6 +85,7 @@ export function CasesPage() {
                   value={item}
                   selected={selectedId === item.case_id}
                   onSelect={() => setSelected(item.case_id)}
+                  reviewedRepository={repositoryFor(item.case_id)}
                 />
               </li>
             ))}
@@ -145,9 +118,6 @@ export function CasesPage() {
                             <span className="text-[11px] text-ink-3">
                               {relativeTime(revision.updated_at)}
                             </span>
-                          </div>
-                          <div className="mt-1 font-display text-base font-semibold text-ink">
-                            {revision.goal || "Goal not stated"}
                           </div>
                           {revision.constraints.length ? (
                             <ul className="mt-2 grid gap-1.5">
@@ -218,10 +188,12 @@ function CaseCard({
   value,
   selected,
   onSelect,
+  reviewedRepository,
 }: {
   value: CaseSummary;
   selected: boolean;
   onSelect: () => void;
+  reviewedRepository: string | null;
 }) {
   return (
     <button
@@ -236,7 +208,9 @@ function CaseCard({
       )}
     >
       <div className="font-display text-[15px] font-semibold leading-5 text-ink">
-        {value.goal || "Unstated architecture goal"}
+        {/* A case has no title of its own to show — what identifies it to a reader is the
+            code it has been used to judge. */}
+        {reviewedRepository || "Not yet reviewed"}
       </div>
       <MetaLine
         className="mt-2"
@@ -262,10 +236,6 @@ function CaseSnapshot({ value }: { value: CaseSummary }) {
         description={`Revision ${value.revision} · updated ${absoluteTime(value.updated_at)}`}
       />
       <PanelBody className="grid gap-4 md:grid-cols-2">
-        <div>
-          <Label>Goal</Label>
-          <p className="mt-1.5 text-sm leading-6 text-ink">{value.goal || "Not stated."}</p>
-        </div>
         <div>
           <Label>Policy context</Label>
           <div className="mt-1.5 flex flex-wrap gap-1.5">

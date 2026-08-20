@@ -27,6 +27,10 @@ class Finding:
     verdict: Verdict
     reasoning: str
     policies: tuple[PolicyBearing, ...]
+    #: The candidate's evidence carried onto the finding, so a finding read on its own is
+    #: still answerable. It is not a judged selection — no producer narrows it, and nothing
+    #: records which excerpt a verdict rested on. Anything presenting it as the judgement's
+    #: own pick is presenting the same list twice.
     evidence: tuple[Evidence, ...]
     hinge: str | None = None
     recommended_response: str | None = None

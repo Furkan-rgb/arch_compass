@@ -148,11 +148,6 @@ export function FindingDetail({
         className="border-t-0"
         note={
           <>
-            <Note label="Judged against">
-              {review.case.goal || (
-                <span className="text-ink-3">No architecture goal has been stated.</span>
-              )}
-            </Note>
             <Note label={`Constraints · ${review.case.constraints.length}`}>
               <NoteList items={review.case.constraints.map((item) => item.text)} />
             </Note>

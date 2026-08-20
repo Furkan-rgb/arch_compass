@@ -195,7 +195,6 @@ class CaseDecisionResponse(APIModel):
 class CaseResponse(APIModel):
     id: str
     revision: int
-    goal: str
     constraints: list[CaseConstraintResponse]
     decisions: list[CaseDecisionResponse]
     answers: list[AnswerResponse]
@@ -385,7 +384,6 @@ class ReviewResponse(APIModel):
             case=CaseResponse(
                 id=review.case.id,
                 revision=review.case.revision,
-                goal=review.case.goal,
                 constraints=[
                     CaseConstraintResponse(
                         text=item.text,

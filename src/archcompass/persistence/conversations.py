@@ -52,13 +52,26 @@ class SQLiteCoreConversationRepository:
         return self._codec.decode(str(row[0]), description="Review conversation")
 
     def list_for_review(self, review_id: str) -> tuple[ReviewConversation, ...]:
+        # Oldest first, by insertion. The conversation id is a UUID, so ordering by it put
+        # a reader's conversations in an order nothing on screen could explain.
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT conversation_json FROM core_review_conversations "
-                "WHERE review_id = ? ORDER BY conversation_id",
+                "WHERE review_id = ? ORDER BY rowid",
                 (review_id,),
             ).fetchall()
         return tuple(
             self._codec.decode(str(row[0]), description="Review conversation")
             for row in rows
         )
+
+    def delete(self, conversation_id: str) -> None:
+        with self._connect() as connection:
+            deleted = connection.execute(
+                "DELETE FROM core_review_conversations WHERE conversation_id = ?",
+                (conversation_id,),
+            ).rowcount
+        if not deleted:
+            raise ConversationNotFoundError(
+                f"Review conversation {conversation_id} was not found"
+            )

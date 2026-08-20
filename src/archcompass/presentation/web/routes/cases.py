@@ -49,7 +49,6 @@ class PolicyContextDTO(APIModel):
 
 
 class CaseWrite(APIModel):
-    goal: str = ""
     constraints: list[ConstraintDTO] = Field(
         default_factory=lambda: list[ConstraintDTO]()
     )
@@ -60,7 +59,6 @@ class CaseWrite(APIModel):
 
 
 class CasePatch(APIModel):
-    goal: str | None = None
     constraints: list[ConstraintDTO] | None = None
     decisions: list[DecisionDTO] | None = None
     policy_context: PolicyContextDTO | None = None
@@ -69,7 +67,6 @@ class CasePatch(APIModel):
 class CaseResponse(APIModel):
     case_id: str
     revision: int
-    goal: str
     constraints: list[ConstraintDTO]
     decisions: list[DecisionDTO]
     policy_context: PolicyContextDTO
@@ -81,7 +78,6 @@ class CaseResponse(APIModel):
         return cls(
             case_id=case.id,
             revision=case.revision,
-            goal=case.goal,
             constraints=[
                 ConstraintDTO(text=item.text, facet=item.facet, source=item.source)
                 for item in case.constraints
@@ -116,7 +112,6 @@ def routes() -> APIRouter:
     @router.post("/api/cases", status_code=201)
     def create_case(runtime: RuntimeDep, request: CaseWrite) -> CaseResponse:
         case = runtime.case_service.create(
-            goal=request.goal,
             constraints=tuple(item.domain() for item in request.constraints),
             decisions=tuple(item.domain() for item in request.decisions),
             policy_context=request.policy_context.domain(),
@@ -148,7 +143,6 @@ def routes() -> APIRouter:
     ) -> CaseResponse:
         case = runtime.case_service.revise(
             case_id,
-            goal=request.goal,
             constraints=(
                 None
                 if request.constraints is None

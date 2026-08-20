@@ -21,7 +21,7 @@ Top to bottom, then the workbench's two columns.
 
 | Name | What it is | Where |
 | --- | --- | --- |
-| **Review head** | Title, goal, repository path, branch, commit, status, and the Answer / Cancel / Run buttons. | [review-page.tsx:47](../frontend/src/features/review/review-page.tsx#L47) |
+| **Review head** | Title, repository path, branch, commit, status, and the Answer / Cancel / Run buttons. | [review-page.tsx:47](../frontend/src/features/review/review-page.tsx#L47) |
 | **Status ribbon** | The single line of four counts: need you, judged, policies retrieved, new or changed. | [review-page.tsx:109](../frontend/src/features/review/review-page.tsx#L109) |
 | **Surface tabs** | Workbench · Delta · Atlas · Evidence · Retrieval · Report · Ask. | [review-page.tsx:285](../frontend/src/features/review/review-page.tsx#L285) |
 | **Workbench** | The first tab's body: the queue rail beside the detail column. | [review-page.tsx:293](../frontend/src/features/review/review-page.tsx#L293) |

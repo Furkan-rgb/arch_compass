@@ -119,29 +119,29 @@ describe("the reviews page", () => {
   });
 
   it("filters history by status and by search", async () => {
+    const base = reviewFixture();
     vi.spyOn(api, "reviews").mockResolvedValue([
-      reviewFixture(),
+      base,
       reviewFixture({
         id: "review-2",
         sequence: 2,
         status: "completed",
         questions: [],
-        case: { ...reviewFixture().case, goal: "Split the billing boundary" },
+        // A review is identified by the code it reviewed; there is no case title to search.
+        repository: { ...base.repository, path: "/work/billing-service" },
       }),
     ]);
 
     render(wrap(<ReviewsPage />));
 
-    expect(await screen.findByText("Split the billing boundary")).toBeInTheDocument();
+    expect(await screen.findByText("billing-service")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Completed" }));
-    expect(
-      screen.queryByText("Keep the domain independent of delivery mechanisms"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText("repository")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "All" }));
     fireEvent.change(screen.getByLabelText("Search reviews"), { target: { value: "billing" } });
-    expect(screen.getByText("Split the billing boundary")).toBeInTheDocument();
+    expect(screen.getByText("billing-service")).toBeInTheDocument();
     expect(
       screen.queryByText("Keep the domain independent of delivery mechanisms"),
     ).not.toBeInTheDocument();
@@ -164,7 +164,6 @@ describe("the cases page", () => {
   it("shows the case as a sequence of revisions rather than a form", async () => {
     const base = {
       case_id: "case-1",
-      goal: "Keep the domain independent",
       constraints: [{ text: "Stripe is the only provider", facet: "constraint" as const }],
       decisions: [],
       policy_context: {},
@@ -174,7 +173,7 @@ describe("the cases page", () => {
     vi.spyOn(api, "cases").mockResolvedValue([{ ...base, revision: 2 }]);
     vi.spyOn(api, "caseHistory").mockResolvedValue([
       { ...base, revision: 1 },
-      { ...base, revision: 2, goal: "Keep the domain independent of delivery" },
+      { ...base, revision: 2 },
     ]);
     vi.spyOn(api, "reviews").mockResolvedValue([reviewFixture()]);
 
@@ -182,9 +181,7 @@ describe("the cases page", () => {
 
     const history = (await screen.findByText("Revision 1")).closest("ol")!;
     expect(within(history).getByText("Revision 2")).toBeInTheDocument();
-    expect(
-      within(history).getByText("Keep the domain independent of delivery"),
-    ).toBeInTheDocument();
+    // A revision is what it added, not a restated title.
     expect(within(history).getAllByText("Stripe is the only provider")).toHaveLength(2);
   });
 });

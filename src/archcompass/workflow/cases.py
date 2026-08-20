@@ -63,18 +63,16 @@ class ArchitectureCaseService:
     def create(
         self,
         *,
-        goal: str = "",
         constraints: tuple[CaseConstraint, ...] = (),
         decisions: tuple[CaseDecision, ...] = (),
         policy_context: PolicyContext | None = None,
     ) -> ArchitectureCase:
         context = PolicyContext() if policy_context is None else policy_context
-        case = ArchitectureCase.create(goal)
+        case = ArchitectureCase.create()
         if constraints or decisions or context != PolicyContext():
             case = ArchitectureCase(
                 case.id,
                 case.revision,
-                case.goal,
                 constraints,
                 decisions,
                 policy_context=context,
@@ -84,9 +82,9 @@ class ArchitectureCaseService:
         return self._cases.record(case)
 
     def start_from_repository(self, root: Path) -> ArchitectureCase:
-        # Repository identity is already carried separately. Leaving intent blank is
-        # deliberate: the first review should ask for context rather than invent it from a
-        # directory name and then treat that prose as user-authored architecture intent.
+        # An empty case is the honest starting point. Repository identity is carried
+        # separately, and everything a review needs to know about intent is asked for when
+        # a judgement turns on it rather than demanded up front.
         return self.create()
 
     def continue_from_repository(
@@ -109,14 +107,12 @@ class ArchitectureCaseService:
         self,
         case_id: str,
         *,
-        goal: str | None = None,
         constraints: tuple[CaseConstraint, ...] | None = None,
         decisions: tuple[CaseDecision, ...] | None = None,
         policy_context: PolicyContext | None = None,
     ) -> ArchitectureCase:
         return self._cases.record(
             self._cases.get(case_id).revise(
-                goal=goal,
                 constraints=constraints,
                 decisions=decisions,
                 policy_context=policy_context,

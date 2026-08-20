@@ -87,7 +87,6 @@ class StartFromRepositoryRequest(APIModel):
 class StartedCaseResponse(APIModel):
     case_id: str
     revision: int
-    goal: str
 
 
 class AtlasExploreRequest(APIModel):
@@ -325,9 +324,7 @@ def routes() -> APIRouter:
                 )
         else:
             case = runtime.case_service.continue_from_repository(root, branch_id=None)
-        return StartedCaseResponse(
-            case_id=case.id, revision=case.revision, goal=case.goal
-        )
+        return StartedCaseResponse(case_id=case.id, revision=case.revision)
 
     @router.get("/api/repositories/summary")
     def repository_summary(runtime: RuntimeDep, root_path: str) -> AtlasQueryResult:

@@ -39,6 +39,16 @@ class CoreReviewConversationService:
     def show(self, conversation_id: str) -> ReviewConversation:
         return self._conversations.get(conversation_id)
 
+    def delete(self, conversation_id: str) -> None:
+        """Discard one line of questioning.
+
+        A conversation is a reader's own working notes over an immutable review, not part
+        of the audit record — the review, its findings and the standing decisions are
+        untouched by this. So it is theirs to throw away.
+        """
+
+        self._conversations.delete(conversation_id)
+
     def ask(self, conversation_id: str, question: str) -> ReviewConversation:
         if not question.strip():
             raise ValueError("conversation question cannot be empty")

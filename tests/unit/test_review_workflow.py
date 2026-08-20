@@ -320,7 +320,7 @@ def test_workflow_service_resumes_idempotently_and_records_omissions_as_skips(
 
 def test_workflow_records_a_failed_snapshot_after_context_exists(tmp_path: Path) -> None:
     repository = RepositoryRef("repo-1", tmp_path.resolve(), "branch-1", "content-1")
-    case = ArchitectureCase.create("Keep the boundary explicit")
+    case = ArchitectureCase.create()
     database = tmp_path / "failed.sqlite3"
 
     def connect() -> sqlite3.Connection:

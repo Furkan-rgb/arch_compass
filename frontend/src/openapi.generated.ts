@@ -163,13 +163,11 @@ export interface components {
   };
     "CaseFacet": "goal" | "constraint" | "decision" | "assumption" | "expected_change" | "non_goal";
     "CasePatch": {
-    "goal"?: string | null;
     "constraints"?: Array<components["schemas"]["ConstraintDTO"]> | null;
     "decisions"?: Array<components["schemas"]["DecisionDTO"]> | null;
     "policy_context"?: components["schemas"]["PolicyContextDTO"] | null;
   };
     "CaseWrite": {
-    "goal"?: string;
     "constraints"?: Array<components["schemas"]["ConstraintDTO"]>;
     "decisions"?: Array<components["schemas"]["DecisionDTO"]>;
     "policy_context"?: components["schemas"]["PolicyContextDTO"];
@@ -598,7 +596,6 @@ export interface components {
     "StartedCaseResponse": {
     "case_id": string;
     "revision": number;
-    "goal": string;
   };
     "SubmittedAnswerRequest": {
     "question_id": string;
@@ -627,7 +624,6 @@ export interface components {
     "archcompass__presentation__web__routes__cases__CaseResponse": {
     "case_id": string;
     "revision": number;
-    "goal": string;
     "constraints": Array<components["schemas"]["ConstraintDTO"]>;
     "decisions": Array<components["schemas"]["DecisionDTO"]>;
     "policy_context": components["schemas"]["PolicyContextDTO"];
@@ -637,7 +633,6 @@ export interface components {
     "archcompass__presentation__web__routes__reviews__CaseResponse": {
     "id": string;
     "revision": number;
-    "goal": string;
     "constraints": Array<components["schemas"]["CaseConstraintResponse"]>;
     "decisions": Array<components["schemas"]["CaseDecisionResponse"]>;
     "answers": Array<components["schemas"]["AnswerResponse"]>;
@@ -887,6 +882,22 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
       "409": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "delete_review_conversation_api_review_conversations__conversation_id__delete": {
+    parameters: {
+      query: never;
+      path: {
+      "conversation_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "204": unknown;
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
     };
   };
   "embedding_catalog_api_embeddings_get": {
@@ -1599,6 +1610,7 @@ export interface paths {
   };
   "/api/review-conversations/{conversation_id}": {
     get: operations["get_review_conversation_api_review_conversations__conversation_id__get"];
+    delete: operations["delete_review_conversation_api_review_conversations__conversation_id__delete"];
   };
   "/api/review-conversations/{conversation_id}/messages": {
     post: operations["ask_review_question_api_review_conversations__conversation_id__messages_post"];

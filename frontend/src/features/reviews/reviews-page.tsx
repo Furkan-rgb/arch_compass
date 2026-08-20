@@ -30,7 +30,7 @@ function ReviewRow({
         <Link to={`/reviews/${review.id}`} className="min-w-0 flex-1 rounded-md">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="font-display text-lg font-semibold tracking-tight text-ink">
-              {review.case.goal || repositoryName(review.repository.path)}
+              {repositoryName(review.repository.path)}
             </h2>
             <StatusBadge status={review.status} />
           </div>
@@ -166,7 +166,7 @@ export function ReviewsPage() {
   const visible = all.filter((review) => {
     const matchesStatus = status === "all" || review.status === status;
     const haystack =
-      `${review.case.goal} ${review.repository.path} ${review.repository.branch ?? ""}`.toLowerCase();
+      `${review.repository.path} ${review.repository.branch ?? ""}`.toLowerCase();
     return matchesStatus && haystack.includes(query.toLowerCase());
   });
 

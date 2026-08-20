@@ -94,7 +94,6 @@ describe("starting a review", () => {
     vi.spyOn(api, "startRepository").mockResolvedValue({
       case_id: "case-1",
       revision: 1,
-      goal: "",
     });
     const started = vi.spyOn(api, "startReviewRun").mockResolvedValue({
       run_id: "thread-7",
@@ -139,7 +138,6 @@ describe("starting a review", () => {
     const started = vi.spyOn(api, "startRepository").mockResolvedValue({
       case_id: "case-1",
       revision: 1,
-      goal: "",
     });
     vi.spyOn(api, "startReviewRun").mockResolvedValue({
       run_id: "thread-7",

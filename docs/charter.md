@@ -108,6 +108,11 @@ ArchCompass stops and asks a person. Answers become a new case revision and the 
 candidates are judged again. This is a feature, not a failure — a confident wrong answer is
 worth less than an honest question.
 
+The corollary is that ArchCompass does not demand context up front. A case starts empty and
+fills in as reviews ask for what they actually need. Anything a form asks for before the
+first finding exists is asked of someone with no reason yet to answer it, which is how you
+get a field everybody leaves blank.
+
 **Never make someone type what they could pick; never make them pick when the truth is not
 on the menu.** The model proposes the answers it thinks likely, and the interface always
 offers writing your own and skipping the question outright. A proposed answer is a shortcut,
@@ -139,6 +144,7 @@ Three worked examples, so the rules read as something that was actually used:
 | Evidence surface listed every excerpt flat | "Say where it came from" — an excerpt only means something next to the claim it supports | Grouped under the candidate it was pinned for, and labelled by which step pinned it |
 | The delta was four panels of full sentences | "Scanning beats reading", "the second visit is the important one" | One list keyed on the identifier, filtered by change state, each row opening the finding |
 | Clarification questions were a blank box | "Ask rather than assume", "never make someone type what they could pick" | The model proposes likely answers; writing your own and skipping are always offered |
+| The architecture case carried a free-text goal | "Ask rather than assume", "nothing is inferred on a person's behalf" | Removed. One prose sentence was a poor stand-in for intent: it was demanded before anyone had seen a finding, so it was almost always blank, and where it was written it restated the policies in a form nothing could retrieve against. Intent now enters as policies, constraints, decisions and answered questions — each specific, attributable, and asked for only when something turns on it |
 
 ## Where this is still open
 

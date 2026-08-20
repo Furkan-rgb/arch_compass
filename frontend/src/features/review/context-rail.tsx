@@ -160,13 +160,6 @@ function CaseContext({ review }: { review: Review }) {
   return (
     <div className="grid gap-3">
       <div>
-        <Label>Goal</Label>
-        <p className="mt-1.5 text-sm leading-6 text-ink">
-          {architectureCase.goal || "No architecture goal has been stated yet."}
-        </p>
-      </div>
-
-      <div>
         <Label>Constraints · {architectureCase.constraints.length}</Label>
         {architectureCase.constraints.length ? (
           <ul className="mt-1.5 grid gap-1.5">

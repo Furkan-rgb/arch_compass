@@ -109,7 +109,6 @@ export function reviewFixture(overrides: Partial<Review> = {}): Review {
     case: {
       id: "case-1",
       revision: 1,
-      goal: "Keep the domain independent of delivery mechanisms",
       constraints: [{ text: "Stripe is the only provider today", facet: "constraint", source: null }],
       decisions: [{ text: "Provider code stays at the infrastructure edge", source: null }],
       answers: [],

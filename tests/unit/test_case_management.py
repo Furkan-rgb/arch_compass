@@ -24,7 +24,7 @@ def test_case_service_creates_immutable_revisions(tmp_path: Path) -> None:
     service = ArchitectureCaseService(
         cases, SQLiteCoreReviewRepository(connect), NoBranchParents()  # type: ignore[arg-type]
     )
-    created = service.create(goal="Keep change local")
+    created = service.create()
     revised = service.revise(
         created.id,
         constraints=(CaseConstraint("No new service", CaseFacet.CONSTRAINT),),

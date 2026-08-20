@@ -135,9 +135,19 @@ class Answer:
 
 @dataclass(frozen=True, slots=True)
 class ArchitectureCase:
+    """The human context a review is judged against.
+
+    There is deliberately no goal here. A goal was one prose sentence standing in for the
+    team's intent, and it was worse than nothing at both jobs: it was rarely written, so
+    almost every case carried a blank one, and where it was written it duplicated what the
+    policies already say in a form nothing could retrieve against. Intent enters judgement
+    through the policies that bear on a candidate, through constraints and decisions, and
+    through the answers a clarification round records — all of which are specific,
+    attributable, and asked for only when something turns on them.
+    """
+
     id: str
     revision: int
-    goal: str
     constraints: tuple[CaseConstraint, ...] = ()
     decisions: tuple[CaseDecision, ...] = ()
     answers: tuple[Answer, ...] = ()
@@ -152,9 +162,9 @@ class ArchitectureCase:
             raise ValueError("case revision must be positive")
 
     @classmethod
-    def create(cls, goal: str = "") -> ArchitectureCase:
+    def create(cls) -> ArchitectureCase:
         now = utc_now()
-        return cls(new_id("case"), 1, goal.strip(), created_at=now, updated_at=now)
+        return cls(new_id("case"), 1, created_at=now, updated_at=now)
 
     def with_answer(self, answer: Answer) -> ArchitectureCase:
         return self.with_answers((answer,))
@@ -178,7 +188,6 @@ class ArchitectureCase:
     def revise(
         self,
         *,
-        goal: str | None = None,
         constraints: tuple[CaseConstraint, ...] | None = None,
         decisions: tuple[CaseDecision, ...] | None = None,
         policy_context: PolicyContext | None = None,
@@ -188,7 +197,6 @@ class ArchitectureCase:
         return replace(
             self,
             revision=self.revision + 1,
-            goal=self.goal if goal is None else goal.strip(),
             constraints=self.constraints if constraints is None else constraints,
             decisions=self.decisions if decisions is None else decisions,
             policy_context=(

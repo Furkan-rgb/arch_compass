@@ -324,6 +324,68 @@ describe("the review workbench", () => {
     ).toHaveLength(1);
   });
 
+  it("shows the team's decision on the row, and stops counting it as needing you", async () => {
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "decisions").mockResolvedValue({
+      branch_id: "branch-1",
+      decisions: [
+        {
+          id: "decision-1",
+          branch_id: "branch-1",
+          candidate_id: "candidate-2",
+          disposition: "waive",
+          author: "reviewer",
+          reasoning: "The trade-off is deliberate.",
+          decided_at: "2026-01-02T00:00:00Z",
+          review_id: "review-1",
+          finding_verdict: "material",
+          finding_model_identity: "fake:deterministic",
+          finding_prompt_identity: "judge:v1",
+          finding_retrieval_identity: "retrieval-1",
+        },
+      ],
+    });
+
+    render(wrap(<ReviewPage />));
+
+    // A waived material finding is settled. The queue stops asking about it...
+    const queue = await screen.findByRole("list", { name: "Candidates" });
+    expect(within(queue).getAllByRole("button")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /^Attention 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Settled 2/ })).toBeInTheDocument();
+
+    // ...and says so where it was, rather than only inside the finding.
+    fireEvent.click(screen.getByRole("button", { name: /^Settled 2/ }));
+    const settled = await screen.findByRole("list", { name: "Candidates" });
+    expect(within(settled).getByText("Waived by the team")).toBeInTheDocument();
+  });
+
+  it("widens the queue's filter when another surface hands it a candidate", async () => {
+    const review = reviewFixture({
+      status: "completed",
+      questions: [],
+      previous_review_id: "review-0",
+    });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    // candidate-3 is cleared, so the default Attention filter does not list it.
+    fireEvent.click(await screen.findByRole("tab", { name: /Delta/ }));
+    const panel = screen.getByRole("tabpanel");
+    fireEvent.click(within(panel).getAllByTitle("domain.orders")[2]);
+
+    expect(screen.getByRole("button", { name: /^Settled/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    const queue = await screen.findByRole("list", { name: "Candidates" });
+    expect(within(queue).getByText("The invoice boundary is appropriate")).toBeInTheDocument();
+  });
+
   it("exposes retrieval provenance on its own surface", async () => {
     const review = reviewFixture({ status: "completed", questions: [] });
     vi.spyOn(api, "review").mockResolvedValue(review);
@@ -337,6 +399,90 @@ describe("the review workbench", () => {
     expect(within(panel).getByText(/dense-scoped/)).toBeInTheDocument();
     expect(within(panel).getByText("corpus-fingerprint")).toBeInTheDocument();
     expect(within(panel).getByText("ollama:nomic-embed-text")).toBeInTheDocument();
+  });
+
+  it("keeps separate lines of questioning apart, and lets one be thrown away", async () => {
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    const threads = [
+      {
+        id: "conversation-1",
+        review_id: "review-1",
+        messages: [
+          {
+            question: "Why was the invoice boundary cleared?",
+            answer: { text: "It matches the boundary policy.", supporting_candidate_ids: [] },
+            asked_at: "2026-01-02T00:00:00Z",
+          },
+        ],
+      },
+      {
+        id: "conversation-2",
+        review_id: "review-1",
+        messages: [
+          {
+            question: "Which policies were retrieved for the provider candidate?",
+            answer: { text: "Dependency direction.", supporting_candidate_ids: [] },
+            asked_at: "2026-01-02T00:01:00Z",
+          },
+        ],
+      },
+    ];
+    vi.spyOn(api, "conversations").mockResolvedValue(threads);
+    const remove = vi.spyOn(api, "deleteConversation").mockResolvedValue(undefined);
+
+    render(wrap(<ReviewPage />));
+    fireEvent.click(await screen.findByRole("tab", { name: /Ask/ }));
+    const panel = screen.getByRole("tabpanel");
+
+    // Nobody titles their own notes, so a thread is named by the question that opened it.
+    const tabs = await within(panel).findByRole("tablist", { name: "Conversations" });
+    expect(within(tabs).getAllByRole("tab")).toHaveLength(2);
+
+    // One thread is shown at a time — reading two interleaved is worse than reading either.
+    fireEvent.click(within(tabs).getByRole("tab", { name: /Why was the invoice boundary/ }));
+    expect(within(panel).getByText("It matches the boundary policy.")).toBeInTheDocument();
+    expect(within(panel).queryByText("Dependency direction.")).not.toBeInTheDocument();
+
+    // Discarding is asked about, because there is nowhere to undo it to.
+    fireEvent.click(within(panel).getByRole("button", { name: "Discard this conversation" }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(remove).toHaveBeenCalledWith("conversation-1"));
+  });
+
+  it("opens the finding an answer cited, because the answer never saw the code", async () => {
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "conversations").mockResolvedValue([
+      {
+        id: "conversation-1",
+        review_id: "review-1",
+        messages: [
+          {
+            question: "How would it be fixed?",
+            answer: {
+              text: "Resolve the provider at composition time.",
+              supporting_candidate_ids: ["candidate-3"],
+            },
+            asked_at: "2026-01-02T00:00:00Z",
+          },
+        ],
+      },
+    ]);
+
+    render(wrap(<ReviewPage />));
+    fireEvent.click(await screen.findByRole("tab", { name: /Ask/ }));
+    const panel = screen.getByRole("tabpanel");
+
+    fireEvent.click(await within(panel).findByText("The invoice boundary is appropriate"));
+    expect(screen.getByRole("tab", { name: /Workbench/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    const queue = await screen.findByRole("list", { name: "Candidates" });
+    expect(within(queue).getByText("The invoice boundary is appropriate")).toBeInTheDocument();
   });
 
   it("moves the queue and the context into drawers on a phone", async () => {

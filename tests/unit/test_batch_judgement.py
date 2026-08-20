@@ -94,7 +94,7 @@ def _judge(batches: FakeBatches) -> GoogleBatchJudge:
 
 
 def test_every_candidate_is_submitted_once_and_answered_in_order() -> None:
-    case = ArchitectureCase.create(goal="Keep the domain independent.")
+    case = ArchitectureCase.create()
     requests = (_request("ports.Clock", case), _request("ports.Store", case))
     batches = FakeBatches(
         responses=[
@@ -126,7 +126,7 @@ def test_every_candidate_is_submitted_once_and_answered_in_order() -> None:
 def test_a_short_batch_is_refused_rather_than_composed() -> None:
     """A missing verdict would read as a cleared one, which is the dangerous default."""
 
-    case = ArchitectureCase.create(goal="Keep the domain independent.")
+    case = ArchitectureCase.create()
     requests = (_request("ports.Clock", case), _request("ports.Store", case))
     batches = FakeBatches(
         responses=[_answer({"material": False, "reasoning": "Only one answer."})]
@@ -136,7 +136,7 @@ def test_a_short_batch_is_refused_rather_than_composed() -> None:
 
 
 def test_a_refused_judgement_fails_the_batch() -> None:
-    case = ArchitectureCase.create(goal="Keep the domain independent.")
+    case = ArchitectureCase.create()
     requests = (_request("ports.Clock", case),)
     batches = FakeBatches(
         responses=[SimpleNamespace(error="RESOURCE_EXHAUSTED", response=None)]
@@ -146,7 +146,7 @@ def test_a_refused_judgement_fails_the_batch() -> None:
 
 
 def test_output_that_does_not_match_the_schema_is_named_as_such() -> None:
-    case = ArchitectureCase.create(goal="Keep the domain independent.")
+    case = ArchitectureCase.create()
     requests = (_request("ports.Clock", case),)
     batches = FakeBatches(responses=[_answer({"material": "yes"})])
     with pytest.raises(ModelOutputValidationError, match="did not match the required"):
@@ -154,7 +154,7 @@ def test_output_that_does_not_match_the_schema_is_named_as_such() -> None:
 
 
 def test_a_job_that_never_finishes_is_given_up_on() -> None:
-    case = ArchitectureCase.create(goal="Keep the domain independent.")
+    case = ArchitectureCase.create()
     batches = FakeBatches(responses=[], pending_polls=10_000)
     judge = GoogleBatchJudge(
         api_key="not-used",
@@ -268,7 +268,7 @@ class RefusingBatches:
 def test_a_refused_batch_says_what_to_do_about_it() -> None:
     """`Precondition check failed.` on its own is a useless thing to fail a review with."""
 
-    case = ArchitectureCase.create(goal="Keep the domain independent.")
+    case = ArchitectureCase.create()
     judge = GoogleBatchJudge(
         api_key="not-used",
         model="gemini-3.5-flash-lite",
@@ -291,7 +291,7 @@ def test_an_ordinary_failure_is_not_dressed_up_as_a_missing_facility() -> None:
             del model, src, config
             raise ValueError("the prompt was too long")
 
-    case = ArchitectureCase.create(goal="Keep the domain independent.")
+    case = ArchitectureCase.create()
     judge = GoogleBatchJudge(
         api_key="not-used",
         model="gemini-3.5-flash-lite",
@@ -353,7 +353,7 @@ def test_a_refused_batch_degrades_to_judging_one_at_a_time(
         lambda candidate, case, policies: interactive.append(candidate.summary) or None,
     )
 
-    case = ArchitectureCase.create(goal="Keep the domain independent.")
+    case = ArchitectureCase.create()
     requests = (_request("ports.Clock", case), _request("ports.Store", case))
 
     assert judge.supports_batch() is True

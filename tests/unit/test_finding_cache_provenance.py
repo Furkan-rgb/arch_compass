@@ -34,7 +34,7 @@ def test_cache_hit_names_the_review_that_first_recorded_the_finding(
     recorder = CachingReviewRecorder(reviews, cache)
     repository = RepositoryRef("repo", tmp_path, "branch", "content")
     atlas = RepositoryAtlas("atlas", repository)
-    case = ArchitectureCase.create("Keep changes local")
+    case = ArchitectureCase.create()
     candidate = Candidate.identified(
         pattern="sole_implementation",
         summary="Port has one implementation",

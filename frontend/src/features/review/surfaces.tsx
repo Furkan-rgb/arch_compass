@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { api, type Review } from "../../api";
+import { api, type Review, type ReviewConversation } from "../../api";
 import { cn } from "../../lib/cn";
 import { humanise, plural, shortId, splitQualified } from "../../lib/format";
 import { Tag, VerdictBadge } from "../../ui/badge";
@@ -382,7 +382,6 @@ export function AtlasSurface({ review }: { review: Review }) {
   );
 }
 
-/** Every excerpt pinned by this review, in one place, for reading the code itself. */
 /**
  * Every pinned excerpt, under the candidate it was pinned for.
  *
@@ -391,24 +390,19 @@ export function AtlasSurface({ review }: { review: Review }) {
  * already carries the evidence on each finding, so this groups what is there rather than
  * re-fetching `/source`, which flattens the grouping away.
  *
- * Two kinds sit under each candidate and are labelled apart, because they were pinned by
- * different steps and carry different weight: what the analyser found to raise the
- * candidate at all, and what the judgement leant on to reach its verdict.
+ * There is one list per candidate, not two. `finding.evidence` looks like a second, judged
+ * selection and is not one: every producer sets it to `candidate.evidence` verbatim, so
+ * labelling the two apart printed the same excerpts twice under headings that implied the
+ * judgement had chosen between them. Until a verdict actually cites the evidence it rested
+ * on, there is one pin here and it belongs to detection.
  */
 export function EvidenceSurface({ review }: { review: Review }) {
-  const findings = orderedFindings(review);
-  const groups = findings.map((finding) => ({
+  const groups = orderedFindings(review).map((finding) => ({
     finding,
-    judgement: finding.evidence,
-    detection: finding.candidate.evidence,
+    evidence: finding.candidate.evidence,
   }));
-  const withEvidence = groups.filter(
-    (group) => group.judgement.length > 0 || group.detection.length > 0,
-  );
-  const excerpts = withEvidence.reduce(
-    (total, group) => total + group.judgement.length + group.detection.length,
-    0,
-  );
+  const withEvidence = groups.filter((group) => group.evidence.length > 0);
+  const excerpts = withEvidence.reduce((total, group) => total + group.evidence.length, 0);
 
   if (!withEvidence.length) {
     return <EmptyState title="No pinned evidence">This review pinned no source excerpts.</EmptyState>;
@@ -428,7 +422,7 @@ export function EvidenceSurface({ review }: { review: Review }) {
         />
       </Panel>
 
-      {withEvidence.map(({ finding, judgement, detection }) => {
+      {withEvidence.map(({ finding, evidence }) => {
         const identity = finding.candidate.participants[0]?.qualified_name;
         return (
           <Panel key={finding.candidate.id}>
@@ -446,37 +440,17 @@ export function EvidenceSurface({ review }: { review: Review }) {
               }
               actions={<VerdictBadge verdict={finding.verdict} />}
             />
-            <PanelBody className="grid gap-4">
-              {judgement.length ? (
-                <div className="grid gap-2">
-                  <Label>Pinned by the judgement</Label>
-                  {judgement.map((item, index) => (
-                    <EvidenceBlock
-                      key={`judgement-${item.location?.path}-${index}`}
-                      description={item.description}
-                      path={item.location?.path}
-                      startLine={item.location?.start_line}
-                      endLine={item.location?.end_line}
-                      excerpt={item.excerpt}
-                    />
-                  ))}
-                </div>
-              ) : null}
-              {detection.length ? (
-                <div className="grid gap-2">
-                  <Label>Pinned by detection</Label>
-                  {detection.map((item, index) => (
-                    <EvidenceBlock
-                      key={`detection-${item.location?.path}-${index}`}
-                      description={item.description}
-                      path={item.location?.path}
-                      startLine={item.location?.start_line}
-                      endLine={item.location?.end_line}
-                      excerpt={item.excerpt}
-                    />
-                  ))}
-                </div>
-              ) : null}
+            <PanelBody className="grid gap-2">
+              {evidence.map((item, index) => (
+                <EvidenceBlock
+                  key={`${item.location?.path}-${index}`}
+                  description={item.description}
+                  path={item.location?.path}
+                  startLine={item.location?.start_line}
+                  endLine={item.location?.end_line}
+                  excerpt={item.excerpt}
+                />
+              ))}
             </PanelBody>
           </Panel>
         );
@@ -522,13 +496,36 @@ export function ReportSurface({ review }: { review: Review }) {
   );
 }
 
+/** What a conversation is called: the question that opened it. */
+function conversationTitle(conversation: ReviewConversation, index: number): string {
+  const first = conversation.messages[0]?.question.trim();
+  if (!first) return `New question ${index + 1}`;
+  return first.length > 44 ? `${first.slice(0, 44)}…` : first;
+}
+
 /**
- * A grounded follow-up.
+ * Ask about this review.
  *
- * Deliberately not the front door: it is one surface among several, and every answer is
- * anchored to the immutable review rather than to a conversation with a model.
+ * Deliberately not the front door: it is one surface among several, and every fact in an
+ * answer is anchored to the immutable review rather than to a conversation with a model.
+ * What follows from those facts — how a finding would be fixed, which to take first — is
+ * fair to ask here, because it is why anybody read the review in the first place.
+ *
+ * A reader has more than one line of questioning — "why was this cleared" and "what does
+ * this policy cover" are different threads, and reading them interleaved is worse than
+ * reading either. So conversations are separate and switched between, named by the question
+ * that opened them because nobody titles their own notes.
+ *
+ * They are working notes over an immutable review, not part of the record: the review, its
+ * findings and the standing decisions are untouched by throwing one away.
  */
-export function AskSurface({ review }: { review: Review }) {
+export function AskSurface({
+  review,
+  onOpen,
+}: {
+  review: Review;
+  onOpen?: (candidateId: string) => void;
+}) {
   const client = useQueryClient();
   const conversations = useQuery({
     queryKey: ["conversations", review.id],
@@ -536,14 +533,24 @@ export function AskSurface({ review }: { review: Review }) {
   });
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
+  const [confirming, setConfirming] = useState<string | null>(null);
+
+  const threads = conversations.data ?? [];
+  // A thread with nothing in it is the one being started; there is never a reason to have
+  // two, so the button that starts one steps aside once an empty one exists.
+  const empty = threads.find((item) => !item.messages.length);
+  const current =
+    threads.find((item) => item.id === conversationId) ?? threads[threads.length - 1] ?? null;
 
   useEffect(() => {
-    if (!conversationId && conversations.data?.[0]) setConversationId(conversations.data[0].id);
-  }, [conversationId, conversations.data]);
+    if (conversationId && !threads.some((item) => item.id === conversationId)) {
+      setConversationId(null);
+    }
+  }, [conversationId, threads]);
 
   const ask = useMutation({
     mutationFn: async () => {
-      const id = conversationId || (await api.createConversation(review.id)).id;
+      const id = current?.id || (await api.createConversation(review.id)).id;
       setConversationId(id);
       return api.ask(id, question.trim());
     },
@@ -553,15 +560,63 @@ export function AskSurface({ review }: { review: Review }) {
     },
   });
 
-  const current =
-    ask.data || conversations.data?.find((item) => item.id === conversationId) || conversations.data?.[0];
+  const open = useMutation({
+    mutationFn: () => api.createConversation(review.id),
+    onSuccess: async (created) => {
+      setConversationId(created.id);
+      setQuestion("");
+      await client.invalidateQueries({ queryKey: ["conversations", review.id] });
+    },
+  });
+
+  const discard = useMutation({
+    mutationFn: (id: string) => api.deleteConversation(id),
+    onSuccess: async () => {
+      setConfirming(null);
+      setConversationId(null);
+      await client.invalidateQueries({ queryKey: ["conversations", review.id] });
+    },
+  });
 
   return (
     <Panel>
       <PanelHeader
         title="Ask about this review"
-        description="Answers are grounded in this review's findings, case, policies and pinned evidence — nothing else."
+        description="Every fact in an answer comes from this review — its findings, case, policies and evidence. What to do about one is reasoned from those, and says so."
+        actions={
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={open.isPending || Boolean(empty)}
+            title={empty ? "There is already an empty conversation to ask in." : undefined}
+            onClick={() => (empty ? setConversationId(empty.id) : open.mutate())}
+          >
+            {open.isPending ? <Spinner /> : "New conversation"}
+          </Button>
+        }
       />
+
+      {threads.length > 1 ? (
+        <div
+          role="tablist"
+          aria-label="Conversations"
+          className="flex flex-wrap gap-1.5 border-b border-rule px-4 py-2.5 sm:px-5"
+        >
+          {threads.map((thread, index) => (
+            <ToggleButton
+              key={thread.id}
+              role="tab"
+              pressed={current?.id === thread.id}
+              onClick={() => setConversationId(thread.id)}
+              className="max-w-[18rem]"
+            >
+              <span className="truncate">{conversationTitle(thread, index)}</span>
+              <span className="tabular-nums opacity-70">{thread.messages.length}</span>
+            </ToggleButton>
+          ))}
+        </div>
+      ) : null}
+
       <PanelBody>
         {current?.messages.length ? (
           <ol className="grid gap-4">
@@ -580,7 +635,18 @@ export function AskSurface({ review }: { review: Review }) {
                     <div className="mt-2 flex flex-wrap gap-1.5 border-t border-rule pt-2">
                       {message.answer.supporting_candidate_ids.map((id) => {
                         const finding = review.findings.find((item) => item.candidate.id === id);
-                        return <Tag key={id}>{finding?.candidate.summary ?? shortId(id, 12)}</Tag>;
+                        const label = finding?.candidate.summary ?? shortId(id, 12);
+                        // An answer is told where the evidence sits but never shown the code
+                        // there, so a citation is the way to it rather than a footnote.
+                        return finding && onOpen ? (
+                          <button key={id} type="button" onClick={() => onOpen(id)}>
+                            <Tag className="transition hover:border-rule-strong hover:text-ink">
+                              {label}
+                            </Tag>
+                          </button>
+                        ) : (
+                          <Tag key={id}>{label}</Tag>
+                        );
                       })}
                     </div>
                   ) : null}
@@ -590,8 +656,8 @@ export function AskSurface({ review }: { review: Review }) {
           </ol>
         ) : (
           <EmptyState title="No questions asked yet">
-            Ask something the review already contains the answer to — scope, provenance, or why a
-            candidate was cleared.
+            Ask what the review found — why a candidate was cleared, what a policy covers — or what
+            to do about it: how a finding would be fixed, and which one to take first.
           </EmptyState>
         )}
 
@@ -604,15 +670,55 @@ export function AskSurface({ review }: { review: Review }) {
               if (event.key === "Enter" && question.trim() && !ask.isPending) ask.mutate();
             }}
             className="min-w-0 flex-1"
-            placeholder="Why was the gateway candidate cleared?"
+            placeholder="How would the gateway finding be fixed?"
           />
           <Button disabled={!question.trim() || ask.isPending} onClick={() => ask.mutate()}>
             {ask.isPending ? <Spinner /> : "Ask"}
           </Button>
         </div>
+
+        {/* Deleting is asked about rather than undone, because there is nowhere to undo it
+            to — the conversation is not part of the immutable record. */}
+        {current ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {confirming === current.id ? (
+              <>
+                <span className="text-xs text-ink-3">
+                  Discard this conversation? Its questions and answers go with it.
+                </span>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  disabled={discard.isPending}
+                  onClick={() => discard.mutate(current.id)}
+                >
+                  {discard.isPending ? <Spinner /> : "Discard"}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setConfirming(null)}>
+                  Keep
+                </Button>
+              </>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={() => setConfirming(current.id)}>
+                Discard this conversation
+              </Button>
+            )}
+          </div>
+        ) : null}
+
         {ask.error ? (
           <div className="mt-3">
             <ErrorNotice error={ask.error} />
+          </div>
+        ) : null}
+        {discard.error ? (
+          <div className="mt-3">
+            <ErrorNotice error={discard.error} />
+          </div>
+        ) : null}
+        {open.error ? (
+          <div className="mt-3">
+            <ErrorNotice error={open.error} />
           </div>
         ) : null}
       </PanelBody>
