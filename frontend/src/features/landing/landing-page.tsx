@@ -175,9 +175,20 @@ function LandingNav() {
           >
             <Glyph className="size-4" />
           </Button>
-          <ButtonLink to="/start" size="sm">
-            Review a repository
-          </ButtonLink>
+          {/* Not on a phone, where it wrapped onto two lines and squeezed the wordmark
+              against the menu button. It is the third copy of the same call to action at
+              that width — the hero states it a screen-length below, and the drawer this
+              menu opens ends with it — so the one that costs the header its shape is the
+              one to drop. */}
+          {/* The wrapper carries the breakpoint, not the button. `cn` is a plain join with
+              no conflict resolution, so `hidden` on a component that already sets
+              `inline-flex` is two display utilities on one element and the cascade decides
+              — which is how this button stayed visible on a phone in the first place. */}
+          <span className="hidden sm:block">
+            <ButtonLink to="/start" size="sm">
+              Review a repository
+            </ButtonLink>
+          </span>
           <Button
             variant="ghost"
             size="sm"
@@ -637,7 +648,12 @@ function Footer() {
                   {/* The mark says which site; the repository name says which project.
                       "GitHub" on its own said neither. */}
                   <GithubIcon className="size-3.5 shrink-0" />
-                  <span className="font-mono text-[13px]">Furkan-rgb/arch_compass</span>
+                  {/* One unbreakable word in a third of a footer. At the width where the
+                      footer becomes three columns it is the widest thing in its column and
+                      there is no break to take, so it decides the page's width. */}
+                  <span className="font-mono text-[13px] wrap-anywhere">
+                    Furkan-rgb/arch_compass
+                  </span>
                 </a>
               </li>
               <li>

@@ -302,6 +302,21 @@
     box-sizing: border-box;
   }
 
+  /* A flex or grid item is `min-width: auto`, which reads as "never narrower than what is
+     inside me". For most interfaces that is harmless. This one puts absolute paths, module
+     names and content hashes on screen in mono — `/Users/…/.archcompass/sources/…` is wider
+     than a phone on its own — so an item that refuses to be narrower than its content makes
+     the column that wide, then the page, and the whole document scrolls sideways. Truncating
+     the text cannot help while the box around it will not shrink.
+
+     Written with `:where` so it has no specificity at all: `min-w-*` still wins wherever a
+     component means it, including the `min-width: 320px` on `html` and `body` below. It
+     does not force anything to shrink either — `shrink-0` still holds a tab at its width,
+     which is why the tab strips scroll rather than squash. It only removes the floor. */
+  :where(*) {
+    min-width: 0;
+  }
+
   html {
     min-width: 320px;
     background: var(--canvas);

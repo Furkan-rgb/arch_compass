@@ -216,9 +216,14 @@ export function AppShell({ children }: { children: ReactNode }) {
               <div className="flex items-center gap-2">
                 <ModelChips className="hidden xl:flex" />
                 <ThemeToggle />
-                <ButtonLink to="/start" size="sm" className="hidden sm:inline-flex">
-                  New review
-                </ButtonLink>
+                {/* On a wrapper, because `hidden` on a component that already sets
+                    `inline-flex` is two display utilities on one element and `cn` does not
+                    resolve the conflict — so this stayed visible at every width. */}
+                <span className="hidden sm:block">
+                  <ButtonLink to="/start" size="sm">
+                    New review
+                  </ButtonLink>
+                </span>
               </div>
             </div>
           </header>

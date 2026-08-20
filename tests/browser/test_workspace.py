@@ -252,3 +252,62 @@ def test_policies_render_as_markdown_and_navigation_survives_a_phone(  # type: i
     drawer.get_by_role("link", name="Architecture cases").click()
     page.wait_for_url("**/cases")
     assert _visible(page.get_by_role("heading", name="Architecture cases", level=1))
+
+
+#: The narrowest phone worth designing for, and the widest that still counts as one. 320 is
+#: where `html` sets its own floor, so a page that overflows there overflows by construction
+#: rather than by content.
+PHONE_WIDTHS = (320, 390, 430)
+
+#: Every page reachable without running a review. The workbench itself is covered by the
+#: review test above; these are the ones a visitor lands on first.
+STANDING_PAGES = ("/", "/start", "/reviews", "/repositories", "/cases", "/policies", "/settings")
+
+
+def test_no_page_scrolls_sideways_on_a_phone(page, workspace_url: str) -> None:  # type: ignore[no-untyped-def]
+    """A phone may scroll down. Scrolling *across* is always a layout that did not fit.
+
+    This is a rule a comment cannot hold, because nothing about the offending markup looks
+    wrong: a flex or grid item is `min-width: auto` by default, and this interface puts
+    absolute paths and mono identifiers on screen that are wider than a phone. One of them
+    anywhere in a column makes the column that wide, then the page. The base stylesheet
+    removes that floor and the panel description breaks long paths; this notices when
+    something reintroduces it.
+    """
+
+    offenders: list[str] = []
+    for width in PHONE_WIDTHS:
+        page.set_viewport_size({"width": width, "height": 844})
+        for path in STANDING_PAGES:
+            page.goto(f"{workspace_url}{path}", wait_until="networkidle")
+            overflow = page.evaluate(
+                "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
+            )
+            if overflow > 0:
+                offenders.append(f"{path} at {width}px overflows by {overflow}px")
+
+    assert not offenders, "; ".join(offenders)
+
+
+def test_the_header_call_to_action_stands_down_on_a_phone(page, workspace_url: str) -> None:  # type: ignore[no-untyped-def]
+    """It wrapped onto two lines and squeezed the wordmark against the menu button.
+
+    Asserted through the rendered result rather than the class list, because the class list
+    said it was hidden while the cascade said otherwise: `hidden` on a component that sets
+    its own `inline-flex` is two display utilities on one element, and `cn` does not resolve
+    the conflict. Only the browser knows which won.
+    """
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(f"{workspace_url}/", wait_until="networkidle")
+    header = page.locator("header")
+    assert header.get_by_role("link", name="Review a repository").count() == 0
+    # Still stated on the page it belongs to, a screen-length below.
+    assert _visible(page.get_by_role("link", name="Review a repository").first)
+
+    page.goto(f"{workspace_url}/reviews", wait_until="networkidle")
+    assert page.locator("header").get_by_role("link", name="New review").count() == 0
+
+    # And back at a width that has room for it.
+    page.set_viewport_size({"width": 1440, "height": 960})
+    assert _visible(page.locator("header").get_by_role("link", name="New review"))

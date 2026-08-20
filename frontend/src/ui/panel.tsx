@@ -58,7 +58,12 @@ export function PanelHeader({
           {title}
         </h2>
         {description ? (
-          <p className="mt-1 text-xs leading-5 text-ink-3">{description}</p>
+          // `wrap-anywhere` because this slot is where a workspace path ends up, and
+          // `/Users/…/.archcompass/sources/audiobook_studio-4d76f8ca9623` is one word as far
+          // as the line breaker is concerned — wider than a phone, and nothing a narrow box
+          // can do about it. Breaking mid-path reads worse than truncating it, and better
+          // than a page that scrolls sideways.
+          <p className="mt-1 text-xs leading-5 text-ink-3 wrap-anywhere">{description}</p>
         ) : null}
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
