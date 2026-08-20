@@ -296,7 +296,8 @@ describe("a disclosure summary's width", () => {
  * The same rule again, one component down: a chip is not always a word.
  *
  * `flex-wrap` was doing the work everywhere a row of chips appears — the finding's involved
- * code, an answer's citations, the delta's causes — and `flex-wrap` wraps *between* items.
+ * code and an answer's citations — and `flex-wrap` wraps *between* items. (The delta's causes
+ * were a third such row until they became a sentence; the rule outlived that particular one.)
  * It has no answer for a single chip wider than the row, and half of these hold a qualified
  * name, which is one token to the line breaker. On the finding that was invisible rather
  * than obvious: the article is `overflow-hidden`, so the chip was not escaping the panel,
