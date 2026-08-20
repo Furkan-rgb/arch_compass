@@ -57,14 +57,20 @@ export function GutterBlock({
         className={cn(
           // The spine itself. It is one continuous rule because the cells stack with no gap,
           // and grid stretches the gutter cell to its row's height.
-          "relative px-4 pt-4 lg:border-r lg:border-rule lg:px-0 lg:py-5 lg:pr-3.5 lg:text-right",
+          //
+          // Both sides are padded. `6.75rem` is a fixed grid track, so a label wider than it
+          // does not widen the column — it hangs out of the left of the article, and with no
+          // left padding "Involved code · 2" cleared the border by about a pixel. The inset
+          // is what makes that impossible: anything too wide now wraps inside the track, the
+          // way "What was counted" already did.
+          "relative px-4 pt-4 lg:border-r lg:border-rule lg:py-5 lg:pl-3 lg:pr-3.5 lg:text-right",
           turns && "border-t border-rule-strong lg:pt-5",
           !turns && "lg:border-t-0",
         )}
       >
         {voice ? (
           <>
-            <div className="text-[10px] font-bold uppercase tracking-[0.13em] text-ink">
+            <div className="text-[10px] font-bold uppercase leading-snug tracking-[0.13em] text-ink [overflow-wrap:anywhere]">
               {voice}
             </div>
             {who ? (
@@ -80,7 +86,7 @@ export function GutterBlock({
             />
           </>
         ) : label ? (
-          <div className="text-[10px] font-semibold uppercase tracking-[0.09em] leading-snug text-ink-3">
+          <div className="text-[10px] font-semibold uppercase leading-snug tracking-[0.09em] text-ink-3 [overflow-wrap:anywhere]">
             {label}
           </div>
         ) : null}

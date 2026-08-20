@@ -235,3 +235,52 @@ describe("the attention queue's height", () => {
     expect(capped?.className).toContain("overflow-hidden");
   });
 });
+
+/**
+ * The attribution gutter is a fixed grid track, so what it holds has to fit in it.
+ *
+ * `6.75rem` is a fixed column: a label wider than it does not widen the track, it hangs out
+ * of the left edge of the article. The cell was padded on the right and not on the left, so
+ * "Involved code · 2" — the longest label the finding uses — sat flush against the border
+ * with about a pixel to spare, and the next longer label would have escaped the panel.
+ *
+ * jsdom does no layout, so this asserts the two properties that make the overflow
+ * impossible: the track is inset on both sides, and every text node inside it may break at
+ * any character.
+ */
+describe("the attribution gutter's width", () => {
+  it("keeps every label inside the track, however long the label is", async () => {
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
+    vi.spyOn(api, "decisions").mockResolvedValue({ branch_id: "branch-1", decisions: [] });
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/reviews/review-1"]}>
+          <Routes>
+            <Route path="/reviews/:reviewId" element={<ReviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // Both kinds of gutter content: the voice that names a speaker, and the quiet label on a
+    // block that continues one.
+    const voice = await screen.findByText("Measured");
+    const label = screen.getByText(/^Involved code/);
+
+    for (const node of [voice, label]) {
+      expect(node.className).toContain("overflow-wrap:anywhere");
+      const cell = node.parentElement!;
+      // Padded on the side the text is aligned to *and* on the side it grows towards.
+      expect(cell.className).toMatch(/\blg:pl-\d/);
+      expect(cell.className).toMatch(/\blg:pr-[\d.]+/);
+      expect(cell.className).not.toContain("lg:px-0");
+    }
+  });
+});
