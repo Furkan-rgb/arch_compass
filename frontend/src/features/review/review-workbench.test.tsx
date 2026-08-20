@@ -680,7 +680,11 @@ describe("the review workbench", () => {
 
     render(wrap(<ReviewPage />));
 
-    const open = await screen.findByRole("button", { name: "Attention queue" });
+    // One way in, not two. With a finding open the back bar is it — this used to sit a thumb
+    // below a second "Attention queue" button that opened the same drawer and did not say
+    // where it went.
+    const open = await screen.findByRole("button", { name: "← Queue" });
+    expect(screen.queryByRole("button", { name: "Attention queue" })).not.toBeInTheDocument();
     fireEvent.click(open);
     const drawer = await screen.findByRole("dialog", { name: "Attention queue" });
     expect(within(drawer).getByText("The provider abstraction carries one implementation"))

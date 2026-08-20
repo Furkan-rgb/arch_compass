@@ -468,10 +468,13 @@ export function ReviewPage() {
             className="mb-4"
           />
 
-          {!isTabletUp ? (
+          {/* The way into the queue below the tablet breakpoint, sized as a target rather
+              than as a chip — but only where the finding is not already carrying one.
+              With a finding open on a phone this sat directly above `FindingBackBar`, so
+              two buttons a thumb apart opened the same drawer and the top one was the one
+              that did not say where it went. */}
+          {!isTabletUp && !(selectedFinding && surface === "workbench") ? (
             <div className="mb-3">
-              {/* The only way into the queue below the tablet breakpoint, so it is sized
-                  as a target rather than as a chip. */}
               <Button variant="secondary" onClick={() => setQueueOpen(true)}>
                 Attention queue
               </Button>

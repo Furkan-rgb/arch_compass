@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import type { Finding, RetrievalProvenance, Review } from "../../api";
 import { humanise, plural, shortId, verdictOf } from "../../lib/format";
-import { Badge, Tag, VerdictBadge } from "../../ui/badge";
+import { Tag, VerdictBadge } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { EvidenceBlock } from "../../ui/code";
 import { ChevronDown } from "../../ui/icons";
@@ -619,14 +619,16 @@ export function FindingDetail({
 export function FindingBackBar({ onBack, finding }: { onBack: () => void; finding: Finding }) {
   return (
     <div className="mb-3 flex items-center gap-2">
-      {/* The way back on a phone. Full size rather than `sm`, because this is the control
-          this bar exists for. */}
+      {/* The way back on a phone, and now the only thing in this bar. It used to carry the
+          verdict badge too, forty pixels above the article's own verdict pill — the same
+          fact twice on one screen, which is the habit this redesign exists to break. The
+          candidate's name goes here instead, because that is what the bar cannot see. */}
       <Button variant="secondary" onClick={onBack}>
         ← Queue
       </Button>
-      <Badge tone={verdictOf(finding.verdict).tone} glyph={verdictOf(finding.verdict).glyph}>
-        {verdictOf(finding.verdict).label}
-      </Badge>
+      <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink-3">
+        {finding.candidate.participants[0]?.qualified_name ?? finding.candidate.summary}
+      </span>
     </div>
   );
 }
