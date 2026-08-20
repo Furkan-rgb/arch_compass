@@ -294,8 +294,9 @@ def test_the_header_call_to_action_stands_down_on_a_phone(page, workspace_url: s
 
     Asserted through the rendered result rather than the class list, because the class list
     said it was hidden while the cascade said otherwise: `hidden` on a component that sets
-    its own `inline-flex` is two display utilities on one element, and `cn` does not resolve
-    the conflict. Only the browser knows which won.
+    its own `inline-flex` is two display utilities on one element, and `cn` did not resolve
+    the conflict until it was taught to. Only the browser knows which won, so the browser is
+    what is asked.
     """
 
     page.set_viewport_size({"width": 390, "height": 844})

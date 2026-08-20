@@ -180,15 +180,14 @@ function LandingNav() {
               that width — the hero states it a screen-length below, and the drawer this
               menu opens ends with it — so the one that costs the header its shape is the
               one to drop. */}
-          {/* The wrapper carries the breakpoint, not the button. `cn` is a plain join with
-              no conflict resolution, so `hidden` on a component that already sets
-              `inline-flex` is two display utilities on one element and the cascade decides
-              — which is how this button stayed visible on a phone in the first place. */}
-          <span className="hidden sm:block">
-            <ButtonLink to="/start" size="sm">
-              Review a repository
-            </ButtonLink>
-          </span>
+          {/* Not on a phone, where it wrapped onto two lines and squeezed the wordmark
+              against the menu button. It is the third copy of the same call to action at
+              that width — the hero states it a screen-length below, and the drawer this
+              menu opens ends with it — so the one that costs the header its shape is the
+              one to drop. */}
+          <ButtonLink to="/start" size="sm" className="hidden sm:inline-flex">
+            Review a repository
+          </ButtonLink>
           <Button
             variant="ghost"
             size="sm"
