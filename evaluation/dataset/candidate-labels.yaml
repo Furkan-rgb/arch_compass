@@ -1,0 +1,277 @@
+# Relevance labels for the candidates the real detectors find in the shipped example
+# repositories.
+#
+# The candidates themselves are not written down here. They are detected at load time by
+# `PythonAstRepositoryAnalyzer` and `detect_finding_candidates` — the production path — and
+# each entry below is joined to one of them by repository and participant list. A label
+# that matches nothing, or a candidate that no label claims, fails the load rather than
+# quietly shrinking the test set: the alternative is an evaluation that keeps scoring a
+# detector output that no longer exists.
+#
+# Grades
+#   bearing     the policies a reviewer would cite in the verdict. Missing one is a wrong
+#               retrieval. This is the set recall is reported over, and the set the release
+#               gate in `archcompass.policies.evaluation` calls `expected_policy_ids`.
+#   supporting  clearly relevant and worth having in front of the judge, but the verdict
+#               does not turn on it.
+#   adjacent    defensible to include, wrong to call a miss.
+#
+# Only nDCG reads supporting and adjacent, at gains 3/2/1. Everything else reads bearings.
+#
+# Labelled from the policy text, not from what any retriever returned. Where two policies
+# say nearly the same thing about a candidate — `avoid-duplicated-knowledge` and
+# `explicit-source-of-truth` for a constant stated twice — both are bearing, because a
+# reviewer shown only one of them is shown half the argument.
+
+# The case a review of each repository is judged against. The examples ship no case on
+# purpose — a case is written by answering the questions a run comes back with — so these
+# are authored here, for the evaluation only. They are part of the query: `retrieval_query`
+# appends the constraints, and the constraint ablation in the notebook measures whether
+# that changes what comes back.
+repositories:
+  acme-shop:
+    policy_context:
+      organisation: acme-engineering
+    constraints:
+      - text: Card handling stays with the payment provider; we do not want PCI scope.
+      - text: Billing and reporting are owned by different teams on the same release train.
+    decisions:
+      - text: Stripe is the only payment provider we intend to support this year.
+  audiobook-studio:
+    policy_context:
+      organisation: acme-engineering
+    constraints:
+      - text: Synthesis must be able to run fully offline against a local model runner.
+      - text: We expect to add a second speech vendor within two quarters.
+    decisions:
+      - text: Ollama is the only preparation backend wired up today.
+  boundary-review:
+    policy_context: {}
+    constraints:
+      - text: The scheduler is a library other teams embed, so its public surface is a contract.
+      - text: Tests must run with no database and no clock of their own.
+    decisions:
+      - text: Ports and adapters were adopted before any second adapter existed.
+  speech-vendor:
+    policy_context:
+      organisation: acme-engineering
+    constraints:
+      - text: The vendor's voice catalogue changes without notice and is not versioned.
+      - text: A listener must never be offered a voice the provider will refuse.
+    decisions:
+      - text: Qwen is the current speech vendor and the contract runs for one more year.
+  warehouse-sync:
+    policy_context:
+      repository: eval-warehouse-sync
+    constraints:
+      - text: Stock levels are reconciled nightly and the warehouse feed is frequently late.
+      - text: The ledger is the number finance reports on, so a double-applied batch is an incident.
+    decisions:
+      - text: Northwind is the only warehouse we integrate with, through a nightly file drop.
+
+cases:
+  # ---------------------------------------------------------------- acme-shop
+  - repository: acme-shop
+    participants: [payments.gateway.PaymentGateway, payments.stripe_gateway.StripeGateway]
+    bearing: [delay-premature-abstraction, contain-dependencies]
+    supporting: [design-for-replaceability, model-stable-concepts, hide-implementation-details]
+    adjacent: [prefer-deep-modules, back-out-of-wrong-abstractions, preserve-reversibility]
+    notes: >-
+      One implementation and zero statically resolvable dependants. Both readings have to
+      reach the judge: the port may be a guess about variation that has not arrived, or it
+      may be the containment a card provider specifically earns.
+  - repository: acme-shop
+    participants: [billing.settings.PAGE_SIZE, reports.settings.PAGE_SIZE]
+    bearing: [avoid-duplicated-knowledge, explicit-source-of-truth]
+    supporting: [optimize-locality-of-change, assign-clear-ownership]
+    adjacent: [split-or-join-by-shared-knowledge, apply-consistency-deliberately]
+    notes: >-
+      Two modules state the same value. Whether that is one fact written twice or two facts
+      that happen to agree is the question, and both bearing policies frame it.
+  - repository: acme-shop
+    participants: [billing.settings.RETRY_LIMIT, notifications.settings.RETRY_LIMIT]
+    bearing: [avoid-duplicated-knowledge, explicit-source-of-truth]
+    supporting: [optimize-locality-of-change, assign-clear-ownership]
+    adjacent: [design-for-partial-failure, make-operations-idempotent]
+    notes: >-
+      A retry budget shared between billing and notifications. The retry policies are
+      adjacent rather than bearing: the finding is about the duplication, not the retrying.
+
+  # --------------------------------------------------------- audiobook-studio
+  - repository: audiobook-studio
+    participants: [preparation.base.NarrationPreparer, preparation.ollama.OllamaPreparer]
+    bearing: [delay-premature-abstraction, contain-dependencies]
+    supporting: [model-stable-concepts, design-for-replaceability, hide-implementation-details]
+    adjacent: [prefer-deep-modules, preserve-reversibility]
+    notes: The case states a second backend is expected, which is exactly what makes the port arguable.
+  - repository: audiobook-studio
+    participants: [synthesis.base.SynthesisProvider, synthesis.qwen.QwenSynthesis]
+    bearing: [delay-premature-abstraction, contain-dependencies]
+    supporting: [model-stable-concepts, design-for-replaceability, hide-implementation-details]
+    adjacent: [prefer-deep-modules, preserve-reversibility]
+    notes: The same shape as the preparation port, one layer down.
+  - repository: audiobook-studio
+    participants: [assembly.audio.SAMPLE_RATE, config.SAMPLE_RATE]
+    bearing: [avoid-duplicated-knowledge, explicit-source-of-truth]
+    supporting: [optimize-locality-of-change, assign-clear-ownership]
+    adjacent: [fail-fast-on-bad-configuration, apply-consistency-deliberately]
+    notes: A constant stated both in the configuration module and beside the code that uses it.
+  - repository: audiobook-studio
+    participants: [preparation._BACKENDS, synthesis._BACKENDS]
+    bearing: [avoid-duplicated-knowledge, explicit-source-of-truth]
+    supporting: [make-relationships-discoverable, assign-clear-ownership]
+    adjacent: [optimize-locality-of-change, apply-consistency-deliberately]
+    notes: >-
+      Two registries with the same name in two packages. `make-relationships-discoverable`
+      is supporting rather than bearing — a registry carried by convention is a real
+      concern here, but the detected fact is the duplication.
+  - repository: audiobook-studio
+    participants: [preparation.ollama, config, tests.test_narration]
+    bearing: [hide-implementation-details, contain-dependencies]
+    supporting: [model-stable-concepts, name-for-meaning, design-for-replaceability]
+    adjacent: [avoid-pass-through-parameters, optimize-locality-of-change]
+    notes: >-
+      The backend is behind an abstraction and its name is still in the configuration and
+      the tests, so the abstraction is not the only way through.
+  - repository: audiobook-studio
+    participants: [synthesis.qwen, assembly.audio, config, preflight, tests.test_narration]
+    bearing: [hide-implementation-details, contain-dependencies]
+    supporting: [model-stable-concepts, name-for-meaning, design-for-replaceability]
+    adjacent: [separate-general-from-special-purpose, optimize-locality-of-change]
+    notes: The vendor's name has reached four packages, one of which is the audio assembly.
+
+  # ----------------------------------------------------------- boundary-review
+  # Six ports, all the same shape and all with zero resolvable dependants, which is the
+  # point of the fixture: nothing here is decidable by counting. The bearing pair is the
+  # same for all six because the judgement is the same question each time; the supporting
+  # sets differ by what each port actually stands in front of.
+  - repository: boundary-review
+    participants: [ports.TaskFormatter, adapters.DefaultTaskFormatter]
+    bearing: [delay-premature-abstraction, design-for-replaceability]
+    supporting: [prefer-deep-modules, keep-interfaces-simple]
+    adjacent: [model-stable-concepts, preserve-reversibility, hide-implementation-details]
+    notes: Formatting behind a port with a single default implementation.
+  - repository: boundary-review
+    participants: [ports.Clock, adapters.SystemClock]
+    bearing: [delay-premature-abstraction, design-for-replaceability]
+    supporting: [keep-effects-at-the-edges, treat-testability-as-design-feedback]
+    adjacent: [model-stable-concepts, preserve-reversibility, hide-implementation-details]
+    notes: >-
+      A clock port is the classic case where one implementation is still worth having, and
+      the case says tests must run without a clock of their own.
+  - repository: boundary-review
+    participants: [ports.TaskStore, adapters.SqliteTaskStore]
+    bearing: [delay-premature-abstraction, design-for-replaceability]
+    supporting: [contain-dependencies, plan-for-data-longevity, hide-implementation-details]
+    adjacent: [model-stable-concepts, give-state-one-writer, preserve-reversibility]
+    notes: Persistence behind a port; the stored records outlive the adapter that writes them.
+  - repository: boundary-review
+    participants: [ports.IdGenerator, adapters.UuidGenerator]
+    bearing: [delay-premature-abstraction, design-for-replaceability]
+    supporting: [keep-effects-at-the-edges, treat-testability-as-design-feedback]
+    adjacent: [model-stable-concepts, preserve-reversibility, minimize-mutable-state]
+    notes: Nondeterminism pushed to an edge, which is the argument for keeping the port.
+  - repository: boundary-review
+    participants: [ports.NotificationSender, adapters.EmailSender]
+    bearing: [delay-premature-abstraction, design-for-replaceability]
+    supporting: [contain-dependencies, design-for-partial-failure, keep-effects-at-the-edges]
+    adjacent: [model-stable-concepts, expose-remote-boundaries, preserve-reversibility]
+    notes: The one port behind which a remote call actually happens.
+  - repository: boundary-review
+    participants: [ports.ConfigLoader, adapters.YamlConfigLoader]
+    bearing: [delay-premature-abstraction, design-for-replaceability]
+    supporting: [explicit-source-of-truth, fail-fast-on-bad-configuration]
+    adjacent: [model-stable-concepts, contain-dependencies, preserve-reversibility]
+    notes: Configuration loading behind a port, with the file format as the thing hidden.
+
+  # ------------------------------------------------------------- speech-vendor
+  - repository: speech-vendor
+    participants: [narration.delivery.AudioSink, narration.delivery.FileAudioSink]
+    bearing: [delay-premature-abstraction, design-for-replaceability]
+    supporting: [keep-effects-at-the-edges, hide-implementation-details]
+    adjacent: [model-stable-concepts, treat-testability-as-design-feedback]
+    notes: Output behind a sink, with a file as the only destination today.
+  - repository: speech-vendor
+    participants: [narration.planning.VoiceResolver, narration.planning.QwenVoiceResolver]
+    bearing: [delay-premature-abstraction, contain-dependencies]
+    supporting: [model-stable-concepts, hide-implementation-details]
+    adjacent: [design-for-replaceability, name-for-meaning]
+    notes: >-
+      The port is named for the capability and the implementation for the vendor, which is
+      the shape `model-stable-concepts` asks for and the reason it is only supporting.
+  - repository: speech-vendor
+    participants: [provider.speech.SpeechProvider, provider.qwen.QwenSpeechProvider]
+    bearing: [contain-dependencies, delay-premature-abstraction]
+    supporting: [model-stable-concepts, design-for-replaceability, hide-implementation-details]
+    adjacent: [separate-model-context-from-provider-transport, preserve-reversibility]
+    notes: The vendor boundary itself, against a catalogue the case says changes without notice.
+  - repository: speech-vendor
+    participants: [preflight.voices.VoiceValidator, preflight.voices.QwenVoiceValidator]
+    bearing: [contain-dependencies, delay-premature-abstraction]
+    supporting: [validate-at-trust-boundaries, fail-fast-on-bad-configuration]
+    adjacent: [hide-implementation-details, model-stable-concepts, eliminate-errors-by-design]
+    notes: >-
+      Validation against the vendor's catalogue, which the case makes a hard requirement —
+      a listener must never be offered a voice the provider will refuse.
+  - repository: speech-vendor
+    participants: [library.storage.BookStore, library.storage.SqliteBookStore]
+    bearing: [delay-premature-abstraction, design-for-replaceability]
+    supporting: [plan-for-data-longevity, contain-dependencies, hide-implementation-details]
+    adjacent: [give-state-one-writer, model-stable-concepts]
+    notes: A storage port whose records outlive the adapter.
+  - repository: speech-vendor
+    participants: [frontend.catalogue.VoiceListSource, frontend.catalogue.QwenVoiceList]
+    bearing: [delay-premature-abstraction, contain-dependencies]
+    supporting: [hide-implementation-details, model-stable-concepts]
+    adjacent: [design-for-replaceability, avoid-duplicated-knowledge]
+    notes: A second door onto the same vendor catalogue, this one owned by the frontend package.
+  - repository: speech-vendor
+    participants:
+      - frontend.catalogue.BUILT_IN_VOICES
+      - narration.planning.BUILT_IN_VOICES
+      - preflight.voices.BUILT_IN_VOICES
+      - provider.qwen.BUILT_IN_VOICES
+    bearing: [avoid-duplicated-knowledge, explicit-source-of-truth]
+    supporting: [assign-clear-ownership, optimize-locality-of-change, contain-dependencies]
+    adjacent: [apply-consistency-deliberately, maintain-conceptual-integrity, hide-implementation-details]
+    notes: >-
+      Four copies and two distinct values — the copies have already diverged. This is the
+      sharpest duplication case in the set and the one where a miss matters most.
+  - repository: speech-vendor
+    participants: [provider.qwen, frontend.catalogue, main, narration.planning, preflight.voices, tests.test_narration]
+    bearing: [hide-implementation-details, contain-dependencies]
+    supporting: [model-stable-concepts, design-for-replaceability, name-for-meaning]
+    adjacent: [separate-model-context-from-provider-transport, optimize-locality-of-change, avoid-duplicated-knowledge]
+    notes: The vendor name reaches five modules including the entry point, past its own abstraction.
+
+  # ------------------------------------------------------------ warehouse-sync
+  - repository: warehouse-sync
+    participants: [sync.ports.WarehouseFeed, warehouse.northwind.NorthwindFeed]
+    bearing: [delay-premature-abstraction, contain-dependencies]
+    supporting: [model-stable-concepts, design-for-replaceability]
+    adjacent: [hide-implementation-details, design-for-partial-failure]
+    notes: A feed port with one warehouse behind it, against a feed the case says is frequently late.
+  - repository: warehouse-sync
+    participants: [sync.ports.StockLedger, storage.ledger.SqliteStockLedger]
+    bearing: [delay-premature-abstraction, design-for-replaceability]
+    supporting: [plan-for-data-longevity, give-state-one-writer, hide-implementation-details]
+    adjacent: [contain-dependencies, model-stable-concepts]
+    notes: The ledger the case calls the number finance reports on.
+  - repository: warehouse-sync
+    participants: [reporting.digest.BATCH_SIZE, sync.reconcile.BATCH_SIZE]
+    bearing: [avoid-duplicated-knowledge, explicit-source-of-truth]
+    supporting: [optimize-locality-of-change, assign-clear-ownership]
+    adjacent: [bound-queues-and-buffers, apply-consistency-deliberately]
+    notes: A batch size agreed between reconciliation and reporting, with nothing saying it must agree.
+  - repository: warehouse-sync
+    participants: [reporting.digest.RETRY_LIMIT, transport.http.RETRY_LIMIT]
+    bearing: [avoid-duplicated-knowledge, explicit-source-of-truth]
+    supporting: [assign-clear-ownership, design-for-partial-failure]
+    adjacent: [make-operations-idempotent, optimize-locality-of-change]
+    notes: Two copies holding different values, which is the duplication already having gone wrong.
+  - repository: warehouse-sync
+    participants: [warehouse.northwind, main, reporting.digest]
+    bearing: [hide-implementation-details, contain-dependencies]
+    supporting: [model-stable-concepts, name-for-meaning]
+    adjacent: [design-for-replaceability, optimize-locality-of-change]
+    notes: The warehouse's name in the entry point and in the digest, past the feed port.

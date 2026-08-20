@@ -1,0 +1,335 @@
+# Design situations described the way an engineer would describe them, with the policies
+# that answer them.
+#
+# These exist because the candidate cases can only ask about three shapes. The detectors
+# find a sole implementation, a duplicated constant and a scattered concept, so a test set
+# built from them alone measures how well the corpus is retrieved *for those three
+# questions* and says nothing about the other fifty policies. Every case here is written
+# from the situation, not from the policy — the vocabulary is deliberately the vocabulary
+# of the problem rather than of the document that answers it, because a retriever that only
+# works when the query quotes the policy is a keyword search with extra steps.
+#
+# The grades mean what they mean in `candidate-labels.yaml`.
+#
+# `pattern: intent` groups these in per-pattern reporting; it is not a detector pattern.
+
+cases:
+  - id: error-handling-echoed-at-every-layer
+    query: >-
+      Every service in the pipeline catches the same database timeout, logs it and
+      re-raises it. One incident shows up six times in the log before anything retries.
+    bearing: [aggregate-error-handling]
+    supporting: [design-in-observability, design-for-partial-failure]
+    adjacent: [eliminate-errors-by-design]
+
+  - id: shared-module-two-teams
+    query: >-
+      Two teams share one module. Every change to it needs a coordinated release across
+      both services and nobody owns the review.
+    bearing: [align-architecture-with-teams, assign-clear-ownership]
+    supporting: [optimize-locality-of-change]
+    adjacent: [split-or-join-by-shared-knowledge, judge-concentration-by-who-pays]
+
+  - id: unbounded-ingestion-queue
+    query: >-
+      The ingestion queue has no size limit. Under load the process holds a million
+      messages in memory and eventually the container is killed.
+    bearing: [bound-queues-and-buffers]
+    supporting: [design-for-partial-failure, design-in-observability]
+    adjacent: [measure-before-optimizing]
+
+  - id: save-returns-totals
+    query: >-
+      Our repository interface has a save method that also returns the recomputed totals,
+      so a caller has to write a record in order to read a number.
+    bearing: [separate-commands-from-queries]
+    supporting: [keep-interfaces-simple, avoid-surprising-behavior]
+    adjacent: [make-operations-idempotent]
+
+  - id: retry-charges-twice
+    query: >-
+      The worker calls the payment API again after a timeout and some customers are
+      charged twice.
+    bearing: [make-operations-idempotent]
+    supporting: [design-for-partial-failure]
+    adjacent: [expose-remote-boundaries, aggregate-error-handling]
+
+  - id: property-that-does-a-network-call
+    query: >-
+      A client library attribute looks like a plain field read but opens an HTTP
+      connection and blocks for two seconds.
+    bearing: [expose-remote-boundaries, avoid-surprising-behavior]
+    supporting: [design-for-partial-failure]
+    adjacent: [keep-interfaces-simple, separate-commands-from-queries]
+
+  - id: four-writers-one-column
+    query: >-
+      Order status is a string column that any of four services writes directly to the
+      shared table, and no two of them agree on the allowed transitions.
+    bearing: [give-state-one-writer]
+    supporting: [explicit-source-of-truth, assign-clear-ownership]
+    adjacent: [make-illegal-states-unrepresentable, minimize-mutable-state]
+
+  - id: request-id-threaded-through
+    query: >-
+      The request id is passed down through six function signatures and only the last one
+      uses it. Every layer in between takes an argument it never reads.
+    bearing: [avoid-pass-through-parameters]
+    supporting: [different-layer-different-abstraction]
+    adjacent: [prefer-deep-modules, hide-implementation-details]
+
+  - id: service-layer-forwards-everything
+    query: >-
+      Our service layer has one method per repository method and each one only forwards
+      the call. Adding a field means editing four files that all say the same thing.
+    bearing: [different-layer-different-abstraction, prefer-deep-modules]
+    supporting: [avoid-pass-through-parameters]
+    adjacent: [pull-complexity-downward, optimize-locality-of-change]
+
+  - id: base-class-with-seven-hooks
+    query: >-
+      The base class has grown seven protected hooks and each subclass overrides a
+      different three. Changing the base breaks two of them every time.
+    bearing: [prefer-composition-over-inheritance]
+    supporting: [honor-substitution-contracts, hide-implementation-details]
+    adjacent: [back-out-of-wrong-abstractions]
+
+  - id: implementation-that-refuses-a-method
+    query: >-
+      One of the three cache implementations raises NotImplementedError for delete, so
+      callers check the concrete type before calling it.
+    bearing: [honor-substitution-contracts]
+    supporting: [keep-interfaces-simple]
+    adjacent: [make-illegal-states-unrepresentable, avoid-surprising-behavior]
+
+  - id: impossible-state-checked-everywhere
+    query: >-
+      A user record can carry a verified timestamp while the status is still pending. We
+      check for that combination in eleven places and one of them is wrong.
+    bearing: [make-illegal-states-unrepresentable, eliminate-errors-by-design]
+    supporting: [validate-at-trust-boundaries]
+    adjacent: [minimize-mutable-state]
+
+  - id: defensive-revalidation
+    query: >-
+      Every internal function re-checks that the email string is well formed, because
+      nobody is sure where it was parsed or whether it was parsed at all.
+    bearing: [validate-at-trust-boundaries]
+    supporting: [eliminate-errors-by-design, make-illegal-states-unrepresentable]
+    adjacent: [keep-effects-at-the-edges]
+
+  - id: missing-key-found-at-2am
+    query: >-
+      The missing API key is only discovered when the first customer request arrives at
+      two in the morning. The process started happily with it unset.
+    bearing: [fail-fast-on-bad-configuration]
+    supporting: [design-in-observability]
+    adjacent: [explicit-source-of-truth, validate-at-trust-boundaries]
+
+  - id: pricing-rules-inside-the-mailer
+    query: >-
+      Pricing rules are computed inside the function that also writes the invoice PDF and
+      sends the email, so we cannot test the rules without a mailbox.
+    bearing: [keep-effects-at-the-edges, treat-testability-as-design-feedback]
+    supporting: [separate-commands-from-queries]
+    adjacent: [prefer-deep-modules, organize-by-responsibility]
+
+  - id: modules-named-after-steps
+    query: >-
+      Our modules are called step one, step two and step three. Adding a discount rule
+      means editing all three of them.
+    bearing: [organize-by-responsibility]
+    supporting: [optimize-locality-of-change, split-or-join-by-shared-knowledge]
+    adjacent: [name-for-meaning]
+
+  - id: extract-billing-without-a-cutover
+    query: >-
+      We want to move the monolith's billing module into a new service without a big-bang
+      cutover, and we need to be able to stop half way.
+    bearing: [migrate-incrementally]
+    supporting: [preserve-reversibility, design-for-replaceability]
+    adjacent: [expose-remote-boundaries, record-design-rationale]
+
+  - id: unversioned-event-payload
+    query: >-
+      The events table has no version field and we are about to change the payload shape.
+      Rows written last year will still be read by the new code.
+    bearing: [plan-for-data-longevity]
+    supporting: [migrate-incrementally]
+    adjacent: [explicit-source-of-truth, honor-substitution-contracts]
+
+  - id: rewrote-it-for-speed-without-measuring
+    query: >-
+      We rewrote the serializer in C for speed. Nobody profiled it first and the endpoint
+      is still just as slow.
+    bearing: [measure-before-optimizing]
+    supporting: [program-strategically]
+    adjacent: [design-in-observability]
+
+  - id: nobody-remembers-why-we-poll
+    query: >-
+      Nobody remembers why the scheduler polls instead of subscribing. The commit that
+      changed it says "fix" and the person who wrote it has left.
+    bearing: [record-design-rationale]
+    supporting: [design-it-twice]
+    adjacent: [preserve-reversibility]
+
+  - id: mechanism-branches-on-its-callers
+    query: >-
+      The generic export mechanism has an if-branch for the finance team's CSV quirk and
+      another for the mobile client's date format.
+    bearing: [separate-general-from-special-purpose]
+    supporting: [back-out-of-wrong-abstractions, make-interfaces-somewhat-general]
+    adjacent: [pull-complexity-downward, maintain-conceptual-integrity]
+
+  - id: import-cycle-between-three-modules
+    query: >-
+      Module A imports B, B imports C and C imports A. We cannot build, test or reason
+      about any of them on their own.
+    bearing: [keep-dependencies-acyclic]
+    supporting: [depend-toward-stability]
+    adjacent: [split-or-join-by-shared-knowledge, contain-dependencies]
+
+  - id: domain-imports-the-vendor-sdk
+    query: >-
+      Our stable domain package imports the vendor SDK directly, so a vendor upgrade
+      forces a change to the domain types.
+    bearing: [depend-toward-stability, contain-dependencies]
+    supporting: [hide-implementation-details]
+    adjacent: [model-stable-concepts, keep-dependencies-acyclic]
+
+  - id: wiring-by-import-side-effect
+    query: >-
+      Wiring happens through import side effects and a naming convention. A new maintainer
+      cannot find out what implements what without running the program.
+    bearing: [make-relationships-discoverable]
+    supporting: [explicit-source-of-truth]
+    adjacent: [name-for-meaning, hide-implementation-details]
+
+  - id: a-flag-per-caller
+    query: >-
+      We keep adding a boolean flag to the shared helper for every new caller. It now
+      takes five of them and only some combinations are meaningful.
+    bearing: [back-out-of-wrong-abstractions, separate-general-from-special-purpose]
+    supporting: [keep-interfaces-simple]
+    adjacent: [delay-premature-abstraction, avoid-surprising-behavior]
+
+  - id: process-and-datamanager
+    query: >-
+      The function is called process and the class is DataManager. Nobody can say what
+      either of them owns without reading the implementation.
+    bearing: [name-for-meaning]
+    supporting: [assign-clear-ownership, prefer-deep-modules]
+    adjacent: [maintain-conceptual-integrity]
+
+  - id: event-bus-or-direct-calls
+    query: >-
+      We are choosing between an event bus and direct calls for the notification path, and
+      whichever we pick will be expensive to change afterwards.
+    bearing: [design-it-twice, preserve-reversibility]
+    supporting: [record-design-rationale]
+    adjacent: [migrate-incrementally, expose-remote-boundaries]
+
+  - id: no-correlation-id-in-an-incident
+    query: >-
+      Production is down and we cannot tell which of the four downstream calls failed.
+      There is no correlation id anywhere in the logs.
+    bearing: [design-in-observability]
+    supporting: [aggregate-error-handling, design-for-partial-failure]
+    adjacent: [expose-remote-boundaries]
+
+  - id: siblings-that-disagree-about-absence
+    query: >-
+      Three sibling lookup functions disagree about a missing row: one returns null, one
+      raises and one returns an empty object. Call sites have to be read, not skimmed.
+    bearing: [apply-consistency-deliberately]
+    supporting: [avoid-surprising-behavior, keep-interfaces-simple]
+    adjacent: [maintain-conceptual-integrity, honor-substitution-contracts]
+
+  - id: exactly-once-promised-in-the-middle
+    query: >-
+      The transport layer retries and deduplicates, but the application still cannot
+      promise that a message was processed exactly once.
+    bearing: [apply-the-end-to-end-principle]
+    supporting: [make-operations-idempotent, design-for-partial-failure]
+    adjacent: [expose-remote-boundaries]
+
+  - id: one-module-three-teams-pay
+    query: >-
+      One four-thousand-line module holds routing, pricing and the PDF renderer. Every
+      team that touches any of them loads the whole file and every release waits on all three.
+    bearing: [judge-concentration-by-who-pays, split-or-join-by-shared-knowledge]
+    supporting: [organize-by-responsibility, optimize-locality-of-change]
+    adjacent: [assign-clear-ownership, align-architecture-with-teams]
+
+  - id: three-ways-to-declare-a-job
+    query: >-
+      The codebase now has three ways to express a background job — a decorator, a YAML
+      file and a subclass — and each feature picks whichever the author knew.
+    bearing: [maintain-conceptual-integrity]
+    supporting: [apply-consistency-deliberately]
+    adjacent: [make-relationships-discoverable, name-for-meaning]
+
+  - id: every-caller-repeats-the-same-six-lines
+    query: >-
+      Every one of the fifteen callers of our file store writes the same six lines to
+      open, lock, retry and close.
+    bearing: [pull-complexity-downward, prefer-deep-modules]
+    supporting: [avoid-duplicated-knowledge]
+    adjacent: [keep-interfaces-simple, make-interfaces-somewhat-general]
+
+  - id: interface-shaped-by-its-first-caller
+    query: >-
+      The text index exposes a method to fetch the lines of a page, because the first
+      caller happened to page. The second caller wants an arbitrary line range.
+    bearing: [make-interfaces-somewhat-general, model-stable-concepts]
+    supporting: [keep-interfaces-simple]
+    adjacent: [delay-premature-abstraction, prefer-deep-modules]
+
+  - id: features-every-sprint-structure-never
+    query: >-
+      We ship a feature every sprint and never touch the structure. Five years in, a
+      two-line change takes a week and everyone calls it legacy.
+    bearing: [program-strategically]
+    supporting: [optimize-locality-of-change, judge-concentration-by-who-pays]
+    adjacent: [back-out-of-wrong-abstractions, design-it-twice]
+
+  - id: mutable-settings-dict
+    query: >-
+      A mutable settings dictionary is imported by twenty modules and three of them change
+      entries in it during startup. Behaviour depends on import order.
+    bearing: [minimize-mutable-state, give-state-one-writer]
+    supporting: [explicit-source-of-truth]
+    adjacent: [fail-fast-on-bad-configuration, make-relationships-discoverable]
+
+  - id: adapter-decides-what-the-model-sees
+    query: >-
+      Our provider adapter decides which documents go into the prompt and truncates them
+      to fit the context window, so changing what the model may know means editing transport code.
+    bearing: [separate-model-context-from-provider-transport]
+    supporting: [hide-implementation-details, assign-clear-ownership]
+    adjacent: [contain-dependencies, different-layer-different-abstraction]
+
+  - id: interface-named-after-the-broker
+    query: >-
+      The interface is called KafkaEventPublisher and every caller's type hint says Kafka,
+      though nothing about the domain needs a broker at all.
+    bearing: [model-stable-concepts, name-for-meaning]
+    supporting: [contain-dependencies, design-for-replaceability]
+    adjacent: [hide-implementation-details, depend-toward-stability]
+
+  - id: no-timeout-on-the-payment-call
+    query: >-
+      The payment call has no timeout. When the provider is slow every request thread
+      parks on it and the whole site stops answering.
+    bearing: [design-for-partial-failure]
+    supporting: [bound-queues-and-buffers, expose-remote-boundaries]
+    adjacent: [design-in-observability, fail-fast-on-bad-configuration]
+
+  - id: tax-rate-in-six-places
+    query: >-
+      Changing the tax rate means editing the model, the serializer, the API schema, the
+      client and two tests. It is one decision and six edits.
+    bearing: [optimize-locality-of-change, avoid-duplicated-knowledge]
+    supporting: [split-or-join-by-shared-knowledge]
+    adjacent: [different-layer-different-abstraction, explicit-source-of-truth]
