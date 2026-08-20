@@ -13,7 +13,16 @@
       name="description"
       content="ArchCompass — architecture review grounded in your code, policies, and decisions."
     />
+    <!-- The `.ico` first and the SVG second, which is the order that gets each reader the
+         better of the two: a browser picks the last icon it understands, so Chrome and
+         Firefox land on the SVG and take its theme-awareness with them, while Safari — which
+         paints no SVG icon at all — falls back past it to the bitmap. `favicon.ico` and
+         `apple-touch-icon.png` are the same drawing rendered by
+         `scripts/generate_favicon_raster.py`; they carry their own ground, because a bitmap
+         cannot follow the tab strip between light and dark the way the SVG does. -->
+    <link rel="icon" sizes="48x48" href="/favicon.ico" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>ArchCompass — architecture review workbench</title>
     <script>
       (() => {

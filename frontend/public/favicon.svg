@@ -15,12 +15,14 @@
 
   Both themes, from the icon itself: a browser paints the tab strip in the system theme, not in
   whatever `data-theme` this workspace is stamped with, so the media query is the only thing that
-  can be right here. The two values are `--ink` from styles.css, day and night.
+  can be right here. The two values are the ink custom property from styles.css, day and
+  night, named here without its leading dashes: an XML comment may not contain a double
+  hyphen, and a favicon that does not parse is a favicon no tab shows.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <style>
-    :root { --mark: #182031; }
-    @media (prefers-color-scheme: dark) { :root { --mark: #e9ecf2; } }
+    :root { --mark: #15171a; }
+    @media (prefers-color-scheme: dark) { :root { --mark: #e9eae6; } }
   </style>
   <circle cx="16" cy="16" r="12.5" fill="none" stroke="var(--mark)" stroke-width="2.5" />
   <path d="M21.7 10.3 18.1 18.1 10.3 21.7 13.9 13.9Z" fill="var(--mark)" />

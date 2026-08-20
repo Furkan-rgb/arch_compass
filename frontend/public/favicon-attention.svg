@@ -20,8 +20,8 @@
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <style>
-    :root { --mark: #182031; --dot: #2f5fe0; }
-    @media (prefers-color-scheme: dark) { :root { --mark: #e9ecf2; --dot: #7c9cff; } }
+    :root { --mark: #15171a; --dot: #2f5fe0; }
+    @media (prefers-color-scheme: dark) { :root { --mark: #e9eae6; --dot: #7c9cff; } }
   </style>
   <mask id="badge-gutter">
     <rect width="32" height="32" fill="#fff" />
