@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { api, type Review, type ReviewRunSummary } from "../../api";
+import { api, type Review, type ReviewRun } from "../../api";
 import { humanise, relativeTime, repositoryName, shortId } from "../../lib/format";
 import { StatusBadge, Tag } from "../../ui/badge";
 import { Button, ButtonLink, ToggleButton } from "../../ui/button";
@@ -113,7 +113,7 @@ function ReviewRow({
  * Not styled as a review card. It has no verdicts, no delta and no sequence yet, and a card
  * with those spaces left blank would read as a review that came back empty.
  */
-function RunRow({ run }: { run: ReviewRunSummary }) {
+function RunRow({ run }: { run: ReviewRun }) {
   return (
     <article className="rounded-lg border border-accent/30 bg-accent-soft/40 p-4 transition hover:border-accent/50 sm:p-5">
       <Link to={`/runs/${run.run_id}`} className="block min-w-0 rounded-md">

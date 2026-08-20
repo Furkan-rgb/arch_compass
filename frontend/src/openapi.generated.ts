@@ -532,16 +532,12 @@ export interface components {
     "stage": string;
     "stages": Array<string>;
     "failure": string;
-  };
-    "ReviewRunSummaryResponse": {
-    "run_id": string;
-    "stage": string;
-    "stages": Array<string>;
-    "repository_name": string;
-    "repository_root": string;
-    "branch_name": string;
-    "branch_id": string;
-    "case_id": string;
+    "repository_name"?: string;
+    "repository_root"?: string;
+    "branch_name"?: string;
+    "branch_id"?: string;
+    "case_id"?: string;
+    "sequence"?: number;
   };
     "SearchNodesQuery": {
     "kind": "search_nodes";
@@ -1143,7 +1139,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      "200": Array<components["schemas"]["ReviewRunSummaryResponse"]>;
+      "200": Array<components["schemas"]["ReviewRunResponse"]>;
       "422": components["schemas"]["ProblemDetail"];
     };
   };

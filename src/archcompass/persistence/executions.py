@@ -11,8 +11,13 @@ from archcompass.domain.errors import ReviewNotFoundError
 
 
 @dataclass(frozen=True, slots=True)
-class InFlightExecution:
-    """A run that has started and has no review yet, as the row records it."""
+class ExecutionRecord:
+    """Which lineage a run belongs to, as the row records it.
+
+    Every identifier a review is filed under — the repository, the branch, the case — is
+    known the moment a run begins, which is what lets a run be addressed as the next
+    revision of that lineage long before there is a review to be one.
+    """
 
     thread_id: str
     repository_id: str
@@ -96,7 +101,18 @@ class SQLiteReviewExecutionRepository:
             raise ReviewNotFoundError(f"Review execution {thread_id} was not found")
         return None if row[0] is None else str(row[0])
 
-    def in_flight(self, *, limit: int = 50) -> tuple[InFlightExecution, ...]:
+    def record(self, thread_id: str) -> ExecutionRecord | None:
+        """The lineage this run belongs to, or `None` where no such run was started."""
+
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT thread_id, repository_id, branch_id, case_id FROM review_executions "
+                "WHERE thread_id = ?",
+                (thread_id,),
+            ).fetchone()
+        return None if row is None else _record(row)
+
+    def in_flight(self, *, limit: int = 50) -> tuple[ExecutionRecord, ...]:
         """Runs that have begun and have not yet produced a review, newest first.
 
         The one query the reviews listing needs and could not ask before. A run is only
@@ -118,15 +134,7 @@ class SQLiteReviewExecutionRepository:
                 "ORDER BY rowid DESC LIMIT ?",
                 (limit,),
             ).fetchall()
-        return tuple(
-            InFlightExecution(
-                thread_id=str(row[0]),
-                repository_id=str(row[1]),
-                branch_id=str(row[2]),
-                case_id=str(row[3]),
-            )
-            for row in rows
-        )
+        return tuple(_record(row) for row in rows)
 
     def status(self, thread_id: str) -> str:
         with self._connect() as connection:
@@ -149,3 +157,12 @@ class SQLiteReviewExecutionRepository:
             connection.execute(
                 "UPDATE review_executions SET status = 'failed' WHERE status = 'running'"
             )
+
+
+def _record(row: tuple[object, ...]) -> ExecutionRecord:
+    return ExecutionRecord(
+        thread_id=str(row[0]),
+        repository_id=str(row[1]),
+        branch_id=str(row[2]),
+        case_id=str(row[3]),
+    )

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Query, Response
 from fastapi.responses import StreamingResponse
@@ -31,11 +31,17 @@ class ReviewRequest(APIModel):
 
 
 class ReviewRunResponse(APIModel):
-    """A review in flight, addressable while it is still being produced.
+    """A review in flight, addressable as the revision it is going to be.
 
-    Carries the review id as soon as one exists — which is before the review is finished —
-    so a client can move from watching a run to reading a review without being told to
-    wait for the whole thing.
+    Every identifier a review is filed under is known before the review exists: the
+    repository, the branch, the case, and — from the newest review on that branch — the
+    sequence this one will take. So a run is not an anonymous job with a thread id; it is
+    revision N of a lineage a reader can already see, and it is addressed as one.
+
+    What is genuinely absent is the composed review: its atlas, its findings, its delta. A
+    client shows the run's progress in their place rather than a review with empty fields,
+    and `review_id` appears the moment there is a real record to move to — which is before
+    the run finishes.
     """
 
     run_id: str
@@ -44,9 +50,26 @@ class ReviewRunResponse(APIModel):
     stage: str
     stages: list[str]
     failure: str
+    #: The lineage this run belongs to. Names for a reader, ids so a client can tell that a
+    #: run and a review it is looking at are the same line of work.
+    repository_name: str = ""
+    repository_root: str = ""
+    branch_name: str = ""
+    branch_id: str = ""
+    case_id: str = ""
+    #: Which revision this will be. Derived from the newest review on the branch, so it is
+    #: the number the composed review will carry rather than a placeholder.
+    sequence: int = 1
 
     @classmethod
-    def from_state(cls, state: RunState) -> ReviewRunResponse:
+    def from_state(cls, state: RunState, **lineage: object) -> ReviewRunResponse:
+        """The run's own state, with whatever the lineage lookup could add to it.
+
+        The lineage is optional so a run whose execution row has gone still answers with
+        the half that lives in memory, rather than failing the read that was going to tell
+        somebody their review had finished.
+        """
+
         return cls(
             run_id=state.run_id,
             status=state.status,
@@ -54,32 +77,8 @@ class ReviewRunResponse(APIModel):
             stage=state.stage,
             stages=list(state.stages),
             failure=state.failure,
+            **cast("dict[str, Any]", lineage),
         )
-
-
-class ReviewRunSummaryResponse(APIModel):
-    """A run in flight, as a listing shows it.
-
-    Deliberately not a `ReviewResponse` with the fields blanked out. A review carries the
-    atlas it was made from, and a run that has not finished analysing does not have one — so
-    a listing entry that pretended to be a review would be a review record that is edited
-    into existence later, which is the one thing reviews are not. This is the run, named the
-    way the reader would name it, and it is replaced by the review as soon as there is one.
-    """
-
-    run_id: str
-    stage: str
-    stages: list[str]
-    #: Where the code is and which line of work it is on, resolved from lineage so the entry
-    #: reads like the review it is about to become rather than like two identifiers.
-    repository_name: str
-    repository_root: str
-    branch_name: str
-    #: The lineage this run belongs to. Carried as ids as well as names because the review
-    #: page matches on them: a run for this branch and this case is the next revision of the
-    #: lineage the reader is already looking at, and belongs in its rail.
-    branch_id: str
-    case_id: str
 
 
 class SubmittedAnswerRequest(APIModel):
@@ -464,6 +463,37 @@ def routes() -> APIRouter:
         )
         return ReviewResponse.from_domain(review)
 
+    def _describe_run(run_id: str, runtime: Runtime) -> ReviewRunResponse:
+        """A run as the revision it will be: its lineage, and the number it will carry.
+
+        Assembled here rather than in the workflow service because it joins two things the
+        service has no reason to know about each other — the execution row and the lineage
+        names — and a listing entry and a single read must not describe the same run
+        differently.
+        """
+
+        state = runtime.review_workflow_service.run_state(run_id)
+        lineage = runtime.review_workflow_service.lineage_of(run_id)
+        if lineage is None:
+            return ReviewRunResponse.from_state(state)
+        repositories = runtime.lineage_repository
+        repository = repositories.repository(lineage.repository_id)
+        branch = repositories.get_branch(lineage.branch_id)
+        root = repository.canonical_root if repository else ""
+        # The sequence the composed review will carry, taken from the newest review on the
+        # branch rather than guessed: a first review is 1, and every later one follows the
+        # review it is about to be compared against.
+        previous = runtime.review_workflow_service.latest_for_branch(lineage.branch_id)
+        return ReviewRunResponse.from_state(
+            state,
+            repository_name=Path(root).name if root else "this repository",
+            repository_root=root,
+            branch_name=branch.branch_name if branch else "",
+            branch_id=lineage.branch_id,
+            case_id=lineage.case_id,
+            sequence=(previous.sequence + 1) if previous else 1,
+        )
+
     @router.post(
         "/api/reviews/runs",
         status_code=202,
@@ -485,13 +515,11 @@ def routes() -> APIRouter:
             case_revision=request.case_revision,
             ci=request.ci,
         )
-        return ReviewRunResponse.from_state(state)
+        return _describe_run(state.run_id, runtime)
 
     @router.get("/api/reviews/runs/{run_id}", responses=problem_responses(404))
     def read_review_run(runtime: RuntimeDep, run_id: str) -> ReviewRunResponse:
-        return ReviewRunResponse.from_state(
-            runtime.review_workflow_service.run_state(run_id)
-        )
+        return _describe_run(run_id, runtime)
 
     @router.post(
         "/api/reviews/stream",
@@ -544,7 +572,7 @@ def routes() -> APIRouter:
     def list_review_runs(
         runtime: RuntimeDep,
         limit: Annotated[int, Query(ge=1, le=200)] = 50,
-    ) -> list[ReviewRunSummaryResponse]:
+    ) -> list[ReviewRunResponse]:
         """Every run that has begun and has no review yet.
 
         Registered above `/api/reviews/{review_id}` so `runs` is not read as an id.
@@ -555,26 +583,10 @@ def routes() -> APIRouter:
         "navigate away" the ordinary case rather than the careless one.
         """
 
-        lineages = runtime.lineage_repository
-        summaries: list[ReviewRunSummaryResponse] = []
-        for execution in runtime.review_workflow_service.in_flight(limit=limit):
-            repository = lineages.repository(execution.repository_id)
-            branch = lineages.get_branch(execution.branch_id)
-            root = repository.canonical_root if repository else ""
-            state = runtime.review_workflow_service.run_state(execution.thread_id)
-            summaries.append(
-                ReviewRunSummaryResponse(
-                    run_id=execution.thread_id,
-                    stage=state.stage,
-                    stages=list(state.stages),
-                    repository_name=Path(root).name if root else "this repository",
-                    repository_root=root,
-                    branch_name=branch.branch_name if branch else "",
-                    branch_id=execution.branch_id,
-                    case_id=execution.case_id,
-                )
-            )
-        return summaries
+        return [
+            _describe_run(execution.thread_id, runtime)
+            for execution in runtime.review_workflow_service.in_flight(limit=limit)
+        ]
 
     @router.get("/api/reviews")
     def list_reviews(

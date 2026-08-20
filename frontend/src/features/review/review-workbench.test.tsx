@@ -234,33 +234,29 @@ describe("the review workbench", () => {
   });
 
   it("shows the revision being made in the same rail as the ones that exist", async () => {
-    // A run is only addressable by an id somebody is holding. The lineage a reader already
-    // has open is where the next revision of it belongs, so starting a review and then
-    // looking at the previous one still finds it.
+    // A run is filed under the same repository, branch and case a review is, and the
+    // sequence it will carry is known from the newest review on the branch. So it is the
+    // next entry of this lineage, addressable while it is still being made.
     const review = reviewFixture({ status: "completed", questions: [] });
     vi.spyOn(api, "review").mockResolvedValue(review);
     vi.spyOn(api, "reviews").mockResolvedValue([review]);
     vi.spyOn(api, "reviewRuns").mockResolvedValue([
-      runFixture({ branch_id: review.repository.branch_id, case_id: review.case.id }),
+      runFixture({
+        branch_id: review.repository.branch_id,
+        case_id: review.case.id,
+        sequence: review.sequence + 1,
+      }),
     ]);
-    vi.spyOn(api, "reviewRun").mockResolvedValue({
-      run_id: "thread-9",
-      status: "running",
-      review_id: null,
-      stage: "judge_candidate",
-      stages: ["load_context", "analyze_repository", "judge_candidate"],
-      failure: "",
-    });
 
     render(wrap(<ReviewPage />));
 
-    const pending = await screen.findByRole("button", { name: /Review 2/ });
-    fireEvent.click(pending);
-
-    // The pane where the findings go shows the only thing there is to say about a review
-    // that has not been composed: how far the run has got.
-    expect(await screen.findByText("Reviewing the repository")).toBeInTheDocument();
-    expect(await screen.findByText("Judging candidates")).toBeInTheDocument();
+    const pending = await screen.findByRole("link", {
+      name: new RegExp(`Review ${review.sequence + 1}`),
+    });
+    // A link, not a button: the run has its own address, and that page renders this same
+    // head and rail around its progress rather than a job view with a thread id on it.
+    expect(pending).toHaveAttribute("href", "/runs/thread-9");
+    expect(within(pending).getByText("In progress")).toBeInTheDocument();
   });
 
   it("leaves the rail alone when the run in flight belongs to another case", async () => {
