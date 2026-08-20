@@ -396,8 +396,11 @@ export function AttentionQueue({
     if (move(step)) event.preventDefault();
   }
 
+  // 44px because it is a touch target on a phone, `-my-1.5` because it should not be a 44px
+  // hole in the queue header. The box is the target — a pseudo-element cannot be, since
+  // getBoundingClientRect ignores an absolutely positioned ::after and a finger does not.
   const stepper =
-    "inline-flex size-8 shrink-0 items-center justify-center rounded-sm text-[13px] text-ink-3 transition hover:bg-sunken hover:text-ink disabled:pointer-events-none disabled:opacity-30";
+    "inline-flex size-11 shrink-0 -my-1.5 items-center justify-center rounded-sm text-[13px] text-ink-3 transition hover:bg-sunken hover:text-ink disabled:pointer-events-none disabled:opacity-30";
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>

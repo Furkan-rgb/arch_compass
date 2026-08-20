@@ -256,8 +256,15 @@ export function FindingDetail({
               order, and the reason the hue may be the only one on the page. */}
           <VerdictBadge verdict={finding.verdict} className="px-3 py-1.5 text-[12px]" />
           <span className="text-[13px] text-ink-2">{means}</span>
+          {/* `sm` type so it stays quiet beside the verdict pill, `min-h-11` so it is still
+              a target. It wraps onto its own line on a phone, which is where it is tapped. */}
           {onOpenContext ? (
-            <Button variant="ghost" size="sm" className="sm:ml-auto" onClick={onOpenContext}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="min-h-11 sm:ml-auto"
+              onClick={onOpenContext}
+            >
               Judgement context
             </Button>
           ) : null}
@@ -612,7 +619,9 @@ export function FindingDetail({
 export function FindingBackBar({ onBack, finding }: { onBack: () => void; finding: Finding }) {
   return (
     <div className="mb-3 flex items-center gap-2">
-      <Button variant="secondary" size="sm" onClick={onBack}>
+      {/* The way back on a phone. Full size rather than `sm`, because this is the control
+          this bar exists for. */}
+      <Button variant="secondary" onClick={onBack}>
         ← Queue
       </Button>
       <Badge tone={verdictOf(finding.verdict).tone} glyph={verdictOf(finding.verdict).glyph}>

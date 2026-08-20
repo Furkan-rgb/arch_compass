@@ -73,13 +73,17 @@ export function Tabs({
               "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-semibold transition",
               variant === "line"
                 ? cn(
-                    "-mb-px border-b-2 px-3 py-2.5",
+                    // `py-3`, not `py-2.5`: at 10px the row measured 42px on a phone, two
+                    // short of the 44px floor, and a tab has the room for the other two.
+                    "-mb-px border-b-2 px-3 py-3",
                     selected
                       ? "border-ink text-ink"
                       : "border-transparent text-ink-3 hover:border-rule-strong hover:text-ink",
                   )
                 : cn(
-                    "min-h-8 rounded-sm px-3",
+                    // Same touch floor as a small button, and for the same reason: on
+                    // `/start` this strip is the whole navigation and a phone gets a finger.
+                    "min-h-8 pointer-coarse:min-h-11 rounded-sm px-3",
                     selected ? "bg-ink text-canvas" : "text-ink-3 hover:bg-sunken hover:text-ink",
                   ),
             )}

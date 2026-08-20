@@ -16,9 +16,23 @@ const VARIANTS: Record<ButtonVariant, string> = {
   danger: "border-material/30 bg-material-soft text-material hover:border-material/55",
 };
 
+// 44px is the charter's fifth principle, and `md` is what a button is unless somebody says
+// otherwise — so `md` is the size that has to clear it. It was 40, which is why three call
+// sites had already written `min-h-11` back on by hand. `sm` stays at 32 because it is the
+// dense inline size; where a `sm` control is genuinely tapped, the call site grows its box
+// and hands the extra height back with a negative margin.
+/**
+ * `sm` grows to the 44px floor on a coarse pointer and stays 32px on a fine one.
+ *
+ * The floor is a *touch* requirement, so answering it by width would be answering a
+ * different question — and would cost a mouse user the density this size exists for. A
+ * pseudo-element cannot answer it either: `getBoundingClientRect` ignores an absolutely
+ * positioned `::after`, so a 32px button with an extended `::after` still measures 32,
+ * and a finger is no more fooled than the test is. The box has to be the target.
+ */
 const SIZES: Record<ButtonSize, string> = {
-  sm: "min-h-8 gap-1.5 px-2.5 text-xs",
-  md: "min-h-10 gap-2 px-3.5 text-sm",
+  sm: "min-h-8 pointer-coarse:min-h-11 gap-1.5 px-2.5 text-xs",
+  md: "min-h-11 gap-2 px-3.5 text-sm",
   lg: "min-h-12 gap-2.5 px-5 text-[15px]",
 };
 
@@ -88,7 +102,10 @@ export function ToggleButton({
       type="button"
       aria-pressed={pressed}
       className={cn(
-        "inline-flex min-h-8 items-center gap-1.5 whitespace-nowrap rounded-sm px-2.5 text-xs font-semibold transition",
+        // A filter chip owns its row everywhere it is used, so it has the room to be a real
+        // 44px target. Faking the hit area around a 32px box is no cheaper here and leaves
+        // three chips in a segmented control whose targets touch or overlap.
+        "inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-sm px-2.5 text-xs font-semibold transition",
         // A toggle for an empty set stays readable — it is telling you the count is zero,
         // which is information — but stops offering to filter to nothing.
         "disabled:pointer-events-none disabled:opacity-40",

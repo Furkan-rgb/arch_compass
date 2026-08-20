@@ -28,10 +28,13 @@ export function Wordmark({
   subtitle?: string;
   className?: string;
 }) {
+  // The mark is 32px and stays 32px; the link's own box is 44 so a thumb lands on it rather
+  // than beside it. Where the row it sits in must not grow with it, the call site hands the
+  // difference back with a negative margin — see the header in `app/shell.tsx`.
   return (
     <Link
       to={to}
-      className={cn("group inline-flex items-center gap-2.5 rounded-sm", className)}
+      className={cn("group inline-flex min-h-11 items-center gap-2.5 rounded-sm", className)}
     >
       <BrandMark className="size-8 text-base transition group-hover:scale-[1.04]" />
       <span className="min-w-0">

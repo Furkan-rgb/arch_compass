@@ -71,7 +71,15 @@ export function Drawer({
             <h2 className="font-display text-base font-semibold tracking-tight">{title}</h2>
             {description ? <p className="mt-0.5 text-xs text-ink-3">{description}</p> : null}
           </div>
-          <Button variant="ghost" size="sm" onClick={close} aria-label="Close panel">
+          {/* `sm` for the type, `min-h-11` for the thumb: the word stays quiet beside the
+              title, the target does not. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="min-h-11"
+            onClick={close}
+            aria-label="Close panel"
+          >
             Close
           </Button>
         </div>

@@ -85,6 +85,10 @@ function ThemeToggle() {
   const { preference, cycle } = useTheme();
   const Glyph = preference === "light" ? SunIcon : preference === "dark" ? MoonIcon : MonitorIcon;
   const next = preference === "system" ? "light" : preference === "light" ? "dark" : "system";
+  // A 16px glyph and a 44px target. The box grows and the negative margin hands the height
+  // straight back to the header, so the row keeps the height it had and the thumb still gets
+  // the whole square. Same trick as the menu button on the other side of the row — and both
+  // of them are sized rather than pulled sideways, so the two targets never touch.
   return (
     <Button
       variant="ghost"
@@ -92,7 +96,7 @@ function ThemeToggle() {
       onClick={cycle}
       title={`Theme: ${preference}. Switch to ${next}.`}
       aria-label={`Theme: ${preference}. Switch to ${next}.`}
-      className="px-2"
+      className="-my-1.5 min-h-11 min-w-11 px-2"
     >
       <Glyph className="size-4" />
     </Button>
@@ -186,7 +190,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="lg:grid lg:grid-cols-[232px_minmax(0,1fr)]">
         <aside className="sticky top-0 hidden h-screen min-w-0 flex-col gap-5 overflow-hidden border-r border-rule bg-surface px-3 py-4 lg:flex">
-          <div className="px-1.5">
+          {/* `flex` rather than a block: the wordmark is 44px tall now and an inline-flex
+              box in a line box would carry a descender's worth of slack under it. */}
+          <div className="flex px-1.5">
             <Wordmark to="/" subtitle="Review workbench" />
           </div>
           <SidebarContent />
@@ -196,17 +202,21 @@ export function AppShell({ children }: { children: ReactNode }) {
           <header className="sticky top-0 z-30 border-b border-rule bg-surface/85 backdrop-blur">
             <div className="flex items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
               <div className="flex min-w-0 items-center gap-2">
+                {/* 44px of target inside a 32px row: the box grows, the negative margin
+                    gives the height back, and the header stays the height it was. */}
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="px-2 lg:hidden"
+                  className="-my-1.5 min-h-11 min-w-11 px-2 lg:hidden"
                   aria-label="Open navigation"
                   aria-expanded={navOpen}
                   onClick={() => setNavOpen(true)}
                 >
                   <MenuIcon className="size-5" />
                 </Button>
-                <span className="lg:hidden">
+                {/* `flex` so the wordmark's 44px box is a flex item and its negative margin
+                    is honoured; the pull is what keeps this header 53px rather than 65px. */}
+                <span className="-my-1.5 flex lg:hidden">
                   <Wordmark to="/" />
                 </span>
                 <span className="hidden lg:block">

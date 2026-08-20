@@ -470,7 +470,9 @@ export function ReviewPage() {
 
           {!isTabletUp ? (
             <div className="mb-3">
-              <Button variant="secondary" size="sm" onClick={() => setQueueOpen(true)}>
+              {/* The only way into the queue below the tablet breakpoint, so it is sized
+                  as a target rather than as a chip. */}
+              <Button variant="secondary" onClick={() => setQueueOpen(true)}>
                 Attention queue
               </Button>
             </div>

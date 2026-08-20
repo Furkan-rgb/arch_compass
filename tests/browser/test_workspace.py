@@ -58,9 +58,24 @@ def test_a_review_produces_a_workbench_with_a_clarification(page, review_url: st
     assert _visible(page.get_by_text("Measured").first)
     assert _visible(page.get_by_text("Judged").first)
     assert _visible(page.get_by_text("Standing decision").first)
-    assert page.get_by_text("judge:deterministic-v1").count() == 0
-    page.get_by_role("button", name="Technical detail").click()
-    assert _visible(page.get_by_text("judge:deterministic-v1").first)
+    # Who judged is attribution and is said out loud: the charter's whole point is that a
+    # reader always knows which of the three voices is speaking, and a sentence whose author
+    # is one disclosure away is a sentence presented as nobody's. So the identity leads the
+    # model's paragraph.
+    #
+    # The same string then appears a second time, inside `Provenance`, where it is one of the
+    # inputs to the analysis hash rather than an attribution — and that copy is folded, which
+    # is what a disclosure is for. Under the deterministic provider the model and the prompt
+    # are named identically, so these two are told apart by where they are rather than by
+    # what they say.
+    identity = page.get_by_text("judge:deterministic-v1")
+    assert identity.count() == 2
+    assert _visible(identity.first)
+    # `is_visible()` rather than `_visible()`: the helper waits for the thing to appear, which
+    # is right for asserting presence and is twenty seconds of nothing when asserting absence.
+    assert not identity.last.is_visible()
+    page.get_by_text("Provenance").first.click()
+    assert _visible(identity.last)
 
     # Reading something else about the review does not cost the list.
     page.get_by_role("tab", name="Delta").click()
