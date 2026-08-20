@@ -7,6 +7,7 @@ right answer lives here instead — how a corpus is loaded, what recall@k is, ho
 case becomes a query — and the notebook imports it.
 """
 
+from evaluation.harness import report
 from evaluation.harness.corpus import (
     chunk_report,
     evaluation_corpus,
@@ -74,6 +75,7 @@ __all__ = [
     "precision_at_k",
     "recall_at_k",
     "reciprocal_rank",
+    "report",
     "run_index",
     "run_retriever",
     "scoped_policies",
