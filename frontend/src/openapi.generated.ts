@@ -524,6 +524,14 @@ export interface components {
     "finished_at": string | null;
     "failure": string | null;
   };
+    "ReviewRunResponse": {
+    "run_id": string;
+    "status": string;
+    "review_id": string | null;
+    "stage": string;
+    "stages": Array<string>;
+    "failure": string;
+  };
     "SearchNodesQuery": {
     "kind": "search_nodes";
     "terms": Array<string>;
@@ -1156,6 +1164,22 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "read_review_run_api_reviews_runs__run_id__get": {
+    parameters: {
+      query: never;
+      path: {
+      "run_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": components["schemas"]["ReviewRunResponse"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+    };
+  };
   "record_decision_api_decisions_post": {
     parameters: {
       query: never;
@@ -1339,6 +1363,21 @@ export interface operations {
       "200": components["schemas"]["StartedCaseResponse"];
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "start_review_run_api_reviews_runs_post": {
+    parameters: {
+      query: never;
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["ReviewRequest"];
+    responses: {
+      "202": components["schemas"]["ReviewRunResponse"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "503": components["schemas"]["ProblemDetail"];
     };
   };
   "stream_review_api_reviews_stream_post": {
@@ -1532,6 +1571,12 @@ export interface paths {
   "/api/reviews": {
     get: operations["list_reviews_api_reviews_get"];
     post: operations["create_review_api_reviews_post"];
+  };
+  "/api/reviews/runs": {
+    post: operations["start_review_run_api_reviews_runs_post"];
+  };
+  "/api/reviews/runs/{run_id}": {
+    get: operations["read_review_run_api_reviews_runs__run_id__get"];
   };
   "/api/reviews/stream": {
     post: operations["stream_review_api_reviews_stream_post"];

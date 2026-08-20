@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 
 from langchain_core.language_models import BaseChatModel
 
-from archcompass.configuration import ReasoningModelConfig
+from archcompass.configuration import ReasoningModelConfig, resolve_api_key
 from archcompass.domain import (
     ArchitectureCase,
     Candidate,
@@ -17,6 +19,7 @@ from archcompass.domain import (
     Verdict,
 )
 from archcompass.domain.errors import NoReasoningModelSelectedError
+from archcompass.ports.capabilities import JudgementRequest
 from archcompass.ports.model_catalog import SelectedReasoningModel
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 from archcompass.ports.review_conversation import (
@@ -24,6 +27,7 @@ from archcompass.ports.review_conversation import (
     ConversationMessage,
 )
 from archcompass.reasoning.adapters.factory import build_chat_model
+from archcompass.reasoning.adapters.google_batch import GoogleBatchJudge
 from archcompass.reasoning.adapters.langchain import (
     LangChainArchitectureJudge,
     LangChainQuestionGenerator,
@@ -87,6 +91,52 @@ class SelectedLangChainJudge:
         return LangChainArchitectureJudge(model, model_identity=identity).judge(
             candidate, case, policies
         )
+
+    def supports_batch(self) -> bool:
+        """Only where the selected provider actually meters a batch separately.
+
+        Asked per call rather than answered once, because the model is chosen while the
+        workspace is running: the same graph judges through a batch this afternoon and
+        through Ollama this evening.
+        """
+
+        config = self._selected.configuration()
+        return config is not None and config.provider == "google"
+
+    def judge_all(self, requests: Sequence[JudgementRequest]) -> tuple[Finding, ...]:
+        """Every candidate at once, batched where that means something.
+
+        The fallback is not a lesser path: for Ollama and the deterministic provider a
+        loop is exactly what a batch would be, and running it here keeps the graph's
+        dispatch decision in one place instead of two.
+        """
+
+        if not requests:
+            return ()
+        config = self._selected.configuration()
+        if config is None or config.provider != "google":
+            return self._judge_each(requests, config)
+
+        _, identity = self._selected.current()
+        judge = GoogleBatchJudge(
+            api_key=resolve_api_key(config.api_key_env, provider="google"),
+            model=config.model,
+        )
+        return judge.judge_all(requests, model_identity=identity)
+
+    def _judge_each(
+        self, requests: Sequence[JudgementRequest], config: ReasoningModelConfig | None
+    ) -> tuple[Finding, ...]:
+        workers = max(1, config.concurrent_requests if config is not None else 1)
+        if workers == 1:
+            return tuple(
+                self.judge(item.candidate, item.case, item.policies) for item in requests
+            )
+        def judge_one(item: JudgementRequest) -> Finding:
+            return self.judge(item.candidate, item.case, item.policies)
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return tuple(pool.map(judge_one, requests))
 
 
 class SelectedLangChainQuestionGenerator:

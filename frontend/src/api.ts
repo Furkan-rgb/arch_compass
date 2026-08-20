@@ -31,6 +31,7 @@ export type DirectoryListing = Schema["DirectoryListing"];
 export type RepositoryFolderTree = Schema["RepositoryFolderTree"];
 
 export type ReviewProgress = { event: string; review?: Review; message?: string };
+export type ReviewRun = Schema["ReviewRunResponse"];
 
 async function problem(response: Response): Promise<Error> {
   const detail = (await response.json().catch(() => null)) as
@@ -112,6 +113,20 @@ export const coreApi = {
     });
     yield* ndjson(response);
   },
+  /**
+   * Start a review that is not held open by this tab.
+   *
+   * The workspace answers with a run id before there is a review, which is what makes the
+   * page reloadable: the run is somewhere to come back to. It is also the only way a
+   * batched judgement can work, since a batch is answered in minutes or hours rather than
+   * in a response body.
+   */
+  startReviewRun: (caseId: string, root: string) =>
+    request<ReviewRun>("/api/reviews/runs", {
+      method: "POST",
+      body: JSON.stringify({ case_id: caseId, repository_root: root }),
+    }),
+  reviewRun: (runId: string) => request<ReviewRun>(`/api/reviews/runs/${encode(runId)}`),
   answer: (
     reviewId: string,
     answers: Array<{ question_id: string; status: "answered" | "skipped"; value?: string | null }>,

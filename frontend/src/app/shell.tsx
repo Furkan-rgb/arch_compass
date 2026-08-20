@@ -131,8 +131,12 @@ function ModelChips({ className }: { className?: string }) {
 
 function WorkspaceCard() {
   const workspace = useQuery({ queryKey: ["workspace"], queryFn: coreApi.workspace });
+  // `truncate` sets `white-space: nowrap`, which makes the element's min-content width the
+  // whole string — so without `min-w-0` on everything above it, a deep workspace path stops
+  // being truncated and starts widening the sidebar instead. Truncation is a promise the
+  // ancestors have to keep.
   return (
-    <div className="rounded-md border border-rule bg-surface-2 p-3">
+    <div className="min-w-0 rounded-md border border-rule bg-surface-2 p-3">
       <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-3">Workspace</div>
       <div
         title={workspace.data?.workspace}
@@ -151,12 +155,12 @@ function WorkspaceCard() {
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5">
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-5">
       <nav aria-label="Primary" className="grid gap-5">
         <NavGroup label="Review" items={REVIEW_NAV} onNavigate={onNavigate} />
         <NavGroup label="Workspace" items={WORKSPACE_NAV} onNavigate={onNavigate} />
       </nav>
-      <div className="mt-auto grid gap-3">
+      <div className="mt-auto grid min-w-0 gap-3">
         <WorkspaceCard />
       </div>
     </div>
@@ -181,7 +185,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </a>
 
       <div className="lg:grid lg:grid-cols-[232px_minmax(0,1fr)]">
-        <aside className="sticky top-0 hidden h-screen flex-col gap-5 border-r border-rule bg-surface px-3 py-4 lg:flex">
+        <aside className="sticky top-0 hidden h-screen min-w-0 flex-col gap-5 overflow-hidden border-r border-rule bg-surface px-3 py-4 lg:flex">
           <div className="px-1.5">
             <Wordmark to="/" subtitle="Review workbench" />
           </div>

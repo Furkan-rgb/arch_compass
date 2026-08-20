@@ -1,0 +1,166 @@
+"""Retrying a provider call that failed for a reason waiting can fix.
+
+A hosted model is a shared resource, and the free tiers say so: `gemini-3.5-flash-lite`
+answers 429 several times during one review of a modest repository, and the policy corpus
+is embedded in batches that reach the same limit. Every one of those refusals is a
+statement about the next few seconds rather than about the request, so failing the whole
+review on the first of them throws away minutes of work that a short wait would have saved.
+
+Deliberately narrow. Only a refusal the provider itself describes as temporary is retried;
+a malformed request, a missing key and a model that does not exist all fail immediately,
+because sending them again produces the same answer three times more slowly. Timeouts are
+not retried either: our own deadline arriving from the other side means the prompt took
+longer than we allow, and waiting does not shorten it.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Final
+
+from archcompass.domain.errors import ProviderError
+
+_log = logging.getLogger("archcompass.retries")
+
+#: Statuses where the identical request, sent later, can succeed. 429 is the one that
+#: matters in practice; the 5xx entries are a fleet briefly out of capacity, which Gemini
+#: reports as 503 UNAVAILABLE and, under load, as 500 INTERNAL.
+#:
+#: Not here: 400, 401, 403 and 404, which describe the request rather than the moment, and
+#: 408, which is a deadline that a wait cannot make more generous.
+TRANSIENT_STATUSES: Final = frozenset({429, 500, 502, 503, 504})
+
+#: Read only when an exception carries no status at all. Matching words is guesswork, and
+#: guessing is worth it only where the alternative is no information — a provider that does
+#: carry a status has already answered the question precisely.
+_TRANSIENT_PHRASES: Final = (
+    "resource_exhausted",
+    "resource exhausted",
+    "rate limit",
+    "ratelimit",
+    "too many requests",
+    "overloaded",
+)
+
+#: Google puts a `RetryInfo` detail beside a 429 saying how long its own quota window has
+#: left to run — `'retryDelay': '36s'`. It is a better number than any schedule of ours
+#: because it is the one the quota is actually keeping, so it is used when it is offered.
+#: Read out of the rendered exception rather than out of a parsed body: the detail reaches
+#: us through several SDK layers that each re-wrap it, and the string survives all of them.
+_RETRY_DELAY = re.compile(
+    r"retry[_-]?delay['\"]?\s*[:=]\s*['\"]?(\d+(?:\.\d+)?)s",
+    re.IGNORECASE,
+)
+
+
+def _status_of(error: BaseException) -> int | None:
+    """The HTTP status an exception carries, whatever its SDK calls the attribute."""
+
+    for attribute in ("code", "status_code"):
+        value = getattr(error, attribute, None)
+        if isinstance(value, int):
+            return value
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    return status if isinstance(status, int) else None
+
+
+def is_transient(error: BaseException) -> bool:
+    """Whether the provider is saying "not now" rather than "not this"."""
+
+    status = _status_of(error)
+    if status is not None:
+        return status in TRANSIENT_STATUSES
+    text = str(error).lower()
+    return any(phrase in text for phrase in _TRANSIENT_PHRASES)
+
+
+def suggested_delay(error: BaseException) -> float | None:
+    """The wait the provider asked for, if it named one."""
+
+    found = _RETRY_DELAY.search(str(error))
+    return float(found.group(1)) if found else None
+
+
+@dataclass(frozen=True, slots=True)
+class RetryPolicy:
+    """How many times to wait, and for how long.
+
+    The defaults add at most 52 seconds to a call before giving up, which is what makes
+    them useful against a per-minute quota: the window the refusal is about has closed by
+    the time the last attempt is sent. Growing the wait rather than repeating it matters
+    for the same reason — three attempts four seconds apart all land inside the same
+    exhausted minute and fail together.
+    """
+
+    #: Attempts after the first one, so the default sends the request at most four times.
+    retries: int = 3
+    first_delay_seconds: float = 4.0
+    multiplier: float = 3.0
+    #: A ceiling on any single wait, including one the provider asks for. A review that has
+    #: paused for a minute is better reported as failed than left looking hung.
+    maximum_delay_seconds: float = 60.0
+
+    def delay_before(self, retry: int) -> float:
+        """The wait before retry `retry`, counting the first retry as 1."""
+
+        grown = self.first_delay_seconds * self.multiplier ** (retry - 1)
+        return min(grown, self.maximum_delay_seconds)
+
+
+DEFAULT_RETRY_POLICY: Final = RetryPolicy()
+
+
+def call_with_retry[T](
+    operation: Callable[[], T],
+    *,
+    subject: str,
+    policy: RetryPolicy = DEFAULT_RETRY_POLICY,
+    sleep: Callable[[float], None] = time.sleep,
+) -> T:
+    """Run `operation`, waiting and repeating it while the provider says "not now".
+
+    Anything else is re-raised untouched, so the caller still sees a schema violation or a
+    bad key as itself. Exhausting the retries raises `ProviderError`, which is the one
+    thing the rest of the application already knows how to report: 503, and worth trying
+    again.
+    """
+
+    waited = 0.0
+    last: Exception | None = None
+    for attempt in range(policy.retries + 1):
+        try:
+            return operation()
+        except Exception as error:
+            if not is_transient(error):
+                raise
+            last = error
+            if attempt == policy.retries:
+                break
+            delay = min(
+                suggested_delay(error) or policy.delay_before(attempt + 1),
+                policy.maximum_delay_seconds,
+            )
+            waited += delay
+            # At warning level because it is a pause a reader of the log needs explained:
+            # a review that stops for thirty seconds is otherwise indistinguishable from
+            # one that has hung.
+            _log.warning(
+                "%s was refused by the provider (%s); waiting %.0fs before retry %d of %d",
+                subject,
+                error,
+                delay,
+                attempt + 1,
+                policy.retries,
+            )
+            sleep(delay)
+
+    raise ProviderError(
+        f"{subject} was refused {policy.retries + 1} times by the provider over "
+        f"{waited:.0f}s of waiting, and the refusals were temporary each time. "
+        f"The last one was: {last}"
+    ) from last

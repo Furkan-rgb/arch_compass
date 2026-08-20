@@ -22,6 +22,18 @@ GOOGLE_MODELS: Final = (
     "gemini-3.5-flash-lite",
 )
 
+#: Which of those sample at a temperature of their own choosing.
+#:
+#: The Gemini 3 family fixes its sampling: `temperature`, `top_p` and `top_k` are dropped
+#: from the request and warned about rather than honoured. Asking for a temperature of zero
+#: there does not make the model deterministic — it only makes the log say the request
+#: contained something the API discarded, which is worth neither the noise nor the false
+#: impression that the run is reproducible. Where the parameter is honoured it still is,
+#: and `gemini-2.5-pro` is the model that honours it.
+GOOGLE_FIXED_SAMPLING_MODELS: Final = frozenset(
+    {"gemini-3.6-flash", "gemini-3.5-flash-lite"}
+)
+
 
 @dataclass(frozen=True, slots=True)
 class SupportedOllamaModel:

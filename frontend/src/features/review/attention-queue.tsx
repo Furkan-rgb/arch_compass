@@ -1,6 +1,6 @@
 import type { Finding, Review } from "../../api";
 import { cn } from "../../lib/cn";
-import { humanise, plural, verdictOf, verdictRank } from "../../lib/format";
+import { humanise, plural, splitQualified, verdictOf, verdictRank } from "../../lib/format";
 import { Badge } from "../../ui/badge";
 import { ToggleButton } from "../../ui/button";
 import { EmptyState } from "../../ui/states";
@@ -90,17 +90,19 @@ export function AttentionQueue({
         </div>
       </div>
 
-      <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto p-2">
+      {/* `overflow-y-auto` alone makes this a scroller sideways too — CSS resolves the
+          other axis to `auto` — and one long dotted identifier then drags the rail out to
+          its full width. Clipping the axis nothing should ever scroll on is half the fix;
+          the other half is that no row is allowed to be wider than its column. */}
+      <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto overflow-x-clip p-1.5">
         {waiting ? (
           <button
             type="button"
             onClick={() => onSelect({ kind: "clarification" })}
             aria-current={selection?.kind === "clarification" ? "true" : undefined}
             className={cn(
-              "mb-2 w-full rounded-md border p-3 text-left transition",
-              selection?.kind === "clarification"
-                ? "border-accent/45 bg-accent-soft"
-                : "border-held/35 bg-held-soft/60 hover:border-held/60",
+              "mb-1.5 w-full border-l-2 border-held bg-held-soft/60 px-3 py-2.5 text-left transition",
+              selection?.kind === "clarification" ? "bg-held-soft" : "hover:bg-held-soft/80",
             )}
           >
             <div className="flex items-center justify-between gap-2">
@@ -127,30 +129,36 @@ export function AttentionQueue({
               : "Choose another filter to see the rest of this review."}
           </EmptyState>
         ) : (
-          <ul aria-label="Candidates" className="grid gap-1">
+          <ul aria-label="Candidates" className="grid">
             {visible.map((finding) => {
               const descriptor = verdictOf(finding.verdict);
               const active =
                 selection?.kind === "finding" && selection.candidateId === finding.candidate.id;
               const delta = deltaStateOf(review, finding.candidate.id);
+              const identity =
+                finding.candidate.participants[0]?.qualified_name ?? finding.candidate.summary;
+              const { namespace, leaf } = splitQualified(identity);
               return (
                 <li key={finding.candidate.id}>
                   <button
                     type="button"
                     onClick={() => onSelect({ kind: "finding", candidateId: finding.candidate.id })}
                     aria-current={active ? "true" : undefined}
+                    title={identity}
                     className={cn(
-                      "w-full rounded-md border px-3 py-2.5 text-left transition",
+                      "w-full border-l-2 px-3 py-2.5 text-left transition",
+                      // Selection is weight and position, never colour: in this interface a
+                      // hue states a verdict, so a coloured row reads as a grade.
                       active
-                        ? "border-accent/45 bg-accent-soft"
-                        : "border-transparent hover:border-rule hover:bg-sunken/70",
+                        ? "border-l-ink bg-sunken"
+                        : "border-l-transparent hover:bg-sunken/60",
                     )}
                   >
-                    <div className="flex items-start gap-2">
+                    <div className="grid grid-cols-[0.75rem_minmax(0,1fr)] gap-2.5">
                       <span
                         aria-hidden="true"
                         className={cn(
-                          "mt-1 text-[10px] leading-none",
+                          "mt-[3px] text-[10px] leading-none",
                           descriptor.tone === "material" && "text-material",
                           descriptor.tone === "held" && "text-held",
                           descriptor.tone === "cleared" && "text-cleared",
@@ -158,20 +166,32 @@ export function AttentionQueue({
                       >
                         {descriptor.glyph}
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] font-semibold leading-5 text-ink">
+                      <span className="min-w-0">
+                        {namespace ? (
+                          <span className="block truncate font-mono text-[10.5px] text-ink-3">
+                            {namespace}
+                          </span>
+                        ) : null}
+                        <span className="block line-clamp-2 font-mono text-[12.5px] font-medium leading-[1.35] text-ink [overflow-wrap:anywhere]">
+                          {leaf}
+                        </span>
+                        <span className="mt-0.5 block line-clamp-2 text-[12.5px] leading-[1.4] text-ink-2 [overflow-wrap:anywhere]">
                           {finding.candidate.summary}
                         </span>
-                        <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-ink-3">
-                          <span className="font-mono">{finding.candidate.pattern}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>{descriptor.label}</span>
-                          {delta ? (
-                            <>
-                              <span aria-hidden="true">·</span>
-                              <span>{humanise(delta)}</span>
-                            </>
-                          ) : null}
+                        <span className="mt-1 block truncate text-[10.5px] text-ink-3">
+                          <span
+                            className={cn(
+                              "font-semibold",
+                              descriptor.tone === "material" && "text-material",
+                              descriptor.tone === "held" && "text-held",
+                              descriptor.tone === "cleared" && "text-cleared",
+                            )}
+                          >
+                            {descriptor.label}
+                          </span>
+                          {" · "}
+                          {humanise(finding.candidate.pattern)}
+                          {delta ? ` · ${humanise(delta)}` : ""}
                         </span>
                       </span>
                     </div>

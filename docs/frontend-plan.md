@@ -154,3 +154,131 @@ total (54/130/46).
 
 No backend file was changed. The only file touched outside `frontend/` is
 `tests/browser/test_workspace.py`, the end-to-end suite.
+
+
+---
+
+# Second pass
+
+Three things were wrong with the first pass, and one thing was wrong underneath it.
+
+## 10. The rail could be wider than its column
+
+Reported as "the attention queue is wide so there is horizontal scroll", and reproducible
+once a real repository was used instead of the example one. The queue's scroller is
+`overflow-y-auto`, and CSS resolves `overflow-x` to `auto` alongside it — a scroller is a
+scroller in both directions. Nothing in a row broke a dotted identifier, so one realistic
+name took the content from **266px to 651px inside a 266px box**. The example repository's
+names are `ports.Clock`, which is why nothing caught it.
+
+The same bug had a second instance: the sidebar's workspace path is `truncate`d, which sets
+`white-space: nowrap` and therefore makes the element's min-content width the whole string —
+so a grid ancestor left at its default `min-width: auto` was widened by the very thing the
+truncation was meant to hide.
+
+It is fixed as an invariant rather than in two places:
+
+- `min-width: 0` on every grid and flex child that carries text;
+- `overflow-wrap: anywhere` on identifiers, so a name wraps rather than pushes;
+- `overflow-x: clip` on vertical scrollers, so the pair cannot resolve to `auto`;
+- `frontend/src/features/review/overflow.test.tsx`, which renders a 90-character identifier
+  and a deep workspace path and asserts the properties that make the pixels impossible.
+
+Measured after the change in Chromium at 1440px, with a hostile identifier injected into
+every row: queue `scrollWidth` 302 against `clientWidth` 302, sidebar 231 against 231.
+
+## 11. The middle column was the smallest thing on screen
+
+Three panes at 1440 left the finding — the only part anyone reads — with about 500px, while
+two rails held 650 between them. The workbench is now **two panes**, and the context rail is
+dissolved into the *margin of the document*: the case goal sits beside "why this matters",
+the measurements beside the involved code, the retrieval counts beside the policies. A
+citation belongs next to what it supports, not in a third column to be correlated by eye.
+
+- Reading column at a 62-character measure; margin notes at 15rem.
+- Evidence rows span both columns, because prose wants a measure and code wants width.
+- The queue can be hidden once you are working down the list rather than choosing from it.
+- The four-statistic panel is one divided ribbon line, giving back about 120px above the
+  work.
+- Below the two-pane breakpoint the margin notes stack under the prose, and the context is
+  still reachable as a drawer.
+
+## 12. A coloured selection reads as a grade
+
+In this interface a hue states a judgement, so tinting the selected row said "this one
+passed" as loudly as it said "you are here". Selection is now an ink bar and a change of
+surface — weight and position, not colour — in the queue and in the sidebar alike. The
+palette itself is unchanged.
+
+## 13. Underneath: a review was owned by a browser tab
+
+`StartPage` held the whole review inside one streaming HTTP response and only navigated when
+it ended. Reloading aborted the fetch, which closed the server's generator mid-iteration —
+so a refresh did not merely lose the page, it abandoned the run.
+
+A review is now a record before it is a request:
+
+- `POST /api/reviews/runs` starts it and answers `202` with a run id immediately;
+- `GET /api/reviews/runs/{id}` reports status, stage and the review id as soon as one exists;
+- `ReviewRunner` (`src/archcompass/workflow/runs.py`) owns the thread; the durable status
+  comes from the execution store, so it survives a restart, while the live stage does not
+  pretend to;
+- the browser goes to `/runs/:id`, watches, and hands over to `/reviews/:id`.
+
+The end-to-end suite reloads the page mid-run and asserts the run is still there.
+
+## 14. Batch judging
+
+Interactive free tiers meter per minute, and a review asks for one judgement per candidate as
+fast as the graph produces them — which is how a review that has already spent minutes
+indexing fails on its fourth verdict. Judging is a pure fan-out, so the whole stage is one
+submission.
+
+- `BatchArchitectureJudge` is a capability asked at dispatch time, not at build time: which
+  model is selected changes while the workspace runs.
+- `_dispatch_candidates` routes to `review_candidates` when the selected judge can batch, and
+  keeps the existing per-candidate fan-out when it cannot. Ollama and the deterministic
+  provider are untouched.
+- `GoogleBatchJudge` submits every candidate with the same prompt and the same
+  `response_schema` the interactive path validates against — shared functions, not restated
+  ones, so a batched judgement cannot become a different judgement.
+- The caching judge submits only what it has not already judged, and stitches the answers
+  back into the caller's order.
+- A partial batch is refused rather than composed, because a missing verdict would read as a
+  cleared one.
+- Half price, and a quota separate from the interactive one.
+
+The cost is synchrony: a batch is guaranteed within 24 hours and usually much faster. That is
+only acceptable because of §13 — the run no longer lives in a request. The run page says so
+plainly rather than showing a spinner that never stops.
+
+## 15. Rate limits, before batching helps
+
+`archcompass.retrying` retries a call the provider itself describes as temporary — 429 and
+the 5xx family — up to three times at 4s, 12s and 36s, honouring Google's own `retryDelay`
+when it names one. A 400, 401, 403, 404 or a timeout raises immediately. Exhausted retries
+raise `ProviderError`, which the API already reports as 503 and retryable. Applied at the two
+choke points every provider call passes through: the structured reasoning call and both
+embedding calls.
+
+Also fixed: `gemini-3.5-flash-lite` and `gemini-3.6-flash` fix their own sampling, so passing
+`temperature` was discarded and warned about on every call. It is now sent only to models
+that honour it.
+
+## 16. Results
+
+| Check | Result |
+| --- | --- |
+| `make check` | ruff clean, pyright 0 errors, 384 backend tests, OpenAPI types in sync |
+| `vitest run` | 65 passing, 11 files |
+| `pnpm run build` | clean |
+| `pytest -m browser` | 4 passing, including a reload mid-run |
+
+## 17. Still open
+
+- A batch that outlives the process is not resumed on restart. The job name is logged and the
+  execution is marked abandoned, so nothing is silently lost, but collecting an in-flight
+  batch after a restart is not implemented.
+- The batch judge polls in-process rather than through the graph's interrupt/resume, which is
+  correct while the run owns a thread and would need revisiting for a multi-process
+  deployment.

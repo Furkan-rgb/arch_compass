@@ -17,6 +17,9 @@ const LandingPage = lazy(() =>
 const StartPage = lazy(() =>
   import("./features/start/start-page").then((module) => ({ default: module.StartPage })),
 );
+const RunPage = lazy(() =>
+  import("./features/start/run-page").then((module) => ({ default: module.RunPage })),
+);
 const ReviewsPage = lazy(() =>
   import("./features/reviews/reviews-page").then((module) => ({ default: module.ReviewsPage })),
 );
@@ -45,6 +48,7 @@ function Shell() {
       <Suspense fallback={<LoadingPanel label="Loading…" />}>
         <Routes>
           <Route path="/start" element={<StartPage />} />
+          <Route path="/runs/:runId" element={<RunPage />} />
           <Route path="/reviews" element={<ReviewsPage />} />
           <Route path="/reviews/:reviewId" element={<ReviewPage />} />
           <Route path="/repositories" element={<RepositoriesPage />} />

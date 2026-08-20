@@ -12,6 +12,7 @@ while ``Send`` exposes candidate fan-out to LangGraph rather than a private thre
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -21,6 +22,7 @@ from langgraph.types import Send
 
 from archcompass.ports.capabilities import (
     ArchitectureJudge,
+    BatchArchitectureJudge,
     CandidateDetector,
     CaseReviser,
     ContextLoader,
@@ -46,6 +48,7 @@ from archcompass.workflow.nodes import (
     load_policy_corpus_node,
     record_review_node,
     retrieve_policy_set_node,
+    review_candidates_node,
     revise_case_node,
     select_initial_candidates_node,
     select_rejudgements_node,
@@ -82,13 +85,28 @@ def _candidate_graph(
     return graph.compile()
 
 
-def _dispatch_candidates(state: ReviewState) -> list[Send] | Literal["generate_questions"]:
-    if not state["selected_candidates"]:
-        return "generate_questions"
-    return [
-        Send("review_candidate", {**state, "candidate": candidate})
-        for candidate in state["selected_candidates"]
-    ]
+def _dispatch_candidates(
+    capabilities: ReviewWorkflowCapabilities,
+) -> Callable[[ReviewState], list[Send] | str]:
+    """One candidate per branch, or all of them in one node when a batch is available.
+
+    The choice is made here, at dispatch, rather than when the graph was built: which model
+    is selected can change while the workspace is running, and only the batch-capable
+    providers can be asked for every verdict at once.
+    """
+
+    def dispatch(state: ReviewState) -> list[Send] | str:
+        if not state["selected_candidates"]:
+            return "generate_questions"
+        judge = capabilities.judge
+        if isinstance(judge, BatchArchitectureJudge) and judge.supports_batch():
+            return "review_candidates"
+        return [
+            Send("review_candidate", {**state, "candidate": candidate})
+            for candidate in state["selected_candidates"]
+        ]
+
+    return dispatch
 
 
 def _after_questions(
@@ -130,6 +148,10 @@ def build_review_graph(
     )
     graph.add_node("load_policy_corpus", load_policy_corpus_node(capabilities.corpus))
     graph.add_node("review_candidate", _candidate_graph(capabilities))
+    graph.add_node(
+        "review_candidates",
+        review_candidates_node(capabilities.retriever, capabilities.judge),
+    )
     graph.add_node("generate_questions", generate_questions_node(capabilities.questions))
     graph.add_node(
         "compose_waiting_review",
@@ -157,14 +179,24 @@ def build_review_graph(
     graph.add_edge("detect_candidates", "calculate_delta")
     graph.add_edge("calculate_delta", "select_initial_candidates")
     graph.add_edge("select_initial_candidates", "load_policy_corpus")
-    graph.add_conditional_edges("load_policy_corpus", _dispatch_candidates)
+    dispatch = _dispatch_candidates(capabilities)
+    graph.add_conditional_edges(
+        "load_policy_corpus",
+        dispatch,
+        ["review_candidate", "review_candidates", "generate_questions"],
+    )
     graph.add_edge("review_candidate", "generate_questions")
+    graph.add_edge("review_candidates", "generate_questions")
     graph.add_conditional_edges("generate_questions", _after_questions)
     graph.add_edge("compose_waiting_review", "record_waiting_review")
     graph.add_edge("record_waiting_review", "await_answers")
     graph.add_edge("await_answers", "revise_case")
     graph.add_conditional_edges("revise_case", _after_case_revision)
-    graph.add_conditional_edges("select_candidates_for_rejudgement", _dispatch_candidates)
+    graph.add_conditional_edges(
+        "select_candidates_for_rejudgement",
+        dispatch,
+        ["review_candidate", "review_candidates", "generate_questions"],
+    )
     graph.add_edge("compose_final_review", "record_review")
     graph.add_edge("record_review", END)
     return graph.compile(checkpointer=checkpointer)  # type: ignore[arg-type]

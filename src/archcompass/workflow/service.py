@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from typing import Protocol, cast
 
@@ -24,6 +24,7 @@ from archcompass.domain import (
 )
 from archcompass.domain._support import new_id, stable_id, utc_now
 from archcompass.domain.errors import ReviewNotCancellableError
+from archcompass.workflow.runs import ReviewRunner, RunState
 from archcompass.workflow.state import ReviewInput, ReviewState
 
 
@@ -85,10 +86,12 @@ class ReviewWorkflowService:
         *,
         reviews: ReviewSnapshotStore,
         executions: ReviewExecutionStore,
+        runner: ReviewRunner | None = None,
     ) -> None:
         self._graph = graph
         self._reviews = reviews
         self._executions = executions
+        self._runner = runner or ReviewRunner()
 
     def start(
         self,
@@ -159,6 +162,71 @@ class ReviewWorkflowService:
                 raise RuntimeError("Review graph ended without a review snapshot")
             latest = self._bind(thread_id, review)
         yield ReviewProgress(latest.status.value, latest)
+
+    def start_background(
+        self,
+        *,
+        repository_id: str,
+        branch_id: str,
+        case_id: str,
+        case_revision: int | None = None,
+        ci: bool = False,
+    ) -> RunState:
+        """Start a review that is not held open by whoever asked for it.
+
+        Returns the moment the run has an id, which is before it has a review — that is
+        the whole point. The caller is handed something to come back to, so a reload lands
+        on the run rather than on nothing, and a judgement that takes an hour in a batch
+        costs nobody a connection.
+        """
+
+        thread_id = self._begin(repository_id, branch_id, case_id)
+        source = ReviewInput(
+            repository_id=repository_id,
+            branch_id=branch_id,
+            case_id=case_id,
+            case_revision=case_revision,
+            ci=ci,
+        )
+
+        def work(report: Callable[[str], None]) -> None:
+            try:
+                for raw in self._graph.stream(
+                    source,
+                    self._config(thread_id),
+                    stream_mode="updates",
+                    subgraphs=True,
+                ):
+                    stage, update = self._progress_update(raw)
+                    report(stage)
+                    review = update.get("review") if update is not None else None
+                    if isinstance(review, Review):
+                        bound = self._bind(thread_id, review)
+                        self._runner.bind_review(thread_id, bound.id)
+            except Exception as error:
+                self._record_failure(thread_id, error)
+                raise
+            current = self._executions.current_review_id(thread_id)
+            if current is not None:
+                self._runner.bind_review(thread_id, current)
+
+        return self._runner.start(run_id=thread_id, work=work)
+
+    def run_state(self, run_id: str) -> RunState:
+        """What a watcher is told, whether or not this process started the run.
+
+        The in-memory state is the richer answer and the execution store is the durable
+        one, so the store decides the status and memory fills in the stages. After a
+        restart that leaves a run with no stages and an honest status, which beats a
+        progress list that claims to be live and is not.
+        """
+
+        live = self._runner.state(run_id)
+        status = self._executions.status(run_id)
+        review_id = self._executions.current_review_id(run_id)
+        if live is None:
+            return RunState(run_id=run_id, status=status, review_id=review_id)
+        return replace(live, status=status, review_id=review_id or live.review_id)
 
     def resume(
         self,

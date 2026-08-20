@@ -19,6 +19,7 @@ from archcompass.domain import AnswerStatus, Candidate, Evidence, Review
 from archcompass.domain.errors import ReviewHasNoReportError
 from archcompass.presentation.web.dependencies import RuntimeDep, SpendsModelBudget
 from archcompass.presentation.web.schemas import APIModel, problem_responses
+from archcompass.workflow.runs import RunState
 from archcompass.workflow.service import SubmittedAnswer
 
 
@@ -27,6 +28,33 @@ class ReviewRequest(APIModel):
     repository_root: str = Field(min_length=1)
     case_revision: int | None = Field(default=None, ge=1)
     ci: bool = False
+
+
+class ReviewRunResponse(APIModel):
+    """A review in flight, addressable while it is still being produced.
+
+    Carries the review id as soon as one exists — which is before the review is finished —
+    so a client can move from watching a run to reading a review without being told to
+    wait for the whole thing.
+    """
+
+    run_id: str
+    status: str
+    review_id: str | None
+    stage: str
+    stages: list[str]
+    failure: str
+
+    @classmethod
+    def from_state(cls, state: RunState) -> ReviewRunResponse:
+        return cls(
+            run_id=state.run_id,
+            status=state.status,
+            review_id=state.review_id,
+            stage=state.stage,
+            stages=list(state.stages),
+            failure=state.failure,
+        )
 
 
 class SubmittedAnswerRequest(APIModel):
@@ -410,6 +438,35 @@ def routes() -> APIRouter:
             ci=request.ci,
         )
         return ReviewResponse.from_domain(review)
+
+    @router.post(
+        "/api/reviews/runs",
+        status_code=202,
+        dependencies=[SpendsModelBudget],
+        responses=problem_responses(404, 422, 503),
+    )
+    def start_review_run(runtime: RuntimeDep, request: ReviewRequest) -> ReviewRunResponse:
+        """Start a review and answer with something to come back to.
+
+        202 rather than 201: nothing has been created yet except the intention to review,
+        and the review this produces is addressable through the run until it exists.
+        """
+
+        repository_id, branch_id = _identity(runtime, request.repository_root)
+        state = runtime.review_workflow_service.start_background(
+            repository_id=repository_id,
+            branch_id=branch_id,
+            case_id=request.case_id,
+            case_revision=request.case_revision,
+            ci=request.ci,
+        )
+        return ReviewRunResponse.from_state(state)
+
+    @router.get("/api/reviews/runs/{run_id}", responses=problem_responses(404))
+    def read_review_run(runtime: RuntimeDep, run_id: str) -> ReviewRunResponse:
+        return ReviewRunResponse.from_state(
+            runtime.review_workflow_service.run_state(run_id)
+        )
 
     @router.post(
         "/api/reviews/stream",

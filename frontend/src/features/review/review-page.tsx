@@ -4,12 +4,12 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import { coreApi, type Review } from "../../api";
 import { cn } from "../../lib/cn";
-import { useIsDesktop, useIsTabletUp } from "../../lib/media";
+import { useIsTabletUp } from "../../lib/media";
 import { relativeTime, repositoryName, shortId } from "../../lib/format";
 import { StatusBadge, Tag } from "../../ui/badge";
 import { Button, ButtonLink } from "../../ui/button";
 import { Drawer } from "../../ui/drawer";
-import { Mono, PathRef, Statistic } from "../../ui/meta";
+import { Mono, PathRef } from "../../ui/meta";
 import { Panel, PanelBody } from "../../ui/panel";
 import { ErrorNotice, LoadingPanel } from "../../ui/states";
 import { Tabs, TabPanel } from "../../ui/tabs";
@@ -97,41 +97,50 @@ function ReviewHead({
   );
 }
 
-function StatusStrip({ review }: { review: Review }) {
+function StatusRibbon({ review }: { review: Review }) {
   const attention = review.findings.filter(needsAttention).length;
   const material = review.findings.filter((finding) => finding.verdict === "material").length;
   const held = review.findings.filter((finding) => finding.verdict === "held").length;
-  const cleared = review.findings.filter((finding) => finding.verdict === "cleared").length;
   const policies = new Set(
     review.retrieval_manifest.flatMap((item) => item.selected_policy_ids),
   ).size;
+  const waiting = review.status === "awaiting_answers" ? review.questions.length : 0;
+
+  // A line rather than a panel of four big numbers: this is orientation, read once, and it
+  // used to cost about 120px above the work it was orienting you to.
+  const cells: Array<[number, string, boolean]> = [
+    [attention + waiting, `need you — ${material} material, ${held} held`, true],
+    [review.findings.length, "judged", false],
+    [policies, "policies retrieved", false],
+    [
+      review.delta.new.length + review.delta.changed.length,
+      review.previous_review_id ? `new or changed since review ${review.sequence - 1}` : "new",
+      false,
+    ],
+  ];
 
   return (
-    <Panel className="mb-5" tone="flat">
-      <PanelBody className="grid grid-cols-2 gap-5 sm:grid-cols-4">
-        <Statistic
-          label="Needs attention"
-          value={attention + (review.status === "awaiting_answers" ? review.questions.length : 0)}
-          tone={attention ? "material" : "cleared"}
-          detail={`${material} material · ${held} held`}
-        />
-        <Statistic
-          label="Candidates judged"
-          value={review.findings.length}
-          detail={`${cleared} cleared`}
-        />
-        <Statistic
-          label="Policies retrieved"
-          value={policies}
-          detail={`${review.retrieval_manifest.length} retrievals`}
-        />
-        <Statistic
-          label="Repository delta"
-          value={review.delta.new.length + review.delta.changed.length}
-          detail={`${review.delta.unchanged.length} unchanged · ${review.delta.addressed.length} addressed`}
-        />
-      </PanelBody>
-    </Panel>
+    <div className="mb-4 flex flex-wrap overflow-hidden rounded-md border border-rule bg-surface">
+      {cells.map(([value, label, urgent], index) => (
+        <div
+          key={label}
+          className={cn(
+            "flex items-baseline gap-2 px-4 py-2.5",
+            index < cells.length - 1 && "border-r border-rule",
+          )}
+        >
+          <span
+            className={cn(
+              "font-display text-lg font-semibold tabular-nums",
+              urgent && value > 0 ? "text-material" : "text-ink",
+            )}
+          >
+            {value}
+          </span>
+          <span className="text-xs text-ink-3">{label}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -139,7 +148,6 @@ export function ReviewPage() {
   const { reviewId = "" } = useParams();
   const navigate = useNavigate();
   const client = useQueryClient();
-  const isDesktop = useIsDesktop();
   const isTabletUp = useIsTabletUp();
 
   const [surface, setSurface] = useState("workbench");
@@ -147,6 +155,9 @@ export function ReviewPage() {
   const [selection, setSelection] = useState<QueueSelection | null>(null);
   const [contextOpen, setContextOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  // Choosing what to look at and working down the list are different jobs; the rail is only
+  // needed for the first, so it can be put away for the second.
+  const [railOpen, setRailOpen] = useState(true);
 
   const review = useQuery({ queryKey: ["review", reviewId], queryFn: () => coreApi.review(reviewId) });
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: coreApi.reviews });
@@ -197,7 +208,7 @@ export function ReviewPage() {
       <FindingDetail
         review={value}
         finding={selectedFinding}
-        onOpenContext={isDesktop ? undefined : () => setContextOpen(true)}
+        onOpenContext={isTabletUp ? undefined : () => setContextOpen(true)}
       />
     ) : (
       <Panel>
@@ -238,7 +249,7 @@ export function ReviewPage() {
         </div>
       ) : null}
 
-      <StatusStrip review={value} />
+      <StatusRibbon review={value} />
 
       <Tabs
         label="Review surfaces"
@@ -251,17 +262,24 @@ export function ReviewPage() {
       <TabPanel id="workbench" active={surface}>
         <div
           className={cn(
-            "grid min-h-0 items-start gap-4",
-            isDesktop
-              ? "xl:grid-cols-[268px_minmax(0,1fr)_320px]"
-              : isTabletUp
-                ? "lg:grid-cols-[268px_minmax(0,1fr)]"
-                : "grid-cols-1",
+            "grid min-h-0 items-start gap-6",
+            isTabletUp && railOpen
+              ? "lg:grid-cols-[19rem_minmax(0,1fr)]"
+              : "grid-cols-1",
           )}
         >
-          {isTabletUp ? (
+          {isTabletUp && railOpen ? (
             <div className="grid gap-4 lg:sticky lg:top-20">
-              <Panel className="max-h-[calc(100vh-9rem)] overflow-hidden">{queue}</Panel>
+              <Panel className="max-h-[calc(100vh-9rem)] overflow-hidden">
+                {queue}
+                <button
+                  type="button"
+                  onClick={() => setRailOpen(false)}
+                  className="w-full border-t border-rule px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-3 transition hover:bg-sunken hover:text-ink"
+                >
+                  Hide the queue
+                </button>
+              </Panel>
               <Panel>
                 <RevisionRail current={value} reviews={reviews.data ?? [value]} />
               </Panel>
@@ -269,27 +287,23 @@ export function ReviewPage() {
           ) : null}
 
           <div className="min-w-0">
-            {!isTabletUp ? (
-              <div className="mb-3 flex flex-wrap gap-2">
+            <div className="mb-3 flex flex-wrap gap-2">
+              {isTabletUp && !railOpen ? (
+                <Button variant="secondary" size="sm" onClick={() => setRailOpen(true)}>
+                  Show the queue
+                </Button>
+              ) : null}
+              {!isTabletUp ? (
                 <Button variant="secondary" size="sm" onClick={() => setQueueOpen(true)}>
                   Attention queue
                 </Button>
-                <Button variant="secondary" size="sm" onClick={() => setContextOpen(true)}>
-                  Judgement context
-                </Button>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
             {!isTabletUp && selectedFinding ? (
               <FindingBackBar finding={selectedFinding} onBack={() => setQueueOpen(true)} />
             ) : null}
             {detail}
           </div>
-
-          {isDesktop ? (
-            <Panel className="sticky top-20 max-h-[calc(100vh-9rem)] overflow-hidden">
-              <ContextRail review={value} finding={selectedFinding} />
-            </Panel>
-          ) : null}
         </div>
       </TabPanel>
 
@@ -322,8 +336,10 @@ export function ReviewPage() {
         <div className="max-h-[70vh]">{queue}</div>
       </Drawer>
 
+      {/* The context rail is a document margin now, so this only exists for the width
+          where there is no margin to put it in. */}
       <Drawer
-        open={contextOpen && !isDesktop}
+        open={contextOpen && !isTabletUp}
         onClose={() => setContextOpen(false)}
         side="right"
         title="Judgement context"

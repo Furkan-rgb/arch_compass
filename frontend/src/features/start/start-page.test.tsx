@@ -1,12 +1,18 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { coreApi, type ReviewProgress } from "../../api";
-import { reviewFixture, workspaceFixture } from "../../test-fixtures";
+import { coreApi } from "../../api";
+import { workspaceFixture } from "../../test-fixtures";
 import { StartPage } from "./start-page";
+
+/** Stands in for the run page, and reports the address the start page moved to. */
+function RunAddress() {
+  const { runId } = useParams();
+  return <div>/runs/{runId}</div>;
+}
 
 function wrap(children: ReactNode, entry = "/start") {
   const client = new QueryClient({
@@ -18,6 +24,7 @@ function wrap(children: ReactNode, entry = "/start") {
         <Routes>
           <Route path="/start" element={children} />
           <Route path="/reviews/:reviewId" element={<div>Review workbench</div>} />
+          <Route path="/runs/:runId" element={<RunAddress />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -70,27 +77,23 @@ describe("starting a review", () => {
     );
   });
 
-  it("names each stage of the run while it is still running", async () => {
+  it("hands the review to the workspace rather than holding it open here", async () => {
+    // The run used to live inside a streaming response owned by this page, so reloading
+    // the tab abandoned it. Now the page asks for a run and goes to watch it by id.
     vi.spyOn(coreApi, "workspace").mockResolvedValue(workspaceFixture());
     vi.spyOn(coreApi, "startRepository").mockResolvedValue({
       case_id: "case-1",
       revision: 1,
       goal: "",
     });
-    // The last event is held back, so the run is observed mid-flight rather than after it has
-    // already navigated away.
-    let release = () => {};
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
+    const started = vi.spyOn(coreApi, "startReviewRun").mockResolvedValue({
+      run_id: "thread-7",
+      status: "running",
+      review_id: null,
+      stage: "load_context",
+      stages: ["load_context"],
+      failure: "",
     });
-    vi.spyOn(coreApi, "streamReview").mockImplementation(
-      async function* (): AsyncGenerator<ReviewProgress> {
-        yield { event: "repository_analyzed" };
-        yield { event: "policies_retrieved" };
-        await held;
-        yield { event: "review_recorded", review: reviewFixture({ id: "review-9" }) };
-      },
-    );
 
     render(wrap(<StartPage />, "/start?root=%2Fwork%2Fpayments-platform"));
 
@@ -98,15 +101,11 @@ describe("starting a review", () => {
     await waitFor(() => expect(run).not.toBeDisabled());
     fireEvent.click(run);
 
-    const progress = await screen.findByRole("list", { name: "Review progress" });
     await waitFor(() =>
-      expect(within(progress).getByText("Relevant policies retrieved")).toBeInTheDocument(),
+      expect(started).toHaveBeenCalledWith("case-1", "/work/payments-platform"),
     );
-    expect(within(progress).getByText("Repository analysed")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Review in progress/ })).toBeDisabled();
-
-    release();
-    expect(await screen.findByText("Review workbench")).toBeInTheDocument();
+    // The address it moves to is the run, which survives a reload.
+    expect(await screen.findByText("/runs/thread-7")).toBeInTheDocument();
   });
 
   it("reports a failed run in place rather than navigating away", async () => {

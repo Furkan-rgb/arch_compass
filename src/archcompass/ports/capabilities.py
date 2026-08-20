@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from archcompass.domain import (
     Answer,
@@ -60,6 +60,33 @@ class ArchitectureJudge(Protocol):
         case: ArchitectureCase,
         policies: RetrievedPolicySet,
     ) -> Finding: ...
+
+
+@dataclass(frozen=True, slots=True)
+class JudgementRequest:
+    """One candidate, and everything the model needs to judge it."""
+
+    candidate: Candidate
+    case: ArchitectureCase
+    policies: RetrievedPolicySet
+
+
+@runtime_checkable
+class BatchArchitectureJudge(Protocol):
+    """A judge that can put a whole review to the model in one submission.
+
+    A hosted provider meters interactive calls per minute and a batch of them per day,
+    which is the difference between a review of forty candidates failing halfway through
+    and finishing. Whether that is available depends on the model selected right now, not
+    on how the graph was built, so `supports_batch` is asked at dispatch time rather than
+    answered once at startup.
+    """
+
+    def supports_batch(self) -> bool: ...
+
+    def judge_all(
+        self, requests: Sequence[JudgementRequest]
+    ) -> tuple[Finding, ...]: ...
 
 
 class QuestionGenerator(Protocol):

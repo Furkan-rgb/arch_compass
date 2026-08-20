@@ -10,10 +10,12 @@ from langgraph.types import interrupt
 from archcompass.domain import Answer
 from archcompass.ports.capabilities import (
     ArchitectureJudge,
+    BatchArchitectureJudge,
     CandidateDetector,
     CaseReviser,
     ContextLoader,
     InitialCandidateSelector,
+    JudgementRequest,
     PolicyCorpus,
     PolicyRetriever,
     QuestionGenerator,
@@ -124,6 +126,49 @@ def judge_candidate_node(judge: ArchitectureJudge) -> Node:
         }
 
     return judge_candidate
+
+
+def review_candidates_node(retriever: PolicyRetriever, judge: ArchitectureJudge) -> Node:
+    """Retrieve for every selected candidate, then judge them in one submission.
+
+    The same two steps the per-candidate subgraph performs, done for the whole selection at
+    once. It exists because a batch has to be one request: a fan-out cannot submit a batch
+    without every branch first waiting for every other, which is a deadlock wearing a
+    barrier's clothes. Retrieval stays a loop because it is local — a SQLite index and an
+    embedding call, not a metered judgement.
+    """
+
+    def review_candidates(state: ReviewState) -> dict[str, object]:
+        selected = state["selected_candidates"]
+        if not selected:
+            return {"retrievals": {}, "findings": {}}
+        if not isinstance(judge, BatchArchitectureJudge):
+            raise TypeError("this node was routed to without a judge that can batch")
+
+        requests = tuple(
+            JudgementRequest(
+                candidate=candidate,
+                case=state["case"],
+                policies=retriever.retrieve(candidate, state["case"], state["corpus"]),
+            )
+            for candidate in selected
+        )
+        findings = judge.judge_all(requests)
+        if len(findings) != len(requests):
+            raise ValueError(
+                f"the judge answered {len(findings)} of {len(requests)} candidates"
+            )
+        return {
+            "retrievals": {
+                str(item.candidate.id): item.policies for item in requests
+            },
+            "findings": {
+                str(item.candidate.id): finding
+                for item, finding in zip(requests, findings, strict=True)
+            },
+        }
+
+    return review_candidates
 
 
 def generate_questions_node(generator: QuestionGenerator) -> Node:

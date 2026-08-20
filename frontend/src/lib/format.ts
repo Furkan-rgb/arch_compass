@@ -87,6 +87,19 @@ export function repositoryName(path: string): string {
 }
 
 /** Keep the first and last segments, elide the middle: `src/…/orders/gateway.py`. */
+/**
+ * A qualified name split into the part that locates it and the part that names it.
+ *
+ * A queue row identifies a thing; it is not a place to read a sentence. Showing the
+ * namespace small and dim above the leaf gives both without either of them being able to
+ * push the rail sideways: the namespace is clipped, the leaf wraps at any character.
+ */
+export function splitQualified(name: string): { namespace: string; leaf: string } {
+  const cut = name.lastIndexOf(".");
+  if (cut <= 0) return { namespace: "", leaf: name };
+  return { namespace: name.slice(0, cut), leaf: name.slice(cut + 1) };
+}
+
 export function shortPath(path: string, keep = 2): string {
   const parts = path.split("/").filter(Boolean);
   if (parts.length <= keep + 1) return path;

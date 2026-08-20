@@ -14,17 +14,30 @@ from archcompass.configuration import (
     resolve_api_key,
 )
 from archcompass.domain.errors import ConfigurationError
+from archcompass.reasoning.adapters.providers import GOOGLE_FIXED_SAMPLING_MODELS
 
 
 def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:
     if config.provider == "google":
+        # A model that fixes its own sampling is sent no temperature at all. Passing one
+        # would be discarded on the way out and reported as a warning on every single
+        # call, which reads as a misconfiguration and is really just a parameter the model
+        # does not take.
+        sampling = (
+            {}
+            if config.model in GOOGLE_FIXED_SAMPLING_MODELS
+            else {"temperature": 0.0}
+        )
+        # `retries=0` leaves retrying to `archcompass.retrying`, which is the only place
+        # that can wait for the length of a quota window, say in the log that it is
+        # waiting, and fail as a `ProviderError` the API already knows how to report.
         return ChatGoogleGenerativeAI(
             model=config.model,
             api_key=SecretStr(resolve_api_key(config.api_key_env, provider="google")),
-            temperature=0,
             max_tokens=config.max_output_tokens,
             request_timeout=config.timeout_seconds,
             retries=0,
+            **sampling,
         )
     if config.provider == "ollama":
         return ChatOllama(

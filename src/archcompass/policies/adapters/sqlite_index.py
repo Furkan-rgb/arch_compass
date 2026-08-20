@@ -12,6 +12,7 @@ from langchain_core.embeddings import Embeddings
 
 from archcompass.domain import Policy
 from archcompass.ports.dense_policy_index import DensePolicyMatch
+from archcompass.retrying import call_with_retry
 
 #: How many chunks are embedded per call. Not a throughput knob — one call for the whole
 #: corpus is faster where it works. It is a ceiling on how much a single request asks a
@@ -159,7 +160,14 @@ class SQLitePolicyIndex:
         connection: sqlite3.Connection,
         batch: list[tuple[str, str, str, str, str, str, str | None]],
     ) -> None:
-        vectors = self._embeddings.embed_documents([entry[3] for entry in batch])
+        # Indexing the corpus is where a hosted free tier is most likely to say no: it
+        # is hundreds of chunks sent as fast as the batches are built, against a limit
+        # counted per minute. Failing the batch would abandon the ones already embedded.
+        texts = [entry[3] for entry in batch]
+        vectors = call_with_retry(
+            lambda: self._embeddings.embed_documents(texts),
+            subject=f"Embedding {len(texts)} policy chunks",
+        )
         for (
             chunk_id,
             policy_id,
@@ -209,7 +217,10 @@ class SQLitePolicyIndex:
     def search(self, query: str, *, limit: int) -> tuple[DensePolicyMatch, ...]:
         if limit < 1:
             return ()
-        vector = self._embeddings.embed_query(query)
+        vector = call_with_retry(
+            lambda: self._embeddings.embed_query(query),
+            subject="Embedding a policy search",
+        )
         if len(vector) != self._dimensions:
             raise ValueError(
                 f"{self._embedding_identity} returned {len(vector)} dimensions; "

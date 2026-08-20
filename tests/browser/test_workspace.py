@@ -119,6 +119,14 @@ def review_url(browser, workspace_url: str) -> str:  # type: ignore[no-untyped-d
         run = opened.get_by_role("button", name="Run review")
         run.wait_for(state="visible")
         run.click()
+        # Starting a review hands it to the workspace and moves to the run, which is what
+        # makes the page reloadable; the run redirects to the review once there is one.
+        opened.wait_for_url("**/runs/**", timeout=30_000)
+        run_url = opened.url
+        # The proof that the fix is a fix: a reload lands back on the same run rather than
+        # on a page that has forgotten it, and the review is still being produced.
+        opened.reload(wait_until="networkidle")
+        assert opened.url == run_url
         opened.wait_for_url("**/reviews/**", timeout=REVIEW_TIMEOUT_MS)
         return opened.url
     finally:

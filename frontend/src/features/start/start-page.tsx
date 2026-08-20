@@ -15,23 +15,6 @@ import { ErrorNotice, LiveRegion, Spinner } from "../../ui/states";
 import { RepositoryPicker } from "./repository-picker";
 
 /** Graph events, said the way a reader would describe the step. */
-const STAGE_LABELS: Record<string, string> = {
-  analyze_repository: "Analysing the repository",
-  repository_analyzed: "Repository analysed",
-  detect_candidates: "Detecting architecture candidates",
-  candidates_detected: "Architecture candidates detected",
-  retrieve_policies: "Retrieving relevant policies",
-  policies_retrieved: "Relevant policies retrieved",
-  judge_candidates: "Judging candidates against policy",
-  candidates_judged: "Candidates judged",
-  generate_questions: "Preparing clarification questions",
-  questions_generated: "Clarification questions prepared",
-  compose_review: "Composing the review",
-  review_composed: "Review composed",
-  record_review: "Recording the review",
-  review_recorded: "Review recorded",
-  awaiting_answers: "Waiting for clarification",
-};
 
 const PIPELINE = [
   ["Repository", "Parsed into a deterministic atlas — nodes, edges, metrics, signals."],
@@ -59,21 +42,22 @@ export function StartPage() {
   const embedding = workspace.data?.models.embedding;
   const ready = Boolean(reasoning && embedding);
 
+  /**
+   * Hand the review to the workspace and go and watch it.
+   *
+   * This page used to hold the whole review inside one streaming response, which made the
+   * browser tab the thing keeping it alive: a reload closed the connection and the run was
+   * abandoned. Now it asks for a run, gets an id back straight away, and moves to a URL
+   * that survives a reload.
+   */
   async function start() {
     setRunning(true);
     setFailure(null);
     setStages(["Preparing the repository"]);
     try {
       const started = await coreApi.startRepository(root.trim(), clean);
-      let finalId: string | null = null;
-      for await (const progress of coreApi.streamReview(started.case_id, root.trim())) {
-        const label = STAGE_LABELS[progress.event] ?? progress.event.replaceAll("_", " ");
-        setStages((current) => (current.at(-1) === label ? current : [...current, label]));
-        if (progress.message) throw new Error(progress.message);
-        if (progress.review) finalId = progress.review.id;
-      }
-      if (!finalId) throw new Error("The review stream ended without a review");
-      navigate(`/reviews/${finalId}`);
+      const run = await coreApi.startReviewRun(started.case_id, root.trim());
+      navigate(`/runs/${run.run_id}`);
     } catch (error) {
       setFailure(error);
       setRunning(false);
