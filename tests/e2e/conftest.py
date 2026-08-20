@@ -53,7 +53,7 @@ EMBEDDING_DIMENSIONS = 768
 #: Small on purpose. Five detected candidates is enough for fan-out, for rejudgement, and for
 #: a retrieval manifest with more than one entry in it, and few enough that a whole lifecycle
 #: fits inside the free tier's reasoning quota.
-SUBJECT_REPOSITORY = Path("eval/cases/warehouse-sync/repository")
+SUBJECT_REPOSITORY = Path("examples/cases/warehouse-sync/repository")
 
 
 @dataclass(frozen=True)

@@ -27,7 +27,7 @@ Needs Ollama on `localhost:11434` holding `embeddinggemma`:
 
 ```
 ollama pull embeddinggemma
-make eval-rag                                        # headless, writes results/ and an HTML report
+make evaluation                                      # headless, writes results/ and an HTML report
 uv run --group evaluation jupyter lab evaluation/retrieval-evaluation.ipynb
 ```
 
@@ -43,7 +43,7 @@ nothing about the product.
 
 The test set is 68 labelled cases of two kinds.
 
-**28 candidate cases** are not written down. `eval/cases` is parsed by the production
+**28 candidate cases** are not written down. `examples/cases` is parsed by the production
 analyser, run through the production detectors, and turned into a query by the production
 `retrieval_query`. The YAML holds only relevance labels, joined to the detector output by
 participant list, and the join is checked in both directions — an unmatched label and an

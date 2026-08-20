@@ -19,9 +19,9 @@ from archcompass.analysis.adapters.ast_analyzer import PythonAstRepositoryAnalyz
 from archcompass.analysis.atlas import FindingPattern
 from archcompass.analysis.detectors import detect_finding_candidates
 
-FIXTURE = Path("eval/cases/boundary-review").resolve()
+FIXTURE = Path("examples/cases/boundary-review").resolve()
 
-pytestmark = pytest.mark.evaluation
+pytestmark = pytest.mark.examples
 
 
 def test_every_detected_boundary_is_the_same_shape() -> None:

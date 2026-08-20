@@ -32,7 +32,7 @@ COPY src/ src/
 # demo is the one place a visitor sees the atlas without choosing what went into it, so it
 # gets the better edges. Absent, indexing still works and the edges are the parser's own.
 RUN uv sync --frozen --no-dev --extra resolution
-COPY eval/cases/ eval/cases/
+COPY examples/cases/ examples/cases/
 COPY --from=frontend /app/src/archcompass/presentation/web/static/ \
     src/archcompass/presentation/web/static/
 

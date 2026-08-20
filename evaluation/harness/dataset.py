@@ -41,7 +41,7 @@ __all__ = [
 
 CANDIDATE_LABELS = Path("evaluation/dataset/candidate-labels.yaml")
 INTENT_CASES = Path("evaluation/dataset/intent-cases.yaml")
-EXAMPLE_REPOSITORIES = Path("eval/cases")
+EXAMPLE_REPOSITORIES = Path("examples/cases")
 
 #: Graded gain for nDCG. Everything else in the harness reads bearings alone.
 GRADES = {"bearing": 3, "supporting": 2, "adjacent": 1}

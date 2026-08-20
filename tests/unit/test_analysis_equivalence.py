@@ -35,7 +35,7 @@ EXAMPLES = ["boundary-review", "warehouse-sync", "speech-vendor"]
 #: UTF-8 passed the comparison untouched — which is exactly how a bug that zeroed the size
 #: of every configuration node reached a review of this test's own safety argument.
 #:
-#: Kept here rather than added to `eval/cases`, because those are the repositories the
+#: Kept here rather than added to `examples/cases`, because those are the repositories the
 #: evaluation reasons about and a deliberately broken file would be a claim about them.
 MIXED = "mixed"
 
@@ -43,7 +43,7 @@ MIXED = "mixed"
 def _repository(name: str) -> Path:
     if name == MIXED:
         return Path(__file__).parent / "fixtures" / MIXED
-    return Path(__file__).resolve().parents[2] / "eval" / "cases" / name / "repository"
+    return Path(__file__).resolve().parents[2] / "examples" / "cases" / name / "repository"
 
 
 def _analysed(root: Path) -> dict[str, object]:

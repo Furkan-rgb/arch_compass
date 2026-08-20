@@ -24,9 +24,9 @@ from archcompass.analysis.adapters.ast_analyzer import PythonAstRepositoryAnalyz
 from archcompass.analysis.atlas import FindingPattern
 from archcompass.analysis.detectors import detect_finding_candidates
 
-FIXTURE = Path("eval/cases/speech-vendor").resolve()
+FIXTURE = Path("examples/cases/speech-vendor").resolve()
 
-pytestmark = pytest.mark.evaluation
+pytestmark = pytest.mark.examples
 
 
 def test_no_boundary_can_be_told_from_another_by_its_shape_alone() -> None:

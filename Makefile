@@ -1,4 +1,4 @@
-.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build test-ollama test-google eval eval-rag check build full test-browser run web web-google docker-build
+.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build test-ollama test-google examples evaluation check build full test-browser run web web-google docker-build
 
 sync:
 	uv sync --locked
@@ -43,10 +43,10 @@ test-ollama:
 test-google:
 	uv run pytest -m "google"
 
-# Offline checks that the example repositories still present the shapes the review path is
-# demonstrated on. No model, no answer key — the examples ship neither.
-eval:
-	uv run pytest -m "evaluation and not ollama"
+# Offline checks that the example repositories under `examples/cases` still present the
+# shapes the review path is demonstrated on. No model, no answer key — they ship neither.
+examples:
+	uv run pytest -m "examples and not ollama"
 
 # The retrieval evaluation, executed end to end and left with its outputs in place, so the
 # committed notebook is a record of a run rather than a script somebody has to trust. Needs
@@ -54,7 +54,7 @@ eval:
 # a Jupyter stack and therefore not installed by `make sync`.
 # Outside `check` because it depends on a live service and takes a minute; the HTML is for
 # reading the result without a kernel.
-eval-rag:
+evaluation:
 	uv sync --group evaluation
 	uv run --group evaluation jupyter nbconvert --to notebook --execute --inplace \
 	  --ExecutePreprocessor.timeout=1800 evaluation/retrieval-evaluation.ipynb

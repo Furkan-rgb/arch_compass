@@ -23,7 +23,7 @@ from archcompass.ports.atlas import (
     EdgeResolver,
 )
 
-AUDIOBOOK = Path(__file__).resolve().parents[2] / "eval" / "cases" / "audiobook-studio"
+AUDIOBOOK = Path(__file__).resolve().parents[2] / "examples" / "cases" / "audiobook-studio"
 
 
 def _resolver() -> EdgeResolver:

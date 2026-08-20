@@ -71,7 +71,7 @@ addopts = '-q --strict-config --strict-markers -m "not ollama and not google and
 testpaths = ["tests"]
 norecursedirs = ["tests/fixtures"]
 markers = [
-  "evaluation: offline checks that the shipped example repositories still present the shapes a review is demonstrated on",
+  "examples: offline checks that the shipped example repositories still present the shapes a review is demonstrated on",
   "ollama: optional evaluation requiring a locally running Ollama service",
   "google: end-to-end review against live services, needing a Google AI Studio key with free-tier quota and a local Ollama holding embeddinggemma for the retrieval side",
   "browser: drives the built workspace in a real browser; needs `make frontend-build` and Playwright",
@@ -89,7 +89,7 @@ src = ["src", "tests", "evaluation"]
 # `tests/unit/fixtures` holds repositories built to be analysed rather than to be run: one
 # file does not parse and one is not UTF-8, both on purpose, because those are the shapes the
 # analyser has to survive and the bundled examples never contain them.
-extend-exclude = ["eval/cases", "tests/unit/fixtures"]
+extend-exclude = ["examples/cases", "tests/unit/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
@@ -101,7 +101,7 @@ select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 include = ["src"]
-exclude = ["tests/fixtures", "eval/cases"]
+exclude = ["tests/fixtures", "examples/cases"]
 venvPath = "."
 venv = ".venv"
 reportMissingTypeStubs = false

@@ -28,7 +28,7 @@ from archcompass.reasoning.adapters.providers import DETERMINISTIC_MODEL
 
 pytestmark = pytest.mark.browser
 
-REPOSITORY = Path("eval/cases/boundary-review/repository").resolve()
+REPOSITORY = Path("examples/cases/boundary-review/repository").resolve()
 BUNDLE = Path("src/archcompass/presentation/web/static/index.html")
 
 #: Long enough for a full deterministic review of the example repository on a cold workspace.

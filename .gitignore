@@ -24,10 +24,10 @@ reports/
 # policy index and whatever a run scored. Both are rebuilt from the dataset and the
 # corpus, and the index alone is 2 MB of vectors that change with every embedding model.
 evaluation/results/
-# ...except a fixture repository's own reports package: eval/cases ships whole
+# ...except an example repository's own reports package: examples/cases ships whole
 # repositories to be analysed, and one of them keeps a subsystem by that name on
 # purpose — it is half of the seeded PAGE_SIZE coincidence.
-!eval/cases/**/reports/
+!examples/cases/**/reports/
 frontend/node_modules/
 # Vitest writes its cache next to whatever directory it was invoked from, so running the
 # frontend suite from the repository root leaves a `node_modules` here holding nothing else.

@@ -14,7 +14,7 @@ from archcompass.bootstrap import Runtime, build_runtime, pinned_model
 from archcompass.domain.errors import AtlasQueryValidationError, PathValidationError
 from archcompass.reasoning.adapters.providers import DETERMINISTIC_MODEL
 
-FIXTURE = Path("eval/cases/speech-vendor/repository").resolve()
+FIXTURE = Path("examples/cases/speech-vendor/repository").resolve()
 
 
 def _repository_around_its_own_workspace(tmp_path: Path) -> tuple[Path, Path, Runtime]:

@@ -25,7 +25,7 @@ from archcompass.repositories.service import RepositoryIndexService
 #: Shipped alongside the package rather than resolved from the working directory, so a
 #: workspace opened from anywhere finds the same examples.
 BUNDLED_EXAMPLE_ROOT = (
-    Path(__file__).resolve().parent.parent.parent.parent / "eval" / "cases"
+    Path(__file__).resolve().parent.parent.parent.parent / "examples" / "cases"
 )
 
 

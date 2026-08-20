@@ -23,9 +23,9 @@ from archcompass.analysis.adapters.ast_analyzer import PythonAstRepositoryAnalyz
 from archcompass.analysis.atlas import FindingPattern
 from archcompass.analysis.detectors import detect_finding_candidates
 
-FIXTURE = Path("eval/cases/audiobook-studio").resolve()
+FIXTURE = Path("examples/cases/audiobook-studio").resolve()
 
-pytestmark = pytest.mark.evaluation
+pytestmark = pytest.mark.examples
 
 
 def _candidates():

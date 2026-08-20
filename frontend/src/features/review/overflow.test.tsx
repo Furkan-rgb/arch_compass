@@ -137,7 +137,7 @@ describe("the attention queue's width", () => {
 /**
  * The same rule, one level up.
  *
- * A workspace path is long by nature — `/Users/…/Documents/arch_compass/eval/cases/…` — and
+ * A workspace path is long by nature — `/Users/…/Documents/arch_compass/examples/cases/…` — and
  * the sidebar is a fixed 232px track. `truncate` sets `white-space: nowrap`, which makes the
  * element's min-content width the whole string, so a grid or flex ancestor left at its
  * default `min-width: auto` is widened by the very thing the truncation was supposed to

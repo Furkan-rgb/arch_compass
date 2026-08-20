@@ -10,7 +10,7 @@ from archcompass.presentation.web.app import create_app
 
 
 def test_clean_break_stream_exposes_graph_stages(runtime: Runtime) -> None:
-    repository = str(Path("eval/cases/warehouse-sync/repository").resolve())
+    repository = str(Path("examples/cases/warehouse-sync/repository").resolve())
     with TestClient(create_app(runtime)) as client:
         started = client.post("/api/repositories/start", json={"root_path": repository})
         response = client.post(
@@ -38,7 +38,7 @@ def test_clean_break_stream_exposes_graph_stages(runtime: Runtime) -> None:
 def test_clean_break_api_resumes_the_same_graph_without_elicited_from(
     runtime: Runtime,
 ) -> None:
-    repository = str(Path("eval/cases/warehouse-sync/repository").resolve())
+    repository = str(Path("examples/cases/warehouse-sync/repository").resolve())
     with TestClient(create_app(runtime)) as client:
         started = client.post("/api/repositories/start", json={"root_path": repository})
         assert started.status_code == 200, started.text

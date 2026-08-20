@@ -128,7 +128,7 @@ def test_cli_commands_cover_local_workflow(tmp_path: Path) -> None:
         == 0
     )
 
-    repository = Path("eval/cases/boundary-review/repository").resolve()
+    repository = Path("examples/cases/boundary-review/repository").resolve()
     # Written here rather than taken from the example, which ships a repository and no case:
     # `case create --from` is for someone who has already authored one, and the file it
     # reads has to come from somewhere that is not the product's own flow.
