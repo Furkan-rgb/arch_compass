@@ -17,7 +17,7 @@ export function LoadingPanel({ label, rows = 3 }: { label: string; rows?: number
     <div
       role="status"
       aria-live="polite"
-      className="rounded-lg border border-rule bg-surface p-5 shadow-panel"
+      className="rounded-lg border border-rule bg-surface p-5"
     >
       <div className="flex items-center gap-2.5 text-sm font-medium text-ink-2">
         <Spinner />
@@ -37,7 +37,7 @@ export function Spinner({ className }: { className?: string }) {
     <span
       aria-hidden="true"
       className={cn(
-        "inline-block size-3.5 animate-spin rounded-full border-2 border-accent/25 border-t-accent",
+        "inline-block size-3.5 animate-spin rounded-full border-2 border-rule-strong border-t-ink",
         className,
       )}
     />
@@ -53,9 +53,9 @@ export function Spinner({ className }: { className?: string }) {
  * configuration", and a finished clone in `cleared` green says the clone was found sound.
  * Neither is a verdict, and both were saying so in the product's own colour language.
  *
- * Two tones, and neither is a hue the queue uses: `notice` is a fact about the setup and is
- * neutral; `working` is the workspace acting or asking, which is what the accent already
- * means everywhere else.
+ * Two tones, and neither is a hue at all: `notice` is a fact about the setup and recedes;
+ * `working` is the workspace acting or asking, and is emphasised in ink. There is no accent
+ * hue left to reach for, which is the point — see `docs/design-system.md`.
  */
 export function Notice({
   tone = "notice",
@@ -73,7 +73,7 @@ export function Notice({
       className={cn(
         "rounded-md border px-3.5 py-3 text-sm leading-6",
         tone === "notice" && "border-rule bg-sunken/70 text-ink-2",
-        tone === "working" && "border-accent/25 bg-accent-soft text-ink-2",
+        tone === "working" && "border-rule-strong bg-sunken text-ink-2",
         className,
       )}
     >
@@ -81,7 +81,7 @@ export function Notice({
         <strong
           className={cn(
             "block text-[11px] font-bold uppercase tracking-[0.08em]",
-            tone === "working" ? "text-accent" : "text-ink-3",
+            tone === "working" ? "text-ink" : "text-ink-3",
           )}
         >
           {title}

@@ -23,7 +23,7 @@ const DELTA_STATES: ReadonlyArray<{
   tone: string;
   says: string;
 }> = [
-  { id: "new", label: "New", glyph: "+", tone: "text-accent", says: "Not in the previous review" },
+  { id: "new", label: "New", glyph: "+", tone: "text-ink", says: "Not in the previous review" },
   { id: "changed", label: "Changed", glyph: "~", tone: "text-held", says: "The same candidate, moved" },
   {
     id: "addressed",
@@ -626,8 +626,8 @@ export function AskSurface({
                   <Label>Question</Label>
                   <p className="mt-1 text-sm leading-6 text-ink">{message.question}</p>
                 </div>
-                <div className="rounded-md border border-accent/20 bg-accent-soft/40 px-3 py-2.5">
-                  <Label className="text-accent">Grounded answer</Label>
+                <div className="rounded-md border border-rule bg-sunken/50 px-3 py-2.5">
+                  <Label>Grounded answer</Label>
                   <p className="mt-1 whitespace-pre-line text-sm leading-6 text-ink-2">
                     {message.answer.text}
                   </p>

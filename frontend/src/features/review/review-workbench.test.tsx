@@ -71,18 +71,27 @@ describe("the review workbench", () => {
     expect(all.at(-1)).toContain("The invoice boundary is appropriate");
   });
 
-  it("shows the selected finding as a structured assessment, with provenance behind a disclosure", async () => {
+  it("names whose voice produced each part of the assessment", async () => {
+    // The charter keeps three jobs apart — the machine assembles, the model judges, the
+    // person decides — and they were apart in the domain and identical on screen. The
+    // attribution gutter is what makes them apart here, so it is worth failing a build over.
     const review = reviewFixture({ status: "completed", questions: [] });
     vi.spyOn(api, "review").mockResolvedValue(review);
     vi.spyOn(api, "reviews").mockResolvedValue([review]);
 
     render(wrap(<ReviewPage />));
 
-    const heading = await screen.findByRole("heading", {
-      name: "The provider abstraction carries one implementation",
-    });
+    // The identifier leads, because that is what a reviewer is looking for.
+    const heading = await screen.findByRole("heading", { name: "domain.orders" });
     const article = heading.closest("article")!;
-    expect(within(article).getByText("Why this matters")).toBeInTheDocument();
+    expect(within(article).getByText("Measured")).toBeInTheDocument();
+    expect(within(article).getByText("Judged")).toBeInTheDocument();
+    expect(within(article).getByText("Decided")).toBeInTheDocument();
+    // And each voice says who, not only what.
+    expect(within(article).getByText(/nobody yet/)).toBeInTheDocument();
+    expect(
+      within(article).getByText("The provider abstraction carries one implementation"),
+    ).toBeInTheDocument();
     expect(within(article).getByText(/Recommended response/)).toBeInTheDocument();
     expect(within(article).getByText(/Dependencies point inward/)).toBeInTheDocument();
     // The excerpt is coloured, so its text is spread across token spans — it still has to

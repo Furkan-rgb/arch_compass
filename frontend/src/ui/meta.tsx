@@ -79,7 +79,7 @@ export function MetaList({ children, className }: { children: ReactNode; classNa
  */
 export const TONE_TEXT: Record<Tone, string> = {
   neutral: "text-ink-2",
-  accent: "text-accent",
+  marked: "text-ink",
   material: "text-material",
   held: "text-held",
   cleared: "text-cleared",

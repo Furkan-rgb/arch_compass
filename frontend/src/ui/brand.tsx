@@ -3,12 +3,12 @@ import { Link } from "react-router-dom";
 import { cn } from "../lib/cn";
 import { CompassMark } from "./icons";
 
-/** The one gradient in the product, and the only place the mark is drawn. */
+/** The only place the mark is drawn. Flat ink: there is no gradient in this system. */
 export function BrandMark({ className }: { className?: string }) {
   return (
     <span
       className={cn(
-        "grid place-items-center rounded-md bg-gradient-to-br from-accent to-accent-strong text-on-accent shadow-panel",
+        "grid place-items-center rounded-md bg-ink text-canvas",
         className,
       )}
     >
@@ -33,8 +33,8 @@ export function Wordmark({
     >
       <BrandMark className="size-8 text-base transition group-hover:scale-[1.04]" />
       <span className="min-w-0">
-        <span className="block font-display text-[15px] font-semibold leading-tight tracking-tight text-ink">
-          Arch<span className="text-accent">Compass</span>
+        <span className="block font-display text-[15px] font-bold leading-tight tracking-tight text-ink">
+          <span className="font-normal text-ink-2">Arch</span>Compass
         </span>
         {subtitle ? (
           <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-3">

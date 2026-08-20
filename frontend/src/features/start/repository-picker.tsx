@@ -67,7 +67,7 @@ export function RepositoryPicker({
                     className={cn(
                       "w-full rounded-md border px-3 py-2.5 text-left transition",
                       value === repository.root_path
-                        ? "border-accent bg-accent-soft"
+                        ? "border-ink bg-sunken"
                         : "border-rule bg-surface hover:border-rule-strong",
                     )}
                   >
@@ -252,7 +252,7 @@ function CloneForm({ onCheckedOut }: { onCheckedOut: (root: string) => void }) {
       </div>
       {checkout.data ? (
         <p className="flex min-w-0 items-center gap-1.5 text-xs text-ink-2">
-          <CheckIcon className="size-3.5 shrink-0 text-accent" aria-hidden="true" />
+          <CheckIcon className="size-3.5 shrink-0 text-ink" aria-hidden="true" />
           {checkout.data.created ? "Cloned to" : "Updated"}
           <Mono className="min-w-0 truncate text-[11px]">{checkout.data.root_path}</Mono>
         </p>
@@ -296,7 +296,7 @@ function ExampleList({ value, onChange }: { value: string; onChange: (root: stri
           className={cn(
             "rounded-md border px-3 py-2.5 text-left transition",
             value === example.repository_root
-              ? "border-accent bg-accent-soft"
+              ? "border-ink bg-sunken"
               : "border-rule bg-surface hover:border-rule-strong",
           )}
         >

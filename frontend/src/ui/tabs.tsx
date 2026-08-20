@@ -67,7 +67,7 @@ export function Tabs({
                 ? cn(
                     "-mb-px border-b-2 px-3 py-2.5",
                     selected
-                      ? "border-accent text-ink"
+                      ? "border-ink text-ink"
                       : "border-transparent text-ink-3 hover:border-rule-strong hover:text-ink",
                   )
                 : cn(

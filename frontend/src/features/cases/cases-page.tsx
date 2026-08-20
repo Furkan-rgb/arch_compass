@@ -112,7 +112,7 @@ export function CasesPage() {
                       <TimelineItem key={revision.revision} current={index === list.length - 1}>
                         <div className="pb-5">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-accent">
+                            <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-ink-3">
                               Revision {revision.revision}
                             </span>
                             <span className="text-[11px] text-ink-3">
@@ -126,7 +126,7 @@ export function CasesPage() {
                                   key={position}
                                   className="rounded-md border border-rule bg-surface-2 px-2.5 py-2 text-xs leading-5 text-ink-2"
                                 >
-                                  <span className="mr-1.5 font-semibold text-accent">
+                                  <span className="mr-1.5 font-semibold text-ink">
                                     {humanise(constraint.facet ?? "constraint")}
                                   </span>
                                   {constraint.text}
@@ -203,7 +203,7 @@ function CaseCard({
       className={cn(
         "w-full rounded-lg border p-3.5 text-left transition",
         selected
-          ? "border-accent/45 bg-accent-soft"
+          ? "border-rule-strong bg-sunken"
           : "border-rule bg-surface hover:border-rule-strong",
       )}
     >
@@ -260,7 +260,7 @@ function CaseSnapshot({ value }: { value: CaseSummary }) {
                   key={index}
                   className="rounded-md border border-rule bg-surface-2 px-2.5 py-2 text-xs leading-5 text-ink-2"
                 >
-                  <span className="mr-1.5 font-semibold text-accent">
+                  <span className="mr-1.5 font-semibold text-ink">
                     {humanise(constraint.facet ?? "constraint")}
                   </span>
                   {constraint.text}

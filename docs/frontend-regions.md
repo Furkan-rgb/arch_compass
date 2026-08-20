@@ -5,7 +5,8 @@ ones worth pointing at in a sentence like "the queue footer overlaps the last ro
 Anything smaller (a badge, a tag, a button) is named by what it is and is not listed here.
 
 Names are the component names in the code, so a name here is also a file to open. What each
-region is *for* is [the charter](charter.md).
+region is *for* is [the charter](charter.md); what it looks like and why is
+[the design system](design-system.md).
 
 ## Everywhere — the shell
 
@@ -22,7 +23,7 @@ Top to bottom, then the workbench's two columns.
 | Name | What it is | Where |
 | --- | --- | --- |
 | **Review head** | Title, repository path, branch, commit, status, and the Answer / Cancel / Run buttons. | [review-page.tsx:47](../frontend/src/features/review/review-page.tsx#L47) |
-| **Status ribbon** | The single line of four counts: need you, judged, policies retrieved, new or changed. | [review-page.tsx:109](../frontend/src/features/review/review-page.tsx#L109) |
+| **Status ribbon** | The counts, set as readings on a scale: need you, decided by the team, judged, policies retrieved, new or changed. | [review-page.tsx:111](../frontend/src/features/review/review-page.tsx#L111) |
 | **Surface tabs** | Workbench · Delta · Atlas · Evidence · Retrieval · Report · Ask. | [review-page.tsx:285](../frontend/src/features/review/review-page.tsx#L285) |
 | **Workbench** | The first tab's body: the queue rail beside the detail column. | [review-page.tsx:293](../frontend/src/features/review/review-page.tsx#L293) |
 
@@ -34,7 +35,8 @@ Sticky, `19rem` wide, put away by "Hide the queue".
 | --- | --- | --- |
 | **Queue rail** | The sticky left column as a whole: the attention queue above, the revision rail below. | [review-page.tsx:303](../frontend/src/features/review/review-page.tsx#L303) |
 | **Attention queue** | The panel a reviewer works down. The product's centre of gravity. | [attention-queue.tsx](../frontend/src/features/review/attention-queue.tsx) |
-| ├ **Queue header** | "Attention queue", its subtitle, and the Attention / Cleared / All filter switch. | [attention-queue.tsx:65](../frontend/src/features/review/attention-queue.tsx#L65) |
+| ├ **Queue header** | "Attention queue", its subtitle, and the Attention / Settled / All filter switch. | [attention-queue.tsx:131](../frontend/src/features/review/attention-queue.tsx#L131) |
+| ├ **Queue spine** | The three segments at a row's left edge — machine, model, person — saying how far through the three jobs the candidate is. | [spine.tsx](../frontend/src/ui/spine.tsx) |
 | ├ **Queue list** | The scrolling list of candidate rows, with the clarification card pinned on top when the review is waiting. Fades at an edge it can still scroll past. | [attention-queue.tsx:107](../frontend/src/features/review/attention-queue.tsx#L107) |
 | └ **Queue footer** | The "Hide the queue" strip under the list. | [review-page.tsx:307](../frontend/src/features/review/review-page.tsx#L307) |
 | **Revision rail** | The lineage of reviews for this branch and case, plus any run in flight. | [revision-rail.tsx](../frontend/src/features/review/revision-rail.tsx) |
@@ -46,8 +48,9 @@ Holds exactly one of these, depending on what the queue has selected.
 | Name | What it is | Where |
 | --- | --- | --- |
 | **Finding detail** | The card for one candidate. | [finding-detail.tsx](../frontend/src/features/review/finding-detail.tsx) |
-| ├ **Finding header** | Verdict badge, pattern, delta state, and the candidate's name. Tinted by verdict. | [finding-detail.tsx:114](../frontend/src/features/review/finding-detail.tsx#L114) |
-| ├ **Context rail** | The `15rem` margin down the right of the finding: case, policies, provenance. A drawer below `lg`. | [context-rail.tsx](../frontend/src/features/review/context-rail.tsx) |
+| ├ **Attribution gutter** | The `6.75rem` column down the left of the finding. Says whose voice produced the block beside it — measured, judged, decided — and who in particular. Stacks into a label above each block below `lg`. | [gutter.tsx](../frontend/src/ui/gutter.tsx) |
+| ├ **Finding header** | The MEASURED block: pattern, delta state, and the candidate's identifier in mono with its summary beneath. | [finding-detail.tsx:72](../frontend/src/features/review/finding-detail.tsx#L72) |
+| ├ **Context rail** | Case, policies and provenance behind "Judgement context". A drawer at every width — the gutter owns the left margin and there is no right one. | [context-rail.tsx](../frontend/src/features/review/context-rail.tsx) |
 | ├ **Decision bar** | Accept / waive / park for this candidate, and the standing decision. | [decision-bar.tsx](../frontend/src/features/review/decision-bar.tsx) |
 | └ **Technical detail** | The collapsed disclosure at the bottom: ids, detection rationale, measurements. | [finding-detail.tsx:308](../frontend/src/features/review/finding-detail.tsx#L308) |
 | **Clarification round** | Replaces the finding detail when the review is waiting on answers. Each question offers the answers the model proposed, plus writing your own and skipping. | [clarification.tsx](../frontend/src/features/review/clarification.tsx) |

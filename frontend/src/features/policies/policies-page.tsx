@@ -40,7 +40,7 @@ function PolicyCard({
   return (
     <article
       className={cn(
-        "overflow-hidden rounded-lg border bg-surface shadow-panel transition",
+        "overflow-hidden rounded-lg border bg-surface transition",
         expanded ? "border-rule-strong" : "border-rule hover:border-rule-strong",
       )}
     >
@@ -203,7 +203,7 @@ export function PoliciesPage() {
 
       <div className="mb-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start">
         <div>
-          <div className="mb-3 grid gap-2 rounded-lg border border-rule bg-surface p-2 shadow-panel lg:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="mb-3 grid gap-2 rounded-lg border border-rule bg-surface p-2 lg:grid-cols-[minmax(0,1fr)_auto]">
             <SearchInput
               label="Search policies"
               value={query}

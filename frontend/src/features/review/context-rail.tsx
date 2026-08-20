@@ -168,7 +168,7 @@ function CaseContext({ review }: { review: Review }) {
                 key={index}
                 className="rounded-md border border-rule bg-surface-2 px-2.5 py-2 text-xs leading-5 text-ink-2"
               >
-                <span className="mr-1.5 font-semibold text-accent">
+                <span className="mr-1.5 font-semibold text-ink">
                   {humanise(constraint.facet)}
                 </span>
                 {constraint.text}

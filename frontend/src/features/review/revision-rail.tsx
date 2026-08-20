@@ -87,7 +87,7 @@ export function RevisionRail({
               sequence={pending.sequence ?? entries.length + 1}
               detail={pending.stage ? stageLabel(pending.stage) : "starting"}
               badge={
-                <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.08em] text-accent">
+                <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.08em] text-ink-3">
                   <Spinner /> In progress
                 </span>
               }
@@ -118,11 +118,11 @@ function RailEntry({
       aria-current={active ? "page" : undefined}
       className={cn(
         "block rounded-md px-2.5 py-2 transition",
-        active ? "bg-accent-soft" : "hover:bg-sunken",
+        active ? "bg-sunken" : "hover:bg-sunken",
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className={cn("text-[13px] font-semibold", active ? "text-accent" : "text-ink")}>
+        <span className={cn("text-[13px] font-semibold", active ? "text-ink" : "text-ink-2")}>
           Review {sequence}
         </span>
         {badge}

@@ -147,7 +147,7 @@ function FolderRow({
           checked={checked || covered}
           disabled={covered}
           onChange={onToggle}
-          className="size-4 shrink-0 accent-[var(--accent)]"
+          className="size-4 shrink-0 accent-[var(--ink)]"
           aria-label={`Leave out ${folder.path}`}
         />
         <FolderIcon className="size-4 shrink-0 text-ink-3" />

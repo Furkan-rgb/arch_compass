@@ -13,6 +13,7 @@ import {
   verdictRank,
 } from "../../lib/format";
 import { Badge } from "../../ui/badge";
+import { Spine } from "../../ui/spine";
 import { ToggleButton } from "../../ui/button";
 import { EmptyState } from "../../ui/states";
 
@@ -224,29 +225,23 @@ export function AttentionQueue({
                     aria-current={active ? "true" : undefined}
                     title={identity}
                     className={cn(
-                      "w-full border-l-2 px-3 py-2.5 text-left transition",
+                      "w-full border-b border-l-2 border-b-rule px-3 py-2.5 text-left transition",
                       // Selection is weight and position, never colour: in this interface a
                       // hue states a verdict, so a coloured row reads as a grade.
                       active
                         ? "border-l-ink bg-sunken"
                         : "border-l-transparent hover:bg-sunken/60",
-                      // A decided candidate is done being asked about. It stays legible and
-                      // stays where it was, but stops competing with what still needs you.
-                      disposition && !active && "opacity-60",
                     )}
                   >
                     <div className="grid grid-cols-[0.75rem_minmax(0,1fr)] gap-2.5">
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          "mt-[3px] text-[10px] leading-none",
-                          descriptor.tone === "material" && "text-material",
-                          descriptor.tone === "held" && "text-held",
-                          descriptor.tone === "cleared" && "text-cleared",
-                        )}
-                      >
-                        {descriptor.glyph}
-                      </span>
+                      {/* Where the verdict glyph used to sit. The glyph moved down beside its
+                          own word, which is where it always belonged, and the column now
+                          carries how far through the three jobs this candidate is. */}
+                      <Spine
+                        verdict={finding.verdict}
+                        decided={Boolean(disposition)}
+                        className="mt-[3px]"
+                      />
                       <span className="min-w-0">
                         {namespace ? (
                           <span className="block truncate font-mono text-[10.5px] text-ink-3">
@@ -268,6 +263,9 @@ export function AttentionQueue({
                               descriptor.tone === "cleared" && "text-cleared",
                             )}
                           >
+                            <span aria-hidden="true" className="mr-1">
+                              {descriptor.glyph}
+                            </span>
                             {descriptor.label}
                           </span>
                           {" · "}

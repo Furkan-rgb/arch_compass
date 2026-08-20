@@ -36,7 +36,7 @@ function ChoiceRow({
         "flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 text-sm leading-6 transition",
         disabled && "cursor-not-allowed opacity-50",
         checked
-          ? "border-accent/40 bg-accent-soft text-ink"
+          ? "border-rule-strong bg-sunken text-ink"
           : "border-rule bg-surface-2 text-ink hover:border-rule-strong",
       )}
     >
@@ -46,7 +46,7 @@ function ChoiceRow({
         checked={checked}
         disabled={disabled}
         onChange={onSelect}
-        className="mt-1.5 size-3.5 shrink-0 accent-[var(--accent)]"
+        className="mt-1.5 size-3.5 shrink-0 accent-[var(--ink)]"
       />
       <span className="min-w-0">{children}</span>
     </label>
@@ -131,7 +131,7 @@ export function ClarificationRound({
     <section
       aria-labelledby="clarification-heading"
       className={cn(
-        "animate-fade overflow-hidden rounded-lg border border-held/35 bg-surface shadow-panel",
+        "animate-fade overflow-hidden rounded-lg border border-held/35 bg-surface",
         className,
       )}
     >
@@ -176,7 +176,7 @@ export function ClarificationRound({
                   aria-hidden="true"
                   className={cn(
                     "mt-0.5 grid size-6 shrink-0 place-items-center rounded-full text-xs font-bold",
-                    isSkipped ? "bg-sunken text-ink-3" : "bg-accent-soft text-accent",
+                    isSkipped ? "bg-sunken text-ink-3" : "bg-sunken text-ink",
                   )}
                 >
                   {index + 1}

@@ -39,7 +39,7 @@ export function WorkbenchPreview() {
               <li
                 key={label}
                 className={`flex items-start gap-1.5 rounded-sm px-1.5 py-1 text-[10px] leading-4 ${
-                  index === 0 ? "bg-accent-soft text-ink" : "text-ink-2"
+                  index === 0 ? "bg-sunken text-ink" : "text-ink-2"
                 }`}
               >
                 <span aria-hidden="true" className={`${tone} text-[8px] leading-4`}>

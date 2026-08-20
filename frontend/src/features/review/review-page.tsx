@@ -62,7 +62,7 @@ function ReviewHead({
     <header className="mb-5">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
         <div className="min-w-0">
-          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-accent">
+          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-3">
             Review {review.sequence} · case revision {review.case.revision}
           </div>
           <h1 className="mt-1.5 max-w-3xl font-display text-2xl font-semibold tracking-[-0.02em] text-ink sm:text-[30px]">
@@ -134,7 +134,7 @@ function StatusRibbon({
   // carries a verdict's tone — taken from the table that decides them rather than written
   // out here, because a hue written out here is one nothing stops from spreading.
   const cells: Array<[number, string, Tone | null]> = [
-    [attention + waiting, `need you — ${material} material, ${held} held`, verdictOf("material").tone],
+    [attention + waiting, `need you · ${material} material · ${held} held`, verdictOf("material").tone],
     // The team's half of the review, counted next to ArchCompass's, because "how far
     // through this am I" is answered by decisions and not by verdicts.
     [decided, "decided by the team", null],
@@ -147,25 +147,32 @@ function StatusRibbon({
     ],
   ];
 
+  // Readings on a scale rather than five boxed numbers. A count here is orientation, read
+  // once on the way to the queue, and the charter is explicit that a number nobody acts on
+  // is decoration — so it sits on a rule like an instrument's scale instead of in a card
+  // that asks to be looked at.
   return (
-    <div className="mb-4 flex flex-wrap overflow-hidden rounded-md border border-rule bg-surface">
+    <div className="mb-5 flex flex-wrap items-end border-b border-rule">
       {cells.map(([value, label, tone], index) => (
         <div
           key={label}
           className={cn(
-            "flex items-baseline gap-2 px-4 py-2.5",
-            index < cells.length - 1 && "border-r border-rule",
+            "relative pb-3 pr-7",
+            index < cells.length - 1 &&
+              "mr-7 after:absolute after:bottom-0 after:right-0 after:h-2.5 after:w-px after:bg-rule-strong",
           )}
         >
-          <span
+          <div
             className={cn(
-              "font-display text-lg font-semibold tabular-nums",
+              "font-mono text-[21px] font-medium leading-none tabular-nums tracking-[-0.02em]",
               tone && value > 0 ? TONE_TEXT[tone] : "text-ink",
             )}
           >
             {value}
-          </span>
-          <span className="text-xs text-ink-3">{label}</span>
+          </div>
+          <div className="mt-2 text-[10.5px] font-semibold uppercase tracking-[0.11em] text-ink-3">
+            {label}
+          </div>
         </div>
       ))}
     </div>
@@ -274,7 +281,7 @@ export function ReviewPage() {
       <FindingDetail
         review={value}
         finding={selectedFinding}
-        onOpenContext={isTabletUp ? undefined : () => setContextOpen(true)}
+        onOpenContext={() => setContextOpen(true)}
       />
     ) : (
       <Panel>
@@ -417,10 +424,12 @@ export function ReviewPage() {
         <div className="flex max-h-[70vh] flex-col">{queue}</div>
       </Drawer>
 
-      {/* The context rail is a document margin now, so this only exists for the width
-          where there is no margin to put it in. */}
+      {/* The finding is one reading column registered against the attribution gutter, so
+          the case, the policies and the provenance behind a judgement are one action away
+          rather than crowding a second margin. Opened at every width, not only the narrow
+          ones — there is no inline margin left at any width. */}
       <Drawer
-        open={contextOpen && !isTabletUp}
+        open={contextOpen}
         onClose={() => setContextOpen(false)}
         side="right"
         title="Judgement context"

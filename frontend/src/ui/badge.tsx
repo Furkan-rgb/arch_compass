@@ -12,7 +12,7 @@ import {
 
 const TONES: Record<Tone, string> = {
   neutral: "border-rule-strong bg-sunken text-ink-2",
-  accent: "border-accent/25 bg-accent-soft text-accent",
+  marked: "border-rule-strong bg-sunken text-ink",
   material: "border-material/25 bg-material-soft text-material",
   held: "border-held/30 bg-held-soft text-held",
   cleared: "border-cleared/25 bg-cleared-soft text-cleared",
@@ -107,7 +107,7 @@ export function Tag({ children, className }: { children: ReactNode; className?: 
 export function StatusDot({ tone = "neutral", pulse }: { tone?: Tone; pulse?: boolean }) {
   const fill: Record<Tone, string> = {
     neutral: "bg-ink-3",
-    accent: "bg-accent",
+    marked: "bg-ink",
     material: "bg-material",
     held: "bg-held",
     cleared: "bg-cleared",

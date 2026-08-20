@@ -56,8 +56,8 @@ function RepositoryCard({
   return (
     <article
       className={cn(
-        "rounded-lg border bg-surface p-4 shadow-panel transition",
-        selected ? "border-accent/45 ring-1 ring-accent/20" : "border-rule hover:border-rule-strong",
+        "rounded-lg border bg-surface p-4 transition",
+        selected ? "border-rule-strong ring-1 ring-rule-strong" : "border-rule hover:border-rule-strong",
       )}
     >
       <button type="button" onClick={onSelect} className="block w-full text-left">

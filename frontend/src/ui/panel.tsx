@@ -15,16 +15,16 @@ export function Panel({
   children: ReactNode;
   className?: string;
   as?: ElementType;
-  tone?: "raised" | "flat" | "sunken" | "accent";
+  tone?: "raised" | "flat" | "sunken" | "marked";
 }) {
   return (
     <Tag
       className={cn(
         "rounded-lg border",
-        tone === "raised" && "border-rule bg-surface shadow-panel",
+        tone === "raised" && "border-rule bg-surface",
         tone === "flat" && "border-rule bg-surface",
         tone === "sunken" && "border-rule bg-sunken/60",
-        tone === "accent" && "border-accent/25 bg-accent-soft",
+        tone === "marked" && "border-rule-strong bg-sunken",
         className,
       )}
     >

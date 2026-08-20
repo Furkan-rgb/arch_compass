@@ -2,91 +2,44 @@ import { useState } from "react";
 
 import type { Finding, Review } from "../../api";
 import { cn } from "../../lib/cn";
-import { humanise, shortId, verdictOf } from "../../lib/format";
+import { absoluteTime, humanise, shortId, verdictOf } from "../../lib/format";
 import { Badge, Tag, VerdictBadge } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { EvidenceBlock } from "../../ui/code";
+import { Gutter, GutterBlock } from "../../ui/gutter";
 import { ChevronDown } from "../../ui/icons";
 import { MetaList, MetaRow, Mono, PathRef } from "../../ui/meta";
-import { Label } from "../../ui/panel";
-import { deltaStateOf } from "./attention-queue";
+import { deltaStateOf, useStandingDecisions } from "./attention-queue";
 import { DecisionBar } from "./decision-bar";
 
 /**
- * One section of the assessment, with what supports it in the margin beside it.
+ * A fact that supports the block above it, said in one line.
  *
- * The context used to be a third column, which meant reading a paragraph here and finding
- * the case that produced it over there — a correlation the reader had to make by eye, and
- * which cost the argument itself two hundred pixels of width. A citation belongs next to
- * what it supports, so it sits in the margin of the row it belongs to and stacks underneath
- * when the pane is too narrow to have a margin at all.
+ * The supporting context used to be a third column down the right of every row, which cost
+ * the argument itself two hundred pixels and asked the reader to correlate by eye. The
+ * gutter now owns the left margin, so a citation sits under what it supports rather than
+ * beside it, and the whole of it stays a click away in the judgement context.
  */
-function Row({
-  label,
-  note,
-  children,
-  className,
-  full = false,
-}: {
-  label: string;
-  note?: React.ReactNode;
-  children: React.ReactNode;
-  className?: string;
-  full?: boolean;
-}) {
+function Footnote({ children }: { children: React.ReactNode }) {
   return (
-    <section
-      className={cn(
-        "grid gap-x-7 gap-y-4 border-t border-rule px-4 py-4 sm:px-6",
-        // Prose is measured; code is not. A row that carries an excerpt spans the margin
-        // too, because an excerpt read at 62 characters is an excerpt with its own
-        // scrollbar.
-        full ? "grid-cols-1" : "lg:grid-cols-[minmax(0,1fr)_15rem]",
-        className,
-      )}
-    >
-      <div className="min-w-0">
-        <Label>{label}</Label>
-        <div className="mt-2.5">{children}</div>
-      </div>
-      {note && !full ? (
-        <aside className="min-w-0 lg:border-l lg:border-rule lg:pl-5">{note}</aside>
-      ) : null}
-    </section>
-  );
-}
-
-/** A single fact in the margin: a small dim key and something short under it. */
-function Note({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="mb-3 last:mb-0">
-      <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-ink-3">{label}</div>
-      <div className="mt-1 text-[12.5px] leading-[1.5] text-ink-2 [overflow-wrap:anywhere]">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function NoteList({ items }: { items: readonly string[] }) {
-  if (!items.length) return <span className="text-ink-3">None recorded.</span>;
-  return (
-    <ul className="grid gap-1.5">
-      {items.map((item, index) => (
-        <li key={index} className="relative pl-3 before:absolute before:left-0 before:top-[0.6em] before:h-px before:w-1.5 before:bg-ink-3">
-          {item}
-        </li>
-      ))}
-    </ul>
+    <p className="mt-3 max-w-[62ch] font-mono text-[10.5px] leading-relaxed text-ink-3 [overflow-wrap:anywhere]">
+      {children}
+    </p>
   );
 }
 
 /**
- * One architecture assessment, read top to bottom: what was found, why it matters, what the
- * repository shows, which policies bear on it, and what the team decides.
+ * One architecture assessment, registered against the attribution gutter — so at every
+ * point on the way down it is legible whose voice is speaking.
  *
- * Provenance is real but secondary — it lives behind a disclosure so the assessment reads as
- * an argument rather than as a debug dump.
+ * The order is the order the three jobs happen in. What the machine measured comes first,
+ * because a verdict is worth nothing without the evidence that produced it. What the model
+ * concluded comes second, and is the only thing on the page set in a serif: it is an
+ * argument the reader is meant to weigh, not a result they are meant to accept. What the
+ * team decides comes last and is the only part of the page that is a control.
+ *
+ * Provenance is not a section any more. The gutter carries it beside the voice it belongs
+ * to, which is the one place it means something; `Technical detail` keeps the debug dump.
  */
 export function FindingDetail({
   review,
@@ -98,6 +51,7 @@ export function FindingDetail({
   onOpenContext?: () => void;
 }) {
   const [technical, setTechnical] = useState(false);
+  const decisions = useStandingDecisions(review);
   const descriptor = verdictOf(finding.verdict);
   const delta = deltaStateOf(review, finding.candidate.id);
   const measurements = finding.candidate.measurements;
@@ -105,193 +59,209 @@ export function FindingDetail({
     (entry) => entry.candidate_id === finding.candidate.id,
   );
   const answered = review.case.answers.filter((answer) => answer.status === "answered");
+  const decision = decisions.get(finding.candidate.id);
+  const identity = finding.candidate.participants[0]?.qualified_name;
 
   return (
     <article
       aria-labelledby={`finding-${finding.candidate.id}`}
-      className="animate-fade overflow-hidden rounded-lg border border-rule bg-surface shadow-panel"
+      className="animate-fade overflow-hidden border border-rule bg-surface"
     >
-      <header
-        className={cn(
-          "border-b border-rule px-4 py-4 sm:px-5",
-          descriptor.tone === "material" && "bg-material-soft/40",
-          descriptor.tone === "held" && "bg-held-soft/40",
-          descriptor.tone === "cleared" && "bg-cleared-soft/30",
-        )}
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <VerdictBadge verdict={finding.verdict} />
-          <Tag>
-            <span className="font-mono">{finding.candidate.pattern}</span>
-          </Tag>
-          {delta ? <Tag>{humanise(delta)} candidate</Tag> : null}
-          {finding.reused_from_review_id ? (
-            <Tag>Reused from review {shortId(finding.reused_from_review_id, 8)}</Tag>
+      <Gutter>
+        {/* ── Measured ──────────────────────────────────────────────────────────── */}
+        <GutterBlock
+          voice="Measured"
+          who={
+            <>
+              deterministic
+              <br />
+              analysis
+            </>
+          }
+        >
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-3">
+            <span>{humanise(finding.candidate.pattern)}</span>
+            {delta ? <span>· {humanise(delta)}</span> : null}
+            {finding.reused_from_review_id ? (
+              <span>· reused from {shortId(finding.reused_from_review_id, 8)}</span>
+            ) : null}
+            {onOpenContext ? (
+              <Button variant="ghost" size="sm" className="ml-auto" onClick={onOpenContext}>
+                Judgement context
+              </Button>
+            ) : null}
+          </div>
+          {/* The identifier leads, because that is what is being looked for. The sentence
+              keeps its place underneath, because that is what explains. */}
+          <h2
+            id={`finding-${finding.candidate.id}`}
+            className="mt-2.5 font-mono text-[17px] font-medium leading-snug tracking-[-0.01em] text-ink [overflow-wrap:anywhere] sm:text-[19px]"
+          >
+            {identity ?? finding.candidate.summary}
+          </h2>
+          {identity ? (
+            <p className="mt-2 max-w-[58ch] text-[14px] leading-relaxed text-ink-2">
+              {finding.candidate.summary}
+            </p>
           ) : null}
-          {onOpenContext ? (
-            <Button variant="ghost" size="sm" className="ml-auto" onClick={onOpenContext}>
-              Judgement context
-            </Button>
-          ) : null}
-        </div>
-        <h2
-          id={`finding-${finding.candidate.id}`}
-          className="mt-2.5 font-display text-xl font-semibold leading-tight tracking-[-0.015em] text-ink sm:text-[26px]"
-        >
-          {finding.candidate.summary}
-        </h2>
-        <p className="mt-1.5 text-xs text-ink-3">{descriptor.description}</p>
-      </header>
+        </GutterBlock>
 
-      <Row
-        label="Why this matters"
-        className="border-t-0"
-        note={
-          <>
-            <Note label={`Constraints · ${review.case.constraints.length}`}>
-              <NoteList items={review.case.constraints.map((item) => item.text)} />
-            </Note>
-            <Note label="Case revision">{review.case.revision}</Note>
-          </>
-        }
-      >
-        <p className="max-w-[62ch] whitespace-pre-line text-[15px] leading-7 text-ink-2">
-          {finding.reasoning}
-        </p>
-      </Row>
-
-      {finding.hinge ? (
-        <Row
-          label="What the judgement hinges on"
-          note={
-            <>
-              <Note label={`Answered so far · ${answered.length}`}>
-                <NoteList items={answered.map((answer) => answer.value ?? "")} />
-              </Note>
-              <Note label="What happens next">
-                Answering this produces the next case revision, and the candidates it touches
-                are judged again.
-              </Note>
-            </>
-          }
-        >
-          <div className="rounded-md border border-held/30 bg-held-soft/60 px-3.5 py-3 text-sm leading-6 text-ink-2">
-            <span aria-hidden="true" className="mr-2 text-held">
-              ◆
-            </span>
-            {finding.hinge}
-          </div>
-        </Row>
-      ) : null}
-
-      {finding.recommended_response ? (
-        <Row
-          label="Recommended response"
-          note={
-            <>
-              <Note label={`Decisions on the case · ${review.case.decisions.length}`}>
-                <NoteList items={review.case.decisions.map((item) => item.text)} />
-              </Note>
-            </>
-          }
-        >
-          <div className="max-w-[62ch] rounded-md border-l-2 border-accent bg-accent-soft/60 px-3.5 py-3 text-sm leading-6 text-ink-2">
-            {finding.recommended_response}
-          </div>
-        </Row>
-      ) : null}
-
-      <Row
-        label={`Involved code · ${finding.candidate.participants.length}`}
-        note={
-          measurements.length ? (
-            <Note label="Measured">
-              <NoteList
-                items={measurements.map((item) =>
-                  // A structural proxy is a hint the parse could not confirm, and a reader
-                  // deciding on the number has to be told which kind of number it is.
-                  `${humanise(item.name)}: ${item.value}${item.unit ? ` ${item.unit}` : ""}${
-                    item.nature === "structural_proxy" ? " (proxy)" : ""
-                  }`,
-                )}
-              />
-            </Note>
-          ) : (
-            <Note label="Measured">Nothing was counted for this candidate.</Note>
-          )
-        }
-      >
-        <ul className="flex flex-wrap gap-1.5">
-          {finding.candidate.participants.map((participant) => (
-            <li key={`${participant.role}-${participant.qualified_name}`}>
-              <span className="inline-flex items-center gap-1.5 rounded-xs border border-rule bg-surface-2 px-2 py-1 text-xs">
-                <span className="text-ink-3">{humanise(participant.role)}</span>
-                <Mono className="text-ink">{participant.qualified_name}</Mono>
-              </span>
-            </li>
-          ))}
-        </ul>
-      </Row>
-
-      {finding.evidence.length ? (
-        <Row full label={`Evidence from the repository · ${finding.evidence.length}`}>
-          <div className="grid gap-2">
-            {finding.evidence.map((evidence, index) => (
-              <EvidenceBlock
-                key={`${evidence.location?.path}-${index}`}
-                description={evidence.description}
-                path={evidence.location?.path}
-                startLine={evidence.location?.start_line}
-                endLine={evidence.location?.end_line}
-                excerpt={evidence.excerpt}
-              />
-            ))}
-          </div>
-          <p className="mt-2.5 text-[11.5px] text-ink-3">
-            Quoted from the indexed snapshot, not re-read from disk.
-          </p>
-        </Row>
-      ) : null}
-
-      {finding.policies.length ? (
-        <Row
-          label={`Policies that bear on this · ${finding.policies.length}`}
-          note={
-            <>
-              <Note label="Retrieved for this candidate">
-                {retrieval ? retrieval.selected_policy_ids.length : 0}
-              </Note>
-              <Note label="Bore on the judgement">{finding.policies.length}</Note>
-              {retrieval ? (
-                <Note label="Strategy">
-                  <Mono className="text-[11px]">
-                    {retrieval.retriever}:{retrieval.version}
-                  </Mono>
-                </Note>
-              ) : null}
-            </>
-          }
-        >
-          <ul className="grid gap-2">
-            {finding.policies.map((bearing) => (
-              <li
-                key={bearing.policy_id}
-                className="rounded-md border border-rule bg-surface-2 px-3 py-2.5"
-              >
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="text-sm font-semibold text-ink">{bearing.policy_title}</span>
-                  <Mono className="text-[11px] text-ink-3">{bearing.policy_id}</Mono>
-                </div>
-                <p className="mt-1 text-sm leading-6 text-ink-2">{bearing.reasoning}</p>
+        <GutterBlock label={`Involved code · ${finding.candidate.participants.length}`}>
+          <ul className="flex flex-wrap gap-1.5">
+            {finding.candidate.participants.map((participant) => (
+              <li key={`${participant.role}-${participant.qualified_name}`}>
+                <span className="inline-flex items-center gap-1.5 rounded-xs border border-rule bg-surface-2 px-2 py-1 text-xs">
+                  <span className="text-ink-3">{humanise(participant.role)}</span>
+                  <Mono className="text-ink">{participant.qualified_name}</Mono>
+                </span>
               </li>
             ))}
           </ul>
-        </Row>
-      ) : null}
+        </GutterBlock>
 
-      <Row full label="Standing decision">
-        <DecisionBar review={review} finding={finding} />
-      </Row>
+        {measurements.length ? (
+          <GutterBlock label="What was counted">
+            {/* A hairline grid, not a row of cards. These are readings; a reading that has
+                been put in a box is asking to be looked at twice. */}
+            <div className="grid gap-px border border-rule bg-rule [grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]">
+              {measurements.map((item) => (
+                <div key={item.name} className="bg-surface px-3 py-2.5">
+                  <div className="font-mono text-[15px] font-medium tabular-nums text-ink">
+                    {item.value}
+                    {item.unit ? <span className="text-ink-3"> {item.unit}</span> : null}
+                  </div>
+                  <div className="mt-0.5 font-mono text-[10px] tracking-[0.04em] text-ink-3">
+                    {item.name}
+                    {item.nature === "structural_proxy" ? " · proxy" : ""}
+                  </div>
+                  {item.limitations ? (
+                    <p className="mt-1.5 text-[10.5px] leading-snug text-ink-3">
+                      {item.limitations}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </GutterBlock>
+        ) : null}
+
+        {finding.evidence.length ? (
+          <GutterBlock label={`Pinned evidence · ${finding.evidence.length}`}>
+            <div className="grid gap-2">
+              {finding.evidence.map((evidence, index) => (
+                <EvidenceBlock
+                  key={`${evidence.location?.path}-${index}`}
+                  description={evidence.description}
+                  path={evidence.location?.path}
+                  startLine={evidence.location?.start_line}
+                  endLine={evidence.location?.end_line}
+                  excerpt={evidence.excerpt}
+                />
+              ))}
+            </div>
+            <Footnote>Quoted from the indexed snapshot, not re-read from disk.</Footnote>
+          </GutterBlock>
+        ) : null}
+
+        {/* ── Judged ────────────────────────────────────────────────────────────── */}
+        <GutterBlock
+          voice="Judged"
+          who={
+            <>
+              {finding.model_identity}
+              <br />
+              {retrieval ? `${retrieval.retriever}/${retrieval.version}` : "no retrieval"}
+            </>
+          }
+        >
+          <VerdictBadge verdict={finding.verdict} />
+          {/* The only serif on the screen. A verdict is an argument the reader is meant to
+              weigh and disagree with, and prose you argue with is not set in the same face
+              as the buttons beside it. */}
+          <p className="mt-3.5 max-w-[60ch] whitespace-pre-line font-read text-[17px] font-light leading-[1.68] text-ink">
+            {finding.reasoning}
+          </p>
+          <Footnote>
+            {descriptor.description} Judged against case revision {review.case.revision} and{" "}
+            {review.case.constraints.length}{" "}
+            {review.case.constraints.length === 1 ? "constraint" : "constraints"}.
+          </Footnote>
+        </GutterBlock>
+
+        {finding.hinge ? (
+          <GutterBlock label="Hinges on">
+            <div className="max-w-[60ch] border-l-2 border-held bg-held-soft/60 px-3.5 py-3">
+              <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-held">
+                Waiting on a person
+              </div>
+              <p className="mt-1.5 font-read text-[15px] leading-relaxed text-ink">
+                {finding.hinge}
+              </p>
+            </div>
+            <Footnote>
+              Answering produces the next case revision and re-judges what it touches.{" "}
+              {answered.length} {answered.length === 1 ? "answer" : "answers"} recorded so far.
+            </Footnote>
+          </GutterBlock>
+        ) : null}
+
+        {finding.policies.length ? (
+          <GutterBlock label={`Policies it bears on · ${finding.policies.length}`}>
+            <ul className="grid max-w-[62ch] gap-2">
+              {finding.policies.map((bearing) => (
+                <li key={bearing.policy_id} className="border border-rule px-3.5 py-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-[13px] font-semibold text-ink">
+                      {bearing.policy_title}
+                    </span>
+                    <Mono className="text-[10.5px] text-mark">{bearing.policy_id}</Mono>
+                  </div>
+                  <p className="mt-1.5 font-read text-[14px] leading-relaxed text-ink-2">
+                    {bearing.reasoning}
+                  </p>
+                </li>
+              ))}
+            </ul>
+            {retrieval ? (
+              <Footnote>
+                {retrieval.selected_policy_ids.length} retrieved for this candidate;{" "}
+                {finding.policies.length} bore on the judgement.
+              </Footnote>
+            ) : null}
+          </GutterBlock>
+        ) : null}
+
+        {finding.recommended_response ? (
+          <GutterBlock label="Recommended response">
+            <div className="max-w-[60ch] border-l-2 border-ink pl-3.5">
+              <p className="font-read text-[15px] leading-relaxed text-ink">
+                {finding.recommended_response}
+              </p>
+            </div>
+            <Footnote>A recommendation, not a change. ArchCompass does not write the fix.</Footnote>
+          </GutterBlock>
+        ) : null}
+
+        {/* ── Decided ───────────────────────────────────────────────────────────── */}
+        <GutterBlock
+          voice="Decided"
+          who={
+            decision ? (
+              <>
+                {decision.author}
+                <br />
+                {absoluteTime(decision.decided_at)}
+              </>
+            ) : (
+              // An explicit unknown beats an implied one, and an empty attribution reads as
+              // a rendering fault rather than as "nobody has done this yet".
+              <>nobody yet</>
+            )
+          }
+        >
+          <DecisionBar review={review} finding={finding} />
+        </GutterBlock>
+      </Gutter>
 
       <div className="border-t border-rule">
         <button

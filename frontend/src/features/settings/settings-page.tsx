@@ -221,7 +221,7 @@ function ModelSection({
           independent — a numbered marker above them would claim an order that does not
           exist, and the thing that actually distinguishes them is what each one does. */}
       <div className="xl:sticky xl:top-20 xl:self-start">
-        <Label className="text-accent">{role}</Label>
+        <Label>{role}</Label>
         <h2 className="mt-1.5 font-display text-xl font-semibold tracking-tight text-ink">
           {title}
         </h2>
@@ -316,7 +316,7 @@ function ModelChoice({ choice, disabled }: { choice: Choice; disabled: boolean }
       className={cn(
         "rounded-md border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50",
         choice.selected
-          ? "border-accent bg-accent-soft ring-1 ring-accent/25"
+          ? "border-ink bg-sunken ring-1 ring-rule-strong"
           : "border-rule bg-surface hover:border-rule-strong",
       )}
     >
@@ -330,7 +330,7 @@ function ModelChoice({ choice, disabled }: { choice: Choice; disabled: boolean }
           <div className="mt-1 text-xs text-ink-3">{choice.detail}</div>
         </div>
         {choice.selected ? (
-          <span className="inline-flex items-center gap-1 rounded-sm bg-accent px-1.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-on-accent">
+          <span className="inline-flex items-center gap-1 rounded-sm bg-ink px-1.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-canvas">
             <CheckIcon className="size-3" />
             Selected
           </span>

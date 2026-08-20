@@ -98,8 +98,8 @@ export function StartPage() {
                 }}
               />
               {root ? (
-                <div className="mt-4 flex flex-wrap items-center gap-2 rounded-md border border-accent/25 bg-accent-soft px-3 py-2.5">
-                  <span className="text-xs font-semibold text-accent">Selected</span>
+                <div className="mt-4 flex flex-wrap items-center gap-2 rounded-md border border-rule-strong bg-sunken px-3 py-2.5">
+                  <span className="text-xs font-semibold text-ink">Selected</span>
                   <Mono className="min-w-0 flex-1 truncate text-[12px] text-ink">{root}</Mono>
                   <Button
                     variant="ghost"
@@ -203,7 +203,7 @@ export function StartPage() {
               <ol className="mt-3 grid gap-3.5">
                 {PIPELINE.map(([title, text], index) => (
                   <li key={title} className="flex gap-3">
-                    <span className="mt-0.5 font-mono text-[11px] font-bold text-accent">
+                    <span className="mt-0.5 font-mono text-[11px] font-bold text-ink">
                       {String(index + 1).padStart(2, "0")}
                     </span>
                     <span>
@@ -251,7 +251,7 @@ function ModelReadiness({
           key={label}
           className={cn(
             "rounded-md border px-3 py-2.5",
-            model ? "border-rule bg-surface-2" : "border-accent/30 bg-accent-soft",
+            model ? "border-rule bg-surface-2" : "border-rule-strong bg-sunken",
           )}
         >
           <div className="flex items-center gap-2">
@@ -262,13 +262,13 @@ function ModelReadiness({
             ) : (
               <span
                 aria-hidden="true"
-                className="size-3.5 shrink-0 rounded-full border-2 border-dashed border-accent"
+                className="size-3.5 shrink-0 rounded-full border-2 border-dashed border-ink"
               />
             )}
             <span className="text-xs font-semibold text-ink">{label}</span>
             <span className="text-[11px] text-ink-3">· {role}</span>
           </div>
-          <Mono className={cn("mt-1 block truncate text-[12px]", !model && "text-accent")}>
+          <Mono className={cn("mt-1 block truncate text-[12px]", !model && "text-ink")}>
             {model ?? "not chosen yet"}
           </Mono>
         </div>
@@ -276,7 +276,7 @@ function ModelReadiness({
       {!ready ? (
         <p className="text-xs leading-5 text-ink-2 sm:col-span-2">
           Both are needed before a review can run.{" "}
-          <Link to="/settings" className="font-semibold text-accent underline underline-offset-2">
+          <Link to="/settings" className="font-semibold text-mark underline underline-offset-2">
             Choose models
           </Link>
           .

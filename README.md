@@ -286,6 +286,7 @@ a message rather than failing.
 - [Policy retrieval](docs/policy-retrieval.md)
 - [Persistence model](docs/persistence-model.md)
 - [Operations](docs/operations.md)
+- [Design system](docs/design-system.md) — the three typographic voices, the palette, and what enforces them
 - [What each region on screen is called](docs/frontend-regions.md)
 
 Licensed under Apache-2.0.

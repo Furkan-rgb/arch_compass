@@ -73,7 +73,7 @@ export function PolicyEditor({
     !draft.title.trim() || !draft.description.trim() || !draft.body.trim() || outstanding.length > 0;
 
   return (
-    <Panel className="animate-expand" tone="accent">
+    <Panel className="animate-expand" tone="marked">
       <PanelHeader
         title={policy ? `Edit “${policy.title}”` : "New workspace policy"}
         description="Durable architectural guidance. Retrieval mechanics stay out of the policy itself."
@@ -173,7 +173,7 @@ export function PolicyEditor({
                 // and "written" is not a verdict, which is what the green said it was.
                 className={cn(
                   "flex items-center gap-1.5 text-xs",
-                  section.present ? "text-ink-3" : "font-medium text-accent",
+                  section.present ? "text-ink-3" : "font-medium text-ink",
                 )}
               >
                 <span aria-hidden="true">{section.present ? "●" : "○"}</span>

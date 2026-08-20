@@ -25,7 +25,7 @@ function ReviewRow({
   const [confirming, setConfirming] = useState(false);
   const attention = review.findings.filter((finding) => finding.verdict !== "cleared").length;
   return (
-    <article className="group rounded-lg border border-rule bg-surface p-4 shadow-panel transition hover:border-rule-strong sm:p-5">
+    <article className="group rounded-lg border border-rule bg-surface p-4 transition hover:border-rule-strong sm:p-5">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
         <Link to={`/reviews/${review.id}`} className="min-w-0 flex-1 rounded-md">
           <div className="flex flex-wrap items-center gap-2">
@@ -115,13 +115,13 @@ function ReviewRow({
  */
 function RunRow({ run }: { run: ReviewRun }) {
   return (
-    <article className="rounded-lg border border-accent/30 bg-accent-soft/40 p-4 transition hover:border-accent/50 sm:p-5">
+    <article className="rounded-lg border border-rule-strong bg-sunken/50 p-4 transition hover:border-rule-strong sm:p-5">
       <Link to={`/runs/${run.run_id}`} className="block min-w-0 rounded-md">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="font-display text-lg font-semibold tracking-tight text-ink">
             {run.repository_name}
           </h2>
-          <span className="inline-flex items-center gap-1.5 rounded-sm border border-accent/30 px-2 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-accent">
+          <span className="inline-flex items-center gap-1.5 rounded-sm border border-rule-strong px-2 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-ink-3">
             <Spinner /> In progress
           </span>
         </div>
@@ -187,7 +187,7 @@ export function ReviewsPage() {
       ) : null}
 
       {all.length ? (
-        <div className="mb-4 flex flex-col gap-2 rounded-lg border border-rule bg-surface p-2 shadow-panel sm:flex-row sm:items-center">
+        <div className="mb-4 flex flex-col gap-2 rounded-lg border border-rule bg-surface p-2 sm:flex-row sm:items-center">
           <SearchInput
             label="Search reviews"
             value={query}

@@ -45,14 +45,13 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
   return (
     <section
       aria-labelledby="standing-decision"
-      className="rounded-md border border-rule bg-surface-2 p-3.5"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <Label>
-            <span id="standing-decision">Standing decision · human</span>
+            <span id="standing-decision">Standing decision</span>
           </Label>
-          <p className="mt-1 text-sm leading-6 text-ink-2">
+          <p className="mt-1.5 text-sm leading-6 text-ink-2">
             {current ? (
               <>
                 Recorded by <span className="font-medium text-ink">{current.author}</span> on{" "}

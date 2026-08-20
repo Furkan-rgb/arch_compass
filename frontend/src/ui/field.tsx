@@ -9,7 +9,7 @@ import { useId } from "react";
 import { cn } from "../lib/cn";
 
 export const controlClass =
-  "w-full rounded-md border border-rule-strong bg-surface px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink-3 focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:cursor-not-allowed disabled:opacity-55";
+  "w-full rounded-md border border-rule-strong bg-surface px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink-3 focus:border-ink focus:ring-2 focus:ring-ink/15 disabled:cursor-not-allowed disabled:opacity-55";
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cn(controlClass, className)} {...props} />;
@@ -114,7 +114,7 @@ export function Checkbox({
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
-        className="mt-0.5 size-4 accent-[var(--accent)]"
+        className="mt-0.5 size-4 accent-[var(--ink)]"
       />
       <span className="min-w-0">
         <span className="block font-semibold text-ink">{title}</span>

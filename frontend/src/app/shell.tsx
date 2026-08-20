@@ -62,7 +62,7 @@ function NavGroup({
                 cn(
                   "flex min-h-9 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition",
                   isActive
-                    ? "bg-accent-soft text-accent"
+                    ? "bg-sunken text-ink"
                     : "text-ink-2 hover:bg-sunken hover:text-ink",
                 )
               }
@@ -179,7 +179,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-canvas text-ink">
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-accent focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-on-accent"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-ink focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-canvas"
       >
         Skip to content
       </a>

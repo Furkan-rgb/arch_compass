@@ -34,6 +34,7 @@ const ALLOWED = new Map([
   ["lib/format.ts", "the one table that decides which value takes which tone"],
   ["ui/badge.tsx", "paints a tone; never chooses one"],
   ["ui/meta.tsx", "paints a tone; never chooses one"],
+  ["ui/spine.tsx", "paints a tone; the queue row's middle segment is the verdict"],
   ["ui/states.tsx", "ErrorNotice — a failed request is the red end of the scale"],
   ["ui/field.tsx", "a rejected field is the red end of the scale"],
   ["ui/button.tsx", "the destructive variant is the red end of the scale"],

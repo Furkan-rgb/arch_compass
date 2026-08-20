@@ -8,9 +8,9 @@ export type ButtonSize = "sm" | "md" | "lg";
 
 const VARIANTS: Record<ButtonVariant, string> = {
   primary:
-    "border-accent bg-accent text-on-accent hover:border-accent-strong hover:bg-accent-strong active:translate-y-px",
+    "border-ink bg-ink text-canvas hover:border-ink hover:bg-ink active:translate-y-px",
   secondary:
-    "border-rule-strong bg-surface text-ink hover:border-accent/45 hover:bg-accent-soft active:translate-y-px",
+    "border-rule-strong bg-surface text-ink hover:border-rule-strong hover:bg-sunken active:translate-y-px",
   ghost: "border-transparent text-ink-2 hover:bg-sunken hover:text-ink",
   quiet: "border-rule bg-sunken/70 text-ink-2 hover:border-rule-strong hover:text-ink",
   danger: "border-material/30 bg-material-soft text-material hover:border-material/55",
@@ -89,7 +89,7 @@ export function ToggleButton({
         // which is information — but stops offering to filter to nothing.
         "disabled:pointer-events-none disabled:opacity-40",
         pressed
-          ? "bg-ink text-canvas shadow-panel"
+          ? "bg-ink text-canvas"
           : "text-ink-3 hover:bg-sunken hover:text-ink",
         className,
       )}

@@ -59,7 +59,7 @@ export function Markdown({ children, className }: { children: string; className?
           strong: ({ children }) => <strong className="font-semibold text-ink">{children}</strong>,
           em: ({ children }) => <em className="italic">{children}</em>,
           blockquote: ({ children }) => (
-            <blockquote className="my-4 border-l-2 border-accent/40 pl-4 text-sm leading-7 text-ink-3">
+            <blockquote className="my-4 border-l-2 border-rule-strong pl-4 text-sm leading-7 text-ink-3">
               {children}
             </blockquote>
           ),
@@ -100,7 +100,7 @@ export function Markdown({ children, className }: { children: string; className?
               href={href}
               target="_blank"
               rel="noreferrer"
-              className="font-medium text-accent underline decoration-accent/30 underline-offset-4 transition hover:decoration-accent"
+              className="font-medium text-mark underline decoration-mark/40 underline-offset-4 transition hover:decoration-mark"
             >
               {children}
             </a>

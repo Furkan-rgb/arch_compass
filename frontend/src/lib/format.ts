@@ -7,7 +7,7 @@
  * site.
  */
 
-export type Tone = "neutral" | "accent" | "material" | "held" | "cleared";
+export type Tone = "neutral" | "marked" | "material" | "held" | "cleared";
 
 export type Descriptor = {
   label: string;
@@ -41,7 +41,7 @@ const VERDICTS: Record<string, Descriptor> = {
 const STATUSES: Record<string, Descriptor> = {
   completed: { label: "Completed", tone: "cleared", glyph: "●" },
   awaiting_answers: { label: "Awaiting answers", tone: "held", glyph: "◆" },
-  running: { label: "Running", tone: "accent", glyph: "◐" },
+  running: { label: "Running", tone: "marked", glyph: "◐" },
   failed: { label: "Failed", tone: "material", glyph: "▲" },
   cancelled: { label: "Cancelled", tone: "neutral", glyph: "○" },
 };
@@ -56,12 +56,17 @@ const STATUSES: Record<string, Descriptor> = {
  * red it turned the policy library into a list of alarms, sitting one nav item away from a
  * workbench where that exact red means "a material architectural concern was found".
  *
- * So the strongest policy takes the accent, which everywhere else in this interface means
- * "the thing to look at", and the other two take the neutral. The glyph and the word carry
- * the step between them, which is what those exist for.
+ * The first answer gave the strongest policy the indigo accent, on the argument that the
+ * accent meant "the thing to look at" everywhere else. That argument was right and its
+ * answer is gone: there is no accent hue in this system, because chroma is spent on
+ * verdicts and nothing else.
+ *
+ * So the step is carried by weight and rule instead. `marked` is ink on a stronger border,
+ * the other two recede to the neutral, and the glyph and the word carry the distinction —
+ * which is what those exist for. Emphasis without alarm, and no hue at all.
  */
 const STRENGTHS: Record<string, Descriptor> = {
-  required: { label: "Required", tone: "accent", glyph: "▲" },
+  required: { label: "Required", tone: "marked", glyph: "▲" },
   preferred: { label: "Preferred", tone: "neutral", glyph: "◆" },
   guidance: { label: "Guidance", tone: "neutral", glyph: "○" },
 };

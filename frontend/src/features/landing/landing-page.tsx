@@ -204,7 +204,7 @@ function LandingNav() {
           ))}
           <Link
             to="/start"
-            className="mt-2 rounded-md bg-accent px-3 py-2.5 text-center text-sm font-semibold text-on-accent"
+            className="mt-2 rounded-md bg-ink px-3 py-2.5 text-center text-sm font-semibold text-canvas"
           >
             Review a repository
           </Link>
@@ -223,7 +223,7 @@ function Hero() {
       />
       <div className="relative mx-auto max-w-6xl px-4 pb-12 pt-12 sm:px-6 sm:pb-16 sm:pt-20">
         <Reveal className="max-w-3xl">
-          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-accent">
+          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-3">
             Architecture review, not autocomplete
           </div>
           <h1 className="mt-3 font-display text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] text-ink sm:text-[52px]">
@@ -271,9 +271,9 @@ function PipelineSection() {
         <ol className="mt-9 grid gap-2.5 md:grid-cols-2 lg:grid-cols-3">
           {PIPELINE.map(([title, body], index) => (
             <Reveal as="li" key={title} delay={index * 60}>
-              <div className="h-full rounded-lg border border-rule bg-surface p-4 transition hover:border-rule-strong hover:shadow-panel">
+              <div className="h-full rounded-lg border border-rule bg-surface p-4 transition hover:border-rule-strong hover:">
                 <div className="flex items-center gap-2">
-                  <Mono className="text-[11px] font-bold text-accent">
+                  <Mono className="text-[11px] font-bold text-ink">
                     {String(index + 1).padStart(2, "0")}
                   </Mono>
                   <span className="font-display text-base font-semibold tracking-tight text-ink">
@@ -436,7 +436,7 @@ function FeaturesSection() {
                 <ul className="mt-3 grid gap-1 border-t border-rule pt-3">
                   {feature.points.map((point) => (
                     <li key={point} className="flex gap-2 text-xs leading-5 text-ink-3">
-                      <span aria-hidden="true" className="text-accent">
+                      <span aria-hidden="true" className="text-ink-3">
                         ·
                       </span>
                       {point}
@@ -486,7 +486,7 @@ function ArchitectureSection() {
                 <div className="rounded-lg border border-rule bg-surface p-4">
                   <div className="flex flex-wrap items-baseline gap-2">
                     <Mono className="text-[13px] font-semibold text-ink">{name}</Mono>
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-accent">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-3">
                       {role}
                     </span>
                   </div>
@@ -671,7 +671,7 @@ function SectionIntro({
 }) {
   return (
     <div className="max-w-2xl">
-      <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-accent">{eyebrow}</div>
+      <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-3">{eyebrow}</div>
       <h2 className="mt-2 font-display text-2xl font-semibold tracking-[-0.02em] text-ink sm:text-3xl">
         {title}
       </h2>
@@ -682,7 +682,7 @@ function SectionIntro({
 
 function ShowcaseCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="h-full rounded-lg border border-rule bg-surface p-5 shadow-panel">
+    <div className="h-full rounded-lg border border-rule bg-surface p-5">
       <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-ink-3">{title}</div>
       <div className="mt-3">{children}</div>
     </div>
@@ -694,7 +694,7 @@ export function LandingPage() {
     <div className="min-h-screen bg-canvas text-ink">
       <a
         href="#landing-main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-accent focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-on-accent"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-ink focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-canvas"
       >
         Skip to content
       </a>

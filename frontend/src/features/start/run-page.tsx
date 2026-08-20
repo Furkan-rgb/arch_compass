@@ -74,7 +74,7 @@ export function RunPage() {
       <header className="mb-5">
         <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
           <div className="min-w-0">
-            <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-accent">
+            <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-3">
               Review {sequence} · {failed ? "did not finish" : "in progress"}
             </div>
             <h1 className="mt-1.5 max-w-3xl font-display text-2xl font-semibold tracking-[-0.02em] text-ink sm:text-[30px]">

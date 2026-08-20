@@ -35,7 +35,7 @@ export function TimelineItem({
         aria-hidden="true"
         className={cn(
           "absolute left-0 top-[calc(0.75rem+1px)] size-[15px] rounded-full border-[3px] border-canvas",
-          current ? "bg-accent ring-2 ring-accent/30" : "bg-rule-strong",
+          current ? "bg-ink ring-2 ring-rule-strong" : "bg-rule-strong",
         )}
       />
       {children}

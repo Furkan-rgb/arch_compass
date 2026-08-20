@@ -1,160 +1,175 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------------------
-   Arch Compass design tokens.
+   ArchCompass design tokens. The system they belong to is `docs/design-system.md`.
 
-   One warm-neutral paper canvas, one restrained indigo accent, and a three-value verdict
-   palette. Verdict colour never carries meaning alone — every badge that uses it also
-   carries a glyph and a word, so the workbench stays readable without colour.
+   One rule decides most of what is here: every element on screen belongs to one of the
+   three jobs the charter keeps apart — the machine assembles, the model judges, the person
+   decides — and says which by its typeface. Mono was measured. Serif was judged. Sans is
+   what a person acts in.
+
+   The second rule is that chroma is spent on verdicts. There is no accent hue: a selected
+   tab is an ink underline and a primary button is an ink fill, because a colour that
+   carries nothing should not be spent where the three that carry everything are competing
+   for the same attention. `--mark` is the single exception and is reserved for navigating
+   to the source a claim came from.
 
    The dark values appear twice on purpose. `index.html` stamps `data-theme` before first
    paint, so the attribute selector is what actually runs; the media query is the fallback
    for a reader whose browser never executed that script.
 --------------------------------------------------------------------------------------- */
 
+/* Archivo carries every control, label and heading. Variable 400–700; there is no italic
+   cut on purpose — nothing in the sans register needs one, and it was 38 KB. */
 @font-face {
-  font-family: "Schibsted Grotesk";
-  src: url("./assets/fonts/schibsted.woff2") format("woff2");
-  font-weight: 400 900;
+  font-family: "Archivo";
+  src: url("./assets/fonts/archivo.woff2") format("woff2");
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+/* Newsreader sets the model's reasoning and nothing else. The optical size axis is why the
+   file is large: it is the same face at 17px and at 34px without either looking borrowed. */
+@font-face {
+  font-family: "Newsreader";
+  src: url("./assets/fonts/newsreader.woff2") format("woff2");
+  font-weight: 200 500;
+  font-display: swap;
+}
+
+/* Two static cuts rather than a variable one — IBM Plex Mono has no variable release, and
+   the interface asks for exactly two weights: a reading weight and an emphasis weight. */
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("./assets/fonts/plex-mono-400.woff2") format("woff2");
+  font-weight: 400;
   font-display: swap;
 }
 @font-face {
-  font-family: "Instrument Sans";
-  src: url("./assets/fonts/instrument.woff2") format("woff2");
-  font-weight: 400 700;
+  font-family: "IBM Plex Mono";
+  src: url("./assets/fonts/plex-mono-600.woff2") format("woff2");
+  font-weight: 600;
   font-display: swap;
 }
 
 :root {
   color-scheme: light;
 
-  --canvas: #f7f6f3;
-  --sunken: #efeeea;
-  --surface: #ffffff;
-  --surface-2: #fbfaf8;
-  --overlay: rgb(22 24 20 / 38%);
+  /* A cool bone rather than a warm cream. The first system's paper was the same warmth as
+     the `held` amber, which cost the amber some of its distance from the ground. */
+  --canvas: #ebebe6;
+  --sunken: #e2e2dc;
+  --surface: #fcfcfa;
+  --surface-2: #f4f4f0;
+  --overlay: rgb(12 14 16 / 42%);
 
-  --rule: rgb(24 26 21 / 10%);
-  --rule-strong: rgb(24 26 21 / 19%);
+  /* Hairlines are the primary structural device: this system separates with a rule and
+     reserves a border for something you could pick up. */
+  --rule: rgb(21 23 26 / 14%);
+  --rule-strong: rgb(21 23 26 / 30%);
 
-  --ink: #191b19;
-  --ink-2: #4e524e;
-  --ink-3: #767b76;
+  --ink: #15171a;
+  --ink-2: #4b5057;
+  --ink-3: #7d838a;
 
-  --accent: #3f4ed2;
-  --accent-strong: #2f3cae;
-  --accent-soft: #eceeff;
-  --on-accent: #ffffff;
+  /* The only chroma. A severity scale the workbench reads at a glance: act on it, waiting
+     on a person, settled. `ui/verdict-hues.test.ts` fails the build if one of these is
+     spent anywhere a verdict is not what is being shown. */
+  --material: #af3a22;
+  --material-soft: rgb(175 58 34 / 9%);
+  --held: #8e6209;
+  --held-soft: rgb(142 98 9 / 10%);
+  --cleared: #16674a;
+  --cleared-soft: rgb(22 103 74 / 9%);
 
-  --material: #ac4630;
-  --material-soft: #fdf0ec;
-  --held: #8f6210;
-  --held-soft: #fcf4e3;
-  --cleared: #197551;
-  --cleared-soft: #e9f6ef;
+  /* The budget of one. Reserved for navigating to the thing a claim came from — a source
+     location, a policy, a cited finding. Desaturated far enough to read as ink with a bias
+     rather than as an accent, and it never appears beside a verdict. */
+  --mark: #3e4b5d;
 
-  /* Code colours, kept here with every other colour rather than imported from the
-     highlighter. Two reasons: a keyword then follows the workspace's theme instead of a
-     bundled stylesheet that would have to be kept in step with it, and the hues stay under
-     the same rule as everything else — nothing borrows a verdict's colour. Deliberately few:
-     a keyword, a name, a literal, a string and a comment carry Python, and colouring every
-     token class only makes the excerpt harder to read than the editor it came from. */
-  --code-keyword: #7a3ea3;
-  --code-name: #1f4f8f;
-  --code-string: #1a6b4a;
-  --code-number: #9a5518;
-  --code-comment: #7d827c;
-  --code-meta: #8a6210;
+  /* Code is measured material, so an excerpt is not allowed to be a rainbow beside a
+     verdict. Three values carry Python: weight for a keyword, `--mark` for the literal a
+     reader is scanning for, and grey for the comment. */
+  --code-ink: #15171a;
+  --code-lit: #3e4b5d;
+  --code-comment: #7d838a;
 
-  --font-display: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-ui: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-code: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --font-display: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-ui: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-read: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-code: "IBM Plex Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
-  --shadow-panel: 0 1px 2px rgb(20 22 18 / 4%);
-  --shadow-float: 0 2px 6px rgb(20 22 18 / 5%), 0 18px 44px rgb(20 22 18 / 10%);
-  --shadow-hero: 0 2px 8px rgb(20 22 18 / 4%), 0 32px 72px rgb(20 22 18 / 12%);
+  /* A shadow is for something that actually floats. Panels do not; they have a rule. */
+  --shadow-float: 0 2px 6px rgb(12 14 16 / 6%), 0 18px 44px rgb(12 14 16 / 11%);
+  --shadow-hero: 0 2px 8px rgb(12 14 16 / 5%), 0 32px 72px rgb(12 14 16 / 13%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
 
-    --canvas: #0d0e0c;
-    --sunken: #121412;
-    --surface: #161815;
-    --surface-2: #1b1e1a;
-    --overlay: rgb(0 0 0 / 62%);
+    --canvas: #0c0e10;
+    --sunken: #101214;
+    --surface: #16181b;
+    --surface-2: #1b1e21;
+    --overlay: rgb(0 0 0 / 64%);
 
-    --rule: rgb(255 255 255 / 10%);
-    --rule-strong: rgb(255 255 255 / 19%);
+    --rule: rgb(233 234 230 / 14%);
+    --rule-strong: rgb(233 234 230 / 30%);
 
-    --ink: #edefea;
-    --ink-2: #b2b7b0;
-    --ink-3: #838982;
+    --ink: #e9eae6;
+    --ink-2: #a7adb4;
+    --ink-3: #757c83;
 
-    --accent: #97a5ff;
-    --accent-strong: #b3bcff;
-    --accent-soft: rgb(105 120 230 / 16%);
-    --on-accent: #10121f;
+    --material: #e9906f;
+    --material-soft: rgb(233 144 111 / 13%);
+    --held: #d9ae5b;
+    --held-soft: rgb(217 174 91 / 13%);
+    --cleared: #63be94;
+    --cleared-soft: rgb(99 190 148 / 12%);
 
-    --material: #f0a48f;
-    --material-soft: rgb(180 82 58 / 16%);
-    --held: #e7be6e;
-    --held-soft: rgb(176 128 30 / 16%);
-    --cleared: #6fcb9d;
-    --cleared-soft: rgb(48 140 98 / 16%);
+    --mark: #93a4ba;
 
-    --code-keyword: #c99bee;
-    --code-name: #8fb6ee;
-    --code-string: #85cfa8;
-    --code-number: #e0a878;
-    --code-comment: #767a72;
-    --code-meta: #e7be6e;
+    --code-ink: #e9eae6;
+    --code-lit: #93a4ba;
+    --code-comment: #757c83;
 
-    --shadow-panel: 0 1px 2px rgb(0 0 0 / 30%);
-    --shadow-float: 0 2px 6px rgb(0 0 0 / 30%), 0 18px 44px rgb(0 0 0 / 40%);
-    --shadow-hero: 0 2px 8px rgb(0 0 0 / 30%), 0 32px 72px rgb(0 0 0 / 45%);
+    --shadow-float: 0 2px 6px rgb(0 0 0 / 34%), 0 18px 44px rgb(0 0 0 / 44%);
+    --shadow-hero: 0 2px 8px rgb(0 0 0 / 34%), 0 32px 72px rgb(0 0 0 / 48%);
   }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --canvas: #0d0e0c;
-  --sunken: #121412;
-  --surface: #161815;
-  --surface-2: #1b1e1a;
-  --overlay: rgb(0 0 0 / 62%);
+  --canvas: #0c0e10;
+  --sunken: #101214;
+  --surface: #16181b;
+  --surface-2: #1b1e21;
+  --overlay: rgb(0 0 0 / 64%);
 
-  --rule: rgb(255 255 255 / 10%);
-  --rule-strong: rgb(255 255 255 / 19%);
+  --rule: rgb(233 234 230 / 14%);
+  --rule-strong: rgb(233 234 230 / 30%);
 
-  --ink: #edefea;
-  --ink-2: #b2b7b0;
-  --ink-3: #838982;
+  --ink: #e9eae6;
+  --ink-2: #a7adb4;
+  --ink-3: #757c83;
 
-  --accent: #97a5ff;
-  --accent-strong: #b3bcff;
-  --accent-soft: rgb(105 120 230 / 16%);
-  --on-accent: #10121f;
+  --material: #e9906f;
+  --material-soft: rgb(233 144 111 / 13%);
+  --held: #d9ae5b;
+  --held-soft: rgb(217 174 91 / 13%);
+  --cleared: #63be94;
+  --cleared-soft: rgb(99 190 148 / 12%);
 
-  --material: #f0a48f;
-  --material-soft: rgb(180 82 58 / 16%);
-  --held: #e7be6e;
-  --held-soft: rgb(176 128 30 / 16%);
-  --cleared: #6fcb9d;
-  --cleared-soft: rgb(48 140 98 / 16%);
+  --mark: #93a4ba;
 
-  --code-keyword: #c99bee;
-  --code-name: #8fb6ee;
-  --code-string: #85cfa8;
-  --code-number: #e0a878;
-  --code-comment: #767a72;
-  --code-meta: #e7be6e;
+  --code-ink: #e9eae6;
+  --code-lit: #93a4ba;
+  --code-comment: #757c83;
 
-  --shadow-panel: 0 1px 2px rgb(0 0 0 / 30%);
-  --shadow-float: 0 2px 6px rgb(0 0 0 / 30%), 0 18px 44px rgb(0 0 0 / 40%);
-  --shadow-hero: 0 2px 8px rgb(0 0 0 / 30%), 0 32px 72px rgb(0 0 0 / 45%);
+  --shadow-float: 0 2px 6px rgb(0 0 0 / 34%), 0 18px 44px rgb(0 0 0 / 44%);
+  --shadow-hero: 0 2px 8px rgb(0 0 0 / 34%), 0 32px 72px rgb(0 0 0 / 48%);
 }
 
 @theme inline {
@@ -171,11 +186,6 @@
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);
 
-  --color-accent: var(--accent);
-  --color-accent-strong: var(--accent-strong);
-  --color-accent-soft: var(--accent-soft);
-  --color-on-accent: var(--on-accent);
-
   --color-material: var(--material);
   --color-material-soft: var(--material-soft);
   --color-held: var(--held);
@@ -183,17 +193,23 @@
   --color-cleared: var(--cleared);
   --color-cleared-soft: var(--cleared-soft);
 
+  --color-mark: var(--mark);
+
   --font-display: var(--font-display);
   --font-sans: var(--font-ui);
+  --font-read: var(--font-read);
   --font-mono: var(--font-code);
 
-  --radius-xs: 6px;
-  --radius-sm: 8px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  /* Five steps collapsed to two real values. A structural container — a panel, a sheet, a
+     rail — is square, and a radius means "this is a control you can operate". The step
+     names survive so that a component reads as "small control" or "panel" rather than as a
+     number, but `xs`/`sm`/`md` all resolve to the control radius and `lg`/`xl` to none. */
+  --radius-xs: 2px;
+  --radius-sm: 2px;
+  --radius-md: 2px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
 
-  --shadow-panel: var(--shadow-panel);
   --shadow-float: var(--shadow-float);
   --shadow-hero: var(--shadow-hero);
 }
@@ -315,14 +331,23 @@
     cursor: pointer;
   }
 
+  /* Ink, like every other affordance. The ring used to be the accent, which made it the
+     one piece of chrome that could be mistaken for a verdict at the edge of vision. */
   :focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--ink);
     outline-offset: 2px;
-    border-radius: 3px;
+    border-radius: 2px;
   }
 
   ::selection {
-    background: color-mix(in srgb, var(--accent) 26%, transparent);
+    background: color-mix(in srgb, var(--ink) 18%, transparent);
+  }
+
+  /* Headings are set to balance rather than to break wherever the box ends. */
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
   }
 
   pre {
@@ -420,62 +445,48 @@
   }
 }
 
-
 /* ---------------------------------------------------------------------------------------
    Highlighted code.
 
    The highlighter is a tokeniser: it emits these class names and this is where they are
-   given colour, so light and dark come from the same tokens as the rest of the interface.
-   Grouped rather than enumerated — highlight.js defines around forty classes and colouring
-   all of them turns an excerpt into a rainbow, which reads as decoration instead of as
-   structure.
+   given colour. Deliberately three values, not forty. An excerpt is evidence — measured
+   material sitting a few centimetres from a verdict — and a six-colour rainbow beside a
+   three-colour severity scale is two palettes arguing. A keyword carries its weight, a
+   literal takes the one non-verdict chroma because it is usually the string a reader is
+   scanning the excerpt for, and a comment recedes.
 --------------------------------------------------------------------------------------- */
 .hljs-keyword,
 .hljs-selector-tag,
 .hljs-literal,
 .hljs-doctag,
-.hljs-type {
-  color: var(--code-keyword);
-}
-
+.hljs-type,
 .hljs-title,
 .hljs-title.class_,
 .hljs-title.function_,
 .hljs-section,
-.hljs-selector-id,
-.hljs-selector-class,
-.hljs-tag,
-.hljs-name {
-  color: var(--code-name);
+.hljs-name,
+.hljs-built_in {
+  color: var(--code-ink);
+  font-weight: 600;
 }
 
 .hljs-string,
 .hljs-regexp,
 .hljs-symbol,
-.hljs-bullet,
-.hljs-quote,
-.hljs-addition {
-  color: var(--code-string);
-}
-
 .hljs-number,
 .hljs-attr,
 .hljs-attribute,
-.hljs-variable,
-.hljs-template-variable,
-.hljs-params {
-  color: var(--code-number);
+.hljs-meta,
+.hljs-bullet,
+.hljs-quote,
+.hljs-addition {
+  color: var(--code-lit);
 }
 
-.hljs-comment {
+.hljs-comment,
+.hljs-deletion {
   color: var(--code-comment);
   font-style: italic;
-}
-
-.hljs-meta,
-.hljs-built_in,
-.hljs-deletion {
-  color: var(--code-meta);
 }
 
 .hljs-strong {
