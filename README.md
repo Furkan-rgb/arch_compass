@@ -175,8 +175,23 @@ opening a workspace never requires a migration command.
 
 Reasoning adapters use LangChain structured output:
 
-- Google: `ChatGoogleGenerativeAI`
-- Ollama: `ChatOllama`
+- Google: `ChatGoogleGenerativeAI`, keyed by `GOOGLE_API_KEY`
+- Ollama: `ChatOllama`, against a local server
+- Groq: `ChatOpenAI` against `api.groq.com`, keyed by `GROQ_API_KEY`
+- Cerebras: `ChatOpenAI` against `api.cerebras.ai`, keyed by `CEREBRAS_API_KEY`
+
+The last two share one transport, because the only things that differ between vendors of
+OpenAI's chat API are an endpoint, a credential variable, a model list and how many requests
+the tier will answer at once. Adding another is adding an `OpenAICompatibleProvider` to
+`reasoning/adapters/openai_compatible.py`.
+
+The models each of those offers are named rather than discovered. Judging is a structured
+call against a JSON schema and a vendor's catalogue is full of models that will not honour
+one, so the endpoint's listing is intersected with a list that has actually been judged
+with. `ARCHCOMPASS_GROQ_MODELS` and `ARCHCOMPASS_CEREBRAS_MODELS` name others when a vendor
+renames one between releases.
+
+`ARCHCOMPASS_PROVIDERS` narrows which of them a deployment offers at all.
 
 Embedding adapters are configured independently:
 

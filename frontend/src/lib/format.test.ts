@@ -34,7 +34,21 @@ describe("product vocabulary", () => {
   it("falls back to a readable label for a value it has never seen", () => {
     expect(verdictOf("something_new").label).toBe("Something new");
     expect(statusOf("awaiting_answers").label).toBe("Awaiting answers");
-    expect(strengthOf("required").tone).toBe("material");
+    expect(strengthOf("required").tone).toBe("accent");
+  });
+
+  it("keeps the verdict hues off anything that is not a verdict", () => {
+    // Red, amber and green are a severity scale here: act on it, wait on it, settled. How
+    // binding a policy is says none of those things — a required policy is the one to read
+    // first, not a problem — and a library of them rendered in the workbench's red read as
+    // a list of alarms.
+    expect(strengthOf("required").tone).toBe("accent");
+    expect(strengthOf("preferred").tone).toBe("neutral");
+    expect(strengthOf("guidance").tone).toBe("neutral");
+    // The step between them survives without colour, which is what the glyph is for.
+    expect(
+      new Set(["required", "preferred", "guidance"].map((value) => strengthOf(value).glyph)).size,
+    ).toBe(3);
   });
 
   it("humanises wire values without mangling them", () => {

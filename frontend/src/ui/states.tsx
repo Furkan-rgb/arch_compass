@@ -44,6 +44,54 @@ export function Spinner({ className }: { className?: string }) {
   );
 }
 
+/**
+ * A standing note about how something is set up, or about what the workspace is doing.
+ *
+ * Exists to keep the verdict palette out of it. `cleared`, `held` and `material` are the
+ * three things a model can say about a candidate, and the workbench reads them as grades —
+ * so a pinned setting rendered in `held` amber says "a judgement is pending on your
+ * configuration", and a finished clone in `cleared` green says the clone was found sound.
+ * Neither is a verdict, and both were saying so in the product's own colour language.
+ *
+ * Two tones, and neither is a hue the queue uses: `notice` is a fact about the setup and is
+ * neutral; `working` is the workspace acting or asking, which is what the accent already
+ * means everywhere else.
+ */
+export function Notice({
+  tone = "notice",
+  title,
+  children,
+  className,
+}: {
+  tone?: "notice" | "working";
+  title?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-md border px-3.5 py-3 text-sm leading-6",
+        tone === "notice" && "border-rule bg-sunken/70 text-ink-2",
+        tone === "working" && "border-accent/25 bg-accent-soft text-ink-2",
+        className,
+      )}
+    >
+      {title ? (
+        <strong
+          className={cn(
+            "block text-[11px] font-bold uppercase tracking-[0.08em]",
+            tone === "working" ? "text-accent" : "text-ink-3",
+          )}
+        >
+          {title}
+        </strong>
+      ) : null}
+      <div className={title ? "mt-1.5" : undefined}>{children}</div>
+    </div>
+  );
+}
+
 export function ErrorNotice({ error, title = "That did not go through" }: { error: unknown; title?: string }) {
   const message = error instanceof Error ? error.message : String(error);
   return (

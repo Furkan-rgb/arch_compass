@@ -5,12 +5,12 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, type Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { useIsTabletUp } from "../../lib/media";
-import { relativeTime, repositoryName, shortId } from "../../lib/format";
+import { type Tone, relativeTime, repositoryName, shortId, verdictOf } from "../../lib/format";
 import { StatusBadge, Tag } from "../../ui/badge";
 import { Button, ButtonLink } from "../../ui/button";
 import { Drawer } from "../../ui/drawer";
 import { GitBranchIcon } from "../../ui/icons";
-import { Mono, PathRef } from "../../ui/meta";
+import { Mono, PathRef, TONE_TEXT } from "../../ui/meta";
 import { Panel, PanelBody } from "../../ui/panel";
 import { ErrorNotice, LoadingPanel } from "../../ui/states";
 import { Tabs, TabPanel } from "../../ui/tabs";
@@ -117,20 +117,23 @@ function StatusRibbon({ review }: { review: Review }) {
 
   // A line rather than a panel of four big numbers: this is orientation, read once, and it
   // used to cost about 120px above the work it was orienting you to.
-  const cells: Array<[number, string, boolean]> = [
-    [attention + waiting, `need you — ${material} material, ${held} held`, true],
-    [review.findings.length, "judged", false],
-    [policies, "policies retrieved", false],
+  // The first cell counts what a person still has to deal with, so it is the one cell that
+  // carries a verdict's tone — taken from the table that decides them rather than written
+  // out here, because a hue written out here is one nothing stops from spreading.
+  const cells: Array<[number, string, Tone | null]> = [
+    [attention + waiting, `need you — ${material} material, ${held} held`, verdictOf("material").tone],
+    [review.findings.length, "judged", null],
+    [policies, "policies retrieved", null],
     [
       review.delta.new.length + review.delta.changed.length,
       review.previous_review_id ? `new or changed since review ${review.sequence - 1}` : "new",
-      false,
+      null,
     ],
   ];
 
   return (
     <div className="mb-4 flex flex-wrap overflow-hidden rounded-md border border-rule bg-surface">
-      {cells.map(([value, label, urgent], index) => (
+      {cells.map(([value, label, tone], index) => (
         <div
           key={label}
           className={cn(
@@ -141,7 +144,7 @@ function StatusRibbon({ review }: { review: Review }) {
           <span
             className={cn(
               "font-display text-lg font-semibold tabular-nums",
-              urgent && value > 0 ? "text-material" : "text-ink",
+              tone && value > 0 ? TONE_TEXT[tone] : "text-ink",
             )}
           >
             {value}

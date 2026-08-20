@@ -10,7 +10,7 @@ import { CheckIcon } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
 import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
-import { ErrorNotice, LoadingPanel } from "../../ui/states";
+import { ErrorNotice, LoadingPanel, Notice } from "../../ui/states";
 
 /** One model on offer, in the terms this page renders rather than the terms it arrived in. */
 type Choice = {
@@ -229,11 +229,7 @@ function ModelSection({
       </div>
 
       <div className="grid gap-3">
-        {pinned ? (
-          <p className="rounded-md border border-held/30 bg-held-soft/60 px-3 py-2.5 text-sm leading-6 text-held">
-            {pinnedNotice}
-          </p>
-        ) : null}
+        {pinned ? <Notice>{pinnedNotice}</Notice> : null}
 
         {groups.length ? (
           groups.map((group) => (

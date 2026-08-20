@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { cn } from "../lib/cn";
+import type { Tone } from "../lib/format";
 
 /** Identifiers, paths, commits, fingerprints, model identities. Monospace, always. */
 export function Mono({
@@ -69,6 +70,21 @@ export function MetaList({ children, className }: { children: ReactNode; classNa
 }
 
 /** A number that matters, with its name underneath. Used in strips of two to four. */
+/**
+ * A tone as a text colour, and the only place outside the tone table that names the hues.
+ *
+ * Anything showing a number or a word in a verdict's colour paints it through here, so the
+ * hue always arrives from `lib/format` rather than being picked at the call site — which is
+ * how a "cleared" green ended up on a finished clone and a "held" amber on a pinned setting.
+ */
+export const TONE_TEXT: Record<Tone, string> = {
+  neutral: "text-ink-2",
+  accent: "text-accent",
+  material: "text-material",
+  held: "text-held",
+  cleared: "text-cleared",
+};
+
 export function Statistic({
   label,
   value,
@@ -79,7 +95,7 @@ export function Statistic({
   label: string;
   value: ReactNode;
   detail?: ReactNode;
-  tone?: "ink" | "material" | "held" | "cleared" | "accent";
+  tone?: Tone | "ink";
   className?: string;
 }) {
   return (
@@ -87,11 +103,7 @@ export function Statistic({
       <div
         className={cn(
           "font-display text-2xl font-semibold tabular-nums tracking-tight",
-          tone === "ink" && "text-ink",
-          tone === "material" && "text-material",
-          tone === "held" && "text-held",
-          tone === "cleared" && "text-cleared",
-          tone === "accent" && "text-accent",
+          tone === "ink" ? "text-ink" : TONE_TEXT[tone],
         )}
       >
         {value}

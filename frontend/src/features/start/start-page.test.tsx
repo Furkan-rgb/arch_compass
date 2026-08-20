@@ -71,7 +71,7 @@ describe("starting a review", () => {
 
     render(wrap(<StartPage />));
 
-    expect(await screen.findByText("not selected")).toBeInTheDocument();
+    expect(await screen.findByText("not chosen yet")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Choose models" })).toHaveAttribute("href", "/settings");
     expect(screen.getByRole("button", { name: /Run review/ })).toBeDisabled();
   });

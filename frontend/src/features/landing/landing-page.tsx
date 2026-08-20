@@ -93,7 +93,11 @@ const FEATURES = [
   {
     title: "Local or hosted models",
     body: "Reasoning and embedding are chosen independently. Run both against a local Ollama, both against a hosted provider, or mix them — retrieval provenance records whichever was used.",
-    points: ["Ollama and Google supported", "Embedding choice is independent", "Environment pinning respected"],
+    points: [
+      "Ollama, Google, Groq and Cerebras",
+      "Embedding choice is independent",
+      "Environment pinning respected",
+    ],
   },
 ] as const;
 
@@ -219,11 +223,10 @@ function Hero() {
       />
       <div className="relative mx-auto max-w-6xl px-4 pb-12 pt-12 sm:px-6 sm:pb-16 sm:pt-20">
         <Reveal className="max-w-3xl">
-          <div className="inline-flex items-center gap-2 rounded-full border border-rule bg-surface px-3 py-1.5 text-xs text-ink-2 shadow-panel">
-            <span className="size-1.5 rounded-full bg-cleared" aria-hidden="true" />
+          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-accent">
             Architecture review, not autocomplete
           </div>
-          <h1 className="mt-5 font-display text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] text-ink sm:text-[52px]">
+          <h1 className="mt-3 font-display text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] text-ink sm:text-[52px]">
             Architecture review grounded in your code, policies, and decisions.
           </h1>
           <p className="mt-4 max-w-2xl text-base leading-7 text-ink-2 sm:text-lg">

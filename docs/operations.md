@@ -33,7 +33,17 @@ uv run archcompass --provider ollama --model gemma4:26b web
 Google requires `GOOGLE_API_KEY`. Its policy retriever uses Google's
 `gemini-embedding-2` model at 3,072 dimensions by default and shares that credential, so a
 Google run needs no separate embedding variables. Ollama requires a reachable local server
-and installed model. Embedding selection remains independent from reasoning selection:
+and installed model.
+
+Groq and Cerebras are reached the same way as each other, over OpenAI's chat API, and need
+`GROQ_API_KEY` and `CEREBRAS_API_KEY` respectively. Neither serves embeddings, so a run that
+judges through one of them retrieves through Google or through a local Ollama — which is the
+combination that exercises the whole workflow without a paid tier. Neither meters a batch
+separately either, so judging there is the concurrent loop rather than the batch path, sized
+by the provider's own `concurrent_requests` and overridable with
+`ARCHCOMPASS_MODEL_CONCURRENT_REQUESTS`.
+
+Embedding selection remains independent from reasoning selection:
 `ARCHCOMPASS_EMBEDDING_PROVIDER`, `ARCHCOMPASS_EMBEDDING_MODEL`,
 `ARCHCOMPASS_EMBEDDING_DIMENSIONS`, `ARCHCOMPASS_EMBEDDING_BASE_URL`, and
 `ARCHCOMPASS_EMBEDDING_API_KEY_ENV` can override the defaults. Retriever evaluation is a

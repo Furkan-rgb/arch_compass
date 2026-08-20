@@ -5,13 +5,13 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../api";
 import { cn } from "../../lib/cn";
 import { repositoryName } from "../../lib/format";
-import { StatusDot } from "../../ui/badge";
 import { Button, ButtonLink } from "../../ui/button";
 import { Checkbox } from "../../ui/field";
+import { CheckIcon } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
 import { Label, Panel, PanelBody, PanelFooter, PanelHeader } from "../../ui/panel";
-import { ErrorNotice, LiveRegion, Spinner } from "../../ui/states";
+import { ErrorNotice, Spinner } from "../../ui/states";
 import { RepositoryPicker } from "./repository-picker";
 import { ScopePicker } from "./scope-picker";
 
@@ -39,7 +39,6 @@ export function StartPage() {
   const [clean, setClean] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [running, setRunning] = useState(false);
-  const [stages, setStages] = useState<string[]>([]);
   const [failure, setFailure] = useState<unknown>(null);
 
   const reasoning = workspace.data?.models.reasoning;
@@ -57,7 +56,6 @@ export function StartPage() {
   async function start() {
     setRunning(true);
     setFailure(null);
-    setStages(["Preparing the repository"]);
     try {
       // Sent on every run, including as `[]`. Absent would mean "keep whatever this
       // repository was last indexed under", and the reader has the folders on screen in
@@ -196,40 +194,6 @@ export function StartPage() {
               ) : null}
             </PanelFooter>
           </Panel>
-
-          {running || stages.length ? (
-            <Panel tone="flat">
-              <PanelHeader
-                title="Review progress"
-                description="Each stage is the application deciding what to inspect next."
-                actions={
-                  <span className="text-xs tabular-nums text-ink-3">{stages.length} stages</span>
-                }
-              />
-              <PanelBody>
-                <ol className="grid gap-2.5" aria-label="Review progress">
-                  {stages.map((stage, index) => {
-                    const last = index === stages.length - 1;
-                    return (
-                      <li key={`${stage}-${index}`} className="flex items-center gap-2.5 text-sm">
-                        <span
-                          aria-hidden="true"
-                          className={cn(
-                            "size-2 rounded-full",
-                            last && running ? "animate-breathe bg-accent" : "bg-cleared",
-                          )}
-                        />
-                        <span className={last ? "font-semibold text-ink" : "text-ink-2"}>
-                          {stage}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ol>
-                <LiveRegion>{stages.at(-1) ?? ""}</LiveRegion>
-              </PanelBody>
-            </Panel>
-          ) : null}
         </div>
 
         <div className="grid gap-4">
@@ -287,21 +251,32 @@ function ModelReadiness({
           key={label}
           className={cn(
             "rounded-md border px-3 py-2.5",
-            model ? "border-rule bg-surface-2" : "border-held/35 bg-held-soft/50",
+            model ? "border-rule bg-surface-2" : "border-accent/30 bg-accent-soft",
           )}
         >
           <div className="flex items-center gap-2">
-            <StatusDot tone={model ? "cleared" : "held"} />
+            {/* Chosen or not chosen is a step in this flow, not a grade. The verdict hues
+                belong to the queue, where green means a candidate came back cleared. */}
+            {model ? (
+              <CheckIcon className="size-3.5 shrink-0 text-ink-3" aria-hidden="true" />
+            ) : (
+              <span
+                aria-hidden="true"
+                className="size-3.5 shrink-0 rounded-full border-2 border-dashed border-accent"
+              />
+            )}
             <span className="text-xs font-semibold text-ink">{label}</span>
             <span className="text-[11px] text-ink-3">· {role}</span>
           </div>
-          <Mono className="mt-1 block truncate text-[12px]">{model ?? "not selected"}</Mono>
+          <Mono className={cn("mt-1 block truncate text-[12px]", !model && "text-accent")}>
+            {model ?? "not chosen yet"}
+          </Mono>
         </div>
       ))}
       {!ready ? (
-        <p className="text-xs leading-5 text-held sm:col-span-2">
+        <p className="text-xs leading-5 text-ink-2 sm:col-span-2">
           Both are needed before a review can run.{" "}
-          <Link to="/settings" className="font-semibold underline">
+          <Link to="/settings" className="font-semibold text-accent underline underline-offset-2">
             Choose models
           </Link>
           .

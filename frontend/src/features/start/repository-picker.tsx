@@ -7,7 +7,7 @@ import { relativeTime, repositoryName } from "../../lib/format";
 import { Tag } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { Field, Input } from "../../ui/field";
-import { FolderIcon, GitBranchIcon } from "../../ui/icons";
+import { CheckIcon, FolderIcon, GitBranchIcon } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { EmptyState, ErrorNotice, Spinner } from "../../ui/states";
 import { Tabs, TabPanel } from "../../ui/tabs";
@@ -251,9 +251,10 @@ function CloneForm({ onCheckedOut }: { onCheckedOut: (root: string) => void }) {
         </Button>
       </div>
       {checkout.data ? (
-        <p className="text-xs text-cleared">
-          {checkout.data.created ? "Cloned to " : "Updated "}
-          <Mono className="text-cleared">{checkout.data.root_path}</Mono>
+        <p className="flex min-w-0 items-center gap-1.5 text-xs text-ink-2">
+          <CheckIcon className="size-3.5 shrink-0 text-accent" aria-hidden="true" />
+          {checkout.data.created ? "Cloned to" : "Updated"}
+          <Mono className="min-w-0 truncate text-[11px]">{checkout.data.root_path}</Mono>
         </p>
       ) : null}
       {checkout.error ? <ErrorNotice error={checkout.error} /> : null}

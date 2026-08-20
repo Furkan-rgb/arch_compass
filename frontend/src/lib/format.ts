@@ -46,9 +46,23 @@ const STATUSES: Record<string, Descriptor> = {
   cancelled: { label: "Cancelled", tone: "neutral", glyph: "○" },
 };
 
+/**
+ * How binding a policy is — which is emphasis, not alarm.
+ *
+ * The three hues are a severity scale: red is something to act on, amber is something
+ * waiting on a person, green is something settled. That reading holds for a verdict, for a
+ * review's state and for a standing decision, and it does not hold here. A required policy
+ * is not a problem; it is the policy a reviewer should read first. Painted in the verdict
+ * red it turned the policy library into a list of alarms, sitting one nav item away from a
+ * workbench where that exact red means "a material architectural concern was found".
+ *
+ * So the strongest policy takes the accent, which everywhere else in this interface means
+ * "the thing to look at", and the other two take the neutral. The glyph and the word carry
+ * the step between them, which is what those exist for.
+ */
 const STRENGTHS: Record<string, Descriptor> = {
-  required: { label: "Required", tone: "material", glyph: "▲" },
-  preferred: { label: "Preferred", tone: "held", glyph: "◆" },
+  required: { label: "Required", tone: "accent", glyph: "▲" },
+  preferred: { label: "Preferred", tone: "neutral", glyph: "◆" },
   guidance: { label: "Guidance", tone: "neutral", glyph: "○" },
 };
 

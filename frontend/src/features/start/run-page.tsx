@@ -7,8 +7,8 @@ import { humanise } from "../../lib/format";
 import { Button, ButtonLink } from "../../ui/button";
 import { CheckIcon } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
-import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
-import { ErrorNotice, LiveRegion, Spinner } from "../../ui/states";
+import { Panel, PanelBody, PanelHeader } from "../../ui/panel";
+import { ErrorNotice, LiveRegion, Notice, Spinner } from "../../ui/states";
 
 /** The workspace's node names, said the way a person would say them. */
 const STAGE_LABELS: Record<string, string> = {
@@ -121,15 +121,11 @@ export function RunPage() {
           {/* Batch judging is answered in minutes or hours, so the wait is stated rather
               than implied by a spinner that never stops. */}
           {state.stage === "review_candidates" ? (
-            <div className="rounded-md border border-held/30 bg-held-soft/40 px-3.5 py-3">
-              <Label className="text-held">Queued with the model</Label>
-              <p className="mt-1.5 text-sm leading-6 text-ink-2">
-                Every candidate went to the provider in one batch, which is metered
-                separately from interactive requests and costs half. Batches usually return
-                within the hour and are guaranteed within a day. Nothing is waiting on this
-                window.
-              </p>
-            </div>
+            <Notice tone="working" title="Queued with the model">
+              Every candidate went to the provider in one batch, which is metered separately
+              from interactive requests and costs half. Batches usually return within the
+              hour and are guaranteed within a day. Nothing is waiting on this window.
+            </Notice>
           ) : null}
 
           {failed ? <ErrorNotice error={new Error(state.failure)} /> : null}

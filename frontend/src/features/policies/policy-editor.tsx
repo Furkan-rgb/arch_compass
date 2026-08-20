@@ -169,9 +169,11 @@ export function PolicyEditor({
             {sectionStates(draft.body).map((section) => (
               <li
                 key={section.name}
+                // A checklist should point at what is left, not congratulate what is done —
+                // and "written" is not a verdict, which is what the green said it was.
                 className={cn(
                   "flex items-center gap-1.5 text-xs",
-                  section.present ? "text-cleared" : "text-ink-3",
+                  section.present ? "text-ink-3" : "font-medium text-accent",
                 )}
               >
                 <span aria-hidden="true">{section.present ? "●" : "○"}</span>

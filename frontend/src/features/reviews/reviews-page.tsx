@@ -53,16 +53,25 @@ function ReviewRow({
               </Tag>
             ) : null}
           </div>
+          {/* How much moved since the review before, as three counts. Not three hues: the
+              card already carries the review's status in the one palette that means
+              something, and "changed" painted amber claimed a held judgement nothing had
+              made. The numbers are what is being compared, so the numbers carry the weight. */}
           <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
-            <span className="rounded-xs border border-accent/20 bg-accent-soft px-2 py-0.5 text-accent">
-              {review.delta.new.length} new
-            </span>
-            <span className="rounded-xs border border-held/25 bg-held-soft px-2 py-0.5 text-held">
-              {review.delta.changed.length} changed
-            </span>
-            <span className="rounded-xs border border-cleared/20 bg-cleared-soft px-2 py-0.5 text-cleared">
-              {review.delta.addressed.length} addressed
-            </span>
+            {(
+              [
+                [review.delta.new.length, "new"],
+                [review.delta.changed.length, "changed"],
+                [review.delta.addressed.length, "addressed"],
+              ] as const
+            ).map(([count, label]) => (
+              <span
+                key={label}
+                className="rounded-xs border border-rule bg-sunken px-2 py-0.5 text-ink-3"
+              >
+                <strong className="font-semibold tabular-nums text-ink">{count}</strong> {label}
+              </span>
+            ))}
           </div>
         </Link>
 
