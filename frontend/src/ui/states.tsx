@@ -7,7 +7,9 @@ export function Skeleton({ className }: { className?: string }) {
   return (
     <div
       aria-hidden="true"
-      className={cn("animate-shimmer rounded-sm bg-sunken", className)}
+      // `xs`: a skeleton is mostly a 12px bar standing in for a line of text, and the
+      // control step on something that short reads as a lozenge.
+      className={cn("animate-shimmer rounded-xs bg-sunken", className)}
     />
   );
 }
@@ -97,7 +99,9 @@ export function ErrorNotice({ error, title = "That did not go through" }: { erro
   return (
     <div
       role="alert"
-      className="animate-rise rounded-md border border-material/30 bg-material-soft px-4 py-3 text-sm leading-6 text-material"
+      // `wrap-anywhere`: the message is whatever the server or the fetch threw, which is
+      // regularly a URL or an absolute path with no break opportunity in it at all.
+      className="animate-rise rounded-md border border-material/30 bg-material-soft px-4 py-3 text-sm leading-6 text-material wrap-anywhere"
     >
       <strong className="mr-1.5 font-semibold">{title}:</strong>
       {message}

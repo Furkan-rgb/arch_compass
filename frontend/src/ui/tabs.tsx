@@ -44,8 +44,16 @@ export function Tabs({
       aria-label={label}
       onKeyDown={onKeyDown}
       className={cn(
-        "scrollbar-none flex gap-1 overflow-x-auto",
-        variant === "line" ? "border-b border-rule" : "rounded-md border border-rule bg-surface p-1",
+        "flex gap-1",
+        // The two variants run out of room differently. A line of tabs is a rule across the
+        // panel and cannot wrap without stranding the underline on a row above it, so it
+        // scrolls. A solid strip is a box of pills with nothing to align to, so it wraps —
+        // and it has to: "Indexed 43 · Browse · Clone · Examples" is 373px, which does not
+        // fit any phone, and it was scrolling with `scrollbar-none` hiding the fact. The
+        // last tab was simply cut in half at the edge of a padded card.
+        variant === "line"
+          ? "scrollbar-none overflow-x-auto border-b border-rule"
+          : "flex-wrap rounded-md border border-rule bg-surface p-1",
         className,
       )}
     >

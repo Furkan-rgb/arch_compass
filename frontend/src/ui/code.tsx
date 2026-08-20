@@ -79,6 +79,10 @@ export function EvidenceBlock({
     <div className={cn("rounded-md border border-rule bg-surface", className)}>
       <div className="flex flex-wrap items-start justify-between gap-2 px-3 py-2.5">
         <p className="min-w-0 text-sm leading-6 text-ink">{description}</p>
+        {/* The one thing on an evidence block that leads somewhere else. It used to be told
+            apart by `--mark`, which is ink now; `PathRef` carries the underline and the
+            weight that replaced it, so the affordance stays in one place rather than being
+            re-decided beside every excerpt. */}
         {path ? <PathRef path={path} line={startLine} endLine={endLine} /> : null}
       </div>
       {excerpt ? (

@@ -75,9 +75,20 @@ export function PanelBody({ children, className }: { children: ReactNode; classN
   return <div className={cn("px-4 py-4 sm:px-5", className)}>{children}</div>;
 }
 
+/**
+ * `rounded-b-lg` because the panel is no longer square.
+ *
+ * The footer is the only part of a panel that paints a background all the way to the edge,
+ * so it is the only part that notices the 14px corner. Without it the tint squares off
+ * outside the panel's own curve and the bottom two corners grow a small grey ear. The panel
+ * cannot solve this with `overflow-hidden`: focus rings are drawn with `outline-offset`, and
+ * a full-bleed row inside a panel would have half its ring clipped away.
+ */
 export function PanelFooter({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("border-t border-rule bg-sunken/40 px-4 py-3.5 sm:px-5", className)}>
+    <div
+      className={cn("rounded-b-lg border-t border-rule bg-sunken/40 px-4 py-3.5 sm:px-5", className)}
+    >
       {children}
     </div>
   );

@@ -35,7 +35,12 @@ export function Badge({
     <span
       title={title}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 text-[11px] font-bold uppercase tracking-[0.08em]",
+        // `rounded-full`, not a step on the ladder. The ladder says how operable a thing is
+        // and a badge is not operable at all — it is a word about a row, and the shape that
+        // reads as "a word about something" rather than as a control is a pill. It is also
+        // the one shape a reader will not confuse with the `rounded-sm` buttons in the
+        // decision bar, which sit a few centimetres away and take the same size text.
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em]",
         TONES[tone],
         className,
       )}
@@ -89,12 +94,21 @@ export const DispositionBadge = ({
   className?: string;
 }) => <DescriptorBadge descriptor={dispositionOf(disposition)} className={className} />;
 
-/** A quiet label for counts and categories — no semantic tone, no shouting. */
+/**
+ * A quiet label for counts and categories — no semantic tone, no shouting.
+ *
+ * `max-w-full` and `wrap-anywhere` because a tag is not always a word. Half the call sites
+ * put a qualified name in one — `src.audiobook.synthesis.providers.base.SynthesisProvider`
+ * is a single token to the line breaker, wider than a phone, and a row of these is
+ * `flex-wrap`, which wraps *between* tags and can do nothing about one that is too wide by
+ * itself. It escaped the panel instead, and on the finding an `overflow-hidden` ancestor
+ * quietly sliced it mid-identifier.
+ */
 export function Tag({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-xs border border-rule bg-surface-2 px-2 py-0.5 text-xs text-ink-2",
+        "inline-flex max-w-full items-center gap-1 rounded-xs border border-rule bg-surface-2 px-2 py-0.5 text-xs text-ink-2 wrap-anywhere",
         className,
       )}
     >

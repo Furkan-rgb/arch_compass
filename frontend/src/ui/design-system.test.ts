@@ -84,6 +84,24 @@ describe("the design system", () => {
     ).toEqual([]);
   });
 
+  /**
+   * Not a hue rule, but the same shape of bug: a rule that only holds if nobody writes the
+   * one line that quietly breaks it.
+   *
+   * `line-clamp-2` clamps by setting `display: -webkit-box`. Put `block` on the same element
+   * and there are two display declarations on it, in two different tailwind-merge groups —
+   * so `cn` keeps both and the stylesheet's own order decides. `block` is written later, so
+   * `block` wins, the clamp silently does nothing, and the class list still says
+   * `line-clamp-2`. Four elements carried that for a while; the delta's summaries ran to six
+   * lines on a phone while claiming to be capped at two.
+   */
+  it("lets a line clamp be the thing that sets the display", () => {
+    expect(
+      offenders(/\bline-clamp-\d+\b[^"'`]*\b(?:block|flex|inline-flex|inline-block|grid)\b|\b(?:block|flex|inline-flex|inline-block|grid)\b[^"'`]*\bline-clamp-\d+\b/),
+      "line-clamp sets display itself; another display utility beside it wins and cancels the clamp",
+    ).toEqual([]);
+  });
+
   it("keeps a shadow for something that actually floats", () => {
     // A panel has a rule. `shadow-float` and `shadow-hero` are for a drawer and for the
     // landing hero, which are the only two things on screen that leave the page.

@@ -24,7 +24,11 @@ const SIZES: Record<ButtonSize, string> = {
 
 export function buttonClass(variant: ButtonVariant = "primary", size: ButtonSize = "md") {
   return cn(
-    "inline-flex select-none items-center justify-center rounded-md border font-semibold transition duration-150",
+    // `rounded-sm` is the control step. A button used to be `md` because `md` was 2px like
+    // everything else; now the ladder has five real values, `md` is a block inside a panel,
+    // and a button that took it would be rounder than the panel it sits in relative to its
+    // own height.
+    "inline-flex select-none items-center justify-center rounded-sm border font-semibold transition duration-150",
     "disabled:pointer-events-none disabled:opacity-45",
     VARIANTS[variant],
     SIZES[size],

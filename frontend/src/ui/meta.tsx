@@ -3,7 +3,15 @@ import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import type { Tone } from "../lib/format";
 
-/** Identifiers, paths, commits, fingerprints, model identities. Monospace, always. */
+/**
+ * Identifiers, paths, commits, fingerprints, model identities. Monospace, always.
+ *
+ * `wrap-anywhere` because every one of those is a single word to the line breaker and most
+ * of them are wider than a phone — `openai/gpt-4o-2024-08-06@sha256:9f2c…` in a `MetaRow`
+ * on a 390px screen has nowhere to break, so it painted past its cell and took the page
+ * sideways with it. Where an ancestor asks for `truncate` instead, that wins: `truncate`
+ * sets `white-space: nowrap`, which inherits, and nothing can wrap under it.
+ */
 export function Mono({
   children,
   className,
@@ -14,13 +22,27 @@ export function Mono({
   title?: string;
 }) {
   return (
-    <span title={title} className={cn("font-mono text-[12px] text-ink-2", className)}>
+    <span title={title} className={cn("font-mono text-[12px] text-ink-2 wrap-anywhere", className)}>
       {children}
     </span>
   );
 }
 
-/** A source path with an optional line span, rendered as one clickable-looking token. */
+/**
+ * A source path with an optional line span: the way back to the file a claim was measured
+ * from, and the one place in this file that has to say "this goes somewhere".
+ *
+ * It said it with a chip — a border and a fill — on top of `--mark`. `--mark` is ink now, on
+ * the argument that a fourth hue beside three verdicts makes a reader work out which of the
+ * four carries meaning. That left the box doing the whole job, and a box is what this system
+ * puts around a *block*, not around a reference; beside `Mono`, which is the same face at
+ * the same size, the only difference was a hairline.
+ *
+ * So the affordance is an underline and a weight, which is what the rest of the system uses
+ * for "this leads to the source" and what survives being the same colour as its neighbours.
+ * Dropping the box also puts the path back on the text baseline of whatever it sits beside,
+ * which is where a reader looks for it.
+ */
 export function PathRef({
   path,
   line,
@@ -37,7 +59,10 @@ export function PathRef({
     <span
       title={`${path}${span}`}
       className={cn(
-        "block max-w-full truncate rounded-xs border border-rule bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-ink-2",
+        // `truncate` and `max-w-full`: an absolute path is one word and is wider than a
+        // phone, and a reference that widens its own column is worse than an elided one.
+        "block max-w-full truncate font-mono text-[11px] font-medium text-ink",
+        "underline decoration-rule-strong underline-offset-2",
         className,
       )}
     >

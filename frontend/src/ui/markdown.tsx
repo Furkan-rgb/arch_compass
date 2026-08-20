@@ -14,7 +14,7 @@ import { highlight, isSupported } from "../lib/highlight";
  * the code keeps the mono face, which is the part that carries meaning, and drops the box.
  */
 const NAMED_HEADING =
-  "[&>code]:border-0 [&>code]:bg-transparent [&>code]:px-0 [&>code]:py-0 [&>code]:text-[0.92em]";
+  "wrap-anywhere [&>code]:border-0 [&>code]:bg-transparent [&>code]:px-0 [&>code]:py-0 [&>code]:text-[0.92em]";
 
 /** Everything after `language-` on a fence, which is all the fence tells us. */
 function fenceLanguage(className: string | undefined): string | undefined {
@@ -94,7 +94,7 @@ export function Markdown({ children, className }: { children: string; className?
             const language = fenceLanguage(codeClass);
             if (!codeClass?.startsWith("language-")) {
               return (
-                <code className="rounded-xs border border-rule bg-sunken px-1 py-0.5 font-mono text-[0.86em] text-ink">
+                <code className="rounded-xs border border-rule bg-sunken px-1 py-0.5 font-mono text-[0.86em] text-ink wrap-anywhere">
                   {children}
                 </code>
               );
@@ -122,12 +122,17 @@ export function Markdown({ children, className }: { children: string; className?
               {children}
             </pre>
           ),
+          // `text-mark` is ink now, and the paragraph around it is `text-ink-2`, so what
+          // used to be a hue is half a step of lightness against its own sentence. The
+          // weight is what replaces it — the underline was always here and was never
+          // carrying this on its own. It rests at half strength and goes to full ink on
+          // hover, so the link still answers the pointer.
           a: ({ children, href }) => (
             <a
               href={href}
               target="_blank"
               rel="noreferrer"
-              className="font-medium text-mark underline decoration-mark/40 underline-offset-4 transition hover:decoration-mark"
+              className="font-semibold text-mark underline decoration-mark/50 underline-offset-4 transition hover:decoration-mark"
             >
               {children}
             </a>

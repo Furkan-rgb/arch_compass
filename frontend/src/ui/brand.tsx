@@ -8,7 +8,9 @@ export function BrandMark({ className }: { className?: string }) {
   return (
     <span
       className={cn(
-        "grid place-items-center rounded-md bg-ink text-canvas",
+        // The mark is a tile at 32px. `rounded-md` is 10px now, which is a third of it and
+        // reads as a rounded rectangle rather than as a mark; `rounded-sm` holds the corner.
+        "grid place-items-center rounded-sm bg-ink text-canvas",
         className,
       )}
     >
@@ -29,7 +31,7 @@ export function Wordmark({
   return (
     <Link
       to={to}
-      className={cn("group inline-flex items-center gap-2.5 rounded-md", className)}
+      className={cn("group inline-flex items-center gap-2.5 rounded-sm", className)}
     >
       <BrandMark className="size-8 text-base transition group-hover:scale-[1.04]" />
       <span className="min-w-0">
