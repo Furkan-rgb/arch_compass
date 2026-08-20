@@ -52,6 +52,7 @@ from archcompass.policies.adapters import (
     MarkdownPolicyStore,
     SelectedDensePolicyRetriever,
 )
+from archcompass.policies.adapters.bundled import BUNDLED_POLICY_SOURCE
 from archcompass.policies.adapters.embeddings import (
     DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS,
     DEFAULT_GOOGLE_EMBEDDING_MODEL,
@@ -109,7 +110,28 @@ from archcompass.workflow.defaults import (
 )
 from archcompass.workflow.service import ReviewWorkflowService
 
-BUNDLED_POLICY_SOURCE = Path(__file__).resolve().parent / "policies" / "general"
+#: The variables that pin embedding configuration. Any one of them set means the deployment
+#: has chosen, and the chooser stops being a choice — which is what a deployment relying on
+#: the prebuilt policy index needs, since that index only answers for the model it was built
+#: for and a visitor who selected another would be back to embedding the corpus themselves.
+#:
+#: (`BUNDLED_POLICY_SOURCE` is imported rather than defined here for a related reason: it
+#: moved next to the corpus it names so the index builder could read it without opening a
+#: workspace, and it stays importable from this module because everything already asks here.)
+EMBEDDING_PIN_VARIABLES: Final = (
+    "ARCHCOMPASS_EMBEDDING_PROVIDER",
+    "ARCHCOMPASS_EMBEDDING_MODEL",
+    "ARCHCOMPASS_EMBEDDING_DIMENSIONS",
+    "ARCHCOMPASS_EMBEDDING_BASE_URL",
+    "ARCHCOMPASS_EMBEDDING_API_KEY_ENV",
+)
+
+
+def embedding_is_pinned() -> bool:
+    """Whether this process was told which embedding model to use."""
+
+    return any(os.environ.get(name, "").strip() for name in EMBEDDING_PIN_VARIABLES)
+
 
 #: Everything a workspace holds that Arch Compass itself writes: the database, and the
 #: policies authored in it. Named once because it is also what an analysis of the workspace's
@@ -209,16 +231,7 @@ def build_runtime(
         selections=SQLiteCoreModelSelectionRepository(core_database.raw_connect),
         pin=pin,
     )
-    explicit_embedding = any(
-        os.environ.get(name, "").strip()
-        for name in (
-            "ARCHCOMPASS_EMBEDDING_PROVIDER",
-            "ARCHCOMPASS_EMBEDDING_MODEL",
-            "ARCHCOMPASS_EMBEDDING_DIMENSIONS",
-            "ARCHCOMPASS_EMBEDDING_BASE_URL",
-            "ARCHCOMPASS_EMBEDDING_API_KEY_ENV",
-        )
-    )
+    explicit_embedding = embedding_is_pinned()
     embedding_model_service = EmbeddingModelService(
         providers=tuple(provider_registry.values()),
         discovery=ProviderEmbeddingModelDiscovery(),

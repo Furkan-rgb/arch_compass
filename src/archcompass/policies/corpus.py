@@ -8,7 +8,29 @@ judge and the retriever both take, ordered by id so a fingerprint over the resul
 from __future__ import annotations
 
 from archcompass.domain import Policy, PolicyScope, PolicyStrength, RepositoryRef
+from archcompass.policies.records import PolicyDocument
 from archcompass.policies.service import PolicyService
+
+
+def as_policy(document: PolicyDocument) -> Policy:
+    """One parsed Markdown document as the domain policy the judge and retriever take.
+
+    Public because the shipped index is built outside a workspace, by `adapters/bundled.py`,
+    and a second conversion written there could disagree with this one about what a policy
+    is — which would put vectors in the index for text no review ever judges against.
+    """
+
+    return Policy(
+        id=document.id,
+        title=document.title,
+        body=document.body,
+        scope=PolicyScope(document.scope.value),
+        strength=PolicyStrength(document.strength.value),
+        content_hash=document.content_hash,
+        tags=tuple(document.tags),
+        applies_to=document.applies_to,
+        source=document.source_path,
+    )
 
 
 class DataclassPolicyCorpus:
@@ -17,17 +39,7 @@ class DataclassPolicyCorpus:
 
     def policies_for(self, repository: RepositoryRef) -> tuple[Policy, ...]:
         return tuple(
-            Policy(
-                id=item.id,
-                title=item.title,
-                body=item.body,
-                scope=PolicyScope(item.scope.value),
-                strength=PolicyStrength(item.strength.value),
-                content_hash=item.content_hash,
-                tags=tuple(item.tags),
-                applies_to=item.applies_to,
-                source=item.source_path,
-            )
+            as_policy(item)
             for item in sorted(
                 self._policies.catalog(repository_root=repository.path),
                 key=lambda policy: policy.id,

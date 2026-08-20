@@ -6,7 +6,9 @@ import logging
 import sqlite3
 from collections.abc import Callable
 from hashlib import sha256
+from pathlib import Path
 from threading import Lock
+from typing import Final
 
 import sqlite_vec
 from langchain_core.embeddings import Embeddings
@@ -29,6 +31,61 @@ _log = logging.getLogger("archcompass.batch")
 #: means a failure half way through keeps the chunks already written, so the next attempt
 #: resumes rather than restarts.
 _EMBEDDING_BATCH = 64
+
+#: The schema name a shipped index is attached under. Its rows are read and never written:
+#: the file lives in the installed package, where nothing at run time has any business
+#: writing, and on the hosted image the process could not write it if it tried.
+PREBUILT_SCHEMA: Final = "prebuilt"
+
+#: The workspace's own database. Named in every statement that touches the chunk table
+#: rather than left implicit, because with a second database attached an unqualified name is
+#: resolved by searching them in order — correct today, and a silent change of meaning the
+#: day somebody attaches something before this one.
+_MAIN: Final = "main"
+
+#: One chunk as the index stores it, minus the vector: who it belongs to, what it says, and
+#: the digest that decides whether the stored vector is still the right one.
+type ChunkEntry = tuple[str, str, str, str, str, str | None]
+
+
+def namespace_for(embedding_identity: str) -> str:
+    """The partition of the chunk table one embedding model's vectors live in.
+
+    Vectors from two models are not comparable, so they are not merely tagged apart — they
+    are looked up apart. A workspace that switches models finds nothing under the new
+    namespace and indexes from scratch, rather than silently scoring against the old.
+    """
+
+    return sha256(embedding_identity.encode()).hexdigest()[:24]
+
+
+def desired_chunks(
+    corpus: tuple[Policy, ...], embedding_identity: str
+) -> dict[str, ChunkEntry]:
+    """Every chunk this corpus should have vectors for, by id, each with its digest.
+
+    A module function rather than a method because two callers need the same answer: the
+    index, deciding what to embed, and the checker that asks whether the shipped index is
+    still complete. A checker that agreed with `_synchronize` only by having the same four
+    lines copied into it would keep agreeing right up until the day somebody changed one.
+    """
+
+    desired: dict[str, ChunkEntry] = {}
+    for policy in corpus:
+        for position, text in enumerate(_chunks(policy), start=1):
+            chunk_id = f"{policy.id}:{position}"
+            digest = sha256(
+                f"{embedding_identity}\0{policy.content_hash}\0{text}".encode()
+            ).hexdigest()
+            desired[chunk_id] = (
+                policy.id,
+                digest,
+                text,
+                policy.scope.value,
+                policy.strength.value,
+                policy.applies_to,
+            )
+    return desired
 
 
 def _chunks(policy: Policy) -> tuple[str, ...]:
@@ -56,6 +113,7 @@ class SQLitePolicyIndex:
         *,
         embedding_identity: str,
         dimensions: int,
+        prebuilt: Path | None = None,
     ) -> None:
         if dimensions < 1:
             raise ValueError("embedding dimensions must be positive")
@@ -63,7 +121,18 @@ class SQLitePolicyIndex:
         self._embeddings = embeddings
         self._embedding_identity = embedding_identity
         self._dimensions = dimensions
-        self._namespace = sha256(embedding_identity.encode()).hexdigest()[:24]
+        self._namespace = namespace_for(embedding_identity)
+        #: A read-only index shipped with the corpus it was built from, or nothing. It saves
+        #: the whole of a cold workspace's indexing — which on a metered free tier is minutes
+        #: of waiting, paid again by every hosted visitor, for vectors that are identical for
+        #: all of them.
+        self._prebuilt = prebuilt
+        #: Whether the shipped rows are being counted. Decided per synchronize rather than
+        #: once here, because it is a fact about this corpus and not about the file: a
+        #: workspace pointed at policies the shipped index was not built from must not have
+        #: its searches answered from it. Written under `_synchronizing` and read by `search`,
+        #: which the retriever only ever calls after synchronizing.
+        self._shipped_in_use = False
         #: One writer for the chunk table, because a review has many readers of it at
         #: once. The graph fans a candidate out per `Send`, and every one of them
         #: synchronizes before it queries — so without this, the first review of a
@@ -91,13 +160,22 @@ class SQLitePolicyIndex:
         connection.enable_load_extension(True)
         sqlite_vec.load(connection)
         connection.enable_load_extension(False)
+        if self._prebuilt is not None:
+            # Attached by plain path rather than a `file:…?mode=ro` URI, which SQLite only
+            # honours when the main connection was itself opened with URI filenames on —
+            # and that is the workspace database's business, not this adapter's. Nothing
+            # here writes to the schema, and the shipped file is mode 0444, which makes
+            # SQLite refuse a write even if some later edit forgets.
+            connection.execute(
+                f"ATTACH DATABASE ? AS {PREBUILT_SCHEMA}", (str(self._prebuilt),)
+            )
         return connection
 
     def _setup(self) -> None:
         with self._connection() as connection:
             connection.execute(
                 """
-                CREATE TABLE IF NOT EXISTS policy_embedding_chunks (
+                CREATE TABLE IF NOT EXISTS main.policy_embedding_chunks (
                     namespace TEXT NOT NULL,
                     chunk_id TEXT NOT NULL,
                     policy_id TEXT NOT NULL,
@@ -114,7 +192,7 @@ class SQLitePolicyIndex:
                 """
             )
             connection.execute(
-                "CREATE INDEX IF NOT EXISTS policy_embedding_policy "
+                "CREATE INDEX IF NOT EXISTS main.policy_embedding_policy "
                 "ON policy_embedding_chunks(namespace, policy_id)"
             )
 
@@ -123,42 +201,60 @@ class SQLitePolicyIndex:
             self._synchronize(corpus)
 
     def _synchronize(self, corpus: tuple[Policy, ...]) -> None:
-        desired: dict[str, tuple[str, str, str, str, str, str | None]] = {}
-        for policy in corpus:
-            for position, text in enumerate(_chunks(policy), start=1):
-                chunk_id = f"{policy.id}:{position}"
-                digest = sha256(
-                    f"{self._embedding_identity}\0{policy.content_hash}\0{text}".encode()
-                ).hexdigest()
-                desired[chunk_id] = (
-                    policy.id,
-                    digest,
-                    text,
-                    policy.scope.value,
-                    policy.strength.value,
-                    policy.applies_to,
-                )
+        desired = desired_chunks(corpus, self._embedding_identity)
 
         with self._connection() as connection:
-            stored = {
+            own = {
                 row[0]: row[1]
                 for row in connection.execute(
-                    "SELECT chunk_id, content_hash FROM policy_embedding_chunks "
+                    f"SELECT chunk_id, content_hash FROM {_MAIN}.policy_embedding_chunks "
                     "WHERE namespace = ?",
                     (self._namespace,),
                 )
             }
+            shipped = self._shipped_digests(connection)
+            # All or nothing, and decided before anything is embedded. A shipped index
+            # holding a chunk this corpus does not want is one built from a different
+            # corpus — a workspace pointed at its own policies, or a package whose
+            # `general/` moved on without the index being rebuilt. Counting the part that
+            # happens to overlap would leave `search` scoring against policies that are not
+            # in the corpus, which displaces real matches out of the top K rather than
+            # failing where somebody would see it.
+            self._shipped_in_use = bool(shipped) and set(shipped) <= set(desired)
+            if not self._shipped_in_use:
+                shipped = {}
+            # A workspace's own row wins: it is the one `_store` wrote for the text the
+            # corpus has now, where the shipped copy may be a policy edit behind.
+            stored = {**shipped, **own}
             missing = [
                 (chunk_id, *entry)
                 for chunk_id, entry in desired.items()
                 if stored.get(chunk_id) != entry[1]
             ]
             self._embed_missing(connection, missing)
-            stale = set(stored) - set(desired)
+            # Only ever our own rows. The shipped ones are not ours to delete, and nothing
+            # asks them to be: where they no longer match, `_shipped_in_use` has already
+            # taken the whole file out of play.
+            stale = set(own) - set(desired)
             connection.executemany(
-                "DELETE FROM policy_embedding_chunks WHERE namespace = ? AND chunk_id = ?",
+                f"DELETE FROM {_MAIN}.policy_embedding_chunks "
+                "WHERE namespace = ? AND chunk_id = ?",
                 ((self._namespace, chunk_id) for chunk_id in stale),
             )
+
+    def _shipped_digests(self, connection: sqlite3.Connection) -> dict[str, str]:
+        """What the attached index holds for this embedding model, or nothing."""
+
+        if self._prebuilt is None:
+            return {}
+        return {
+            row[0]: row[1]
+            for row in connection.execute(
+                f"SELECT chunk_id, content_hash FROM {PREBUILT_SCHEMA}."
+                "policy_embedding_chunks WHERE namespace = ?",
+                (self._namespace,),
+            )
+        }
 
     def _embed_missing(
         self,
@@ -220,7 +316,7 @@ class SQLitePolicyIndex:
                 )
             connection.execute(
                 """
-                INSERT INTO policy_embedding_chunks(
+                INSERT INTO main.policy_embedding_chunks(
                     namespace, chunk_id, policy_id, content_hash, scope, strength,
                     applies_to, embedding_identity, dimensions, text, embedding
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -265,14 +361,44 @@ class SQLitePolicyIndex:
         blob = sqlite_vec.serialize_float32(vector)
         with self._connection() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT policy_id, MAX(1.0 - vec_distance_cosine(embedding, ?)) AS score
-                FROM policy_embedding_chunks
-                WHERE namespace = ?
+                FROM ({self._chunk_source()})
                 GROUP BY policy_id
                 ORDER BY score DESC, policy_id ASC
                 LIMIT ?
                 """,
-                (blob, self._namespace, limit),
+                (blob, *self._chunk_source_parameters(), limit),
             ).fetchall()
         return tuple(DensePolicyMatch(str(policy_id), float(score)) for policy_id, score in rows)
+
+    def _chunk_source(self) -> str:
+        """The vectors a search scores against: this workspace's, and the shipped ones.
+
+        The shipped arm excludes any chunk the workspace has its own row for, so a policy
+        edited here is scored on what it says now rather than on both what it says and what
+        it used to. That is the same precedence `_synchronize` applies when it decides what
+        to embed, written twice because SQL cannot borrow the dictionary merge.
+        """
+
+        own = (
+            f"SELECT policy_id, embedding FROM {_MAIN}.policy_embedding_chunks "
+            "WHERE namespace = ?"
+        )
+        if not self._shipped_in_use:
+            return own
+        return f"""
+            {own}
+            UNION ALL
+            SELECT shipped.policy_id, shipped.embedding
+            FROM {PREBUILT_SCHEMA}.policy_embedding_chunks AS shipped
+            WHERE shipped.namespace = ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM {_MAIN}.policy_embedding_chunks AS mine
+                  WHERE mine.namespace = shipped.namespace
+                    AND mine.chunk_id = shipped.chunk_id
+              )
+        """
+
+    def _chunk_source_parameters(self) -> tuple[str, ...]:
+        return (self._namespace,) * (2 if self._shipped_in_use else 1)

@@ -16,8 +16,15 @@ from typing import Final
 from fastapi import FastAPI
 
 from archcompass.analysis.adapters import AnalysisLimits
-from archcompass.bootstrap import enabled_providers
+from archcompass.bootstrap import (
+    EMBEDDING_PIN_VARIABLES,
+    embedding_is_pinned,
+    enabled_providers,
+)
 from archcompass.domain.errors import ConfigurationError
+from archcompass.policies.adapters.bundled import bundled_corpus
+from archcompass.policies.adapters.embeddings import embedding_config_from_environment
+from archcompass.policies.adapters.prebuilt import PREBUILT_INDEX, verify
 from archcompass.presentation.web.app import create_app
 from archcompass.presentation.web.restrictions import FetchBudget, RunBudget
 from archcompass.presentation.web.runtimes import (
@@ -154,6 +161,7 @@ def create_hosted_app() -> FastAPI:
                 "is unset, so nothing it lists could answer. Set the key, or narrow "
                 "ARCHCOMPASS_PROVIDERS."
             )
+    _require_prebuilt_policy_index()
     root = Path(os.environ.get(SESSION_ROOT_VARIABLE, "").strip() or DEFAULT_SESSION_ROOT)
     source_hosts = _source_hosts()
     max_source_bytes = _positive_int(MAX_SOURCE_MB_VARIABLE, DEFAULT_MAX_SOURCE_MB) << 20
@@ -210,6 +218,33 @@ def create_hosted_app() -> FastAPI:
     )
     app.add_middleware(SessionCookieMiddleware)
     return app
+
+
+def _require_prebuilt_policy_index() -> None:
+    """Refuse to serve without the shipped index, and without the pin that makes it apply.
+
+    Every visitor gets their own workspace, so without this file every visitor's first review
+    embeds the whole policy corpus — hundreds of requests against a per-minute quota, five
+    minutes of waiting each, for vectors identical to the ones the visitor before them just
+    paid for. It is not an optimisation on the demo; it is the difference between a review
+    that runs inside Cloud Run's request timeout and one that does not.
+
+    The pin is checked in the same breath because the index answers for one embedding model.
+    A deployment that shipped the file and left the chooser open would work until the first
+    visitor picked the other model, and would then fail the slow way rather than the loud one.
+
+    Both are startup failures for the reason the API key above is: a misconfiguration that
+    waits to be discovered is discovered by visitors, one bad review at a time, while the logs
+    say nothing.
+    """
+
+    if not embedding_is_pinned():
+        raise ConfigurationError(
+            "The hosted demo needs its embedding model pinned, so that the prebuilt policy "
+            "index applies to every visitor. Set "
+            f"{', '.join(EMBEDDING_PIN_VARIABLES[:3])}."
+        )
+    verify(PREBUILT_INDEX, bundled_corpus(), embedding_config_from_environment())
 
 
 def _source_hosts() -> frozenset[str]:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,7 +14,10 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from archcompass.bootstrap import Runtime
-from archcompass.presentation.web import create_app
+from archcompass.policies.adapters.bundled import bundled_corpus
+from archcompass.policies.adapters.prebuilt import MANIFEST_SCHEMA, MANIFEST_TABLE
+from archcompass.policies.adapters.sqlite_index import SQLitePolicyIndex, desired_chunks
+from archcompass.presentation.web import create_app, hosted
 from archcompass.presentation.web.hosted import create_hosted_app
 from archcompass.presentation.web.runtimes import SESSION_COOKIE
 from archcompass.reasoning.adapters.providers import DETERMINISTIC_MODEL
@@ -43,13 +47,72 @@ _POLICY_BODY = "\n".join(
 )
 
 
+#: What the shipped index in these tests was built for. A provider that does not exist, so
+#: that nothing can accidentally reach one, pinned through the same variables a deployment
+#: sets — which is also what makes the app's other startup requirement, that the embedding
+#: model be pinned at all, satisfied here.
+_EMBEDDING_PIN = {
+    "ARCHCOMPASS_EMBEDDING_PROVIDER": "fake",
+    "ARCHCOMPASS_EMBEDDING_MODEL": "test-embedding",
+    "ARCHCOMPASS_EMBEDDING_DIMENSIONS": "4",
+}
+
+
+class _OfflineEmbeddings:
+    """Vectors from the text itself, so a corpus can be indexed with no provider at all."""
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [self.embed_query(text) for text in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return [float(len(text) % 7), float(text.count("a")), 1.0, 0.5]
+
+
+@pytest.fixture(scope="session")
+def shipped_policy_index(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A prebuilt index over the real corpus, built without asking anything of a network.
+
+    The hosted app refuses to start without one — that refusal is the feature, since a demo
+    that indexes per visitor spends minutes of a metered quota on every first review — so
+    every test in this module needs the file to exist. None of them need its vectors to mean
+    anything, which is what lets it be built here in a fraction of a second.
+
+    Session-scoped because the corpus is 486 chunks: rebuilding it for each of two dozen
+    tests would be the slowest thing in this module by an order of magnitude.
+    """
+
+    path = tmp_path_factory.mktemp("prebuilt") / "policy-index.sqlite3"
+    corpus = bundled_corpus()
+    identity = f"{_EMBEDDING_PIN['ARCHCOMPASS_EMBEDDING_PROVIDER']}:test-embedding:4"
+    index = SQLitePolicyIndex(
+        lambda: sqlite3.connect(path),
+        _OfflineEmbeddings(),
+        embedding_identity=identity,
+        dimensions=4,
+    )
+    index.synchronize(corpus)
+    with sqlite3.connect(path) as connection:
+        connection.execute(MANIFEST_SCHEMA)
+        connection.execute(
+            f"INSERT INTO {MANIFEST_TABLE}(embedding_identity, dimensions, chunk_count) "
+            "VALUES (?, ?, ?)",
+            (identity, 4, len(desired_chunks(corpus, identity))),
+        )
+    return path
+
+
 @pytest.fixture
-def hosted_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+def hosted_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shipped_policy_index: Path
+) -> Iterator[None]:
     monkeypatch.setenv("ARCHCOMPASS_HOSTED", "1")
     # The deterministic substitute, so nothing here reaches a network. It also keeps the
     # startup check quiet about GOOGLE_API_KEY, which is its own test below.
     monkeypatch.setenv("ARCHCOMPASS_PROVIDERS", "fake")
     monkeypatch.setenv("ARCHCOMPASS_SESSION_ROOT", str(tmp_path / "sessions"))
+    for name, value in _EMBEDDING_PIN.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(hosted, "PREBUILT_INDEX", shipped_policy_index)
     yield
 
 
@@ -364,14 +427,12 @@ def test_the_hosted_demo_stops_fetching_past_the_daily_cap(
         assert "as many repositories as this demo allows" in second.json()["message"]
 
 
+@pytest.mark.usefixtures("hosted_environment")
 def test_a_deployment_cannot_allow_a_host_this_build_cannot_fetch_from(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Said once, to whoever deployed it, rather than to every visitor who pastes a URL."""
 
-    monkeypatch.setenv("ARCHCOMPASS_HOSTED", "1")
-    monkeypatch.setenv("ARCHCOMPASS_PROVIDERS", "fake")
-    monkeypatch.setenv("ARCHCOMPASS_SESSION_ROOT", str(tmp_path / "sessions"))
     monkeypatch.setenv("ARCHCOMPASS_SOURCE_HOSTS", "github.com,evil.test")
 
     with pytest.raises(Exception, match=r"evil\.test"):

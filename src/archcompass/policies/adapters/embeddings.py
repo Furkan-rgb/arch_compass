@@ -17,6 +17,7 @@ from archcompass.domain import (
     RetrievalProvenance,
 )
 from archcompass.domain.errors import ConfigurationError
+from archcompass.policies.adapters import prebuilt
 from archcompass.policies.adapters.sqlite_index import SQLitePolicyIndex
 from archcompass.policies.retrieval import (
     DENSE_RETRIEVER_RELEASE_TOP_K,
@@ -24,7 +25,7 @@ from archcompass.policies.retrieval import (
     corpus_fingerprint,
 )
 from archcompass.ports.policy_retrieval import PolicySelection, RetrievedPolicySet
-from archcompass.reasoning.adapters.factory import build_embeddings
+from archcompass.reasoning.adapters.factory import build_embeddings, embedding_identity
 
 DEFAULT_GOOGLE_EMBEDDING_MODEL = "gemini-embedding-2"
 DEFAULT_GOOGLE_EMBEDDING_DIMENSIONS = 3072
@@ -116,9 +117,16 @@ class SelectedDensePolicyRetriever:
                 ),
             )
         config = self._embedding_config()
-        identity = f"{config.provider}:{config.model}:{config.dimensions}"
+        # Not `provider:model:dimensions` assembled here: what the index may reuse is
+        # decided by what `build_embeddings` does to the text, and only it knows that.
+        identity = embedding_identity(config)
+        # Asked here rather than once at construction, because whether the shipped index can
+        # answer is a fact about the corpus and the corpus is what arrives at this call. It
+        # costs a few hundred hashes and one SQLite read, which is nothing beside the
+        # hundreds of provider requests it is deciding whether to avoid.
+        shipped = prebuilt.usable(corpus, config)
         with self._lock:
-            cache_identity = f"{identity}:k={self._top_k}"
+            cache_identity = f"{identity}:k={self._top_k}:shipped={shipped}"
             if self._cached is None or self._cached[0] != cache_identity:
                 embeddings = build_embeddings(config)
                 index = SQLitePolicyIndex(
@@ -126,6 +134,7 @@ class SelectedDensePolicyRetriever:
                     embeddings,
                     embedding_identity=identity,
                     dimensions=config.dimensions,
+                    prebuilt=shipped,
                 )
                 self._cached = (
                     cache_identity,

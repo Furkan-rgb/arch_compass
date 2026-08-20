@@ -51,6 +51,13 @@ jobs:
       # part of running this that is billed by the request rather than covered by a free
       # tier. Raising them is an environment change, not a code change.
       #
+      # The embedding model is pinned rather than left to the chooser, and it has to be: the
+      # image ships a policy index built for exactly this model, and a visitor who selected
+      # another would be back to embedding 486 chunks against a hundred-a-minute free tier —
+      # minutes of waiting, per visitor, inside a request Cloud Run cuts off at ten. The app
+      # refuses to start if the pin and the index disagree, so this line and the committed
+      # file are checked against each other on every deploy rather than trusted.
+      #
       # `--source .` hands the build to Cloud Build, which runs the repository's own
       # multi-stage Dockerfile — the image the Makefile smoke-tests locally is the image
       # that serves. Flags restate the full configuration on every deploy rather than
@@ -66,7 +73,7 @@ jobs:
             --memory 1Gi \
             --concurrency 12 \
             --timeout 600 \
-            --set-env-vars ARCHCOMPASS_HOSTED=1,ARCHCOMPASS_PROVIDERS=google,ARCHCOMPASS_SOURCE_HOSTS=github.com,ARCHCOMPASS_GLOBAL_DAILY_RUNS=10,ARCHCOMPASS_SESSION_DAILY_RUNS=3,ARCHCOMPASS_GLOBAL_DAILY_FETCHES=20,ARCHCOMPASS_SESSION_DAILY_FETCHES=3 \
+            --set-env-vars ARCHCOMPASS_HOSTED=1,ARCHCOMPASS_PROVIDERS=google,ARCHCOMPASS_SOURCE_HOSTS=github.com,ARCHCOMPASS_GLOBAL_DAILY_RUNS=10,ARCHCOMPASS_SESSION_DAILY_RUNS=3,ARCHCOMPASS_GLOBAL_DAILY_FETCHES=20,ARCHCOMPASS_SESSION_DAILY_FETCHES=3,ARCHCOMPASS_EMBEDDING_PROVIDER=google,ARCHCOMPASS_EMBEDDING_MODEL=gemini-embedding-2,ARCHCOMPASS_EMBEDDING_DIMENSIONS=3072 \
             --set-secrets GOOGLE_API_KEY=archcompass-google-api-key:latest
 
       - name: Check the deployment answers

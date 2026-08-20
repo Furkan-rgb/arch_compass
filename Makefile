@@ -1,4 +1,4 @@
-.PHONY: sync frontend-sync api-types api-types-check lint typecheck test frontend-check frontend-build test-ollama test-google examples evaluation check build full test-browser run web web-google docker-build
+.PHONY: sync frontend-sync api-types api-types-check policy-index policy-index-check lint typecheck test frontend-check frontend-build test-ollama test-google examples evaluation check build full test-browser run web web-google docker-build
 
 sync:
 	uv sync --locked
@@ -12,6 +12,17 @@ api-types:
 
 api-types-check:
 	uv run python scripts/generate_openapi_types.py --check
+
+# The shipped policy index: built where there is a key, checked everywhere. Building embeds
+# the whole corpus and is the thing the file exists to avoid doing at run time, so it is not
+# part of `check` and not part of CI — it runs when a policy changes, and the result is
+# committed. The check is offline and is in `check`, because a stale index is invisible
+# until somebody times a review on the deployment that depends on it.
+policy-index:
+	uv run python scripts/build_policy_index.py
+
+policy-index-check:
+	uv run python scripts/build_policy_index.py --check
 
 lint:
 	uv run ruff check .
@@ -106,7 +117,7 @@ docker-build:
 	    || { echo "The container answered without a session cookie:"; cat $$headers; exit 1; }; \
 	  echo "docker smoke: /api/workspace answered 200 with a session cookie"
 
-check: frontend-build lint typecheck test frontend-check
+check: frontend-build lint typecheck test frontend-check policy-index-check
 
 build: frontend-build
 	uv build --no-sources

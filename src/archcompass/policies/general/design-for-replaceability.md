@@ -31,7 +31,11 @@ currency. The component's data lives in tables or files that three other compone
 write to, so removing it means negotiating with all of them. Its identifiers appear in log
 formats, addresses, and stored records that outside parties already depend on. Removing it
 would require touching fixtures across unrelated modules, because those tests were written
-against its concrete behavior rather than its contract.
+against its concrete behavior rather than its contract. An interface has exactly one
+implementation and nothing depends on the abstraction rather than the concrete type: the
+seam exists on paper, has never been asked to hold, and has taken its shape from the only
+implementation behind it — so the second one arrives to find the contract already describes
+the first.
 ## Diagnostic questions
 If this component were deleted tomorrow, what else stops working? How much of the
 surrounding code would have to learn something new to work with a different

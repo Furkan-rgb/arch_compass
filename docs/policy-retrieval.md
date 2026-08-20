@@ -33,8 +33,15 @@ Queries are deterministically assembled from candidate pattern, summary, partici
 measurements, limitations, and case constraints.
 
 The content-hashed SQLite vector index tracks policy/chunk identity, applicability, content
-hash, embedding provider/model/dimensions, and vector. Changed/new chunks are embedded and
-stale chunks are removed in the same transaction.
+hash, embedding identity, and vector. Changed/new chunks are embedded and stale chunks are
+removed in the same transaction.
+
+Embedding identity is `provider:model:dimensions`, plus a suffix naming anything else that
+changes the vectors a model returns — currently `:task-prompted`, for providers whose API
+carries no task type and where the instruction must therefore be prefixed to the text.
+`factory.embedding_identity` is its only author, because the index namespaces its chunks by
+this string and an index may be reused only where its vectors still compare. Google sends
+the equivalent as a `task_type` on the request and needs no suffix.
 
 Reasoning and embedding providers are configured independently. A review is refused before
 reasoning expenditure when the configured retriever lacks its embedding provider or index.
