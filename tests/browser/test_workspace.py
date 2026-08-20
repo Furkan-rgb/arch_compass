@@ -1,136 +1,17 @@
 """End-to-end: the built workbench, a real browser, and a real workspace server.
 
-Nothing here is stubbed on the browser side. The bundle under `presentation/web/static` is
-what is served, the API is the real application, and the review that runs is a real review of
-a repository on disk — only the two models are substituted, and neither is reached over the
-network:
-
-* reasoning is pinned to the deterministic provider, so verdicts are reproducible;
-* embedding is pinned to a local Ollama identity, which is recorded on the retrieval
-  provenance but never called, because deterministic mode retrieves the whole corpus.
+The bootstrap lives in `conftest.py` now, because `test_mobile.py` reads the same running
+review and producing a second one would double the cost of the suite. What it sets up is
+unchanged and described there.
 """
 
 from __future__ import annotations
 
-import os
-import socket
-import threading
-import time
-from collections.abc import Iterator
-from pathlib import Path
-
 import pytest
-import uvicorn
 
-from archcompass.bootstrap import Runtime, build_runtime, pinned_model
-from archcompass.presentation.web import create_app
-from archcompass.reasoning.adapters.providers import DETERMINISTIC_MODEL
+from tests.browser.harness import REVIEW_TIMEOUT_MS
 
 pytestmark = pytest.mark.browser
-
-REPOSITORY = Path("examples/cases/boundary-review/repository").resolve()
-BUNDLE = Path("src/archcompass/presentation/web/static/index.html")
-
-#: Long enough for a full deterministic review of the example repository on a cold workspace.
-REVIEW_TIMEOUT_MS = 180_000
-
-
-def _free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
-@pytest.fixture(scope="module")
-def workspace(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Runtime]:
-    # Pinned rather than selected, so the page has both models the moment it loads and the
-    # test is about the workbench rather than about clicking through the model chooser.
-    before = os.environ.copy()
-    os.environ["ARCHCOMPASS_EMBEDDING_PROVIDER"] = "ollama"
-    os.environ["ARCHCOMPASS_EMBEDDING_MODEL"] = "nomic-embed-text"
-    os.environ["ARCHCOMPASS_EMBEDDING_DIMENSIONS"] = "768"
-    try:
-        yield build_runtime(
-            tmp_path_factory.mktemp("workbench-browser"),
-            pin=pinned_model("fake", DETERMINISTIC_MODEL),
-        )
-    finally:
-        os.environ.clear()
-        os.environ.update(before)
-
-
-@pytest.fixture(scope="module")
-def workspace_url(workspace: Runtime) -> Iterator[str]:
-    port = _free_port()
-    server = uvicorn.Server(
-        uvicorn.Config(create_app(workspace), host="127.0.0.1", port=port, log_level="warning")
-    )
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 30
-    while not server.started:
-        if time.monotonic() > deadline:
-            raise RuntimeError("The workspace server did not start")
-        time.sleep(0.05)
-    try:
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10)
-
-
-@pytest.fixture(scope="module")
-def browser():  # type: ignore[no-untyped-def]
-    playwright = pytest.importorskip("playwright.sync_api")
-    assert BUNDLE.is_file(), "run `make frontend-build` before the browser test"
-    with playwright.sync_playwright() as driver:
-        instance = driver.chromium.launch()
-        try:
-            yield instance
-        finally:
-            instance.close()
-
-
-@pytest.fixture
-def page(browser, workspace_url: str):  # type: ignore[no-untyped-def]
-    context = browser.new_context(viewport={"width": 1440, "height": 960})
-    opened = context.new_page()
-    try:
-        yield opened
-    finally:
-        context.close()
-
-
-@pytest.fixture(scope="module")
-def review_url(browser, workspace_url: str) -> str:  # type: ignore[no-untyped-def]
-    """One real review, run once, and its address.
-
-    A deterministic review of the example repository still parses it, detects candidates and
-    composes a review, which is the slowest thing in this file — so it happens once and the
-    tests that read it navigate to the result.
-    """
-
-    context = browser.new_context(viewport={"width": 1440, "height": 960})
-    opened = context.new_page()
-    try:
-        opened.goto(f"{workspace_url}/start", wait_until="networkidle")
-        opened.get_by_role("tab", name="Browse").click()
-        opened.get_by_label("Repository path").fill(str(REPOSITORY))
-        run = opened.get_by_role("button", name="Run review")
-        run.wait_for(state="visible")
-        run.click()
-        # Starting a review hands it to the workspace and moves to the run, which is what
-        # makes the page reloadable; the run redirects to the review once there is one.
-        opened.wait_for_url("**/runs/**", timeout=30_000)
-        run_url = opened.url
-        # The proof that the fix is a fix: a reload lands back on the same run rather than
-        # on a page that has forgotten it, and the review is still being produced.
-        opened.reload(wait_until="networkidle")
-        assert opened.url == run_url
-        opened.wait_for_url("**/reviews/**", timeout=REVIEW_TIMEOUT_MS)
-        return opened.url
-    finally:
-        context.close()
 
 
 def _visible(locator, timeout: int = 20_000) -> bool:
@@ -312,3 +193,54 @@ def test_the_header_call_to_action_stands_down_on_a_phone(page, workspace_url: s
     # And back at a width that has room for it.
     page.set_viewport_size({"width": 1440, "height": 960})
     assert _visible(page.locator("header").get_by_role("link", name="New review"))
+
+
+#: Every tab of the workbench. The workbench is the page a reviewer actually spends time on,
+#: and each tab is a different layout — a finding, a list, a rendered report, a transcript.
+WORKBENCH_TABS = ("Workbench", "Delta", "Report", "Ask")
+
+
+def test_the_workbench_fits_a_phone_on_every_tab(page, review_url: str) -> None:  # type: ignore[no-untyped-def]
+    """Two ways for a tab to not fit, and this asks about both.
+
+    The page scrolling sideways is the visible one. The other is a box that overflows inside
+    an ancestor which hides it — the finding is `overflow-hidden`, so a participant chip
+    wider than the column was not escaping the panel, it was being sliced mid-identifier
+    inside it, and the page measured clean the whole time.
+
+    The example repository's names are short (`ports.Clock`), so this will not reproduce the
+    identifier that found the bug; `overflow.test.tsx` holds that case. This one is about the
+    layout itself, which does not depend on how long a name happens to be.
+    """
+
+    clipped = """() => {
+      const out = [];
+      for (const el of document.querySelectorAll('body *')) {
+        const over = el.scrollWidth - el.clientWidth;
+        if (over <= 1) continue;
+        const style = getComputedStyle(el);
+        if (style.overflowX !== 'hidden' && style.overflowX !== 'clip') continue;
+        const names = el.className.baseVal ?? el.className ?? '';
+        // Truncation and line clamping clip on purpose, and say so in the class list.
+        if (/\\btruncate\\b|\\bsr-only\\b|line-clamp/.test(names)) continue;
+        out.push(`${names.slice(0, 60)} by ${over}px`);
+      }
+      return out;
+    }"""
+
+    offenders: list[str] = []
+    for width in PHONE_WIDTHS:
+        page.set_viewport_size({"width": width, "height": 844})
+        page.goto(review_url, wait_until="networkidle")
+        for tab in WORKBENCH_TABS:
+            page.get_by_role("tab", name=tab).first.click()
+            page.wait_for_timeout(250)
+            across = page.evaluate(
+                "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
+            )
+            if across > 0:
+                offenders.append(f"{tab} at {width}px scrolls across by {across}px")
+            for hidden in page.evaluate(clipped):
+                offenders.append(f"{tab} at {width}px clips {hidden}")
+
+    assert not offenders, "; ".join(offenders)

@@ -38,6 +38,11 @@ frontend/*.tsbuildinfo
 .agents/
 .claude/
 
+# What `tests/browser/shoot_mobile.py` writes: the whole workbench as PNGs, at two
+# widths in two themes. Rebuilt from a bundle and a deterministic review whenever
+# somebody wants to look at it, so it is output rather than source.
+.artifacts/
+
 *.log
 *.impeccable/*
 .DS_Store
