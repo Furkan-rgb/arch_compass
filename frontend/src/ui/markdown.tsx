@@ -2,6 +2,13 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { cn } from "../lib/cn";
+import { highlight, isSupported } from "../lib/highlight";
+
+/** Everything after `language-` on a fence, which is all the fence tells us. */
+function fenceLanguage(className: string | undefined): string | undefined {
+  const found = /language-([\w+-]+)/.exec(className ?? "");
+  return found?.[1]?.toLowerCase();
+}
 
 /**
  * Policy bodies and rendered reports.
@@ -56,14 +63,33 @@ export function Markdown({ children, className }: { children: string; className?
               {children}
             </blockquote>
           ),
-          code: ({ children, className: codeClass }) =>
-            codeClass?.startsWith("language-") ? (
-              <code className={cn("font-mono text-[12px] leading-6", codeClass)}>{children}</code>
-            ) : (
-              <code className="rounded-xs border border-rule bg-sunken px-1 py-0.5 font-mono text-[0.86em] text-ink">
-                {children}
-              </code>
-            ),
+          code: ({ children, className: codeClass }) => {
+            const language = fenceLanguage(codeClass);
+            if (!codeClass?.startsWith("language-")) {
+              return (
+                <code className="rounded-xs border border-rule bg-sunken px-1 py-0.5 font-mono text-[0.86em] text-ink">
+                  {children}
+                </code>
+              );
+            }
+            // A fence that names a language we hold a grammar for is coloured; one that
+            // names something else, or nothing, is left as plain monospace rather than
+            // guessed at. Colour here is a claim about what a token means.
+            const text = String(children).replace(/\n$/, "");
+            if (!isSupported(language)) {
+              return (
+                <code className={cn("font-mono text-[12px] leading-6", codeClass)}>
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <code
+                className={cn("font-mono text-[12px] leading-6", codeClass)}
+                dangerouslySetInnerHTML={{ __html: highlight(text, language) }}
+              />
+            );
+          },
           pre: ({ children }) => (
             <pre className="scrollbar-slim my-4 overflow-x-auto rounded-md border border-rule bg-sunken/70 p-3.5 text-[12px] leading-6 text-ink">
               {children}

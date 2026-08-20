@@ -1,4 +1,5 @@
 import { cn } from "../lib/cn";
+import { highlight, languageForPath } from "../lib/highlight";
 import { PathRef } from "./meta";
 
 /**
@@ -10,13 +11,26 @@ import { PathRef } from "./meta";
 export function SourceExcerpt({
   excerpt,
   startLine,
+  path,
+  language,
   className,
 }: {
   excerpt: string;
   startLine?: number | null;
+  /** The file it was read from; the extension is what decides the colouring. */
+  path?: string | null;
+  /** Overrides the path, for code that arrived without one — a Markdown fence. */
+  language?: string;
   className?: string;
 }) {
-  const lines = excerpt.replace(/\n$/, "").split("\n");
+  const body = excerpt.replace(/\n$/, "");
+  const lines = body.split("\n");
+  const resolved = language ?? languageForPath(path);
+  // The whole excerpt is highlighted once and the numbers are a separate column, because
+  // highlighting line by line would end a docstring at every newline and start a new one.
+  // The two columns line up because they share a line height and neither of them wraps.
+  const coloured = highlight(body, resolved);
+
   return (
     <div
       className={cn(
@@ -24,18 +38,24 @@ export function SourceExcerpt({
         className,
       )}
     >
-      <pre className="min-w-full py-2.5 font-mono text-[12px] leading-[1.65] text-ink">
-        <code>
-          {lines.map((line, index) => (
-            <span key={index} className="grid grid-cols-[3rem_minmax(0,1fr)]">
-              <span aria-hidden="true" className="select-none pr-3 text-right text-ink-3/70">
-                {startLine ? startLine + index : index + 1}
-              </span>
-              <span className="whitespace-pre pr-4">{line || " "}</span>
-            </span>
+      <div className="flex min-w-full py-2.5 font-mono text-[12px] leading-[1.65]">
+        <div
+          aria-hidden="true"
+          className="shrink-0 select-none px-3 text-right tabular-nums text-ink-3/70"
+        >
+          {lines.map((_, index) => (
+            <div key={index}>{startLine ? startLine + index : index + 1}</div>
           ))}
-        </code>
-      </pre>
+        </div>
+        {/* The excerpt is the file's own text, so it stays selectable and copyable without
+            the numbers coming with it. */}
+        <pre className="min-w-0 flex-1 pr-4 text-ink">
+          <code
+            className={resolved ? `language-${resolved}` : undefined}
+            dangerouslySetInnerHTML={{ __html: coloured || " " }}
+          />
+        </pre>
+      </div>
     </div>
   );
 }
@@ -63,7 +83,7 @@ export function EvidenceBlock({
       </div>
       {excerpt ? (
         <div className="px-3 pb-3">
-          <SourceExcerpt excerpt={excerpt} startLine={startLine} />
+          <SourceExcerpt excerpt={excerpt} startLine={startLine} path={path} />
         </div>
       ) : null}
     </div>

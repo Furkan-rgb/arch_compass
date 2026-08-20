@@ -84,7 +84,11 @@ describe("the review workbench", () => {
     expect(within(article).getByText("Why this matters")).toBeInTheDocument();
     expect(within(article).getByText(/Recommended response/)).toBeInTheDocument();
     expect(within(article).getByText(/Dependencies point inward/)).toBeInTheDocument();
-    expect(within(article).getByText("from adapters.db import Store")).toBeInTheDocument();
+    // The excerpt is coloured, so its text is spread across token spans — it still has to
+    // read back as the file's own line.
+    const excerpt = article.querySelector("code.language-python");
+    expect(excerpt?.textContent).toContain("from adapters.db import Store");
+    expect(excerpt?.querySelector(".hljs-keyword")).not.toBeNull();
 
     // Model, prompt and retrieval identity are real, but they are not the argument.
     expect(within(article).queryByText("judge:v1")).not.toBeInTheDocument();

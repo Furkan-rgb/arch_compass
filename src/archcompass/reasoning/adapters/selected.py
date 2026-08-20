@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
@@ -27,7 +29,10 @@ from archcompass.ports.review_conversation import (
     ConversationMessage,
 )
 from archcompass.reasoning.adapters.factory import build_chat_model
-from archcompass.reasoning.adapters.google_batch import GoogleBatchJudge
+from archcompass.reasoning.adapters.google_batch import (
+    BatchUnavailableError,
+    GoogleBatchJudge,
+)
 from archcompass.reasoning.adapters.langchain import (
     LangChainArchitectureJudge,
     LangChainQuestionGenerator,
@@ -59,9 +64,24 @@ class SelectedLangChainChatModel:
             return self._cached[1], identity
 
 
+_log = logging.getLogger("archcompass.batch")
+
+
+def _batching_enabled() -> bool:
+    """Batching is on by default and can be turned off without changing the model."""
+
+    return os.environ.get("ARCHCOMPASS_GOOGLE_BATCH", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
 class SelectedLangChainJudge:
     def __init__(self, selected: SelectedLangChainChatModel) -> None:
         self._selected = selected
+        self._batch_refused = False
 
     def judge(
         self,
@@ -101,7 +121,14 @@ class SelectedLangChainJudge:
         """
 
         config = self._selected.configuration()
-        return config is not None and config.provider == "google"
+        if config is None or config.provider != "google":
+            return False
+        # A key the API has already turned away is not asked again for the life of this
+        # process: the refusal is about the project, not about this batch, and retrying it
+        # once per review would cost a pointless round trip before every judgement.
+        if self._batch_refused:
+            return False
+        return _batching_enabled()
 
     def judge_all(self, requests: Sequence[JudgementRequest]) -> tuple[Finding, ...]:
         """Every candidate at once, batched where that means something.
@@ -122,7 +149,15 @@ class SelectedLangChainJudge:
             api_key=resolve_api_key(config.api_key_env, provider="google"),
             model=config.model,
         )
-        return judge.judge_all(requests, model_identity=identity)
+        try:
+            return judge.judge_all(requests, model_identity=identity)
+        except BatchUnavailableError as refusal:
+            # A batch is an optimisation, not a requirement. Losing a review that the
+            # interactive path could have produced is a worse outcome than judging it the
+            # slow way, so this degrades and says so rather than failing.
+            _log.warning("%s", refusal)
+            self._batch_refused = True
+            return self._judge_each(requests, config)
 
     def _judge_each(
         self, requests: Sequence[JudgementRequest], config: ReasoningModelConfig | None

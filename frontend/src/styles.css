@@ -53,6 +53,19 @@
   --cleared: #197551;
   --cleared-soft: #e9f6ef;
 
+  /* Code colours, kept here with every other colour rather than imported from the
+     highlighter. Two reasons: a keyword then follows the workspace's theme instead of a
+     bundled stylesheet that would have to be kept in step with it, and the hues stay under
+     the same rule as everything else — nothing borrows a verdict's colour. Deliberately few:
+     a keyword, a name, a literal, a string and a comment carry Python, and colouring every
+     token class only makes the excerpt harder to read than the editor it came from. */
+  --code-keyword: #7a3ea3;
+  --code-name: #1f4f8f;
+  --code-string: #1a6b4a;
+  --code-number: #9a5518;
+  --code-comment: #7d827c;
+  --code-meta: #8a6210;
+
   --font-display: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-ui: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
   --font-code: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
@@ -91,6 +104,13 @@
     --cleared: #6fcb9d;
     --cleared-soft: rgb(48 140 98 / 16%);
 
+    --code-keyword: #c99bee;
+    --code-name: #8fb6ee;
+    --code-string: #85cfa8;
+    --code-number: #e0a878;
+    --code-comment: #767a72;
+    --code-meta: #e7be6e;
+
     --shadow-panel: 0 1px 2px rgb(0 0 0 / 30%);
     --shadow-float: 0 2px 6px rgb(0 0 0 / 30%), 0 18px 44px rgb(0 0 0 / 40%);
     --shadow-hero: 0 2px 8px rgb(0 0 0 / 30%), 0 32px 72px rgb(0 0 0 / 45%);
@@ -124,6 +144,13 @@
   --held-soft: rgb(176 128 30 / 16%);
   --cleared: #6fcb9d;
   --cleared-soft: rgb(48 140 98 / 16%);
+
+  --code-keyword: #c99bee;
+  --code-name: #8fb6ee;
+  --code-string: #85cfa8;
+  --code-number: #e0a878;
+  --code-comment: #767a72;
+  --code-meta: #e7be6e;
 
   --shadow-panel: 0 1px 2px rgb(0 0 0 / 30%);
   --shadow-float: 0 2px 6px rgb(0 0 0 / 30%), 0 18px 44px rgb(0 0 0 / 40%);
@@ -358,4 +385,70 @@
     opacity: 1;
     transform: none;
   }
+}
+
+
+/* ---------------------------------------------------------------------------------------
+   Highlighted code.
+
+   The highlighter is a tokeniser: it emits these class names and this is where they are
+   given colour, so light and dark come from the same tokens as the rest of the interface.
+   Grouped rather than enumerated — highlight.js defines around forty classes and colouring
+   all of them turns an excerpt into a rainbow, which reads as decoration instead of as
+   structure.
+--------------------------------------------------------------------------------------- */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-type {
+  color: var(--code-keyword);
+}
+
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.function_,
+.hljs-section,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-tag,
+.hljs-name {
+  color: var(--code-name);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-quote,
+.hljs-addition {
+  color: var(--code-string);
+}
+
+.hljs-number,
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params {
+  color: var(--code-number);
+}
+
+.hljs-comment {
+  color: var(--code-comment);
+  font-style: italic;
+}
+
+.hljs-meta,
+.hljs-built_in,
+.hljs-deletion {
+  color: var(--code-meta);
+}
+
+.hljs-strong {
+  font-weight: 600;
+}
+
+.hljs-emphasis {
+  font-style: italic;
 }

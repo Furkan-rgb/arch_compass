@@ -274,7 +274,45 @@ that honour it.
 | `pnpm run build` | clean |
 | `pytest -m browser` | 4 passing, including a reload mid-run |
 
-## 17. Still open
+## 17. Batching the corpus too, and what happens when the key is refused
+
+Embedding the corpus is the other bulk job with nobody waiting on it — 486 chunks against a
+per-minute limit — so where the provider offers an embedding batch, the whole corpus goes in
+one submission. `embed_query` stays interactive: a search embeds one text to answer a
+retrieval happening now, and a job promised within a day is not an answer to that.
+
+The Batch API is refused outright on a key without billing enabled, and it says so with
+`400 FAILED_PRECONDITION. {'error': {'message': 'Precondition check failed.'}}` — nothing a
+reader can act on, and it failed the whole review. Now:
+
+- the refusal is recognised and rewritten to say what it means and what to do about it,
+  while keeping the provider's own words;
+- judging and indexing both degrade to the interactive path rather than losing the work;
+- the key is not asked again for the life of the process, because the refusal is about the
+  project rather than about that batch;
+- `ARCHCOMPASS_GOOGLE_BATCH=0` turns batching off without changing the model.
+
+Which means the retry in §15 is doing the real work on a free-tier key, and the batch is the
+optimisation it becomes when billing is on.
+
+## 18. Code is coloured
+
+Every excerpt and every fenced block in a policy or a report is syntax-highlighted.
+`highlight.js` is used as a tokeniser only — it emits `hljs-…` class names and the palette
+lives in `styles.css` with every other colour, so a keyword follows the workspace's theme
+instead of a bundled stylesheet that would have to be kept in step with it. Nine grammars are
+registered by hand rather than taking the full build, which is most of a megabyte for a tool
+that reads Python.
+
+It never guesses. An excerpt's language comes from the extension of the file it was read out
+of, and a fence's from what the fence declares; anything else is left uncoloured. Detection
+on a four-line excerpt is a coin toss, and confidently wrong colouring is worse than none,
+because the colours are a claim about what the tokens mean.
+
+Line numbers are a separate column from the code, so an excerpt is highlighted once as a
+whole. Highlighting line by line would end a docstring at every newline and start a new one.
+
+## 19. Still open
 
 - A batch that outlives the process is not resumed on restart. The job name is logged and the
   execution is marked abandoned, so nothing is silently lost, but collecting an in-flight

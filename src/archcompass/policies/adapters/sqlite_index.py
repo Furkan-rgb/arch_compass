@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from collections.abc import Callable
 from hashlib import sha256
@@ -11,8 +12,14 @@ import sqlite_vec
 from langchain_core.embeddings import Embeddings
 
 from archcompass.domain import Policy
-from archcompass.ports.dense_policy_index import DensePolicyMatch
+from archcompass.ports.dense_policy_index import (
+    BatchDocumentEmbeddings,
+    DensePolicyMatch,
+)
+from archcompass.reasoning.adapters.google_batch import BatchUnavailableError
 from archcompass.retrying import call_with_retry
+
+_log = logging.getLogger("archcompass.batch")
 
 #: How many chunks are embedded per call. Not a throughput knob — one call for the whole
 #: corpus is faster where it works. It is a ceiling on how much a single request asks a
@@ -146,28 +153,57 @@ class SQLitePolicyIndex:
                 for chunk_id, entry in desired.items()
                 if stored.get(chunk_id) != entry[1]
             ]
-            for start in range(0, len(missing), _EMBEDDING_BATCH):
-                batch = missing[start : start + _EMBEDDING_BATCH]
-                self._embed_batch(connection, batch)
+            self._embed_missing(connection, missing)
             stale = set(stored) - set(desired)
             connection.executemany(
                 "DELETE FROM policy_embedding_chunks WHERE namespace = ? AND chunk_id = ?",
                 ((self._namespace, chunk_id) for chunk_id in stale),
             )
 
-    def _embed_batch(
+    def _embed_missing(
         self,
         connection: sqlite3.Connection,
-        batch: list[tuple[str, str, str, str, str, str, str | None]],
+        missing: list[tuple[str, str, str, str, str, str, str | None]],
     ) -> None:
-        # Indexing the corpus is where a hosted free tier is most likely to say no: it
-        # is hundreds of chunks sent as fast as the batches are built, against a limit
-        # counted per minute. Failing the batch would abandon the ones already embedded.
-        texts = [entry[3] for entry in batch]
-        vectors = call_with_retry(
+        """Embed every chunk the index does not already hold.
+
+        Building an index is bulk work with nobody waiting on it, which is exactly the shape
+        a batch endpoint is for — and it is where a hosted free tier says no, since the
+        corpus is hundreds of chunks against a limit counted per minute. Where the provider
+        offers a batch the whole corpus goes in one submission; where it does not, the
+        chunked loop it always used stays, because a self-hosted Ollama has no limit to
+        escape and no batch to escape into.
+        """
+
+        if not missing:
+            return
+        embeddings = self._embeddings
+        if isinstance(embeddings, BatchDocumentEmbeddings) and embeddings.supports_batch():
+            texts = [entry[3] for entry in missing]
+            try:
+                self._store(connection, missing, embeddings.embed_documents_batched(texts))
+                return
+            except BatchUnavailableError as refusal:
+                # The batch facility is not available to this key. Indexing the slow way is
+                # a worse afternoon than indexing the fast way, and a better one than not
+                # having an index.
+                _log.warning("%s", refusal)
+        for start in range(0, len(missing), _EMBEDDING_BATCH):
+            batch = missing[start : start + _EMBEDDING_BATCH]
+            self._store(connection, batch, self._embed_chunk([entry[3] for entry in batch]))
+
+    def _embed_chunk(self, texts: list[str]) -> list[list[float]]:
+        return call_with_retry(
             lambda: self._embeddings.embed_documents(texts),
             subject=f"Embedding {len(texts)} policy chunks",
         )
+
+    def _store(
+        self,
+        connection: sqlite3.Connection,
+        batch: list[tuple[str, str, str, str, str, str, str | None]],
+        vectors: list[list[float]],
+    ) -> None:
         for (
             chunk_id,
             policy_id,

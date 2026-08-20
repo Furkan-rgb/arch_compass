@@ -22,7 +22,12 @@ from archcompass.domain import (
 from archcompass.domain.errors import ModelOutputValidationError, ProviderError
 from archcompass.ports.capabilities import JudgementRequest
 from archcompass.ports.policy_retrieval import PolicySelection, RetrievedPolicySet
-from archcompass.reasoning.adapters.google_batch import BatchPolling, GoogleBatchJudge
+from archcompass.reasoning.adapters.google_batch import (
+    BatchPolling,
+    BatchUnavailableError,
+    GoogleBatchEmbeddings,
+    GoogleBatchJudge,
+)
 
 
 def _request(name: str, case: ArchitectureCase) -> JudgementRequest:
@@ -166,3 +171,195 @@ def test_an_empty_selection_asks_the_provider_nothing() -> None:
     batches = FakeBatches(responses=[])
     assert _judge(batches).judge_all((), model_identity="google:x") == ()
     assert batches.created is None
+
+
+# ── embedding the corpus ──────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class FakeEmbeddingBatches:
+    """The embeddings half of the batch service, which answers with vectors."""
+
+    vectors: list[list[float]]
+    submitted: Any = None
+    polls: int = 0
+
+    def create_embeddings(self, *, model: str, src: Any, config: Any) -> SimpleNamespace:
+        del model, config
+        self.submitted = src
+        return SimpleNamespace(name="batches/emb", state=SimpleNamespace(name="JOB_STATE_PENDING"))
+
+    def get(self, *, name: str) -> SimpleNamespace:
+        self.polls += 1
+        return SimpleNamespace(
+            name=name,
+            state=SimpleNamespace(name="JOB_STATE_SUCCEEDED"),
+            dest=SimpleNamespace(
+                inlined_embed_content_responses=[
+                    SimpleNamespace(
+                        error=None,
+                        response=SimpleNamespace(embedding=SimpleNamespace(values=vector)),
+                    )
+                    for vector in self.vectors
+                ]
+            ),
+        )
+
+
+def _embeddings(batches: FakeEmbeddingBatches) -> GoogleBatchEmbeddings:
+    return GoogleBatchEmbeddings(
+        api_key="not-used",
+        model="gemini-embedding-2",
+        dimensions=3,
+        polling=BatchPolling(first_interval_seconds=1, multiplier=1, deadline_seconds=60),
+        sleep=lambda _: None,
+        client=SimpleNamespace(batches=batches),  # type: ignore[arg-type]
+    )
+
+
+def test_the_whole_corpus_is_submitted_as_one_batch() -> None:
+    batches = FakeEmbeddingBatches(vectors=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    vectors = _embeddings(batches).embed_documents_batched(["first chunk", "second chunk"])
+
+    assert vectors == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
+    # One submission holding both chunks, not one submission per chunk.
+    assert len(batches.submitted.inlined_requests.contents) == 2
+
+
+def test_a_short_embedding_batch_is_refused() -> None:
+    """A chunk with no vector is a policy that can never be retrieved."""
+
+    batches = FakeEmbeddingBatches(vectors=[[1.0, 0.0, 0.0]])
+    with pytest.raises(ProviderError, match="1 of 2"):
+        _embeddings(batches).embed_documents_batched(["first chunk", "second chunk"])
+
+
+def test_an_empty_corpus_asks_the_provider_nothing() -> None:
+    batches = FakeEmbeddingBatches(vectors=[])
+    assert _embeddings(batches).embed_documents_batched([]) == []
+    assert batches.submitted is None
+
+
+# ── a key the Batch API will not take ─────────────────────────────────────────────────────
+
+
+class Refused(Exception):
+    """What the API answers a key without billing: a status, and nothing to act on."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "400 FAILED_PRECONDITION. {'error': {'code': 400, 'message': "
+            "'Precondition check failed.', 'status': 'FAILED_PRECONDITION'}}"
+        )
+        self.code = 400
+
+
+@dataclass
+class RefusingBatches:
+    def create(self, *, model: str, src: Any, config: Any) -> SimpleNamespace:
+        del model, src, config
+        raise Refused()
+
+    def create_embeddings(self, *, model: str, src: Any, config: Any) -> SimpleNamespace:
+        del model, src, config
+        raise Refused()
+
+
+def test_a_refused_batch_says_what_to_do_about_it() -> None:
+    """`Precondition check failed.` on its own is a useless thing to fail a review with."""
+
+    case = ArchitectureCase.create(goal="Keep the domain independent.")
+    judge = GoogleBatchJudge(
+        api_key="not-used",
+        model="gemini-3.5-flash-lite",
+        sleep=lambda _: None,
+        client=SimpleNamespace(batches=RefusingBatches()),  # type: ignore[arg-type]
+    )
+    with pytest.raises(BatchUnavailableError) as refusal:
+        judge.judge_all((_request("ports.Clock", case),), model_identity="google:x")
+
+    message = str(refusal.value)
+    assert "billing enabled" in message
+    assert "ARCHCOMPASS_GOOGLE_BATCH=0" in message
+    # And it keeps what the provider actually said, for anyone who needs to quote it.
+    assert "FAILED_PRECONDITION" in message
+
+
+def test_an_ordinary_failure_is_not_dressed_up_as_a_missing_facility() -> None:
+    class Broken:
+        def create(self, *, model: str, src: Any, config: Any) -> SimpleNamespace:
+            del model, src, config
+            raise ValueError("the prompt was too long")
+
+    case = ArchitectureCase.create(goal="Keep the domain independent.")
+    judge = GoogleBatchJudge(
+        api_key="not-used",
+        model="gemini-3.5-flash-lite",
+        sleep=lambda _: None,
+        client=SimpleNamespace(batches=Broken()),  # type: ignore[arg-type]
+    )
+    with pytest.raises(ValueError, match="prompt was too long"):
+        judge.judge_all((_request("ports.Clock", case),), model_identity="google:x")
+
+
+def test_a_refused_embedding_batch_is_named_the_same_way() -> None:
+    embeddings = GoogleBatchEmbeddings(
+        api_key="not-used",
+        model="gemini-embedding-2",
+        dimensions=3,
+        sleep=lambda _: None,
+        client=SimpleNamespace(batches=RefusingBatches()),  # type: ignore[arg-type]
+    )
+    with pytest.raises(BatchUnavailableError, match="billing enabled"):
+        embeddings.embed_documents_batched(["a chunk"])
+
+
+def test_a_refused_batch_degrades_to_judging_one_at_a_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Losing a review the interactive path could have produced is the worse outcome."""
+
+    from archcompass.configuration import ReasoningModelConfig
+    from archcompass.reasoning.adapters import selected as selected_module
+
+    monkeypatch.setenv("GOOGLE_API_KEY", "not-a-real-key")
+
+    class Selection:
+        def current(self) -> ReasoningModelConfig:
+            return ReasoningModelConfig(
+                provider="google",
+                model="gemini-3.5-flash-lite",
+                api_key_env="GOOGLE_API_KEY",
+                timeout_seconds=30,
+            )
+
+    class RefusingJudge:
+        def __init__(self, **_: Any) -> None:
+            pass
+
+        def judge_all(self, requests: Any, *, model_identity: str) -> Any:
+            del requests, model_identity
+            raise BatchUnavailableError("no batch for this key")
+
+    monkeypatch.setattr(selected_module, "GoogleBatchJudge", RefusingJudge)
+
+    judge = selected_module.SelectedLangChainJudge(
+        selected_module.SelectedLangChainChatModel(Selection())  # type: ignore[arg-type]
+    )
+    interactive: list[str] = []
+    monkeypatch.setattr(
+        judge,
+        "judge",
+        lambda candidate, case, policies: interactive.append(candidate.summary) or None,
+    )
+
+    case = ArchitectureCase.create(goal="Keep the domain independent.")
+    requests = (_request("ports.Clock", case), _request("ports.Store", case))
+
+    assert judge.supports_batch() is True
+    judge.judge_all(requests)
+
+    # Both candidates were judged the slow way rather than the review being lost.
+    assert len(interactive) == 2
+    # And the key is not asked again for the life of this process.
+    assert judge.supports_batch() is False

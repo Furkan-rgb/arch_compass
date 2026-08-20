@@ -27,6 +27,7 @@ from typing import Any, Final
 
 from google import genai
 from google.genai import types
+from langchain_core.embeddings import Embeddings
 from pydantic import ValidationError
 
 from archcompass.domain import Finding
@@ -45,6 +46,28 @@ _log = logging.getLogger("archcompass.batch")
 #: candidate id, because the id is long and the API's own examples key on a short label —
 #: and the position is what the inline API preserves anyway.
 _KEY: Final = "candidate-{index}"
+
+class BatchUnavailableError(ProviderError):
+    """The provider will not take a batch from this key, and never will today.
+
+    Its own type because it is the one batch failure with an obvious remedy that is not
+    "wait": judge interactively instead. The Gemini Batch API is refused outright on a key
+    without billing enabled, and it answers `400 FAILED_PRECONDITION` with no detail — which
+    is a useless thing to fail a review with when the interactive path was working.
+    """
+
+
+#: What a refusal of the whole batch facility looks like, as opposed to a refusal of this
+#: particular batch. `FAILED_PRECONDITION` on submission is the documented answer for a
+#: project that is not eligible; a 403 is a key that is not permitted to use it at all.
+_UNAVAILABLE_STATUSES: Final = frozenset({400, 403})
+_UNAVAILABLE_PHRASES: Final = (
+    "failed_precondition",
+    "precondition check failed",
+    "billing",
+    "not supported",
+    "not enabled",
+)
 
 _TERMINAL_SUCCESS: Final = "JOB_STATE_SUCCEEDED"
 _TERMINAL_FAILURE: Final = frozenset(
@@ -70,6 +93,50 @@ class BatchPolling:
 
 
 DEFAULT_POLLING: Final = BatchPolling()
+
+
+def await_batch(
+    client: genai.Client,
+    job: Any,
+    *,
+    polling: BatchPolling,
+    sleep: Callable[[float], None],
+) -> Any:
+    """Poll a submitted job until it has an answer, or until waiting stops being sensible.
+
+    Shared by judgements and embeddings because waiting is the same problem whatever the
+    job holds: a name, a state that is not yet terminal, and a growing interval so that a
+    job which really will take an hour is not asked about two thousand times.
+    """
+
+    name = getattr(job, "name", None)
+    if not name:
+        raise ProviderError("The batch was accepted without a job name to poll.")
+    waited = 0.0
+    interval = polling.first_interval_seconds
+    current = job
+    while True:
+        state = str(getattr(getattr(current, "state", None), "name", "") or "")
+        if state == _TERMINAL_SUCCESS:
+            return current
+        if state in _TERMINAL_FAILURE:
+            raise ProviderError(
+                f"Batch {name} ended as {state}. "
+                f"{getattr(current, 'error', '') or ''}".strip()
+            )
+        if waited >= polling.deadline_seconds:
+            raise ProviderError(
+                f"Batch {name} was still {state or 'pending'} after "
+                f"{waited / 3600:.1f} hours. The work was not abandoned — the job can be "
+                "collected later — but this run stopped waiting."
+            )
+        sleep(interval)
+        waited += interval
+        interval = min(interval * polling.multiplier, polling.maximum_interval_seconds)
+        current = call_with_retry(
+            lambda: client.batches.get(name=name),
+            subject=f"Reading batch {name}",
+        )
 
 
 class GoogleBatchJudge:
@@ -104,7 +171,9 @@ class GoogleBatchJudge:
         _log.info(
             "submitted %d judgements as batch %s", len(requests), getattr(job, "name", "?")
         )
-        finished = self._await(job)
+        finished = await_batch(
+            self._client, job, polling=self._polling, sleep=self._sleep
+        )
         responses = self._responses(finished, expected=len(requests))
         return tuple(
             self._finding(responses[index], requests[index], model_identity)
@@ -141,49 +210,17 @@ class GoogleBatchJudge:
             )
             for index, item in enumerate(requests)
         ]
-        return call_with_retry(
-            lambda: self._client.batches.create(
-                model=self._model,
-                src=inline,
-                config=types.CreateBatchJobConfig(display_name="archcompass-judgements"),
-            ),
-            subject=f"Submitting {len(requests)} judgements as a batch",
-        )
-
-    # ── waiting ───────────────────────────────────────────────────────────────────────
-
-    def _await(self, job: Any) -> Any:
-        name = getattr(job, "name", None)
-        if not name:
-            raise ProviderError("The batch was accepted without a job name to poll.")
-        waited = 0.0
-        interval = self._polling.first_interval_seconds
-        current = job
-        while True:
-            state = str(getattr(getattr(current, "state", None), "name", "") or "")
-            if state == _TERMINAL_SUCCESS:
-                return current
-            if state in _TERMINAL_FAILURE:
-                raise ProviderError(
-                    f"Batch {name} ended as {state}. "
-                    f"{getattr(current, 'error', '') or ''}".strip()
-                )
-            if waited >= self._polling.deadline_seconds:
-                raise ProviderError(
-                    f"Batch {name} was still {state or 'pending'} after "
-                    f"{waited / 3600:.1f} hours. The judgements were not abandoned — the "
-                    "job can be collected later — but this run stopped waiting."
-                )
-            self._sleep(interval)
-            waited += interval
-            interval = min(
-                interval * self._polling.multiplier,
-                self._polling.maximum_interval_seconds,
+        try:
+            return call_with_retry(
+                lambda: self._client.batches.create(
+                    model=self._model,
+                    src=inline,
+                    config=types.CreateBatchJobConfig(display_name="archcompass-judgements"),
+                ),
+                subject=f"Submitting {len(requests)} judgements as a batch",
             )
-            current = call_with_retry(
-                lambda: self._client.batches.get(name=name),
-                subject=f"Reading batch {name}",
-            )
+        except Exception as error:
+            raise _submission_refusal(error, self._model) from error
 
     # ── collection ────────────────────────────────────────────────────────────────────
 
@@ -236,6 +273,31 @@ class GoogleBatchJudge:
         )
 
 
+def _submission_refusal(error: Exception, model: str) -> Exception:
+    """Turn a bare refusal into something that says what to do about it.
+
+    `400 FAILED_PRECONDITION. {'error': {'message': 'Precondition check failed.'}}` is all
+    the API says, and on its own it fails a review with nothing a reader can act on.
+    """
+
+    if isinstance(error, BatchUnavailableError):
+        return error
+    status = getattr(error, "code", None) or getattr(error, "status_code", None)
+    text = str(error).lower()
+    refused = (isinstance(status, int) and status in _UNAVAILABLE_STATUSES) and any(
+        phrase in text for phrase in _UNAVAILABLE_PHRASES
+    )
+    if not refused:
+        return error
+    return BatchUnavailableError(
+        f"The Batch API refused this key for {model}. Batch jobs need billing enabled on "
+        "the Google Cloud project behind the key — a free-tier key is turned away with "
+        "'FAILED_PRECONDITION' and no further detail. Judging will continue one request at "
+        "a time instead, which is metered per minute; set ARCHCOMPASS_GOOGLE_BATCH=0 to "
+        f"stop trying. The provider said: {error}"
+    )
+
+
 def _text_of(response: Any) -> str:
     """The one text part of a batched `GenerateContentResponse`.
 
@@ -260,3 +322,132 @@ def _text_of(response: Any) -> str:
         "A batched judgement came back with no text to parse: "
         f"{json.dumps(str(response)[:200])}"
     )
+
+
+class GoogleBatchEmbeddings:
+    """The whole policy corpus embedded in one submission.
+
+    Indexing is the other place a hosted free tier refuses: the corpus is 486 chunks and the
+    free tier allows a hundred embedded texts a minute, so a cold workspace spends five
+    minutes mostly waiting before the first verdict is even asked for. The embeddings batch
+    is metered separately and costs half, and nobody is waiting on an index being built.
+
+    Only documents. A search embeds one text to answer a retrieval that is happening now, and
+    a job promised within a day is not an answer to that — `embed_query` stays interactive
+    whatever the quota says.
+    """
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        dimensions: int,
+        polling: BatchPolling = DEFAULT_POLLING,
+        sleep: Callable[[float], None] = time.sleep,
+        client: genai.Client | None = None,
+    ) -> None:
+        self._client = client or genai.Client(api_key=api_key)
+        self._model = model
+        self._dimensions = dimensions
+        self._polling = polling
+        self._sleep = sleep
+
+    def embed_documents_batched(self, texts: Sequence[str]) -> list[list[float]]:
+        if not texts:
+            return []
+
+        config = types.EmbedContentConfig(
+            output_dimensionality=self._dimensions,
+            task_type="RETRIEVAL_DOCUMENT",
+        )
+        # One batch holding every chunk, rather than one batch per chunk: the source takes
+        # a single `EmbedContentBatch` whose `contents` is the whole submission.
+        source = types.EmbeddingsBatchJobSource(
+            inlined_requests=types.EmbedContentBatch(
+                contents=[
+                    types.Content(parts=[types.Part(text=text)], role="user")
+                    for text in texts
+                ],
+                config=config,
+            )
+        )
+        try:
+            job = call_with_retry(
+                lambda: self._client.batches.create_embeddings(
+                    model=self._model,
+                    src=source,
+                    config=types.CreateEmbeddingsBatchJobConfig(
+                        display_name="archcompass-policy-corpus"
+                    ),
+                ),
+                subject=f"Submitting {len(texts)} policy chunks as an embedding batch",
+            )
+        except Exception as error:
+            raise _submission_refusal(error, self._model) from error
+        _log.info(
+            "submitted %d policy chunks as batch %s", len(texts), getattr(job, "name", "?")
+        )
+        finished = await_batch(
+            self._client, job, polling=self._polling, sleep=self._sleep
+        )
+        return self._vectors(finished, expected=len(texts))
+
+    def _vectors(self, job: Any, *, expected: int) -> list[list[float]]:
+        destination = getattr(job, "dest", None)
+        answers = getattr(destination, "inlined_embed_content_responses", None)
+        if answers is None:
+            raise ProviderError(
+                f"Embedding batch {getattr(job, 'name', '?')} succeeded without inline "
+                "responses, and this one was submitted inline."
+            )
+        vectors: list[list[float]] = []
+        for answer in answers:
+            error = getattr(answer, "error", None)
+            if error:
+                raise ProviderError(f"The embedding batch refused one chunk: {error}")
+            embedding = getattr(getattr(answer, "response", None), "embedding", None)
+            values = getattr(embedding, "values", None)
+            if not values:
+                raise ProviderError(
+                    "The embedding batch answered a chunk with no vector, and a chunk "
+                    "without one is a policy that cannot be retrieved."
+                )
+            vectors.append([float(value) for value in values])
+        if len(vectors) != expected:
+            # A short batch would silently index part of the corpus, and a policy missing
+            # from the index is a policy that never bears on a judgement.
+            raise ProviderError(
+                f"The embedding batch answered {len(vectors)} of {expected} chunks."
+            )
+        return vectors
+
+
+class GoogleEmbeddings(Embeddings):
+    """The interactive embeddings, with a batch behind them for bulk indexing.
+
+    It is a LangChain `Embeddings` because everything that has to answer now still goes
+    through one, and it delegates rather than inherits the Google implementation so that
+    interactive behaviour is exactly what it was. The extra method is for the single caller
+    that is building an index and has nobody waiting on it.
+    """
+
+    def __init__(
+        self,
+        interactive: Embeddings,
+        batched: GoogleBatchEmbeddings,
+    ) -> None:
+        self._interactive = interactive
+        self._batched = batched
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self._interactive.embed_documents(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._interactive.embed_query(text)
+
+    def supports_batch(self) -> bool:
+        return True
+
+    def embed_documents_batched(self, texts: Sequence[str]) -> list[list[float]]:
+        return self._batched.embed_documents_batched(texts)

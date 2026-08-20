@@ -9,6 +9,7 @@ import { relativeTime, repositoryName, shortId } from "../../lib/format";
 import { StatusBadge, Tag } from "../../ui/badge";
 import { Button, ButtonLink } from "../../ui/button";
 import { Drawer } from "../../ui/drawer";
+import { GitBranchIcon } from "../../ui/icons";
 import { Mono, PathRef } from "../../ui/meta";
 import { Panel, PanelBody } from "../../ui/panel";
 import { ErrorNotice, LoadingPanel } from "../../ui/states";
@@ -67,7 +68,15 @@ function ReviewHead({
           </h1>
           <div className="mt-2.5 flex max-w-full flex-wrap items-center gap-1.5">
             <PathRef path={review.repository.path} className="min-w-0" />
-            {review.repository.branch ? <Tag>branch {review.repository.branch}</Tag> : null}
+            {review.repository.branch ? (
+              <Tag>
+                {/* The icon carries the noun, so the pill can spend its width on the name.
+                    It stays labelled for anything not reading the shape. */}
+                <GitBranchIcon className="size-3.5 shrink-0 text-ink-3" aria-hidden="true" />
+                <span className="sr-only">branch</span>
+                {review.repository.branch}
+              </Tag>
+            ) : null}
             {review.repository.commit ? (
               <Tag>
                 <Mono className="text-[11px]">{shortId(review.repository.commit, 10)}</Mono>

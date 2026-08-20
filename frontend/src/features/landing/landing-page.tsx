@@ -7,7 +7,15 @@ import { Badge, Tag } from "../../ui/badge";
 import { Wordmark } from "../../ui/brand";
 import { Button, ButtonLink } from "../../ui/button";
 import { Drawer } from "../../ui/drawer";
-import { ArrowRight, ChevronDown, MenuIcon, MonitorIcon, MoonIcon, SunIcon } from "../../ui/icons";
+import {
+  ArrowRight,
+  ChevronDown,
+  GithubIcon,
+  MenuIcon,
+  MonitorIcon,
+  MoonIcon,
+  SunIcon,
+} from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { Reveal } from "../../ui/reveal";
 import { WorkbenchPreview } from "./preview";
@@ -621,9 +629,12 @@ function Footer() {
                   href="https://github.com/Furkan-rgb/arch_compass"
                   target="_blank"
                   rel="noreferrer"
-                  className="text-ink-2 hover:text-ink"
+                  className="inline-flex items-center gap-2 text-ink-2 hover:text-ink"
                 >
-                  GitHub
+                  {/* The mark says which site; the repository name says which project.
+                      "GitHub" on its own said neither. */}
+                  <GithubIcon className="size-3.5 shrink-0" />
+                  <span className="font-mono text-[13px]">Furkan-rgb/arch_compass</span>
                 </a>
               </li>
               <li>
