@@ -284,6 +284,7 @@ export function AttentionQueue({
   filter,
   onFilterChange,
   onReadReport,
+  titled = true,
   className,
 }: {
   review: Review;
@@ -291,6 +292,14 @@ export function AttentionQueue({
   onSelect: (selection: QueueSelection) => void;
   filter: QueueFilter;
   onFilterChange: (filter: QueueFilter) => void;
+  /**
+   * Whether to print its own name.
+   *
+   * Off inside the phone drawer, which already has a title and a description — the two were
+   * rendering one above the other, the same words twice, in the one place on screen where
+   * vertical room is scarcest.
+   */
+  titled?: boolean;
   /** Offered when the review is worked through, because reading it is what happens next. */
   onReadReport?: () => void;
   className?: string;
@@ -405,14 +414,21 @@ export function AttentionQueue({
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
       <div className="shrink-0 border-b border-rule px-3 py-3">
-        <h2 className="font-display text-sm font-semibold tracking-tight text-ink">
-          Attention queue
-        </h2>
-        <p className="mt-0.5 text-xs text-ink-3">What this review needs from a human</p>
+        {titled ? (
+          <>
+            <h2 className="font-display text-sm font-semibold tracking-tight text-ink">
+              Attention queue
+            </h2>
+            <p className="mt-0.5 text-xs text-ink-3">What this review needs from a human</p>
+          </>
+        ) : null}
         <div
           role="group"
           aria-label="Filter the queue"
-          className="mt-2.5 flex gap-1 rounded-md border border-rule bg-sunken/60 p-0.5"
+          className={cn(
+            "flex gap-1 rounded-md border border-rule bg-sunken/60 p-0.5",
+            titled && "mt-2.5",
+          )}
         >
           {(
             [

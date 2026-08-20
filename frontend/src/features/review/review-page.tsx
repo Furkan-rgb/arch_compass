@@ -384,7 +384,10 @@ export function ReviewPage() {
       </Panel>
     );
 
-  const queue = (
+  // `titled` is off in the drawer: the drawer heading already says "Attention queue" and
+  // "What this review needs from a human", so a titled queue printed both a second time,
+  // directly underneath, on the one surface with the least vertical room to spare.
+  const queueFor = (titled: boolean) => (
     <AttentionQueue
       review={value}
       selection={active}
@@ -392,6 +395,7 @@ export function ReviewPage() {
       filter={filter}
       onFilterChange={setFilter}
       onReadReport={() => setSurface("report")}
+      titled={titled}
       className="min-h-0 flex-1"
     />
   );
@@ -443,7 +447,7 @@ export function ReviewPage() {
                 `overflow.test.tsx` asserts on and what bounds a long queue; the height is
                 what a short one grows into. */}
             <Panel className="flex h-[calc(100vh-5rem-3rem)] max-h-[calc(100vh-5rem-3rem)] flex-col overflow-hidden">
-              {queue}
+              {queueFor(true)}
             </Panel>
             <Panel>
               <RevisionRail
@@ -510,7 +514,7 @@ export function ReviewPage() {
         title="Attention queue"
         description="What this review needs from a human"
       >
-        <div className="flex max-h-[70vh] flex-col">{queue}</div>
+        <div className="flex max-h-[70vh] flex-col">{queueFor(false)}</div>
       </Drawer>
 
       {/* The finding is one reading column, so the case, the policies, the structure around
