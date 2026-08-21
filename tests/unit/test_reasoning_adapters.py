@@ -9,8 +9,11 @@ import pytest
 from pydantic import ValidationError
 
 from archcompass.domain import (
+    Answer,
+    AnswerStatus,
     ArchitectureCase,
     Candidate,
+    CaseFacet,
     Evidence,
     Finding,
     Participant,
@@ -28,6 +31,7 @@ from archcompass.domain import (
     Verdict,
 )
 from archcompass.domain._support import utc_now
+from archcompass.domain.case import Question
 from archcompass.domain.errors import ModelOutputValidationError
 from archcompass.ports.policy_retrieval import PolicySelection, RetrievedPolicySet
 from archcompass.reasoning.adapters.langchain import (
@@ -36,6 +40,7 @@ from archcompass.reasoning.adapters.langchain import (
     LangChainQuestionGenerator,
     LangChainReviewAnswerer,
     conversation_prompt,
+    judgement_prompt,
 )
 
 
@@ -187,6 +192,7 @@ def test_question_position_without_a_hinge_is_structurally_rejected() -> None:
                         "text": "Who owns this?",
                         "facet": "decision",
                         "candidate_positions": [1],
+                        "options": ["Payments owns it", "Platform owns it"],
                     }
                 ]
             }
@@ -361,3 +367,82 @@ def test_a_cited_finding_is_returned_as_the_candidate_it_belongs_to(tmp_path: Pa
     answer = answerer.answer(review, (), "How would it be fixed?")
 
     assert answer.supporting_candidate_ids == (str(review.findings[0].candidate.id),)
+
+
+def test_an_empty_case_says_so_rather_than_arriving_as_empty_arrays() -> None:
+    """The reason a real model never asked anything.
+
+    An empty case used to reach the judge as `{"constraints": [], "decisions": [],
+    "answers": []}` — three empty arrays beside a fully-stocked policy corpus. A model
+    reading that has a rule to judge against and punctuation where the team's intent would
+    be, so it judges on the policy and the clarification round never runs. The prompt now
+    says what an empty case is, and gives asking standing rather than mere permission.
+    """
+
+    candidate, case, policies = _input()
+
+    prompt = judgement_prompt(candidate, case, policies)
+
+    assert "Nobody has answered anything about this architecture yet" in prompt
+    assert '"constraints": []' not in prompt
+    assert "Asking is a first-class outcome here" in prompt
+    # And it is not an instruction to hedge: a hinge interrupts a person, so the contract
+    # says when not to raise one as plainly as when to.
+    assert "do not hinge merely to avoid committing" in prompt
+
+
+def test_an_answered_case_is_carried_as_what_was_asked_and_said() -> None:
+    candidate, _, policies = _input()
+    question = Question.create(
+        text="Is one implementation deliberate?",
+        facet=CaseFacet.DECISION,
+        candidate_ids=(str(candidate.id),),
+        round=1,
+    )
+    case = ArchitectureCase.create().with_answer(
+        Answer(question, AnswerStatus.ANSWERED, "Yes, a second is coming", "architect", utc_now())
+    )
+
+    prompt = judgement_prompt(candidate, case, policies)
+
+    assert "Is one implementation deliberate?" in prompt
+    assert "Yes, a second is coming" in prompt
+    assert "Nobody has answered anything" not in prompt
+
+
+def test_a_question_without_proposed_answers_is_rejected_at_the_boundary() -> None:
+    """A blank box is what the round looked like, and the schema now refuses to produce one.
+
+    The interface offers writing your own answer and skipping under every question,
+    structurally — so a menu is never a closed set and the model does not need to leave room
+    for one by returning nothing.
+    """
+
+    candidate, case, _ = _input()
+    uncertain = Finding(
+        candidate,
+        Verdict.HELD,
+        "Ownership could change the verdict.",
+        (),
+        (),
+        hinge="the owning team",
+    )
+    generator = LangChainQuestionGenerator(
+        StructuredModel(
+            {
+                "questions": [
+                    {
+                        "text": "Who owns this?",
+                        "facet": "decision",
+                        "candidate_positions": [1],
+                        "options": [],
+                    }
+                ]
+            }
+        )  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ModelOutputValidationError):
+        generator.generate(
+            case, (uncertain,), round=1, excluded_equivalence_keys=frozenset()
+        )

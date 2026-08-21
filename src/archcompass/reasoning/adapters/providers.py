@@ -16,11 +16,17 @@ from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
 from archcompass.reasoning.records import AvailableModel, ProbeResult
 
 DETERMINISTIC_MODEL = "deterministic-architecture-v4"
-GOOGLE_MODELS: Final = (
-    "gemini-3.6-flash",
-    "gemini-2.5-pro",
-    "gemini-3.5-flash-lite",
-)
+#: The one Google model this workspace offers, and deliberately only one.
+#:
+#: A review is not one call: every candidate is judged separately, questions are generated,
+#: a synopsis is written, and a clarification round judges again. On Google's free tier the
+#: larger models are rationed by the day — `gemini-3.6-flash` allows twenty requests before
+#: it starts refusing — which is fewer than a single review of a small repository spends. A
+#: model that cannot finish one review is not a choice, it is a trap, and offering it in the
+#: picker means the first thing a new workspace does is fail halfway through with a 429.
+#: `gemini-3.5-flash-lite` has limits generous enough to finish, and it is the fastest of
+#: them, so it is the whole Google line-up here.
+GOOGLE_MODELS: Final = ("gemini-3.5-flash-lite",)
 
 #: Which of those sample at a temperature of their own choosing.
 #:
@@ -28,11 +34,9 @@ GOOGLE_MODELS: Final = (
 #: from the request and warned about rather than honoured. Asking for a temperature of zero
 #: there does not make the model deterministic — it only makes the log say the request
 #: contained something the API discarded, which is worth neither the noise nor the false
-#: impression that the run is reproducible. Where the parameter is honoured it still is,
-#: and `gemini-2.5-pro` is the model that honours it.
-GOOGLE_FIXED_SAMPLING_MODELS: Final = frozenset(
-    {"gemini-3.6-flash", "gemini-3.5-flash-lite"}
-)
+#: impression that the run is reproducible. Every model above is one of those today; the set
+#: stays a set because the next one Google ships need not be.
+GOOGLE_FIXED_SAMPLING_MODELS: Final = frozenset({"gemini-3.5-flash-lite"})
 
 
 #: Which Ollama embedding models were trained to be told what the text is *for*.

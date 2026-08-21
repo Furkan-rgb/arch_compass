@@ -92,31 +92,46 @@ class DataclassRepositoryAnalyzer:
         )
 
 
+def analysis_atlas(atlas: RepositoryAtlas) -> Atlas:
+    """The domain atlas read back as the analysis records it was assembled from.
+
+    `RepositoryAtlas` carries its nodes and edges as canonical-JSON strings — the
+    migration boundary its own comment describes — so anything that wants to *query* the
+    atlas has to validate them first. Two callers now want to: the detectors, and the
+    toolbox a hinge investigation asks.
+
+    Shared rather than duplicated because those two must see the same atlas. A review
+    judges the atlas its own run analysed, and that atlas is never persisted; a lookup
+    answered from a differently-derived one would be describing a repository that was not
+    the one judged.
+    """
+
+    return Atlas(
+        version=AtlasVersion(
+            version_id=atlas.id,
+            repository_identity=atlas.repository.id,
+            root_path=str(atlas.repository.path),
+            git_commit_sha=atlas.repository.commit,
+            branch_name=atlas.repository.branch,
+            repo_id=atlas.repository.id,
+            branch_id=atlas.repository.branch_id,
+            content_fingerprint=atlas.repository.content_id,
+            parser_version=dict(atlas.parser_configuration).get("parser", "unknown"),
+            analysis_config_hash=dict(atlas.parser_configuration).get("analysis", "unknown"),
+        ),
+        nodes=[AtlasNode.model_validate_json(item) for item in atlas.nodes],
+        edges=[AtlasEdge.model_validate_json(item) for item in atlas.edges],
+        metrics=[MetricProfile.model_validate_json(item) for item in atlas.metrics],
+        module_facts=[ModuleFacts.model_validate_json(item) for item in atlas.facts],
+        signals=[ObscuritySignal.model_validate_json(item) for item in atlas.signals],
+    )
+
+
 class DataclassCandidateDetector:
     """Run the characterized detectors after validating the atlas boundary records."""
 
     def detect(self, atlas: RepositoryAtlas) -> tuple[Candidate, ...]:
-        old = Atlas(
-            version=AtlasVersion(
-                version_id=atlas.id,
-                repository_identity=atlas.repository.id,
-                root_path=str(atlas.repository.path),
-                git_commit_sha=atlas.repository.commit,
-                branch_name=atlas.repository.branch,
-                repo_id=atlas.repository.id,
-                branch_id=atlas.repository.branch_id,
-                content_fingerprint=atlas.repository.content_id,
-                parser_version=dict(atlas.parser_configuration).get("parser", "unknown"),
-                analysis_config_hash=dict(atlas.parser_configuration).get(
-                    "analysis", "unknown"
-                ),
-            ),
-            nodes=[AtlasNode.model_validate_json(item) for item in atlas.nodes],
-            edges=[AtlasEdge.model_validate_json(item) for item in atlas.edges],
-            metrics=[MetricProfile.model_validate_json(item) for item in atlas.metrics],
-            module_facts=[ModuleFacts.model_validate_json(item) for item in atlas.facts],
-            signals=[ObscuritySignal.model_validate_json(item) for item in atlas.signals],
-        )
+        old = analysis_atlas(atlas)
         names = {node.atlas_id: node.qualified_name for node in old.nodes}
         return tuple(
             self._candidate(item, atlas.repository.path, names)

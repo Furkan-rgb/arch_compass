@@ -6,6 +6,7 @@ import logging
 import os
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from threading import Lock
 
 from langchain_core.language_models import BaseChatModel
@@ -17,11 +18,19 @@ from archcompass.domain import (
     CaseFacet,
     Finding,
     Question,
+    RepositoryAtlas,
+    RepositoryRef,
     Review,
+    ReviewDelta,
     Verdict,
 )
-from archcompass.domain.errors import NoReasoningModelSelectedError
-from archcompass.ports.capabilities import JudgementRequest
+from archcompass.domain.errors import NoReasoningModelSelectedError, ProviderError
+from archcompass.ports.capabilities import (
+    InvestigatedFinding,
+    JudgementRequest,
+    ReviewSynopsis,
+)
+from archcompass.ports.investigation import InvestigatorSource
 from archcompass.ports.model_catalog import SelectedReasoningModel
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 from archcompass.ports.review_conversation import (
@@ -33,10 +42,15 @@ from archcompass.reasoning.adapters.google_batch import (
     BatchUnavailableError,
     GoogleBatchJudge,
 )
+from archcompass.reasoning.adapters.investigation import (
+    LangChainHingeInvestigator,
+    recorded_investigation,
+)
 from archcompass.reasoning.adapters.langchain import (
     LangChainArchitectureJudge,
     LangChainQuestionGenerator,
     LangChainReviewAnswerer,
+    LangChainReviewSynopsist,
 )
 
 
@@ -91,13 +105,16 @@ class SelectedLangChainJudge:
     ) -> Finding:
         config = self._selected.configuration()
         if config is not None and config.provider == "fake":
-            # This provider does not judge; it stands in for one. It holds while the case
-            # says nothing at all about intent, so that the clarification path is
-            # exercised rather than skipped, and clears once anything has been recorded.
-            # It used to hold on the architecture goal, which no longer exists — intent
-            # now arrives as constraints, decisions and answered questions.
-            stated = case.constraints or case.decisions or case.answers
-            hinge = None if stated else "the constraints this architecture has to respect"
+            # This provider does not judge; it stands in for one. It holds while nobody has
+            # answered anything, so that the clarification path is exercised rather than
+            # skipped, and clears once the case records an answer. Answers are the only
+            # thing left to hold on: the goal went first, then the hand-authored
+            # constraints and decisions, and what remains is the channel a review fills.
+            hinge = (
+                None
+                if case.answers
+                else "whether these boundaries are deliberate or speculative"
+            )
             return Finding(
                 candidate,
                 Verdict.HELD if hinge else Verdict.CLEARED,
@@ -198,11 +215,28 @@ class SelectedLangChainQuestionGenerator:
             held = tuple(item for item in findings if item.hinge)
             if not held:
                 return ()
+            # Proposed answers, because a question without them is a blank box and a blank
+            # box is not what this round looks like. The deterministic provider is how the
+            # clarification is seen during development and in the browser suite, and one
+            # that showed a textarea where the product shows a menu was teaching the wrong
+            # shape. Asked about the boundaries in front of it rather than about a "goal",
+            # which is the facet the case retired.
             question = Question.create(
-                text="What outcome should this architecture optimize for?",
-                facet=CaseFacet.GOAL,
+                text=(
+                    "These boundaries each have exactly one implementation today. Is that "
+                    "deliberate?"
+                ),
+                facet=CaseFacet.DECISION,
                 candidate_ids=tuple(str(item.candidate.id) for item in held),
                 round=round,
+                options=(
+                    "The boundaries are deliberate: a second implementation is expected "
+                    "and the seam is being held open for it.",
+                    "The boundaries are there to keep the domain testable, and a second "
+                    "implementation is not expected.",
+                    "The boundaries were speculative and we would collapse them if a "
+                    "review said so.",
+                ),
             )
             return (
                 ()
@@ -218,9 +252,76 @@ class SelectedLangChainQuestionGenerator:
         )
 
 
-class SelectedLangChainReviewAnswerer:
+class SelectedLangChainReviewSynopsist:
+    """The summary, written by whichever model is selected when the review is composed.
+
+    The deterministic provider gets a deterministic paragraph rather than none. A stand-in
+    that says what it is keeps the shape of the document the same in the mode the browser
+    suite runs in — a report whose opening paragraph exists only against a hosted model is a
+    paragraph nothing checks.
+    """
+
     def __init__(self, selected: SelectedLangChainChatModel) -> None:
         self._selected = selected
+
+    def write(
+        self,
+        case: ArchitectureCase,
+        findings: tuple[Finding, ...],
+        *,
+        questions: tuple[Question, ...],
+        delta: ReviewDelta,
+        previous: Review | None,
+        waiting: bool,
+    ) -> ReviewSynopsis | None:
+        if not findings:
+            return None
+        config = self._selected.configuration()
+        if config is not None and config.provider == "fake":
+            material = tuple(
+                item for item in findings if item.verdict is Verdict.MATERIAL
+            )
+            held = tuple(item for item in findings if item.hinge)
+            said = (
+                "none are material"
+                if not material
+                else "the material ones are "
+                + ", ".join(
+                    f"`{item.candidate.participants[0].qualified_name}`"
+                    for item in material
+                )
+            )
+            waits = (
+                ""
+                if not held
+                else f" {len(held)} of them "
+                + ("is" if len(held) == 1 else "are")
+                + " waiting on an answer from a person."
+            )
+            return ReviewSynopsis(
+                f"This summary was composed deterministically rather than written by a "
+                f"model. Of {len(findings)} candidates judged, {said}.{waits}",
+                f"fake:{config.model}",
+            )
+        model, identity = self._selected.current()
+        return LangChainReviewSynopsist(model, model_identity=identity).write(
+            case,
+            findings,
+            questions=questions,
+            delta=delta,
+            previous=previous,
+            waiting=waiting,
+        )
+
+
+class SelectedLangChainReviewAnswerer:
+    def __init__(
+        self,
+        selected: SelectedLangChainChatModel,
+        investigators: InvestigatorSource | None = None,
+    ) -> None:
+        self._selected = selected
+        self._investigators = investigators
 
     def answer(
         self,
@@ -231,8 +332,139 @@ class SelectedLangChainReviewAnswerer:
         config = self._selected.configuration()
         if config is not None and config.provider == "fake":
             supporting = tuple(str(item.candidate.id) for item in review.findings[:1])
+            # Real lookups behind a stood-in answer, for the reason the hinge pass does the
+            # same: this is the provider every offline test and local run uses, and a
+            # transcript nothing renders is a transcript nothing checks.
+            offered = (
+                None
+                if self._investigators is None
+                else self._investigators.for_review(review.repository, review.atlas)
+            )
+            investigator = None if offered is None else offered.investigator
+            if investigator is not None:
+                investigator.call("flagged_signals", {})
+                investigator.conclude("The stored review already answers this.", "")
             return ConversationAnswer(
-                "The stored review is the source of this deterministic answer.", supporting
+                "The stored review is the source of this deterministic answer.",
+                supporting,
+                recorded_investigation(
+                    investigator,
+                    candidate_id="",
+                    withheld="" if offered is None else offered.withheld,
+                    atlas_fingerprint=review.repository.content_id,
+                    model_identity=f"fake:{config.model}",
+                ),
             )
         model, _ = self._selected.current()
-        return LangChainReviewAnswerer(model).answer(review, history, question)
+        return LangChainReviewAnswerer(model, self._investigators).answer(
+            review, history, question
+        )
+
+
+class SelectedLangChainHingeInvestigator:
+    """The hinge pass, against whichever model is selected right now.
+
+    Follows the judge: the deterministic provider is answered first and never reaches a
+    transport, a provider that turns out not to offer tools is not asked again for the life
+    of the process, and a failure degrades to the finding unchanged. Losing an investigation
+    must never cost the review the hinge belongs to.
+    """
+
+    def __init__(
+        self, selected: SelectedLangChainChatModel, investigators: InvestigatorSource
+    ) -> None:
+        self._selected = selected
+        self._investigators = investigators
+        self._tools_refused = False
+
+    def supports_tools(self) -> bool:
+        """Whether anything could look, asked per dispatch.
+
+        The deterministic provider can: it has a real toolbox over a real atlas, and it is
+        the only configuration `make check` ever runs. What it has no use for is a
+        transport.
+        """
+
+        config = self._selected.configuration()
+        if config is None:
+            return False
+        if config.provider == "fake":
+            return True
+        return not self._tools_refused
+
+    def investigate(
+        self,
+        finding: Finding,
+        case: ArchitectureCase,
+        *,
+        repository: RepositoryRef,
+        atlas: RepositoryAtlas,
+    ) -> InvestigatedFinding:
+        config = self._selected.configuration()
+        if config is not None and config.provider == "fake":
+            return self._deterministic(finding, case, repository, atlas, config)
+        try:
+            model, identity = self._selected.current()
+            return LangChainHingeInvestigator(
+                model, self._investigators, model_identity=identity
+            ).investigate(finding, case, repository=repository, atlas=atlas)
+        except (NotImplementedError, ProviderError) as error:
+            # A hinge that could not be checked is the hinge this product produced
+            # yesterday. It goes to a person, and the record says why nothing settled it.
+            _log.warning("The hinge on %s was not investigated: %s", finding.candidate.id, error)
+            self._tools_refused = isinstance(error, NotImplementedError)
+            return InvestigatedFinding(finding)
+
+    def _deterministic(
+        self,
+        finding: Finding,
+        case: ArchitectureCase,
+        repository: RepositoryRef,
+        atlas: RepositoryAtlas,
+        config: ReasoningModelConfig,
+    ) -> InvestigatedFinding:
+        """Real lookups, a fixed conclusion.
+
+        The lookups are genuine — the same toolbox over the same atlas — because a
+        transcript nothing renders is a transcript nothing checks, and this is the provider
+        every offline test, browser run and local `make web` uses. What is stood in for is
+        only the judgement about them, which follows the deterministic judge's own rule:
+        held while the case says nothing, settled once somebody has answered.
+        """
+
+        offered = self._investigators.for_review(repository, atlas)
+        investigator = offered.investigator
+        if investigator is not None:
+            names = [item.qualified_name for item in finding.candidate.participants]
+            if names:
+                investigator.call("find_code", {"name": names[0].rsplit(".", 1)[-1]})
+            investigator.conclude(
+                "The deterministic provider looked, and reports what it was shown.", ""
+            )
+        resolved = bool(case.answers)
+        record = recorded_investigation(
+            investigator,
+            candidate_id=str(finding.candidate.id),
+            withheld=offered.withheld,
+            resolved=resolved,
+            atlas_fingerprint=repository.content_id,
+            model_identity=f"fake:{config.model}",
+        )
+        identity = "" if record is None else record.identity
+        if not resolved:
+            return InvestigatedFinding(
+                replace(finding, investigation_identity=identity), record
+            )
+        return InvestigatedFinding(
+            replace(
+                finding,
+                verdict=Verdict.CLEARED,
+                reasoning=(
+                    "The deterministic provider checked the repository and found nothing "
+                    "the case does not already settle."
+                ),
+                hinge=None,
+                investigation_identity=identity,
+            ),
+            record,
+        )

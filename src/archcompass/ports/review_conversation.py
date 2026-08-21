@@ -6,13 +6,18 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from archcompass.domain import Review
+from archcompass.domain import RecordedInvestigation, Review
 
 
 @dataclass(frozen=True, slots=True)
 class ConversationAnswer:
     text: str
     supporting_candidate_ids: tuple[str, ...] = ()
+    #: What the answer looked up in the repository before it was written, where anything
+    #: was. Carried inline rather than by identity, unlike a finding's: a conversation
+    #: holds a handful of messages that are read together, not a docket of forty rows
+    #: that are scanned.
+    investigation: RecordedInvestigation | None = None
 
 
 @dataclass(frozen=True, slots=True)

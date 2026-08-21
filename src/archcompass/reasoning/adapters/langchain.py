@@ -20,13 +20,20 @@ from archcompass.domain import (
     PolicyBearing,
     Question,
     Review,
+    ReviewDelta,
     Verdict,
 )
 from archcompass.domain.errors import ModelOutputValidationError
+from archcompass.ports.capabilities import ReviewSynopsis
+from archcompass.ports.investigation import InvestigatorSource
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 from archcompass.ports.review_conversation import (
     ConversationAnswer,
     ConversationMessage,
+)
+from archcompass.reasoning.adapters.tool_loop import (
+    investigate_with_tools,
+    recorded_investigation,
 )
 from archcompass.retrying import call_with_retry
 
@@ -62,10 +69,19 @@ class QuestionOutput(BaseModel):
         "goal", "constraint", "decision", "assumption", "expected_change", "non_goal"
     ]
     candidate_positions: list[int] = Field(min_length=1)
-    # Answers the model thinks likely, so the common case is a click. Capped because a
-    # list long enough to need reading is slower than the sentence it replaced, and
-    # optional because a genuinely open question should not be forced into a menu.
-    options: list[str] = Field(default_factory=list[str], max_length=5)
+    # Answers the model thinks likely, so the common case is a click rather than an essay.
+    #
+    # Required now, where it used to be optional "when the honest answers are too open to
+    # enumerate". That reasoning had the escape hatch in the wrong place: the interface
+    # always offers writing your own and skipping outright, structurally, under every
+    # question — so a menu is never a closed set and never needs the model to leave room for
+    # one. Optional in the schema meant an empty list in practice, and an empty list is a
+    # blank box, which is the thing the charter's "never make someone type what they could
+    # pick" exists to prevent.
+    #
+    # Capped at four because a list long enough to need reading is slower than the sentence
+    # it replaced.
+    options: list[str] = Field(min_length=2, max_length=4)
 
 
 class QuestionsOutput(BaseModel):
@@ -101,7 +117,12 @@ def _is_escape_hatch(option: str) -> bool:
 
 
 def _offered_answers(options: Sequence[str]) -> tuple[str, ...]:
-    """The options worth showing: no escape hatches, and never a choice of one."""
+    """The options worth showing: no escape hatches, and never a choice of one.
+
+    Still tolerant of an empty result even though the schema now requires two. A model that
+    spends both of its options on "other" and "not sure" has offered nothing, and the
+    question is better asked with a blank box than with a menu of one.
+    """
 
     kept = [option for option in options if not _is_escape_hatch(option)]
     return tuple(kept) if len(kept) > 1 else ()
@@ -112,11 +133,26 @@ class ConversationAnswerOutput(BaseModel):
     candidate_positions: list[int] = Field(default_factory=list[int])
 
 
-def _case_text(case: ArchitectureCase) -> str:
+def case_text(case: ArchitectureCase) -> str:
+    """What a person has told ArchCompass about this architecture, so far.
+
+    An empty case used to reach the model as `{"constraints": [], "decisions": [],
+    "answers": []}`. That is three empty arrays next to a fully-stocked policy corpus, and
+    a model reading it has a rule to judge against and a blank where the team's intent
+    would be — so the cheapest coherent move is to judge on the policy and never ask. The
+    empty case now says what it is, in a sentence, because "nobody has told us anything
+    about this repository yet" is a fact worth acting on and `[]` is punctuation.
+    """
+
+    if not case.answers:
+        return (
+            "Nobody has answered anything about this architecture yet. This is the first "
+            "review, or no judgement has needed a person so far — either way you are "
+            "reading this repository without the team's intent, and you should say so "
+            "wherever it would change your verdict."
+        )
     return json.dumps(
         {
-            "constraints": [item.text for item in case.constraints],
-            "decisions": [item.text for item in case.decisions],
             "answers": [
                 {
                     "question": item.question.text,
@@ -124,13 +160,13 @@ def _case_text(case: ArchitectureCase) -> str:
                     "value": item.value,
                 }
                 for item in case.answers
-            ],
+            ]
         },
         ensure_ascii=False,
     )
 
 
-def _structured[Output: BaseModel](
+def structured_output[Output: BaseModel](
     model: BaseChatModel,
     schema: type[Output],
     prompt: str,
@@ -194,12 +230,31 @@ def _structured[Output: BaseModel](
     raise ModelOutputValidationError(message)
 
 
+# Asking is an outcome, not a failure to reach one.
+#
+# The instruction always permitted a hinge, and in practice a model given a well-stocked
+# policy corpus and an empty case judges on the policy and never states one — so the
+# clarification round, which is the product's answer to "a codebase records what was built,
+# not what the team was trying to build", almost never ran. The permission was there; the
+# standing was not. So the contract now says out loud what the charter says: a confident
+# wrong answer is worth less than an honest question, and a policy is a rule about
+# architectures in general while a hinge is about this team's.
+#
+# It is deliberately not an instruction to ask more often. A hinge on something the
+# evidence already settles is worse than no hinge at all: it stops a review to ask a person
+# a question the repository answered.
 JUDGEMENT_INSTRUCTION = (
     "Judge whether this detected structure costs more than it earns. "
     "Use only the supplied evidence and case. Policies are numbered from 1; "
-    "refer to them only by position. If missing human context could change the "
-    "verdict, state one concise hinge and leave the recommended response empty: "
-    "a judgement that is waiting on an answer does not yet recommend anything. "
+    "refer to them only by position.\n\n"
+    "Asking is a first-class outcome here, not a failure to decide. A policy tells you what "
+    "is usually true of architectures; it cannot tell you what this team decided, what they "
+    "are about to change, or what they already accepted and why. Where your verdict would "
+    "turn on one of those, state one concise hinge naming the single fact you would need, "
+    "and leave the recommended response empty: a judgement waiting on an answer does not "
+    "yet recommend anything. A hinge stops the review and puts your question to a person, "
+    "so it is worth their interruption — do not hinge on something the supplied evidence "
+    "already settles, and do not hinge merely to avoid committing.\n\n"
     "Only a material finding with no hinge may recommend a response. "
     "Return only the structured response required by the supplied output schema. "
     "Do not return Markdown or explanatory prose outside the structured response."
@@ -221,7 +276,7 @@ def judgement_prompt(
     return "\n\n".join(
         (
             JUDGEMENT_INSTRUCTION,
-            f"CASE\n{_case_text(case)}",
+            f"CASE\n{case_text(case)}",
             f"CANDIDATE\n{candidate_text(candidate)}",
             "POLICIES\n"
             + "\n\n".join(
@@ -370,7 +425,7 @@ class LangChainArchitectureJudge:
         case: ArchitectureCase,
         policies: RetrievedPolicySet,
     ) -> Finding:
-        output = _structured(
+        output = structured_output(
             self._model,
             FindingOutput,
             judgement_prompt(candidate, case, policies),
@@ -417,10 +472,12 @@ class LangChainQuestionGenerator:
                 "that could be recorded on the architecture case exactly as written — "
                 "not a label like 'yes' or 'option A' — and the options must be "
                 "mutually exclusive. Never offer 'other', 'none of these', 'unknown' or "
-                "any variation: the reviewer can always write their own answer or skip "
-                "the question, and offering it back to them wastes a choice. Leave "
-                "`options` empty when the honest answers are too open to enumerate.",
-                f"CASE\n{_case_text(case)}",
+                "any variation: the reviewer is always offered writing their own answer "
+                "and skipping the question, beneath every question, so offering it back "
+                "to them wastes a choice. If you cannot name two likely answers, the "
+                "question is too open to be worth a person's interruption — ask a "
+                "narrower one instead.",
+                f"CASE\n{case_text(case)}",
                 "FINDINGS\n"
                 + "\n".join(
                     f"[{position}] {finding.candidate.summary}; hinge={finding.hinge}"
@@ -428,7 +485,7 @@ class LangChainQuestionGenerator:
                 ),
             )
         )
-        output = _structured(
+        output = structured_output(
             self._model, QuestionsOutput, prompt, subject="the review's questions"
         )
         questions: list[Question] = []
@@ -486,6 +543,18 @@ CONVERSATION_CONTRACT = (
     "write a patch as though you had read the file.\n\n"
     "Cite the findings you relied on by their numbered positions. Write prose a reader can "
     "act on: no headings, no restating the question."
+)
+
+#: Added to the contract only where the reader's repository can actually be asked. Kept
+#: apart from `CONVERSATION_CONTRACT` because the sentence "you may look it up" is false
+#: wherever no toolbox was offered, and a contract that says it anyway teaches a model to
+#: claim it checked.
+CONVERSATION_LOOKUPS = (
+    "You can also ask this repository structural questions directly — what implements "
+    "something, what depends on it, what calls it, what tests it, and what the code at a "
+    "named part of it says. Use that where the review does not settle a question and the "
+    "structure would. A fact still has to come from the review or from something you "
+    "actually looked up; say which."
 )
 
 
@@ -569,7 +638,13 @@ def _conversation_evidence_text(evidence: Evidence) -> str:
 
 
 def conversation_prompt(
-    review: Review, history: Sequence[ConversationMessage], question: str
+    review: Review,
+    history: Sequence[ConversationMessage],
+    question: str,
+    *,
+    transcript: str = "",
+    can_look: bool = False,
+    for_lookups: bool = False,
 ) -> str:
     repository = review.repository
     where = str(repository.path)
@@ -578,9 +653,15 @@ def conversation_prompt(
     if repository.commit:
         where += f" at {repository.commit[:12]}"
     sections = [
-        CONVERSATION_CONTRACT,
+        *(
+            ()
+            if for_lookups
+            # The loop sends the contract as a system message, so the turn that opens it
+            # would otherwise state the rules twice.
+            else (CONVERSATION_CONTRACT + (f"\n\n{CONVERSATION_LOOKUPS}" if can_look else ""),)
+        ),
         f"REVIEW\nnumber {review.sequence} of {where}\nstatus: {review.status.value}",
-        f"CASE\n{_case_text(review.case)}",
+        f"CASE\n{case_text(review.case)}",
     ]
     if review.questions:
         sections.append(
@@ -608,13 +689,29 @@ def conversation_prompt(
             "WHAT HAS ALREADY BEEN ASKED HERE\n"
             + "\n".join(f"Q: {item.question}\nA: {item.answer.text}" for item in history)
         )
+    if transcript:
+        sections.append(f"WHAT YOU LOOKED UP\n{transcript}")
     sections.append(f"QUESTION\n{question}")
     return "\n\n".join(sections)
 
 
 class LangChainReviewAnswerer:
-    def __init__(self, model: BaseChatModel) -> None:
+    """A grounded answer, after whatever the reader's question made worth looking up.
+
+    The lookups are optional and the first turn is never forced, unlike a hinge
+    investigation's. A reader is usually asking about text already in front of them — "what
+    does this finding mean", "which of these first" — and a forced call there spends a round
+    trip asking the repository about the review's own words. Where the question *is* about
+    the repository, the model reaches for the toolbox itself.
+    """
+
+    def __init__(
+        self,
+        model: BaseChatModel,
+        investigators: InvestigatorSource | None = None,
+    ) -> None:
         self._model = model
+        self._investigators = investigators
 
     def answer(
         self,
@@ -622,10 +719,34 @@ class LangChainReviewAnswerer:
         history: tuple[ConversationMessage, ...],
         question: str,
     ) -> ConversationAnswer:
-        output = _structured(
+        offered = (
+            None
+            if self._investigators is None
+            else self._investigators.for_review(review.repository, review.atlas)
+        )
+        investigator = None if offered is None else offered.investigator
+        transcript = ""
+        if investigator is not None:
+            transcript = investigate_with_tools(
+                self._model,
+                investigator,
+                system=CONVERSATION_CONTRACT + "\n\n" + CONVERSATION_LOOKUPS,
+                opening=conversation_prompt(
+                    review, history, question, can_look=True, for_lookups=True
+                ),
+                subject="a reader's question about this review",
+                force_first=False,
+            )
+        output = structured_output(
             self._model,
             ConversationAnswerOutput,
-            conversation_prompt(review, history, question),
+            conversation_prompt(
+                review,
+                history,
+                question,
+                transcript=transcript,
+                can_look=investigator is not None,
+            ),
             subject="a grounded answer",
         )
         positions = tuple(sorted(set(output.candidate_positions)))
@@ -639,4 +760,170 @@ class LangChainReviewAnswerer:
                 str(review.findings[position - 1].candidate.id)
                 for position in positions
             ),
+            recorded_investigation(
+                investigator,
+                candidate_id="",
+                withheld="" if offered is None else offered.withheld,
+                atlas_fingerprint=review.repository.content_id,
+            ),
         )
+
+
+# The contract the review's opening paragraph is held to.
+#
+# The report already told the reader how many candidates were judged and in what states. A
+# number is orientation and not an answer: "two material, three held" does not say whether
+# the two are one problem seen twice, whether either can wait, or which one a person should
+# open first. That is what this paragraph is for, and it is the only place in the product
+# where the model is asked about a review rather than about a candidate.
+#
+# Everything it may say has already been judged. It is summarising, not judging again — so
+# it gets verdicts, hinges, policies and delta states, and it gets no evidence, no
+# measurements and no atlas, because a sentence about a line of code is a sentence it would
+# be inventing.
+SYNOPSIS_CONTRACT = (
+    "You are writing the opening paragraph of an architecture review. It is read away from "
+    "the tool — attached to a pull request, downloaded as a document, pasted into a "
+    "channel — by somebody deciding whether to open the review at all.\n\n"
+    "Say what this review amounts to. Lead with what needs a person: the material findings, "
+    "whether they are separate problems or one problem in several places, and which to take "
+    "first. Then what judgement is waiting on, if anything. Then what moved since the "
+    "previous review, if there was one. Candidates that were cleared are worth a clause at "
+    "most.\n\n"
+    "Every fact must come from the findings below. Do not name a module, a metric or a "
+    "policy you were not shown. Do not make a verdict sound stronger or weaker than it was "
+    "recorded, do not recommend a fix that no finding recommends, and do not tell the "
+    "reader the architecture is sound — this review saw the candidates it was given and "
+    "nothing else. Where you say two findings are related, that relation has to be visible "
+    "in what you were shown.\n\n"
+    "Name a candidate by the identifier you were given, in backticks, and only where naming "
+    "it is what makes the sentence useful. Three to five sentences of plain prose. No "
+    "headings, no bullets, no counts — the line above yours already gives them."
+)
+
+
+class SynopsisOutput(BaseModel):
+    summary: str = Field(min_length=1)
+
+
+def _synopsis_finding_text(finding: Finding, delta_state: str | None) -> str:
+    """One judged candidate, reduced to what a summary can honestly use."""
+
+    name = finding.candidate.participants[0].qualified_name
+    parts = [
+        f"`{name}` — {finding.verdict.value}",
+        f"pattern: {finding.candidate.pattern}",
+        f"summary: {finding.candidate.summary}",
+        f"reasoning: {finding.reasoning}",
+    ]
+    if delta_state:
+        parts.append(f"since the previous review: {delta_state}")
+    if finding.hinge:
+        parts.append(f"waiting on: {finding.hinge}")
+    if finding.recommended_response:
+        parts.append(f"recommended response: {finding.recommended_response}")
+    if finding.policies:
+        parts.append(
+            "bears on: "
+            + "; ".join(item.policy.title for item in finding.policies)
+        )
+    return "\n  ".join(parts)
+
+
+def _synopsis_delta_states(delta: ReviewDelta) -> dict[str, str]:
+    states = {str(item.id): "new" for item in delta.new}
+    for change in delta.changed:
+        causes = ", ".join(cause.value for cause in change.causes)
+        states[str(change.candidate.id)] = f"changed ({causes})" if causes else "changed"
+    for item in delta.unchanged:
+        states[str(item.id)] = "unchanged"
+    return states
+
+
+def synopsis_prompt(
+    case: ArchitectureCase,
+    findings: Sequence[Finding],
+    *,
+    questions: Sequence[Question],
+    delta: ReviewDelta,
+    previous_sequence: int | None,
+    waiting: bool,
+) -> str:
+    """The one prompt the summary is written from."""
+
+    states = _synopsis_delta_states(delta)
+    sections = [SYNOPSIS_CONTRACT, f"CASE\n{case_text(case)}"]
+    if waiting:
+        sections.append(
+            "THIS REVIEW IS NOT FINISHED. It is waiting on answers before it can judge "
+            "everything, and the reader is told so above your paragraph. Summarise what it "
+            "has so far and do not present it as settled."
+        )
+    sections.append(
+        "FINDINGS\n"
+        + "\n\n".join(
+            _synopsis_finding_text(finding, states.get(str(finding.candidate.id)))
+            for finding in findings
+        )
+    )
+    if previous_sequence is None:
+        sections.append(
+            "This is the first review in its lineage, so there is nothing to compare it "
+            "against and nothing has moved."
+        )
+    elif delta.addressed:
+        sections.append(
+            f"NO LONGER DETECTED SINCE REVIEW {previous_sequence}\n"
+            + "\n".join(
+                f"- {item.title} (last judged {item.last_verdict.value})"
+                for item in delta.addressed
+            )
+        )
+    if questions:
+        sections.append(
+            "QUESTIONS THIS REVIEW IS ASKING\n"
+            + "\n".join(f"- {question.text}" for question in questions)
+        )
+    return "\n\n".join(sections)
+
+
+class LangChainReviewSynopsist:
+    """The model's account of the review it has just finished judging."""
+
+    def __init__(self, model: BaseChatModel, *, model_identity: str = "") -> None:
+        self._model = model
+        self._model_identity = model_identity
+
+    def write(
+        self,
+        case: ArchitectureCase,
+        findings: tuple[Finding, ...],
+        *,
+        questions: tuple[Question, ...],
+        delta: ReviewDelta,
+        previous: Review | None,
+        waiting: bool,
+    ) -> ReviewSynopsis | None:
+        # Nothing judged is not a summary of nothing; it is a report that opens on the
+        # sentence it already has, which says the analysis found no candidates and declines
+        # to call that a clean bill of health. A model asked to summarise an empty list
+        # would write the second half of that on its own.
+        if not findings:
+            return None
+        prompt = synopsis_prompt(
+            case,
+            findings,
+            questions=questions,
+            delta=delta,
+            previous_sequence=None if previous is None else previous.sequence,
+            waiting=waiting,
+        )
+        output = structured_output(
+            self._model,
+            SynopsisOutput,
+            prompt,
+            subject="the review's summary",
+            model_identity=self._model_identity or None,
+        )
+        text = output.summary.strip()
+        return ReviewSynopsis(text, self._model_identity) if text else None

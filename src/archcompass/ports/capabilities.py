@@ -17,6 +17,7 @@ from archcompass.domain import (
     Finding,
     Policy,
     Question,
+    RecordedInvestigation,
     RepositoryAtlas,
     RepositoryRef,
     Review,
@@ -89,6 +90,52 @@ class BatchArchitectureJudge(Protocol):
     ) -> tuple[Finding, ...]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class InvestigatedFinding:
+    """One hinged finding after the lookups, and the record of what was looked up.
+
+    `investigation is None` says nothing was recorded, which is the ordinary answer where
+    no model could look. A record holding no lookups and a `withheld` sentence is the
+    opposite of that: it says the repository could not be reached, and that is a fact about
+    the question underneath it rather than an absence of one.
+    """
+
+    finding: Finding
+    investigation: RecordedInvestigation | None = None
+
+
+class HingeInvestigator(Protocol):
+    """A second, bounded pass over the findings that stopped to ask a person.
+
+    Judging is one structured call over pinned evidence. When a verdict turns on a fact
+    that evidence does not carry, the judgement emits a hinge, and a hinge stops the
+    review. Many hinges are answerable from the repository itself, and stopping to ask a
+    person something the repository could have answered is the worst outcome the charter
+    names.
+
+    So this pass gets read-only lookups and one job: decide whether the question is worth a
+    person's interruption. It may settle a held verdict or narrow the hinge. It may not
+    touch a policy bearing, an excerpt, or a verdict that was never held — investigating
+    informs *whether to ask*, never what a verdict rests on, and that is the whole of why
+    it is allowed at all.
+
+    Whether the selected model can call tools is asked per dispatch rather than answered at
+    startup, for the same reason `BatchArchitectureJudge.supports_batch` is: the model is
+    chosen while the workspace is running.
+    """
+
+    def supports_tools(self) -> bool: ...
+
+    def investigate(
+        self,
+        finding: Finding,
+        case: ArchitectureCase,
+        *,
+        repository: RepositoryRef,
+        atlas: RepositoryAtlas,
+    ) -> InvestigatedFinding: ...
+
+
 class QuestionGenerator(Protocol):
     def generate(
         self,
@@ -116,6 +163,24 @@ class CaseReviser(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class ReviewSynopsis:
+    """What the review amounts to, said by the model that judged it.
+
+    A report opens on counts, and counts are orientation rather than an answer: "two
+    material, three held" does not say whether the two are the same problem twice or which
+    one to take first. This is the paragraph that does, and it is the model's — it reasons
+    over verdicts it already reached and asserts nothing that is not in them.
+
+    Written once, when the review is composed, and carried on the record. The alternative —
+    composing it when somebody opens the report — would mean two readers of one immutable
+    review seeing two different documents, and the downloaded Markdown matching neither.
+    """
+
+    text: str
+    model_identity: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewDraft:
     repository: RepositoryRef
     atlas: RepositoryAtlas
@@ -125,6 +190,27 @@ class ReviewDraft:
     delta: ReviewDelta
     previous: Review | None
     retrievals: tuple[RetrievedPolicySet, ...]
+    synopsis: ReviewSynopsis | None = None
+    investigations: tuple[RecordedInvestigation, ...] = ()
+
+
+class ReviewSynopsisWriter(Protocol):
+    """Prose over a finished set of judgements. Separate from the judge on purpose.
+
+    `None` is a real answer and not a failure: a review with nothing judged has nothing to
+    summarise, and a workspace with no model available should still compose its report.
+    """
+
+    def write(
+        self,
+        case: ArchitectureCase,
+        findings: tuple[Finding, ...],
+        *,
+        questions: tuple[Question, ...],
+        delta: ReviewDelta,
+        previous: Review | None,
+        waiting: bool,
+    ) -> ReviewSynopsis | None: ...
 
 
 class ReviewComposer(Protocol):
