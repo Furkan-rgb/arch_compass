@@ -2,9 +2,11 @@
 
 A candidate is unchanged, changed, new, or addressed, and which one it is follows from
 comparing this run's detected candidates against the previous review's findings — never
-from anything a model wrote. The global causes (the case moved, the corpus moved, the
-model or the prompt moved) are folded in here too, because each of them invalidates a
-verdict that was correct when it was recorded.
+from anything a model wrote. The causes that are not about the candidate itself are
+folded in here too, because each of them invalidates a verdict that was correct when it
+was recorded: the case moved, or the model or the prompt moved, which are facts about a
+whole review; or the corpus moved, which is a fact about one verdict, because the
+manifest records which corpus each candidate was retrieved against.
 """
 
 from __future__ import annotations
@@ -59,13 +61,6 @@ class DeterministicRevisionCalculator:
         global_causes: list[ChangeCause] = []
         if previous.case != case:
             global_causes.append(ChangeCause.CASE)
-        if self._corpus_fingerprint is not None:
-            previous_corpora = {
-                item.corpus_fingerprint for item in previous.retrieval_manifest
-            }
-            current_corpus = self._corpus_fingerprint(repository)
-            if previous_corpora and previous_corpora != {current_corpus}:
-                global_causes.append(ChangeCause.POLICIES)
         if (
             self._model_identity is not None
             and previous.model_identity != self._model_identity()
@@ -76,6 +71,31 @@ class DeterministicRevisionCalculator:
             and previous.prompt_identity != self._prompt_identity()
         ):
             global_causes.append(ChangeCause.PROMPT)
+        # Which corpus a verdict was retrieved against is a fact about that verdict rather
+        # than about the review holding it, and the manifest records it per candidate. Read
+        # as a set — did every fingerprint this review recorded equal the current one — one
+        # entry left behind by a corpus that has since moved reported that the corpus had
+        # moved on every run after it, forever, against a repository nobody had touched. A
+        # candidate the manifest says nothing about is left alone: there is no record to
+        # decide from, and this calculator states what the records establish.
+        current_corpus = (
+            None
+            if self._corpus_fingerprint is None
+            else self._corpus_fingerprint(repository)
+        )
+        retrieved_against = {
+            str(item.candidate_id): item.corpus_fingerprint
+            for item in previous.retrieval_manifest
+        }
+
+        def corpus_moved(candidate_id: str) -> bool:
+            recorded = retrieved_against.get(candidate_id)
+            return (
+                current_corpus is not None
+                and recorded is not None
+                and recorded != current_corpus
+            )
+
         missing_prior = {
             candidate_id: finding
             for candidate_id, finding in prior.items()
@@ -108,7 +128,11 @@ class DeterministicRevisionCalculator:
                     )
                 else:
                     new.append(candidate)
-            elif finding.candidate == candidate and not global_causes:
+            elif (
+                finding.candidate == candidate
+                and not global_causes
+                and not corpus_moved(str(candidate.id))
+            ):
                 unchanged.append(candidate)
             else:
                 candidate_causes: tuple[ChangeCause, ...] = ()
@@ -119,10 +143,14 @@ class DeterministicRevisionCalculator:
                         == _without_evidence(candidate)
                         else ChangeCause.SHAPE,
                     )
+                corpus_causes = (
+                    (ChangeCause.POLICIES,) if corpus_moved(str(candidate.id)) else ()
+                )
                 causes = tuple(
                     dict.fromkeys(
                         (
                             *candidate_causes,
+                            *corpus_causes,
                             *global_causes,
                         )
                     )
