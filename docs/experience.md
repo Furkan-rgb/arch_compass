@@ -159,17 +159,40 @@ text. Nothing on the page showed that review 4 succeeded review 3.
 
 ## The decisions
 
-### The queue is not a tab
+### The queue and the workbench are one list
 
-It is the page's left column, present at every width and in every mode, sticky, with its own
-scroller. The tab strip moves down beside the detail column and stops pretending to switch
-between views of the review; it switches what the *detail column* is showing, which is what
-it actually did.
+The first answer to "the queue is not a tab" was to make it the page's left column: a sticky
+rail with its own scroller, beside a detail column that switched between a finding, the
+delta, the report and a conversation. That fixed the queue being hidden six ways out of
+seven and left the harder problem untouched, which is that **two panes are two panes**.
 
-Three review-scope entries survive as detail modes — **Delta**, **Report**, **Ask** — and
-the fourth mode is a finding, which is what the column shows by default and returns to
-whenever the queue is used. Selecting a row in the queue puts the finding back, because the
-queue's job is to hand you an item and a mode that ignored it would make the list ornamental.
+What it cost, measured on the example repository:
+
+- **The rail could not be read.** A 266px column has room for a leaf name, so the rows read
+  `Clock`, `ConfigLoader`, `IdGenerator`. Nothing on a row said what the finding claimed, so
+  there was no way to tell from the list which of six rows mattered — and the only way to
+  find out was to open all six.
+- **The detail could not be scanned.** Everything the rail could not carry was 900px to the
+  right, in a column that repeated the identifier and the verdict the row had just shown.
+- **Every item cost two crossings of the screen.** Click left, read right, decide right,
+  return left. A hundred times.
+- **A phone got a second interface.** Below 1024px the rail became a bottom sheet behind a
+  button, with a back bar to get out of a finding — its own navigation, its own bugs, and
+  nothing in common with the arrangement people learn on a laptop.
+
+So they are one column. Every candidate is a row that **carries its own claim as a
+sentence**, which is what makes the list readable and the reason most rows never have to be
+opened; a row **opens in place**, under itself, with the list still around it, so checking a
+claim never moves you anywhere; and the assessment inside a row is the argument beside the
+evidence rather than a repeat of the row's own heading.
+
+`Delta`, `Report` and `Ask` stay as peers of the docket rather than modes of a column. They
+are documents *about* the review — what moved, the write-up, a conversation — and none of
+them is a way of working through it. Your place in the docket is page state, so reading one
+and coming back leaves the same row open, the same filter set and the same scroll.
+
+The one column is the same column at 390px. Nothing moves into a sheet, and there is no back
+bar, because opening a row never took you anywhere to come back from.
 
 ### Evidence and Retrieval are removed; Atlas is re-scoped
 
@@ -189,15 +212,20 @@ page, which is the page for a repository.
 ### The status ribbon is deleted
 
 The counts it uniquely carried go where they can be acted on. *Policies retrieved* moves to
-the judgement-context drawer, beside the policies. *New or changed* becomes the queue's group
-heading, where it labels the rows it counts. The other three were already the queue's filter.
+the judgement-context drawer, beside the policies. *New or changed* becomes the docket's group
+heading, where it labels the rows it counts. The other three were already the docket's filter.
 
-### The queue groups by what moved
+### The docket groups by what moved, and by where things live
 
 When the review has a predecessor, the list is two groups: **Moved since review N** and
 **Carried forward**, in that order, each with its count in its heading. Not a fourth filter —
 a filter is a claim that the reader wants only one of these, and the second visit wants both
 with the changed ones first.
+
+Where every row in a group shares a package, the heading says it once — *Carried forward · 12
+· in `domain.orders`* — and the rows show only the leaf. Twelve rows reading `domain.orders.`
+before the name they differ by is twelve copies of one fact, printed ahead of the half that
+distinguishes them. The whole name stays on the hover and in the accessible name.
 
 The sort inside a group stays what needs a human first. Across groups, movement wins: a new
 material finding outranks a material finding that has been there for four reviews and is
@@ -211,7 +239,7 @@ See *Where this is still open*.
 ### A decision knows what it was decided against
 
 `needsAttention` reads `decision.finding_verdict`. When it differs from the finding's current
-verdict the candidate returns to the attention queue, its row says **decided against a
+verdict the candidate returns to the Attention filter, its row says **decided against a
 different verdict**, and the decision bar leads with the discrepancy: what the team decided,
 what it was decided against, what ArchCompass now says. The reader is offered the same three
 dispositions to re-affirm against the current judgement.
@@ -220,16 +248,27 @@ Nothing is inferred. The old decision is not withdrawn, downgraded or annotated 
 record, and records do not change. What changed is that the interface now says the record was
 made about something else.
 
-### The queue is worked from the keyboard
+### The docket is worked from the keyboard, and deciding carries you on
 
-`↑` `↓` and `j` `k` move the selection through the visible rows; `Enter` opens; the moved-to
-row scrolls into view. Held inside the queue's own list, so it does not fight a text field
-elsewhere on the page.
+`↑` `↓` and `j` `k` move down the visible rows, opening each as they land on it; the moved-to
+row scrolls into view. `A`, `P` and `W` take the three dispositions on whatever is open. Held
+inside the docket, and refused while anything typeable has focus — with `W` bound to a single
+letter there is no keystroke in a text field that is not also a decision.
 
-At the foot of a finding, after the decision, is **the next item that needs you**, named. Not
-an auto-advance: deciding something and being moved somewhere else without asking is the
-interface inferring that you were finished, and the charter forbids exactly that. It is an
-explicit control that says where it goes.
+**Recording a decision opens the next row that wants a person.** The earlier answer was a
+named "next item" control at the foot of a finding, on the argument that moving somebody
+without asking is the interface inferring they were finished. That reading does not survive
+contact with the work: nothing is inferred and nothing is recorded — you asked to move by
+taking a decision, and the charter's rule is about what goes in the record, not about where
+the cursor is. A hundred items at one extra click each was the whole cost of the old rail
+paid again.
+
+What the rule does buy is the correction that came with it: **a row that settles under you
+stays listed**. Under the Attention filter the row you just decided no longer matches, and a
+row that disappears at the instant you act on it takes with it any way to check what you did
+or to change your mind. The counts move immediately, because they are the truth. The row
+stays, showing the decision on it, until you change the filter and ask the list a different
+question.
 
 ### The review head is one line
 
@@ -264,7 +303,7 @@ instead.
 **1 · Which repository. 2 · How much of it to read.** That is the whole form.
 
 The case is stated rather than confirmed, in the run footer, as a sentence about what will
-happen: *Continues case revision 2 on `main` — 3 constraints, 4 answers.* Starting clean is a
+happen: *Continues case revision 2 on `main` — 4 answers.* Starting clean is a
 link inside that sentence, not a numbered step with an advanced disclosure. On a first review
 the sentence says a new case will be opened, which is a fact, not a question.
 
@@ -279,14 +318,77 @@ Each lineage is one block headed by the repository and branch, carrying its newe
 state, with its revisions beneath it in sequence, newest first, and a run in flight at the
 top of its own lineage rather than in a separate list above everything.
 
+### The report says what it amounts to before it says how much of it there is
+
+The document opened on counts — *Seven candidates judged: 2 material, 3 held, 2 cleared* —
+and then went straight into the first verdict. That is orientation, and the charter is
+explicit that orientation is read once on the way to the work. It is not an answer. It does
+not say whether the two material findings are one problem in two places, whether either can
+wait, or which to open first, and those are the questions somebody has when a report lands
+in a pull request.
+
+So the model writes a paragraph about the review as a whole, and it is the only place in the
+product where it is asked about anything larger than a candidate. It reasons over verdicts
+it has already reached: it is given the findings, their hinges, their policies and their
+delta states, and it is given no evidence and no measurements, because a sentence about a
+line of code is a sentence it would be inventing.
+
+It is written once, when the review is composed, and stored on the review. Composing it when
+somebody opens the report would mean two readers of one immutable review seeing two
+different documents and the downloaded Markdown matching neither, which is the third
+commitment given away for a convenience.
+
+It appears twice in one sense and once in every place it is read. `report.py` writes it into
+the document under a run-in label, because the document is downloaded, printed by the CLI
+and attached to pull requests, and has to stand on its own. The report surface hoists the
+same paragraph out and sets it the way every model-authored paragraph in this product is set
+— an attribution line naming the model, then the sentences at the reading size — and renders
+the document below it without that one paragraph. A page that showed both would be saying
+the same three sentences twice on one screen.
+
+A review with nothing judged has no summary, and the report opens on its counts as it did
+before. That is a state, not a hole: no model was available, or there was nothing to
+summarise, and a heading over a blank space reads as a component that failed.
+
+### The clarification is a menu, and the case has no other door
+
+The round was built to the charter's rule — *never make someone type what they could pick;
+never make them pick when the truth is not on the menu* — and then almost never showed a
+menu. Two things stood in the way, and both were upstream of the component.
+
+`QuestionOutput.options` was optional, "when the honest answers are too open to enumerate".
+That put the escape hatch in the wrong place: writing your own answer and skipping outright
+are offered structurally, beneath every question, so a menu here is never a closed set and
+the model never needed to leave room for one. Optional meant empty in practice, and empty
+meant a blank box — the exact thing the rule exists to prevent. Two to four proposed answers
+are now required; a question the model cannot propose two answers to is too open to be worth
+a person's interruption, and it should ask a narrower one.
+
+The second was that the round rarely ran at all. Judgement permitted a hinge and gave it no
+standing, and an empty case reached the model as three empty arrays beside a full policy
+corpus — so it judged on the policy and never stopped. The contract now says an empty case
+in words, gives asking first-class standing, and says when *not* to ask, because a hinge
+interrupts a person and one raised on something the evidence already settles is worse than
+none.
+
+And the case has no other door. Constraints and decisions are gone from the domain: nothing
+in the product ever offered to write one and no review ever produced one, so the only way to
+fill them was hand-authoring YAML — the "confirm the architecture case" step from further up
+this page, wearing a different shape. What a review needs to know arrives as an answer to a
+question it asked, carrying who answered and when. Which is what the charter said all along;
+the record just had a second door nobody could reach and nothing could close.
+
 ## Rules for content
 
 These decide the small questions the way the design system's token table decides colour.
 
-**Lead with the identifier.** A row, a heading or a card that names a candidate leads with
-its qualified name in mono and puts the summary sentence beneath. This already held in the
-queue and the delta; it did not hold in the Evidence or Retrieval surfaces, both of which
-titled a panel with a sentence.
+**Lead with the identifier, and never stop at it.** A row, a heading or a card that names a
+candidate leads with its qualified name in mono and puts the summary sentence beneath — and
+the sentence is not optional. A rail that led with the identifier and had no room for
+anything else obeyed half of this rule and produced a list of `Clock`, `ConfigLoader`,
+`IdGenerator` that could not be read. Where every row in a group shares a namespace, the
+group heading says it once and the rows show the leaf; the whole name stays on the hover and
+in the accessible name, because `orders` is not an identity when three packages have one.
 
 **A count is a control or it is not on screen.** If a number cannot be clicked, filtered by,
 or acted on, it belongs in a sentence next to the thing it describes, not in a cell of its
@@ -310,17 +412,27 @@ except the last, which is not the kind of thing a test can hold.
 
 | Rule | The test that fails |
 | --- | --- |
-| The queue survives every detail mode | "keeps the queue on screen while another surface is read" |
+| Every row says what it claims | "carries each candidate's claim on its own row, so the list can be read" |
+| Reading a document keeps your place | "keeps your place in the docket while another surface is read" |
+| A phone gets the same column, not a second interface | "is the same one column on a phone as on a desk" |
 | A stale decision re-enters attention | "re-raises a decision taken against a verdict that has since moved" |
-| The queue moves from the keyboard | "walks the queue with the keyboard and opens what it lands on" |
+| The docket moves from the keyboard | "walks the queue with the keyboard and opens what it lands on" |
 | The second visit leads with what moved | "puts what moved since the last review at the top of the queue" |
 | The end of the work is a state | "marks a review that is worked through, rather than showing an empty list" |
 | The audit is behind what it audits | "keeps the audit behind the judgement it audits" |
+| The report leads with the summary, once | "leads the report with what the review comes to, and says it once" |
+| The docket has no box of its own to clip | `overflow.test.tsx` — "scrolls with the page rather than inside a box of its own" |
+| A question is answered by picking | `tests/browser/test_workspace.py` — "answering a clarification records a new revision" |
+| A case can only be told an answer | `tests/unit/test_case_management.py` — "a case has no way to be told anything but an answer" |
 | No count without a control | none; enforced by review against this document |
 
 The browser suite carries the same claims end to end: `tests/browser/test_workspace.py`
-runs a real deterministic review and asserts the three voices, the queue surviving a mode
-change, and the provenance reachable from the drawer rather than from a tab.
+runs a real deterministic review and asserts the three voices, the open row surviving a trip
+to another surface, and the provenance reachable from the drawer rather than from a tab. It
+also counts
+the report's summary, which is the one claim in the product that depends on a literal being
+spelled the same way in Python and in TypeScript — neither side's own tests can see the
+other's copy.
 
 ## What this does not change
 
@@ -328,9 +440,11 @@ The domain, the API and the persistence model are untouched. Every behaviour her
 fields that already cross the boundary — `delta`, `previous_review_id`,
 `DecisionResponse.finding_verdict` — and no endpoint is added.
 
-The design system is untouched. Three voices, no accent, verdict chroma only, the attribution
-gutter and the queue spine all survive exactly as specified; this document changes what is on
-screen and in what order, not what it is made of.
+The design system's rules are untouched — no accent, verdict chroma only, a hue never
+carrying meaning alone — though the devices that used to carry the three voices are not the
+ones that carry them now. The attribution gutter and the queue spine are gone; what keeps the
+machine, the model and the person apart is placement and a line naming the author, which
+`review-workbench.test.tsx` holds in exactly the way it used to hold the gutter.
 
 The clarification round's mechanics are untouched: proposed answers, writing your own, and an
 explicit skip, all of which the charter settles and none of which was wrong.

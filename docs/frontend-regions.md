@@ -1,7 +1,7 @@
 # What each region on screen is called
 
 A shared vocabulary for talking about the interface. These are the *large* regions — the
-ones worth pointing at in a sentence like "the queue footer overlaps the last row".
+ones worth pointing at in a sentence like "the docket row clips its own claim".
 Anything smaller (a badge, a tag, a button) is named by what it is and is not listed here.
 
 Names are the component names in the code, so a name here is also a file to open. What each
@@ -11,56 +11,63 @@ ones they are, is [the experience](experience.md).
 
 ## Everywhere — the shell
 
+One bar, and nothing else standing between a page and the viewport. The 232px sidebar is
+gone: it carried six links and a workspace path down the full height of every screen, charged
+to every surface including the one that needed the width most.
+
 | Name | What it is | Where |
 | --- | --- | --- |
-| **Sidebar** | The 232px left rail: wordmark, Review and Workspace nav, workspace card. Becomes a drawer below `lg`. | [shell.tsx](../frontend/src/app/shell.tsx) |
-| **Topbar** | The sticky bar above the page: menu button on small screens, model chips, theme toggle. | [shell.tsx](../frontend/src/app/shell.tsx) |
-| **Page area** | Everything right of the sidebar and below the topbar. Each route fills it. | [shell.tsx](../frontend/src/app/shell.tsx) |
+| **Topbar** | The sticky 48px bar: wordmark, the six nav links above `lg`, search, model chips, theme toggle, New review. Dark in both themes — the one chrome in the product that does not invert, which is why its controls speak in the `band` tokens rather than `ink`/`surface`. | [shell.tsx:200](../frontend/src/app/shell.tsx#L200) |
+| **Navigation drawer** | The nav as a column, below `lg`, with the workspace path under it. | [shell.tsx:137](../frontend/src/app/shell.tsx#L137) |
+| **Command palette** | ⌘K. Everything the nav lists, plus every review and every repository by name. The reason the sidebar could go. | [command-palette.tsx](../frontend/src/ui/command-palette.tsx) |
+| **Page area** | Everything below the topbar. A document route gets a measured column; the review page is handed the viewport. | [shell.tsx:200](../frontend/src/app/shell.tsx#L200) |
 
 ## The review page — `/reviews/:id`
 
-The queue is the page's left column at every mode, not a tab on it. Everything else fills
-the column beside it.
+The docket **is** the review: the list and the assessments are one surface, in one column, at
+every width. Delta, Report and Ask are documents about the review rather than ways of working
+through it, so they are peers of the docket rather than columns beside it.
 
 | Name | What it is | Where |
 | --- | --- | --- |
-| **Review head** | One line: which review this is, and the repository, branch and commit it read, with the status and the Answer / Cancel / Run buttons. | [review-page.tsx:56](../frontend/src/features/review/review-page.tsx#L56) |
-| **Queue rail** | The sticky left column: the attention queue above, the revision rail below. Present in every mode. | [review-page.tsx:279](../frontend/src/features/review/review-page.tsx#L279) |
-| **Detail column** | Everything to its right: the mode tabs and whatever they select. | [review-page.tsx:302](../frontend/src/features/review/review-page.tsx#L302) |
-| **Mode tabs** | Workbench · Delta · Report · Ask. What the detail column is showing — not views of the review. | [review-page.tsx:303](../frontend/src/features/review/review-page.tsx#L303) |
+| **Review head** | One line: which review this is, and the repository, branch and commit it read, with the status and the Cancel / New review button. | [review-page.tsx:136](../frontend/src/features/review/review-page.tsx#L136) |
+| **Review counts** | Under the head: how many things still want you, then the verdict spread. Orientation, read once, on the way to the work. | [review-page.tsx:58](../frontend/src/features/review/review-page.tsx#L58) |
+| **Surface tabs** | Docket · Delta · Report · Ask. Which document about this review is on screen. Your place in the docket survives a trip to any of them. | [review-page.tsx:40](../frontend/src/features/review/review-page.tsx#L40) |
 
-### The queue rail
-
-| Name | What it is | Where |
-| --- | --- | --- |
-| **Attention queue** | The panel a reviewer works down. The product's centre of gravity. Moves from the keyboard: `↑` `↓` `j` `k` walk the rows and open what they land on. | [attention-queue.tsx](../frontend/src/features/review/attention-queue.tsx) |
-| ├ **Queue header** | "Attention queue", its subtitle, and the Attention / Settled / All filter switch. | [attention-queue.tsx:236](../frontend/src/features/review/attention-queue.tsx#L236) |
-| ├ **Queue spine** | The three segments at a row's left edge — machine, model, person — saying how far through the three jobs the candidate is. | [spine.tsx](../frontend/src/ui/spine.tsx) |
-| ├ **Queue groups** | "Moved since review N" above "Carried forward", when there is a previous review and both have rows. | [attention-queue.tsx:186](../frontend/src/features/review/attention-queue.tsx#L186) |
-| ├ **Queue list** | The scrolling list of candidate rows, with the clarification card pinned on top when the review is waiting. Fades at an edge it can still scroll past. | [attention-queue.tsx:275](../frontend/src/features/review/attention-queue.tsx#L275) |
-| └ **Worked through** | What the list becomes when nothing needs a person: what was decided, and the two things done next. | [attention-queue.tsx:426](../frontend/src/features/review/attention-queue.tsx#L426) |
-| **Revision rail** | The lineage of reviews for this branch and case, plus any run in flight. | [revision-rail.tsx](../frontend/src/features/review/revision-rail.tsx) |
-
-### The detail column
-
-Holds exactly one of these.
+### The docket
 
 | Name | What it is | Where |
 | --- | --- | --- |
-| **Finding detail** | The assessment of one candidate. The Workbench mode's default. | [finding-detail.tsx](../frontend/src/features/review/finding-detail.tsx) |
-| ├ **Attribution gutter** | The `6.75rem` column down the left of the finding. Says whose voice produced the block beside it — measured, judged, decided — and who in particular. Stacks into a label above each block below `lg`. | [gutter.tsx](../frontend/src/ui/gutter.tsx) |
-| ├ **Finding header** | The MEASURED block: pattern, delta state, and the candidate's identifier in mono with its summary beneath. | [finding-detail.tsx:82](../frontend/src/features/review/finding-detail.tsx#L82) |
-| ├ **Decision bar** | Accept / park / waive for this candidate, the standing decision, and whether it was taken against a verdict that has since moved. | [decision-bar.tsx](../frontend/src/features/review/decision-bar.tsx) |
-| ├ **Technical detail** | The collapsed disclosure: ids, detection rationale, measurements. | [finding-detail.tsx:322](../frontend/src/features/review/finding-detail.tsx#L322) |
-| └ **Next needing you** | The strip at the foot, naming the next candidate that still wants a person. | [finding-detail.tsx:362](../frontend/src/features/review/finding-detail.tsx#L362) |
-| **Clarification round** | Replaces the finding detail when the review is waiting on answers. Each question offers the answers the model proposed, plus writing your own and skipping. | [clarification.tsx](../frontend/src/features/review/clarification.tsx) |
-| **Delta surface** | What moved since the previous review: one list keyed on the candidate's name, filtered by change state. A row opens its finding. | [surfaces.tsx:137](../frontend/src/features/review/surfaces.tsx#L137) |
-| **Report surface** | The rendered Markdown report. | [surfaces.tsx](../frontend/src/features/review/surfaces.tsx) |
-| **Ask surface** | Questions put to the finished review. | [surfaces.tsx](../frontend/src/features/review/surfaces.tsx) |
+| **Docket** | The single column a reviewer works down. The product's centre of gravity. Moves from the keyboard: `↑` `↓` `j` `k` walk the rows and open what they land on, `A` `P` `W` decide the open one. | [docket.tsx:391](../frontend/src/features/review/docket.tsx#L391) |
+| ├ **Progress** | One segment per candidate, filled as it settles, then "N of M settled" and the Attention / Settled / All filter. Ink and rule, never a verdict hue: how far through you are is not a grade anything was given. | [docket.tsx:43](../frontend/src/features/review/docket.tsx#L43) |
+| ├ **Clarification card** | The first item when the review is waiting on answers, holding the round itself. Nothing below it can be finished until it is answered. | [docket.tsx:304](../frontend/src/features/review/docket.tsx#L304) |
+| ├ **Docket group** | "Moved since review N" above "Carried forward", when there is a previous review and both have rows. Hoists a namespace every row in the group shares. | [docket.tsx:391](../frontend/src/features/review/docket.tsx#L391) |
+| ├ **Docket row** | One candidate: its verdict as a left edge and as a sign — alert, pause or tick — its name, **its claim as a sentence**, its pattern and movement, and its trajectory across the lineage. The sentence is what makes the list readable and the reason most rows never have to be opened. | [docket.tsx:143](../frontend/src/features/review/docket.tsx#L143) |
+| ├ **Candidate trajectory** | The verdict this candidate carried at each revision of the branch, as one node per review. The revision being read is at full strength, underlined, its number in ink; the rest recede to 45%. Never ringed — the marks are circles, so a ring reads as two concentric circles. | [trajectory.tsx](../frontend/src/features/review/trajectory.tsx) |
+| └ **Worked through** | What the list becomes when nothing needs a person: what was decided, and the two things done next. | [docket.tsx:354](../frontend/src/features/review/docket.tsx#L354) |
+| **Revision rail** | The lineage of reviews for this branch and case, plus any run in flight. Under the work rather than beside it — which revision you are reading is a fact about the page, not something consulted while deciding. | [revision-rail.tsx](../frontend/src/features/review/revision-rail.tsx) |
+
+### Inside an open row
+
+| Name | What it is | Where |
+| --- | --- | --- |
+| **Finding body** | The assessment, as the argument beside the material it rests on. It carries neither the verdict nor the identifier: the row it expands inside just showed both. | [finding-detail.tsx:178](../frontend/src/features/review/finding-detail.tsx#L178) |
+| ├ **Judged** | The model's paragraph at the reading size — the only text set that large on the page — under a line naming who produced it, then Hinges on and Recommended response. | [finding-detail.tsx:178](../frontend/src/features/review/finding-detail.tsx#L178) |
+| ├ **Measured** | The machine's column: the code involved, the readings on a rule, and the excerpts inline. You cannot argue with a judgement whose evidence is one click away, which is what folding this behind a disclosure used to ask. | [finding-detail.tsx:178](../frontend/src/features/review/finding-detail.tsx#L178) |
+| ├ **Disclosure** | Policies and Provenance, each with a closed state that says what is inside it. | [finding-detail.tsx:139](../frontend/src/features/review/finding-detail.tsx#L139) |
+| └ **Decision bar** | Accept / Park / Waive for this candidate, the standing decision, and whether it was taken against a verdict that has since moved. | [decision-bar.tsx](../frontend/src/features/review/decision-bar.tsx) |
+
+### The other surfaces
+
+| Name | What it is | Where |
+| --- | --- | --- |
+| **Delta surface** | What moved since the previous review: one list keyed on the candidate's name, filtered by change state. Its unique content is `addressed` — a candidate that is gone, and so has no docket row to be met in. A row opens its finding. | [surfaces.tsx:240](../frontend/src/features/review/surfaces.tsx#L240) |
+| **Report surface** | The rendered Markdown report, led by what the review comes to. | [surfaces.tsx:505](../frontend/src/features/review/surfaces.tsx#L505) |
+| **Ask surface** | Questions put to the review, in separate threads. | [surfaces.tsx:597](../frontend/src/features/review/surfaces.tsx#L597) |
 
 ### Judgement context — the drawer
 
-Opened from the finding, at every width. Four tabs, all scoped to the candidate in front of
+Opened from an open row, at every width. Four tabs, all scoped to the candidate in front of
 you; at review scope the Provenance tab becomes the audit of every candidate at once.
 
 | Name | What it is | Where |

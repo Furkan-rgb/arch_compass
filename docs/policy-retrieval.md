@@ -30,7 +30,8 @@ The initial `dense-scoped` implementation:
 5. orders mandatory/scoped selections first, then dense results deterministically.
 
 Queries are deterministically assembled from candidate pattern, summary, participants,
-measurements, limitations, and case constraints.
+measurements, limitations, and whatever the case has been told — which is the answers a
+clarification round recorded, and says "nothing yet" where none have been.
 
 The content-hashed SQLite vector index tracks policy/chunk identity, applicability, content
 hash, embedding identity, and vector. Changed/new chunks are embedded and stale chunks are

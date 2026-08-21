@@ -54,6 +54,7 @@ load context
   -> detect candidates
   -> calculate delta
   -> retrieve policies and judge each candidate
+  -> check what the repository settles
   -> generate questions
        | settled / CI / limit / early stop
        |   -> compose and persist Review -> END
@@ -95,10 +96,15 @@ The configured model:
 - judges one application-selected candidate and policy set;
 - explains the verdict and policy bearings;
 - identifies unresolved uncertainty;
+- puts bounded, recorded, read-only questions to the repository about a finding that would
+  otherwise stop the review, and about a reader's own question afterwards;
 - proposes clarification questions through a validated structured response.
 
-The model never chooses which repository elements to inspect and never owns identifiers,
-fingerprints, persistence keys, or standing decisions.
+The model never chooses which candidates are reviewed and never owns identifiers,
+fingerprints, persistence keys, or standing decisions. The lookups are the one place it
+chooses what to look at, and they decide whether a question is worth a person's time rather
+than what a verdict rests on: the pass is never shown a policy list, so it cannot move a
+bearing, and every call it makes is kept on the review and shown beneath the finding.
 
 ## Domain concepts
 
@@ -238,7 +244,7 @@ make run
 Run with an explicitly pinned provider/model:
 
 ```bash
-uv run archcompass --provider google --model gemini-3.6-flash web
+uv run archcompass --provider google --model gemini-3.5-flash-lite web
 uv run archcompass --provider ollama --model gemma4:26b web
 ```
 

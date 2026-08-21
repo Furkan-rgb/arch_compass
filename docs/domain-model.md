@@ -26,8 +26,18 @@ Policy -----------------------+
 
 ## Primary concepts
 
-- `ArchitectureCase` is revisioned human context: categorized constraints,
-  contextual decisions, answers, and timestamps. `with_answer()` returns a new revision.
+- `ArchitectureCase` is revisioned human context, and the only human context in it is
+  `answers` — what somebody said when a judgement stopped to ask. `with_answer()` returns a
+  new revision. It also carries `policy_context`, which is not intent: it scopes which
+  policies are retrievable, and `revise()` exists only to change it.
+
+  Constraints and decisions were removed from this record for the same reason the free-text
+  goal was before them. They were a channel nothing in the product could feed — no surface
+  offered writing one and no review ever produced one — so the only way in was hand-authored
+  YAML, and what did reach a case duplicated the policy corpus in prose nothing could
+  retrieve against. Intent enters through the policies that bear on a candidate and through
+  the answers a clarification round records, which are attributable and asked for only when
+  something turns on them.
 - `Question` has application-owned identity and an equivalence key derived from case facet
   plus sorted supporting candidate IDs.
 - `Answer` records answered or skipped status, optional value, actor, and time.
@@ -49,7 +59,10 @@ Policy -----------------------+
 - `StandingDecision` records accept, waive, or park independently from the finding. Waivers
   require reasoning and every decision pins the finding context it answered.
 - `Review` is an immutable snapshot linking repository, atlas, case, findings, questions,
-  status, delta, report, provenance, lineage, and timing.
+  status, delta, report, synopsis, provenance, lineage, and timing. The synopsis is the
+  model's paragraph about the review as a whole, written when the review was composed and
+  attributed by `synopsis_identity`; it is kept on the record rather than derived on read,
+  because a review whose prose changed between two readings would not be one.
 
 `ReviewDelta` records unchanged, changed, new, and addressed candidates. Supporting records
 retain causes, predecessor identity, resurfacing, and last-seen provenance. The initial

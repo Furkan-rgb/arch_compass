@@ -26,7 +26,7 @@ browser. `make web` is an equivalent alias. Provider/model selection is stored p
 workspace. A run can be pinned explicitly:
 
 ```bash
-uv run archcompass --provider google --model gemini-3.6-flash web
+uv run archcompass --provider google --model gemini-3.5-flash-lite web
 uv run archcompass --provider ollama --model gemma4:26b web
 ```
 

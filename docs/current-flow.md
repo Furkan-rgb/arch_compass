@@ -49,6 +49,13 @@ a note saying so. The upward widening exists because a constant's recorded span 
 that assigns it while the sentence explaining it sits directly above, and a judge shown the
 assignment alone was deciding with that sentence out of frame.
 
+Findings that came back with a hinge then reach `investigate_hinges`, which gives each one
+a bounded pass of read-only atlas lookups — at most six turns, ten thousand characters of
+findings and eight findings per round — and either settles the verdict, narrows the question,
+or leaves it exactly as it was. Every lookup is recorded on `Review.investigation_manifest`
+and named on the finding by content hash. A hinge nothing settled reaches question generation
+unchanged, which is why that path needed no new code.
+
 `generate_questions` then either settles the review or returns application-identified
 clarifications. When clarification is needed, ArchCompass composes and records an immutable
 `awaiting_answers` review before `await_answers` interrupts. The client resumes the same
@@ -81,12 +88,23 @@ review when a finding is reused.
 Standing decisions are appended separately from findings. Waivers require reasoning, and
 decision lineage can read through deterministic succession without influencing the judge.
 Post-review conversation uses the persisted review, pinned evidence, case, and
-application-assembled context; it does not restore an autonomous repository investigation
-loop. Every fact in an answer comes from that context, but the answer is not held to
-extraction: what to do about a finding follows from the finding, the policies it bears on
-and any recommended response already recorded, and the answer distinguishes what the review
-records from what it reasons. It is shown where evidence sits, never the code at those
-lines, so a proposed fix is structure and placement with a citation, never a patch.
+application-assembled context, and may put the same bounded, recorded lookups to the
+repository that a hinge investigation does. Its first turn is never forced, unlike a hinge's:
+a reader is usually asking about text already in front of them, and a forced lookup there
+spends a round trip asking the repository about the review's own words.
+
+Every fact in an answer comes from that context or from a recorded lookup, and the answer
+says which. It is not held to extraction: what to do about a finding follows from the
+finding, the policies it bears on and any recommended response already recorded, and the
+answer distinguishes what the review records from what it reasons. A proposed fix is still
+structure and placement with a citation rather than a patch — the lookups answer what
+depends on what, and `read_code` serves a bounded span at a named node, neither of which is
+a diff.
+
+The atlas a conversation asks is the one its review judged, carried on the review itself.
+Structural questions therefore keep answering however far the repository has moved on;
+reading source is the one lookup that touches disk, so a repository that has changed since
+the review ran refuses that alone, in a sentence naming the way back.
 
 Source/report/repository/case/revision endpoints project the same stored domain records
 through boundary Pydantic DTOs.

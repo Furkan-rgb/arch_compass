@@ -50,7 +50,12 @@ load-bearing in the code, and breaking one is a redesign rather than a change.
 repository is analysed deterministically — parsed, never imported or executed — and every
 candidate carries pinned source excerpts, measurements that state their own nature and
 limits, and a detection rationale. The model is given evidence and asked what it means. It
-is never asked what to look at.
+is never asked what a verdict should rest on.
+
+The one exception proves the rule rather than bending it. A judgement about to stop the
+review and ask a person may first put read-only questions to the repository, because a
+question the code already answers is not worth an interruption — and it is permitted only
+because every lookup is recorded and shown. It changes whether to ask, never what was found.
 
 **2. The machine assembles, the model judges, the person decides.** These are three
 different jobs and ArchCompass keeps them visibly apart. Deterministic code owns identity,
@@ -74,7 +79,8 @@ commitment above.
 - **Not a code generator.** ArchCompass does not write the fix. It can recommend a response;
   acting on it is the team's.
 - **Not an autonomous agent.** It does not roam the repository, choose its own goals, or act
-  without being asked. The model never picks which elements to inspect.
+  without being asked. The model never picks which candidates are reviewed, and the lookups
+  it may make about one are bounded, read-only, and recorded where the reader can see them.
 - **Not a dashboard.** Counts are orientation, read once, on the way to the work. A number
   that nobody acts on is decoration.
 
@@ -144,7 +150,10 @@ Three worked examples, so the rules read as something that was actually used:
 | Evidence surface listed every excerpt flat | "Say where it came from" — an excerpt only means something next to the claim it supports | Grouped under the candidate it was pinned for, and labelled by which step pinned it |
 | The delta was four panels of full sentences | "Scanning beats reading", "the second visit is the important one" | One list keyed on the identifier, filtered by change state, each row opening the finding |
 | Clarification questions were a blank box | "Ask rather than assume", "never make someone type what they could pick" | The model proposes likely answers; writing your own and skipping are always offered |
-| The architecture case carried a free-text goal | "Ask rather than assume", "nothing is inferred on a person's behalf" | Removed. One prose sentence was a poor stand-in for intent: it was demanded before anyone had seen a finding, so it was almost always blank, and where it was written it restated the policies in a form nothing could retrieve against. Intent now enters as policies, constraints, decisions and answered questions — each specific, attributable, and asked for only when something turns on it |
+| The architecture case carried a free-text goal | "Ask rather than assume", "nothing is inferred on a person's behalf" | Removed. One prose sentence was a poor stand-in for intent: it was demanded before anyone had seen a finding, so it was almost always blank, and where it was written it restated the policies in a form nothing could retrieve against |
+| The case still carried hand-authored constraints and decisions | "Ask rather than assume", "the queue is the product" | Removed for the same reason, one step later. No surface ever offered writing one and no review ever produced one, so the only way to fill them was hand-authored YAML — a form asking for intent before a finding existed, wearing a different shape. Intent now enters two ways only: the policies that bear on a candidate, and the answers a clarification round records. Both are specific, attributable, and asked for only when something turns on them |
+| A review asked a person what the code already said | "Ask rather than assume", "evidence before opinion" | A hinge now gets a bounded, recorded pass of read-only atlas lookups before it becomes a question. It may settle the verdict or narrow the question; it may not move a policy bearing or an excerpt, because it is never shown the policy list and the finding is rebuilt by `replace` |
+| A real model almost never asked anything | "Ask rather than assume", "a confident wrong answer is worth less than an honest question" | The judgement prompt permitted a hinge and gave it no standing, and handed the model an empty case as three empty arrays beside a full policy corpus — so it judged on the policy every time. The contract now says an empty case out loud, gives asking first-class standing, and says when *not* to ask; and a question must propose two to four answers, because the interface offers writing your own and skipping under every one of them |
 
 ## Where this is still open
 

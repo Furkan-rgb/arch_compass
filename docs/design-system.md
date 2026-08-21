@@ -2,12 +2,14 @@
 
 What ArchCompass looks like, and why it looks like that.
 
-Three documents describe the interface and they do not overlap. [The charter](charter.md)
+Four documents describe the interface and they do not overlap. [The charter](charter.md)
 says what the product is for and which rules settle an argument about it.
-[Frontend regions](frontend-regions.md) is the vocabulary — what each area on screen is
-called, so a sentence like "the queue footer overlaps the last row" means one thing.
+[The experience](experience.md) says what a person is trying to do and whether the screen in
+front of them is helping. [Frontend regions](frontend-regions.md) is the vocabulary — what
+each area on screen is called, so a sentence like "the docket row clips its own claim" means
+one thing.
 
-This one is the contract between the two: the tokens, the type roles and the structural
+This one is the contract underneath all three: the tokens, the type roles and the structural
 devices that the components are built from. If a component invents a colour, a face or a
 radius that is not here, that is the bug — not a local decision.
 
@@ -42,290 +44,330 @@ horizontal space in a layout that has three columns to fit.
 
 ## The thesis: three voices
 
-**Every element on screen belongs to exactly one of the three jobs, and says which by its
-typeface.**
+**Every element on screen belongs to exactly one of the three jobs, and says which.**
 
-| Voice | Who is speaking | Face | What it sets |
-| --- | --- | --- | --- |
-| **Measured** | Deterministic analysis | Mono | Names, paths, counts, ids, provenance, evidence locations, measurements |
-| **Judged** | The model | Serif | Verdict reasoning, hinges, policy bearings, recommended responses, review answers |
-| **Decided** | The person | Sans | Controls, labels, navigation, empty states, the record of what a person chose |
+| Voice | Who is speaking | How it is set |
+| --- | --- | --- |
+| **Measured** | Deterministic analysis | Mono. Names, paths, counts, ids, provenance, evidence locations, measurements |
+| **Judged** | The model | The reading size — 16px, the largest body text in the product — under a line naming the model that produced it |
+| **Decided** | The person | Sans at control size. Buttons, labels, the record of what a person chose |
 
-This is not decoration keyed to content; it is the product's structure made legible. A
-reader who has learned three faces can tell whose voice a paragraph is in without reading
-it, and that is precisely the distinction the charter says must never blur.
+This is not decoration keyed to content; it is the product's structure made legible. A reader
+who has read one finding knows the shape of the next: an `Attribution` line saying *whose*,
+then the block.
 
 It also constrains us usefully. When a new element does not obviously belong to one of the
-three, that is a design question worth stopping on: something is being presented as fact
-that is an opinion, or as a conclusion that is actually a control.
+three, that is a design question worth stopping on: something is being presented as fact that
+is an opinion, or as a conclusion that is actually a control.
 
-### Why the model's voice is a serif
+### The model's voice was a serif, and is not
 
-This is the deliberate risk in the system, so it gets its own paragraph.
+The first version of this document made a serif the whole thesis: set the model's prose in
+Newsreader, and there is no way to mistake a sentence the model wrote for a sentence the
+analyser produced, because they are not in the same face.
 
-Developer tools do not set body copy in a serif. The reason to do it here is that the
-model's output is not a status, a log line or a result — it is *an argument the reader is
-meant to weigh and disagree with*. The mission statement asks for "architectural judgement
-they can trust, argue with, and re-check". Prose you argue with is set in the register of an
-opinion: a report, a judgement, a review. Setting it in the same sans as the buttons around
-it quietly asserts that it is a system output on the same footing as a count, which is the
-one thing the charter says it is not.
+It did not survive. A second face is a second face everywhere — it turned up in headings, in
+empty states, in a policy title — and every one of those was a place where nobody was
+speaking. What was left was a 187 KB payload buying an idea the interface had stopped
+honouring, and a rule that could only be enforced by taste.
 
-The serif also does the separation work for free. There is no way to mistake a sentence the
-model wrote for a sentence the analyser produced, because they are not in the same face.
+So the separation moved to things that cannot leak: **placement**, **the reading size**, and
+**an attribution line**. The model's paragraph is the only text on the page set at 16px, it
+sits alone in a band across the top of a finding, and the words `JUDGED · <model>` sit above
+it. `ui/design-system.test.ts` — *"has no second face to reach for"* — now fails the build on
+`font-read` and `font-serif` anywhere at all, and there is no `--font-read` token to reach
+for either.
 
 ## Type
 
-Three faces, all self-hosted as woff2 in `frontend/src/assets/fonts/`, latin subset, loaded
+Two faces, both self-hosted as woff2 in `frontend/src/assets/fonts/`, latin subset, loaded
 `font-display: swap` with a real fallback stack.
 
 | Token | Face | Cut | Fallback |
 | --- | --- | --- | --- |
-| `--font-display` | **Archivo** | Variable, 400–700 | `ui-sans-serif, system-ui, sans-serif` |
-| `--font-read` | **Newsreader** | Variable, 200–500, optical size 6–72 | `Georgia, "Times New Roman", serif` |
+| `--font-display` | **Onest** | Variable, 400–700 | `ui-sans-serif, system-ui, sans-serif` |
+| `--font-ui` | **Onest** | the same face | `ui-sans-serif, system-ui, sans-serif` |
 | `--font-code` | **IBM Plex Mono** | 400 and 600 static | `ui-monospace, "SF Mono", Menlo, monospace` |
 
-Archivo is a workhorse grotesk with engineered proportions and a wide weight range; it holds
-up at 10px uppercase and letterspaced, which is most of what the interface asks of it.
-Newsreader has a low-contrast, slightly bookish quality that reads well at 15–17px on a
-screen. IBM Plex Mono is picked over the previous system stack because "whatever mono the
-reader has" is not a design decision, and because Plex's letter shapes sit comfortably
-beside both of the others.
+`--font-display` and `--font-ui` resolve to the same family on purpose. They are kept apart as
+names because they answer different questions — *what sets a number somebody reads at a
+glance* and *what sets the interface* — and one of them may want to move later without
+dragging the other with it.
 
-No italic cut ships for any of the three. Nothing in the sans register needs one, and
-Newsreader's italic is 144 KB for the handful of places a serif emphasis would appear. The
-whole payload is 187 KB against the 90 KB the two grotesks cost — the price of the thesis,
-and the reason the italics were the first thing cut.
+Onest is a geometric-humanist sans with a tall x-height and unusually even colour, which is
+most of what this interface asks of a face: it holds up at 10px uppercase letterspaced and at
+16px in a paragraph without either looking borrowed from the other. IBM Plex Mono is picked
+over the system stack because "whatever mono the reader has" is not a design decision.
+
+No italic cut ships. The one place italics are wanted is a code comment, and there the
+browser's synthetic slant is doing something honest — leaning a line that is already grey.
 
 ### The scale
 
-Nine steps, each with a job. Anything not on the scale is a mistake.
-
 | px | Face | Where |
 | --- | --- | --- |
-| 10 | Sans, 700, `0.13em` | Gutter voice, block labels — always uppercase |
-| 11 | Mono, 500, `0.13em` | Eyebrows, meta lines, provenance — uppercase where it is a label |
-| 12 | Mono, 500 | Queue row identifiers, chips, tab labels |
-| 13 | Sans, 600 | Controls, secondary body |
-| 15 | Sans, 400 | Body copy, empty states, decision copy |
-| 17 | Serif, 300 | The model's reasoning — its own size, used nowhere else |
-| 19 | Mono, 500 | The finding's identifier in the detail header |
-| 27 | Sans, 600, `-0.025em` | The review title |
+| 10 | Sans, 700, `0.13em` | Attribution voices, block labels, group headings — always uppercase |
+| 11 | Mono | Provenance, meta lines, identities, namespaces |
+| 12–12.5 | Sans / mono | Footnotes, counts, the docket's meta line |
+| 13 | Sans | Controls, a docket row's claim, secondary body |
+| 14 | Mono, 500 | A docket row's identifier; sans at 14 sets a notice |
+| 15–17 | Mono | The review head — the repository, branch and commit that identify a review |
+| 16 | Sans, 400, `1.65` | **The model's reasoning.** Its own size, used nowhere else |
 | 34–62 | Sans, 600, `-0.035em` | Landing display only, `clamp()`ed |
 
-Line height: mono 1.35–1.5, sans 1.5–1.6, serif 1.68. Measure: the model's prose caps at
-`60ch`, everything else at `66ch`. Headings take `text-wrap: balance`; digits that line up
-in a column take `tabular-nums`.
+Measure: the model's prose caps at `62ch`, everything else at `66ch`. Digits that line up in
+a column take `tabular-nums`. A qualified name is one token to the line breaker, so anything
+that can hold one takes `wrap-anywhere` — this is the single most common overflow bug in the
+product and `features/review/overflow.test.tsx` exists for it.
 
 ## Colour
 
-**Chroma is spent on verdicts. Everything else is graphite.**
+**Chroma is spent on verdicts. Everything else has none at all.**
 
-The accent is not a hue any more — it is ink. A selected tab is an ink underline, a primary
-button is an ink fill, the focus ring is ink. This is the charter's "a colour never carries
-meaning alone" pushed one step: where a colour would carry nothing at all, it is not used.
+Not "graphite", not "a cool bone" — literally none. `ui/tokens.test.ts` fails the build if any
+non-verdict token has one RGB channel differing from another by so much as a step. The bone
+the first system used was a second temperature: it sat at the same warmth as the `held` amber
+and cost that amber some of its distance from the ground.
 
-### Tokens
+One rule orders the ramp in both themes: **light means elevation.** In light that reads as
+white on grey. In dark it reads as a film of white laid over the void — the same rule running
+the only direction it can once the ground is already at the bottom, which is why `--sunken` is
+the *brightest* of the four greys in dark. Nothing is darker than the page; a hole is not a
+thing you can dig at the bottom.
 
-Light is the ground truth; dark is the same six lifted, not naively inverted.
-
-The names are the ones that were already there. Only the values moved — every component
-and every region name already speaks in `canvas`/`surface`/`rule`, and renaming a hundred
-usages would have been churn with nobody on the other side of it.
-
-| Token | Light | Dark | What it is |
+| Token | Light | Dark | For |
 | --- | --- | --- | --- |
-| `--canvas` | `#EBEBE6` | `#0C0E10` | The page. A cool bone, off the warm cream the first system used |
-| `--surface` | `#FCFCFA` | `#16181B` | Any surface content sits on |
-| `--surface-2` | `#F4F4F0` | `#1B1E21` | Recessed strips: tab bars, panel headers, the queue rail |
-| `--sunken` | `#E2E2DC` | `#101214` | Wells, inset fields and a selected row |
-| `--ink` | `#15171A` | `#E9EAE6` | Text, and every primary action |
-| `--ink-2` | `#4B5057` | `#A7ADB4` | Body copy |
-| `--ink-3` | `#7D838A` | `#757C83` | Labels, meta, anything demoted |
-| `--rule` | `rgb(21 23 26 / 14%)` | `rgb(233 234 230 / 14%)` | Hairlines. The primary structural device |
-| `--rule-strong` | `rgb(21 23 26 / 30%)` | `rgb(233 234 230 / 30%)` | Borders on controls, and a voice change in the gutter |
-| `--material` | `#AF3A22` | `#E9906F` | Act on it |
-| `--held` | `#8E6209` | `#D9AE5B` | Waiting on a person |
-| `--cleared` | `#16674A` | `#63BE94` | Assessed and settled |
-| `--mark` | `#3E4B5D` | `#93A4BA` | The one non-verdict chroma. See below |
+| `--canvas` | `#f5f5f5` | `#000000` | The page |
+| `--surface` | `#ffffff` | `#0d0d0d` | A panel, a docket row that is open |
+| `--surface-2` | `#fafafa` | `#141414` | A strip inside a panel — the measured half of a finding |
+| `--sunken` | `#ebebeb` | `#1f1f1f` | A quiet inset: a hover, a code block |
+| `--overlay` | `rgb(0 0 0 / 45%)` | `rgb(0 0 0 / 72%)` | Behind a drawer |
+| `--chrome` | `rgb(255 255 255 / 72%)` | `rgb(0 0 0 / 62%)` | The one deliberately see-through surface, blurred `22px` |
+| `--control` | `#ffffff` | `rgb(255 255 255 / 7%)` | The fill of something you operate |
+| `--control-2` | `#ebebeb` | `rgb(255 255 255 / 13%)` | Its hover |
+| `--rim` | `transparent` | `rgb(255 255 255 / 8%)` | The light along a surface's top edge |
+| `--rule` | `rgb(0 0 0 / 10%)` | `rgb(255 255 255 / 11%)` | Hairlines — the primary structural device |
+| `--rule-strong` | `rgb(0 0 0 / 15%)` | `rgb(255 255 255 / 17%)` | A border on something you could pick up |
+| `--ink` | `#0a0a0a` | `#fafafa` | Body |
+| `--ink-2` | `#525252` | `#a1a1a1` | Secondary |
+| `--ink-3` | `#737373` | `#737373` | Meta — the one value that is the same in both |
+| `--material` | `#b63132` | `#f47b74` | Act on it |
+| `--held` | `#867000` | `#ecd065` | Waiting on a person |
+| `--cleared` | `#007c59` | `#5ed8a9` | Settled |
 
-Each verdict also has a `-soft` wash for tinted blocks. Nothing else gets a wash.
+Each verdict also has a `-soft` wash for a panel whose entire subject is that state — 9–10%
+in light, 12–13% in dark. Nothing else gets a wash.
 
-### The budget of one: `--mark`
+A permanently dark strip has its own four tokens — `--band`, `--band-ink`, `--band-ink-2`,
+`--band-rule` — because the topbar and the landing page's field band do not invert with the
+theme and therefore cannot borrow `ink`/`surface` from the page.
 
-There is exactly one chroma that is not a verdict, and it is reserved for **navigating to
-the thing a claim came from** — a source location, a policy, a cited finding. Nothing else
-may use it: not a button, not a tab, not a heading.
+### There is no budget of one
 
-It earns the exception from "say where it came from". Provenance links are a first-class
-category in this product, they appear on nearly every surface, and they need to be
-distinguishable from body text at a glance. It is desaturated far enough (`#3E4B5D`) to read
-as ink with a bias rather than as an accent, and it never appears next to a verdict.
+The first system kept exactly one chroma that was not a verdict, `--mark`, for navigating to
+the thing a claim came from. That is gone: a fourth colour beside three verdicts makes a
+reader work out which of the four carries meaning, which is the cost the rule was trying to
+avoid in the first place.
 
-### What replaced the accent on policy strength
+`--mark` survives **as a name**, resolving to `--ink`. Going somewhere is marked by an
+underline and by weight, and the name is what keeps that decision in one place instead of
+being re-made beside every path reference. The guard in `ui/design-system.test.ts` now
+protects the name rather than a hue: five files may say `-mark`, and three of them do.
 
-`lib/format.ts` gave `required` the accent tone, on the argument that a required policy is
-"the thing to look at" and painting it verdict-red would turn the policy library into a list
-of alarms. That argument was right and its answer is now unavailable.
+### Marks: what a thing is allowed to wear
 
-**Policy strength is carried by weight and rule, not by colour.** All three keep their glyph
-and their word — `▲ Required`, `◆ Preferred`, `○ Guidance` — which is what the step between
-them was always made of. A required policy's block takes a `--rule-strong` border; preferred
-and guidance take a hairline. Emphasis without alarm, and no hue at all.
+Marks are **Lucide**, resolved from a fixed vocabulary in `ui/mark.tsx`. They have been three
+things: literal characters (`▲ ◆ ●`), which broke because neither Onest nor IBM Plex Mono
+ships the Geometric Shapes block, so every one fell through to whatever the operating system
+had; then hand-cut SVG, which fixed the sizing and left the real problem; and now a library.
+
+The rule that survives all three is the one `ui/design-system.test.ts` enforces: **a mark is
+drawn, never typed.** The build fails on any source line carrying one of those characters,
+comment lines excepted.
+
+What this file keeps, and a library cannot supply, is *which* icon a thing is allowed to
+wear. Three registers, and the separation is load-bearing:
+
+| Register | Wears | Worn by |
+| --- | --- | --- |
+| **A sign** | caution triangle, pause, tick — plus a run's spinner, cross and stop | What is **graded**: the model's three verdicts, and a review's own state |
+| **A step on a scale** | filled dot, outline, dashed outline | A position that is not a grade — chiefly how binding a policy is |
+| **A person's move** | flag, clock, slash | What somebody decided |
+| **A difference** | plus, minus, swap, equals | How a candidate moved between two reviews — the Delta surface |
+
+The registers exist because of two things the product must never say:
+
+- **A required policy is not an alarm.** `required` / `preferred` / `guidance` is emphasis —
+  the policy to read first, not a problem — so it carries no chroma *and* no caution sign.
+  Solid, outline, dashed is a scale and nothing more.
+- **Accepting a finding is a commitment to act on it,** not a report that it went away, so a
+  disposition may not wear the tick either. A decision may share a verdict's *tone*, because
+  it answers one — never its mark. This is where the charter's separation between the model's
+  verdict and the person's decision becomes visible.
+- **A delta is a comparison, not a grade.** "Raised last time, gone now" is not the same claim
+  as "assessed and found unproblematic", so `addressed` is a minus beside a plus rather than
+  the tick it carried for months. Diff notation reads as a diff, at a glance, and says nothing
+  about whether the candidate was any good — which is also why **none of the four carries a
+  hue**. A changed candidate can come back material, held or cleared, so tinting the *movement*
+  would be the surface guessing at the outcome. See below.
+
+### One coloured thing per row, in one place
+
+The Delta surface is where this rule was worked out, and it generalises. Every row there now
+carries exactly one coloured element — the badge saying where the candidate stands, in the
+verdict's own hue — and everything else on the row is ink. The movement glyph is a weight
+ramp: `addressed` and `changed` at full ink because both want re-reading, `new` at `ink-2`
+because it is also sitting in the docket, `unchanged` at `ink-3`.
+
+Getting there fixed a real bug rather than a cosmetic one. `addressed` used to tint its glyph
+`text-cleared`, defensible at the time because that row is the one state with no verdict badge
+to carry colour — there is no finding, the candidate is gone. The better answer was to **give
+it a badge** (`No longer detected`, cleared tone, in the slot every other row fills with its
+verdict) instead of tinting a glyph. The state the experience doc calls the only one that
+exists nowhere else in the product had been the dimmest row on the page.
+
+That took `features/review/surfaces.tsx` off the `verdict-hues.test.ts` allowlist: it names no
+hue at all any more, because `<Badge tone="cleared">` lets `ui/badge.tsx` do the painting. An
+allowlist entry that has stopped being load-bearing is worse than no entry — it silently
+licenses the next hue somebody adds to that file — so entries are expected to come off it.
+
+Two sizing facts, both learnt the hard way. Lucide draws at stroke 2 on a 24 box, tuned for
+20–24px; **`Mark` overrides to 2.25**, because almost nothing here renders that large and a 2
+arrives thin and grey once scaled down. And **nothing below 12px** — the marks used to be
+9–13px, which is a size at which no line icon survives and the reason they were hand-cut
+filled shapes in the first place. A verdict on a docket row is 15px, dense counts are 13px, a
+badge's is 1.25em.
+
+### The verdict as an edge
+
+A docket row states its verdict three times: a sign, a word, and a **3px left edge** in the
+verdict hue (`TONE_EDGE` in `ui/meta.tsx`, the only other place besides `TONE_TEXT` that
+names the hues). The edge exists because the question asked of a whole column at once — where
+does the red start — is not one a mark inside a row can answer. At any size that fits beside a
+name, a glyph has to be looked *at*; an edge is read without being looked at, costs no
+horizontal space, and is a rule rather than a card, which is the structure this system already
+uses everywhere else.
+
+A settled row's edge goes transparent rather than absent, so nothing shifts sideways when you
+decide something. The list of edges is then exactly the list of what still wants you.
+
+### "You are here" is an underline, never a container
+
+The candidate trajectory used to ring the revision you were reading. That stopped working the
+day the verdict marks became circles: a ring around a circle is two concentric circles and
+says nothing. It is now the device the system already had — **an underline and weight** — with
+the rest of the lineage receding to 45%.
+
+The general rule, worth applying before reaching for a box: mark the present by taking
+emphasis off everything else, not by adding chrome to it. A container around a mark competes
+with the mark; contrast does not. The lineage rail is the exception that proves it — it rings
+a plain dot, and a ring around a dot is a halo rather than a nested shape.
 
 ## Structure
 
-**Rules, not cards.** A hairline separating two things is the default. A border around a
-thing is for when it is genuinely a separate object you could pick up. A shadow is for
-something that actually floats — a drawer, a popover — and nowhere else. `shadow-panel` is
-retired.
+### Hairlines, not cards on cards
 
-**Radius is near-zero and means "interactive".** Structural containers — panels, sheets,
-rails, the app frame — are square. Controls are `2px`. Only status dots stay round.
+A rule separates; a border belongs to something you could pick up. That distinction does most
+of the structural work, and it is why the finding's two halves are one grid divided by
+`border-rule` rather than two panels with a gap.
 
-The five-step scale collapses to two values behind its existing names: `xs`, `sm` and `md`
-all resolve to `2px`, and `lg` and `xl` to `0`. The names survive so a component still reads
-as "small control" or "panel" rather than as a number, and so 106 usages did not have to be
-rewritten to say the same thing.
+### Radius means what it is, not what it does
 
-**The workbench is one sheet.** The queue rail and the detail column are two columns of the
-same surface divided by a rule, not two floating cards with a gap between them. This
-recovers roughly 40px of horizontal space per nesting level that the first system spent on
-padding and radius.
+The first system made radius near-zero and square-cornered every structural container, on the
+argument that square means "structure, not a control". That reads as a rule you have to be
+told. The five steps are five real values again, and the step says how large the thing is:
 
-## The two new devices
+| Token | px | For |
+| --- | --- | --- |
+| `--radius-xs` | 4 | A tick, a dot, a tag |
+| `--radius-sm` | 6 | A control you can operate |
+| `--radius-md` | 10 | A block inside a panel |
+| `--radius-lg` | 14 | A panel |
+| `--radius-xl` | 20 | A surface a panel sits on |
 
-### The attribution gutter
+`rounded-full` is for a thing whose shape is the point: a status dot, a spinner, a badge pill,
+a timeline node, a trajectory node.
 
-The signature element, and the reason the system exists.
+### Two elevation devices, and the difference is the whole rule
 
-A single hairline runs the full height of the finding detail. Every block registers against
-it, and the gutter to its left says whose voice produced the block beside it.
+A **rim** is the edge of a surface: one inset hairline of light along the top, no blur, no
+offset. It lifts nothing and costs nothing, so any surface may have one — it is how a panel
+says where it begins on a ground too dark for a hairline to carry alone. In light `--rim` is
+`transparent` on purpose: there is nothing to catch, and the surface is already the brightest
+thing on screen.
+
+A **lift** is for something that genuinely left the page. Three things do: the drawer, the
+command palette and the landing page's specimen card. `ui/design-system.test.ts` holds that
+line with an allowlist, and a second test forbids hand-rolled inset shadows so that a second,
+slightly-different rim cannot get into the system.
+
+The recipes are theme-split, because a black blur on a black ground draws nothing:
 
 ```
- 108px          │  content
-────────────────┼──────────────────────────────────────
-       MEASURED ▪  leaky abstraction · unchanged
-     detection  │  audiobook.synthesis.providers.qwen
-                │
-    What was    │  ┌────────┬────────┬────────┐
-     counted    │  │   5    │   0    │ 1 of 3 │
-                │  └────────┴────────┴────────┘
-                │
-         JUDGED ▪  ▲ MATERIAL
- gemini-3.6-... │  Five modules outside synthesis.providers name
-     2026-08-20 │  this implementation directly. The port exists…
-                │
-        DECIDED ▪  [ Accept the work ] [ Park ] [ Waive ]
-     nobody yet │
+light  --shadow-float: inset 0 1px 0 var(--rim), 0 1px 2px rgb(0 0 0 / 5%), 0 12px 32px rgb(0 0 0 / 9%)
+dark   --shadow-float: inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
+                       0 24px 60px -20px rgb(0 0 0 / 85%)
 ```
 
-Rules:
+`--shadow-hero` is the same shape with a longer, softer throw.
 
-- The gutter is `108px`, right-aligned against the spine, and never holds content — only
-  attribution.
-- A **voice change** draws a `--rule-strong` line across both columns and puts a 6px filled
-  square on the spine. A block within the same voice gets a label in `--ink-3` and no rule.
-- The gutter carries *who*, not just *what*: the detector and its version, the model
-  identity and the date it judged, or "nobody yet" where no decision has been recorded.
-- Because the gutter carries provenance, there is no separate provenance footer. Having both
-  was printing the same attribution twice.
-- Below `lg` the gutter collapses to a full-width label strip above each block; the sequence
-  survives, the two-column registration does not.
+## Motion
 
-### The queue spine
+Seven animations, one easing curve, and a hard stop for anyone who has asked for less.
 
-The same three jobs, compressed to ten pixels, at the left edge of every queue row.
+| Token | Duration | Where |
+| --- | --- | --- |
+| `--animate-expand` | `0.24s ease-out` | A docket row opening, a waiver's reason field |
+| `--animate-slide-left` | `0.28s` | A drawer arriving |
+| `--animate-slide-up` | `0.30s` | A sheet |
+| `--animate-fade` | `0.32s ease-out` | A panel that replaced another |
+| `--animate-rise` | `0.42s` | The landing page's first paint |
+| `--animate-shimmer` | `1.5s`, infinite | A loading placeholder |
+| `--animate-breathe` | `2.4s`, infinite | A run in flight |
 
-Three stacked 3×7px segments — machine, model, person:
+Everything that is not a loop uses `cubic-bezier(0.22, 0.7, 0.3, 1)`. Under
+`prefers-reduced-motion` every duration collapses to `0.001ms` — the state still changes, the
+travel does not.
 
-- **Machine** is always filled. There is always evidence; that is what raised the candidate.
-- **Model** fills once there is a verdict, and takes the verdict's hue.
-- **Person** fills once there is a standing decision.
+## The counts under the review head
 
-So `▮▮▯` is judged and waiting on you, `▮▮▮` is settled, and the difference between the
-Attention and Settled filters is visible without reading a word. The words stay on the row
-regardless — the spine is a scanning aid, never the sole carrier, per "a colour never
-carries meaning alone".
+*Not a dashboard. Counts are orientation, read once, on the way to the work.* The five-cell
+status ribbon is gone. What is left is one wrapping line: **how many things still want you**,
+in plain ink, then the verdict spread with its glyph, its number and its word.
 
-This replaces the `opacity-60` treatment a decided row used to get, which said "less
-important" rather than "further along".
-
-## The status ribbon
-
-Counts are orientation, read once, on the way to the work — the charter is explicit that a
-number nobody acts on is decoration. So they are set like readings on an instrument rather
-than in cards that ask to be looked at: values in mono on a rule, hairline ticks between
-them, uppercase labels beneath.
-
-"Decided by the team" is counted beside "judged", because how far through a review you are
-is answered by the team's half and not by the model's.
+The leading count is deliberately plain ink even where most of what it counts is material — a
+hue on a mixed total would be a verdict painted on something that is not one. A zero recedes
+on a laptop and disappears below `sm`, because "0 material" is worth a glance where there is
+room for the whole scale and a line of the viewport spent saying nothing happened where there
+is not.
 
 ## What is forbidden, and what enforces it
 
-Every rule above was also a rule in the first system, written in a comment, and the accent
-still reached 29 of 40 components one reasonable-looking commit at a time. So the ones that
-can be checked are checked, in `ui/design-system.test.ts` beside the `ui/verdict-hues.test.ts`
-that already guarded the other half.
+Every rule below is a test in `frontend/src/ui/design-system.test.ts`, `ui/tokens.test.ts` or
+`ui/verdict-hues.test.ts`. Each was a rule in a comment first, and each shipped broken anyway.
 
-| Rule | Why a comment was not enough |
+| Rule | Why it is a test |
 | --- | --- |
 | No `-accent` utility anywhere | The tokens are deleted, so a leftover `text-accent` compiles to nothing and vanishes in review rather than failing |
-| `font-read` only on the model's voice | The serif is the whole thesis; spending it on a heading costs the one thing a reader can rely on |
-| `--mark` only on something that navigates to a source, a policy or a cited finding | The moment it paints a button it is an accent again, and the argument for having it disappears |
-| A shadow only on something that floats | A panel has a rule; `shadow-float` and `shadow-hero` belong to the drawer and the landing hero |
-| No verdict hue outside a verdict | Existing rule in `verdict-hues.test.ts`, existing allowlist |
-
-The `--accent*` tokens are deleted rather than deprecated. A token that still resolves is a
-token somebody will use.
-
-Syntax highlighting is under the same budget. `highlight.js` defines around forty classes
-and the first system coloured six of them; an excerpt is measured material sitting a few
-centimetres from a verdict, and a six-colour rainbow beside a three-colour severity scale is
-two palettes arguing. It is now three values: a keyword carries its weight, a literal takes
-`--mark` because it is usually the string a reader is scanning the excerpt for, and a
-comment recedes.
-
-## Region by region
-
-Keyed to the names in [frontend-regions.md](frontend-regions.md).
-
-| Region | What changes |
-| --- | --- |
-| **Sidebar** | Square, `--sheet-2`, rule instead of border. Active item is ink, not accent |
-| **Topbar** | Model chips become mono; theme toggle unchanged |
-| **Review head** | Title to 27px Archivo; meta line to mono; status keeps its verdict-scale hue |
-| **Status ribbon** | Rebuilt as the instrument scale above; gains the decided count |
-| **Surface tabs** | Ink underline, `--sheet-2` strip, 12px |
-| **Attention queue** | Gains the spine; loses the opacity treatment; rows separated by rules, not cards |
-| **Finding detail** | Rebuilt on the attribution gutter; provenance footer absorbed into it |
-| **Context rail** | Now a drawer at every width, not only below `lg`. The gutter took the left margin and the finding is one reading column, so there is no inline margin left to put the case and the policies in at any size |
-| **Decision bar** | Becomes the DECIDED block of the gutter. Its own border and its "· human" label went with it: the gutter already says DECIDED and already says by whom |
-| **Clarification round** | Keeps its held tint — it is only ever shown while the review is held |
-| **Delta / Evidence / Retrieval / Report / Ask** | Tokens and type only; no structural change |
-| **Landing page** | Type scale and palette; the mock workbench inside it tracks the real one |
-| **All workspace pages** | Tokens and type; accent chrome swept to ink |
-
-## Test impact
-
-- `ui/verdict-hues.test.ts` — extended with the three new rules. The allowlist stays.
-- `features/review/overflow.test.tsx` — asserts on structural classes (`min-h-0`,
-  `overflow-x-clip`, `line-clamp-2`). The queue and finding rework must preserve them; they
-  guard real bugs that shipped.
-- Everything else asserts on text and roles, and is unaffected by a presentational pass.
-
-## What this does not change
-
-No API shape, no domain record, no persisted field, no copy that a test asserts on. The
-whole system is presentational — which is possible only because the three jobs were already
-kept apart in the model. That is the second commitment paying for itself.
+| No second face — no `font-read`, no `font-serif` | The model's voice is placement, attribution and the reading size. A face leaks; those do not |
+| No chroma outside a verdict | Any non-verdict token whose RGB channels differ fails `tokens.test.ts`. A bone is a temperature and a temperature is a colour |
+| No verdict hue outside a verdict | `verdict-hues.test.ts`, with a ten-file allowlist that a second test checks still names real files |
+| `-mark` only where something goes somewhere | Five files, allowlisted. The name is the decision; without the guard it becomes a synonym for ink |
+| A mark is drawn, never typed | A pasted `▲` falls back to the system font and breaks the set. Three blocks — arrows, ticks and crosses, geometric shapes — because covering only the third let the Delta surface keep `✓` and `→` underneath the guard for months. Comment lines are skipped: a doc comment naming the marks it draws is a description, not the thing. An *ASCII* character used as an icon (`~`, `+`, `=`) is the same defect and is not catchable — that half is review |
+| Lift only what leaves the page | Three files. Structure is separated by a rule and a rim |
+| One rim, from the token | Two rims a percent apart read as a rendering bug rather than as a decision |
+| No `line-clamp` on a `display: flex` box | They collide silently — the clamp is ignored and the row grows |
 
 ## Where this is still open
 
-- **The gutter below `lg`.** Collapsing to a label strip keeps the sequence and loses the
-  registration. Whether that is enough on a phone is not yet answered by anything but taste.
-- **Newsreader at 17px on Windows.** Tested on macOS only. If the low contrast fails against
-  a different rasteriser, the weight goes to 400 before the face does.
-- **The Atlas surface.** Settled: it stopped being a surface. Exploring a structure is not
-  one of the three jobs, so it is now the Structure tab of the judgement-context drawer,
-  scoped to the candidate being decided. See [the experience](experience.md).
+- **Onest's numerals.** They are proportional by default and the interface asks for tabular
+  everywhere a count sits in a column, which is a utility on every one of them rather than a
+  font feature set once. If a column of digits is ever seen to jitter, the fix is
+  `font-variant-numeric` on the token, not another `tabular-nums`.
+- **`--ink-3` is the same value in both themes.** It reads correctly on both grounds today,
+  which is a coincidence of `#737373` sitting near the middle. It is the first token that will
+  need splitting if either ground moves.
+- **The dark ramp's four greys are close.** `#0d0d0d`, `#141414` and `#1f1f1f` are three and
+  eleven steps apart, which holds on a good display and is the first thing to give way on a
+  cheap one. The rim is what carries the separation there, and it is doing more work than a
+  colour ramp should have to delegate.

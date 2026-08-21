@@ -12,23 +12,42 @@ START
   -> select_initial_candidates
   -> load_policy_corpus
   -> [retrieve_policy_set -> judge_candidate] x candidate
+  -> investigate_hinges
   -> generate_questions
        | settled / CI / limit / early stop
-       |   -> compose_final_review -> record_review -> END
+       |   -> write_final_synopsis -> compose_final_review -> record_review -> END
        |
        ` questions
+           -> write_waiting_synopsis
            -> compose_waiting_review
            -> record_waiting_review
            -> await_answers (interrupt)
            -> revise_case
            -> select_candidates_for_rejudgement
            -> [retrieve_policy_set -> judge_candidate] x candidate
+           -> investigate_hinges
            -> generate_questions
 ```
 
 Candidate work is exposed to LangGraph through `Send`; a node does not hide a thread pool
 or private orchestration loop. Retrieval and judgement are separate nodes in a visible
 candidate subgraph.
+
+`investigate_hinges` is unconditional and guards itself. Both judgement paths reach it and
+both leave it for `generate_questions`, so the edge carries no decision — and a conditional
+edge out of a `Send`-fanned node would evaluate its predicate once per branch against that
+branch's state, which is the wrong place to decide something about the whole set of
+findings. Where no model can call tools, or nothing hinged, the node returns before it reads
+a finding.
+
+`write_synopsis` is the one node that asks the model about the review rather than about a
+candidate: it writes the paragraph the report opens on, from verdicts that are already
+final. It is a node rather than something the composer does because the composer is a pure
+function of its draft, and because a graph whose nodes are its capabilities is how a model
+call stays visible. Both compose paths have one — a waiting review is a document somebody
+may hand over part-way through a clarification round. `ReviewSynopsisWriter` is the only
+capability with a default (`NoReviewSynopsis`): a workspace with no model available still
+composes its review, and the report opens on its counts.
 
 ## State and snapshots
 

@@ -61,10 +61,27 @@ The governing rule is:
 
 ## Non-negotiable boundaries
 
-The model never chooses repository elements to inspect and never owns IDs, fingerprints,
+The model never chooses what a verdict rests on, and never owns IDs, fingerprints,
 persistence keys, or human decisions. Repository analysis and candidate detection are
 deterministic. A `Finding` records ArchCompass's judgement; a `StandingDecision` separately
 records what people chose to do.
+
+There is one place where a model chooses what to look at, and it is narrow enough to state
+in a sentence: **investigation decides whether to interrupt a person, never what a verdict
+rests on.** A judgement that would stop the review to ask a question gets read-only atlas
+lookups first, because many of those questions are ones the repository answers. Three things
+keep it inside the boundary rather than beside it:
+
+- every lookup is recorded on the review, so nothing a model found is unverifiable;
+- the pass is never shown a numbered policy list, so a policy bearing cannot be added,
+  moved or invented — there is nothing to cite;
+- the revised finding is built with `dataclasses.replace`, so every field not named is
+  carried untouched: the verdict may only leave `held`, and evidence and policies may not
+  move at all.
+
+The candidate set stays entirely deterministic. The detector chooses the work; the
+application chooses which findings get a second look; the model chooses only which questions
+to put to the repository about a finding it was handed.
 
 LangGraph checkpoint data is resumable execution state. It is not the domain history.
 Immutable `Review` snapshots are the audit record.
