@@ -4,9 +4,9 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../../api";
+import { api, type Decision } from "../../api";
 import { VIEWPORT, setViewportWidth } from "../../test-setup";
-import { reviewFixture, runFixture } from "../../test-fixtures";
+import { investigationFixture, reviewFixture, runFixture } from "../../test-fixtures";
 import { ReviewPage } from "./review-page";
 
 function wrap(children: ReactNode, path = "/reviews/review-1") {
@@ -22,6 +22,24 @@ function wrap(children: ReactNode, path = "/reviews/review-1") {
       </MemoryRouter>
     </QueryClientProvider>
   );
+}
+
+/**
+ * The rows of the docket, and only the rows, in the order they are listed.
+ *
+ * Two things make `getAllByRole("button")` the wrong question here. A row opens in place, so
+ * an open list also holds that finding's own buttons — a disclosure, "Judgement context", the
+ * decision bar — which belong to the assessment rather than to the list. And the docket
+ * splits into groups when something moved, which is genuinely two lists on the page.
+ * `data-candidate` is what a row is, and reading them off the document is the same question
+ * the eye asks: what is on this docket, top to bottom.
+ */
+const rows = () => Array.from(document.querySelectorAll<HTMLElement>("[data-candidate]"));
+
+/** Wait for the docket to have listed the review, then hand back its rows. */
+async function docket() {
+  await screen.findAllByRole("list", { name: /^Candidates/ });
+  return rows();
 }
 
 beforeEach(() => {
@@ -43,7 +61,11 @@ describe("the review workbench", () => {
 
     render(wrap(<ReviewPage />));
 
-    expect(await screen.findByText("The repository cannot answer these")).toBeInTheDocument();
+    // Said once. The docket lists the round as its first item, under a header naming it and
+    // a sentence saying what answering does; the round used to restate both inside a second
+    // card with its own border and its own heading.
+    expect(await screen.findByText("1 question wants an answer")).toBeInTheDocument();
+    expect(screen.queryByText("The repository cannot answer these")).not.toBeInTheDocument();
     expect(screen.getByText("Who owns persistence?")).toBeInTheDocument();
     // And exactly one way to answer it. The chrome used to carry an "Answer 1" button while
     // the queue listed the clarification and the finding offered it again under "Hinges on" —
@@ -62,19 +84,33 @@ describe("the review workbench", () => {
     render(wrap(<ReviewPage />));
 
     // The default filter is "attention", so the cleared candidate is deliberately not listed.
-    const queue = await screen.findByRole("list", { name: "Candidates" });
-    const listed = within(queue)
-      .getAllByRole("button")
-      .map((item) => item.textContent ?? "");
+    const listed = (await docket()).map((item) => item.textContent ?? "");
     expect(listed[0]).toContain("The provider abstraction carries one implementation");
     expect(listed[1]).toContain("Domain depends on an adapter");
     expect(listed.join(" ")).not.toContain("The invoice boundary is appropriate");
 
     fireEvent.click(screen.getByRole("button", { name: /^All/ }));
-    const all = within(await screen.findByRole("list", { name: "Candidates" }))
-      .getAllByRole("button")
-      .map((item) => item.textContent ?? "");
+    const all = (await docket()).map((item) => item.textContent ?? "");
     expect(all.at(-1)).toContain("The invoice boundary is appropriate");
+  });
+
+  it("carries each candidate's claim on its own row, so the list can be read", async () => {
+    // The reason the rail and the workbench became one column. A rail of leaf names read
+    // `Clock`, `ConfigLoader`, `IdGenerator` — you could not tell from it which of six rows
+    // mattered, so you opened all six. A row that says what it claims is one most readers
+    // never have to open.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    for (const row of await docket()) {
+      const finding = review.findings.find((item) =>
+        row.textContent?.includes(item.candidate.summary),
+      );
+      expect(finding, `a row read "${row.textContent}" and claims nothing`).toBeDefined();
+    }
   });
 
   it("names whose voice produced each part of the assessment", async () => {
@@ -92,8 +128,12 @@ describe("the review workbench", () => {
 
     render(wrap(<ReviewPage />));
 
-    // The identifier leads, because that is what a reviewer is looking for.
-    const heading = await screen.findByRole("heading", { name: "domain.orders" });
+    // The identifier leads, because that is what a reviewer is looking for — and the claim
+    // is in the heading with it, because two candidates in one package share a name and a
+    // list of identical headings navigates nowhere.
+    const heading = await screen.findByRole("heading", {
+      name: "domain.orders — The provider abstraction carries one implementation",
+    });
     const article = heading.closest("article")!;
     expect(within(article).getByText("Measured")).toBeInTheDocument();
     expect(within(article).getByText("Judged")).toBeInTheDocument();
@@ -169,9 +209,10 @@ describe("the review workbench", () => {
 
     render(wrap(<ReviewPage />));
 
-    expect(await screen.findByText("0/1")).toBeInTheDocument();
+    const resolved = await screen.findByText(/of 1 resolved/);
+    expect(resolved).toHaveTextContent("0 of 1 resolved");
     fireEvent.click(screen.getByRole("button", { name: "Skip explicitly" }));
-    expect(screen.getByText("1/1")).toBeInTheDocument();
+    expect(screen.getByText(/of 1 resolved/)).toHaveTextContent("1 of 1 resolved");
 
     fireEvent.click(screen.getByRole("button", { name: "Save and rejudge" }));
     await waitFor(() =>
@@ -326,7 +367,7 @@ describe("the review workbench", () => {
 
     // And seeing it is the same action as opening it.
     fireEvent.click(rows[0]);
-    expect(screen.getByRole("tab", { name: /Workbench/ })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: /Docket/ })).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -383,15 +424,13 @@ describe("the review workbench", () => {
     render(wrap(<ReviewPage />));
 
     // A waived material finding is settled. The queue stops asking about it...
-    const queue = await screen.findByRole("list", { name: "Candidates" });
-    expect(within(queue).getAllByRole("button")).toHaveLength(1);
+    expect(await docket()).toHaveLength(1);
     expect(screen.getByRole("button", { name: /^Attention 1/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Settled 2/ })).toBeInTheDocument();
 
     // ...and says so where it was, rather than only inside the finding.
     fireEvent.click(screen.getByRole("button", { name: /^Settled 2/ }));
-    const settled = await screen.findByRole("list", { name: "Candidates" });
-    expect(within(settled).getByText("Waived by the team")).toBeInTheDocument();
+    expect(await screen.findByText("Waived by the team")).toBeInTheDocument();
   });
 
   it("widens the queue's filter when another surface hands it a candidate", async () => {
@@ -414,8 +453,8 @@ describe("the review workbench", () => {
       "aria-pressed",
       "true",
     );
-    const queue = await screen.findByRole("list", { name: "Candidates" });
-    expect(within(queue).getByText("The invoice boundary is appropriate")).toBeInTheDocument();
+    await docket();
+    expect(screen.getByText("The invoice boundary is appropriate")).toBeInTheDocument();
   });
 
   it("keeps the audit behind the judgement it audits", async () => {
@@ -428,8 +467,7 @@ describe("the review workbench", () => {
 
     render(wrap(<ReviewPage />));
 
-    const queue = await screen.findByRole("list", { name: "Candidates" });
-    fireEvent.click(within(queue).getAllByRole("button")[1]);
+    fireEvent.click((await docket())[1]);
     fireEvent.click(await screen.findByRole("button", { name: "Judgement context" }));
 
     const drawer = await screen.findByRole("dialog", { name: "Judgement context" });
@@ -439,19 +477,90 @@ describe("the review workbench", () => {
     expect(within(drawer).getByText("ollama:nomic-embed-text")).toBeInTheDocument();
   });
 
-  it("keeps the queue on screen while another surface is read", async () => {
-    // The charter's first interface rule is that the queue is the product. It used to be
-    // one of seven peer tabs, six of which unmounted it.
+  it("leads the case with the answers this candidate was actually judged against", async () => {
+    // A question records the candidates it was asked about, and the case tab used to ignore
+    // that: every review that had been through two clarification rounds showed the same
+    // undifferentiated list under every finding, and a reader had to re-derive which answer
+    // was about the thing in front of them. The other answers stay reachable, because the
+    // judge is shown the whole case and a rail called Judgement context has to be true.
+    const question = (id: string, text: string, candidateIds: string[]) => ({
+      id,
+      text,
+      facet: "decision",
+      candidate_ids: candidateIds,
+      round: 1,
+      equivalence_key: `decision:${candidateIds.join(",")}`,
+      options: [],
+    });
+    const review = reviewFixture({
+      status: "completed",
+      questions: [],
+      case: {
+        id: "case-1",
+        revision: 3,
+        answers: [
+          {
+            question: question("q-1", "Who owns persistence?", ["candidate-1"]),
+            status: "answered",
+            value: "The domain owns it.",
+            actor: "engineer",
+            answered_at: "2026-01-02T00:00:00Z",
+          },
+          {
+            question: question("q-2", "Is the second adapter planned?", ["candidate-2"]),
+            status: "answered",
+            value: "Yes, next quarter.",
+            actor: "engineer",
+            answered_at: "2026-01-02T00:00:00Z",
+          },
+        ],
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-02T00:00:00Z",
+      },
+    });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click((await docket())[1]);
+    fireEvent.click(await screen.findByRole("button", { name: "Judgement context" }));
+    const drawer = await screen.findByRole("dialog", { name: "Judgement context" });
+
+    expect(
+      within(drawer).getByText("Who owns persistence?").closest("details"),
+    ).toBeNull();
+    const folded = within(drawer)
+      .getByText("Is the second adapter planned?")
+      .closest("details");
+    expect(folded).not.toBeNull();
+    expect(folded).not.toHaveAttribute("open");
+  });
+
+  it("keeps your place in the docket while another surface is read", async () => {
+    // The charter's first interface rule is that the queue is the product, and the rule used
+    // to be enforced as "the rail stays mounted": the queue was a column beside the work, so
+    // it could be there while the work changed. It is the work now, and cannot be beside
+    // itself — so what the rule protects is the thing it always meant. Reading the report is
+    // not supposed to cost you the row you were on, the filter you set, or your scroll.
     const review = reviewFixture({ status: "completed", questions: [] });
     vi.spyOn(api, "review").mockResolvedValue(review);
     vi.spyOn(api, "reviews").mockResolvedValue([review]);
 
     render(wrap(<ReviewPage />));
 
-    fireEvent.click(await screen.findByRole("tab", { name: /Delta/ }));
-    expect(screen.getByRole("list", { name: "Candidates" })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /^All/ }));
+    fireEvent.click((await docket())[2]);
+    const before = rows().map((row) => row.dataset.candidate);
+
+    fireEvent.click(screen.getByRole("tab", { name: /Delta/ }));
     fireEvent.click(screen.getByRole("tab", { name: /Ask/ }));
-    expect(screen.getByRole("list", { name: "Candidates" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: /Docket/ }));
+
+    const after = await docket();
+    expect(after.map((row) => row.dataset.candidate)).toEqual(before);
+    expect(after[2]).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /^All/ })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("walks the queue with the keyboard and opens what it lands on", async () => {
@@ -462,21 +571,65 @@ describe("the review workbench", () => {
 
     render(wrap(<ReviewPage />));
 
-    const queue = await screen.findByRole("list", { name: "Candidates" });
-    const first = within(queue).getAllByRole("button")[0];
-    expect(first).toHaveAttribute("aria-current", "true");
+    const first = (await docket())[0];
+    expect(first).toHaveAttribute("aria-expanded", "true");
 
     fireEvent.keyDown(first, { key: "j" });
-    const moved = within(screen.getByRole("list", { name: "Candidates" })).getAllByRole("button");
-    expect(moved[1]).toHaveAttribute("aria-current", "true");
-    // And the column beside it is showing what the queue landed on.
+    const moved = rows();
+    expect(moved[1]).toHaveAttribute("aria-expanded", "true");
+    // And what it landed on is open under it, rather than painted into a column elsewhere.
     await waitFor(() =>
-      expect(document.querySelector("#finding-candidate-1")).not.toBeNull(),
+      expect(document.querySelector("#finding-panel-candidate-1")).not.toBeNull(),
     );
 
     fireEvent.keyDown(moved[1], { key: "ArrowUp" });
-    const back = within(screen.getByRole("list", { name: "Candidates" })).getAllByRole("button");
-    expect(back[0]).toHaveAttribute("aria-current", "true");
+    expect(rows()[0]).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("hands you the next thing that wants you when you decide one", async () => {
+    // The rhythm the two-pane version never had, and the two ways it can go wrong: sending
+    // you back to the top of the list, and letting the row you just decided vanish from
+    // under you so there is no way to check what you did.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    const decisions: Decision[] = [];
+    vi.spyOn(api, "decisions").mockImplementation(async () => ({
+      branch_id: "branch-1",
+      decisions: [...decisions],
+    }));
+    vi.spyOn(api, "decide").mockImplementation(async (_review, candidateId) => {
+      const finding = review.findings.find((item) => item.candidate.id === candidateId)!;
+      const decision: Decision = {
+        id: `decision-${candidateId}`,
+        branch_id: "branch-1",
+        candidate_id: candidateId,
+        disposition: "accept",
+        author: "user",
+        reasoning: null,
+        decided_at: "2026-01-01T00:00:00Z",
+        review_id: "review-1",
+        finding_verdict: finding.verdict,
+        finding_model_identity: "fake:deterministic",
+        finding_prompt_identity: "judge:v1",
+        finding_retrieval_identity: "retrieval-1",
+      };
+      decisions.push(decision);
+      return decision;
+    });
+
+    render(wrap(<ReviewPage />));
+
+    // Two candidates want a person; the docket opens on the first.
+    const [first, second] = await docket();
+    expect(first).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Accept and act" }));
+
+    // The one below it opens...
+    await waitFor(() => expect(rows()[1]).toHaveAttribute("aria-expanded", "true"));
+    expect(rows()[1].dataset.candidate).toBe(second.dataset.candidate);
+    // ...and the one just decided is still listed, saying what was decided about it.
+    expect(rows()[0].textContent).toContain("Accepted by the team");
   });
 
   it("puts what moved since the last review at the top of the queue", async () => {
@@ -500,13 +653,12 @@ describe("the review workbench", () => {
     render(wrap(<ReviewPage />));
 
     fireEvent.click(await screen.findByRole("button", { name: /^All/ }));
-    const queue = await screen.findByRole("list", { name: "Candidates" });
-    expect(within(queue).getByText("Moved since review 1 · 1")).toBeInTheDocument();
-    expect(within(queue).getByText("Carried forward · 2")).toBeInTheDocument();
+    const listed = await docket();
+    expect(screen.getByText("Moved since review 1")).toBeInTheDocument();
+    expect(screen.getByText("Carried forward")).toBeInTheDocument();
     // The one that moved leads, even though it came back cleared and two material and held
     // candidates were carried forward — the headings are what make that honest.
-    const rows = within(queue).getAllByRole("button");
-    expect(rows[0].textContent).toContain("The invoice boundary is appropriate");
+    expect(listed[0].textContent).toContain("The invoice boundary is appropriate");
   });
 
   it("marks a review that is worked through, rather than showing an empty list", async () => {
@@ -546,6 +698,63 @@ describe("the review workbench", () => {
     expect(screen.getByRole("tab", { name: /Report/ })).toHaveAttribute("aria-selected", "true");
   });
 
+  it("leads the report with what the review comes to, and says it once", async () => {
+    // The report used to open on counts. "1 material, 3 held" is how much there is, not
+    // what it amounts to, and a reader arriving at a review of forty candidates wants the
+    // second thing first. The document carries the paragraph too — it is downloaded and
+    // attached to pull requests — so the page has to render the document without it or the
+    // reader meets the same three sentences twice on one screen.
+    const review = reviewFixture({
+      status: "completed",
+      questions: [],
+      synopsis: "Both material findings reach past the ports layer to the same adapter.",
+      synopsis_identity: "google:gemini-3-pro",
+    });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "reviewReport").mockResolvedValue(
+      [
+        "# Architecture review — payments",
+        "",
+        "Four candidates judged: **1 material**, 3 held, 0 cleared.",
+        "",
+        "**In summary.** Both material findings reach past the ports layer to the same adapter.",
+        "",
+        "## Material — 1",
+      ].join("\n"),
+    );
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Report/ }));
+
+    const summary = await screen.findAllByText(
+      /Both material findings reach past the ports layer/,
+    );
+    expect(summary).toHaveLength(1);
+    // In the model's voice: attributed, at the reading size, ahead of the document.
+    expect(screen.getByText("In summary")).toBeInTheDocument();
+    expect(screen.getByText(/google:gemini-3-pro/)).toBeInTheDocument();
+    // And the rest of the document is untouched.
+    expect(screen.getByText(/Four candidates judged/)).toBeInTheDocument();
+  });
+
+  it("opens the report on its counts when no model wrote a summary", async () => {
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "reviewReport").mockResolvedValue(
+      "# Architecture review — payments\n\nFour candidates judged: **1 material**, 3 held, 0 cleared.",
+    );
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Report/ }));
+
+    expect(await screen.findByText(/Four candidates judged/)).toBeInTheDocument();
+    expect(screen.queryByText("In summary")).not.toBeInTheDocument();
+  });
+
   it("re-raises a decision taken against a verdict that has since moved", async () => {
     // `StandingDecision` records the verdict it was decided against. Nothing read it, so a
     // team that accepted a material finding and saw it re-judged held was never told.
@@ -575,10 +784,9 @@ describe("the review workbench", () => {
     render(wrap(<ReviewPage />));
 
     // Still in the attention filter, which counts what wants a person, and saying why.
-    const queue = await screen.findByRole("list", { name: "Candidates" });
-    const stale = within(queue)
-      .getAllByRole("button")
-      .find((row) => row.textContent?.includes("Domain depends on an adapter"))!;
+    const stale = (await docket()).find((row) =>
+      row.textContent?.includes("Domain depends on an adapter"),
+    )!;
     expect(stale.textContent).toContain("against material");
     expect(stale.textContent).toContain("now held");
 
@@ -599,7 +807,11 @@ describe("the review workbench", () => {
         messages: [
           {
             question: "Why was the invoice boundary cleared?",
-            answer: { text: "It matches the boundary policy.", supporting_candidate_ids: [] },
+            answer: {
+              text: "It matches the boundary policy.",
+              supporting_candidate_ids: [],
+              investigation: null,
+            },
             asked_at: "2026-01-02T00:00:00Z",
           },
         ],
@@ -610,7 +822,7 @@ describe("the review workbench", () => {
         messages: [
           {
             question: "Which policies were retrieved for the provider candidate?",
-            answer: { text: "Dependency direction.", supporting_candidate_ids: [] },
+            answer: { text: "Dependency direction.", supporting_candidate_ids: [], investigation: null },
             asked_at: "2026-01-02T00:01:00Z",
           },
         ],
@@ -652,6 +864,7 @@ describe("the review workbench", () => {
             answer: {
               text: "Resolve the provider at composition time.",
               supporting_candidate_ids: ["candidate-3"],
+              investigation: null,
             },
             asked_at: "2026-01-02T00:00:00Z",
           },
@@ -664,15 +877,55 @@ describe("the review workbench", () => {
     const panel = screen.getByRole("tabpanel");
 
     fireEvent.click(await within(panel).findByText("The invoice boundary is appropriate"));
-    expect(screen.getByRole("tab", { name: /Workbench/ })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: /Docket/ })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    const queue = await screen.findByRole("list", { name: "Candidates" });
-    expect(within(queue).getByText("The invoice boundary is appropriate")).toBeInTheDocument();
+    await docket();
+    expect(screen.getByText("The invoice boundary is appropriate")).toBeInTheDocument();
   });
 
-  it("moves the queue and the context into drawers on a phone", async () => {
+  it("shows what an answer looked up in the repository", async () => {
+    // An answer that says "nothing else implements it" has either checked or guessed, and
+    // a reader with only the sentence cannot tell which. The transcript is the difference.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "conversations").mockResolvedValue([
+      {
+        id: "conversation-1",
+        review_id: "review-1",
+        messages: [
+          {
+            question: "Does anything else implement it?",
+            answer: {
+              text: "One implementation, in billing.sql.",
+              supporting_candidate_ids: [],
+              investigation: investigationFixture({ candidate_id: "" }),
+            },
+            asked_at: "2026-01-02T00:00:00Z",
+          },
+        ],
+      },
+    ]);
+
+    render(wrap(<ReviewPage />));
+    fireEvent.click(await screen.findByRole("tab", { name: /Ask/ }));
+    const panel = screen.getByRole("tabpanel");
+
+    // Closed by default: the answer is what the reader came for.
+    expect(await within(panel).findByText("2 lookups")).toBeInTheDocument();
+    expect(within(panel).getByText(/asked what implementations node_a1/)).not.toBeVisible();
+    fireEvent.click(within(panel).getByText("Looked up"));
+    expect(within(panel).getByText(/asked what implementations node_a1/)).toBeVisible();
+  });
+
+  it("is the same one column on a phone as on a desk", async () => {
+    // The two-pane version could not fit a phone, so it grew a phone version: the queue in a
+    // drawer, the finding on the page, a back bar to get between them — a second interface
+    // with its own navigation, its own bugs and nothing in common with the one people learn
+    // on a laptop. One column is the same column at 390px. Nothing is behind a drawer, and
+    // there is nothing to go "back" to, because opening a row never took you anywhere.
     setViewportWidth(VIEWPORT.phone);
     const review = reviewFixture({ status: "completed", questions: [] });
     vi.spyOn(api, "review").mockResolvedValue(review);
@@ -680,20 +933,19 @@ describe("the review workbench", () => {
 
     render(wrap(<ReviewPage />));
 
-    // One way in, not two. With a finding open the back bar is it — this used to sit a thumb
-    // below a second "Attention queue" button that opened the same drawer and did not say
-    // where it went.
-    const open = await screen.findByRole("button", { name: "← Queue" });
-    expect(screen.queryByRole("button", { name: "Attention queue" })).not.toBeInTheDocument();
-    fireEvent.click(open);
-    const drawer = await screen.findByRole("dialog", { name: "Attention queue" });
-    expect(within(drawer).getByText("The provider abstraction carries one implementation"))
-      .toBeInTheDocument();
+    const [first] = await docket();
+    expect(screen.queryByRole("button", { name: "Queue" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Attention queue" })).not.toBeInTheDocument();
 
-    fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Attention queue" })).not.toBeInTheDocument(),
-    );
+    // The row that is open shows its whole assessment under itself, with the list still there.
+    expect(first).toHaveAttribute("aria-expanded", "true");
+    const article = first.closest("article")!;
+    expect(within(article).getByText("Judged")).toBeInTheDocument();
+    expect(within(article).getByText(/Nobody has decided this/)).toBeInTheDocument();
+
+    // And closing it leaves you exactly where you were, on the row you closed.
+    fireEvent.click(first);
+    expect(rows()[0]).toHaveAttribute("aria-expanded", "false");
   });
 
   it("shows the failure of a failed review without hiding the rest of it", async () => {
@@ -749,5 +1001,82 @@ describe("the review workbench", () => {
 
     await screen.findByText("Review lineage");
     expect(screen.queryByText(/In progress/)).not.toBeInTheDocument();
+  });
+
+  it("says what the review checked before it asked", async () => {
+    // A hinge a reader cannot see the checking behind is a hinge they cannot weigh: "the
+    // repository is silent on this" and "nothing looked" are opposite facts about a
+    // question, and until this fold existed the screen said neither.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    review.findings[1].investigation_identity = "investigation-1";
+    review.investigation_manifest = [investigationFixture({ candidate_id: "candidate-1" })];
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    const heading = await screen.findByRole("heading", {
+      name: "domain.orders — Domain depends on an adapter",
+    });
+    const article = heading.closest("article")!;
+    // One row opens at a time and the queue leads with the material one, so this hinged
+    // candidate has to be opened before its assessment is on screen.
+    fireEvent.click(within(article).getByRole("button", { expanded: false }));
+    // The closed state names the count and what came of it, because a fold that says only
+    // "Looked up" makes a reader open it to find out whether it was worth opening.
+    expect(within(article).getByText("2 lookups · settled the hinge")).toBeInTheDocument();
+    // The transcript is in the DOM and folded, like the provenance beside it.
+    expect(within(article).getByText(/asked what implementations node_a1/)).not.toBeVisible();
+    fireEvent.click(within(article).getByText("Looked up"));
+    expect(within(article).getByText(/asked what implementations node_a1/)).toBeVisible();
+    expect(
+      within(article).getByText("One implementation, and no test reaches it."),
+    ).toBeVisible();
+  });
+
+  it("says why nothing could be looked up rather than showing an empty fold", async () => {
+    const review = reviewFixture({ status: "completed", questions: [] });
+    review.investigation_manifest = [
+      investigationFixture({
+        candidate_id: "candidate-1",
+        lookups: [],
+        closing: "",
+        resolved: false,
+        withheld: "This repository has changed since the review ran; index it again.",
+      }),
+    ];
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    const heading = await screen.findByRole("heading", {
+      name: "domain.orders — Domain depends on an adapter",
+    });
+    const article = heading.closest("article")!;
+    // One row opens at a time and the queue leads with the material one, so this hinged
+    // candidate has to be opened before its assessment is on screen.
+    fireEvent.click(within(article).getByRole("button", { expanded: false }));
+    expect(within(article).getByText("nothing could be looked up")).toBeInTheDocument();
+    fireEvent.click(within(article).getByText("Looked up"));
+    expect(within(article).getByText(/index it again/)).toBeVisible();
+  });
+
+  it("shows no fold at all for a finding nothing was looked up for", async () => {
+    // An empty disclosure is a claim that something looked. Most findings never hinge.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    const heading = await screen.findByRole("heading", {
+      name: "domain.orders — Domain depends on an adapter",
+    });
+    const article = heading.closest("article")!;
+    // One row opens at a time and the queue leads with the material one, so this hinged
+    // candidate has to be opened before its assessment is on screen.
+    fireEvent.click(within(article).getByRole("button", { expanded: false }));
+    expect(within(article).queryByText("Looked up")).not.toBeInTheDocument();
   });
 });

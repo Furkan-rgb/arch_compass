@@ -7,6 +7,7 @@ import { absoluteTime, humanise, shortId, splitQualified } from "../../lib/forma
 import { Tag } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/field";
+import { ChevronDown } from "../../ui/icons";
 import { MetaList, MetaRow, Mono } from "../../ui/meta";
 import { Label } from "../../ui/panel";
 import { Tabs, TabPanel } from "../../ui/tabs";
@@ -64,7 +65,7 @@ export function ContextRail({
 
       <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto px-3 py-3">
         <TabPanel id="case" active={tab}>
-          <CaseContext review={review} />
+          <CaseContext review={review} finding={finding} />
         </TabPanel>
 
         <TabPanel id="policies" active={tab}>
@@ -377,78 +378,70 @@ function StructureContext({ review, finding }: { review: Review; finding: Findin
   );
 }
 
-function CaseContext({ review }: { review: Review }) {
+/**
+ * The answers this candidate was judged against, and the rest of the case beneath them.
+ *
+ * Every question records the candidates it was asked about — the model returns a position
+ * in the findings list and the application resolves it to a real id — so `candidate_ids`
+ * is an application-owned fact, not a model's guess, and this is what it is for.
+ *
+ * The other answers stay on the page rather than being filtered away, folded shut. The tab
+ * is called Judgement context and it has to be true: the judge is shown the whole case, so
+ * a rail that hid two thirds of it would be describing a prompt that was never sent. What a
+ * reader actually needed was not a smaller case but an order — this candidate's answers
+ * first, and the rest where they can still be reached.
+ */
+function CaseContext({ review, finding }: { review: Review; finding: Finding | null }) {
   const { case: architectureCase } = review;
+  const bearing = finding
+    ? architectureCase.answers.filter((answer) =>
+        answer.question.candidate_ids.includes(finding.candidate.id),
+      )
+    : architectureCase.answers;
+  const rest = finding
+    ? architectureCase.answers.filter((answer) => !bearing.includes(answer))
+    : [];
+
   return (
     <div className="grid gap-3">
+      {/* One block, because there is one channel. The case used to show Constraints,
+          Decisions and Clarification answers as three peers, two of which were always
+          empty — nothing in the product could write them, so the drawer's honest report on
+          most reviews was "None recorded" twice above the only list that ever filled. */}
       <div>
-        <Label>Constraints · {architectureCase.constraints.length}</Label>
-        {architectureCase.constraints.length ? (
+        <Label>
+          {finding ? "Answered about this candidate" : "Answered"} · {bearing.length}
+        </Label>
+        {bearing.length ? (
           <ul className="mt-1.5 grid gap-1.5">
-            {architectureCase.constraints.map((constraint, index) => (
-              <li
-                key={index}
-                className="rounded-md border border-rule bg-surface-2 px-2.5 py-2 text-xs leading-5 text-ink-2"
-              >
-                <span className="mr-1.5 font-semibold text-ink">
-                  {humanise(constraint.facet)}
-                </span>
-                {constraint.text}
-              </li>
+            {bearing.map((answer) => (
+              <AnswerCard key={answer.question.id} answer={answer} />
             ))}
           </ul>
         ) : (
-          <p className="mt-1.5 text-xs text-ink-3">None recorded.</p>
+          <p className="mt-1.5 text-xs text-ink-3">
+            {architectureCase.answers.length
+              ? "No question was asked about this candidate. It was judged against the rest of the case below."
+              : "Nothing has been asked yet. A case fills in when a judgement turns on something the repository cannot settle."}
+          </p>
         )}
       </div>
 
-      <div>
-        <Label>Decisions · {architectureCase.decisions.length}</Label>
-        {architectureCase.decisions.length ? (
+      {rest.length ? (
+        <details className="group">
+          <summary className="flex min-h-11 list-none items-center gap-2 rounded-md px-1 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-ink-3 transition hover:bg-surface-2 focus-visible:-outline-offset-2">
+            <span className="min-w-0 flex-1 text-left">
+              Asked about other candidates · {rest.length}
+            </span>
+            <ChevronDown className="size-4 shrink-0 transition group-open:rotate-180" />
+          </summary>
           <ul className="mt-1.5 grid gap-1.5">
-            {architectureCase.decisions.map((decision, index) => (
-              <li
-                key={index}
-                className="rounded-md border border-rule bg-surface-2 px-2.5 py-2 text-xs leading-5 text-ink-2"
-              >
-                {decision.text}
-              </li>
+            {rest.map((answer) => (
+              <AnswerCard key={answer.question.id} answer={answer} />
             ))}
           </ul>
-        ) : (
-          <p className="mt-1.5 text-xs text-ink-3">None recorded.</p>
-        )}
-      </div>
-
-      <div>
-        <Label>Clarification answers · {architectureCase.answers.length}</Label>
-        {architectureCase.answers.length ? (
-          <ul className="mt-1.5 grid gap-1.5">
-            {architectureCase.answers.map((answer) => (
-              <li
-                key={answer.question.id}
-                className="rounded-md border border-rule bg-surface-2 px-2.5 py-2"
-              >
-                <div className="text-xs font-semibold leading-5 text-ink">
-                  {answer.question.text}
-                </div>
-                <div className="mt-1 text-xs leading-5 text-ink-2">
-                  {answer.status === "skipped" ? (
-                    <span className="text-ink-3">Explicitly skipped</span>
-                  ) : (
-                    answer.value
-                  )}
-                </div>
-                <div className="mt-1 text-[11px] text-ink-3">
-                  {answer.actor} · {absoluteTime(answer.answered_at)}
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-1.5 text-xs text-ink-3">No clarification has been answered yet.</p>
-        )}
-      </div>
+        </details>
+      ) : null}
 
       <MetaList className="mt-1 border-t border-rule pt-1">
         <MetaRow label="Revision">{architectureCase.revision}</MetaRow>
@@ -458,5 +451,23 @@ function CaseContext({ review }: { review: Review }) {
         </MetaRow>
       </MetaList>
     </div>
+  );
+}
+
+function AnswerCard({ answer }: { answer: Review["case"]["answers"][number] }) {
+  return (
+    <li className="rounded-md border border-rule bg-surface-2 px-2.5 py-2">
+      <div className="text-xs font-semibold leading-5 text-ink">{answer.question.text}</div>
+      <div className="mt-1 text-xs leading-5 text-ink-2">
+        {answer.status === "skipped" ? (
+          <span className="text-ink-3">Explicitly skipped</span>
+        ) : (
+          answer.value
+        )}
+      </div>
+      <div className="mt-1 text-[11px] text-ink-3">
+        {answer.actor} · {absoluteTime(answer.answered_at)}
+      </div>
+    </li>
   );
 }
