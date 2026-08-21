@@ -7,46 +7,135 @@ import { api } from "../api";
 import { cn } from "../lib/cn";
 import { useTheme } from "../lib/theme";
 import { StatusDot } from "../ui/badge";
-import { Button, ButtonLink } from "../ui/button";
-import { Wordmark } from "../ui/brand";
 import { Drawer } from "../ui/drawer";
+import { CommandPalette, useCommandPalette } from "../ui/command-palette";
 import {
   BookIcon,
   CaseIcon,
+  CompassMark,
   FolderIcon,
   LayersIcon,
   MenuIcon,
   MonitorIcon,
   MoonIcon,
   PlayIcon,
+  SearchIcon,
   SlidersIcon,
   SunIcon,
 } from "../ui/icons";
 
-type NavItem = { to: string; label: string; icon: typeof PlayIcon; end?: boolean };
+/**
+ * Everywhere you can go, in one row.
+ *
+ * The 232px sidebar is gone. It carried six links and a workspace path down the full height
+ * of every screen, and the one surface that actually needs the width — the review desk, which
+ * puts the queue, the model's argument and the code it rests on beside each other — was
+ * paying for it on every one of them. Six labels fit in a rail; a rail costs 48px once.
+ *
+ * `short` is what the rail prints and `label` is the whole name. They differ only where the
+ * whole name is a phrase — "Start a review" is what the drawer and the palette say, because
+ * there is room to say it and because it is what somebody searching would type.
+ */
+type NavItem = { to: string; label: string; short: string; icon: typeof PlayIcon; end?: boolean };
 
 const REVIEW_NAV: NavItem[] = [
-  { to: "/start", label: "Start a review", icon: PlayIcon },
-  { to: "/reviews", label: "Reviews", icon: LayersIcon },
+  { to: "/start", label: "Start a review", short: "Start", icon: PlayIcon },
+  { to: "/reviews", label: "Reviews", short: "Reviews", icon: LayersIcon },
 ];
 
 const WORKSPACE_NAV: NavItem[] = [
-  { to: "/repositories", label: "Repositories", icon: FolderIcon },
-  { to: "/cases", label: "Architecture cases", icon: CaseIcon },
-  { to: "/policies", label: "Policies", icon: BookIcon },
-  { to: "/settings", label: "Models", icon: SlidersIcon },
+  { to: "/repositories", label: "Repositories", short: "Repositories", icon: FolderIcon },
+  { to: "/cases", label: "Architecture cases", short: "Cases", icon: CaseIcon },
+  { to: "/policies", label: "Policies", short: "Policies", icon: BookIcon },
+  { to: "/settings", label: "Models", short: "Models", icon: SlidersIcon },
 ];
 
-function NavGroup({
-  label,
-  items,
-  onNavigate,
-}: {
-  label: string;
-  items: NavItem[];
-  onNavigate?: () => void;
-}) {
+const NAV = [...REVIEW_NAV, ...WORKSPACE_NAV];
+
+/**
+ * The routes that are a workspace rather than a document, and get the whole viewport.
+ *
+ * A review is not a page you scroll — it is a surface you work at, with a list down one side
+ * that has to stay put while the column beside it changes. That needs a fixed height to
+ * divide, which a `max-w-[1560px]` box inside a scrolling document cannot give it.
+ *
+ * Matched on the path rather than announced by the page, because a page that announces it in
+ * an effect paints once with the padding first and the desk jumps on every navigation.
+ */
+const WORKSPACE_ROUTES = [/^\/reviews\/[^/]+$/];
+
+const isWorkspaceRoute = (pathname: string) =>
+  WORKSPACE_ROUTES.some((pattern) => pattern.test(pathname));
+
+/**
+ * A control in the rail.
+ *
+ * The rail is dark in both themes — it is the one chrome in the product that does not invert —
+ * so its controls cannot borrow `ink`/`surface` from the page. They speak in the band tokens,
+ * which is the same set the landing page's field band uses and the only place a fixed dark
+ * ground is allowed to live.
+ */
+// `pointer-coarse` grows the target in both directions, not just the one. An icon-only
+// control is square, so a floor on the height alone leaves a 36×44 button — tall enough to
+// pass a test that measures one axis and still too narrow for a thumb.
+const railControl =
+  "inline-flex min-h-9 min-w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11 items-center justify-center gap-2 rounded-sm px-2.5 text-[13px] font-medium text-band-ink-2 transition hover:bg-white/8 hover:text-band-ink focus-visible:outline-band-ink";
+
+function ThemeToggle() {
+  const { preference, cycle } = useTheme();
+  const Glyph = preference === "light" ? SunIcon : preference === "dark" ? MoonIcon : MonitorIcon;
+  const next = preference === "system" ? "light" : preference === "light" ? "dark" : "system";
   return (
+    <button
+      type="button"
+      onClick={cycle}
+      title={`Theme: ${preference}. Switch to ${next}.`}
+      aria-label={`Theme: ${preference}. Switch to ${next}.`}
+      className={cn(railControl, "min-w-9 justify-center px-0")}
+    >
+      <Glyph className="size-4" />
+    </button>
+  );
+}
+
+/**
+ * Which two models this workspace is running, as two links to the one page that changes them.
+ *
+ * A dot and a name rather than a labelled card: in a 48px rail there is one line to spend,
+ * and what a reader checks here is whether something is selected at all. The role stays in
+ * the accessible name so the link is still askable for by what it is.
+ */
+function ModelChips({ className, stacked }: { className?: string; stacked?: boolean }) {
+  const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
+  const chip = (role: string, value: string | undefined, pinned: boolean | undefined) => (
+    <Link
+      to="/settings"
+      aria-label={`${role} model: ${value || "not selected"}`}
+      title={`${role}${pinned ? " · pinned" : ""}: ${value || "not selected"}`}
+      className={cn(
+        railControl,
+        "min-w-0 gap-1.5 font-mono text-[11px]",
+        stacked && "justify-start",
+      )}
+    >
+      <StatusDot tone={value ? "cleared" : "held"} />
+      <span className="sr-only">{role}</span>
+      <span aria-hidden="true" className="max-w-[9rem] truncate">
+        {value || "not selected"}
+      </span>
+    </Link>
+  );
+  return (
+    <div className={cn("flex min-w-0 items-center gap-0.5", stacked && "flex-col items-stretch", className)}>
+      {chip("Reasoning", workspace.data?.models.reasoning?.model, workspace.data?.models.pinned)}
+      {chip("Embedding", workspace.data?.models.embedding?.model, workspace.data?.models.embedding_pinned)}
+    </div>
+  );
+}
+
+/** The nav as a column, for the phone drawer. Full labels here — there is room for them. */
+function DrawerNav({ onNavigate }: { onNavigate: () => void }) {
+  const group = (label: string, items: NavItem[]) => (
     <div>
       <div className="px-2.5 pb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-ink-3">
         {label}
@@ -60,10 +149,8 @@ function NavGroup({
               onClick={onNavigate}
               className={({ isActive }) =>
                 cn(
-                  "flex min-h-9 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium transition",
-                  isActive
-                    ? "bg-sunken text-ink"
-                    : "text-ink-2 hover:bg-sunken hover:text-ink",
+                  "flex min-h-11 items-center gap-2.5 rounded-sm px-2.5 text-sm font-medium transition",
+                  isActive ? "bg-sunken text-ink" : "text-ink-2 hover:bg-sunken hover:text-ink",
                 )
               }
             >
@@ -79,72 +166,25 @@ function NavGroup({
       </ul>
     </div>
   );
-}
-
-function ThemeToggle() {
-  const { preference, cycle } = useTheme();
-  const Glyph = preference === "light" ? SunIcon : preference === "dark" ? MoonIcon : MonitorIcon;
-  const next = preference === "system" ? "light" : preference === "light" ? "dark" : "system";
-  // A 16px glyph and a 44px target. The box grows and the negative margin hands the height
-  // straight back to the header, so the row keeps the height it had and the thumb still gets
-  // the whole square. Same trick as the menu button on the other side of the row — and both
-  // of them are sized rather than pulled sideways, so the two targets never touch.
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={cycle}
-      title={`Theme: ${preference}. Switch to ${next}.`}
-      aria-label={`Theme: ${preference}. Switch to ${next}.`}
-      className="-my-1.5 min-h-11 min-w-11 px-2"
-    >
-      <Glyph className="size-4" />
-    </Button>
+    <nav aria-label="Sections" className="grid gap-5">
+      {group("Review", REVIEW_NAV)}
+      {group("Workspace", WORKSPACE_NAV)}
+    </nav>
   );
 }
 
-/** Reasoning and embedding, side by side, because they are two independent choices. */
-function ModelChips({ className }: { className?: string }) {
+function WorkspacePath() {
   const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
-  const reasoning = workspace.data?.models.reasoning;
-  const embedding = workspace.data?.models.embedding;
-  const chip = (role: string, value: string | undefined, pinned: boolean | undefined) => (
-    <Link
-      to="/settings"
-      className="group inline-flex min-w-0 items-center gap-2 rounded-md border border-rule bg-surface px-2.5 py-1.5 transition hover:border-rule-strong"
-    >
-      <StatusDot tone={value ? "cleared" : "held"} />
-      <span className="min-w-0 text-left leading-tight">
-        <span className="block text-[9px] font-bold uppercase tracking-[0.12em] text-ink-3">
-          {role}
-          {pinned ? " · pinned" : ""}
-        </span>
-        <span className="block max-w-[11rem] truncate font-mono text-[11px] text-ink-2 group-hover:text-ink">
-          {value || "not selected"}
-        </span>
-      </span>
-    </Link>
-  );
-  return (
-    <div className={cn("flex items-center gap-2", className)}>
-      {chip("Reasoning", reasoning?.model, workspace.data?.models.pinned)}
-      {chip("Embedding", embedding?.model, workspace.data?.models.embedding_pinned)}
-    </div>
-  );
-}
-
-function WorkspaceCard() {
-  const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
-  // `truncate` sets `white-space: nowrap`, which makes the element's min-content width the
-  // whole string — so without `min-w-0` on everything above it, a deep workspace path stops
-  // being truncated and starts widening the sidebar instead. Truncation is a promise the
-  // ancestors have to keep.
+  // `truncate` sets `white-space: nowrap`, which makes this element's min-content width the
+  // whole path — so every box between it and the drawer's own width has to be allowed to be
+  // narrower than its content. Truncation is a promise the ancestors have to keep.
   return (
     <div className="min-w-0 rounded-md border border-rule bg-surface-2 p-3">
       <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-3">Workspace</div>
       <div
         title={workspace.data?.workspace}
-        className="mt-1.5 truncate font-mono text-[11px] text-ink-2"
+        className="mt-1.5 min-w-0 truncate font-mono text-[11px] text-ink-2"
       >
         {workspace.data?.workspace || "…"}
       </div>
@@ -157,87 +197,112 @@ function WorkspaceCard() {
   );
 }
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
-  return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col gap-5">
-      <nav aria-label="Primary" className="grid gap-5">
-        <NavGroup label="Review" items={REVIEW_NAV} onNavigate={onNavigate} />
-        <NavGroup label="Workspace" items={WORKSPACE_NAV} onNavigate={onNavigate} />
-      </nav>
-      <div className="mt-auto grid min-w-0 gap-3">
-        <WorkspaceCard />
-      </div>
-    </div>
-  );
-}
-
 export function AppShell({ children }: { children: ReactNode }) {
   const [navOpen, setNavOpen] = useState(false);
   const location = useLocation();
+  const palette = useCommandPalette();
+  const workspace = isWorkspaceRoute(location.pathname);
 
   useEffect(() => {
     setNavOpen(false);
   }, [location.pathname]);
 
   return (
-    <div className="min-h-screen bg-canvas text-ink">
+    <div className="flex min-h-svh flex-col bg-canvas text-ink">
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-ink focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-canvas"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-sm focus:bg-ink focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-canvas"
       >
         Skip to content
       </a>
 
-      <div className="lg:grid lg:grid-cols-[232px_minmax(0,1fr)]">
-        <aside className="sticky top-0 hidden h-screen min-w-0 flex-col gap-5 overflow-hidden border-r border-rule bg-surface px-3 py-4 lg:flex">
-          {/* `flex` rather than a block: the wordmark is 44px tall now and an inline-flex
-              box in a line box would carry a descender's worth of slack under it. */}
-          <div className="flex px-1.5">
-            <Wordmark to="/" subtitle="Review workbench" />
-          </div>
-          <SidebarContent />
-        </aside>
+      {/* One rail, dark in both themes, 48px, and the only chrome in the product.
+          It is sticky rather than fixed so a document page scrolls under it and a workspace
+          page can measure against it: the desk below is exactly `100svh - 3rem`. */}
+      <header className="sticky top-0 z-30 shrink-0 border-b border-band-rule bg-band text-band-ink">
+        <div className="flex h-12 items-center gap-1 px-2 sm:px-3">
+          <button
+            type="button"
+            className={cn(railControl, "min-w-9 justify-center px-0 lg:hidden")}
+            aria-label="Open navigation"
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen(true)}
+          >
+            <MenuIcon className="size-5" />
+          </button>
 
-        <div className="min-w-0">
-          <header className="sticky top-0 z-30 border-b border-rule bg-chrome backdrop-blur-chrome">
-            <div className="flex items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
-              <div className="flex min-w-0 items-center gap-2">
-                {/* 44px of target inside a 32px row: the box grows, the negative margin
-                    gives the height back, and the header stays the height it was. */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="-my-1.5 min-h-11 min-w-11 px-2 lg:hidden"
-                  aria-label="Open navigation"
-                  aria-expanded={navOpen}
-                  onClick={() => setNavOpen(true)}
-                >
-                  <MenuIcon className="size-5" />
-                </Button>
-                {/* `flex` so the wordmark's 44px box is a flex item and its negative margin
-                    is honoured; the pull is what keeps this header 53px rather than 65px. */}
-                <span className="-my-1.5 flex lg:hidden">
-                  <Wordmark to="/" />
-                </span>
-                <span className="hidden lg:block">
-                  <Breadcrumb />
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <ModelChips className="hidden xl:flex" />
-                <ThemeToggle />
-                <ButtonLink to="/start" size="sm" className="hidden sm:inline-flex">
-                  New review
-                </ButtonLink>
-              </div>
-            </div>
-          </header>
+          <Link
+            to="/"
+            className={cn(railControl, "shrink-0 gap-2 px-2 text-band-ink hover:bg-transparent")}
+          >
+            <CompassMark className="size-[18px]" />
+            <span className="text-[14px] font-bold tracking-tight">
+              <span className="font-normal text-band-ink-2">Arch</span>Compass
+            </span>
+          </Link>
 
-          <main id="main" tabIndex={-1} className="min-w-0 outline-none">
-            <div className="mx-auto w-full max-w-[1560px] px-4 py-6 sm:px-6 sm:py-8">{children}</div>
-          </main>
+          <nav aria-label="Primary" className="ml-2 hidden items-center gap-0.5 lg:flex">
+            {NAV.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className={({ isActive }) =>
+                  cn(railControl, isActive && "bg-white/10 text-band-ink")
+                }
+              >
+                {item.short}
+              </NavLink>
+            ))}
+          </nav>
+
+          <span className="flex-1" />
+
+          {/* The way to anything, and the reason the sidebar could go. Everything the nav
+              lists is in here, plus every review and every repository by name. */}
+          <button
+            type="button"
+            onClick={palette.open}
+            aria-label="Search everything"
+            className={cn(
+              railControl,
+              "gap-2 border border-band-rule text-band-ink-2 sm:min-w-[13rem] sm:justify-start",
+            )}
+          >
+            <SearchIcon className="size-4 shrink-0" />
+            <span className="hidden sm:inline">Search…</span>
+            <kbd
+              aria-hidden="true"
+              className="ml-auto hidden rounded-xs border border-band-rule px-1 font-mono text-[10px] leading-4 sm:inline"
+            >
+              ⌘K
+            </kbd>
+          </button>
+
+          <ModelChips className="hidden xl:flex" />
+          <ThemeToggle />
+          <Link
+            to="/start"
+            className="ml-1 hidden min-h-9 shrink-0 items-center rounded-sm bg-band-ink px-3 text-[13px] font-semibold text-band transition hover:opacity-90 sm:inline-flex"
+          >
+            New review
+          </Link>
         </div>
-      </div>
+      </header>
+
+      {/* A workspace route is handed the viewport and lays itself out inside it; a document
+          route keeps the measured column it always had. */}
+      <main
+        id="main"
+        tabIndex={-1}
+        className={cn("min-w-0 outline-none", workspace && "flex min-h-0 flex-1 flex-col")}
+      >
+        {workspace ? (
+          children
+        ) : (
+          <div className="mx-auto w-full max-w-[1560px] px-4 py-6 sm:px-6 sm:py-8">{children}</div>
+        )}
+      </main>
 
       <Drawer
         open={navOpen}
@@ -246,56 +311,17 @@ export function AppShell({ children }: { children: ReactNode }) {
         title="ArchCompass"
         description="Review workbench"
       >
-        <div className="p-3">
-          <SidebarContent onNavigate={() => setNavOpen(false)} />
-          <div className="mt-4 grid gap-2">
-            <ModelChips className="flex-col items-stretch" />
-          </div>
+        <div className="grid min-w-0 gap-4 p-3">
+          <DrawerNav onNavigate={() => setNavOpen(false)} />
+          <WorkspacePath />
         </div>
       </Drawer>
+
+      <CommandPalette
+        open={palette.isOpen}
+        onClose={palette.close}
+        sections={NAV.map((item) => ({ to: item.to, label: item.label }))}
+      />
     </div>
-  );
-}
-
-const CRUMBS: Record<string, string> = {
-  start: "Start a review",
-  reviews: "Reviews",
-  repositories: "Repositories",
-  cases: "Architecture cases",
-  policies: "Policies",
-  settings: "Models",
-};
-
-function Breadcrumb() {
-  const { pathname } = useLocation();
-  const segments = pathname.split("/").filter(Boolean);
-  if (!segments.length) return null;
-  return (
-    <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-ink-3">
-      <Link to="/" className="hover:text-ink">
-        Home
-      </Link>
-      {segments.map((segment, index) => {
-        const to = `/${segments.slice(0, index + 1).join("/")}`;
-        const last = index === segments.length - 1;
-        const label = CRUMBS[segment] ?? segment;
-        return (
-          <span key={to} className="flex items-center gap-1.5">
-            <span aria-hidden="true" className="text-ink-3/50">
-              /
-            </span>
-            {last ? (
-              <span className={cn("text-ink-2", !CRUMBS[segment] && "font-mono")} aria-current="page">
-                {label}
-              </span>
-            ) : (
-              <Link to={to} className="hover:text-ink">
-                {label}
-              </Link>
-            )}
-          </span>
-        );
-      })}
-    </nav>
   );
 }

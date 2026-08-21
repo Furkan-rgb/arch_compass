@@ -1,5 +1,6 @@
 import type {
   Finding,
+  Investigation,
   ModelCatalog,
   EmbeddingCatalog,
   PolicyDocument,
@@ -72,6 +73,7 @@ function finding(overrides: Partial<Finding> & { candidateId: string }): Finding
     model_identity: "fake:deterministic",
     prompt_identity: "judge:v1",
     retrieval_identity: "retrieval-1",
+    investigation_identity: "",
     ...rest,
   };
 }
@@ -109,8 +111,6 @@ export function reviewFixture(overrides: Partial<Review> = {}): Review {
     case: {
       id: "case-1",
       revision: 1,
-      constraints: [{ text: "Stripe is the only provider today", facet: "constraint", source: null }],
-      decisions: [{ text: "Provider code stays at the infrastructure edge", source: null }],
       answers: [],
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
@@ -143,7 +143,10 @@ export function reviewFixture(overrides: Partial<Review> = {}): Review {
         metadata: { top_k: "8" },
       },
     ],
+    investigation_manifest: [],
     markdown_report: null,
+    synopsis: null,
+    synopsis_identity: "",
     model_identity: "fake:deterministic",
     prompt_identity: "judge:v1",
     started_at: "2026-01-01T00:00:00Z",
@@ -239,7 +242,7 @@ export function modelCatalogFixture(): ModelCatalog {
         label: "GPT-OSS 120B",
         is_selected: false,
       },
-      { provider: "google", model: "gemini-3.6-flash", thinking: false, label: "hosted", is_selected: false },
+      { provider: "google", model: "gemini-3.5-flash-lite", thinking: false, label: "hosted", is_selected: false },
     ],
   };
 }
@@ -264,5 +267,33 @@ export function embeddingCatalogFixture(): EmbeddingCatalog {
         is_selected: true,
       },
     ],
+  };
+}
+
+export function investigationFixture(
+  overrides: Partial<Investigation> = {},
+): Investigation {
+  return {
+    candidate_id: "candidate-1",
+    lookups: [
+      {
+        tool: "find_code",
+        arguments: { name: "PersistenceGateway" },
+        result: "node_a1  billing.gateway.PersistenceGateway  [interface]  billing/gateway.py:4-18",
+      },
+      {
+        tool: "related_code",
+        arguments: { node_id: "node_a1", kind: "implementations" },
+        result: "1 implementation\n  node_b2  billing.sql.SqlGateway  [class]  billing/sql.py:9-40",
+      },
+    ],
+    closing: "One implementation, and no test reaches it.",
+    withheld: "",
+    abandoned: "",
+    resolved: true,
+    atlas_fingerprint: "content-fingerprint",
+    prompt_identity: "investigate-hinge:v1",
+    model_identity: "fake:deterministic",
+    ...overrides,
   };
 }

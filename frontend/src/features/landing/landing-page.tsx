@@ -393,7 +393,7 @@ function FindingSection() {
               payments.gateway.PaymentGateway
             </Mono>
             <Mono className="inline-flex items-center gap-1.5 text-[11px] text-ink-3">
-              <Mark shape="triangle" className="size-[10px]" />
+              <Mark shape="alert" className="size-[13px]" />
               material · changed since review 3
             </Mono>
           </div>
@@ -436,7 +436,7 @@ function FindingSection() {
 
           <GutterBlock voice="Judged" who={["google:gemini-3.6", "judge:v1", "2026-08-21"]}>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-material/25 bg-material-soft px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-material">
-              <Mark shape="triangle" className="size-[9px]" /> Material
+              <Mark shape="alert" className="size-[12px]" /> Material
             </span>
             <p className="mt-3 max-w-[58ch] text-[15.5px] leading-[1.68] text-ink-2">
               The port was introduced to keep payment providers replaceable, and it is not doing

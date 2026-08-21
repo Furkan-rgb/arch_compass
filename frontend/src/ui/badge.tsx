@@ -47,7 +47,11 @@ export function Badge({
         className,
       )}
     >
-      {glyph ? <Mark shape={glyph} className="size-[0.82em] opacity-80" /> : null}
+      {/* Larger than the 11px word beside it rather than smaller. A badge sets its text in
+          uppercase at tracking, which reads bigger than it measures; a mark matched to the
+          cap height comes out visibly the junior of the two, and at that size a pause closes
+          into a dot. */}
+      {glyph ? <Mark shape={glyph} className="size-[1.25em]" /> : null}
       {children}
     </span>
   );

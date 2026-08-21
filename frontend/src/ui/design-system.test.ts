@@ -117,30 +117,49 @@ describe("the design system", () => {
    * changed; what changed is that a rule alone is no longer enough to draw an edge.
    */
   /**
-   * A geometric shape is drawn, never typed.
+   * A mark is drawn, never typed.
    *
-   * `\u25b2 \u25c6 \u25cf \u25cb \u25d0` are the one part of the interface neither Onest nor IBM Plex Mono
+   * `▲ ◆ ● ○ ◐` were the one part of the interface neither Onest nor IBM Plex Mono
    * contains, so every one of them fell through to whatever the operating system had —
    * arriving at three different optical sizes on three different baselines, beside a word set
-   * in 11px uppercase. `ui/mark.tsx` draws them at one size now, and the failure mode this
-   * catches is the cheap one: somebody typing the character back into a string because it is
-   * one keystroke and looks right in the editor.
+   * in 11px uppercase. Lucide draws them now, and the failure mode this catches is the cheap
+   * one: somebody typing the character back into a string because it is one keystroke and
+   * looks right in the editor.
    *
-   * Comment lines are skipped rather than allowlisted: `ui/spine.tsx` draws its segments as
-   * boxes and says so with `\u25ae\u25ae\u25af` in its own doc comment, which is a description of the
-   * thing and not the thing. A file-level exemption would have covered the code in it too.
+   * Three blocks, not one. This covered Geometric Shapes alone, and underneath it the delta
+   * surface quietly kept `✓` for "addressed" and `→` between two verdicts — the identical
+   * defect, one Unicode block over, for as long as the guard had existed. Now:
    *
-   * Written as escapes so this file is not itself an offender.
+   * - `←`-`⇿` arrows. `ui/icons.tsx` has `ArrowRight`, `ArrowLeft`, `ArrowUp`, `DriftedIcon`.
+   * - `✓`-`✘` ticks and crosses. These always belong to a verdict or a delta, so they come
+   *   from `ui/mark.tsx` and are chosen from its vocabulary rather than typed at a call site.
+   * - `■`-`◿` geometric shapes, the original offenders.
+   *
+   * What this still cannot catch is an *ASCII* character used as an icon: `~`, `+` and `=`
+   * sat in `DELTA_STATES` beside that `✓` and no pattern can tell those from operators. They
+   * broke the same rule, and that half is enforced by review.
+   *
+   * Comment lines are skipped rather than allowlisted, because a doc comment naming the marks
+   * it draws is a description of the thing and not the thing. A file-level exemption would
+   * have covered the code in that file too. The pattern below can hold the characters
+   * literally because `sourceFiles` never scans a `.test.` file.
    */
-  it("draws a geometric shape rather than typing one", () => {
+  it("draws a mark rather than typing one", () => {
     expect(
-      offenders(/^(?![*/])[^\n]*[\u25a0-\u25ff]/),
-      "use <Mark shape=…> — a pasted shape falls back to the system font and breaks the set",
+      offenders(/^(?![*/])[^\n]*[←-⇿✓-✘■-◿]/),
+      "use <Mark shape=…> or an icon from ui/icons.tsx — a pasted glyph falls back to the system font",
     ).toEqual([]);
   });
 
-  it("lifts only the two things that leave the page", () => {
-    const allowed = new Set(["ui/drawer.tsx", "features/landing/corpus-card.tsx"]);
+  it("lifts only the things that leave the page", () => {
+    // Three things genuinely leave the page. The palette is the third: it is summoned over
+    // whatever you were reading, from any route, and has to read as being in front of it
+    // rather than as a block that appeared in the flow.
+    const allowed = new Set([
+      "ui/drawer.tsx",
+      "ui/command-palette.tsx",
+      "features/landing/corpus-card.tsx",
+    ]);
     expect(
       offenders(/\bshadow-(?:float|hero|panel|sm|md|lg|xl|2xl|inner)\b/, allowed),
       "structure is separated by a rule and a rim, not lifted off the page",

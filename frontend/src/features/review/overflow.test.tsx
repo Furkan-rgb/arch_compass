@@ -1,6 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
-import type React from "react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
@@ -9,36 +8,19 @@ import { AppShell } from "../../app/shell";
 import { Tag } from "../../ui/badge";
 import { Markdown } from "../../ui/markdown";
 import { splitQualified } from "../../lib/format";
-import { AttentionQueue } from "./attention-queue";
 import { ReviewPage } from "./review-page";
 import { reviewFixture, workspaceFixture } from "../../test-fixtures";
-
-/**
- * The rail may not be wider than its column, whatever it is asked to hold.
- *
- * This is the bug that shipped: the queue's scroller is `overflow-y-auto`, CSS resolves the
- * other axis to `auto` alongside it, and nothing in a row broke a dotted identifier — so one
- * real name (`infrastructure.persistence.repositories.SqlAlchemyNotificationPreferenceRepository`)
- * took the content from 266px to 651px inside a 266px box. The example repository's names
- * are `ports.Clock`, which is why no test caught it.
- *
- * jsdom does no layout, so this cannot assert on pixels. It asserts on the two properties
- * that make the pixels impossible instead: the axis is clipped, and every element on the
- * path from the column to the text either wraps at any character or is truncated.
- */
-/** The queue reads the branch's standing decisions, so it needs a client even alone. */
-function withClient(node: React.ReactNode) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return <QueryClientProvider client={client}>{node}</QueryClientProvider>;
-}
 
 const LONG_IDENTIFIER =
   "infrastructure.persistence.repositories.SqlAlchemyNotificationPreferenceRepository";
 
-function queueWithLongIdentifier() {
-  const base = reviewFixture();
-  const [finding] = base.findings;
-  return {
+/** The docket on a review whose one candidate is named the way real ones are. */
+function renderDocketWithLongIdentifier() {
+  const base = reviewFixture({ status: "completed", questions: [] });
+  // The one that still wants a person, because the docket opens on the attention filter and
+  // a cleared candidate is deliberately not in it.
+  const finding = base.findings.find((item) => item.verdict !== "cleared")!;
+  const review = {
     ...base,
     findings: [
       {
@@ -55,74 +37,68 @@ function queueWithLongIdentifier() {
       },
     ],
   };
+  vi.spyOn(api, "review").mockResolvedValue(review);
+  vi.spyOn(api, "reviews").mockResolvedValue([review]);
+  vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
+  vi.spyOn(api, "decisions").mockResolvedValue({ branch_id: "branch-1", decisions: [] });
+
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={["/reviews/review-1"]}>
+        <Routes>
+          <Route path="/reviews/:reviewId" element={<ReviewPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
 }
 
-describe("the attention queue's width", () => {
-  it("clips the axis a vertical scroller must never scroll on", () => {
-    const review = queueWithLongIdentifier();
-    const { container } = render(
-      withClient(
-        <AttentionQueue
-          review={review}
-          selection={null}
-          onSelect={() => {}}
-          filter="all"
-          onFilterChange={() => {}}
-        />,
-      ),
-    );
-
-    const scroller = container.querySelector(".overflow-y-auto");
-    expect(scroller).not.toBeNull();
-    expect(scroller?.className).toContain("overflow-x-clip");
-  });
-
-  it("gives every part of a row a way not to grow", () => {
-    const review = queueWithLongIdentifier();
-    render(
-      withClient(
-        <AttentionQueue
-          review={review}
-          selection={null}
-          onSelect={() => {}}
-          filter="all"
-          onFilterChange={() => {}}
-        />,
-      ),
-    );
+/**
+ * A row may not be wider than the column it is in, whatever it is asked to hold.
+ *
+ * This is the bug that shipped: a rail's scroller is `overflow-y-auto`, CSS resolves the
+ * other axis to `auto` alongside it, and nothing in a row broke a dotted identifier — so one
+ * real name (`infrastructure.persistence.repositories.SqlAlchemyNotificationPreferenceRepository`)
+ * took the content from 266px to 651px inside a 266px box. The example repository's names
+ * are `ports.Clock`, which is why no test caught it.
+ *
+ * The rail is gone and the rule outlived it. A docket row is wider than the rail ever was and
+ * that only moves the threshold: a name is still one token to the line breaker, and a phone is
+ * still 390px. jsdom does no layout, so this asserts the properties that make the pixels
+ * impossible rather than the pixels: the identity may break mid-token, the context above it
+ * may be cut, and the column holding both may be narrower than its content.
+ */
+describe("a docket row's width", () => {
+  it("gives every part of a row a way not to grow", async () => {
+    renderDocketWithLongIdentifier();
+    await screen.findByRole("list", { name: "Candidates" });
 
     const { namespace, leaf } = splitQualified(LONG_IDENTIFIER);
 
     // The namespace is context and is allowed to be cut off.
-    const namespaceNode = screen.getByText(namespace);
+    const namespaceNode = screen.getByText(`${namespace}.`);
     expect(namespaceNode.className).toContain("truncate");
+    expect(namespaceNode.className).toContain("min-w-0");
 
     // The leaf is the identity, so it is kept — by wrapping mid-token if it has to.
     const leafNode = screen.getByText(leaf);
     expect(leafNode.className).toContain("[overflow-wrap:anywhere]");
-    expect(leafNode.className).toContain("line-clamp-2");
 
-    // The column holding them can be narrower than its content.
-    const column = leafNode.parentElement;
-    expect(column?.className).toContain("min-w-0");
+    // The column holding them can be narrower than its content, and so can the one above it.
+    expect(leafNode.parentElement?.parentElement?.className).toContain("min-w-0");
   });
 
-  it("keeps the whole identifier readable even though the row is not", () => {
-    const review = queueWithLongIdentifier();
-    render(
-      withClient(
-        <AttentionQueue
-          review={review}
-          selection={null}
-          onSelect={() => {}}
-          filter="all"
-          onFilterChange={() => {}}
-        />,
-      ),
-    );
+  it("keeps the whole identifier readable even though the row is not", async () => {
+    renderDocketWithLongIdentifier();
+    await screen.findByRole("list", { name: "Candidates" });
 
     // Truncating for the eye is not the same as hiding: hovering still names the thing.
-    const row = screen.getByRole("button", { name: new RegExp(splitQualified(LONG_IDENTIFIER).leaf) });
+    const row = screen.getByRole("button", {
+      name: new RegExp(splitQualified(LONG_IDENTIFIER).leaf),
+    });
     expect(row).toHaveAttribute("title", LONG_IDENTIFIER);
   });
 
@@ -140,12 +116,17 @@ describe("the attention queue's width", () => {
  * The same rule, one level up.
  *
  * A workspace path is long by nature — `/Users/…/Documents/arch_compass/examples/cases/…` — and
- * the sidebar is a fixed 232px track. `truncate` sets `white-space: nowrap`, which makes the
- * element's min-content width the whole string, so a grid or flex ancestor left at its
- * default `min-width: auto` is widened by the very thing the truncation was supposed to
- * hide. Truncation is a promise the ancestors have to keep.
+ * the drawer it now lives in is a fixed 20rem track. `truncate` sets `white-space: nowrap`,
+ * which makes the element's min-content width the whole string, so a grid or flex ancestor
+ * left at its default `min-width: auto` is widened by the very thing the truncation was
+ * supposed to hide. Truncation is a promise the ancestors have to keep.
+ *
+ * The 232px sidebar this used to guard is gone — six links and a path down the full height of
+ * every screen, charged to the one surface that needed the width. The path moved into the
+ * navigation drawer, which is the same fixed track one component along, so the rule outlived
+ * the rail and this opens the drawer to reach it.
  */
-describe("the sidebar's width", () => {
+describe("the navigation drawer's width", () => {
   it("keeps a long workspace path inside the rail", async () => {
     vi.spyOn(api, "workspace").mockResolvedValue(
       workspaceFixture({
@@ -162,6 +143,8 @@ describe("the sidebar's width", () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
 
     const path = await screen.findByTitle(
       "/Users/someone/Documents/work/platform/services/notifications/.archcompass",
@@ -181,18 +164,19 @@ describe("the sidebar's width", () => {
 });
 
 /**
- * The other axis, and the bug that shipped with it.
+ * The other axis, and the bug that shipped with it — now answered by not having the box.
  *
- * The queue's scroller is `flex-1 min-h-0 overflow-y-auto`, which only bounds itself if
- * every box above it is laying its children out with a height to divide. The rail's panel
- * was capped (`max-h-… overflow-hidden`) but still block flow, so the list grew to its full
- * content height and the cap clipped it: no scrollbar, and the last row cut in half.
+ * The queue used to be a capped rail: `flex-1 min-h-0 overflow-y-auto` inside a
+ * `max-h-… overflow-hidden` panel, which only bounds itself if every box above it lays its
+ * children out with a height to divide. One of them was still block flow, so the list grew to
+ * its full content height and the cap clipped it — no scrollbar, and the last row cut in half.
  *
- * jsdom does no layout, so this asserts the chain instead of the pixels — from the capped
- * box down to the scroller, every element is a flex column and the scroller may shrink.
+ * There is no capped rail any more. The docket is one column that scrolls with the document,
+ * which is the version of this that cannot come back: a page has no height to divide up and
+ * nothing to clip. So the guard is that nobody reintroduces one, rather than a chain walk.
  */
-describe("the attention queue's height", () => {
-  it("spends the height it caps, so the last row is reachable", async () => {
+describe("the docket's height", () => {
+  it("scrolls with the page rather than inside a box of its own", async () => {
     const review = reviewFixture({ status: "completed", questions: [] });
     vi.spyOn(api, "review").mockResolvedValue(review);
     vi.spyOn(api, "reviews").mockResolvedValue([review]);
@@ -212,29 +196,14 @@ describe("the attention queue's height", () => {
       </QueryClientProvider>,
     );
 
-    await screen.findByRole("list", { name: "Candidates" });
+    const list = await screen.findByRole("list", { name: "Candidates" });
 
-    const scroller = container.querySelector<HTMLElement>(".overflow-y-auto");
-    expect(scroller).not.toBeNull();
-    expect(scroller?.className).toContain("min-h-0");
-
-    // Walk up to the box that caps the height. Everything in between must be a flex column,
-    // and everything in between must be allowed to be shorter than its content — otherwise
-    // the cap is a pair of scissors rather than a budget.
-    let node = scroller?.parentElement ?? null;
-    let capped: HTMLElement | null = null;
+    // Nothing between the list and the page caps a height or scrolls an axis of its own.
+    let node: HTMLElement | null = list.parentElement;
     while (node && node !== container) {
-      expect(node.className).toContain("flex-col");
-      if (node.className.includes("max-h-")) {
-        capped = node;
-        break;
-      }
-      // Only the box that sets the cap is allowed to insist on its own height.
-      expect(node.className).toContain("min-h-0");
+      expect(node.className).not.toMatch(/\bmax-h-|\boverflow-y-(auto|scroll)\b/);
       node = node.parentElement;
     }
-    expect(capped).not.toBeNull();
-    expect(capped?.className).toContain("overflow-hidden");
   });
 });
 
@@ -275,9 +244,11 @@ describe("a disclosure summary's width", () => {
       </QueryClientProvider>,
     );
 
-    // All three closed disclosures, because each one's summary is built from different data
-    // and only one of them is the section that happens to be shortest today.
-    for (const name of ["Measured", "Policies", "Provenance"]) {
+    // Both closed disclosures, because each one's summary is built from different data and
+    // only one of them is the section that happens to be shortest today. `Measured` was a
+    // third until the machine's evidence came out from behind it and onto the surface, beside
+    // the claim it supports.
+    for (const name of ["Policies", "Provenance"]) {
       const label = await screen.findByText(name);
       expect(label.className).toContain("shrink-0");
 

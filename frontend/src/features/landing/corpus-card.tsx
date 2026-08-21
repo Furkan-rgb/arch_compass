@@ -186,7 +186,7 @@ function Specimen({ bearing, hidden }: { bearing: Bearing; hidden: boolean }) {
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <Mark
             shape={verdict.glyph}
-            className={cn("size-[11px] self-center", TONE_TEXT[verdict.tone])}
+            className={cn("size-[14px] self-center", TONE_TEXT[verdict.tone])}
           />
           <span
             className={cn(

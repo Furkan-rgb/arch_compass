@@ -110,6 +110,26 @@ export const TONE_TEXT: Record<Tone, string> = {
   cleared: "text-cleared",
 };
 
+/**
+ * A tone as a left edge, for a row in a list of rows.
+ *
+ * The same hues as `TONE_TEXT` and for the same reason — the colour arrives from
+ * `lib/format`, never from the call site. What differs is the job: an edge is read at a
+ * glance down a column, before any word on any row has been read, so it is the one place a
+ * verdict is allowed to be a bar of colour rather than a mark and a word.
+ *
+ * That does not make it colour carrying meaning alone. Every row this paints also states its
+ * verdict as a sign and as a word; the edge is the third statement, and the only one that
+ * survives peripheral vision.
+ */
+export const TONE_EDGE: Record<Tone, string> = {
+  neutral: "border-l-rule-strong",
+  marked: "border-l-ink",
+  material: "border-l-material",
+  held: "border-l-held",
+  cleared: "border-l-cleared",
+};
+
 export function Statistic({
   label,
   value,

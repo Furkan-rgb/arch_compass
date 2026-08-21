@@ -64,9 +64,19 @@ function ChoiceRow({
 export function ClarificationRound({
   review,
   className,
+  bare = false,
 }: {
   review: Review;
   className?: string;
+  /**
+   * Drop the card and the title block, because something above already said both.
+   *
+   * The docket lists this round as its first item, under a header reading "1 question wants
+   * an answer" and the sentence about what answering does. Rendered whole inside that, the
+   * round restated its own name, its own subtitle and its own border: two nested cards and
+   * two headings for one question.
+   */
+  bare?: boolean;
 }) {
   const navigate = useNavigate();
   const client = useQueryClient();
@@ -128,39 +138,55 @@ export function ClarificationRound({
     });
   }
 
+  const round = review.questions[0]?.round ?? 1;
+
+  const Wrapper = bare ? "div" : "section";
   return (
-    <section
-      aria-labelledby="clarification-heading"
+    <Wrapper
+      aria-labelledby={bare ? undefined : "clarification-heading"}
+      aria-label={bare ? `Clarification round ${round}` : undefined}
       className={cn(
-        "animate-fade overflow-hidden rounded-lg border border-rule bg-surface",
+        "animate-fade",
+        !bare && "overflow-hidden rounded-lg border border-rule bg-surface",
         className,
       )}
     >
-      <header className="border-b border-rule px-4 py-5 sm:px-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <Label>Clarification round {review.questions[0]?.round ?? 1}</Label>
-            <h2
-              id="clarification-heading"
-              className="mt-1.5 font-display text-lg font-semibold tracking-tight text-ink sm:text-xl"
-            >
-              The repository cannot answer these
-            </h2>
-            <p className="mt-2 max-w-[58ch] text-sm leading-6 text-ink-2">
-              Answers are recorded on the architecture case as a new revision, and the affected
-              candidates are judged again. Skip anything that should stay explicitly unknown.
-            </p>
-          </div>
-          <div className="rounded-md border border-rule bg-surface-2 px-3 py-2 text-center">
-            <div className="font-display text-lg font-semibold tabular-nums text-ink">
-              {resolved.length}/{review.questions.length}
-            </div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-ink-3">
-              resolved
-            </div>
-          </div>
+      {bare ? (
+        // One line, because the item this sits inside already carries the name and the
+        // sentence. What it cannot carry is how far through the round you are.
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-4 pt-1 sm:px-5">
+          <Label>Clarification round {round}</Label>
+          <span className="font-mono text-[11.5px] tabular-nums text-ink-3">
+            {resolved.length} of {review.questions.length} resolved
+          </span>
         </div>
-      </header>
+      ) : (
+        <header className="border-b border-rule px-4 py-5 sm:px-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <Label>Clarification round {round}</Label>
+              <h2
+                id="clarification-heading"
+                className="mt-1.5 font-display text-lg font-semibold tracking-tight text-ink sm:text-xl"
+              >
+                The repository cannot answer these
+              </h2>
+              <p className="mt-2 max-w-[58ch] text-sm leading-6 text-ink-2">
+                Answers are recorded on the architecture case as a new revision, and the affected
+                candidates are judged again. Skip anything that should stay explicitly unknown.
+              </p>
+            </div>
+            <div className="rounded-md border border-rule bg-surface-2 px-3 py-2 text-center">
+              <div className="font-display text-lg font-semibold tabular-nums text-ink">
+                {resolved.length}/{review.questions.length}
+              </div>
+              <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-ink-3">
+                resolved
+              </div>
+            </div>
+          </div>
+        </header>
+      )}
 
       <ol className="divide-y divide-rule">
         {review.questions.map((question, index) => {
@@ -322,6 +348,6 @@ export function ClarificationRound({
           </div>
         ) : null}
       </footer>
-    </section>
+    </Wrapper>
   );
 }

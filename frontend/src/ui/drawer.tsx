@@ -83,7 +83,10 @@ export function Drawer({
             Close
           </Button>
         </div>
-        <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {/* `min-w-0` as well as `min-h-0`: the drawer is a fixed track and its content is
+            workspace paths and qualified names, so the scroller has to be allowed to be
+            narrower than what is inside it or a truncating child widens the sheet instead. */}
+        <div className="scrollbar-slim min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
           {children}
         </div>
         {footer ? <div className="border-t border-rule px-4 py-3">{footer}</div> : null}

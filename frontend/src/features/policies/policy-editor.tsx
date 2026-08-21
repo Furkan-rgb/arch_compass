@@ -177,7 +177,9 @@ export function PolicyEditor({
                   section.present ? "text-ink-3" : "font-medium text-ink",
                 )}
               >
-                <Mark shape={section.present ? "circle" : "ring"} className="size-[11px]" />
+                {/* A step on a scale, not a grade: written and not-yet-written, solid to
+                    dashed. Deliberately not a tick — see the class note above. */}
+                <Mark shape={section.present ? "solid" : "dashed"} className="size-[13px]" />
                 {section.name}
                 <span className="sr-only">{section.present ? " written" : " still missing"}</span>
               </li>

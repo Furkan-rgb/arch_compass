@@ -7,7 +7,7 @@ import { relativeTime, repositoryName } from "../../lib/format";
 import { Tag } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { Field, Input, Select } from "../../ui/field";
-import { CheckIcon, FolderIcon, GitBranchIcon } from "../../ui/icons";
+import { ArrowUp, CheckIcon, FolderIcon, GitBranchIcon } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { EmptyState, ErrorNotice, Spinner } from "../../ui/states";
 import { Tabs, TabPanel } from "../../ui/tabs";
@@ -172,7 +172,7 @@ function DirectoryBrowser({
             disabled={!listing.data?.parent}
             onClick={() => setPath(listing.data?.parent ?? undefined)}
           >
-            ↑ Up
+            <ArrowUp className="size-[13px]" /> Up
           </Button>
           <Mono className="min-w-0 flex-1 truncate text-[11px]">
             {listing.data?.path ?? "…"}

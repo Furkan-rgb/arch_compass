@@ -10,51 +10,102 @@
 export type Tone = "neutral" | "marked" | "material" | "held" | "cleared";
 
 /**
- * The shape a descriptor wears, named rather than typed.
+ * The mark a descriptor wears, named rather than drawn.
  *
- * These were literal characters until the glyphs turned out to be the one part of the type
- * that neither shipped face contains — every one of them fell back to whatever the system
- * had, at three different optical sizes on three different baselines. `ui/mark.tsx` draws
- * them now. This stays a plain union so the vocabulary below is still data: no JSX in `lib`,
- * and a descriptor is still something a test can compare.
+ * These were literal characters (`▲ ◆ ●`) until the glyphs turned out to be the one part of
+ * the type that neither shipped face contains — every one fell back to whatever the operating
+ * system had, at three optical sizes on three baselines. They were hand-cut SVG for a while
+ * after that. `ui/mark.tsx` resolves them to Lucide now; this stays a plain union so the
+ * vocabulary below is still data — no JSX in `lib`, and a descriptor is still something a
+ * test can compare.
+ *
+ * Three registers, and which one a thing wears is a meaning rather than a style:
+ *
+ * - **A sign** — `alert`, `pause`, `check`, and the three a run can be in — for the things
+ *   being *graded*: the model's verdict, and a review's own state. A grade has to read before
+ *   its key is learnt, and the geometric shapes did not: three distinguishable marks, three
+ *   meaningless ones, leaving a first-time reader with only the hue to go on, which is the
+ *   exact dependence "a colour never carries meaning alone" exists to prevent.
+ * - **A step on a scale** — `solid`, `hollow`, `dashed` — for a position that is not a grade.
+ *   Deliberately abstract; see the note above `STRENGTHS`.
+ * - **A person's own move** — `flag`, `clock`, `slash` — for what somebody decided, which is
+ *   never the same kind of statement as what the model found. See the note above
+ *   `DISPOSITIONS`.
+ * - **A difference between two reviews** — `plus`, `minus`, `swap`, `equals` — for how a
+ *   candidate moved from one revision to the next. Diff notation, because that is what a
+ *   delta is: it says a candidate arrived, left, was judged differently or was not, and none
+ *   of those four is a claim about whether the candidate is any good. Owned by
+ *   `features/review/surfaces.tsx` rather than by a table here, because the delta states are
+ *   computed from two reviews rather than read off one wire value.
  */
-export type MarkShape = "triangle" | "diamond" | "circle" | "ring" | "half";
+export type MarkShape =
+  | "alert"
+  | "pause"
+  | "check"
+  | "failed"
+  | "running"
+  | "stopped"
+  | "solid"
+  | "hollow"
+  | "dashed"
+  | "flag"
+  | "clock"
+  | "slash"
+  | "plus"
+  | "minus"
+  | "swap"
+  | "equals";
 
 export type Descriptor = {
   label: string;
   tone: Tone;
-  /** Which of the five shapes says this without colour. Drawn by `ui/mark.tsx`. */
+  /** Which mark says this without colour. Drawn by `ui/mark.tsx`. */
   glyph: MarkShape;
   description?: string;
 };
 
+/**
+ * The model's three verdicts — the one scale in the product that is a judgement of something.
+ *
+ * These wear signs rather than shapes because the verdict is the single value a reader must
+ * be able to take in without having read a key: what wants me, what is waiting on me, what is
+ * done. The tone reinforces it and never carries it alone.
+ */
 const VERDICTS: Record<string, Descriptor> = {
   material: {
     label: "Material",
     tone: "material",
-    glyph: "triangle",
+    glyph: "alert",
     description: "The evidence supports an architectural concern worth acting on.",
   },
   held: {
     label: "Held",
     tone: "held",
-    glyph: "diamond",
+    glyph: "pause",
     description: "Judgement is waiting on context the repository cannot supply.",
   },
   cleared: {
     label: "Cleared",
     tone: "cleared",
-    glyph: "circle",
+    glyph: "check",
     description: "The candidate was assessed and found unproblematic.",
   },
 };
 
+/**
+ * A review's own state, which reads on the same scale as a verdict and so wears the same
+ * signs: finished, waiting on a person, went wrong.
+ *
+ * `running` and `cancelled` are the two that are not a grade — one is under way and one
+ * stopped — so they keep the abstract half-circle and ring.
+ */
 const STATUSES: Record<string, Descriptor> = {
-  completed: { label: "Completed", tone: "cleared", glyph: "circle" },
-  awaiting_answers: { label: "Awaiting answers", tone: "held", glyph: "diamond" },
-  running: { label: "Running", tone: "marked", glyph: "half" },
-  failed: { label: "Failed", tone: "material", glyph: "triangle" },
-  cancelled: { label: "Cancelled", tone: "neutral", glyph: "ring" },
+  completed: { label: "Completed", tone: "cleared", glyph: "check" },
+  awaiting_answers: { label: "Awaiting answers", tone: "held", glyph: "pause" },
+  running: { label: "Running", tone: "marked", glyph: "running" },
+  // Not `alert`: a run that broke is not a material finding, and the two sit one page apart.
+  failed: { label: "Failed", tone: "material", glyph: "failed" },
+  cancelled: { label: "Cancelled", tone: "neutral", glyph: "stopped" },
 };
 
 /**
@@ -75,21 +126,36 @@ const STATUSES: Record<string, Descriptor> = {
  * So the step is carried by weight and rule instead. `marked` is ink on a stronger border,
  * the other two recede to the neutral, and the glyph and the word carry the distinction —
  * which is what those exist for. Emphasis without alarm, and no hue at all.
+ *
+ * The same argument decides the marks. When the verdicts took the caution sign, a required
+ * policy could not follow them: an alert triangle on the strongest policy would say the very
+ * thing this comment exists to deny. So the step is a filled centre, then an outline, then a
+ * dashed outline — solid to faint, which is a scale and nothing more.
  */
 const STRENGTHS: Record<string, Descriptor> = {
-  required: { label: "Required", tone: "marked", glyph: "triangle" },
-  preferred: { label: "Preferred", tone: "neutral", glyph: "diamond" },
-  guidance: { label: "Guidance", tone: "neutral", glyph: "ring" },
+  required: { label: "Required", tone: "marked", glyph: "solid" },
+  preferred: { label: "Preferred", tone: "neutral", glyph: "hollow" },
+  guidance: { label: "Guidance", tone: "neutral", glyph: "dashed" },
 };
 
+/**
+ * What a person decided — which is not the same kind of statement as what the model found,
+ * and must not look like one.
+ *
+ * Accepting a finding is a commitment to act on it, not a report that it went away; a tick
+ * would say the second, which is why `accept` flags rather than ticks. Park is explicitly
+ * later, and waive is explicitly not. A decision may share a verdict's *tone*, because it
+ * answers one — never its mark. This is where the charter's separation between the model's
+ * verdict and the person's decision becomes visible.
+ */
 const DISPOSITIONS: Record<string, Descriptor> = {
-  accept: { label: "Accepted", tone: "cleared", glyph: "circle" },
-  park: { label: "Parked", tone: "held", glyph: "diamond" },
-  waive: { label: "Waived", tone: "neutral", glyph: "ring" },
+  accept: { label: "Accepted", tone: "cleared", glyph: "flag" },
+  park: { label: "Parked", tone: "held", glyph: "clock" },
+  waive: { label: "Waived", tone: "neutral", glyph: "slash" },
 };
 
 function lookup(table: Record<string, Descriptor>, value: string): Descriptor {
-  return table[value] ?? { label: humanise(value), tone: "neutral", glyph: "ring" };
+  return table[value] ?? { label: humanise(value), tone: "neutral", glyph: "hollow" };
 }
 
 export const verdictOf = (value: string) => lookup(VERDICTS, value);

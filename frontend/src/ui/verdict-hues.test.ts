@@ -27,14 +27,19 @@ const FROM_A_TONE = /\btone\b/;
  * Panels whose subject is one of the three states, written out rather than looked up.
  *
  * Each is a fixed state rather than a value that varies, so there is no descriptor to read:
- * a clarification panel is only ever shown while the review is held, and an addressed
- * candidate is only ever one that has gone away.
+ * a clarification panel is only ever shown while the review is held.
+ *
+ * `features/review/surfaces.tsx` was on this list — an addressed candidate is one that has
+ * gone away — and came off it, which is the direction entries are supposed to move. The Delta
+ * surface used to tint a glyph `text-cleared` at the call site; it now says
+ * `<Badge tone="cleared">` and lets `ui/badge.tsx` paint it, so it needs no exemption at all.
+ * An entry that has stopped being load-bearing is worse than no entry, because it silently
+ * licenses the next hue somebody adds to that file.
  */
 const ALLOWED = new Map([
   ["lib/format.ts", "the one table that decides which value takes which tone"],
   ["ui/badge.tsx", "paints a tone; never chooses one"],
   ["ui/meta.tsx", "paints a tone; never chooses one"],
-  ["ui/spine.tsx", "paints a tone; the queue row's middle segment is the verdict"],
   ["ui/states.tsx", "ErrorNotice — a failed request is the red end of the scale"],
   ["ui/field.tsx", "a rejected field is the red end of the scale"],
   ["ui/button.tsx", "the destructive variant is the red end of the scale"],
@@ -42,8 +47,7 @@ const ALLOWED = new Map([
     "features/review/decision-bar.tsx",
     "a decision taken against a verdict that has since moved is waiting on a person again",
   ],
-  ["features/review/attention-queue.tsx", "the clarification row, shown only while held"],
-  ["features/review/surfaces.tsx", "an addressed candidate is one that is settled"],
+  ["features/review/docket.tsx", "the clarification card, shown only while the review is held"],
   ["features/landing/corpus-card.tsx", "a specimen bearing; those really are verdicts"],
   ["features/landing/landing-page.tsx", "a specimen finding, shown as an example of one"],
 ]);

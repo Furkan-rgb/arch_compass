@@ -279,7 +279,7 @@ function ProviderSection({
               {plural(choices.length, "model")}
             </span>
           ) : (
-            <Badge tone="material" glyph="triangle">
+            <Badge tone="material" glyph="alert">
               Unavailable
             </Badge>
           )

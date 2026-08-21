@@ -9,7 +9,7 @@ import { buttonClass } from "../../ui/button";
 import { controlClass } from "../../ui/field";
 import { Label } from "../../ui/panel";
 import { ErrorNotice, LiveRegion } from "../../ui/states";
-import { decisionIsStale } from "./attention-queue";
+import { decisionIsStale } from "./docket-rules";
 
 /**
  * The three dispositions, in the order a reviewer meets them, each with the key that takes it.
@@ -102,6 +102,10 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
   const uid = useId();
   const panelId = `waiver-panel-${uid}`;
   const noteId = `waiver-note-${uid}`;
+  // Scoped to this bar rather than a fixed string. Only one row of the docket is open at a
+  // time today, so a constant id happened to be unique — which is a property of the docket,
+  // not of this component, and the wrong thing for a component to rely on.
+  const titleId = `standing-decision-${uid}`;
 
   const decisions = useQuery({
     queryKey: ["decisions", branchId],
@@ -187,10 +191,10 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
   }
 
   return (
-    <section aria-labelledby="standing-decision" className="min-w-0">
+    <section aria-labelledby={titleId} className="min-w-0">
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
         <Label>
-          <span id="standing-decision">Standing decision</span>
+          <span id={titleId}>Standing decision</span>
         </Label>
         {current ? <DispositionBadge disposition={current.disposition} /> : null}
       </div>

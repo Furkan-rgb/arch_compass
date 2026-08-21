@@ -3,14 +3,16 @@ import { useEffect, useState } from "react";
 
 import { api, type Review, type ReviewConversation } from "../../api";
 import { cn } from "../../lib/cn";
-import { humanise, shortId, splitQualified } from "../../lib/format";
-import { Tag, VerdictBadge } from "../../ui/badge";
+import { type MarkShape, humanise, shortId, splitQualified } from "../../lib/format";
+import { Badge, Tag, VerdictBadge } from "../../ui/badge";
 import { Button, ExternalButtonLink, ToggleButton } from "../../ui/button";
 import { Input } from "../../ui/field";
+import { ArrowRight, ChevronDown } from "../../ui/icons";
+import { Mark } from "../../ui/mark";
 import { Markdown } from "../../ui/markdown";
 import { Label, Panel, PanelBody, PanelFooter, PanelHeader } from "../../ui/panel";
 import { EmptyState, ErrorNotice, LoadingPanel, Spinner } from "../../ui/states";
-
+import { InvestigationTranscript, investigationSummary } from "./investigation";
 
 type DeltaState = "addressed" | "changed" | "new" | "unchanged";
 
@@ -23,35 +25,52 @@ type DeltaState = "addressed" | "changed" | "new" | "unchanged";
  * hoisted to the top of the queue — and `unchanged` is last, because it is exactly what a
  * returning reader opened this surface to skip.
  *
- * Only one of the four carries a hue, and it is the one the palette rule allows. `changed`
- * used to be amber, which is the bug that rule exists for: `held` is a verdict the model
- * reached, not "this row moved", and a changed candidate can come back material, held or
- * cleared. `addressed` keeps `cleared` because an addressed candidate really is settled —
- * the concern that was raised is gone.
+ * **None of the four carries a hue.** `changed` used to be amber, which is the bug the palette
+ * rule exists for: `held` is a verdict the model reached, not "this row moved", and a changed
+ * candidate can come back material, held or cleared. `addressed` used to be green on the
+ * argument that its row had no verdict badge to carry colour — true at the time, and fixed by
+ * giving it one (`No longer detected`, in the cleared tone, in the slot every other row fills
+ * with its verdict) rather than by tinting a glyph.
+ *
+ * What that leaves is the arrangement the palette rule was always asking for: **one coloured
+ * thing per row, in one place.** The badge slot says where the candidate stands, in the
+ * verdict's own hue; this column says how it moved, in ink; and a reader can scan either
+ * without the two competing.
+ *
+ * So the step here is weight, in the order this list is read — `addressed` and `changed` at
+ * full ink because both want re-reading, `new` at `ink-2` because it is also sitting in the
+ * docket, `unchanged` at `ink-3` because it is exactly what a returning reader opened this
+ * surface to skip.
  */
 const DELTA_STATES: ReadonlyArray<{
   id: DeltaState;
   label: string;
-  glyph: string;
+  glyph: MarkShape;
   tone: string;
   says: string;
 }> = [
+  // Diff notation, drawn rather than typed. These were `✓ ~ + =` set in mono — the same
+  // failure the geometric shapes were, surviving longer only because three of them are ASCII
+  // and the guard looked at one Unicode block. `addressed` losing its tick is the point of
+  // the change and not a casualty of it: "raised last time, gone now" is a comparison between
+  // two reviews, and a tick is the mark the *cleared verdict* wears. A minus beside a plus
+  // says what actually happened — it left the list — and reads as a diff at a glance.
   {
     id: "addressed",
     label: "Addressed",
-    glyph: "✓",
-    tone: "text-cleared",
+    glyph: "minus",
+    tone: "text-ink",
     says: "Raised last time, gone now",
   },
   {
     id: "changed",
     label: "Changed",
-    glyph: "~",
+    glyph: "swap",
     tone: "text-ink",
     says: "The same candidate, judged again",
   },
-  { id: "new", label: "New", glyph: "+", tone: "text-ink", says: "Not in the previous review" },
-  { id: "unchanged", label: "Unchanged", glyph: "=", tone: "text-ink-3", says: "As it was" },
+  { id: "new", label: "New", glyph: "plus", tone: "text-ink-2", says: "Not in the previous review" },
+  { id: "unchanged", label: "Unchanged", glyph: "equals", tone: "text-ink-3", says: "As it was" },
 ];
 
 /**
@@ -144,16 +163,11 @@ function DeltaRow({
     : { namespace: "", leaf: entry.identity };
   const body = (
     <div className="grid grid-cols-[1rem_minmax(0,1fr)] items-start gap-3">
-      <span
-        aria-hidden="true"
-        className={cn("mt-0.5 text-center font-mono text-sm font-bold leading-6", state.tone)}
-      >
-        {state.glyph}
+      <span className={cn("mt-[5px] grid place-items-center", state.tone)}>
+        <Mark shape={state.glyph} className="size-[15px]" />
       </span>
       <span className="min-w-0">
-        {namespace ? (
-          <span className="block truncate font-mono text-[10.5px] text-ink-3">{namespace}</span>
-        ) : null}
+        {namespace ? <span className="block truncate font-mono text-[10.5px] text-ink-3">{namespace}</span> : null}
         {/* The namespace above may be cut — it is context. The name is the identity and the
             sentence is the reason, so both get two lines and break mid-token rather than
             ending in an ellipsis. On a phone one truncated line of either said nothing but
@@ -168,9 +182,7 @@ function DeltaRow({
           {leaf}
         </span>
         {entry.summary ? (
-          <span className="mt-0.5 line-clamp-2 text-xs leading-5 text-ink-2 wrap-anywhere">
-            {entry.summary}
-          </span>
+          <span className="mt-0.5 line-clamp-2 text-xs leading-5 text-ink-2 wrap-anywhere">{entry.summary}</span>
         ) : null}
         {/* Wrapping, not truncating: on a phone the transition takes the first line and the
             sentence the next two, and neither of them is allowed to set the row's width. */}
@@ -179,32 +191,34 @@ function DeltaRow({
             over six copies of one sentence got onto one phone screen. Same rule as the
             queue: a fact shared by every row belongs on the group. */}
         {hoisted.movement && hoisted.verdict ? null : (
-        <span className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">
-          {/* The arrow is the whole sentence for the eye and says nothing at all to a screen
+          <span className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+            {/* The arrow is the whole sentence for the eye and says nothing at all to a screen
               reader, so the two words it stands for are spelled out beside it. */}
-          {entry.wasVerdict && !hoisted.verdict ? (
-            <>
-              <span className="sr-only">was </span>
-              <VerdictBadge verdict={entry.wasVerdict} className="px-2 py-0.5 text-[10px]" />
-              <span aria-hidden="true" className="text-[11px] leading-none text-ink-3">
-                →
+            {entry.wasVerdict && !hoisted.verdict ? (
+              <>
+                <span className="sr-only">was </span>
+                <VerdictBadge verdict={entry.wasVerdict} className="px-2 py-0.5 text-[10px]" />
+                <ArrowRight className="size-[13px] shrink-0 text-ink-3" />
+                <span className="sr-only">, now </span>
+              </>
+            ) : null}
+            {entry.nowVerdict && !hoisted.verdict ? (
+              <VerdictBadge verdict={entry.nowVerdict} className="px-2 py-0.5 text-[10px]" />
+            ) : !hoisted.verdict && entry.state === "addressed" ? (
+              // In the slot every other row fills with a verdict badge, so the surface has
+              // one coloured thing per row saying where the candidate stands. It was a
+              // neutral tag, which left the one state that exists nowhere else in the product
+              // as the dimmest row on the page. The tone comes from the table, not from here.
+              <Badge tone="cleared" glyph="minus" className="px-2 py-0.5 text-[10px]">
+                No longer detected
+              </Badge>
+            ) : null}
+            {hoisted.movement ? null : (
+              <span className="text-[11px] leading-5 text-ink-3">
+                <span className="font-semibold text-ink-2">{state.label}</span> · {entry.reason}
               </span>
-              <span className="sr-only">, now </span>
-            </>
-          ) : null}
-          {entry.nowVerdict && !hoisted.verdict ? (
-            <VerdictBadge verdict={entry.nowVerdict} className="px-2 py-0.5 text-[10px]" />
-          ) : !hoisted.verdict && entry.state === "addressed" ? (
-            <Tag className="text-[10px] font-bold uppercase tracking-[0.08em]">
-              No longer detected
-            </Tag>
-          ) : null}
-          {hoisted.movement ? null : (
-            <span className="text-[11px] leading-5 text-ink-3">
-              <span className="font-semibold text-ink-2">{state.label}</span> · {entry.reason}
-            </span>
-          )}
-        </span>
+            )}
+          </span>
         )}
       </span>
     </div>
@@ -247,13 +261,7 @@ function DeltaRow({
  * but a reader who wanted the summary already read it last review — that is the whole
  * premise of the surface.
  */
-export function DeltaSurface({
-  review,
-  onOpen,
-}: {
-  review: Review;
-  onOpen?: (candidateId: string) => void;
-}) {
+export function DeltaSurface({ review, onOpen }: { review: Review; onOpen?: (candidateId: string) => void }) {
   const [state, setState] = useState<DeltaState | "all">("all");
   /**
    * The lineage, for the one thing the delta cannot say on its own.
@@ -271,11 +279,9 @@ export function DeltaSurface({
     queryFn: api.reviews,
     enabled: Boolean(review.previous_review_id),
   });
-  const previous =
-    lineage.data?.find((item) => item.id === review.previous_review_id) ?? null;
+  const previous = lineage.data?.find((item) => item.id === review.previous_review_id) ?? null;
 
-  const findingOf = (candidateId: string) =>
-    review.findings.find((item) => item.candidate.id === candidateId) ?? null;
+  const findingOf = (candidateId: string) => review.findings.find((item) => item.candidate.id === candidateId) ?? null;
   /**
    * What to lead the row with, and whether it is a machine string or a sentence.
    *
@@ -288,8 +294,7 @@ export function DeltaSurface({
     const finding = findingOf(candidateId);
     const qualified = finding?.candidate.participants[0]?.qualified_name;
     if (qualified) return { identity: qualified, identityIsName: true };
-    if (finding?.candidate.summary)
-      return { identity: finding.candidate.summary, identityIsName: false };
+    if (finding?.candidate.summary) return { identity: finding.candidate.summary, identityIsName: false };
     return { identity: shortId(candidateId, 16), identityIsName: true };
   };
   const verdictLastTime = (candidateId: string) =>
@@ -359,10 +364,7 @@ export function DeltaSurface({
   ];
 
   const counts = Object.fromEntries(
-    DELTA_STATES.map((item) => [
-      item.id,
-      entries.filter((entry) => entry.state === item.id).length,
-    ]),
+    DELTA_STATES.map((item) => [item.id, entries.filter((entry) => entry.state === item.id).length]),
   ) as Record<DeltaState, number>;
   const visible = state === "all" ? entries : entries.filter((entry) => entry.state === state);
   const elsewhere =
@@ -386,9 +388,7 @@ export function DeltaSurface({
     return visible.every((entry) => read(entry) === first) ? first : null;
   };
   const sharedMovement = agreesOn((entry) => `${entry.state}\u0000${entry.reason}`);
-  const sharedVerdict = visible.some((entry) => entry.wasVerdict)
-    ? null
-    : agreesOn((entry) => entry.nowVerdict);
+  const sharedVerdict = visible.some((entry) => entry.wasVerdict) ? null : agreesOn((entry) => entry.nowVerdict);
   const hoisted = { movement: Boolean(sharedMovement), verdict: Boolean(sharedVerdict) };
 
   const moved = counts.addressed + counts.changed + counts.new;
@@ -410,8 +410,8 @@ export function DeltaSurface({
                 Compared against review {lastReview} (
                 {/* The sequence is what a person calls a review; the id is what the record is
                     filed under, and it stays in mono because that is what it is. */}
-                <span className="font-mono">{shortId(review.previous_review_id, 8)}</span>) by
-                candidate identity — not by what the model said either time.
+                <span className="font-mono">{shortId(review.previous_review_id, 8)}</span>) by candidate identity — not
+                by what the model said either time.
               </>
             ) : (
               "This is the first review in this lineage, so every candidate below is new and there is nothing yet to compare it against."
@@ -433,9 +433,7 @@ export function DeltaSurface({
               onClick={() => setState(item.id)}
               title={item.says}
             >
-              <span className={cn("font-mono font-bold", item.tone)} aria-hidden="true">
-                {item.glyph}
-              </span>
+              <Mark shape={item.glyph} className={cn("size-[14px]", item.tone)} />
               {item.label}
               <span className="tabular-nums opacity-70">{counts[item.id]}</span>
             </ToggleButton>
@@ -455,12 +453,8 @@ export function DeltaSurface({
         <Panel>
           {hoisted.movement || hoisted.verdict ? (
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-rule px-4 py-2.5 sm:px-5">
-              <span className="text-[11px] font-semibold text-ink-2">
-                All {visible.length}
-              </span>
-              {sharedVerdict ? (
-                <VerdictBadge verdict={sharedVerdict} className="px-2 py-0.5 text-[10px]" />
-              ) : null}
+              <span className="text-[11px] font-semibold text-ink-2">All {visible.length}</span>
+              {sharedVerdict ? <VerdictBadge verdict={sharedVerdict} className="px-2 py-0.5 text-[10px]" /> : null}
               {sharedMovement ? (
                 <span className="text-[11px] leading-5 text-ink-3">
                   <span className="font-semibold text-ink-2">
@@ -487,8 +481,7 @@ export function DeltaSurface({
               nothing to declare and the footer does not exist. */}
           {elsewhere.length ? (
             <PanelFooter className="text-xs leading-5 text-ink-3">
-              Showing {visible.length} of {entries.length}. Also in this review:{" "}
-              {saidInOrder(elsewhere)}.
+              Showing {visible.length} of {entries.length}. Also in this review: {saidInOrder(elsewhere)}.
             </PanelFooter>
           ) : null}
         </Panel>
@@ -508,6 +501,29 @@ export function DeltaSurface({
  * The description used to read "The same Markdown the API serves, rendered", which tells a
  * reviewer about the API rather than about their review.
  */
+/**
+ * The run-in label `workflow/report.py` puts on the summary paragraph.
+ *
+ * The document carries the summary because it has to stand on its own — downloaded,
+ * attached to a pull request, printed by the CLI. The page carries it too, hoisted out of
+ * the document and set the way every other model-authored paragraph in the product is set.
+ * Both would mean saying it twice on one screen, so the page renders the document without
+ * that one paragraph.
+ *
+ * The two sides of this literal are in different languages and can drift apart in silence,
+ * which is why `tests/browser/test_workspace.py` opens a real report and counts the summary
+ * once. Nothing here can catch a rename in Python.
+ */
+const SUMMARY_LABEL = "**In summary.**";
+
+/** The document minus the paragraph the page is about to set for itself. */
+function withoutSummary(markdown: string): string {
+  return markdown
+    .split("\n\n")
+    .filter((block) => !block.startsWith(SUMMARY_LABEL))
+    .join("\n\n");
+}
+
 export function ReportSurface({ review }: { review: Review }) {
   const report = useQuery({
     queryKey: ["review-report", review.id],
@@ -516,6 +532,7 @@ export function ReportSurface({ review }: { review: Review }) {
   if (report.isLoading) return <LoadingPanel label="Rendering the report…" />;
   if (report.error) return <ErrorNotice error={report.error} />;
   const markdown = report.data?.trim() ?? "";
+  const summary = review.synopsis?.trim() ?? "";
   return (
     <Panel>
       <PanelHeader
@@ -531,17 +548,39 @@ export function ReportSurface({ review }: { review: Review }) {
           </ExternalButtonLink>
         }
       />
+      {/* What the review comes to, before the document that establishes it.
+
+          The counts inside the report say how much there is; a reader arriving at a review
+          of forty candidates wants to know what it amounts to, and "1 material, 3 held" is
+          not that. Set like the reasoning on a finding — an attribution line in the machine
+          voice, then the sentences at the reading size — because it is the same kind of
+          thing: a paragraph the model wrote, which a reader is meant to weigh rather than
+          take as a reading.
+
+          Absent rather than empty when no model wrote one. A heading over a blank space
+          reads as a component that failed, and the document below opens on its counts
+          exactly as it did before summaries existed. */}
+      {summary ? (
+        <div className="border-t border-rule px-4 py-5 sm:px-5">
+          <p className="font-mono text-[10.5px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
+            <span className="font-semibold uppercase tracking-[0.1em] text-ink">In summary</span>
+            {review.synopsis_identity ? ` · ${review.synopsis_identity}` : null}
+          </p>
+          <p className="mt-3 max-w-[60ch] whitespace-pre-line text-[17px] leading-[1.68] text-ink wrap-anywhere">
+            {summary}
+          </p>
+        </div>
+      ) : null}
       <PanelBody>
         {/* The fourth state. A request that succeeds and returns nothing used to render as a
             panel with a header and a blank body, which reads as a component that failed
             rather than as a review with nothing in it yet — and the download beside it would
             have handed over an empty file without saying so. */}
         {markdown ? (
-          <Markdown>{markdown}</Markdown>
+          <Markdown>{withoutSummary(markdown)}</Markdown>
         ) : (
           <EmptyState title="The report is empty">
-            This review has been composed but has nothing in it to write up yet. It fills in as
-            candidates are judged.
+            This review has been composed but has nothing in it to write up yet. It fills in as candidates are judged.
           </EmptyState>
         )}
       </PanelBody>
@@ -577,13 +616,7 @@ function conversationQuestion(conversation: ReviewConversation): string | undefi
  * They are working notes over an immutable review, not part of the record: the review, its
  * findings and the standing decisions are untouched by throwing one away.
  */
-export function AskSurface({
-  review,
-  onOpen,
-}: {
-  review: Review;
-  onOpen?: (candidateId: string) => void;
-}) {
+export function AskSurface({ review, onOpen }: { review: Review; onOpen?: (candidateId: string) => void }) {
   const client = useQueryClient();
   const conversations = useQuery({
     queryKey: ["conversations", review.id],
@@ -597,8 +630,7 @@ export function AskSurface({
   // A thread with nothing in it is the one being started; there is never a reason to have
   // two, so the button that starts one steps aside once an empty one exists.
   const empty = threads.find((item) => !item.messages.length);
-  const current =
-    threads.find((item) => item.id === conversationId) ?? threads[threads.length - 1] ?? null;
+  const current = threads.find((item) => item.id === conversationId) ?? threads[threads.length - 1] ?? null;
 
   useEffect(() => {
     if (conversationId && !threads.some((item) => item.id === conversationId)) {
@@ -691,19 +723,12 @@ export function AskSurface({
             say the same thing when the request had failed — which is the one case where it
             is not true and the reader can do something about it. */}
         {conversations.isLoading ? (
-          <div
-            role="status"
-            aria-live="polite"
-            className="flex items-center gap-2.5 text-sm text-ink-2"
-          >
+          <div role="status" aria-live="polite" className="flex items-center gap-2.5 text-sm text-ink-2">
             <Spinner />
             Looking for the questions asked about this review…
           </div>
         ) : conversations.error ? (
-          <ErrorNotice
-            error={conversations.error}
-            title="The questions asked about this review could not be loaded"
-          />
+          <ErrorNotice error={conversations.error} title="The questions asked about this review could not be loaded" />
         ) : current?.messages.length ? (
           <ol className="grid gap-4">
             {current.messages.map((message, index) => (
@@ -713,15 +738,30 @@ export function AskSurface({
                   {/* `wrap-anywhere` on both halves: a question is regularly a qualified
                       name with a few words around it, and an answer quotes paths back. One
                       token wider than a phone and nothing else in the panel can help. */}
-                  <p className="mt-1 text-sm leading-6 text-ink wrap-anywhere">
-                    {message.question}
-                  </p>
+                  <p className="mt-1 text-sm leading-6 text-ink wrap-anywhere">{message.question}</p>
                 </div>
                 <div className="rounded-md border border-rule bg-sunken/50 px-3 py-2.5">
-                  <Label>Grounded answer</Label>
+                  <Label>Agent</Label>
                   <p className="mt-1 whitespace-pre-line text-sm leading-6 text-ink-2 wrap-anywhere">
                     {message.answer.text}
                   </p>
+                  {message.answer.investigation ? (
+                    /* No bleed and no full-width rule: this sits inside a bubble whose
+                       walls one would burst through. Closed, because the answer is what
+                       the reader came for and this is the working behind it. */
+                    <details className="group mt-2 border-t border-rule pt-2">
+                      <summary className="flex min-h-11 list-none items-center gap-2">
+                        <Label>Looked up</Label>
+                        <span className="min-w-0 flex-1 font-mono text-[11px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
+                          {investigationSummary(message.answer.investigation)}
+                        </span>
+                        <ChevronDown className="size-4 shrink-0 text-ink-3 transition group-open:rotate-180" />
+                      </summary>
+                      <div className="mt-2">
+                        <InvestigationTranscript investigation={message.answer.investigation} />
+                      </div>
+                    </details>
+                  ) : null}
                   {message.answer.supporting_candidate_ids.length ? (
                     <div className="mt-2 border-t border-rule pt-2">
                       {/* The charter asks every claim to say where it came from, and a row
@@ -758,9 +798,7 @@ export function AskSurface({
                           return (
                             <Tag key={id} className="gap-1.5">
                               Cited candidate, not in this review
-                              <span className="font-mono text-[11px] text-ink-3">
-                                {shortId(id, 12)}
-                              </span>
+                              <span className="font-mono text-[11px] text-ink-3">{shortId(id, 12)}</span>
                             </Tag>
                           );
                         })}
@@ -773,8 +811,8 @@ export function AskSurface({
           </ol>
         ) : (
           <EmptyState title="No questions asked yet">
-            Ask what the review found — why a candidate was cleared, what a policy covers — or what
-            to do about it: how a finding would be fixed, and which one to take first.
+            Ask what the review found — why a candidate was cleared, what a policy covers — or what to do about it: how
+            a finding would be fixed, and which one to take first.
           </EmptyState>
         )}
 
@@ -792,11 +830,7 @@ export function AskSurface({
           {/* `shrink-0`: everything on this page may be narrower than its content, which is
               what keeps a path from widening the page — but a three-letter button has
               nothing to give, and at 390px it was being squeezed to "As…". */}
-          <Button
-            className="shrink-0"
-            disabled={!question.trim() || ask.isPending}
-            onClick={() => ask.mutate()}
-          >
+          <Button className="shrink-0" disabled={!question.trim() || ask.isPending} onClick={() => ask.mutate()}>
             {ask.isPending ? <Spinner /> : "Ask"}
           </Button>
         </div>

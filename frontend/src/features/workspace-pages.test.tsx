@@ -167,9 +167,16 @@ describe("the cases page", () => {
   it("shows the case as a sequence of revisions rather than a form", async () => {
     const base = {
       case_id: "case-1",
-      constraints: [{ text: "Stripe is the only provider", facet: "constraint" as const }],
-      decisions: [],
       policy_context: {},
+      answers: [
+        {
+          question: "Is the single implementation deliberate?",
+          status: "answered",
+          value: "Yes — a second provider is expected next quarter.",
+          actor: "architect",
+          answered_at: "2026-01-01T00:00:00Z",
+        },
+      ],
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
     };
@@ -184,8 +191,11 @@ describe("the cases page", () => {
 
     const history = (await screen.findByText("Revision 1")).closest("ol")!;
     expect(within(history).getByText("Revision 2")).toBeInTheDocument();
-    // A revision is what it added, not a restated title.
-    expect(within(history).getAllByText("Stripe is the only provider")).toHaveLength(2);
+    // A revision is what it added, not a restated title — and what it adds is an answer,
+    // which is the only way anything reaches a case.
+    expect(
+      within(history).getAllByText("Yes — a second provider is expected next quarter."),
+    ).toHaveLength(2);
   });
 });
 
@@ -207,7 +217,7 @@ describe("the models page", () => {
 
     // A provider that is not reachable cannot be selected, and the reason sits on the
     // section rather than on each tile inside it — said once, where the absence is.
-    const unavailable = screen.getByRole("button", { name: /gemini-3.6-flash/ });
+    const unavailable = screen.getByRole("button", { name: /gemini-3.5-flash-lite/ });
     expect(unavailable).toBeDisabled();
     const section = unavailable.closest("section")!;
     expect(within(section).getByRole("heading", { name: /Google/ })).toBeInTheDocument();

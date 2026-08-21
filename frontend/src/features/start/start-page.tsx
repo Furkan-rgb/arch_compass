@@ -212,11 +212,11 @@ export function StartPage() {
 /**
  * What this run will do about the architecture case, said as a sentence.
  *
- * A case carries constraints, decisions and clarification answers, and it is the human half
- * of a review. Continuing the newest one is what a repeat review wants; starting empty is
- * what somebody wants when the next review asks a different question about the same code.
- * Both are one sentence and one link, because neither is a question anyone can answer before
- * they have seen a finding.
+ * A case carries what people have answered when a judgement stopped to ask, and it is the
+ * human half of a review. Continuing the newest one is what a repeat review wants; starting
+ * empty is what somebody wants when the next review asks a different question about the same
+ * code. Both are one sentence and one link, because neither is a question anyone can answer
+ * before they have seen a finding.
  */
 function CaseNote({
   root,
@@ -231,13 +231,7 @@ function CaseNote({
 }) {
   if (!root) return null;
 
-  const recorded = prior
-    ? [
-        plural(prior.case.constraints.length, "constraint"),
-        plural(prior.case.decisions.length, "recorded decision"),
-        plural(prior.case.answers.length, "clarification answer"),
-      ].join(", ")
-    : null;
+  const recorded = prior ? plural(prior.case.answers.length, "answer") : null;
 
   return (
     <p className="mt-3 border-t border-rule pt-3 text-[13px] leading-6 text-ink-2">

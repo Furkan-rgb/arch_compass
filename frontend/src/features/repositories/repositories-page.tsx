@@ -65,7 +65,9 @@ function RepositoryCard({
           <h2 className="font-display text-base font-semibold tracking-tight text-ink">
             {repositoryName(repository.root_path)}
           </h2>
-          <Badge tone={freshness.tone} glyph={freshness.tone === "cleared" ? "circle" : "diamond"}>
+          {/* How old the atlas is, which is an age rather than a grade — so a clock, and
+              never a verdict's sign. */}
+          <Badge tone={freshness.tone} glyph={freshness.tone === "cleared" ? "solid" : "clock"}>
             Atlas {freshness.label}
           </Badge>
           {latest ? (
