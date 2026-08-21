@@ -35,10 +35,10 @@ from tests.browser.harness import (
     DESKTOP,
     PHONE,
     ROOT,
+    TABLET,
     close_dialog,
     open_first_candidate,
     open_judgement_context,
-    open_queue,
     run_review,
     serve,
     show_everything,
@@ -49,10 +49,10 @@ from tests.browser.harness import (
 
 OUT = ROOT / ".artifacts/shots"
 
-#: The phone this is designed for and the laptop it is checked on. The queue is a column
-#: above 1024px and a bottom sheet below it, which is the one structural difference between
-#: the two and the reason both are shot.
-WIDTHS = {"390": PHONE, "1440": DESKTOP}
+#: The phone this is designed for, a tablet, and the laptop it is checked on. The docket is
+#: the same one column at all three; what changes is that a finding's argument and its
+#: evidence sit side by side above 1024px and stack below it.
+WIDTHS = {"390": PHONE, "1024": TABLET, "1440": DESKTOP}
 
 THEMES = ("light", "dark")
 
@@ -97,6 +97,9 @@ def capture(page, workspace_url: str, review_url: str, width: str, theme: str) -
     page.goto(f"{workspace_url}/start", wait_until="networkidle")
     yield shoot("start")
 
+    page.goto(f"{workspace_url}/reviews", wait_until="networkidle")
+    yield shoot("reviews")
+
     wait_for_review(page, review_url)
     tabs = surface_tabs(page)
     for index in range(tabs.count()):
@@ -107,18 +110,12 @@ def capture(page, workspace_url: str, review_url: str, width: str, theme: str) -
 
     tabs.first.click()
 
-    # The one structural difference between the two widths: below the tablet breakpoint the
-    # queue is a sheet that has to be opened, above it the queue is already the left column.
-    phone = width == "390"
-    if phone:
-        queue = open_queue(page)
-        yield shoot("review-queue")
-    else:
-        queue = page
-    show_everything(queue)
-    yield shoot("review-queue-all")
+    # The docket is the page at every width, so there is nothing to open first. Widened to
+    # the filter that hides nothing, which is the state holding the most rows.
+    show_everything(page)
+    yield shoot("review-docket-all")
 
-    open_first_candidate(queue)
+    open_first_candidate(page)
     yield shoot("review-finding")
 
     open_judgement_context(page)

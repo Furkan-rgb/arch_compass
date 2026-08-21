@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import pytest
 
+from archcompass.configuration import EmbeddingModelConfig
+from archcompass.reasoning.adapters.factory import embedding_identity
 from tests.e2e.conftest import (
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MODEL,
@@ -86,7 +88,15 @@ def test_answering_resumes_the_same_review_rather_than_starting_another(
         )
     first, resumed = lifecycle.first, lifecycle.resumed
 
-    assert resumed["status"] == "completed"
+    # Either outcome is correct. Answering does not oblige the model to conclude: it may
+    # judge on what it now knows, or find that the answers moved the question rather than
+    # settling it and ask again, which the graph allows up to three rounds. What is asserted
+    # is that the review the answers produced is the next one in the same lineage — and,
+    # below, that the lineage did reach an end.
+    assert resumed["status"] in {"completed", "awaiting_answers"}
+    assert lifecycle.final["status"] == "completed", (
+        "the clarification rounds never concluded; the fixture answers until they do"
+    )
     # Carried forward on the same LangGraph thread rather than begun beside it.
     assert resumed["previous_review_id"] == first["id"]
     assert resumed["sequence"] == first["sequence"] + 1
@@ -99,6 +109,30 @@ def test_answering_resumes_the_same_review_rather_than_starting_another(
     assert len(answered) == len(first["questions"])
     assert all(answer["value"] for answer in answered)
     assert resumed["findings"], "the second round judged nothing"
+
+    # The point of the round, and the thing that silently did not happen while this resumed
+    # with `stop`: every candidate is put to the model again, against a case that now says
+    # something. A second review whose findings are its predecessor's byte for byte is one
+    # that was copied forward rather than re-judged.
+    #
+    # Asserted as "at least one moved" rather than per finding, because an answer is not
+    # obliged to change a verdict — it is obliged to be read. A prompt is tens of thousands
+    # of characters of evidence and policy, and a few hundred of answer; a model that
+    # reaches the same conclusion about most of them, having been told, is judging, not
+    # ignoring.
+    before = {
+        finding["candidate"]["id"]: (finding["verdict"], finding["reasoning"])
+        for finding in first["findings"]
+    }
+    after = {
+        finding["candidate"]["id"]: (finding["verdict"], finding["reasoning"])
+        for finding in resumed["findings"]
+    }
+    assert after.keys() == before.keys(), "the rejudgement changed which candidates exist"
+    assert any(after[key] != before[key] for key in before), (
+        "every finding came back identical to the round the answers were given in, which is "
+        "what a copied-forward review looks like"
+    )
 
 
 def test_retrieval_selected_from_the_corpus_rather_than_handing_over_all_of_it(
@@ -155,8 +189,19 @@ def test_the_review_records_which_model_and_which_embedding_produced_it(
         provenance["model_identity"] for provenance in final["retrieval_manifest"]
     }
     assert embedding_identities, "the completed review carried no retrieval provenance"
+    # Asked of the function that mints the identity rather than restated as a literal. The
+    # literal was here, and it went stale the day a task-prompted model earned a suffix on
+    # its identity so that its vectors could not be compared against unprompted ones: the
+    # product was right, the assertion was a year-old copy of it, and nothing said so
+    # because this file is outside `make check`.
     assert embedding_identities == {
-        f"{EMBEDDING_PROVIDER}:{EMBEDDING_MODEL}:{EMBEDDING_DIMENSIONS}"
+        embedding_identity(
+            EmbeddingModelConfig(
+                provider=EMBEDDING_PROVIDER,
+                model=EMBEDDING_MODEL,
+                dimensions=EMBEDDING_DIMENSIONS,
+            )
+        )
     }
     assert EMBEDDING_PROVIDER not in final["model_identity"]
 
@@ -178,3 +223,41 @@ def test_a_decision_and_a_grounded_conversation_key_off_archcompass_identities(
     assert message["answer"]["text"].strip(), "the model answered the follow-up with nothing"
     # Whatever it said, the candidates it cited are ones ArchCompass minted.
     assert set(message["answer"]["supporting_candidate_ids"]) <= candidate_ids
+
+
+def test_a_hinge_is_checked_against_the_repository_before_it_reaches_a_person(
+    lifecycle: Lifecycle,
+) -> None:
+    """The only place a real tool loop runs, against a real model and a real atlas.
+
+    Every offline test drives this through a stub or the deterministic provider, so nothing
+    else establishes that a live model chooses lookups the toolbox accepts, or that what it
+    chose survives onto the record.
+
+    Skips rather than fails where the model hinged on nothing: whether this repository needs
+    human context is its judgement, and the surrounding suite already treats that as a
+    legitimate outcome rather than a flaky one.
+    """
+
+    manifest = lifecycle.final["investigation_manifest"]
+    if not manifest:
+        pytest.skip("this review reached no hinge, so nothing was investigated")
+
+    candidate_ids = {finding["candidate"]["id"] for finding in lifecycle.final["findings"]}
+    for record in manifest:
+        assert record["candidate_id"] in candidate_ids, "an investigation named no candidate"
+        # A lookup nobody can repeat is the unverifiable evidence the charter refuses, so
+        # every call keeps the arguments it was made with alongside what came back.
+        for lookup in record["lookups"]:
+            assert lookup["tool"], "a recorded lookup named no tool"
+            assert lookup["result"], "a recorded lookup kept no answer"
+        # Nothing empty is ever stored: a record exists because something happened.
+        assert record["lookups"] or record["withheld"] or record["abandoned"]
+
+    investigated = {record["candidate_id"] for record in manifest}
+    for finding in lifecycle.final["findings"]:
+        if finding["candidate"]["id"] not in investigated:
+            continue
+        # The finding names its own record by content hash, which is what lets the workbench
+        # show a reader the checking behind the verdict they are looking at.
+        assert finding["investigation_identity"], "an investigated finding named no record"

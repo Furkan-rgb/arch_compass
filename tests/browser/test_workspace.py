@@ -48,9 +48,9 @@ def test_the_landing_page_leads_into_a_review(page, workspace_url: str) -> None:
 def test_a_review_produces_a_workbench_with_a_clarification(page, review_url: str) -> None:  # type: ignore[no-untyped-def]
     page.goto(review_url, wait_until="networkidle")
 
-    # The queue is the page, not a tab on it, and it opens on what needs a human.
-    page.get_by_text("Attention queue").first.wait_for(timeout=REVIEW_TIMEOUT_MS)
-    page.get_by_text("The repository cannot answer these").wait_for(timeout=REVIEW_TIMEOUT_MS)
+    # The docket is the page, not a tab on it, and it opens on what needs a human.
+    page.get_by_text("settled").first.wait_for(timeout=REVIEW_TIMEOUT_MS)
+    page.get_by_text("wants an answer").first.wait_for(timeout=REVIEW_TIMEOUT_MS)
     assert _visible(page.get_by_role("button", name="Save and rejudge"))
     assert _visible(page.get_by_role("button", name="Conclude with remaining uncertainty"))
     assert _visible(page.get_by_text("Review lineage"))
@@ -58,7 +58,7 @@ def test_a_review_produces_a_workbench_with_a_clarification(page, review_url: st
     # A finding reads as an assessment in three voices, with its provenance folded away
     # until asked for.
     page.get_by_role("button", name="All", exact=False).click()
-    page.get_by_role("list", name="Candidates").get_by_role("button").first.click()
+    page.locator("[data-candidate]").first.click()
     assert _visible(page.get_by_text("Measured").first)
     assert _visible(page.get_by_text("Judged").first)
     assert _visible(page.get_by_text("Standing decision").first)
@@ -81,10 +81,11 @@ def test_a_review_produces_a_workbench_with_a_clarification(page, review_url: st
     page.get_by_text("Provenance").first.click()
     assert _visible(identity.last)
 
-    # Reading something else about the review does not cost the list.
+    # Reading something else about the review does not cost your place in the list: the same
+    # row is still open when you come back.
     page.get_by_role("tab", name="Delta").click()
-    assert _visible(page.get_by_role("list", name="Candidates"))
-    page.get_by_role("tab", name="Workbench").click()
+    page.get_by_role("tab", name="Docket").click()
+    assert page.locator("[data-candidate][aria-expanded='true']").count() == 1
 
     # Retrieval is auditable from behind the judgement it audits, naming the retriever that
     # ran — and deterministic retrieval takes the whole corpus and embeds nothing, which the
@@ -129,19 +130,41 @@ def test_the_report_leads_with_the_summary_and_says_it_once(page, review_url: st
 
 
 def test_answering_a_clarification_records_a_new_revision(page, review_url: str) -> None:  # type: ignore[no-untyped-def]
+    """A question is answered by picking, and the box is what you reach for when none fit.
+
+    This used to type into the textarea, because a question arrived with nothing to pick
+    from and the box was the only way to answer. That is the shape the charter forbids —
+    *never make someone type what they could pick* — and it was invisible for as long as the
+    round could produce a blank box. The model now has to propose two to four answers, so
+    the common case is a click and the box is the escape hatch it was meant to be.
+    """
+
     page.goto(review_url, wait_until="networkidle")
-    page.get_by_text("The repository cannot answer these").wait_for(timeout=REVIEW_TIMEOUT_MS)
+    page.get_by_text("wants an answer").first.wait_for(timeout=REVIEW_TIMEOUT_MS)
     first_url = page.url
 
-    answer = page.get_by_placeholder("Add the architectural context").first
-    answer.fill("The platform team owns persistence; the domain consumes it through a port.")
+    choices = page.get_by_role("radio")
+    choices.first.wait_for(timeout=REVIEW_TIMEOUT_MS)
+    # The proposed answers, plus the one that is always offered last whatever was proposed.
+    assert choices.count() >= 3
+    own = page.get_by_role("radio", name="Something else", exact=False)
+    assert own.count() == 1
+    # Never a closed set: choosing it opens the box, and the box is empty rather than
+    # pre-filled with the model's sentence.
+    own.click()
+    written = page.get_by_placeholder("Add the architectural context").first
+    assert _visible(written)
+    assert written.input_value() == ""
+
+    # Answered by picking, which is the way through this round that the product is for.
+    choices.first.click()
     page.get_by_role("button", name="Save and rejudge").click()
 
     page.wait_for_url(lambda url: url != first_url, timeout=REVIEW_TIMEOUT_MS)
     page.get_by_text("Review 2", exact=False).first.wait_for(timeout=REVIEW_TIMEOUT_MS)
 
     # The answer became case context, and the lineage now holds both revisions.
-    page.get_by_role("tab", name="Workbench").click()
+    page.get_by_role("tab", name="Docket").click()
     assert _visible(page.get_by_text("Review lineage"))
     assert _visible(page.get_by_text("case revision 2", exact=False).first)
 
@@ -239,9 +262,9 @@ def test_the_header_call_to_action_stands_down_on_a_phone(page, workspace_url: s
     assert _visible(page.locator("header").get_by_role("link", name="New review"))
 
 
-#: Every tab of the workbench. The workbench is the page a reviewer actually spends time on,
-#: and each tab is a different layout — a finding, a list, a rendered report, a transcript.
-WORKBENCH_TABS = ("Workbench", "Delta", "Report", "Ask")
+#: Every tab of the review page. The docket is where a reviewer actually spends their time,
+#: and the other three are different layouts — a list, a rendered report, a transcript.
+WORKBENCH_TABS = ("Docket", "Delta", "Report", "Ask")
 
 
 def test_the_workbench_fits_a_phone_on_every_tab(page, review_url: str) -> None:  # type: ignore[no-untyped-def]

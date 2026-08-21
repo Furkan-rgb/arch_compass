@@ -53,6 +53,17 @@ PHONE = {
     "has_touch": True,
 }
 
+#: An iPad in portrait: past the 1024px breakpoint where a finding's argument and its
+#: short of the 1280px one where the model's argument and the code it rests on sit side by
+#: side. It is the width where both of those decisions have to hold at once, which is why it
+#: is worth shooting rather than interpolating between the other two.
+TABLET = {
+    "viewport": {"width": 1024, "height": 1180},
+    "device_scale_factor": 2,
+    "is_mobile": False,
+    "has_touch": True,
+}
+
 #: The width the rest of the suite already used. A laptop, not a monitor.
 DESKTOP = {"viewport": {"width": 1440, "height": 960}}
 
@@ -163,7 +174,7 @@ def wait_for_review(page, review_url: str) -> None:  # type: ignore[no-untyped-d
 
 
 def surface_tabs(page):  # type: ignore[no-untyped-def]
-    """The tabs that switch what the column beside the queue is showing.
+    """The tabs that switch which document about the review the page is showing.
 
     The first tablist in the document is the surface switcher: the review page renders it
     before any panel content, and the only other tablists in this app live inside surfaces
@@ -173,42 +184,29 @@ def surface_tabs(page):  # type: ignore[no-untyped-def]
     return page.locator('[role="tablist"]').first.get_by_role("tab")
 
 
-def open_queue(page):  # type: ignore[no-untyped-def]
-    """The attention queue as a phone sees it: a bottom sheet behind one button.
+def show_everything(page) -> None:  # type: ignore[no-untyped-def]
+    """Widen the docket's filter to the one that hides nothing.
 
-    Below the tablet breakpoint the queue is not on the page, so there is nothing to
-    measure until it is opened. Returns the dialog.
-    """
-
-    page.get_by_role("button", name=re.compile(r"queue", re.I)).first.click()
-    dialog = page.get_by_role("dialog")
-    dialog.wait_for(state="visible")
-    return dialog
-
-
-def show_everything(container) -> None:  # type: ignore[no-untyped-def]
-    """Widen the queue's filter to the one that hides nothing.
-
-    Located as the last control in the queue's only filter group rather than by its label:
+    Located as the last control in the docket's only filter group rather than by its label:
     the three filters run narrowest to widest, so the widest is the last, and that ordering
     is structural in a way "All" is not.
     """
 
-    group = container.get_by_role("group").first
+    group = page.get_by_role("group").first
     toggles = group.get_by_role("button")
-    assert toggles.count() >= 2, "the queue filter is no longer a group of toggles"
+    assert toggles.count() >= 2, "the docket filter is no longer a group of toggles"
     toggles.last.click()
 
 
-def open_first_candidate(container) -> None:  # type: ignore[no-untyped-def]
-    """Select the first row of the queue.
+def open_first_candidate(page) -> None:  # type: ignore[no-untyped-def]
+    """Open the first row of the docket, which expands the assessment under it.
 
-    `[data-candidate]` is the hook the queue's own `j`/`k` navigation reads, so it is
+    `[data-candidate]` is the hook the docket's own `j`/`k` navigation reads, so it is
     load-bearing application code rather than a test seam, and it survives a redesign of
     everything visible about the row.
     """
 
-    rows = container.locator("[data-candidate]")
+    rows = page.locator("[data-candidate]")
     rows.first.wait_for(state="visible", timeout=REVIEW_TIMEOUT_MS)
     rows.first.click()
 

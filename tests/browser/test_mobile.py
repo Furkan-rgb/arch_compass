@@ -32,7 +32,6 @@ from tests.browser.harness import (
     close_dialog,
     open_first_candidate,
     open_judgement_context,
-    open_queue,
     show_everything,
     surface_tabs,
     wait_for_review,
@@ -309,20 +308,19 @@ def test_the_review_workbench_fits_a_phone_in_every_state(phone_page, review_url
         tab.click()
         failures += _fit_failures(phone_page, f"review surface {label!r} at 390px")
 
-    # Below the tablet breakpoint the queue is a bottom sheet rather than a column, so it
-    # does not exist until it is asked for.
+    # The docket is the page at 390px exactly as it is at 1440px — there is no phone-only
+    # sheet to open, which is the point of it being one column.
     tabs.first.click()
-    queue = open_queue(phone_page)
-    failures += _fit_failures(phone_page, "review queue at 390px")
+    failures += _fit_failures(phone_page, "review docket at 390px")
 
     # Widened to the filter that hides nothing, which is the state that has to hold the
     # most rows and the longest identifiers.
-    show_everything(queue)
-    failures += _fit_failures(phone_page, "review queue, all candidates, at 390px")
+    show_everything(phone_page)
+    failures += _fit_failures(phone_page, "review docket, all candidates, at 390px")
 
-    # Selecting a row closes the sheet and hands the candidate to the workbench.
-    open_first_candidate(queue)
-    failures += _fit_failures(phone_page, "review workbench, finding open, at 390px")
+    # A row opens in place, under itself, with the list still around it.
+    open_first_candidate(phone_page)
+    failures += _fit_failures(phone_page, "review docket, finding open, at 390px")
 
     # The drawer, and each of its own tabs — provenance is where the longest
     # machine-produced strings in the product live, so it is the likeliest to give way.
@@ -497,16 +495,12 @@ def test_every_tap_target_in_the_review_is_wide_enough_for_a_thumb(  # type: ign
             seen.add(control)
             (failures if line in found else waived).append(line)
 
-    # The four states where a phone is actually being tapped: the page as it opens, the
-    # sheet that lists what needs a person, an open finding with its decision bar, and the
-    # drawer that audits the judgement.
-    measure("review workbench at 390px")
+    # The three states where a phone is actually being tapped: the docket as it opens, an
+    # open finding with its decision bar, and the drawer that audits the judgement.
+    measure("review docket at 390px")
 
-    queue = open_queue(phone_page)
-    measure("review queue at 390px")
-
-    open_first_candidate(queue)
-    measure("review workbench, finding open, at 390px")
+    open_first_candidate(phone_page)
+    measure("review docket, finding open, at 390px")
 
     open_judgement_context(phone_page)
     measure("judgement context at 390px")

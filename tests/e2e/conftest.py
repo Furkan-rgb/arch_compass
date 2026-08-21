@@ -16,8 +16,9 @@ a check on somebody's local models — does not quietly spend Google quota. A mi
 skips with a message instead.
 
 The lifecycle runs in a module-scoped fixture rather than per test because it is the
-expensive part: five candidates judged twice, questions asked twice, one conversation. Buying
-that once per assertion would put the file out of reach of the tier it is written for.
+expensive part: every candidate judged once per clarification round, questions generated for
+each, a synopsis written for each, and one conversation at the end. Buying that once per
+assertion would put the file out of reach of the tier it is written for.
 """
 
 from __future__ import annotations
@@ -50,10 +51,19 @@ EMBEDDING_PROVIDER = "ollama"
 EMBEDDING_MODEL = "embeddinggemma:latest"
 EMBEDDING_DIMENSIONS = 768
 
-#: Small on purpose. Five detected candidates is enough for fan-out, for rejudgement, and for
-#: a retrieval manifest with more than one entry in it, and few enough that a whole lifecycle
-#: fits inside the free tier's reasoning quota.
-SUBJECT_REPOSITORY = Path("examples/cases/warehouse-sync/repository")
+#: Chosen because the model asks about it, which is the half of the lifecycle a cheaper
+#: repository leaves unrun.
+#:
+#: This was `warehouse-sync` — five candidates, the smallest thing that still exercises
+#: fan-out — and against an empty case the model judged every one of them outright and never
+#: stated a hinge. Nothing failed: the clarification assertions skip themselves when no
+#: question was asked, and they did, every time, so the round this file exists to verify was
+#: never once verified. `speech-vendor` is a service that has run on a single speech vendor
+#: since it was written, and whether its six sole-implementation ports are deliberate is a
+#: question the repository genuinely cannot answer — so the model asks, and the clarification
+#: round runs. Eight candidates over up to three rounds is more quota than five judged once,
+#: and it is what the coverage costs.
+SUBJECT_REPOSITORY = Path("examples/cases/speech-vendor/repository")
 
 
 @dataclass(frozen=True)
@@ -130,31 +140,18 @@ def _run_lifecycle(runtime: Runtime, repository: str) -> Lifecycle:
         assert started.status_code == 200, started.text
         case_id = started.json()["case_id"]
 
-        # A case a review can actually be uncertain about. `start` opens an empty one, and an
-        # empty case gives the model nothing to hinge on — it judges every candidate on the
-        # code alone and the review completes in one pass, leaving the clarification round
-        # unexercised. Stating a goal whose decisive fact is deliberately missing is what
-        # makes "I would need to know who owns this" the correct judgement rather than a
-        # coin toss. The tests still cope with a model that judges anyway.
-        revised = client.patch(
-            f"/api/cases/{case_id}",
-            json={
-                "goal": (
-                    "Split this service between two teams next quarter without slowing "
-                    "either of them down."
-                ),
-                "constraints": [
-                    {
-                        "text": (
-                            "Which team will own the warehouse integration has not been "
-                            "decided, and nobody has committed to owning the shared "
-                            "reporting path."
-                        )
-                    }
-                ],
-            },
-        )
-        assert revised.status_code == 200, revised.text
+        # The case is left as `start` opened it: empty.
+        #
+        # This used to state a goal and a constraint whose decisive fact was deliberately
+        # missing, so that the model had something to be uncertain about and the
+        # clarification round would run. That was the test arranging the conditions the
+        # product is supposed to create on its own, and it hid the real behaviour: on an
+        # empty case the model judged everything on the policy corpus and never asked.
+        #
+        # Nothing can state a constraint any more, and the judgement contract now says an
+        # empty case out loud and gives asking first-class standing. So an empty case is the
+        # honest input, and whether a round happens is the model's call — which is what
+        # `Lifecycle.resumed` being optional has always documented.
 
         first = client.post(
             "/api/reviews",
@@ -167,30 +164,53 @@ def _run_lifecycle(runtime: Runtime, repository: str) -> Lifecycle:
         opened = first.json()
 
         resumed: dict[str, Any] | None = None
-        if opened["status"] == "awaiting_answers":
-            # Answered, not skipped. Skipping resumes the graph without ever revising the
-            # case, and revising the case is what a second round of judgement is triggered
-            # by — so a skipped resume would leave half the flow this exists for unrun.
+        rounds: list[dict[str, Any]] = []
+        waiting = opened
+        while waiting["status"] == "awaiting_answers":
+            # Answered, not skipped, and resumed without `stop`. Both halves matter and only
+            # one of them used to be here: skipping resumes the graph without revising the
+            # case, and `stop` routes the revised case straight to the composer, so either
+            # one on its own leaves the rejudgement this file exists to exercise unrun. It
+            # did, silently, for as long as the flag was set — the second review came back
+            # with round one's findings copied verbatim and every assertion below still
+            # passed, because none of them compared the two rounds.
+            #
+            # A loop rather than one resume, because answering is not guaranteed to end the
+            # review: a model that still cannot judge on what it now knows may ask again,
+            # and the graph allows it up to three rounds. Two of those are a real shape this
+            # has to survive, so the fixture answers until the review stops asking rather
+            # than asserting that one answer was enough.
             answered_questions = [
                 {
                     "question_id": question["id"],
                     "status": "answered",
+                    # Chosen from what the model offered wherever it offered anything, which
+                    # is the path a person takes: the options are the product's answer to
+                    # "never make someone type what they could pick". Typed prose is the
+                    # fallback for a question asked with a blank box.
                     "value": (
-                        "One team owns this service end to end, and we expect the warehouse "
-                        "integration to be replaced within two quarters."
+                        question["options"][0]
+                        if question["options"]
+                        else (
+                            "One team owns this service end to end, and we expect a second "
+                            "provider behind these boundaries within two quarters."
+                        )
                     ),
                     "actor": "architect",
                 }
-                for question in opened["questions"]
+                for question in waiting["questions"]
             ]
             response = client.post(
-                f"/api/reviews/{opened['id']}/answers",
-                json={"answers": answered_questions, "stop": True},
+                f"/api/reviews/{waiting['id']}/answers",
+                json={"answers": answered_questions, "stop": False},
             )
             assert response.status_code == 200, response.text
-            resumed = response.json()
+            waiting = response.json()
+            rounds.append(waiting)
+            if resumed is None:
+                resumed = waiting
 
-        final = resumed if resumed is not None else opened
+        final = rounds[-1] if rounds else opened
 
         decision = client.post(
             "/api/decisions",
@@ -240,7 +260,11 @@ def lifecycle(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Lifecycle]:
         # key lives; the probes after it decide whether there is anything to run.
         runtime = build_runtime(
             tmp_path_factory.mktemp("google-e2e"),
-            pin=pinned_model("google", REASONING_MODEL, thinking=False),
+            # Thinking on, because it is what this model is actually run with — and because
+            # the hinge pass asks it to choose lookups and then honour a JSON schema in
+            # the same breath, which is the combination a non-thinking small model is
+            # least reliable at.
+            pin=pinned_model("google", REASONING_MODEL, thinking=True),
         )
         _require_google()
         _require_local_embeddings(runtime)
