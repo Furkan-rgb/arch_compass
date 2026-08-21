@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import ast
+import dataclasses
+from enum import Enum
 from pathlib import Path
+from typing import get_args, get_origin, get_type_hints
+
+from archcompass.bootstrap import CHECKPOINT_RECORD_TYPES
+from archcompass.workflow.state import ReviewState
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2] / "src" / "archcompass"
 
@@ -23,9 +29,7 @@ FEATURES = (
 def _imports(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
     return [
-        node.module
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom) and node.module
+        node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module
     ] + [
         alias.name
         for node in ast.walk(tree)
@@ -175,9 +179,9 @@ def test_langgraph_is_confined_to_the_workflow_package() -> None:
     for path in _python_files(SOURCE_ROOT):
         if path in allowed or path.relative_to(SOURCE_ROOT).parts[0] == "workflow":
             continue
-        assert not any(
-            _crosses(imported, "langgraph") for imported in _imports(path)
-        ), f"{path.relative_to(SOURCE_ROOT)} imports LangGraph outside workflow/"
+        assert not any(_crosses(imported, "langgraph") for imported in _imports(path)), (
+            f"{path.relative_to(SOURCE_ROOT)} imports LangGraph outside workflow/"
+        )
 
 
 def test_langchain_and_provider_sdks_stay_in_reasoning_and_policy_adapters() -> None:
@@ -225,9 +229,7 @@ def test_cli_commands_use_application_services_only() -> None:
         "report_writer",
         "run_repository",
     }
-    used_attributes = {
-        node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
-    }
+    used_attributes = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
     assert used_attributes.isdisjoint(forbidden_runtime_attributes)
 
     expected_service_by_command = {
@@ -242,7 +244,7 @@ def test_cli_commands_use_application_services_only() -> None:
         "atlas_hotspots": "atlas_service",
         "case_create": "case_service",
         "case_show": "case_service",
-        "case_update": "case_service",
+        "case_rescope": "case_service",
         "case_history": "case_service",
         "review": "review_workflow_service",
         "review_show": "review_workflow_service",
@@ -250,14 +252,10 @@ def test_cli_commands_use_application_services_only() -> None:
         "review_ask": "review_conversation_service",
         "review_history": "review_conversation_service",
     }
-    functions = {
-        node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)
-    }
+    functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
     for command, service in expected_service_by_command.items():
         attributes = {
-            node.attr
-            for node in ast.walk(functions[command])
-            if isinstance(node, ast.Attribute)
+            node.attr for node in ast.walk(functions[command]) if isinstance(node, ast.Attribute)
         }
         assert service in attributes, f"{command} does not delegate through {service}"
 
@@ -283,17 +281,11 @@ def test_web_routes_use_application_services_only() -> None:
     assert routes_root.is_dir(), "presentation/web/routes is gone; this guard sweeps nothing"
 
     forbidden = [f"archcompass.{feature}.adapters" for feature in FEATURES]
-    swept = [
-        path
-        for path in _python_files(web_root)
-        if path.name not in _WEB_RUNTIME_BUILDERS
-    ]
+    swept = [path for path in _python_files(web_root) if path.name not in _WEB_RUNTIME_BUILDERS]
     assert swept, "the web package is gone; this guard now sweeps nothing"
     for path in swept:
         assert not any(
-            _crosses(imported, prefix)
-            for imported in _imports(path)
-            for prefix in forbidden
+            _crosses(imported, prefix) for imported in _imports(path) for prefix in forbidden
         ), f"{path.relative_to(SOURCE_ROOT)} imports an adapter"
 
     forbidden_runtime_attributes = {
@@ -309,9 +301,7 @@ def test_web_routes_use_application_services_only() -> None:
     used_attributes: set[str] = set()
     for path in _python_files(routes_root):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        used_attributes |= {
-            node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
-        }
+        used_attributes |= {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
     assert used_attributes.isdisjoint(forbidden_runtime_attributes)
     assert {
         "atlas_service",
@@ -344,3 +334,59 @@ def test_reasoning_adapters_do_not_import_the_services_above_them() -> None:
         assert not any(
             _crosses(imported, prefix) for imported in imports for prefix in service_modules
         ), f"{path.relative_to(SOURCE_ROOT)} imports the service layer above it"
+
+
+def _checkpointed_records(annotation: object, seen: set[tuple[str, str]]) -> set[tuple[str, str]]:
+    """Every record type reachable from one `ReviewState` field, named as msgpack names it.
+
+    Recursive because the allowlist is: a checkpoint stores a `Review`, a `Review` holds
+    `Finding`s, a `Finding` holds a `Verdict`, and every one of those has to appear by name.
+    """
+
+    origin = get_origin(annotation)
+    if origin is not None:
+        for argument in get_args(annotation):
+            _checkpointed_records(argument, seen)
+        return seen
+    if not isinstance(annotation, type):
+        return seen
+    if not (dataclasses.is_dataclass(annotation) or issubclass(annotation, Enum)):
+        return seen
+    name = (annotation.__module__, annotation.__qualname__)
+    if name in seen:
+        return seen
+    seen.add(name)
+    if dataclasses.is_dataclass(annotation):
+        hints = get_type_hints(annotation)
+        for field in dataclasses.fields(annotation):
+            _checkpointed_records(hints[field.name], seen)
+    return seen
+
+
+def test_every_record_a_checkpoint_can_hold_is_named_in_the_allowlist() -> None:
+    """The one boundary a unit test cannot reach by running the graph.
+
+    A resumed review is deserialized by `JsonPlusSerializer`, which revives an unlisted
+    dataclass as a raw dict instead of refusing it — so the omission shows up much later, as
+    an attribute error in a node that has nothing to do with the type that was dropped, and
+    only ever against the real SQLite checkpointer. Every workflow test compiles the graph
+    with `InMemorySaver`, which does not consult the allowlist at all, so nothing in the
+    suite touches it. This walks the state instead: whatever `ReviewState` can hold today is
+    what the list has to name.
+
+    Both directions, because a name that no longer matches a type is not harmless — it reads
+    as coverage while covering nothing, which is exactly how the gap it replaces was missed.
+    """
+
+    reachable: set[tuple[str, str]] = set()
+    for annotation in get_type_hints(ReviewState, include_extras=False).values():
+        _checkpointed_records(annotation, reachable)
+
+    listed = set(CHECKPOINT_RECORD_TYPES)
+    assert reachable, "no records were found in ReviewState; this guard sweeps nothing"
+    assert not reachable - listed, "a resumed review would revive these as dicts: " + str(
+        sorted(reachable - listed)
+    )
+    assert not listed - reachable, "these are allowlisted but no longer reachable: " + str(
+        sorted(listed - reachable)
+    )

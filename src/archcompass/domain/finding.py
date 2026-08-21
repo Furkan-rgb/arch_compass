@@ -38,6 +38,11 @@ class Finding:
     model_identity: str = ""
     prompt_identity: str = ""
     retrieval_identity: str = ""
+    #: The `RecordedInvestigation` on the review that checked this finding's hinge,
+    #: named by its own content hash. "" where nothing looked, which is every finding
+    #: that never had a hinge to check. The transcript itself is on the review: this
+    #: record is cached, carried forward and compared, and it stays small enough to be.
+    investigation_identity: str = ""
 
     def __post_init__(self) -> None:
         freeze_sequences(self, "policies", "evidence")

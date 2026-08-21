@@ -173,6 +173,60 @@ def test_revision_calculator_rejudges_for_policy_model_and_prompt_changes(
     )
 
 
+def test_a_stale_manifest_entry_does_not_move_the_corpus_for_everything_else(
+    tmp_path: Path,
+) -> None:
+    """The corpus is read per candidate, so a leftover entry cannot speak for the rest.
+
+    A boundary that was addressed leaves its provenance behind in the manifest, recorded
+    against whatever corpus it was retrieved from. Comparing the manifest as a set made
+    that one entry say the corpus had moved, on every later run, for a repository and a
+    corpus nobody had touched.
+    """
+
+    repository = RepositoryRef("repo", tmp_path, "branch", "content")
+    atlas = RepositoryAtlas("atlas", repository)
+    case = ArchitectureCase.create()
+    surviving = Candidate.identified(
+        pattern="sole_implementation",
+        summary="One adapter behind a port",
+        participants=(Participant("app.Port", "abstraction"),),
+    )
+    gone = Candidate.identified(
+        pattern="duplicated_knowledge",
+        summary="A constant stated twice",
+        participants=(Participant("app.limits.RETRY", "copy"),),
+    )
+    now = utc_now()
+    previous = Review(
+        "review-1",
+        1,
+        repository,
+        atlas,
+        case,
+        (Finding(surviving, Verdict.CLEARED, "No conflict was found.", (), ()),),
+        (),
+        ReviewStatus.COMPLETED,
+        ReviewDelta(unchanged=(surviving,)),
+        now,
+        now,
+        retrieval_manifest=(
+            RetrievalProvenance(gone.id, "any-strategy", "1", "old-corpus", ("policy-a",)),
+            RetrievalProvenance(
+                surviving.id, "any-strategy", "1", "current-corpus", ("policy-a",)
+            ),
+        ),
+    )
+    calculator = DeterministicRevisionCalculator(
+        corpus_fingerprint=lambda _: "current-corpus"
+    )
+
+    delta = calculator.calculate((surviving,), case, previous, repository)
+
+    assert delta.unchanged == (surviving,)
+    assert delta.changed == ()
+
+
 def test_revision_calculator_records_succession_and_resurfacing(tmp_path: Path) -> None:
     repository = RepositoryRef("repo", tmp_path, "branch", "content")
     atlas = RepositoryAtlas("atlas", repository)
