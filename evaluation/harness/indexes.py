@@ -25,25 +25,53 @@ from archcompass.domain import Policy
 # evaluation keep scoring a chunking the product had stopped using.
 from archcompass.policies.adapters.sqlite_index import _chunks as heading_chunks
 from archcompass.ports.dense_policy_index import DensePolicyMatch
-from archcompass.reasoning.adapters.factory import build_embeddings
+from archcompass.reasoning.adapters.factory import (
+    TaskPromptedEmbeddings,
+    build_embeddings,
+    embedding_identity,
+)
 
 __all__ = [
     "Bm25PolicyIndex",
     "InMemoryDenseIndex",
     "RandomPolicyIndex",
-    "TaskPrefixedEmbeddings",
     "heading_chunks",
+    "ollama_config",
     "ollama_embeddings",
+    "ollama_identity",
     "whole_document_chunks",
 ]
 
-#: EmbeddingGemma is trained with task prompts, and the Ollama modelfile for it is a bare
-#: `{{ .Prompt }}` — so nothing adds them unless the caller does. These are the strings
-#: Google documents for retrieval. The document form takes `none` for the title because a
-#: chunk already opens with the policy title, and stating it twice is not the documented
-#: shape either.
-QUERY_PROMPT = "task: search result | query: {text}"
-DOCUMENT_PROMPT = "title: none | text: {text}"
+
+def ollama_config(
+    *,
+    model: str = "embeddinggemma",
+    dimensions: int = 768,
+    base_url: str = "http://localhost:11434",
+) -> EmbeddingModelConfig:
+    """What a review would be configured with, so everything below agrees with it."""
+
+    return EmbeddingModelConfig(
+        provider="ollama",
+        model=model,
+        dimensions=dimensions,
+        base_url=base_url,
+    )
+
+
+def ollama_identity(
+    *,
+    model: str = "embeddinggemma",
+    dimensions: int = 768,
+) -> str:
+    """The product's own name for these vectors, never a string written out by hand.
+
+    The notebook needs it to namespace the SQLite index. Assembling it here would let the
+    evaluation index under one name while a review reads under another — and the whole
+    point of the name is that it changes when the vectors do.
+    """
+
+    return embedding_identity(ollama_config(model=model, dimensions=dimensions))
 
 
 def ollama_embeddings(
@@ -51,37 +79,22 @@ def ollama_embeddings(
     model: str = "embeddinggemma",
     dimensions: int = 768,
     base_url: str = "http://localhost:11434",
+    task_prompts: bool = True,
 ) -> Embeddings:
-    """The local embedding model, built through the same factory a review builds it with."""
+    """The local embedding model, built through the same factory a review builds it with.
 
-    return build_embeddings(
-        EmbeddingModelConfig(
-            provider="ollama",
-            model=model,
-            dimensions=dimensions,
-            base_url=base_url,
-        )
-    )
-
-
-class TaskPrefixedEmbeddings(Embeddings):
-    """EmbeddingGemma's documented task prompts, applied where nothing else applies them.
-
-    An ablation rather than a fix: whether the prompts are worth the two string formats is
-    a question this evaluation exists to answer, and the answer belongs in the notebook
-    before it belongs in `factory.build_embeddings`.
+    `task_prompts=False` hands back what the factory wrapped. The prompts are the product's
+    behaviour now, so the ablation is no longer "add them" but "take them away", and taking
+    them away has to mean unwrapping the shipped object rather than assembling a second one
+    — a hand-built `OllamaEmbeddings` here would keep scoring a path nothing runs.
     """
 
-    def __init__(self, inner: Embeddings) -> None:
-        self._inner = inner
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return self._inner.embed_documents(
-            [DOCUMENT_PROMPT.format(text=text) for text in texts]
-        )
-
-    def embed_query(self, text: str) -> list[float]:
-        return self._inner.embed_query(QUERY_PROMPT.format(text=text))
+    built = build_embeddings(
+        ollama_config(model=model, dimensions=dimensions, base_url=base_url)
+    )
+    if task_prompts or not isinstance(built, TaskPromptedEmbeddings):
+        return built
+    return built.inner
 
 
 def whole_document_chunks(policy: Policy) -> tuple[str, ...]:
