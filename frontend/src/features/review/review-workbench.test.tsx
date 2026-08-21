@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api, type Decision } from "../../api";
@@ -19,6 +19,11 @@ import {
 } from "../../test-fixtures";
 import { ReviewPage } from "./review-page";
 
+function CurrentPath() {
+  const { pathname, search } = useLocation();
+  return <span data-testid="path">{`${pathname}${search}`}</span>;
+}
+
 function wrap(children: ReactNode, path = "/reviews/review-1") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -29,6 +34,9 @@ function wrap(children: ReactNode, path = "/reviews/review-1") {
         <Routes>
           <Route path="/reviews/:reviewId" element={children} />
         </Routes>
+        {/* A memory router never touches `window.location`, so the URL a test asserts on has
+            to be read from the router itself. */}
+        <CurrentPath />
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -1436,5 +1444,69 @@ describe("the review workbench", () => {
     // candidate has to be opened before its assessment is on screen.
     fireEvent.click(within(article).getByRole("button", { expanded: false }));
     expect(within(article).queryByText("Looked up")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Which document about the review is on screen is part of where you are, not part of what
+ * the page happens to remember. A tab held only in memory cannot be refreshed onto, linked
+ * to, or opened in a second window beside the first.
+ */
+describe("the surface in the URL", () => {
+  beforeEach(() => {
+    const review = reviewFixture({ status: "completed" });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+  });
+
+  it("opens on the surface the link names", async () => {
+    render(wrap(<ReviewPage />, "/reviews/review-1?tab=delta"));
+
+    expect(await screen.findByRole("tab", { name: /Delta/, selected: true })).toBeInTheDocument();
+  });
+
+  it("opens on the docket for a bare review link, and leaves the link bare", async () => {
+    // No redirect on mount: the docket is what a review *is*, so saying so in the URL would
+    // put a second entry in the reader's history for every review they open.
+    render(wrap(<ReviewPage />, "/reviews/review-1"));
+
+    expect(await screen.findByRole("tab", { name: /Docket/, selected: true })).toBeInTheDocument();
+    expect(screen.getByTestId("path")).toHaveTextContent("/reviews/review-1");
+  });
+
+  it("shows the review rather than nothing when the parameter names no surface", async () => {
+    // A mistyped link still asked for this review. The tab strip says where they landed.
+    render(wrap(<ReviewPage />, "/reviews/review-1?tab=atals"));
+
+    expect(await screen.findByRole("tab", { name: /Docket/, selected: true })).toBeInTheDocument();
+  });
+
+  it("keeps the reader's place in the docket across a trip to another surface", async () => {
+    // The surface is where you are; the open row, the filter and the scroll are what you were
+    // doing there. Putting the first in the URL must not cost the second — which it does the
+    // moment the page is remounted, and a route whose shape changes between two URLs remounts
+    // it. This is the test that catches that, because nothing about the URL looks wrong.
+    render(wrap(<ReviewPage />, "/reviews/review-1"));
+
+    const listed = await docket();
+    fireEvent.click(listed[1]);
+    expect(listed[1]).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(screen.getByRole("tab", { name: /Delta/ }));
+    await screen.findByRole("tab", { name: /Delta/, selected: true });
+    fireEvent.click(screen.getByRole("tab", { name: /Docket/ }));
+    await screen.findByRole("tab", { name: /Docket/, selected: true });
+
+    const after = rows().find((row) => row.dataset.candidate === listed[1].dataset.candidate);
+    expect(after).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("puts the surface in the URL when a tab is chosen", async () => {
+    render(wrap(<ReviewPage />, "/reviews/review-1"));
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Report/ }));
+
+    expect(await screen.findByRole("tab", { name: /Report/, selected: true })).toBeInTheDocument();
+    expect(screen.getByTestId("path")).toHaveTextContent("/reviews/review-1?tab=report");
   });
 });

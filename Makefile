@@ -1,4 +1,4 @@
-.PHONY: sync frontend-sync api-types api-types-check policy-index policy-index-check lint typecheck test frontend-check frontend-build test-ollama test-google examples evaluation check build full test-browser run web web-google docker-build
+.PHONY: sync frontend-sync api-types api-types-check policy-index policy-index-check lint typecheck test frontend-check frontend-build test-ollama test-google examples evaluation check build full test-browser run dev web web-google docker-build
 
 sync:
 	uv sync --locked
@@ -90,6 +90,24 @@ web: run
 
 web-google: frontend-build
 	uv run archcompass --provider google --model gemini-3.6-flash web
+
+# The same two halves that `run` welds into one process, kept apart on purpose. `run` builds
+# the bundle and lets the API process serve it, which is what a reader or a demonstration
+# wants and what a person changing a component cannot work in: every edit costs a full
+# `tsc -b && vite build` before it is on screen. `dev` starts the API on 8765 and Vite on
+# 5173, where the `/api` proxy in `vite.config.ts` already points, so a save reaches the
+# browser without a build.
+# Open 5173, not 8765. The API process still serves whatever bundle is on disk, and in a
+# working tree that bundle is stale by design — 8765 is the trap this target exists to avoid.
+# Only the frontend reloads. `archcompass web` hands uvicorn an app object rather than an
+# import string, so uvicorn cannot watch for it; a Python edit needs a restart of `make dev`.
+# Ctrl-C stops both, and the trap stops the API if Vite exits first. Vite is ready in about
+# a quarter of a second and uvicorn is not, so the first load can log one proxy
+# ECONNREFUSED; a reload once the API line appears is the whole of it.
+dev:
+	@trap 'kill 0' EXIT INT TERM; \
+	  uv run archcompass web --no-open --port 8765 & \
+	  cd frontend && pnpm exec vite --open
 
 # Drives the built bundle in a real browser against a real server, with the model
 # substituted. Outside `check` because it needs Playwright's chromium downloaded.

@@ -191,6 +191,18 @@ are documents *about* the review — what moved, the write-up, a conversation �
 them is a way of working through it. Your place in the docket is page state, so reading one
 and coming back leaves the same row open, the same filter set and the same scroll.
 
+*Which* of them you are reading is not page state — it is in the URL, so
+`/reviews/:id?tab=atlas` is a link that can be sent to somebody and a refresh lands back where
+it was. The two are separate on purpose: which document you are reading is where you are, and
+your position inside the docket is what you were doing there.
+
+That it is a query parameter rather than a path segment is not an aesthetic choice. A segment
+changes which route the URL matches, and a changed match remounts the page — which throws away
+the open row, the filter and the scroll, breaking the paragraph above. Both spellings of the
+segment were tried and both did it. The docket carries no parameter at all, because arriving
+at a review and arriving at its docket are the same arrival, and rewriting the URL on mount to
+say so would put a second entry in the reader's history for every review they open.
+
 The one column is the same column at 390px. Nothing moves into a sheet, and there is no back
 bar, because opening a row never took you anywhere to come back from.
 

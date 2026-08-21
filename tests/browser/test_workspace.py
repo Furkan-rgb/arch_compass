@@ -7,7 +7,10 @@ unchanged and described there.
 
 from __future__ import annotations
 
+import re
+
 import pytest
+from playwright.sync_api import expect
 
 from tests.browser.harness import REVIEW_TIMEOUT_MS
 
@@ -83,9 +86,15 @@ def test_a_review_produces_a_workbench_with_a_clarification(page, review_url: st
 
     # Reading something else about the review does not cost your place in the list: the same
     # row is still open when you come back.
+    #
+    # `expect` rather than a bare `count()`, because which surface is on screen is a URL
+    # change now — `?tab=delta` — and a router navigation renders in a transition rather than
+    # in the click that asked for it. A count read in the same tick reads the docket before it
+    # has painted, which is a race the assertion had all along and only now loses.
     page.get_by_role("tab", name="Delta").click()
+    expect(page).to_have_url(re.compile(r"\?tab=delta$"))
     page.get_by_role("tab", name="Docket").click()
-    assert page.locator("[data-candidate][aria-expanded='true']").count() == 1
+    expect(page.locator("[data-candidate][aria-expanded='true']")).to_have_count(1)
 
     # Retrieval is auditable from behind the judgement it audits, naming the retriever that
     # ran — and deterministic retrieval takes the whole corpus and embeds nothing, which the

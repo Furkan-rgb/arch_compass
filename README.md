@@ -241,6 +241,11 @@ make run
 `make run` builds the frontend and starts the backend that serves it, then opens the browser.
 `make web` is retained as an equivalent alias.
 
+`make dev` is the loop for changing the frontend. It starts the same backend on 8765 and the
+Vite dev server on 5173, which proxies `/api` to it, so an edit is on screen without a
+rebuild. Use <http://localhost:5173>; port 8765 keeps serving the last built bundle. Backend
+edits still need a restart.
+
 Run with an explicitly pinned provider/model:
 
 ```bash

@@ -25,6 +25,18 @@ The command builds the frontend, starts the FastAPI application on loopback, and
 browser. `make web` is an equivalent alias. Provider/model selection is stored per
 workspace. A run can be pinned explicitly:
 
+## Frontend development loop
+
+```bash
+make dev
+```
+
+`make dev` runs the two halves as separate processes instead of building one: the FastAPI
+application on 8765, and the Vite dev server on 5173 with `/api` proxied to it. A saved
+component reaches the browser without `pnpm run build`. Open <http://localhost:5173> — 8765
+still answers, with whatever bundle was last built, which in a working tree is stale.
+Only the frontend reloads; a Python change needs `make dev` restarted.
+
 ```bash
 uv run archcompass --provider google --model gemini-3.5-flash-lite web
 uv run archcompass --provider ollama --model gemma4:26b web

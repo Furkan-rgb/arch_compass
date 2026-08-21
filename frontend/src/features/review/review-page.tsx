@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, type Review } from "../../api";
 import { cn } from "../../lib/cn";
@@ -45,6 +45,18 @@ const SURFACES = [
   { id: "report", label: "Report" },
   { id: "ask", label: "Ask" },
 ];
+
+/**
+ * The docket is the review, so it is what a bare `/reviews/:id` means.
+ *
+ * It carries no parameter of its own rather than `?tab=docket`: arriving at a review and
+ * arriving at its docket are the same arrival, and rewriting the URL on mount to say so
+ * would put a second entry in the reader's history for every review they open.
+ */
+const DEFAULT_SURFACE = "docket";
+
+/** What names the surface in a link: `/reviews/:id?tab=atlas`. */
+const SURFACE_PARAM = "tab";
 
 /**
  * The one number in the head that means act, and the verdict spread behind it.
@@ -196,10 +208,41 @@ function ReviewHead({
 
 export function ReviewPage() {
   const { reviewId = "" } = useParams();
+  const [search, setSearch] = useSearchParams();
+  const requestedSurface = search.get(SURFACE_PARAM) ?? undefined;
   const navigate = useNavigate();
   const client = useQueryClient();
 
-  const [surface, setSurface] = useState("docket");
+  /**
+   * Which surface is on screen, read from the URL rather than held in state.
+   *
+   * A tab that only lives in memory is a tab that cannot be linked to, refreshed onto, or
+   * opened in a second window beside the first — and this page's tabs are five documents
+   * about one review, which is exactly the kind of thing somebody sends to a colleague.
+   *
+   * A query parameter rather than a path segment, which is the less pretty of the two and
+   * the only one that works. `/reviews/:id/:surface?` and a nested `:surface` child both
+   * change which route variant the URL matches, and in this app — two levels of `<Routes>`
+   * inside a `<Suspense>` around lazy pages — that remounts the page. Remounting costs the
+   * reader the row they had open, the filter they set and their scroll, which is the exact
+   * promise `docs/experience.md` makes about leaving a surface and coming back. A parameter
+   * never changes the match, so the page is never rebuilt. There is a test for it.
+   *
+   * An unrecognised value falls back to the docket rather than rendering nothing, and the
+   * fallback is silent: `?tab=atals` shows the review, which is what the reader was asking
+   * for, and the tab strip says where they actually landed.
+   */
+  const surface = SURFACES.some((item) => item.id === requestedSurface)
+    ? requestedSurface!
+    : DEFAULT_SURFACE;
+  const setSurface = (next: string) =>
+    setSearch((current) => {
+      const params = new URLSearchParams(current);
+      if (next === DEFAULT_SURFACE) params.delete(SURFACE_PARAM);
+      else params.set(SURFACE_PARAM, next);
+      return params;
+    });
+
   const [filter, setFilter] = useState<QueueFilter>("attention");
   /**
    * Which row is open, once somebody or something has chosen. `undefined` means nobody has,

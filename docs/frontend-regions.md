@@ -32,7 +32,7 @@ working through it, so they are peers of the docket rather than columns beside i
 | --- | --- | --- |
 | **Review head** | One line: which review this is, and the repository, branch and commit it read, with the status and the Cancel / New review button. | [review-page.tsx:136](../frontend/src/features/review/review-page.tsx#L136) |
 | **Review counts** | Under the head: how many things still want you, then the verdict spread. Orientation, read once, on the way to the work. | [review-page.tsx:58](../frontend/src/features/review/review-page.tsx#L58) |
-| **Surface tabs** | Docket · Atlas · Delta · Report · Ask. Which document about this review is on screen. Your place in the docket survives a trip to any of them. | [review-page.tsx:40](../frontend/src/features/review/review-page.tsx#L40) |
+| **Surface tabs** | Docket · Atlas · Delta · Report · Ask. Which document about this review is on screen. **In the URL**, not page state — `?tab=atlas` is a link somebody can send, and a refresh lands back on it. A query parameter rather than a path segment on purpose: a segment changes which route the URL matches, which remounts the page and costs the reader their open row and filter. The docket carries no parameter, because arriving at a review and arriving at its docket are the same arrival. Your place in the docket survives a trip to any of them. | [review-page.tsx:40](../frontend/src/features/review/review-page.tsx#L40) |
 
 ### The docket
 
