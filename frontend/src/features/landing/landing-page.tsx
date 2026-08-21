@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 
 import { cn } from "../../lib/cn";
 import { useTheme } from "../../lib/theme";
-import { Badge, Tag } from "../../ui/badge";
 import { Wordmark } from "../../ui/brand";
 import { Button, ButtonLink } from "../../ui/button";
 import { Drawer } from "../../ui/drawer";
@@ -18,94 +17,65 @@ import {
 } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { Reveal } from "../../ui/reveal";
-import { WorkbenchPreview } from "./preview";
+import { CorpusCard } from "./corpus-card";
+import { Field } from "./field";
+
+/**
+ * The landing page.
+ *
+ * Its thesis is guidance. The hero is not a picture of the workbench and not an instrument
+ * — it is the corpus doing its job: a policy somebody wrote, and the finding it produced.
+ * That is the one thing this product can show that nothing else can, and it needs no score
+ * to show it, which matters because the domain has no score to give.
+ *
+ * The chrome here is deliberately not the app's chrome. `AppShell` is a sidebar and a
+ * topbar because the workbench is a tool somebody works inside; a marketing page is read
+ * top to bottom and wants a horizontal nav and a footer. What the two share is what should
+ * be shared: the wordmark, the tokens, the type and the buttons.
+ */
 
 const SECTIONS = [
-  { id: "product", label: "Product" },
-  { id: "how-it-works", label: "How it works" },
-  { id: "architecture", label: "Architecture" },
-  { id: "policies", label: "Policies" },
-  { id: "faq", label: "FAQ" },
+  { id: "intent", label: "Unwritten intent" },
+  { id: "how", label: "How it works" },
+  { id: "finding", label: "A finding" },
+  { id: "refusals", label: "What it isn't" },
 ];
 
-const PIPELINE = [
-  ["Repository", "Parsed into an atlas: nodes, edges, metrics, obscurity signals."],
-  ["Atlas", "A deterministic map. The same commit gives the same map, every time."],
-  ["Candidate", "Structural patterns detected by rule — the application decides what to inspect."],
-  ["Policies", "Retrieved per candidate, with the retriever, corpus and selection recorded."],
-  ["Finding", "The model decides what the evidence means, inside the policy it was given."],
-  ["Review", "Recorded as an immutable revision, with a delta against the one before it."],
-] as const;
-
-const PRINCIPLES = [
+/** Six steps on one rule, and which of the three jobs owns each. */
+const STEPS = [
+  ["Repository", "Parsed, never imported and never run.", "Machine"],
+  ["Atlas", "A deterministic map: nodes, edges, metrics, obscurity signals.", "Machine"],
+  ["Candidate", "A structural shape that deserves judgement — not a violation.", "Machine"],
+  ["Guidance", "Retrieved per candidate, with the retriever and corpus recorded.", "Machine"],
+  ["Finding", "The model says what the evidence means, inside the guidance it was given.", "Model"],
   [
-    "Deterministic analysis",
-    "The repository is read by a parser, not by a model. Nodes, edges and metrics are reproducible from the commit.",
-  ],
-  [
-    "Auditable retrieval",
-    "Every judgement records which policies were retrieved, by which retriever, against which corpus fingerprint.",
-  ],
-  [
-    "Structured judgement",
-    "The model returns a verdict, its reasoning, the evidence it used, and what the conclusion hinges on.",
-  ],
-  [
-    "Revisioned reviews",
-    "Reviews are never edited. A new answer produces a new case revision and a new review with its own delta.",
-  ],
-  [
-    "Human clarification",
-    "When the code cannot answer a question, ArchCompass asks instead of assuming.",
-  ],
-  [
-    "Standing decisions",
-    "Accept, park or waive stays with the team, on the branch, separate from what the model found.",
+    "Decision",
+    "Accept, park or waive — recorded against the branch, and it survives the rerun.",
+    "Person",
   ],
 ] as const;
 
-const FEATURES = [
-  {
-    title: "Deterministic repository analysis",
-    body: "Python source is parsed into a typed atlas — packages, modules, classes, functions, imports, calls, inheritance and tests — with optional type-aware edge resolution. Nothing about the map depends on a model being available.",
-    points: ["Reproducible from the commit", "Parser version folded into the analysis hash", "Metrics carry their own limitations"],
-  },
-  {
-    title: "Policy-grounded judgement",
-    body: "Candidates are judged against the policies retrieved for them, plus the architecture case a human authored. The prompt identity, model identity and retrieval identity are stored on the finding.",
-    points: ["Verdicts: material, held, cleared", "Evidence pinned to file and line", "The hinge is stated when one exists"],
-  },
-  {
-    title: "Clarification loops",
-    body: "When judgement genuinely turns on something the repository cannot show — ownership, intent, what is planned — the review pauses and asks. Answers become case context and the affected candidates are judged again.",
-    points: ["Questions carry their reason", "Skipping is explicit and recorded", "Each round is a case revision"],
-  },
-  {
-    title: "Review delta and lineage",
-    body: "Each review is compared to its predecessor by candidate identity: what is new, what changed and why, what is unchanged, and what has been addressed since.",
-    points: ["Immutable review records", "Cause-level change reporting", "Addressed candidates tracked"],
-  },
-  {
-    title: "Standing decisions",
-    body: "Accept, park or waive is recorded against the branch with its reasoning and author, and survives the next review. ArchCompass never decides on the team's behalf.",
-    points: ["Separate from the model's verdict", "Waiving requires a reason", "Full decision history per candidate"],
-  },
-  {
-    title: "Local or hosted models",
-    body: "Reasoning and embedding are chosen independently. Run both against a local Ollama, both against a hosted provider, or mix them — retrieval provenance records whichever was used.",
-    points: [
-      "Ollama, Google, Groq and Cerebras",
-      "Embedding choice is independent",
-      "Environment pinning respected",
-    ],
-  },
+/** The charter's four refusals, in its own words. Each is a plausible direction that would break it. */
+const REFUSALS = [
+  [
+    "Not a linter",
+    "A candidate is a structural shape that deserves judgement, not a violation. If it could be decided by a rule, it should be a rule, in someone's linter.",
+  ],
+  [
+    "Not a code generator",
+    "ArchCompass does not write the fix. It can recommend a response; acting on it is yours.",
+  ],
+  [
+    "Not an autonomous agent",
+    "It does not roam the repository, choose its own goals, or act without being asked. The model never picks which elements to inspect.",
+  ],
+  [
+    "Not a dashboard",
+    "Counts are orientation, read once, on the way to the work. A number that nobody acts on is decoration.",
+  ],
 ] as const;
 
 const FAQ = [
-  [
-    "Is ArchCompass an autonomous coding agent?",
-    "No. It does not edit code, open branches, or run anything in your repository. It analyses, judges, asks, and records. Every action that changes your codebase remains yours.",
-  ],
   [
     "Does it send my whole repository to an LLM?",
     "No. The repository is parsed locally into an atlas. What reaches the model is a candidate, its pinned evidence excerpts, the architecture case, and the policies retrieved for that candidate.",
@@ -121,10 +91,6 @@ const FAQ = [
   [
     "What happens after I answer a clarification question?",
     "The answer is written to the architecture case as a new revision, the affected candidates are judged again, and a new review revision is recorded with a delta against the previous one.",
-  ],
-  [
-    "Are findings persisted?",
-    "Yes. Reviews, findings, evidence, retrieval provenance, case revisions and standing decisions are all stored in the workspace and remain readable exactly as recorded.",
   ],
   [
     "Can I add my own architecture policies?",
@@ -159,7 +125,7 @@ function LandingNav() {
             <a
               key={section.id}
               href={`#${section.id}`}
-              className="rounded-md px-2.5 py-1.5 text-sm font-medium text-ink-2 transition hover:bg-sunken hover:text-ink"
+              className="rounded-sm px-2.5 py-1.5 text-sm font-medium text-ink-2 transition hover:bg-sunken hover:text-ink"
             >
               {section.label}
             </a>
@@ -169,17 +135,12 @@ function LandingNav() {
           <Button
             variant="ghost"
             size="sm"
-            className="px-2"
+            className="-my-1.5 min-h-11 min-w-11 px-2"
             onClick={cycle}
             aria-label={`Theme: ${preference}. Change it.`}
           >
             <Glyph className="size-4" />
           </Button>
-          {/* Not on a phone, where it wrapped onto two lines and squeezed the wordmark
-              against the menu button. It is the third copy of the same call to action at
-              that width — the hero states it a screen-length below, and the drawer this
-              menu opens ends with it — so the one that costs the header its shape is the
-              one to drop. */}
           {/* Not on a phone, where it wrapped onto two lines and squeezed the wordmark
               against the menu button. It is the third copy of the same call to action at
               that width — the hero states it a screen-length below, and the drawer this
@@ -191,7 +152,7 @@ function LandingNav() {
           <Button
             variant="ghost"
             size="sm"
-            className="px-2 md:hidden"
+            className="-my-1.5 min-h-11 min-w-11 px-2 md:hidden"
             aria-label="Open menu"
             onClick={() => setOpen(true)}
           >
@@ -207,14 +168,14 @@ function LandingNav() {
               key={section.id}
               href={`#${section.id}`}
               onClick={() => setOpen(false)}
-              className="rounded-md px-3 py-2.5 text-sm font-medium text-ink-2 hover:bg-sunken hover:text-ink"
+              className="rounded-sm px-3 py-2.5 text-sm font-medium text-ink-2 hover:bg-sunken hover:text-ink"
             >
               {section.label}
             </a>
           ))}
           <Link
             to="/start"
-            className="mt-2 rounded-md bg-ink px-3 py-2.5 text-center text-sm font-semibold text-canvas"
+            className="mt-2 rounded-sm bg-ink px-3 py-2.5 text-center text-sm font-semibold text-canvas"
           >
             Review a repository
           </Link>
@@ -224,288 +185,344 @@ function LandingNav() {
   );
 }
 
+/**
+ * Orientation, read once, on the way to the work — set like readings on an instrument
+ * rather than in cards that ask to be looked at. "Decided" is counted beside the model's
+ * three, because how far through a review you are is answered by the team's half.
+ */
+function Ribbon() {
+  const readings: [string, string, string?][] = [
+    ["Examined", "12"],
+    ["Material", "4", "text-material"],
+    ["Held", "3", "text-held"],
+    ["Cleared", "5", "text-cleared"],
+    ["Decided", "0"],
+  ];
+  return (
+    <dl className="mt-10 flex max-w-[600px] flex-wrap border-t border-rule-strong pt-3.5">
+      {readings.map(([label, value, tone], index) => (
+        <div
+          key={label}
+          className={cn(
+            "border-r border-rule px-5 last:border-r-0",
+            index === 0 && "pl-0",
+          )}
+        >
+          <dt
+            className={cn(
+              "whitespace-nowrap font-mono text-[9.5px] uppercase tracking-[0.13em]",
+              tone ?? "text-ink-3",
+            )}
+          >
+            {label}
+          </dt>
+          <dd
+            className={cn(
+              "mt-1.5 font-mono text-[22px] font-semibold leading-none tracking-[-0.02em] tabular-nums",
+              tone ?? "text-ink",
+            )}
+          >
+            {value}
+            {label === "Decided" ? <span className="text-[13px] font-normal text-ink-3">/12</span> : null}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function Hero() {
   return (
-    <section className="relative overflow-hidden">
+    <section className="relative overflow-hidden pb-2 pt-14 sm:pt-[76px]">
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 grid-lines opacity-[0.35] [mask-image:radial-gradient(70%_60%_at_50%_0%,black,transparent)]"
+        className="pointer-events-none absolute inset-0 grid-lines opacity-50 [mask-image:radial-gradient(74%_62%_at_34%_0%,black,transparent)]"
       />
-      <div className="relative mx-auto max-w-6xl px-4 pb-12 pt-12 sm:px-6 sm:pb-16 sm:pt-20">
-        <Reveal className="max-w-3xl">
-          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-3">
-            Architecture review, not autocomplete
-          </div>
-          <h1 className="mt-3 font-display text-[34px] font-semibold leading-[1.08] tracking-[-0.03em] text-ink sm:text-[52px]">
-            Architecture review grounded in your code, policies, and decisions.
+      <div className="relative mx-auto grid max-w-6xl items-start gap-12 px-4 sm:px-6 lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-14">
+        <Reveal>
+          <Mono className="text-[11px] uppercase tracking-[0.13em] text-ink-3">
+            Weighed, not enforced
+          </Mono>
+          <h1 className="mt-3.5 max-w-[15ch] font-display text-[clamp(37px,5.6vw,62px)] font-semibold leading-[1.04] tracking-[-0.036em] text-ink">
+            Write your guidance once. Every review weighs it.
           </h1>
-          <p className="mt-4 max-w-2xl text-base leading-7 text-ink-2 sm:text-lg">
-            ArchCompass deterministically maps your repository, detects architecture candidates,
-            retrieves the policies that matter, and uses structured model judgement to produce
-            auditable architecture findings.
+          <p className="mt-5 max-w-[52ch] text-[17px] leading-[1.62] text-ink-2">
+            ArchCompass maps your repository deterministically, then asks a model one question at a
+            time: given what this team has written down, is this boundary earning its place? Every
+            answer names the guidance it rests on.
           </p>
-          <div className="mt-7 flex flex-wrap items-center gap-3">
+          <div className="mt-7 flex flex-wrap items-center gap-2.5">
             <ButtonLink to="/start" size="lg">
               Review a repository
               <ArrowRight className="size-4" />
             </ButtonLink>
             <ButtonLink to="/reviews" size="lg" variant="secondary">
-              Explore an example review
+              Read a real finding
             </ButtonLink>
           </div>
-          <p className="mt-4 text-xs text-ink-3">
-            Runs locally against your workspace. Reasoning and embedding models are yours to choose.
-          </p>
+          <Mono className="mt-4 block text-[12px] text-ink-3">
+            Runs locally · your models · Apache-2.0
+          </Mono>
+          <Ribbon />
         </Reveal>
 
-        <Reveal delay={120} className="mt-10 sm:mt-14">
-          <WorkbenchPreview />
+        <Reveal delay={120}>
+          <CorpusCard />
+          <p className="mt-3.5 max-w-[420px] text-xs leading-[1.55] text-ink-3">
+            Three verdicts, no score. “Leave it exactly as it is” is a first-class answer — an
+            advisor that only ever recommends change is an advocate, not a judge.
+          </p>
         </Reveal>
       </div>
     </section>
   );
 }
 
-function PipelineSection() {
+/**
+ * The one atmospheric moment on the page, and the only section that is dark in both themes.
+ * It earns that because it is the only place stating the problem rather than the product.
+ */
+function IntentBand() {
   return (
-    <section id="how-it-works" className="border-t border-rule bg-surface/60 py-14 sm:py-20">
+    <section id="intent" className="relative overflow-hidden bg-band py-20 text-band-ink sm:py-[132px]">
+      <Field className="pointer-events-none absolute inset-0 h-full w-full max-md:opacity-[0.34]" />
+      <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
+        <Reveal className="max-w-[58ch]">
+          <Mono className="text-[11px] uppercase tracking-[0.13em] text-band-ink-2">
+            Unwritten intent
+          </Mono>
+          <h2 className="mt-3.5 font-display text-[clamp(29px,3.8vw,46px)] font-semibold leading-[1.08] tracking-[-0.032em]">
+            A codebase records what was built. Not what you were trying to build.
+          </h2>
+          <p className="mt-5 text-[16.5px] leading-[1.68] text-band-ink-2">
+            A parser reads the code as written — the imports, the calls, the inheritance. What it
+            cannot read is the part that decides whether any of it is right: who owns what, which
+            shortcut was deliberate, what the team already agreed to live with.
+          </p>
+          <p className="mt-4 text-[16.5px] leading-[1.68] text-band-ink-2">
+            <span className="font-medium text-band-ink">That intent is real.</span> It shapes every
+            file in the repository. It just isn't written anywhere a parser can reach, which is why
+            a linter flags the shortcut you took on purpose and misses the abstraction that stopped
+            paying rent two years ago.
+          </p>
+          <p className="mt-4 text-[16.5px] leading-[1.68] text-band-ink-2">
+            ArchCompass's whole job is to make it readable. You write it down once, as guidance and
+            as answers to the questions a review asks. Every review after that can see it.
+          </p>
+          <a
+            href="#how"
+            className="mt-8 inline-flex min-h-12 select-none items-center justify-center rounded-sm border border-band-ink bg-band-ink px-5 text-[15px] font-semibold text-band transition hover:opacity-90"
+          >
+            See how it's read
+          </a>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+function HowItWorks() {
+  return (
+    <section id="how" className="py-16 sm:py-[88px]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <Reveal>
           <SectionIntro
             eyebrow="How it works"
             title="Six steps, and you can audit every one"
-            body="The application decides what to inspect. The model decides what the evidence means. Neither invents the identity of your repository or of a policy."
+            body="The application decides what to inspect. The model decides what the evidence means. Neither one invents the identity of your repository or of a policy — which is why the same commit gives the same map, every time."
           />
         </Reveal>
 
-        <ol className="mt-9 grid gap-2.5 md:grid-cols-2 lg:grid-cols-3">
-          {PIPELINE.map(([title, body], index) => (
-            <Reveal as="li" key={title} delay={index * 60}>
-              <div className="h-full rounded-lg border border-rule bg-surface p-4 transition hover:border-rule-strong hover:">
-                <div className="flex items-center gap-2">
-                  <Mono className="text-[11px] font-bold text-ink">
-                    {String(index + 1).padStart(2, "0")}
-                  </Mono>
-                  <span className="font-display text-base font-semibold tracking-tight text-ink">
-                    {title}
-                  </span>
+        <Reveal className="relative mt-11">
+          <div aria-hidden="true" className="absolute inset-x-0 top-[11px] h-px bg-rule" />
+          <ol className="grid grid-cols-2 gap-y-9 sm:grid-cols-3 lg:grid-cols-6 lg:gap-y-0">
+            {STEPS.map(([title, body, who], index) => (
+              <li key={title} className="relative pr-5">
+                <div className="relative h-[23px] w-px bg-rule-strong">
+                  <span className="absolute -left-[3.5px] top-[7px] size-2 rounded-full border-[1.5px] border-ink bg-canvas" />
                 </div>
-                <p className="mt-2 text-sm leading-6 text-ink-2">{body}</p>
-              </div>
-            </Reveal>
-          ))}
-        </ol>
-      </div>
-    </section>
-  );
-}
-
-function PrinciplesSection() {
-  return (
-    <section id="product" className="py-14 sm:py-20">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6">
-        <Reveal>
-          <SectionIntro
-            eyebrow="Design principles"
-            title="Built to be trusted by the people it reviews"
-            body="Every claim ArchCompass makes can be traced back to something you can inspect: a parsed structure, a retrieved policy, an authored constraint, or a decision your team recorded."
-          />
-        </Reveal>
-        <div className="mt-9 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-          {PRINCIPLES.map(([title, body], index) => (
-            <Reveal key={title} delay={index * 50}>
-              <div className="h-full rounded-lg border border-rule bg-surface p-4">
-                <h3 className="font-display text-base font-semibold tracking-tight text-ink">
+                <Mono className="mt-3 block text-[10px] tracking-[0.14em] text-ink-3">
+                  {String(index + 1).padStart(2, "0")}
+                </Mono>
+                <h3 className="mt-1 font-display text-[15px] font-semibold tracking-tight text-ink">
                   {title}
                 </h3>
-                <p className="mt-1.5 text-sm leading-6 text-ink-2">{body}</p>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function ShowcaseSection() {
-  return (
-    <section id="policies" className="border-t border-rule bg-surface/60 py-14 sm:py-20">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6">
-        <Reveal>
-          <SectionIntro
-            eyebrow="Inside a review"
-            title="Findings, evidence, retrieval, clarification"
-            body="Four things a reviewer asks for, and where each of them lives."
-          />
-        </Reveal>
-
-        <div className="mt-9 grid gap-2.5 lg:grid-cols-2">
-          <Reveal>
-            <ShowcaseCard title="A finding, structured">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Badge tone="held" glyph="◆">
-                  Held
-                </Badge>
-                <Tag>
-                  <span className="font-mono text-[11px]">dependency_direction</span>
-                </Tag>
-              </div>
-              <p className="mt-2 text-sm font-semibold leading-6 text-ink">
-                The orders domain imports the persistence adapter directly
-              </p>
-              <p className="mt-1.5 text-sm leading-6 text-ink-2">
-                Whether this is a problem depends on who owns persistence — which the repository
-                cannot say.
-              </p>
-              <div className="mt-2.5 rounded-md border border-held/30 bg-held-soft/50 px-3 py-2 text-xs leading-5 text-ink-2">
-                <span className="mr-1.5 text-held" aria-hidden="true">
-                  ◆
-                </span>
-                Hinges on: whether the adapter is owned by the domain team.
-              </div>
-            </ShowcaseCard>
-          </Reveal>
-
-          <Reveal delay={60}>
-            <ShowcaseCard title="Retrieval provenance">
-              <dl className="grid gap-1.5 text-xs">
-                {[
-                  ["retriever", "dense-scoped · v1-k8"],
-                  ["embedding", "ollama:nomic-embed-text:768"],
-                  ["corpus", "sha256:4f0c…9ab2"],
-                  ["selected", "dependency-direction, ports-and-adapters"],
-                ].map(([key, value]) => (
-                  <div key={key} className="flex gap-2">
-                    <dt className="w-20 shrink-0 text-ink-3">{key}</dt>
-                    <dd className="min-w-0 truncate font-mono text-ink-2">{value}</dd>
-                  </div>
-                ))}
-              </dl>
-              <p className="mt-3 text-sm leading-6 text-ink-2">
-                Recorded per candidate, so a finding can be re-examined months later against the
-                exact corpus that produced it.
-              </p>
-            </ShowcaseCard>
-          </Reveal>
-
-          <Reveal delay={100}>
-            <ShowcaseCard title="Evidence, pinned to the source">
-              <Mono className="block text-[11px] text-ink-3">domain/orders.py:4</Mono>
-              <div className="mt-1.5 rounded-md border border-rule bg-sunken/70 px-3 py-2">
-                <Mono className="block text-[12px] text-ink">from adapters.db import Store</Mono>
-              </div>
-              <p className="mt-2.5 text-sm leading-6 text-ink-2">
-                Excerpts are pinned when the review is composed, so the argument stays readable even
-                after the code moves on.
-              </p>
-            </ShowcaseCard>
-          </Reveal>
-
-          <Reveal delay={140}>
-            <ShowcaseCard title="Clarification, not chat">
-              <p className="text-sm font-semibold leading-6 text-ink">
-                Who owns the persistence adapter?
-              </p>
-              <p className="mt-1 text-xs leading-5 text-ink-3">
-                Facet: decision · affects 2 candidates
-              </p>
-              <div className="mt-2.5 rounded-md border border-rule bg-surface-2 px-3 py-2 text-sm leading-6 text-ink-2">
-                The platform team owns it; the domain team consumes it through the port.
-              </div>
-              <p className="mt-2.5 text-sm leading-6 text-ink-2">
-                The answer becomes case revision 2, and both candidates are judged again.
-              </p>
-            </ShowcaseCard>
-          </Reveal>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function FeaturesSection() {
-  return (
-    <section className="py-14 sm:py-20">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6">
-        <Reveal>
-          <SectionIntro
-            eyebrow="Capabilities"
-            title="What the product actually does"
-            body="No claims that cannot be checked against a review you have run."
-          />
-        </Reveal>
-        <div className="mt-9 grid gap-2.5 md:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map((feature, index) => (
-            <Reveal key={feature.title} delay={index * 50}>
-              <article className="flex h-full flex-col rounded-lg border border-rule bg-surface p-5">
-                <h3 className="font-display text-base font-semibold tracking-tight text-ink">
-                  {feature.title}
-                </h3>
-                <p className="mt-2 flex-1 text-sm leading-6 text-ink-2">{feature.body}</p>
-                <ul className="mt-3 grid gap-1 border-t border-rule pt-3">
-                  {feature.points.map((point) => (
-                    <li key={point} className="flex gap-2 text-xs leading-5 text-ink-3">
-                      <span aria-hidden="true" className="text-ink-3">
-                        ·
-                      </span>
-                      {point}
-                    </li>
-                  ))}
-                </ul>
-              </article>
-            </Reveal>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function ArchitectureSection() {
-  return (
-    <section id="architecture" className="border-t border-rule bg-surface/60 py-14 sm:py-20">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6">
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-start">
-          <Reveal>
-            <SectionIntro
-              eyebrow="Architecture"
-              title="Three layers, each with one job"
-              body="ArchCompass is a domain with two infrastructure dependencies, not a wrapper around a framework."
-            />
-          </Reveal>
-          <div className="grid gap-2.5">
-            {[
-              [
-                "LangGraph",
-                "workflow",
-                "Holds the review as a graph: analyse, detect, retrieve, judge, ask, compose, record — with the interrupt that waits for a human answer.",
-              ],
-              [
-                "LangChain",
-                "model and RAG infrastructure",
-                "Provider adapters, structured output, embeddings and the vector index behind policy retrieval.",
-              ],
-              [
-                "ArchCompass domain",
-                "product concepts",
-                "Atlas, candidate, policy, finding, question, case, review, delta, decision. None of it knows which model is selected.",
-              ],
-            ].map(([name, role, body], index) => (
-              <Reveal key={name} delay={index * 60}>
-                <div className="rounded-lg border border-rule bg-surface p-4">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <Mono className="text-[13px] font-semibold text-ink">{name}</Mono>
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-3">
-                      {role}
-                    </span>
-                  </div>
-                  <p className="mt-1.5 text-sm leading-6 text-ink-2">{body}</p>
-                </div>
-              </Reveal>
+                <p className="mt-1.5 max-w-[24ch] text-[13px] leading-[1.55] text-ink-2">{body}</p>
+                <Mono className="mt-3 inline-block border-t border-rule pt-1.5 text-[9px] uppercase tracking-[0.13em] text-ink-3">
+                  {who}
+                </Mono>
+              </li>
             ))}
+          </ol>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * One finding on the attribution gutter — the device that carries the charter's second
+ * commitment, shown at full size because it is the most distinctive thing in the product.
+ */
+function FindingSection() {
+  return (
+    <section
+      id="finding"
+      className="border-y border-rule bg-surface-2 py-16 sm:py-[88px]"
+    >
+      <div className="mx-auto max-w-6xl px-4 sm:px-6">
+        <Reveal>
+          <SectionIntro
+            eyebrow="One finding, whole"
+            title="The machine assembles. The model judges. You decide."
+            body="Three different jobs, kept visibly apart — down a single hairline, with the gutter saying whose voice produced the block beside it. There is no provenance footer, because the attribution is never more than a gutter's width from the claim it belongs to."
+          />
+        </Reveal>
+
+        <Reveal className="mt-11 overflow-hidden rounded-lg border border-rule bg-surface">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule bg-surface-2 px-5 py-3.5">
+            <Mono className="text-[15px] font-semibold tracking-tight text-ink">
+              payments.gateway.PaymentGateway
+            </Mono>
+            <Mono className="text-[11px] text-ink-3">▲ material · changed since review 3</Mono>
           </div>
+
+          <GutterBlock voice="Measured" who={["sole_implementation", "detector v1.4.0", "8f31c2a"]}>
+            <Mono className="text-[11px] uppercase tracking-[0.13em] text-ink-3">
+              What was counted
+            </Mono>
+            <dl className="mt-3 flex flex-wrap overflow-hidden rounded-md border border-rule">
+              {[
+                ["Implementations", "1"],
+                ["External callers", "5"],
+                ["Provider terms in domain", "3"],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  // `basis-full` rather than `w-full`: `flex-1` sets `flex-basis: 0` and would win
+                  // over a width on the main axis, so the three readings stayed in one cramped
+                  // row on a phone. Below `sm` each reading is its own row.
+                  className="basis-full border-b border-rule px-3.5 py-2.5 last:border-b-0 sm:min-w-[104px] sm:flex-1 sm:basis-0 sm:border-b-0 sm:border-r sm:last:border-r-0"
+                >
+                  <dt className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-3">
+                    {label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-[19px] font-semibold tracking-[-0.02em] tabular-nums text-ink">
+                    {value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-3 overflow-x-auto rounded-md border border-rule bg-sunken px-3.5 py-2.5">
+              <Mono className="block text-[10.5px] text-ink-3">payments/gateway.py:12–26</Mono>
+              <pre className="mt-1.5 font-mono text-[12.5px] leading-[1.5] text-ink">
+{`class PaymentGateway(Protocol):
+    def charge(self, amount: Money, *, idempotency_key: str) -> Charge: ...
+    def stripe_retry_after(self, err: StripeError) -> float: ...`}
+              </pre>
+            </div>
+          </GutterBlock>
+
+          <GutterBlock voice="Judged" who={["google:gemini-3.6", "judge:v1", "2026-08-21"]}>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-material/25 bg-material-soft px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-material">
+              <span aria-hidden="true">▲</span> Material
+            </span>
+            <p className="mt-3 max-w-[58ch] text-[15.5px] leading-[1.68] text-ink-2">
+              The port was introduced to keep payment providers replaceable, and it is not doing
+              that. One adapter implements it, and the protocol itself names{" "}
+              <span className="font-mono text-[14px]">stripe_retry_after</span> — so a second
+              provider could not satisfy the interface without inheriting Stripe's error vocabulary.
+              The indirection currently costs a hop and buys nothing your guidance asked for.
+            </p>
+            <p className="mt-3.5 rounded-md border border-held/30 bg-held-soft px-3.5 py-2.5 text-[13px] leading-[1.55] text-ink-2">
+              <span className="font-semibold text-held">Hinges on:</span> whether a second provider
+              is actually planned this year. You answered “no, and none is on the roadmap” in review
+              3 — which is why this moved from held to material.
+            </p>
+          </GutterBlock>
+
+          <GutterBlock voice="Decided" who={["nobody yet"]}>
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-sm border border-ink bg-ink px-3.5 py-1.5 text-[12.5px] font-semibold text-canvas">
+                Accept the work
+              </span>
+              {["Park", "Waive"].map((label) => (
+                <span
+                  key={label}
+                  className="rounded-sm border border-rule-strong bg-surface-2 px-3.5 py-1.5 text-[12.5px] font-semibold text-ink-2"
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+            <p className="mt-3 max-w-[56ch] text-[13px] leading-6 text-ink-3">
+              Whatever you choose stays with the branch, with your reasoning and your name on it,
+              and the next review reads it before it judges again.
+            </p>
+          </GutterBlock>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * One block of the attribution gutter: who is speaking on the left, what they said on the
+ * right, and a rule across both where the voice changes. Below `lg` the two columns become
+ * a label strip above the block — the sequence survives, the registration does not.
+ */
+function GutterBlock({
+  voice,
+  who,
+  children,
+}: {
+  voice: string;
+  who: string[];
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-1 [&+&>*]:border-t [&+&>*]:border-rule-strong md:grid-cols-[172px_1px_minmax(0,1fr)]">
+      <div className="px-5 pb-0 pt-5 text-left md:pb-6 md:pr-4 md:text-right">
+        <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-ink">{voice}</div>
+        <div className="mt-1.5 font-mono text-[10px] leading-[1.6] text-ink-3">
+          {who.map((line) => (
+            <span key={line} className="block whitespace-nowrap">
+              {line}
+            </span>
+          ))}
         </div>
+      </div>
+      <div aria-hidden="true" className="relative hidden bg-rule md:block">
+        <span className="absolute -left-[3px] top-[22px] size-[7px] bg-ink" />
+      </div>
+      <div className="px-5 pb-6 pt-3 md:pt-5">{children}</div>
+    </div>
+  );
+}
+
+function RefusalsSection() {
+  return (
+    <section id="refusals" className="py-16 sm:py-[88px]">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6">
+        <Reveal>
+          <SectionIntro
+            eyebrow="What ArchCompass is not"
+            title="Four plausible directions, each of which would break it"
+          />
+        </Reveal>
+        <Reveal className="mt-10 border-t border-rule">
+          {REFUSALS.map(([title, body]) => (
+            <div
+              key={title}
+              className="grid items-baseline gap-2 border-b border-rule py-5 md:grid-cols-[minmax(0,240px)_minmax(0,1fr)] md:gap-8"
+            >
+              <h3 className="font-display text-[17px] font-semibold tracking-[-0.015em] text-ink">
+                {title}
+              </h3>
+              <p className="max-w-[64ch] text-[14.5px] leading-[1.62] text-ink-2">{body}</p>
+            </div>
+          ))}
+        </Reveal>
       </div>
     </section>
   );
@@ -514,7 +531,7 @@ function ArchitectureSection() {
 function FaqSection() {
   const [open, setOpen] = useState<number | null>(0);
   return (
-    <section id="faq" className="py-14 sm:py-20">
+    <section className="border-t border-rule py-16 sm:py-[88px]">
       <div className="mx-auto max-w-3xl px-4 sm:px-6">
         <Reveal>
           <SectionIntro eyebrow="FAQ" title="Questions engineers actually ask" />
@@ -529,7 +546,7 @@ function FaqSection() {
                     type="button"
                     aria-expanded={expanded}
                     onClick={() => setOpen(expanded ? null : index)}
-                    className="flex w-full items-center justify-between gap-4 py-4 text-left"
+                    className="flex min-h-11 w-full items-center justify-between gap-4 py-4 text-left"
                   >
                     <span className="font-display text-base font-semibold text-ink">{question}</span>
                     <ChevronDown
@@ -551,17 +568,17 @@ function FaqSection() {
 
 function FinalCta() {
   return (
-    <section className="border-t border-rule py-14 sm:py-20">
-      <div className="mx-auto max-w-4xl px-4 text-center sm:px-6">
+    <section className="border-t border-rule py-16 text-center sm:py-24">
+      <div className="mx-auto max-w-4xl px-4 sm:px-6">
         <Reveal>
-          <h2 className="font-display text-3xl font-semibold tracking-[-0.02em] text-ink sm:text-4xl">
-            Review your repository with context, not guesswork.
+          <h2 className="mx-auto max-w-[19ch] font-display text-[clamp(28px,3.6vw,42px)] font-semibold leading-[1.1] tracking-[-0.03em] text-ink">
+            Point it at a repository and see what your guidance says.
           </h2>
-          <p className="mx-auto mt-3 max-w-xl text-base leading-7 text-ink-2">
-            Point ArchCompass at a repository. It will map it, judge what it finds against your
-            policies, and tell you what it could not decide on its own.
+          <p className="mx-auto mt-4 max-w-[48ch] text-base leading-[1.62] text-ink-2">
+            It will map the structure, weigh what it finds against what you have written down, and
+            tell you plainly what it could not decide without asking you first.
           </p>
-          <div className="mt-7 flex flex-wrap justify-center gap-3">
+          <div className="mt-7 flex flex-wrap justify-center gap-2.5">
             <ButtonLink to="/start" size="lg">
               Review a repository
               <ArrowRight className="size-4" />
@@ -578,7 +595,7 @@ function FinalCta() {
 
 function Footer() {
   return (
-    <footer className="border-t border-rule bg-surface/60">
+    <footer className="border-t border-rule bg-surface-2">
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 sm:px-6 md:flex-row md:items-start md:justify-between">
         <div className="max-w-sm">
           <Wordmark to="/" />
@@ -593,21 +610,17 @@ function Footer() {
               Product
             </div>
             <ul className="mt-2.5 grid gap-1.5">
-              <li>
-                <Link to="/start" className="text-ink-2 hover:text-ink">
-                  Start a review
-                </Link>
-              </li>
-              <li>
-                <Link to="/reviews" className="text-ink-2 hover:text-ink">
-                  Reviews
-                </Link>
-              </li>
-              <li>
-                <Link to="/policies" className="text-ink-2 hover:text-ink">
-                  Policies
-                </Link>
-              </li>
+              {[
+                ["/start", "Start a review"],
+                ["/reviews", "Reviews"],
+                ["/policies", "Policies"],
+              ].map(([to, label]) => (
+                <li key={to}>
+                  <Link to={to} className="text-ink-2 hover:text-ink">
+                    {label}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
           <div>
@@ -615,21 +628,17 @@ function Footer() {
               Workspace
             </div>
             <ul className="mt-2.5 grid gap-1.5">
-              <li>
-                <Link to="/repositories" className="text-ink-2 hover:text-ink">
-                  Repositories
-                </Link>
-              </li>
-              <li>
-                <Link to="/cases" className="text-ink-2 hover:text-ink">
-                  Architecture cases
-                </Link>
-              </li>
-              <li>
-                <Link to="/settings" className="text-ink-2 hover:text-ink">
-                  Models
-                </Link>
-              </li>
+              {[
+                ["/repositories", "Repositories"],
+                ["/cases", "Architecture cases"],
+                ["/settings", "Models"],
+              ].map(([to, label]) => (
+                <li key={to}>
+                  <Link to={to} className="text-ink-2 hover:text-ink">
+                    {label}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
           <div>
@@ -656,8 +665,8 @@ function Footer() {
                 </a>
               </li>
               <li>
-                <a href="#architecture" className="text-ink-2 hover:text-ink">
-                  Architecture
+                <a href="#how" className="text-ink-2 hover:text-ink">
+                  How it works
                 </a>
               </li>
               <li>
@@ -668,8 +677,8 @@ function Footer() {
         </nav>
       </div>
       <div className="border-t border-rule px-4 py-4 text-center text-xs text-ink-3 sm:px-6">
-        Analysis runs locally. Only candidate evidence, the architecture case and retrieved policies
-        are sent to the model you selected.
+        Analysis runs locally. Only the candidate, its evidence and the retrieved guidance reach the
+        model you chose.
       </div>
     </footer>
   );
@@ -685,21 +694,14 @@ function SectionIntro({
   body?: string;
 }) {
   return (
-    <div className="max-w-2xl">
-      <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-3">{eyebrow}</div>
-      <h2 className="mt-2 font-display text-2xl font-semibold tracking-[-0.02em] text-ink sm:text-3xl">
+    <div className="max-w-[62ch]">
+      <Mono className="text-[11px] uppercase tracking-[0.13em] text-ink-3">{eyebrow}</Mono>
+      <h2 className="mt-2.5 font-display text-[clamp(26px,3.2vw,34px)] font-semibold leading-[1.12] tracking-[-0.028em] text-ink">
         {title}
       </h2>
-      {body ? <p className="mt-3 text-base leading-7 text-ink-2">{body}</p> : null}
-    </div>
-  );
-}
-
-function ShowcaseCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="h-full rounded-lg border border-rule bg-surface p-5">
-      <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-ink-3">{title}</div>
-      <div className="mt-3">{children}</div>
+      {body ? (
+        <p className="mt-3.5 max-w-[56ch] text-base leading-[1.62] text-ink-2">{body}</p>
+      ) : null}
     </div>
   );
 }
@@ -709,18 +711,17 @@ export function LandingPage() {
     <div className="min-h-screen bg-canvas text-ink">
       <a
         href="#landing-main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-ink focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-canvas"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-sm focus:bg-ink focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-canvas"
       >
         Skip to content
       </a>
       <LandingNav />
       <main id="landing-main" tabIndex={-1} className="outline-none">
         <Hero />
-        <PipelineSection />
-        <PrinciplesSection />
-        <ShowcaseSection />
-        <FeaturesSection />
-        <ArchitectureSection />
+        <IntentBand />
+        <HowItWorks />
+        <FindingSection />
+        <RefusalsSection />
         <FaqSection />
         <FinalCta />
       </main>

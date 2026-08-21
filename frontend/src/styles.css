@@ -110,6 +110,17 @@
 
   --font-code: "IBM Plex Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
+
+  /* The field band on the landing page is dark in both themes, so it carries its own
+     ground and its own ink rather than borrowing the page's. It is the one section that
+     does: everywhere else, inverting with the theme is the point. There is no hue here
+     either — the ribbons drawn over it are white at a few percent, because chroma is
+     still spent only on verdicts. */
+  --band: #0a0a0a;
+  --band-ink: #fafafa;
+  --band-ink-2: #a1a1a1;
+  --band-rule: rgb(255 255 255 / 14%);
+
   /* A shadow is for something that actually floats. Panels do not; they have a rule. */
   --shadow-float: 0 1px 2px rgb(0 0 0 / 5%), 0 12px 32px rgb(0 0 0 / 9%);
   --shadow-hero: 0 1px 3px rgb(0 0 0 / 5%), 0 28px 64px rgb(0 0 0 / 11%);
@@ -146,6 +157,9 @@
     --code-lit: #fafafa;
     --code-comment: #737373;
 
+    --band: #000000;
+    --band-rule: rgb(255 255 255 / 12%);
+
     --shadow-float: 0 1px 2px rgb(0 0 0 / 40%), 0 12px 32px rgb(0 0 0 / 50%);
     --shadow-hero: 0 1px 3px rgb(0 0 0 / 40%), 0 28px 64px rgb(0 0 0 / 55%);
   }
@@ -181,6 +195,9 @@
   --code-lit: #fafafa;
   --code-comment: #737373;
 
+  --band: #000000;
+  --band-rule: rgb(255 255 255 / 12%);
+
   --shadow-float: 0 1px 2px rgb(0 0 0 / 40%), 0 12px 32px rgb(0 0 0 / 50%);
   --shadow-hero: 0 1px 3px rgb(0 0 0 / 40%), 0 28px 64px rgb(0 0 0 / 55%);
 }
@@ -207,6 +224,11 @@
   --color-cleared-soft: var(--cleared-soft);
 
   --color-mark: var(--mark);
+
+  --color-band: var(--band);
+  --color-band-ink: var(--band-ink);
+  --color-band-ink-2: var(--band-ink-2);
+  --color-band-rule: var(--band-rule);
 
   --font-display: var(--font-display);
   --font-sans: var(--font-ui);

@@ -44,8 +44,8 @@ const ALLOWED = new Map([
   ],
   ["features/review/attention-queue.tsx", "the clarification row, shown only while held"],
   ["features/review/surfaces.tsx", "an addressed candidate is one that is settled"],
-  ["features/landing/preview.tsx", "a mock workbench; those really are verdicts"],
-  ["features/landing/landing-page.tsx", "a mock finding, shown as an example of one"],
+  ["features/landing/corpus-card.tsx", "a specimen bearing; those really are verdicts"],
+  ["features/landing/landing-page.tsx", "a specimen finding, shown as an example of one"],
 ]);
 
 function sourceFiles(directory: string, prefix = ""): string[] {

@@ -107,8 +107,7 @@ describe("the design system", () => {
     // landing hero, which are the only two things on screen that leave the page.
     const allowed = new Set([
       "ui/drawer.tsx",
-      "features/landing/landing-page.tsx",
-      "features/landing/preview.tsx",
+      "features/landing/corpus-card.tsx",
     ]);
     expect(
       offenders(/\bshadow-(?:float|hero|panel|sm|md|lg|xl)\b/, allowed),

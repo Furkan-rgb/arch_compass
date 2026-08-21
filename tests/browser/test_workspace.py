@@ -28,11 +28,15 @@ def test_the_landing_page_leads_into_a_review(page, workspace_url: str) -> None:
     assert _visible(
         page.get_by_role(
             "heading",
-            name="Architecture review grounded in your code, policies, and decisions.",
+            name="Write your guidance once. Every review weighs it.",
         )
     )
-    # The product's own claim about itself, answered plainly and open by default.
-    assert _visible(page.get_by_text("It does not edit code, open branches"))
+    # The hero's claim is that a verdict rests on guidance somebody wrote, so the policy it
+    # names has to be one the bundled corpus really ships.
+    assert _visible(page.get_by_text("Delay abstractions until variation is credible"))
+    assert _visible(page.get_by_text("6 retrieved").first)
+    # The product's own claim about itself, stated plainly rather than hedged.
+    assert _visible(page.get_by_text("It does not roam the repository"))
     page.get_by_role("button", name="Can I use Ollama?").click()
     assert _visible(page.get_by_text("Yes, for both roles").first)
 
@@ -97,6 +101,31 @@ def test_a_review_produces_a_workbench_with_a_clarification(page, review_url: st
     # reasoning model, because they are two independent selections.
     assert _visible(page.get_by_role("link", name="Embedding").first)
     assert "nomic-embed-text" in page.get_by_role("link", name="Embedding").first.inner_text()
+
+
+def test_the_report_leads_with_the_summary_and_says_it_once(page, review_url: str) -> None:  # type: ignore[no-untyped-def]
+    """The one claim in the product that spans Python and TypeScript with a shared literal.
+
+    `workflow/report.py` writes the summary into the document under a run-in label, because
+    the document is downloaded and attached to pull requests and has to stand on its own.
+    `surfaces.tsx` hoists the same paragraph out of the document and sets it in the model's
+    voice, and drops it from what it renders below so the reader does not meet it twice.
+
+    Neither side can see the other's copy of the label. This can: it opens a real report and
+    counts the sentence.
+    """
+
+    page.goto(review_url, wait_until="networkidle")
+    page.get_by_role("tab", name="Report").click()
+
+    # The deterministic provider writes the stand-in, so the sentence is known here.
+    summary = page.get_by_text("This summary was composed deterministically")
+    assert _visible(summary.first)
+    assert summary.count() == 1
+    # Attributed, like every other paragraph the model is responsible for.
+    assert _visible(page.get_by_text("In summary").first)
+    # And the document underneath is whole.
+    assert _visible(page.get_by_text("Where this came from").first)
 
 
 def test_answering_a_clarification_records_a_new_revision(page, review_url: str) -> None:  # type: ignore[no-untyped-def]
