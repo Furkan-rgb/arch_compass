@@ -431,11 +431,24 @@ class ReviewContextQuery(BoundaryDTO):
     """
 
     kind: Literal["review_context"]
-    node_ids: list[str] = Field(min_length=1, max_length=40)
+    node_ids: list[str] = Field(default_factory=list[str], max_length=40)
+    #: Anchors named rather than identified, resolved against this atlas by qualified name.
+    #:
+    #: A finding records the atlas node it was detected on, and that id is the exact anchor.
+    #: Findings judged before it was carried have only the name, and asking by name is the
+    #: only way their map can be drawn at all — so it is a fallback, not an alternative: a
+    #: name can be resolved to two nodes across a rebuild, and an id cannot.
+    qualified_names: list[str] = Field(default_factory=list[str], max_length=40)
     #: Neighbours per requested node, not in total — the bound has to hold per anchor, or a
     #: single densely connected boundary would consume the whole budget and leave the others
     #: as the isolated boxes this query exists to avoid.
     limit: int = Field(default=25, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def _has_an_anchor(self) -> ReviewContextQuery:
+        if not self.node_ids and not self.qualified_names:
+            raise ValueError("a review context needs at least one node id or qualified name")
+        return self
 
 
 AtlasQuery = Annotated[

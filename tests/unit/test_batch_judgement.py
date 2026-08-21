@@ -103,7 +103,7 @@ def test_every_candidate_is_submitted_once_and_answered_in_order() -> None:
                 {
                     "material": True,
                     "reasoning": "The store is shared across boundaries.",
-                    "policy_bearings": [{"policy_position": 1, "reasoning": "Shared mapper."}],
+                    "policy_bearings": [{"policy_id": "policy-1", "reasoning": "Shared mapper."}],
                     "recommended_response": "Split the mapper.",
                 }
             ),
@@ -337,8 +337,8 @@ def test_a_refused_batch_degrades_to_judging_one_at_a_time(
         def __init__(self, **_: Any) -> None:
             pass
 
-        def judge_all(self, requests: Any, *, model_identity: str) -> Any:
-            del requests, model_identity
+        def judge_all(self, requests: Any, *, model_identity: str, observe: Any = None) -> Any:
+            del requests, model_identity, observe
             raise BatchUnavailableError("no batch for this key")
 
     monkeypatch.setattr(selected_module, "GoogleBatchJudge", RefusingJudge)
@@ -357,9 +357,193 @@ def test_a_refused_batch_degrades_to_judging_one_at_a_time(
     requests = (_request("ports.Clock", case), _request("ports.Store", case))
 
     assert judge.supports_batch() is True
-    judge.judge_all(requests)
+    seen: list[str] = []
+    judge.judge_all(requests, observe=seen.append)
 
     # Both candidates were judged the slow way rather than the review being lost.
     assert len(interactive) == 2
+    # And the refusal was said out loud rather than only logged. `supports_batch` answered
+    # true a moment ago, so anything that reported a batch on the strength of that has to
+    # be told it did not happen — see `test_nothing_is_told_a_batch_is_queued_until_one_is`.
+    assert seen == ["unavailable"]
     # And the key is not asked again for the life of this process.
     assert judge.supports_batch() is False
+
+
+def test_a_batched_judgement_thinks_as_hard_as_an_interactive_one() -> None:
+    """The batch builds its own request, so it has to be told the depth separately.
+
+    A review submitted as a batch is not allowed to be a different review. This path never
+    goes through LangChain — it assembles `GenerateContentConfig` itself — so a thinking
+    level wired only into the interactive factory would leave every batched run on the
+    model's default while the picker said otherwise.
+    """
+
+    case = ArchitectureCase.create()
+    requests = (_request("ports.Clock", case),)
+    batches = FakeBatches(
+        responses=[_answer({"material": False, "reasoning": "The port is fine."})]
+    )
+    judge = GoogleBatchJudge(
+        api_key="not-used",
+        model="gemini-3.5-flash-lite",
+        thinking="medium",
+        polling=BatchPolling(first_interval_seconds=1, multiplier=2, deadline_seconds=100),
+        sleep=lambda _: None,
+        client=SimpleNamespace(batches=batches),  # type: ignore[arg-type]
+    )
+
+    judge.judge_all(requests, model_identity="google:flash-lite")
+
+    assert batches.created is not None
+    thinking = batches.created[0].config.thinking_config
+    assert thinking is not None and thinking.thinking_level.name == "MEDIUM"
+
+
+def test_a_batch_that_was_told_no_depth_asks_for_none() -> None:
+    """An unasked-for level is absent, not a default of ours written into the request."""
+
+    case = ArchitectureCase.create()
+    batches = FakeBatches(
+        responses=[_answer({"material": False, "reasoning": "The port is fine."})]
+    )
+    _judge(batches).judge_all(
+        (_request("ports.Clock", case),), model_identity="google:flash-lite"
+    )
+
+    assert batches.created is not None
+    assert batches.created[0].config.thinking_config is None
+
+
+def test_nothing_is_told_a_batch_is_queued_until_the_provider_has_taken_one() -> None:
+    """The order that makes the run's notice honest: submission first, claim second.
+
+    `supports_batch` is a prediction. It is true for any Google key with batching switched
+    on, and the provider is the only thing that knows whether the project behind that key is
+    eligible — it says so by accepting the submission or answering `400 FAILED_PRECONDITION`.
+    Reporting a queued batch from the routing decision instead meant a run whose key was
+    refused told its reader, for the whole of the interactive fallback, that every candidate
+    had gone to the provider in one batch at half price, guaranteed within a day.
+
+    So this asserts the sequencing rather than the value: `queued` is emitted after the
+    submission is accepted and before the wait for it begins.
+    """
+
+    case = ArchitectureCase.create()
+    requests = (_request("ports.Clock", case), _request("ports.Store", case))
+    batches = FakeBatches(
+        [_answer({"material": False, "reasoning": "fine", "policy_bearings": []})] * 2
+    )
+    order: list[str] = []
+    original_create = batches.create
+
+    def create(**kwargs: Any) -> Any:
+        order.append("submitted")
+        return original_create(**kwargs)
+
+    batches.create = create  # type: ignore[method-assign]
+    original_get = batches.get
+
+    def get(**kwargs: Any) -> Any:
+        order.append("polled")
+        return original_get(**kwargs)
+
+    batches.get = get  # type: ignore[method-assign]
+
+    _judge(batches).judge_all(
+        requests,
+        model_identity="google:gemini-3.5-flash-lite",
+        observe=lambda outcome: order.append(outcome),
+    )
+
+    assert order[:2] == ["submitted", "queued"]
+    assert "queued" not in order[2:]
+
+
+def test_a_refused_key_is_still_refused_after_a_restart(tmp_path: Any) -> None:
+    """A project that cannot batch today cannot batch because the process restarted.
+
+    The refusal used to live on the judge instance, so every session paid one rejected
+    submission to learn it again — and every session's first review was routed to the batch
+    node and told its reader a batch had been queued. Written down, the second judge never
+    asks at all.
+    """
+
+    import sqlite3
+
+    from archcompass.persistence.model_selection import SQLiteBatchRefusalRepository
+
+    database = tmp_path / "workspace.db"
+
+    def connect() -> sqlite3.Connection:
+        connection = sqlite3.connect(database)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    refusals = SQLiteBatchRefusalRepository(connect)
+    assert refusals.refused("a-key") is False
+
+    refusals.record("a-key")
+
+    # A second process, reading the same workspace.
+    assert SQLiteBatchRefusalRepository(connect).refused("a-key") is True
+    # A different key is on a different project, and gets its own answer.
+    assert refusals.refused("another-key") is False
+    # And the credential itself is not what was written down.
+    with connect() as connection:
+        stored = [row[0] for row in connection.execute("SELECT key_fingerprint FROM batch_refusal")]
+    assert stored and "a-key" not in stored
+
+
+def test_a_workspace_that_has_been_refused_never_routes_to_a_batch_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The half of the fix the reader actually sees: the notice stops appearing.
+
+    `supports_batch` is what the graph routes on, so a workspace whose key the Batch API has
+    already turned away must answer false before it submits anything. Otherwise the first
+    review of every session enters the batch node, announces a queued batch, and falls back.
+    """
+
+    from archcompass.configuration import ReasoningModelConfig
+    from archcompass.ports.batch_refusals import InMemoryBatchRefusals
+    from archcompass.reasoning.adapters import selected as selected_module
+
+    monkeypatch.setenv("GOOGLE_API_KEY", "a-refused-key")
+
+    class Selection:
+        def current(self) -> ReasoningModelConfig:
+            return ReasoningModelConfig(
+                provider="google",
+                model="gemini-3.5-flash-lite",
+                api_key_env="GOOGLE_API_KEY",
+                timeout_seconds=30,
+            )
+
+    refusals = InMemoryBatchRefusals()
+    judge = selected_module.SelectedLangChainJudge(
+        selected_module.SelectedLangChainChatModel(Selection()),  # type: ignore[arg-type]
+        refusals,
+    )
+    assert judge.supports_batch() is True
+
+    refusals.record("a-refused-key")
+
+    # A fresh judge, as a restart would build: no submission, and no route to the batch node.
+    assert (
+        selected_module.SelectedLangChainJudge(
+            selected_module.SelectedLangChainChatModel(Selection()),  # type: ignore[arg-type]
+            refusals,
+        ).supports_batch()
+        is False
+    )
+
+    # A key on a project that is eligible is not punished for another key's refusal.
+    monkeypatch.setenv("GOOGLE_API_KEY", "a-different-key")
+    assert (
+        selected_module.SelectedLangChainJudge(
+            selected_module.SelectedLangChainChatModel(Selection()),  # type: ignore[arg-type]
+            refusals,
+        ).supports_batch()
+        is True
+    )

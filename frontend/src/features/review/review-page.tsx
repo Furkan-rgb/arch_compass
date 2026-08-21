@@ -25,6 +25,7 @@ import {
   orderedFindings,
   useStandingDecisions,
 } from "./docket-rules";
+import { AtlasSurface } from "./atlas-surface";
 import { ContextRail } from "./context-rail";
 import { Docket } from "./docket";
 import { RevisionRail, lineageOf } from "./revision-rail";
@@ -39,6 +40,7 @@ import { AskSurface, DeltaSurface, ReportSurface } from "./surfaces";
  */
 const SURFACES = [
   { id: "docket", label: "Docket" },
+  { id: "atlas", label: "Atlas" },
   { id: "delta", label: "Delta" },
   { id: "report", label: "Report" },
   { id: "ask", label: "Ask" },
@@ -370,6 +372,11 @@ export function ReviewPage() {
         </div>
       </TabPanel>
 
+      <TabPanel id="atlas" active={surface} className="mx-auto w-full max-w-[76rem] p-4 sm:p-6">
+        {/* Next to the docket, because "what next" and "where is it" are the two questions a
+            reviewer arrives with and the list only answers the first. */}
+        <AtlasSurface review={value} onOpen={openCandidate} />
+      </TabPanel>
       <TabPanel id="delta" active={surface} className="mx-auto w-full max-w-[76rem] p-4 sm:p-6">
         {/* Seeing that something changed and looking at it are one action, not two. */}
         <DeltaSurface review={value} onOpen={openCandidate} />

@@ -48,7 +48,7 @@ const ALLOWED = new Map([
     "a decision taken against a verdict that has since moved is waiting on a person again",
   ],
   ["features/review/docket.tsx", "the clarification card, shown only while the review is held"],
-  ["features/landing/corpus-card.tsx", "a specimen bearing; those really are verdicts"],
+  ["features/landing/specimen.tsx", "a specimen bearing; those really are verdicts"],
   ["features/landing/landing-page.tsx", "a specimen finding, shown as an example of one"],
 ]);
 

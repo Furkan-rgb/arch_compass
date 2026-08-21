@@ -34,7 +34,9 @@ function finding(overrides: Partial<Finding> & { candidateId: string }): Finding
       id: candidateId,
       pattern: "dependency_direction",
       summary: "Domain depends on an adapter",
-      participants: [{ qualified_name: "domain.orders", role: "source" }],
+      participants: [
+        { qualified_name: "domain.orders", role: "source", node_id: `node-${candidateId}` },
+      ],
       evidence,
       measurements: [
         {

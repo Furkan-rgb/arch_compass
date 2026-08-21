@@ -122,12 +122,29 @@ product and `features/review/overflow.test.tsx` exists for it.
 
 ## Colour
 
-**Chroma is spent on verdicts. Everything else has none at all.**
+**There is one hue, and everything wearing it means the same thing: look here.**
 
-Not "graphite", not "a cool bone" — literally none. `ui/tokens.test.ts` fails the build if any
-non-verdict token has one RGB channel differing from another by so much as a step. The bone
-the first system used was a second temperature: it sat at the same warmth as the `held` amber
-and cost that amber some of its distance from the ground.
+The accent is `#971b1a`, a dark red. The mark wears it, the primary action wears it, a link to
+the source a claim came from wears it, and a material finding wears it — and `--material` is
+declared as `var(--accent)` rather than as its own hex, so the alarm and the brand can never
+drift into two reds that nearly match. Everything else on screen is grey: `ui/tokens.test.ts`
+fails the build if any token outside the accent and the code palette has one RGB channel
+differing from another by so much as a step. The bone the first system used was a second
+temperature — it sat at the same warmth as the old `held` amber and cost that amber some of
+its distance from the ground.
+
+Two accent values, because a fill and a letterform want opposite things on a dark ground.
+`--accent-fill` is the deep red in **both** themes — a mark that lightens in dark is a second
+logo, and white on `#971b1a` clears 8.4:1 either way — while `--accent` itself lifts to
+`#f27166` in dark, where the deep red drops to 2.3:1 and stops being text at all.
+
+This is the second accent this system has had, and the first one reached 29 of 40 components.
+So it comes back on a budget: `ui/design-system.test.ts` names the three files allowed to say
+`-accent` (`ui/brand.tsx`, `ui/button.tsx`, `ui/tabs.tsx`), and the fourth place — a material
+verdict — is painted from a tone in `lib/format` and guarded by `verdict-hues.test.ts`. A
+focus ring is deliberately *not* on that list: it answers "where is the keyboard", which is a
+question about the reader rather than about the content, and a red ring makes every tab press
+read as a validation failure.
 
 One rule orders the ramp in both themes: **light means elevation.** In light that reads as
 white on grey. In dark it reads as a film of white laid over the void — the same rule running
@@ -151,28 +168,80 @@ thing you can dig at the bottom.
 | `--ink` | `#0a0a0a` | `#fafafa` | Body |
 | `--ink-2` | `#525252` | `#a1a1a1` | Secondary |
 | `--ink-3` | `#737373` | `#737373` | Meta — the one value that is the same in both |
-| `--material` | `#b63132` | `#f47b74` | Act on it |
-| `--held` | `#867000` | `#ecd065` | Waiting on a person |
-| `--cleared` | `#007c59` | `#5ed8a9` | Settled |
+| `--accent` | `#971b1a` | `#f27166` | The one hue: a letterform, an icon, an indicator |
+| `--accent-fill` | `#971b1a` | `#971b1a` | A solid fill — the mark, the primary action. Does not move between themes |
+| `--accent-on-fill` | `#ffffff` | `#fafafa` | What sits on that fill |
+| `--material` | `var(--accent)` | `var(--accent)` | Act on it |
+| `--held` | `#0a0a0a` | `#fafafa` | Waiting on a person — full ink, present, not an alarm |
+| `--cleared` | `#737373` | `#737373` | Settled, and settled things recede |
 
-Each verdict also has a `-soft` wash for a panel whose entire subject is that state — 9–10%
-in light, 12–13% in dark. Nothing else gets a wash.
+**Two of the three verdicts gave up their hue, and this cost something real.** The scale was
+red, amber and green; it is now one hue and two weights. What that buys is that red is never
+ambiguous — nothing else on screen is coloured, so the eye goes to the one thing asking to be
+acted on. What it costs is that a docket column no longer separates *held* from *cleared* at
+the edge of vision, and the mark, the word and the left edge have to carry that on their own.
+That trade was made deliberately, not discovered.
+
+The accent and each verdict also have a `-soft` wash for a panel whose entire subject is that
+state — 8% in light, 13% in dark for the accent; a neutral 3–8% for the two that are grey.
+Nothing else gets a wash.
 
 A permanently dark strip has its own four tokens — `--band`, `--band-ink`, `--band-ink-2`,
 `--band-rule` — because the topbar and the landing page's field band do not invert with the
 theme and therefore cannot borrow `ink`/`surface` from the page.
 
-### There is no budget of one
+### `--mark` is the accent's fourth job
 
-The first system kept exactly one chroma that was not a verdict, `--mark`, for navigating to
-the thing a claim came from. That is gone: a fourth colour beside three verdicts makes a
-reader work out which of the four carries meaning, which is the cost the rule was trying to
-avoid in the first place.
+Navigating to the thing a claim came from — a file, a policy, a cited finding — is one of the
+four places the accent is spent, and `--mark` is the name it is spent under. It resolves to
+`var(--accent)`.
 
-`--mark` survives **as a name**, resolving to `--ink`. Going somewhere is marked by an
-underline and by weight, and the name is what keeps that decision in one place instead of
-being re-made beside every path reference. The guard in `ui/design-system.test.ts` now
-protects the name rather than a hue: five files may say `-mark`, and three of them do.
+The name survives for the reason it always did: it keeps the decision in one place instead of
+being re-made beside every path reference, and it means changing where the accent points is
+one edit rather than a search. The guard in `ui/design-system.test.ts` protects the name: five
+files may say `-mark`, and three of them do.
+
+### The one exception: a source excerpt
+
+Code is coloured, and it is the only thing on screen that is. The exception is narrow enough
+to state in a sentence: **three cool hues, inside a monospace block, never anywhere else.**
+
+The reason it earns one is that an excerpt asks a question the rest of the interface does
+not. Everywhere else, a reader arrives already knowing what they are looking at — a badge, a
+path, a count. Inside forty lines of Python they are looking for something else entirely:
+which of these tokens is a name somebody in this repository chose, and which is the
+language's own furniture. Weight cannot answer that. Half of Python is a keyword, and a page
+of bold is a page of nothing.
+
+Four roles, from roughly thirty token classes the highlighter emits:
+
+| Token | Role | Light | Dark |
+| --- | --- | --- | --- |
+| `--code-keyword` | the language's own words — `def`, `class`, `return` | `#7e22ce` | `#d8b4fe` |
+| `--code-name` | what somebody named — a function, a class, a tag | `#1d4ed8` | `#93c5fd` |
+| `--code-lit` | what is written out — a string, a number | `#0e7490` | `#67e8f9` |
+| `--code-comment` | prose inside code; the only neutral, and italic | `#737373` | `#8a8a8a` |
+
+Everything the highlighter emits outside those four inherits the block's ink. Colouring all
+thirty classes produces an excerpt harder to read than the editor it came from.
+
+The accent rule is not suspended, because it was never a rule about abstinence — it is a rule
+about *hue*. Red means look here. So the code palette lives on the cool half of the wheel,
+where the accent never goes, and the closest any of the six values comes to it is the 85
+degrees between violet and `--accent` in light, 81 in dark. A keyword cannot be misread as a
+material badge, because no badge is ever violet. `tokens.test.ts` asserts that distance rather
+than trusting six hex codes to hold it.
+
+The argument used to be made against a green `cleared` 42 degrees from cyan, which was the
+tightest pair in the set. Held and cleared gave up their hues, so the set is wider now — and
+the bar stays at 35 degrees, because it was never sized to the comfortable case.
+
+The highlighter is a tokeniser only. It emits `hljs-…` class names and `styles.css` gives
+them colour, so no highlight.js stylesheet is imported and a keyword follows the workspace
+theme. It never guesses a language: an excerpt is coloured from the extension of the file it
+was read out of, a fence from its own label, and anything else is left plain. Code shown in
+the wrong colours is worse than code shown in none, because the colours are a claim about
+what the tokens mean.
 
 ### Marks: what a thing is allowed to wear
 
@@ -263,6 +332,45 @@ emphasis off everything else, not by adding chrome to it. A container around a m
 with the mark; contrast does not. The lineage rail is the exception that proves it — it rings
 a plain dot, and a ring around a dot is a halo rather than a nested shape.
 
+### A toggle that is on is raised, not inverted
+
+A pressed filter used to be `bg-ink text-canvas` — the loudest fill the system can draw. One
+of them is a strong signal. The atlas has eleven in three rows, and the default state of the
+relationship filters is *all of them on*, so the surface opened as a wall of solid black
+slabs in dark and solid white ones in light, none of which anybody had chosen.
+
+A toggle that is on now wears the `secondary` button's recipe: the control film, a hairline,
+a rim along the top edge, full-strength ink. A toggle that is off is plain text with no
+border at all. The state is carried by **an edge appearing**, not by a fill inverting, and
+that is deliberate — in light the control film *is* the panel colour, both are white, so a
+filled-versus-unfilled distinction is invisible there however it is written. An edge is
+legible on both grounds. One gesture, not one colour.
+
+The same recipe is in two places on purpose: `ui/button.tsx`'s `ToggleButton`, and
+`components/ui/toggle.tsx` for the vendored Radix switch. Two toggles that look different are
+two toggles a reader has to learn separately.
+
+### shadcn components are vendored and repainted
+
+`components.json` and the `@/*` alias were already here; `src/components/ui/` is the first
+thing to use them. What the registry is for is the *behaviour* — roving focus, arrow-key
+traversal, a listbox that is real markup, a pressed state announced as a toggle — and that is
+all that is kept. Every colour is rewritten onto this system's tokens before the component
+ships, because the registry paints with `bg-muted`, `text-foreground` and `border-input`, none
+of which are defined in this project. A vendored file that kept them would be a second,
+silent theme, and `design-system.test.ts` scans all of `src/` — including `components/ui/` —
+so a registry file that arrived with `focus:bg-accent` and `shadow-md` fails the build rather
+than quietly establishing one.
+
+`lib/utils.ts` re-exports `cn` under the path the registry imports it from, so the next
+`shadcn add` compiles without a hand-edited import line.
+
+Two are in: `ToggleGroup` (the atlas lens, the relationship filters, the framing controls) and
+`Select` (the highlight menu). The `ToggleGroup` variant is about the *set*, not the switch —
+`segment` is one-of-many and gets a sunken track, `chips` is many-of-many and gets none,
+because a bar drawn around switches that can all be on at once claims a choice between them
+that does not exist.
+
 ## Structure
 
 ### Hairlines, not cards on cards
@@ -329,6 +437,12 @@ Everything that is not a loop uses `cubic-bezier(0.22, 0.7, 0.3, 1)`. Under
 `prefers-reduced-motion` every duration collapses to `0.001ms` — the state still changes, the
 travel does not.
 
+There was briefly an eighth — `slide-right`, the mirror of `slide-left` — for a clarification
+round that swapped one question for the next and needed the swap to say which way it had
+gone. The round is a stack now and nothing swaps, so the token went with the thing it was
+for. Motion that exists to make a transition survivable is worth asking whether the
+transition should happen at all.
+
 ## The counts under the review head
 
 *Not a dashboard. Counts are orientation, read once, on the way to the work.* The five-cell
@@ -348,9 +462,12 @@ Every rule below is a test in `frontend/src/ui/design-system.test.ts`, `ui/token
 
 | Rule | Why it is a test |
 | --- | --- |
-| No `-accent` utility anywhere | The tokens are deleted, so a leftover `text-accent` compiles to nothing and vanishes in review rather than failing |
+| `-accent` in three files only | The first accent reached 29 of 40 components, every one a local decision that looked reasonable. The budget is the rule; the allowlist is the enforcement |
+| `--material` is `var(--accent)`, never a hex | A second red a hex away from the first is two reds that nearly match — a material badge and the button beside it. `tokens.test.ts` asserts the alias |
+| `--held` and `--cleared` carry no chroma | They are weight now. `tokens.test.ts` fails either one at an OKLCH chroma above 0.01 |
 | No second face — no `font-read`, no `font-serif` | The model's voice is placement, attribution and the reading size. A face leaks; those do not |
-| No chroma outside a verdict | Any non-verdict token whose RGB channels differ fails `tokens.test.ts`. A bone is a temperature and a temperature is a colour |
+| No chroma outside the accent or the code palette | Any other token whose RGB channels differ fails `tokens.test.ts`. A bone is a temperature and a temperature is a colour |
+| Code colour stays off the accent | The exemption above is from *being grey*, not from the hue rule. `tokens.test.ts` fails a `--code-*` hue within 35° of the accent in either theme — the cool half of the wheel is where the syntax palette lives |
 | No verdict hue outside a verdict | `verdict-hues.test.ts`, with a ten-file allowlist that a second test checks still names real files |
 | `-mark` only where something goes somewhere | Five files, allowlisted. The name is the decision; without the guard it becomes a synonym for ink |
 | A mark is drawn, never typed | A pasted `▲` falls back to the system font and breaks the set. Three blocks — arrows, ticks and crosses, geometric shapes — because covering only the third let the Delta surface keep `✓` and `→` underneath the guard for months. Comment lines are skipped: a doc comment naming the marks it draws is a description, not the thing. An *ASCII* character used as an icon (`~`, `+`, `=`) is the same defect and is not catchable — that half is review |

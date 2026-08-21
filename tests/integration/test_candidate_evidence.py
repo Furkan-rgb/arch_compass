@@ -149,6 +149,24 @@ def test_a_candidate_carries_the_edge_between_its_participants(repository: Path)
     assert edge.resolved_by in {"parse", "types"}
 
 
+def test_a_participant_keeps_the_atlas_node_it_was_detected_on(repository: Path) -> None:
+    """The map beside a review puts a verdict on a node, and this is how it finds one.
+
+    The detector names an atlas id for every participant and the conversion used to drop it,
+    which left a finding sayable but not locatable: nothing downstream holds the atlas, so a
+    reader asking "where is this" could only be answered by matching on a name.
+    """
+
+    candidate = _of_pattern(_candidates(repository), "sole_implementation")
+
+    assert all(participant.node_id for participant in candidate.participants)
+    # The id names the same thing the name does. A participant carrying somebody else's node
+    # would draw the verdict onto the wrong card without ever looking wrong.
+    subject = candidate.participants[0]
+    assert subject.node_id is not None
+    assert subject.node_id != subject.qualified_name
+
+
 def test_a_measurement_keeps_the_nature_that_qualifies_it(repository: Path) -> None:
     candidate = _of_pattern(_candidates(repository), "sole_implementation")
 

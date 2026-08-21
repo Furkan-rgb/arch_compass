@@ -24,10 +24,14 @@ export type RepositoryCheckout = Schema["RepositoryCheckout"];
 export type CheckoutRefresh = Schema["CheckoutRefresh"];
 export type BundledExample = Schema["BundledExample"];
 export type ModelCatalog = Schema["ModelCatalogResponse"];
+/** How hard a model is asked to think: a level where the provider has levels, else a switch. */
+export type ThinkingMode = Schema["ModelSelectionRequest"]["thinking"];
 export type EmbeddingCatalog = Schema["EmbeddingCatalogResponse"];
 export type Workspace = Schema["WorkspaceSummaryResponse"];
 export type AtlasQueryResult = Schema["AtlasQueryResult"];
 export type AtlasNodeSummary = Schema["AtlasNodeSummary"];
+export type AtlasEdge = Schema["AtlasEdge"];
+export type ObscuritySignal = Schema["ObscuritySignal"];
 export type AtlasVersion = Schema["AtlasVersion"];
 export type DirectoryListing = Schema["DirectoryListing"];
 export type RepositoryFolderTree = Schema["RepositoryFolderTree"];
@@ -84,7 +88,7 @@ export const api = {
   // Workspace and models -----------------------------------------------------------------
   workspace: () => request<Workspace>("/api/workspace"),
   models: () => request<ModelCatalog>("/api/models"),
-  selectModel: (provider: string, model: string, thinking: boolean | null) =>
+  selectModel: (provider: string, model: string, thinking: ThinkingMode) =>
     request<Workspace>("/api/models/selection", {
       method: "PUT",
       body: JSON.stringify({ provider, model, thinking }),
@@ -189,6 +193,32 @@ export const api = {
     request<AtlasQueryResult>(
       `/api/repositories/inspect?root_path=${encode(root)}&node_id=${encode(nodeId)}`,
     ),
+  /**
+   * The subgraph around a set of atlas nodes, in one round trip.
+   *
+   * `inspectNode` answers about one node and returns that node, which leaves a caller drawing
+   * a map with edges whose other end it was never told about. This is the same question asked
+   * about a whole set, with the neighbours included — which is what makes one request enough
+   * to draw a review's map rather than one request per finding.
+   *
+   * Ids the atlas no longer holds are skipped rather than refused, so a map drawn against a
+   * rebuilt atlas is short a card rather than absent.
+   */
+  reviewContext: (
+    root: string,
+    nodeIds: string[],
+    qualifiedNames: string[] = [],
+    limit = 25,
+  ) =>
+    request<AtlasQueryResult>("/api/repositories/review-context", {
+      method: "POST",
+      body: JSON.stringify({
+        root_path: root,
+        node_ids: nodeIds,
+        qualified_names: qualifiedNames,
+        limit,
+      }),
+    }),
   exploreRepository: (
     root: string,
     body: Partial<Schema["AtlasExploreRequest"]> & { operation: Schema["AtlasExploreRequest"]["operation"] },

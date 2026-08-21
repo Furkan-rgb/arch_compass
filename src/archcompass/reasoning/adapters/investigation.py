@@ -51,10 +51,10 @@ HINGE_CONTRACT = (
 class HingeResolutionOutput(BaseModel):
     """What the lookups established, and whether they settled the question.
 
-    The verdict and the policy bearings are deliberately absent. This pass is never shown a
-    numbered policy list, so there is no position it could cite and nothing to validate —
-    a bearing cannot be added, moved or invented because there is nothing to move. What it
-    may settle is one thing: whether the question was worth a person's interruption.
+    The verdict and the policy bearings are deliberately absent. This pass is never shown
+    the policies at all, so there is no identifier it could cite and nothing to validate — a
+    bearing cannot be added, moved or invented because there is nothing to move. What it may
+    settle is one thing: whether the question was worth a person's interruption.
     """
 
     resolved: bool

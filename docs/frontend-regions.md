@@ -25,14 +25,14 @@ to every surface including the one that needed the width most.
 ## The review page — `/reviews/:id`
 
 The docket **is** the review: the list and the assessments are one surface, in one column, at
-every width. Delta, Report and Ask are documents about the review rather than ways of working
-through it, so they are peers of the docket rather than columns beside it.
+every width. Atlas, Delta, Report and Ask are documents about the review rather than ways of
+working through it, so they are peers of the docket rather than columns beside it.
 
 | Name | What it is | Where |
 | --- | --- | --- |
 | **Review head** | One line: which review this is, and the repository, branch and commit it read, with the status and the Cancel / New review button. | [review-page.tsx:136](../frontend/src/features/review/review-page.tsx#L136) |
 | **Review counts** | Under the head: how many things still want you, then the verdict spread. Orientation, read once, on the way to the work. | [review-page.tsx:58](../frontend/src/features/review/review-page.tsx#L58) |
-| **Surface tabs** | Docket · Delta · Report · Ask. Which document about this review is on screen. Your place in the docket survives a trip to any of them. | [review-page.tsx:40](../frontend/src/features/review/review-page.tsx#L40) |
+| **Surface tabs** | Docket · Atlas · Delta · Report · Ask. Which document about this review is on screen. Your place in the docket survives a trip to any of them. | [review-page.tsx:40](../frontend/src/features/review/review-page.tsx#L40) |
 
 ### The docket
 
@@ -61,6 +61,8 @@ through it, so they are peers of the docket rather than columns beside it.
 
 | Name | What it is | Where |
 | --- | --- | --- |
+| **Atlas surface** | The shape this review was looking at, drawn from the atlas it was pinned to. Anchors on every element a finding was made about, opens on the **Judged** lens, and answers "where is this" — never "what is in the repository now". A card with a verdict opens its finding. | [atlas-surface.tsx](../frontend/src/features/review/atlas-surface.tsx) |
+| ├ **Atlas explorer** | The map itself and the panel beside it: three lenses, filters, pan / zoom / fit / full screen, a minimap, and the atlas queries a reader can run from a selected element. Knows nothing about reviews. | [explorer.tsx](../frontend/src/features/atlas/explorer.tsx) |
 | **Delta surface** | What moved since the previous review: one list keyed on the candidate's name, filtered by change state. Its unique content is `addressed` — a candidate that is gone, and so has no docket row to be met in. A row opens its finding. | [surfaces.tsx:240](../frontend/src/features/review/surfaces.tsx#L240) |
 | **Report surface** | The rendered Markdown report, led by what the review comes to. | [surfaces.tsx:505](../frontend/src/features/review/surfaces.tsx#L505) |
 | **Ask surface** | Questions put to the review, in separate threads. | [surfaces.tsx:597](../frontend/src/features/review/surfaces.tsx#L597) |

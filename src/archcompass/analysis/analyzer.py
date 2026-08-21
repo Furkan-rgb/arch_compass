@@ -143,7 +143,9 @@ class DataclassCandidateDetector:
         item: FindingCandidate, root: Path, names: Mapping[str, str]
     ) -> Candidate:
         participants = tuple(
-            Participant(participant.qualified_name, participant.role)
+            Participant(
+                participant.qualified_name, participant.role, participant.node_id
+            )
             for participant in item.participants
         )
         evidence = tuple(_evidence(participant, root) for participant in item.participants)

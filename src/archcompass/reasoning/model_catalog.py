@@ -25,12 +25,13 @@ from archcompass.reasoning.records import (
     ReasoningModelSelection,
     ReasoningModelStatus,
 )
+from archcompass.records import ThinkingMode
 
 
 def reasoning_config(
     descriptor: ProviderDescriptor,
     model: str,
-    thinking: bool | None,
+    thinking: ThinkingMode,
 ) -> ReasoningModelConfig:
     """One provider's defaults, one model name and one thinking mode, as a request shape.
 
@@ -50,9 +51,9 @@ def reasoning_config(
         timeout_seconds=defaults.timeout_seconds,
         context_window_tokens=defaults.context_window_tokens,
         max_output_tokens=(
-            defaults.max_output_tokens_thinking
-            if thinking is True
-            else defaults.max_output_tokens
+            defaults.max_output_tokens
+            if _spends_little_on_thinking(thinking)
+            else defaults.max_output_tokens_thinking
         ),
         chars_per_token=defaults.chars_per_token,
         thinking=thinking,
@@ -62,6 +63,18 @@ def reasoning_config(
         # without either entry point knowing it exists.
         concurrent_requests=defaults.resolved_concurrent_requests(),
     )
+
+
+def _spends_little_on_thinking(thinking: ThinkingMode) -> bool:
+    """Whether this mode can be trusted to leave the answer room in a small budget.
+
+    Only the two modes that ask for as little thinking as the provider allows. Everything
+    else gets the headroom, `None` included — a request that names no level does not get a
+    model that skips thinking, it gets one that decides for itself how much to do, and
+    budgeting as though it had chosen none is how a structured answer arrives truncated.
+    """
+
+    return thinking is False or thinking == "minimal"
 
 
 class ModelCatalogService:
@@ -161,7 +174,7 @@ class ModelCatalogService:
         return ModelCatalog(providers=providers, candidates=candidates)
 
     def select(
-        self, provider: str, model: str, thinking: bool | None = None
+        self, provider: str, model: str, thinking: ThinkingMode = None
     ) -> ReasoningModelStatus:
         """Record which model this workspace reasons with, and whether it reasons.
 

@@ -135,7 +135,19 @@ class DeterministicAtlasQueryService:
             # Tolerant lookup, unlike every other branch: the ids come from a stored review
             # and the atlas may have been rebuilt since it ran, so a renamed file must cost
             # the reader that one node rather than the whole map.
-            requested_ids = list(dict.fromkeys(query.node_ids))
+            # A name resolves to whichever nodes carry it, which is normally one. It is a
+            # fallback for a finding recorded before the atlas id travelled with it, and it
+            # is deliberately not the primary route: two nodes can answer to one qualified
+            # name across a rebuild, and the map would then anchor on both.
+            by_name: defaultdict[str, list[str]] = defaultdict(list)
+            for node in atlas.nodes:
+                by_name[node.qualified_name].append(node.atlas_id)
+            named = [
+                node_id
+                for name in query.qualified_names
+                for node_id in sorted(by_name.get(name, []))
+            ]
+            requested_ids = list(dict.fromkeys([*query.node_ids, *named]))
             found = [node_id for node_id in requested_ids if node_id in nodes]
             included = {node_id: nodes[node_id] for node_id in found}
             for node_id in found:

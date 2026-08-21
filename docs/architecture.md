@@ -73,8 +73,8 @@ lookups first, because many of those questions are ones the repository answers. 
 keep it inside the boundary rather than beside it:
 
 - every lookup is recorded on the review, so nothing a model found is unverifiable;
-- the pass is never shown a numbered policy list, so a policy bearing cannot be added,
-  moved or invented — there is nothing to cite;
+- the pass is never shown the policies at all, so a policy bearing cannot be added, moved
+  or invented — there is nothing to cite;
 - the revised finding is built with `dataclasses.replace`, so every field not named is
   carried untouched: the verdict may only leave `held`, and evidence and policies may not
   move at all.
@@ -82,6 +82,17 @@ keep it inside the boundary rather than beside it:
 The candidate set stays entirely deterministic. The detector chooses the work; the
 application chooses which findings get a second look; the model chooses only which questions
 to put to the repository about a finding it was handed.
+
+**A model names what the application holds; it never indexes into it.** No list
+ArchCompass assembles for a prompt is numbered for a model to point back into, because an
+ordinal that is wrong but in range resolves to the wrong thing and reads as correct
+afterwards. Two ways to satisfy it, and both are in `reasoning/adapters/langchain.py`. Where
+one call handles one thing, do not ask: `LangChainQuestionGenerator` makes one call per held
+finding, so the finding a question belongs to is the call it was made in. Where one call
+spans many — a conversation citing several findings, a judgement citing several policies —
+ask for the identifier and drop what the application does not recognise, which costs one
+citation instead of the review. `tests/unit/test_boundaries.py` enforces it over every model
+schema under `reasoning/`.
 
 LangGraph checkpoint data is resumable execution state. It is not the domain history.
 Immutable `Review` snapshots are the audit record.

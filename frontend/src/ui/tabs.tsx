@@ -77,7 +77,7 @@ export function Tabs({
                     // short of the 44px floor, and a tab has the room for the other two.
                     "-mb-px border-b-2 px-3 py-3",
                     selected
-                      ? "border-ink text-ink"
+                      ? "border-accent text-ink"
                       : "border-transparent text-ink-3 hover:border-rule-strong hover:text-ink",
                   )
                 : cn(

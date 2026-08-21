@@ -33,6 +33,7 @@ from archcompass.configuration import (
 from archcompass.domain.errors import ConfigurationError, NoReasoningModelSelectedError
 from archcompass.persistence import (
     SQLiteAtlasRepository,
+    SQLiteBatchRefusalRepository,
     SQLiteCoreCaseRepository,
     SQLiteCoreConversationRepository,
     SQLiteCoreFindingCache,
@@ -93,6 +94,7 @@ from archcompass.reasoning.conversation import CoreReviewConversationService
 from archcompass.reasoning.embedding_models import EmbeddingModelService
 from archcompass.reasoning.model_catalog import ModelCatalogService, reasoning_config
 from archcompass.reasoning.records import EmbeddingModelSelection
+from archcompass.records import ThinkingMode
 from archcompass.repositories.adapters import GitCommandLineClient, HttpsTarballFetcher
 from archcompass.repositories.checkout import RepositoryCheckoutService
 from archcompass.repositories.examples import BundledExampleService
@@ -388,6 +390,10 @@ def build_runtime(
     executions = SQLiteReviewExecutionRepository(core_database.raw_connect)
     core_decisions = SQLiteCoreStandingDecisionRepository(core_database.raw_connect)
     core_finding_cache = SQLiteCoreFindingCache(core_database.raw_connect)
+    # A project that the Batch API refuses is refused again after a restart, so the answer
+    # is written down. Without this every session paid one rejected submission, and showed
+    # that review's reader a run claiming a queued batch that had never been accepted.
+    batch_refusals = SQLiteBatchRefusalRepository(core_database.raw_connect)
     core_conversations = SQLiteCoreConversationRepository(core_database.raw_connect)
     selected_chat = SelectedLangChainChatModel(model_catalog_service)
     review_conversation_service = CoreReviewConversationService(
@@ -455,7 +461,7 @@ def build_runtime(
                 deterministic_mode=deterministic_retrieval_mode,
             ),
             judge=CachingArchitectureJudge(
-                SelectedLangChainJudge(selected_chat),
+                SelectedLangChainJudge(selected_chat, batch_refusals),
                 core_finding_cache,
                 model_identity=selected_model_identity,
                 prompt_identity=selected_prompt_identity,
@@ -630,7 +636,7 @@ def enabled_providers() -> dict[str, ProviderDescriptor]:
 
 
 def pinned_model(
-    provider: str, model: str, thinking: bool | None = None
+    provider: str, model: str, thinking: ThinkingMode = None
 ) -> ReasoningModelConfig:
     """The configuration a command line asked for, refused by name if it cannot be reached.
 

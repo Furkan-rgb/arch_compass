@@ -56,6 +56,17 @@ class ReviewRunResponse(APIModel):
     stage: str
     stages: list[str]
     failure: str
+    #: Judging is a loop, and a stage list cannot say how deep into one a run is. These can:
+    #: the selection this round made, and how much of it now has a verdict. Both zero before
+    #: a round has selected anything, which is what a client reads as "no count to show yet".
+    candidates_to_judge: int = 0
+    candidates_judged: int = 0
+    #: What the provider did with the batch this run asked for: `queued` once a submission
+    #: was accepted, `unavailable` once one was refused and the candidates were judged one
+    #: at a time instead. Empty until the provider has answered, and empty for every run
+    #: that never asked — a client telling somebody about a batch has to wait for this, and
+    #: must not read the stage, which only says which node the graph is in.
+    batch: str = ""
     #: The lineage this run belongs to. Names for a reader, ids so a client can tell that a
     #: run and a review it is looking at are the same line of work.
     repository_name: str = ""
@@ -83,6 +94,9 @@ class ReviewRunResponse(APIModel):
             stage=state.stage,
             stages=list(state.stages),
             failure=state.failure,
+            candidates_to_judge=state.candidates_to_judge,
+            candidates_judged=state.candidates_judged,
+            batch=state.batch,
             **cast("dict[str, Any]", lineage),
         )
 
@@ -133,6 +147,10 @@ class RelationshipResponse(APIModel):
 class ParticipantResponse(APIModel):
     qualified_name: str
     role: str
+    #: The atlas node this participant was detected on, where the detection recorded one.
+    #: `None` for a finding judged before the id was carried, and for anything a rebuilt
+    #: atlas no longer holds — a map reading this must draw around its absence.
+    node_id: str | None = None
 
 
 class CandidateResponse(APIModel):
@@ -274,6 +292,7 @@ def _candidate(value: Candidate) -> CandidateResponse:
             ParticipantResponse(
                 qualified_name=item.qualified_name,
                 role=item.role,
+                node_id=item.node_id,
             )
             for item in value.participants
         ],

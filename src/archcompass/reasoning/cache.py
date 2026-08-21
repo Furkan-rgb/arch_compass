@@ -10,6 +10,7 @@ from archcompass.domain import ArchitectureCase, Candidate, Finding, Review
 from archcompass.ports.capabilities import (
     ArchitectureJudge,
     BatchArchitectureJudge,
+    BatchOutcome,
     JudgementRequest,
 )
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
@@ -71,7 +72,12 @@ class CachingArchitectureJudge:
             self._judge.supports_batch()
         )
 
-    def judge_all(self, requests: Sequence[JudgementRequest]) -> tuple[Finding, ...]:
+    def judge_all(
+        self,
+        requests: Sequence[JudgementRequest],
+        *,
+        observe: Callable[[BatchOutcome], None] | None = None,
+    ) -> tuple[Finding, ...]:
         """Cache first, then submit only what is left.
 
         A re-judgement round re-asks about every selected candidate, and most of them have
@@ -93,7 +99,9 @@ class CachingArchitectureJudge:
         if missing:
             if not isinstance(self._judge, BatchArchitectureJudge):
                 raise TypeError("the wrapped judge cannot judge a batch")
-            judged = self._judge.judge_all([requests[index] for index in missing])
+            judged = self._judge.judge_all(
+                [requests[index] for index in missing], observe=observe
+            )
             if len(judged) != len(missing):
                 raise ValueError(
                     f"the judge answered {len(judged)} of {len(missing)} submitted "

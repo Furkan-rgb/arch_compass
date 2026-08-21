@@ -1,0 +1,240 @@
+import type { ReactNode } from "react";
+
+import { cn } from "../../lib/cn";
+import type { Tone } from "../../lib/format";
+
+/**
+ * The atlas, drawn.
+ *
+ * Two places show a map of a repository and they get their coordinates from opposite
+ * directions: the landing page's is a specimen composed by hand, so its emptiness can be put
+ * where the callout lands, and a review's is computed from what that review actually
+ * examined. What they must not do is *look* like two maps. The stroke weights, the module
+ * enclosure, the bowed edge and the rule about which node is allowed a hue are the picture,
+ * and they live here once.
+ *
+ * Everything below is placement-agnostic. This file never decides where a node goes; it
+ * decides what a node looks like once something else has decided.
+ *
+ * There is no chroma here that is not a verdict. The modules and the edges are hairlines,
+ * which is the same device the rest of the system separates with.
+ */
+
+export type MapModule = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  label: string;
+};
+
+export type MapNode = {
+  id: string;
+  x: number;
+  y: number;
+  label: string;
+  /** Set only on the elements a finding was made about. */
+  tone?: Tone;
+};
+
+export type MapEdge = { from: string; to: string };
+
+/**
+ * The verdict hues, reached for on the nodes that carry one.
+ *
+ * Indexed by the tone rather than written at the node, which is the same rule the badges
+ * follow: nothing here decides that a shape should be red, it paints the tone a finding
+ * already has.
+ */
+const TONE_STROKE: Record<Tone, string> = {
+  neutral: "var(--rule-strong)",
+  marked: "var(--ink)",
+  material: "var(--material)",
+  held: "var(--held)",
+  cleared: "var(--cleared)",
+};
+
+/** One gentle bow per edge, so the map reads as drawn rather than as ruled. */
+export function edgePath(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+): string {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const bow = 0.09 * length;
+  const cx = (from.x + to.x) / 2 - (dy / length) * bow;
+  const cy = (from.y + to.y) / 2 + (dx / length) * bow;
+  return `M${from.x} ${from.y}Q${Math.round(cx)} ${Math.round(cy)} ${to.x} ${to.y}`;
+}
+
+export type AtlasMapProps = {
+  viewBox: { width: number; height: number };
+  modules: readonly MapModule[];
+  nodes: readonly MapNode[];
+  edges: readonly MapEdge[];
+  /** The node the surface is currently about. Its edges come forward and its label is ink. */
+  active?: string;
+  /**
+   * Where the label of a node that carries no verdict sits.
+   *
+   * `above` is for the landing specimen, whose lit nodes have a leader dropping out of them
+   * and would otherwise strike through their own word.
+   */
+  verdictLabels?: "above" | "below";
+  /**
+   * Below `sm` a map drawn at half scale is a map of illegible labels, so `active` keeps only
+   * the lit one and hides the rest until there is room. `all` never hides.
+   */
+  labels?: "all" | "active";
+  onSelect?: (id: string) => void;
+  /** Drawn in the map's own coordinates, over the edges and under the nodes. */
+  overlay?: ReactNode;
+  className?: string;
+  title?: string;
+};
+
+export function AtlasMap({
+  viewBox,
+  modules,
+  nodes,
+  edges,
+  active,
+  verdictLabels = "below",
+  labels = "all",
+  onSelect,
+  overlay,
+  className,
+  title,
+}: AtlasMapProps) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+
+  return (
+    <svg
+      viewBox={`0 0 ${viewBox.width} ${viewBox.height}`}
+      fill="none"
+      // Decorative unless something can be done with it. Where the map is a specimen the
+      // callout beside it names the candidate in text, so announcing the labels would say it
+      // twice; where a node opens a finding it is a control and has to be reachable.
+      aria-hidden={onSelect ? undefined : "true"}
+      role={onSelect ? "group" : undefined}
+      aria-label={onSelect ? title : undefined}
+      className={cn("size-full", className)}
+    >
+      {modules.map((module) => (
+        <g key={module.label}>
+          <rect
+            x={module.x}
+            y={module.y}
+            width={module.width}
+            height={module.height}
+            rx={14}
+            stroke="var(--rule)"
+          />
+          <text
+            x={module.x + 14}
+            y={module.y + 22}
+            // Font size is in user units, so it shrinks with the map. The larger step is what
+            // keeps a module legible once the figure is being drawn at about half scale.
+            className="fill-[var(--ink-3)] font-mono text-[18px] font-semibold uppercase tracking-[0.14em] sm:text-[12px]"
+          >
+            {module.label}
+          </text>
+        </g>
+      ))}
+
+      {edges.map((edge) => {
+        const from = byId.get(edge.from);
+        const to = byId.get(edge.to);
+        if (!from || !to) return null;
+        // The edges into and out of the active element are the ones the surface is about, so
+        // they come forward. Everything else is the hairline the rest of the system separates
+        // with.
+        const bears = edge.from === active || edge.to === active;
+        return (
+          <path
+            key={`${edge.from}-${edge.to}`}
+            d={edgePath(from, to)}
+            stroke={bears ? "var(--ink-3)" : "var(--rule-strong)"}
+            strokeWidth={bears ? 1.25 : 1}
+          />
+        );
+      })}
+
+      {overlay}
+
+      {nodes.map((node) => {
+        const stroke = node.tone ? TONE_STROKE[node.tone] : "var(--rule-strong)";
+        const isActive = node.id === active;
+        const label = (
+          <text
+            x={node.x}
+            y={node.y + (node.tone && verdictLabels === "above" ? -22 : node.tone ? 32 : 24)}
+            textAnchor="middle"
+            className={cn(
+              "font-mono",
+              isActive
+                ? "fill-[var(--ink)] text-[20px] font-semibold sm:text-[13px]"
+                : cn(
+                    "fill-[var(--ink-3)] text-[13px]",
+                    labels === "active" && "hidden sm:inline",
+                  ),
+            )}
+          >
+            {node.label}
+          </text>
+        );
+
+        const drawing = (
+          <>
+            {node.tone ? (
+              <circle
+                cx={node.x}
+                cy={node.y}
+                r={15}
+                stroke={stroke}
+                strokeOpacity={isActive ? 0.75 : 0.3}
+              />
+            ) : null}
+            <circle
+              cx={node.x}
+              cy={node.y}
+              r={node.tone ? 8 : 5.5}
+              fill="var(--surface)"
+              stroke={stroke}
+              strokeWidth={node.tone ? 1.75 : 1.25}
+            />
+            {label}
+          </>
+        );
+
+        // Only an element a finding was made about is a control. Everything else on the map
+        // is the context that made the shape a shape, and there is nothing to open on it —
+        // announcing fifteen unactionable buttons to a screen reader would be worse than
+        // announcing none.
+        if (!onSelect || !node.tone) return <g key={node.id}>{drawing}</g>;
+        return (
+          <g
+            key={node.id}
+            role="button"
+            tabIndex={0}
+            aria-label={node.label}
+            onClick={() => onSelect(node.id)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              onSelect(node.id);
+            }}
+            className="cursor-pointer outline-offset-2"
+          >
+            {/* A 5.5px circle is not a target. This is the box a finger and a cursor
+                actually hit, and it is invisible rather than absent because a `pointer-events`
+                hole over a 44px area would swallow the node beside it. */}
+            <circle cx={node.x} cy={node.y} r={22} fill="transparent" />
+            {drawing}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}

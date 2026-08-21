@@ -32,12 +32,14 @@ from pydantic import ValidationError
 
 from archcompass.domain import Finding
 from archcompass.domain.errors import ModelOutputValidationError, ProviderError
-from archcompass.ports.capabilities import JudgementRequest
+from archcompass.ports.capabilities import BatchOutcome, JudgementRequest
 from archcompass.reasoning.adapters.langchain import (
     FindingOutput,
     finding_from_output,
     judgement_prompt,
 )
+from archcompass.reasoning.adapters.providers import google_thinking_level
+from archcompass.records import ThinkingMode
 from archcompass.retrying import call_with_retry
 
 _log = logging.getLogger("archcompass.batch")
@@ -147,6 +149,7 @@ class GoogleBatchJudge:
         *,
         api_key: str,
         model: str,
+        thinking: ThinkingMode = None,
         prompt_identity: str = "judge:v2",
         polling: BatchPolling = DEFAULT_POLLING,
         sleep: Callable[[float], None] = time.sleep,
@@ -154,6 +157,10 @@ class GoogleBatchJudge:
     ) -> None:
         self._client = client or genai.Client(api_key=api_key)
         self._model = model
+        # Carried because this path builds its own request rather than going through
+        # LangChain, and a batched judgement is not allowed to be a different judgement: a
+        # review submitted as a batch must be thinking as hard as one judged interactively.
+        self._thinking = google_thinking_level(thinking)
         self._prompt_identity = prompt_identity
         self._polling = polling
         self._sleep = sleep
@@ -163,11 +170,18 @@ class GoogleBatchJudge:
         requests: Sequence[JudgementRequest],
         *,
         model_identity: str,
+        observe: Callable[[BatchOutcome], None] | None = None,
     ) -> tuple[Finding, ...]:
         if not requests:
             return ()
 
+        # `_submit` is the only thing that can answer whether this project may batch at all,
+        # and it answers by raising. So nothing is told a batch is queued until the line
+        # after it returns — a review that announced one on the strength of being routed
+        # here kept announcing it through the whole interactive fallback of a refusal.
         job = self._submit(requests)
+        if observe is not None:
+            observe("queued")
         _log.info(
             "submitted %d judgements as batch %s", len(requests), getattr(job, "name", "?")
         )
@@ -188,6 +202,16 @@ class GoogleBatchJudge:
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=FindingOutput,
+            thinking_config=(
+                None
+                if self._thinking is None
+                else types.ThinkingConfig(
+                    # Spelled into the SDK's own enum rather than left as the word. The
+                    # client coerces either way; naming the enum is what makes a level this
+                    # SDK stops offering a type error here instead of a rejected batch.
+                    thinking_level=types.ThinkingLevel(self._thinking.upper())
+                )
+            ),
         )
         inline = [
             types.InlinedRequest(

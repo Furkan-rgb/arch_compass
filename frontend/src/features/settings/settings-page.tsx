@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
-import { api, type ProviderAvailability } from "../../api";
+import { api, type ProviderAvailability, type ThinkingMode } from "../../api";
 import { cn } from "../../lib/cn";
 import { plural } from "../../lib/format";
 import { useTheme } from "../../lib/theme";
@@ -37,6 +37,21 @@ type Group = { provider: ProviderAvailability; choices: Choice[] };
  * Providers with nothing to offer are kept and shown last. They are the rows that say what
  * to fix, and dropping them would answer "why is Groq not here" with silence.
  */
+/**
+ * How hard this row asks the model to think, said in the provider's own vocabulary.
+ *
+ * Nothing where the model has no depth to choose, because a tag reading "default" beside a
+ * model that has one setting is a word that distinguishes it from nothing. `on` and `off`
+ * are the switch Ollama has; the four levels are the dial Gemini 3 has, which replaced the
+ * switch — there is no request to a Gemini 3 model that means "do not think".
+ */
+function thinkingTag(thinking: ThinkingMode): ReactNode {
+  if (thinking === null || thinking === undefined) return null;
+  if (thinking === true) return <Tag>thinking</Tag>;
+  if (thinking === false) return <Tag>direct</Tag>;
+  return <Tag>{thinking} thinking</Tag>;
+}
+
 export function SettingsPage() {
   const client = useQueryClient();
   const catalog = useQuery({ queryKey: ["models"], queryFn: api.models });
@@ -52,7 +67,7 @@ export function SettingsPage() {
   };
 
   const selectReasoning = useMutation({
-    mutationFn: (choice: { provider: string; model: string; thinking: boolean | null }) =>
+    mutationFn: (choice: { provider: string; model: string; thinking: ThinkingMode }) =>
       api.selectModel(choice.provider, choice.model, choice.thinking),
     onSuccess: refresh,
   });
@@ -81,10 +96,7 @@ export function SettingsPage() {
       title: model.model,
       detail: model.label || "chat model",
       selected: Boolean(model.is_selected),
-      extra:
-        model.thinking === null || model.thinking === undefined ? null : (
-          <Tag>{model.thinking ? "thinking" : "direct"}</Tag>
-        ),
+      extra: thinkingTag(model.thinking),
       select: () =>
         selectReasoning.mutate({
           provider: model.provider,

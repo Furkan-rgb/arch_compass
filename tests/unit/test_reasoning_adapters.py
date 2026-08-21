@@ -39,8 +39,10 @@ from archcompass.reasoning.adapters.langchain import (
     LangChainArchitectureJudge,
     LangChainQuestionGenerator,
     LangChainReviewAnswerer,
+    QuestionOutput,
     conversation_prompt,
     judgement_prompt,
+    question_prompt,
 )
 
 
@@ -105,7 +107,7 @@ def _input() -> tuple[Candidate, ArchitectureCase, RetrievedPolicySet]:
     )
 
 
-def test_model_policy_positions_are_resolved_before_finding_construction() -> None:
+def test_model_policy_citations_are_resolved_before_finding_construction() -> None:
     candidate, case, policies = _input()
     judge = LangChainArchitectureJudge(
         StructuredModel(
@@ -113,7 +115,7 @@ def test_model_policy_positions_are_resolved_before_finding_construction() -> No
                 "material": True,
                 "reasoning": "The port hides no expected variation.",
                 "policy_bearings": [
-                    {"policy_position": 1, "reasoning": "This policy bears directly."}
+                    {"policy_id": "policy-a", "reasoning": "This policy bears directly."}
                 ],
                 "recommended_response": "Remove the pass-through port.",
             }
@@ -128,7 +130,14 @@ def test_model_policy_positions_are_resolved_before_finding_construction() -> No
     assert finding.retrieval_identity == policies.provenance.identity
 
 
-def test_unknown_model_policy_position_is_rejected() -> None:
+def test_a_policy_citation_naming_nothing_is_dropped_rather_than_fatal() -> None:
+    """The trade that naming buys, and the reason the old ordinal could not buy it.
+
+    A citation that names no presented policy is visibly wrong, so the bearing is dropped
+    and the verdict still stands. An ordinal could not be checked that way: 2 out of 1 was
+    fatal, and 1 out of 2 was silently the wrong policy, recorded as though it were right.
+    """
+
     candidate, case, policies = _input()
     judge = LangChainArchitectureJudge(
         StructuredModel(
@@ -136,15 +145,26 @@ def test_unknown_model_policy_position_is_rejected() -> None:
                 "material": False,
                 "reasoning": "No conflict.",
                 "policy_bearings": [
-                    {"policy_position": 2, "reasoning": "Unknown policy."}
+                    {"policy_id": "policy-invented", "reasoning": "Unknown policy."}
                 ],
             }
         ),  # type: ignore[arg-type]
         model_identity="test:model",
     )
 
-    with pytest.raises(ValueError, match="only 1 policies"):
-        judge.judge(candidate, case, policies)
+    finding = judge.judge(candidate, case, policies)
+
+    assert finding.verdict is Verdict.CLEARED
+    assert finding.policies == ()
+
+
+def test_a_policy_is_offered_to_the_judge_under_its_identifier() -> None:
+    candidate, case, policies = _input()
+
+    prompt = judgement_prompt(candidate, case, policies)
+
+    assert "[policy-a] Delay abstraction" in prompt
+    assert "cite one by copying that identifier exactly" in prompt
 
 
 def test_hinge_and_recommendation_are_rejected_at_structured_boundary() -> None:
@@ -168,7 +188,15 @@ def test_hinge_and_recommendation_are_rejected_at_structured_boundary() -> None:
         judge.judge(candidate, case, policies)
 
 
-def test_question_position_without_a_hinge_is_structurally_rejected() -> None:
+def test_a_question_belongs_to_the_finding_it_was_asked_about() -> None:
+    """A finding with no hinge cannot be asked about, because it is never asked about.
+
+    This used to be a rule stated in prose and enforced with a raise: one call saw every
+    finding under a number, cleared ones included, and returning the wrong number lost the
+    whole review. The mapping is the application's now — one call per held finding — so the
+    cleared finding is not in the call at all and there is no number to get wrong.
+    """
+
     candidate, case, _ = _input()
     settled = Finding(candidate, Verdict.CLEARED, "No conflict.", (), ())
     uncertain_candidate = Candidate.identified(
@@ -187,25 +215,40 @@ def test_question_position_without_a_hinge_is_structurally_rejected() -> None:
     generator = LangChainQuestionGenerator(
         StructuredModel(
             {
-                "questions": [
-                    {
-                        "text": "Who owns this?",
-                        "facet": "decision",
-                        "candidate_positions": [1],
-                        "options": ["Payments owns it", "Platform owns it"],
-                    }
-                ]
+                "text": "Who owns this?",
+                "facet": "decision",
+                "options": ["Payments owns it", "Platform owns it"],
             }
         )  # type: ignore[arg-type]
     )
 
-    with pytest.raises(ValueError, match="finding without a hinge"):
-        generator.generate(
-            case,
-            (settled, uncertain),
-            round=1,
-            excluded_equivalence_keys=frozenset(),
-        )
+    questions = generator.generate(
+        case,
+        (settled, uncertain),
+        round=1,
+        excluded_equivalence_keys=frozenset(),
+    )
+
+    assert len(questions) == 1
+    assert questions[0].candidate_ids == (str(uncertain_candidate.id),)
+
+
+def test_the_model_is_shown_one_held_finding_and_no_list_to_point_into() -> None:
+    candidate, case, _ = _input()
+    uncertain = Finding(
+        candidate,
+        Verdict.HELD,
+        "Ownership could change the verdict.",
+        (),
+        (),
+        hinge="the owning team",
+    )
+
+    prompt = question_prompt(uncertain, case)
+
+    assert "waiting on: the owning team" in prompt
+    assert "Port has one implementation" in prompt
+    assert "numbered" not in prompt
 
 
 def test_proposed_answers_survive_but_escape_hatches_do_not() -> None:
@@ -227,19 +270,14 @@ def test_proposed_answers_survive_but_escape_hatches_do_not() -> None:
     generator = LangChainQuestionGenerator(
         StructuredModel(
             {
-                "questions": [
-                    {
-                        "text": "Who owns this?",
-                        "facet": "decision",
-                        "candidate_positions": [1],
-                        "options": [
-                            "The domain team owns it",
-                            "The platform team owns it",
-                            "Other",
-                            "Not sure",
-                        ],
-                    }
-                ]
+                "text": "Who owns this?",
+                "facet": "decision",
+                "options": [
+                    "The domain team owns it",
+                    "The platform team owns it",
+                    "Other",
+                    "Not sure",
+                ],
             }
         )  # type: ignore[arg-type]
     )
@@ -267,14 +305,9 @@ def test_a_choice_of_one_is_not_offered_as_a_choice() -> None:
     generator = LangChainQuestionGenerator(
         StructuredModel(
             {
-                "questions": [
-                    {
-                        "text": "Who owns this?",
-                        "facet": "decision",
-                        "candidate_positions": [1],
-                        "options": ["The domain team owns it", "None of these"],
-                    }
-                ]
+                "text": "Who owns this?",
+                "facet": "decision",
+                "options": ["The domain team owns it", "None of these"],
             }
         )  # type: ignore[arg-type]
     )
@@ -355,18 +388,53 @@ def test_a_conversation_may_reason_past_what_the_review_records() -> None:
 
 def test_a_cited_finding_is_returned_as_the_candidate_it_belongs_to(tmp_path: Path) -> None:
     review = _answered_review(tmp_path)
+    cited = str(review.findings[0].candidate.id)
     answerer = LangChainReviewAnswerer(
         StructuredModel(
             {
                 "answer": "Resolve it through a factory; the review recommends as much.",
-                "candidate_positions": [1],
+                "candidate_ids": [cited],
             }
         )  # type: ignore[arg-type]
     )
 
     answer = answerer.answer(review, (), "How would it be fixed?")
 
+    assert answer.supporting_candidate_ids == (cited,)
+
+
+def test_a_finding_the_review_does_not_hold_grounds_nothing(tmp_path: Path) -> None:
+    """The answer survives its own bad citation, because the citation is a name.
+
+    An identifier the review does not hold matches nothing and is dropped, so the reader
+    loses one grounding chip and keeps the reply. The ordinal this replaced had no such
+    reading: in range it grounded the answer on a finding the model never used, and out of
+    range it raised.
+    """
+
+    review = _answered_review(tmp_path)
+    answerer = LangChainReviewAnswerer(
+        StructuredModel(
+            {
+                "answer": "Resolve it through a factory.",
+                "candidate_ids": ["candidate_invented", str(review.findings[0].candidate.id)],
+            }
+        )  # type: ignore[arg-type]
+    )
+
+    answer = answerer.answer(review, (), "How would it be fixed?")
+
+    assert answer.text == "Resolve it through a factory."
     assert answer.supporting_candidate_ids == (str(review.findings[0].candidate.id),)
+
+
+def test_a_conversation_lists_every_finding_under_its_identifier(tmp_path: Path) -> None:
+    review = _answered_review(tmp_path)
+
+    prompt = conversation_prompt(review, (), "How would it be fixed?")
+
+    assert f"[{review.findings[0].candidate.id}]" in prompt
+    assert "return the bracketed identifier of each one you used" in CONVERSATION_CONTRACT
 
 
 def test_an_empty_case_says_so_rather_than_arriving_as_empty_arrays() -> None:
@@ -418,6 +486,21 @@ def test_a_question_without_proposed_answers_is_rejected_at_the_boundary() -> No
     for one by returning nothing.
     """
 
+    with pytest.raises(ValidationError):
+        QuestionOutput.model_validate(
+            {"text": "Who owns this?", "facet": "decision", "options": []}
+        )
+
+
+def test_a_refused_question_costs_the_round_that_question_and_no_more() -> None:
+    """One finding's question is lost; the review that earned it is not.
+
+    Every candidate has already been retrieved for, judged and investigated by the time a
+    question is asked. A schema violation here used to propagate out of the graph and throw
+    all of that away, which is how a clarification round — an improvement to a review — came
+    to be able to destroy one.
+    """
+
     candidate, case, _ = _input()
     uncertain = Finding(
         candidate,
@@ -429,20 +512,13 @@ def test_a_question_without_proposed_answers_is_rejected_at_the_boundary() -> No
     )
     generator = LangChainQuestionGenerator(
         StructuredModel(
-            {
-                "questions": [
-                    {
-                        "text": "Who owns this?",
-                        "facet": "decision",
-                        "candidate_positions": [1],
-                        "options": [],
-                    }
-                ]
-            }
+            {"text": "Who owns this?", "facet": "decision", "options": []}
         )  # type: ignore[arg-type]
     )
 
-    with pytest.raises(ModelOutputValidationError):
+    assert (
         generator.generate(
             case, (uncertain,), round=1, excluded_equivalence_keys=frozenset()
         )
+        == ()
+    )

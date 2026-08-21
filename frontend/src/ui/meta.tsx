@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 import { cn } from "../lib/cn";
 import type { Tone } from "../lib/format";
@@ -15,14 +15,10 @@ import type { Tone } from "../lib/format";
 export function Mono({
   children,
   className,
-  title,
-}: {
-  children: ReactNode;
-  className?: string;
-  title?: string;
-}) {
+  ...props
+}: { children: ReactNode; className?: string } & HTMLAttributes<HTMLSpanElement>) {
   return (
-    <span title={title} className={cn("font-mono text-[12px] text-ink-2 wrap-anywhere", className)}>
+    <span {...props} className={cn("font-mono text-[12px] text-ink-2 wrap-anywhere", className)}>
       {children}
     </span>
   );

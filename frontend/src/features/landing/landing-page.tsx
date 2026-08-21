@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { cn } from "../../lib/cn";
@@ -17,9 +17,14 @@ import {
 } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { Reveal } from "../../ui/reveal";
-import { CorpusCard } from "./corpus-card";
+import { ANCHOR, ATLAS_VIEWBOX, AtlasMap } from "./atlas";
 import { Field } from "./field";
-import { Mark } from "../../ui/mark";
+import { SpecimenCallout, SpecimenPicker, useSpecimen } from "./specimen";
+
+/** The one heavy thing on this page, and it is four screens down. See `FindingSection`. */
+const CaseFileDocket = lazy(() =>
+  import("./exhibit").then((module) => ({ default: module.CaseFileDocket })),
+);
 
 /**
  * The landing page.
@@ -174,73 +179,29 @@ function LandingNav() {
               {section.label}
             </a>
           ))}
-          <Link
-            to="/start"
-            className="mt-2 rounded-sm bg-ink px-3 py-2.5 text-center text-sm font-semibold text-canvas"
-          >
+          <ButtonLink to="/start" className="mt-2">
             Review a repository
-          </Link>
+          </ButtonLink>
         </nav>
       </Drawer>
     </header>
   );
 }
 
-/**
- * Orientation, read once, on the way to the work — set like readings on an instrument
- * rather than in cards that ask to be looked at. "Decided" is counted beside the model's
- * three, because how far through a review you are is answered by the team's half.
- */
-function Ribbon() {
-  const readings: [string, string, string?][] = [
-    ["Examined", "12"],
-    ["Material", "4", "text-material"],
-    ["Held", "3", "text-held"],
-    ["Cleared", "5", "text-cleared"],
-    ["Decided", "0"],
-  ];
-  return (
-    <dl className="mt-10 flex max-w-[600px] flex-wrap border-t border-rule-strong pt-3.5">
-      {readings.map(([label, value, tone], index) => (
-        <div
-          key={label}
-          className={cn(
-            "border-r border-rule px-5 last:border-r-0",
-            index === 0 && "pl-0",
-          )}
-        >
-          <dt
-            className={cn(
-              "whitespace-nowrap font-mono text-[9.5px] uppercase tracking-[0.13em]",
-              tone ?? "text-ink-3",
-            )}
-          >
-            {label}
-          </dt>
-          <dd
-            className={cn(
-              "mt-1.5 font-mono text-[22px] font-semibold leading-none tracking-[-0.02em] tabular-nums",
-              tone ?? "text-ink",
-            )}
-          >
-            {value}
-            {label === "Decided" ? <span className="text-[13px] font-normal text-ink-3">/12</span> : null}
-          </dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
 function Hero() {
+  const { index, select, bearing, holdProps } = useSpecimen();
+
   return (
-    <section className="relative overflow-hidden pb-2 pt-14 sm:pt-[76px]">
+    // The figure is taken out of the flow above `xl` so it can bleed off the right edge, so
+    // above `xl` the section has nothing tall left in it to be measured by. The minimum is
+    // what the figure needs; below `xl` the copy and the figure stack and it never applies.
+    <section className="relative overflow-hidden pb-10 pt-14 sm:pt-[76px] xl:min-h-[55rem] xl:pb-16">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 grid-lines opacity-50 [mask-image:radial-gradient(74%_62%_at_34%_0%,black,transparent)]"
       />
-      <div className="relative mx-auto grid max-w-6xl items-start gap-12 px-4 sm:px-6 lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-14">
-        <Reveal>
+      <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
+        <Reveal className="xl:max-w-[35rem]">
           <Mono className="text-[11px] uppercase tracking-[0.13em] text-ink-3">
             Weighed, not enforced
           </Mono>
@@ -252,27 +213,60 @@ function Hero() {
             time: given what this team has written down, is this boundary earning its place? Every
             answer names the guidance it rests on.
           </p>
-          <div className="mt-7 flex flex-wrap items-center gap-2.5">
+          <div className="mt-7 flex flex-wrap items-center gap-x-7 gap-y-3">
             <ButtonLink to="/start" size="lg">
               Review a repository
               <ArrowRight className="size-4" />
             </ButtonLink>
-            <ButtonLink to="/reviews" size="lg" variant="secondary">
-              Read a real finding
-            </ButtonLink>
+            {/* Not a second button. One page has one primary action, and the thing this
+                offers is a shorter walk than starting a review — the section below, not the
+                review list, which on a first visit is empty. */}
+            <a
+              href="#finding"
+              className="inline-flex min-h-11 items-center border-b border-rule-strong text-[15px] font-semibold text-ink transition hover:border-ink"
+            >
+              See how a finding is made
+            </a>
           </div>
           <Mono className="mt-4 block text-[12px] text-ink-3">
             Runs locally · your models · Apache-2.0
           </Mono>
-          <Ribbon />
+          {/* The legend for the three lit nodes on the map, and the way to move between them.
+              It stands where an invented count of a review nobody has run used to stand. */}
+          <SpecimenPicker
+            index={index}
+            onSelect={select}
+            hold={holdProps}
+            className="mt-8 border-t border-rule-strong pt-2.5"
+          />
         </Reveal>
 
-        <Reveal delay={120}>
-          <CorpusCard />
-          <p className="mt-3.5 max-w-[420px] text-xs leading-[1.55] text-ink-3">
-            Three verdicts, no score. “Leave it exactly as it is” is a first-class answer — an
-            advisor that only ever recommends change is an advocate, not a judge.
-          </p>
+        <Reveal
+          delay={120}
+          className="mt-12 xl:absolute xl:left-[50%] xl:right-[-6%] xl:top-4 xl:mt-0 xl:max-w-[56rem]"
+        >
+          <Mono className="block text-[11px] uppercase tracking-[0.13em] text-ink-3">
+            The atlas — parsed, never imported and never run
+          </Mono>
+          {/* The box the map is drawn in carries the map's own proportions, so a percentage
+              of this box and a fraction of the viewBox are the same place. That is what lets
+              the callout — which is HTML, and outside the SVG — land exactly where the
+              leader inside it ends. */}
+          <div className="relative mt-3 max-w-[46rem] xl:aspect-[900/700] xl:max-w-none">
+            <AtlasMap
+              active={bearing.node}
+              className="pointer-events-none aspect-[900/700] w-full xl:absolute xl:inset-0 xl:aspect-auto"
+            />
+            <SpecimenCallout
+              index={index}
+              hold={holdProps}
+              style={{
+                left: `${(ANCHOR.x / ATLAS_VIEWBOX.width) * 100}%`,
+                top: `${(ANCHOR.y / ATLAS_VIEWBOX.height) * 100}%`,
+              }}
+              className="mt-6 w-full max-w-[24rem] xl:absolute xl:mt-0 xl:w-[22rem] xl:max-w-none"
+            />
+          </div>
         </Reveal>
       </div>
     </section>
@@ -285,15 +279,28 @@ function Hero() {
  */
 function IntentBand() {
   return (
-    // The band carries its own ground in both themes, and in dark that ground is now the
-    // same void the page is on — so a change of colour no longer marks the section. Two
-    // hairlines and the ribbon field drawn across it do the work instead, which is how the
-    // finding section below already says where it begins.
-    <section
-      id="intent"
-      className="relative overflow-hidden border-y border-band-rule bg-band py-20 text-band-ink sm:py-[132px]"
-    >
-      <Field className="pointer-events-none absolute inset-0 h-full w-full max-md:opacity-[0.34]" />
+    // The band carries its own ground in both themes, and in dark that ground is the same
+    // void the page is already on — so in dark there is nothing here to mark a section with
+    // except the field, and the field is what does it.
+    //
+    // Which is why neither the ground nor the field is drawn the way a section normally
+    // draws them. There are no hairlines: a rule across a boundary where the two grounds are
+    // the same colour is a line asserting a change that did not happen. And the field is not
+    // clipped to the band — it is one sheet reaching up into the hero and down past the
+    // band, masked at both ends, so a ribbon fades out rather than being cut off by an edge.
+    <section id="intent" className="relative py-20 text-band-ink sm:py-[132px]">
+      {/* The ground, as its own layer rather than as the section's background. A background
+          belongs to the section's own box and paints over every negative-z child of it, and
+          the field has to sit on top of this ground in light — where the band really is a
+          different colour from the page — while still reaching past the section's edges. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-20 bg-band" />
+      {/* Up into the hero by a third of its height and down past the band, fading to nothing
+          at both ends. The mask is what makes the sheet continuous: the canvas still has
+          edges, but no ribbon ever reaches one at full strength. */}
+      <Field
+        bleed={{ top: 0.45, bottom: 0.14 }}
+        className="pointer-events-none absolute inset-x-0 -z-10 max-md:opacity-[0.34]"
+      />
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
         <Reveal className="max-w-[58ch]">
           <Mono className="text-[11px] uppercase tracking-[0.13em] text-band-ink-2">
@@ -317,11 +324,16 @@ function IntentBand() {
             ArchCompass's whole job is to make it readable. You write it down once, as guidance and
             as answers to the questions a review asks. Every review after that can see it.
           </p>
+          {/* Not a fill. A solid button here was the loudest thing on the page and it pointed
+              at an anchor a screen below — the page has one primary action, "Review a
+              repository", and this is a walk down to the next section. Same shape as the
+              hero's second call to action, so the two read as the same kind of offer. */}
           <a
             href="#how"
-            className="mt-8 inline-flex min-h-12 select-none items-center justify-center rounded-sm border border-band-ink bg-band-ink px-5 text-[15px] font-semibold text-band transition hover:opacity-90"
+            className="mt-8 inline-flex min-h-12 items-center border-b border-band-rule text-[15px] font-semibold text-band-ink transition hover:border-band-ink"
           >
             See how it's read
+            <ArrowRight className="ml-2 size-4" />
           </a>
         </Reveal>
       </div>
@@ -369,145 +381,51 @@ function HowItWorks() {
 }
 
 /**
- * One finding on the attribution gutter — the device that carries the charter's second
- * commitment, shown at full size because it is the most distinctive thing in the product.
+ * The docket, running.
+ *
+ * This section used to be a drawing of the finding surface — a hand-built copy of a device
+ * called the attribution gutter, kept correct by nothing but memory, and still on the page
+ * months after the gutter itself was deleted and the queue and the workbench became one
+ * docket. So it is not a drawing any more. `CaseFileDocket` renders the workbench's own
+ * `FindingBody` against a written-out review, which means this section cannot describe a
+ * component the product does not have.
+ *
+ * It is loaded on its own, after the page. The chunk it pulls in is the finding surface and
+ * the syntax highlighter behind it, and the first screen of a landing page should not wait
+ * on either — this is four screens down.
  */
 function FindingSection() {
   return (
-    <section
-      id="finding"
-      className="border-y border-rule bg-surface-2 py-16 sm:py-[88px]"
-    >
+    <section id="finding" className="border-y border-rule bg-surface-2 py-16 sm:py-[88px]">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <Reveal>
           <SectionIntro
-            eyebrow="One finding, whole"
+            eyebrow="One docket, worked down"
             title="The machine assembles. The model judges. You decide."
-            body="Three different jobs, kept visibly apart — down a single hairline, with the gutter saying whose voice produced the block beside it. There is no provenance footer, because the attribution is never more than a gutter's width from the claim it belongs to."
+            body="Three different jobs, kept visibly apart — each block on the surface led by a line naming who produced it. Every candidate is a row stating its own claim, so the list is the overview; the row opens in place, so checking a claim never moves you. This is the real thing, on a review written out for the page."
           />
         </Reveal>
 
-        <Reveal className="mt-11 overflow-hidden rounded-lg border border-rule bg-surface">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule bg-surface-2 px-5 py-3.5">
-            <Mono className="text-[15px] font-semibold tracking-tight text-ink">
-              payments.gateway.PaymentGateway
-            </Mono>
-            <Mono className="inline-flex items-center gap-1.5 text-[11px] text-ink-3">
-              <Mark shape="alert" className="size-[13px]" />
-              material · changed since review 3
-            </Mono>
-          </div>
-
-          <GutterBlock voice="Measured" who={["sole_implementation", "detector v1.4.0", "8f31c2a"]}>
-            <Mono className="text-[11px] uppercase tracking-[0.13em] text-ink-3">
-              What was counted
-            </Mono>
-            <dl className="mt-3 flex flex-wrap overflow-hidden rounded-md border border-rule">
-              {[
-                ["Implementations", "1"],
-                ["External callers", "5"],
-                ["Provider terms in domain", "3"],
-              ].map(([label, value]) => (
-                <div
-                  key={label}
-                  // `basis-full` rather than `w-full`: `flex-1` sets `flex-basis: 0` and would win
-                  // over a width on the main axis, so the three readings stayed in one cramped
-                  // row on a phone. Below `sm` each reading is its own row.
-                  className="basis-full border-b border-rule px-3.5 py-2.5 last:border-b-0 sm:min-w-[104px] sm:flex-1 sm:basis-0 sm:border-b-0 sm:border-r sm:last:border-r-0"
-                >
-                  <dt className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-3">
-                    {label}
-                  </dt>
-                  <dd className="mt-1 font-mono text-[19px] font-semibold tracking-[-0.02em] tabular-nums text-ink">
-                    {value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-            <div className="mt-3 overflow-x-auto rounded-md border border-rule bg-sunken px-3.5 py-2.5">
-              <Mono className="block text-[10.5px] text-ink-3">payments/gateway.py:12–26</Mono>
-              <pre className="mt-1.5 font-mono text-[12.5px] leading-[1.5] text-ink">
-{`class PaymentGateway(Protocol):
-    def charge(self, amount: Money, *, idempotency_key: str) -> Charge: ...
-    def stripe_retry_after(self, err: StripeError) -> float: ...`}
-              </pre>
-            </div>
-          </GutterBlock>
-
-          <GutterBlock voice="Judged" who={["google:gemini-3.6", "judge:v1", "2026-08-21"]}>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-material/25 bg-material-soft px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-material">
-              <Mark shape="alert" className="size-[12px]" /> Material
-            </span>
-            <p className="mt-3 max-w-[58ch] text-[15.5px] leading-[1.68] text-ink-2">
-              The port was introduced to keep payment providers replaceable, and it is not doing
-              that. One adapter implements it, and the protocol itself names{" "}
-              <span className="font-mono text-[14px]">stripe_retry_after</span> — so a second
-              provider could not satisfy the interface without inheriting Stripe's error vocabulary.
-              The indirection currently costs a hop and buys nothing your guidance asked for.
-            </p>
-            <p className="mt-3.5 rounded-md border border-held/30 bg-held-soft px-3.5 py-2.5 text-[13px] leading-[1.55] text-ink-2">
-              <span className="font-semibold text-held">Hinges on:</span> whether a second provider
-              is actually planned this year. You answered “no, and none is on the roadmap” in review
-              3 — which is why this moved from held to material.
-            </p>
-          </GutterBlock>
-
-          <GutterBlock voice="Decided" who={["nobody yet"]}>
-            <div className="flex flex-wrap gap-2">
-              <span className="rounded-sm border border-ink bg-ink px-3.5 py-1.5 text-[12.5px] font-semibold text-canvas">
-                Accept the work
-              </span>
-              {["Park", "Waive"].map((label) => (
-                <span
-                  key={label}
-                  className="rounded-sm border border-rule-strong bg-surface-2 px-3.5 py-1.5 text-[12.5px] font-semibold text-ink-2"
-                >
-                  {label}
-                </span>
-              ))}
-            </div>
-            <p className="mt-3 max-w-[56ch] text-[13px] leading-6 text-ink-3">
-              Whatever you choose stays with the branch, with your reasoning and your name on it,
-              and the next review reads it before it judges again.
-            </p>
-          </GutterBlock>
+        <Reveal className="mt-11">
+          <Suspense
+            fallback={
+              // Held at roughly the height the docket opens to, so the page under it does
+              // not jump when the chunk lands.
+              <div
+                className="min-h-[42rem] rounded-lg border border-rule bg-surface"
+                aria-busy="true"
+              />
+            }
+          >
+            <CaseFileDocket />
+          </Suspense>
         </Reveal>
+
+        <Mono className="mt-4 block text-[11px] text-ink-3">
+          A written-out review · no repository is read by this page
+        </Mono>
       </div>
     </section>
-  );
-}
-
-/**
- * One block of the attribution gutter: who is speaking on the left, what they said on the
- * right, and a rule across both where the voice changes. Below `lg` the two columns become
- * a label strip above the block — the sequence survives, the registration does not.
- */
-function GutterBlock({
-  voice,
-  who,
-  children,
-}: {
-  voice: string;
-  who: string[];
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="grid grid-cols-1 [&+&>*]:border-t [&+&>*]:border-rule-strong md:grid-cols-[172px_1px_minmax(0,1fr)]">
-      <div className="px-5 pb-0 pt-5 text-left md:pb-6 md:pr-4 md:text-right">
-        <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-ink">{voice}</div>
-        <div className="mt-1.5 font-mono text-[10px] leading-[1.6] text-ink-3">
-          {who.map((line) => (
-            <span key={line} className="block whitespace-nowrap">
-              {line}
-            </span>
-          ))}
-        </div>
-      </div>
-      <div aria-hidden="true" className="relative hidden bg-rule md:block">
-        <span className="absolute -left-[3px] top-[22px] size-[7px] bg-ink" />
-      </div>
-      <div className="px-5 pb-6 pt-3 md:pt-5">{children}</div>
-    </div>
   );
 }
 
@@ -728,8 +646,14 @@ export function LandingPage() {
       </a>
       <LandingNav />
       <main id="landing-main" tabIndex={-1} className="outline-none">
-        <Hero />
-        <IntentBand />
+        {/* One stacking context over the two sections the field crosses. Without it the
+            field — which is behind the page's content, at a negative z — would be painted
+            over by `bg-canvas` on the wrapper above, because a background belonging to an
+            in-flow ancestor is painted after every negative-z descendant of it. */}
+        <div className="relative isolate">
+          <Hero />
+          <IntentBand />
+        </div>
         <HowItWorks />
         <FindingSection />
         <RefusalsSection />

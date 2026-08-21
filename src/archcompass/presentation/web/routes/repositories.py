@@ -132,7 +132,11 @@ class ReviewContextRequest(APIModel):
     """
 
     root_path: str = Field(min_length=1)
-    node_ids: list[str] = Field(min_length=1, max_length=40)
+    node_ids: list[str] = Field(default_factory=list[str], max_length=40)
+    #: Anchors named rather than identified, for a review judged before a finding carried
+    #: the atlas node it was detected on. A fallback and not an alternative — see
+    #: `ReviewContextQuery`.
+    qualified_names: list[str] = Field(default_factory=list[str], max_length=40)
     limit: int = Field(default=25, ge=1, le=100)
 
 
@@ -377,6 +381,7 @@ def routes() -> APIRouter:
         return runtime.atlas_service.review_context(
             Path(request.root_path),
             request.node_ids,
+            qualified_names=request.qualified_names,
             limit=request.limit,
         )
 

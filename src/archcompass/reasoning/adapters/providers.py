@@ -14,6 +14,7 @@ from archcompass.configuration import resolve_api_key
 from archcompass.domain.errors import ConfigurationError
 from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
 from archcompass.reasoning.records import AvailableModel, ProbeResult
+from archcompass.records import ThinkingLevel, ThinkingMode
 
 DETERMINISTIC_MODEL = "deterministic-architecture-v4"
 #: The one Google model this workspace offers, and deliberately only one.
@@ -37,6 +38,32 @@ GOOGLE_MODELS: Final = ("gemini-3.5-flash-lite",)
 #: impression that the run is reproducible. Every model above is one of those today; the set
 #: stays a set because the next one Google ships need not be.
 GOOGLE_FIXED_SAMPLING_MODELS: Final = frozenset({"gemini-3.5-flash-lite"})
+
+#: What a Gemini 3 model can be asked for, and the one row that asks for nothing.
+#:
+#: Gemini 3 replaced the thinking switch with `thinking_level`, so there is no request that
+#: means "no". `None` leaves the model on its dynamic default, which adjusts depth to the
+#: request and is a fifth behaviour rather than the absence of the other four.
+GOOGLE_THINKING_MODES: Final = (None, "minimal", "low", "medium", "high")
+
+
+def google_thinking_level(thinking: ThinkingMode) -> ThinkingLevel | None:
+    """One `ThinkingMode` as the level Gemini takes, or `None` to ask for nothing.
+
+    The two booleans are read as the ends of the dial because Gemini 3 has no switch to read
+    them as. `True` is `high`, which is what requiring reasoning means where the depth is
+    chosen. `False` is `minimal` and not off: a Gemini 3 model always thinks a little, so
+    `minimal` is the floor and claiming otherwise would be the quiet decay into absence that
+    `ReasoningModelConfig.thinking` exists to forbid.
+    """
+
+    if thinking is None:
+        return None
+    if thinking is True:
+        return "high"
+    if thinking is False:
+        return "minimal"
+    return thinking
 
 
 #: Which Ollama embedding models were trained to be told what the text is *for*.
@@ -130,7 +157,7 @@ def probe_google(defaults: ProviderDefaults) -> ProbeResult:
             label=model.display_name or "",
             input_token_limit=model.input_token_limit,
             output_token_limit=model.output_token_limit,
-            thinking_modes=(True, False) if model.thinking else (None,),
+            thinking_modes=GOOGLE_THINKING_MODES if model.thinking else (None,),
         )
     if not found:
         return ProbeResult(

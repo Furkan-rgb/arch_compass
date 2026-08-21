@@ -10,7 +10,11 @@ export function BrandMark({ className }: { className?: string }) {
       className={cn(
         // The mark is a tile at 32px. `rounded-md` is 10px now, which is a third of it and
         // reads as a rounded rectangle rather than as a mark; `rounded-sm` holds the corner.
-        "grid place-items-center rounded-sm bg-ink text-canvas",
+        //
+        // `accent-fill` rather than `accent`: the fill is the deep red in both themes, because
+        // a mark that lightens in dark is a second logo. The letterform token lifts; this one
+        // does not.
+        "grid place-items-center rounded-sm bg-accent-fill text-accent-on-fill",
         className,
       )}
     >

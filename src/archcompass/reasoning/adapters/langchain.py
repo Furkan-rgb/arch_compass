@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Sequence
 from typing import Literal, cast
 
@@ -37,9 +38,15 @@ from archcompass.reasoning.adapters.tool_loop import (
 )
 from archcompass.retrying import call_with_retry
 
+_log = logging.getLogger(__name__)
+
 
 class PolicyBearingOutput(BaseModel):
-    policy_position: int = Field(ge=1)
+    #: The identifier the policy was listed under, never its place in the list. See the
+    #: charter's rule on naming over indexing: a model may name something the
+    #: application holds, and may never index into the application's list. An ordinal
+    #: that is wrong but in range cites the wrong policy and nothing can tell.
+    policy_id: str = Field(min_length=1)
     reasoning: str = Field(min_length=1)
 
 
@@ -64,11 +71,21 @@ class FindingOutput(BaseModel):
 
 
 class QuestionOutput(BaseModel):
+    """The question one held finding needs answered. It never says which finding.
+
+    It used to. A single call saw every finding under a number and returned the numbers its
+    questions covered — including, on occasion, the number of a finding that had no hinge,
+    an entry the prompt listed and then forbade in prose. That raised, and the raise lost a
+    whole review after every candidate had already been judged.
+
+    The finding is now the one this call was made about, so the mapping is the application's
+    and there is no number for a model to get wrong.
+    """
+
     text: str = Field(min_length=1)
     facet: Literal[
         "goal", "constraint", "decision", "assumption", "expected_change", "non_goal"
     ]
-    candidate_positions: list[int] = Field(min_length=1)
     # Answers the model thinks likely, so the common case is a click rather than an essay.
     #
     # Required now, where it used to be optional "when the honest answers are too open to
@@ -82,10 +99,6 @@ class QuestionOutput(BaseModel):
     # Capped at four because a list long enough to need reading is slower than the sentence
     # it replaced.
     options: list[str] = Field(min_length=2, max_length=4)
-
-
-class QuestionsOutput(BaseModel):
-    questions: list[QuestionOutput] = Field(default_factory=list[QuestionOutput])
 
 
 # The interface already offers writing your own answer and skipping the question, so a model
@@ -130,10 +143,15 @@ def _offered_answers(options: Sequence[str]) -> tuple[str, ...]:
 
 class ConversationAnswerOutput(BaseModel):
     answer: str = Field(min_length=1)
-    candidate_positions: list[int] = Field(default_factory=list[int])
+    #: The identifiers of the findings the answer rests on, copied from the listing. One
+    #: answer cites several findings at once, so this is the site the charter's rule cannot
+    #: be satisfied by fanning out — it is satisfied by naming instead. An identifier the
+    #: review does not hold is visibly wrong and is dropped; an ordinal that was wrong but
+    #: in range would have grounded the answer on a finding it never read.
+    candidate_ids: list[str] = Field(default_factory=list[str])
 
 
-def case_text(case: ArchitectureCase) -> str:
+def case_text(case: ArchitectureCase, *, judging: bool = True) -> str:
     """What a person has told ArchCompass about this architecture, so far.
 
     An empty case used to reach the model as `{"constraints": [], "decisions": [],
@@ -142,6 +160,12 @@ def case_text(case: ArchitectureCase) -> str:
     would be — so the cheapest coherent move is to judge on the policy and never ask. The
     empty case now says what it is, in a sentence, because "nobody has told us anything
     about this repository yet" is a fact worth acting on and `[]` is punctuation.
+
+    `judging` is what separates the two readers of that sentence. Everything else that takes
+    a case is producing or defending a verdict and is right to be told to say when a missing
+    answer would change one. The synopsist is not: it is summarising verdicts already made,
+    and the instruction reaches it as "spend a sentence on the empty case", which is one of
+    the three sentences a first review used to come back with.
     """
 
     if not case.answers:
@@ -150,6 +174,18 @@ def case_text(case: ArchitectureCase) -> str:
             "review, or no judgement has needed a person so far — either way you are "
             "reading this repository without the team's intent, and you should say so "
             "wherever it would change your verdict."
+            if judging
+            # The same fact, without the instruction attached to it. "Say so wherever it
+            # would change your verdict" belongs to a prompt that is producing a verdict; a
+            # summariser reading it spends one of its three sentences telling a reader that
+            # the team's intent is not written down, which the reader knows and cannot act
+            # on from a summary. The absence still has to be stated, because a summary that
+            # assumed the case was full would overstate what the review was judged against.
+            else (
+                "Nobody has answered anything about this architecture yet, so every verdict "
+                "below was reached without the team's intent. Context for you, not a "
+                "sentence to write."
+            )
         )
     return json.dumps(
         {
@@ -245,8 +281,9 @@ def structured_output[Output: BaseModel](
 # a question the repository answered.
 JUDGEMENT_INSTRUCTION = (
     "Judge whether this detected structure costs more than it earns. "
-    "Use only the supplied evidence and case. Policies are numbered from 1; "
-    "refer to them only by position.\n\n"
+    "Use only the supplied evidence and case. Each policy is listed under an identifier "
+    "in brackets; cite one by copying that identifier exactly, and never by where it "
+    "sits in the list.\n\n"
     "Asking is a first-class outcome here, not a failure to decide. A policy tells you what "
     "is usually true of architectures; it cannot tell you what this team decided, what they "
     "are about to change, or what they already accepted and why. Where your verdict would "
@@ -280,8 +317,8 @@ def judgement_prompt(
             f"CANDIDATE\n{candidate_text(candidate)}",
             "POLICIES\n"
             + "\n\n".join(
-                f"[{position}] {policy.title}\n{policy.body}"
-                for position, policy in enumerate(policies.policies, start=1)
+                f"[{policy.id}] {policy.title}\n{policy.body}"
+                for policy in policies.policies
             ),
         )
     )
@@ -370,22 +407,32 @@ def finding_from_output(
     model_identity: str,
     prompt_identity: str,
 ) -> Finding:
-    """The validated response as a domain finding, with the model's citations checked."""
+    """The validated response as a domain finding, with the model's citations resolved.
+
+    A citation that names no presented policy is dropped rather than raised. That is the
+    trade the charter's rule buys: a bearing is the record of why a verdict was reached, so
+    losing one weakens the record, where raising here would destroy a review that has
+    already been judged. It is only affordable because the citation is a name — a name that
+    matches nothing is visibly wrong, while an ordinal that is wrong but in range resolves
+    to the wrong policy and reads as a correct one for ever.
+    """
 
     bearings: list[PolicyBearing] = []
-    seen: set[int] = set()
+    presented = {policy.id: policy for policy in policies.policies}
+    seen: set[str] = set()
     for bearing in output.policy_bearings:
-        if bearing.policy_position > len(policies.policies):
-            raise ValueError(
-                f"model cited policy position {bearing.policy_position}, but only "
-                f"{len(policies.policies)} policies were presented"
+        policy = presented.get(bearing.policy_id)
+        if policy is None:
+            _log.warning(
+                "Reasoning model %s cited policy %r, which it was not presented with",
+                model_identity,
+                bearing.policy_id,
             )
-        if bearing.policy_position in seen:
-            raise ValueError("model cited one policy position more than once")
-        seen.add(bearing.policy_position)
-        bearings.append(
-            PolicyBearing(policies.policies[bearing.policy_position - 1], bearing.reasoning)
-        )
+            continue
+        if policy.id in seen:
+            continue
+        seen.add(policy.id)
+        bearings.append(PolicyBearing(policy, bearing.reasoning))
     verdict = (
         Verdict.HELD
         if output.hinge
@@ -441,9 +488,75 @@ class LangChainArchitectureJudge:
         )
 
 
+#: How many held findings one round will ask about.
+#:
+#: Not the investigation cap wearing another name. That one bounds what tool loops cost;
+#: this one bounds what a person will sit down and answer. A review that comes back with
+#: nine questions in a form is a form nobody finishes, and the hinges past the cap are not
+#: lost — they stay held, and the next round asks them.
+MAX_ASKED_HINGES = 8
+
+
+QUESTION_INSTRUCTION = (
+    "One finding below is held: a judgement stopped because it turns on a fact this "
+    "repository cannot supply. Write the single question that would settle it, addressed to "
+    "somebody on the team.\n\n"
+    "Ask about the hinge and nothing else. The question interrupts a person, so it has to "
+    "be worth the interruption: one sentence, about this team's intent rather than about "
+    "the code, and answerable without opening the repository.\n\n"
+    "Offer two to four answers you consider likely, in `options`, likeliest first. Each "
+    "option must be a complete statement that could be recorded on the architecture case "
+    "exactly as written — not a label like 'yes' or 'option A' — and the options must be "
+    "mutually exclusive. Never offer 'other', 'none of these', 'unknown' or any variation: "
+    "the reviewer is always offered writing their own answer and skipping the question, "
+    "beneath every question, so offering it back to them wastes a choice. If you cannot "
+    "name two likely answers, the question is too open to be worth a person's interruption "
+    "— ask a narrower one instead."
+)
+
+
+def question_prompt(finding: Finding, case: ArchitectureCase) -> str:
+    """The one held finding a question is asked about, and nothing it could point at."""
+
+    candidate = finding.candidate
+    return "\n\n".join(
+        (
+            QUESTION_INSTRUCTION,
+            f"CASE\n{case_text(case)}",
+            "THE HELD FINDING\n"
+            + "\n".join(
+                (
+                    f"  {candidate.summary}",
+                    f"  pattern: {candidate.pattern}",
+                    "  participants: "
+                    + ", ".join(
+                        item.qualified_name for item in candidate.participants
+                    ),
+                    f"  why it was held: {finding.reasoning}",
+                    f"  waiting on: {finding.hinge}",
+                )
+            ),
+        )
+    )
+
+
 class LangChainQuestionGenerator:
+    """One question per held finding, asked one call at a time.
+
+    The finding a question belongs to is the finding the call was made about, so the model
+    is never asked to point at one. It used to be, and the pointing is what broke: a single
+    call was shown every finding under a number — cleared ones included — told in prose not
+    to pick the ones without a hinge, and the code then raised when it did. A review that
+    had judged every candidate was thrown away over a number.
+
+    What the single call could do and this cannot is merge. Six findings that share a hinge
+    were one question there and are six here. That is left standing on purpose: the
+    duplicates are visible in a round's output, and a merge is worth building when they turn
+    up rather than in advance of them.
+    """
+
     def __init__(
-        self, model: BaseChatModel, *, prompt_identity: str = "questions:v1"
+        self, model: BaseChatModel, *, prompt_identity: str = "questions:v2"
     ) -> None:
         self._model = model
         self._prompt_identity = prompt_identity
@@ -460,60 +573,53 @@ class LangChainQuestionGenerator:
         round: int,
         excluded_equivalence_keys: frozenset[str],
     ) -> tuple[Question, ...]:
-        if not findings or not any(finding.hinge for finding in findings):
-            return ()
-        prompt = "\n\n".join(
-            (
-                "Ask only questions whose answers could settle the supplied findings. "
-                "Merge duplicates. Candidate positions are numbered from 1. Do not invent "
-                "identifiers and do not ask about a finding without a hinge.",
-                "For each question, offer two to four answers you consider likely, in "
-                "`options`, likeliest first. Each option must be a complete statement "
-                "that could be recorded on the architecture case exactly as written — "
-                "not a label like 'yes' or 'option A' — and the options must be "
-                "mutually exclusive. Never offer 'other', 'none of these', 'unknown' or "
-                "any variation: the reviewer is always offered writing their own answer "
-                "and skipping the question, beneath every question, so offering it back "
-                "to them wastes a choice. If you cannot name two likely answers, the "
-                "question is too open to be worth a person's interruption — ask a "
-                "narrower one instead.",
-                f"CASE\n{case_text(case)}",
-                "FINDINGS\n"
-                + "\n".join(
-                    f"[{position}] {finding.candidate.summary}; hinge={finding.hinge}"
-                    for position, finding in enumerate(findings, start=1)
-                ),
-            )
-        )
-        output = structured_output(
-            self._model, QuestionsOutput, prompt, subject="the review's questions"
-        )
+        held = tuple(finding for finding in findings if finding.hinge)[:MAX_ASKED_HINGES]
         questions: list[Question] = []
         seen: set[str] = set()
-        for proposed in output.questions:
-            positions = tuple(sorted(set(proposed.candidate_positions)))
-            if any(position < 1 or position > len(findings) for position in positions):
-                raise ValueError("model returned an unknown candidate position")
-            if any(not findings[position - 1].hinge for position in positions):
-                raise ValueError(
-                    "model returned a candidate position for a finding without a hinge"
-                )
-            question = Question.create(
-                text=proposed.text,
-                facet=CaseFacet(proposed.facet),
-                candidate_ids=tuple(
-                    str(findings[position - 1].candidate.id) for position in positions
-                ),
-                round=round,
-                options=_offered_answers(proposed.options),
-            )
+        for finding in held:
+            question = self._ask_about(finding, case, round=round)
+            if question is None:
+                continue
             if (
-                question.equivalence_key not in excluded_equivalence_keys
-                and question.equivalence_key not in seen
+                question.equivalence_key in excluded_equivalence_keys
+                or question.equivalence_key in seen
             ):
-                seen.add(question.equivalence_key)
-                questions.append(question)
+                continue
+            seen.add(question.equivalence_key)
+            questions.append(question)
         return tuple(questions)
+
+    def _ask_about(
+        self, finding: Finding, case: ArchitectureCase, *, round: int
+    ) -> Question | None:
+        """The question for one finding, or none if the model would not write one.
+
+        A lost question costs the round one question. The finding it belonged to goes on
+        being held, which is what it already was — so this degrades the way an investigation
+        does rather than taking the other findings' questions down with it.
+        """
+
+        try:
+            output = structured_output(
+                self._model,
+                QuestionOutput,
+                question_prompt(finding, case),
+                subject="a question for the team",
+            )
+        except Exception:
+            _log.warning(
+                "The hinge on %s was not turned into a question",
+                finding.candidate.id,
+                exc_info=True,
+            )
+            return None
+        return Question.create(
+            text=output.text,
+            facet=CaseFacet(output.facet),
+            candidate_ids=(str(finding.candidate.id),),
+            round=round,
+            options=_offered_answers(output.options),
+        )
 
 
 # The contract a conversation is held to. It is deliberately not the judgement contract.
@@ -541,8 +647,11 @@ CONVERSATION_CONTRACT = (
     "You are told where each piece of evidence sits, but not what the code at those lines "
     "says. So describe a fix as structure and placement, cite the locations, and do not "
     "write a patch as though you had read the file.\n\n"
-    "Cite the findings you relied on by their numbered positions. Write prose a reader can "
-    "act on: no headings, no restating the question."
+    "Cite the findings you relied on. In your prose, name one by its backticked "
+    "participant, the way the listing does. In `candidate_ids`, return the bracketed "
+    "identifier of each one you used, copied exactly — an identifier you were not shown "
+    "is dropped, so an invented one grounds nothing. Write prose a reader can act on: no "
+    "headings, no restating the question."
 )
 
 #: Added to the contract only where the reader's repository can actually be asked. Kept
@@ -573,7 +682,7 @@ def _conversation_policies(review: Review) -> tuple[Policy, ...]:
     return tuple(seen.values())
 
 
-def _conversation_finding_text(position: int, finding: Finding) -> str:
+def _conversation_finding_text(finding: Finding) -> str:
     """One finding as breadth rather than depth.
 
     Judgement reads a single candidate in full, code included. A conversation ranges over
@@ -585,7 +694,11 @@ def _conversation_finding_text(position: int, finding: Finding) -> str:
 
     candidate = finding.candidate
     lines = [
-        f"[{position}] {candidate.summary}",
+        # The identifier first because it is what a citation has to copy, and the backticked
+        # participant beside it because that is what the answer calls the finding in prose.
+        # A reader is shown the prose, and `candidate_9fa3…` is not a name anybody reads.
+        f"[{candidate.id}] `{candidate.participants[0].qualified_name}`",
+        f"    summary: {candidate.summary}",
         f"    pattern: {candidate.pattern}",
         f"    verdict: {finding.verdict.value}",
         f"    reasoning: {finding.reasoning}",
@@ -680,8 +793,7 @@ def conversation_prompt(
     sections.append(
         "FINDINGS\n"
         + "\n\n".join(
-            _conversation_finding_text(position, finding)
-            for position, finding in enumerate(review.findings, start=1)
+            _conversation_finding_text(finding) for finding in review.findings
         )
     )
     if history:
@@ -693,6 +805,30 @@ def conversation_prompt(
         sections.append(f"WHAT YOU LOOKED UP\n{transcript}")
     sections.append(f"QUESTION\n{question}")
     return "\n\n".join(sections)
+
+
+def _cited_candidates(cited: Sequence[str], review: Review) -> tuple[str, ...]:
+    """The findings an answer says it rested on, kept where the review actually holds them.
+
+    An identifier the review does not hold is dropped and logged, never raised. The answer
+    itself is still an answer — the reader loses one grounding chip, not the reply — and a
+    name that matches nothing is detectably wrong, which is the property an ordinal never
+    had. In the model's order, because that is the order it reasoned in.
+    """
+
+    known = {str(finding.candidate.id) for finding in review.findings}
+    kept: list[str] = []
+    for candidate_id in cited:
+        if candidate_id not in known:
+            _log.warning(
+                "An answer about review %s cited %r, which the review does not hold",
+                review.id,
+                candidate_id,
+            )
+            continue
+        if candidate_id not in kept:
+            kept.append(candidate_id)
+    return tuple(kept)
 
 
 class LangChainReviewAnswerer:
@@ -749,17 +885,9 @@ class LangChainReviewAnswerer:
             ),
             subject="a grounded answer",
         )
-        positions = tuple(sorted(set(output.candidate_positions)))
-        if any(
-            position < 1 or position > len(review.findings) for position in positions
-        ):
-            raise ValueError("model returned an unknown finding position")
         return ConversationAnswer(
             output.answer,
-            tuple(
-                str(review.findings[position - 1].candidate.id)
-                for position in positions
-            ),
+            _cited_candidates(output.candidate_ids, review),
             recorded_investigation(
                 investigator,
                 candidate_id="",
@@ -781,15 +909,30 @@ class LangChainReviewAnswerer:
 # it gets verdicts, hinges, policies and delta states, and it gets no evidence, no
 # measurements and no atlas, because a sentence about a line of code is a sentence it would
 # be inventing.
+#
+# The length rule is a ceiling and never a floor, and that is the correction this paragraph
+# has already needed once. It used to ask for "three to five sentences", which is an
+# instruction to pad: a review with one material finding in it got the one sentence that
+# said so and then two more manufactured to reach the floor — that this was the first review,
+# that there was nothing to compare it against, that the team's intent was not written down.
+# Every one of those is true, none of them is news to the reader, and all three were produced
+# because the prompt asked for a word count instead of an answer.
+#
+# The floor cannot be replaced by a schema constraint either. `structured_output` treats a
+# response that fails its schema as a hard failure and deliberately does not retry it, so a
+# `max_length` on `SynopsisOutput.summary` would trade a long summary for a failed review —
+# and the summary is the one part of a review that a reader can do without.
 SYNOPSIS_CONTRACT = (
     "You are writing the opening paragraph of an architecture review. It is read away from "
     "the tool — attached to a pull request, downloaded as a document, pasted into a "
     "channel — by somebody deciding whether to open the review at all.\n\n"
-    "Say what this review amounts to. Lead with what needs a person: the material findings, "
-    "whether they are separate problems or one problem in several places, and which to take "
-    "first. Then what judgement is waiting on, if anything. Then what moved since the "
-    "previous review, if there was one. Candidates that were cleared are worth a clause at "
-    "most.\n\n"
+    "Say what this review amounts to. What needs a person comes first: the material "
+    "findings, whether they are separate problems or one problem in several places, and "
+    "which to take first. After that, what judgement is waiting on, and what moved since "
+    "the previous review. That is an order of priority and not a list to work through — "
+    "each of them earns a place only if there is something to say about it, and a review "
+    "with nothing waiting on it says nothing about waiting. Candidates that were cleared "
+    "are worth a clause at most.\n\n"
     "Every fact must come from the findings below. Do not name a module, a metric or a "
     "policy you were not shown. Do not make a verdict sound stronger or weaker than it was "
     "recorded, do not recommend a fix that no finding recommends, and do not tell the "
@@ -797,8 +940,21 @@ SYNOPSIS_CONTRACT = (
     "nothing else. Where you say two findings are related, that relation has to be visible "
     "in what you were shown.\n\n"
     "Name a candidate by the identifier you were given, in backticks, and only where naming "
-    "it is what makes the sentence useful. Three to five sentences of plain prose. No "
-    "headings, no bullets, no counts — the line above yours already gives them."
+    "it is what makes the sentence useful.\n\n"
+    "Be short. Three sentences is the ceiling and not the target: a review with one thing in "
+    "it gets one sentence. Lead with the thing rather than with a sentence about the review "
+    "— \"`a.B` and `c.D` state the branch name separately\", not \"This review requires "
+    "attention regarding a material finding in `a.B` due to duplicated knowledge\". Prefer "
+    "the words somebody would use saying this to a colleague out loud.\n\n"
+    "Say nothing the reader has already been told. Not the counts. Not that this is the "
+    "first review, or that there is no previous one to compare against, or that the team's "
+    "intent is not written down yet — the reader knows which review they opened, and the "
+    "report says the rest. Do not restate a recommended response the report prints in full "
+    "below. No headings and no bullets.\n\n"
+    "Short is not the same as bare, and the two failures are worth as much as each other. A "
+    "sentence naming a finding and stopping has spent itself on an identifier: say what was "
+    "found and what it costs, in however few words that takes. If that fits in one clause, "
+    "the clause is the whole summary."
 )
 
 
@@ -852,7 +1008,7 @@ def synopsis_prompt(
     """The one prompt the summary is written from."""
 
     states = _synopsis_delta_states(delta)
-    sections = [SYNOPSIS_CONTRACT, f"CASE\n{case_text(case)}"]
+    sections = [SYNOPSIS_CONTRACT, f"CASE\n{case_text(case, judging=False)}"]
     if waiting:
         sections.append(
             "THIS REVIEW IS NOT FINISHED. It is waiting on answers before it can judge "
@@ -869,7 +1025,9 @@ def synopsis_prompt(
     if previous_sequence is None:
         sections.append(
             "This is the first review in its lineage, so there is nothing to compare it "
-            "against and nothing has moved."
+            "against and nothing has moved. That is context for you, not a fact to report: "
+            "a sentence saying that nothing has moved yet is a sentence spent saying "
+            "nothing, and the reader can see which review they opened."
         )
     elif delta.addressed:
         sections.append(

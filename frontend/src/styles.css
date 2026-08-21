@@ -5,14 +5,17 @@
 
    One rule decides most of what is here: every element on screen belongs to one of the
    three jobs the charter keeps apart — the machine assembles, the model judges, the person
-   decides — and says which by its typeface. Mono was measured. Serif was judged. Sans is
-   what a person acts in.
+   decides — and says which. Mono was measured. The model's voice is the reading size under
+   a line naming the model; there is no second typeface, and there has not been one since
+   Newsreader was dropped. Sans at control size is what a person acts in.
 
-   The second rule is that chroma is spent on verdicts. There is no accent hue: a selected
-   tab is an ink underline and a primary button is an ink fill, because a colour that
-   carries nothing should not be spent where the three that carry everything are competing
-   for the same attention. `--mark` is the single exception and is reserved for navigating
-   to the source a claim came from.
+   The second rule is that there is one hue and everything wearing it means the same thing:
+   look here. `--accent` is a dark red, and four things wear it — the mark, the primary
+   action, `--mark` (a link to the source a claim came from) and a material verdict.
+   `--material` is declared as `var(--accent)` rather than as its own hex so the brand red
+   and the alarm red can never drift into two reds that nearly match. `--held` and
+   `--cleared` gave their hues up for weight. Everything else on screen is grey, and
+   `ui/tokens.test.ts` fails the build if it is not.
 
    The dark values appear twice on purpose. `index.html` stamps `data-theme` before first
    paint, so the attribute selector is what actually runs; the media query is the fallback
@@ -32,17 +35,20 @@
   src: url("./assets/fonts/onest.woff2") format("woff2");
   font-weight: 400 700;
   font-display: swap;
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
-    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
-    U+FEFF, U+FFFD;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
   font-family: "Onest";
   src: url("./assets/fonts/onest-ext.woff2") format("woff2");
   font-weight: 400 700;
   font-display: swap;
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF,
-    U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0,
+    U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
 /* Two static cuts rather than a variable one — IBM Plex Mono has no variable release, and
@@ -113,34 +119,76 @@
   --ink-2: #525252;
   --ink-3: #737373;
 
-  /* The only chroma. A severity scale the workbench reads at a glance: act on it, waiting
-     on a person, settled. `ui/verdict-hues.test.ts` fails the build if one of these is
-     spent anywhere a verdict is not what is being shown. */
-  --material: #b63132;
-  --material-soft: rgb(182 49 50 / 9%);
-  --held: #867000;
-  --held-soft: rgb(134 112 0 / 10%);
-  --cleared: #007c59;
-  --cleared-soft: rgb(0 124 89 / 9%);
+  /* One hue for three verdicts, and the two that lose it are carried by weight instead.
 
-  /* There is no budget of one any more. Navigating to the thing a claim came from is marked
-     by an underline and by weight, not by a hue: a fourth colour beside three verdicts makes
-     a reader work out which of the four carries meaning. `--mark` survives as a name so the
-     components that mean "this goes somewhere" still say so in one place. */
-  --mark: #0a0a0a;
+     The scale is still act on it, waiting on a person, settled — it is simply no longer three
+     colours. Material is the accent, so the thing asking to be acted on is the same red as
+     everything else on screen that asks to be looked at. Held is full ink: present, unmissable,
+     not an alarm. Cleared is `--ink-3`: settled, and settled things recede.
 
-  /* Code is measured material, so an excerpt is not allowed to be a rainbow beside a
-     verdict. Three values carry Python: weight for a keyword, `--mark` for the literal a
-     reader is scanning for, and grey for the comment. */
-  --code-ink: #0a0a0a;
-  --code-lit: #0a0a0a;
-  --code-comment: #737373;
+     What this costs is real and was chosen with it named — a docket column no longer separates
+     held from cleared at the edge of vision, and the mark, the word and the left edge have to
+     carry that on their own. */
+  --material: var(--accent);
+  --material-soft: var(--accent-soft);
+  --held: #0a0a0a;
+  --held-soft: rgb(0 0 0 / 5%);
+  --cleared: #737373;
+  --cleared-soft: rgb(0 0 0 / 3%);
+
+  /* Getting to the source a claim came from is the accent's fourth job: a file, a policy,
+     a cited finding. It survives as its own name so the components that mean "this goes
+     somewhere" still say so in one place, and so that changing where the accent points is
+     one edit rather than a search. */
+  --mark: var(--accent);
+
+  /* The accent, and the only hue in the product.
+
+     Everything red on screen means the same thing — look here — and that is why there is one
+     token rather than a brand red beside an alarm red. The mark wears it, the primary action
+     wears it, a link to the source a claim came from wears it, and a material finding wears
+     it. Nothing else does: a focus ring stays ink because a ring is about the keyboard rather
+     than about the content, and a red one makes every tab press read as a validation failure.
+
+     Two values, because a fill and a letterform want opposite things on a dark ground. The
+     deep red is the fill in both themes — dark red on black is the identity, and white on it
+     clears 8.4:1 — while the letterform lifts in dark, where the deep red drops to 2.3:1 and
+     stops being text at all. */
+  --accent: #971b1a;
+  --accent-fill: #971b1a;
+  --accent-on-fill: #ffffff;
+  --accent-strong: #721212;
+  --accent-soft: rgb(151 27 26 / 8%);
+
+  /* The one place chroma is spent on something that is not a verdict.
+
+     An excerpt is the longest thing on a finding and the densest, and a reader arrives at it
+     already knowing what the verdict is — the badge said so a centimetre above. What the
+     excerpt has to answer is a different question: which of these tokens is a name somebody
+     chose, and which is the language's own furniture. Weight alone cannot say that, because
+     every second token in Python is a keyword and a page of bold is a page of nothing.
+
+     The accent rule is still honoured, and it is a rule about *hue*, not about abstinence:
+     red means look here, and nothing else on screen may borrow it. So the code palette lives
+     on the cool half of the wheel, where the accent never goes — violet, blue, cyan — and the
+     nearest a code hue comes to it is the 85 degrees between violet and `--accent` in light,
+     81 in dark. A keyword cannot be misread as a material badge, because no badge is ever
+     violet.
+
+     This argument used to be made against a green `cleared` at 42 degrees from cyan, which
+     was the tightest pair in the set. Held and cleared gave up their hues, so the set is
+     wider now and the bar in `ui/tokens.test.ts` is unchanged at 35 degrees — it was never
+     sized to the comfortable case. */
+  --code-keyword: #7e22ce; /* the language's own words: def, class, if, return */
+  --code-name: #1d4ed8; /*    what somebody named: a function, a class, a tag  */
+  --code-lit: #0e7490; /*     what is written out: a string, a number          */
+  --code-comment: #737373; /* prose inside code, and the only neutral here     */
 
   --font-display: "Onest", ui-sans-serif, system-ui, sans-serif;
   --font-ui: "Onest", ui-sans-serif, system-ui, sans-serif;
 
-  --font-code: "IBM Plex Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
-
+  --font-code:
+    "IBM Plex Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
   /* The field band on the landing page is dark in both themes, so it carries its own
      ground and its own ink rather than borrowing the page's. It is the one section that
@@ -162,8 +210,12 @@
      A *lift* is for something that genuinely left the page, which is still only the drawer
      and the landing hero. `ui/design-system.test.ts` holds that line. */
   --shadow-rim: inset 0 1px 0 var(--rim);
-  --shadow-float: inset 0 1px 0 var(--rim), 0 1px 2px rgb(0 0 0 / 5%), 0 12px 32px rgb(0 0 0 / 9%);
-  --shadow-hero: inset 0 1px 0 var(--rim), 0 1px 3px rgb(0 0 0 / 5%), 0 28px 64px rgb(0 0 0 / 11%);
+  --shadow-float:
+    inset 0 1px 0 var(--rim), 0 1px 2px rgb(0 0 0 / 5%),
+    0 12px 32px rgb(0 0 0 / 9%);
+  --shadow-hero:
+    inset 0 1px 0 var(--rim), 0 1px 3px rgb(0 0 0 / 5%),
+    0 28px 64px rgb(0 0 0 / 11%);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -203,18 +255,30 @@
     --ink-2: #a1a1a1;
     --ink-3: #737373;
 
-    --material: #f47b74;
-    --material-soft: rgb(244 123 116 / 13%);
-    --held: #ecd065;
-    --held-soft: rgb(236 208 101 / 13%);
-    --cleared: #5ed8a9;
-    --cleared-soft: rgb(94 216 169 / 12%);
+    --material: var(--accent);
+    --material-soft: var(--accent-soft);
+    --held: #fafafa;
+    --held-soft: rgb(255 255 255 / 8%);
+    --cleared: #737373;
+    --cleared-soft: rgb(255 255 255 / 5%);
 
-    --mark: #fafafa;
+    --mark: var(--accent);
 
-    --code-ink: #fafafa;
-    --code-lit: #fafafa;
-    --code-comment: #737373;
+    /* The fill does not move between themes: a deep red on the void is the identity, and it
+    is the letterform that has to lift, because #971b1a is 2.3:1 on a panel here. */
+    --accent: #f27166;
+    --accent-fill: #971b1a;
+    --accent-on-fill: #fafafa;
+    --accent-strong: #b02220;
+    --accent-soft: rgb(242 113 102 / 13%);
+
+    /* Lifted a long way from the light values: the same hue at the same lightness on a
+       near-black ground is mud. The comment goes up with them — at `--ink-3` it was under
+       3.5:1 on `--sunken`, which is recessive past the point of being readable. */
+    --code-keyword: #d8b4fe;
+    --code-name: #93c5fd;
+    --code-lit: #67e8f9;
+    --code-comment: #8a8a8a;
 
     --band: #000000;
     --band-rule: rgb(255 255 255 / 12%);
@@ -223,9 +287,11 @@
        page here is the rim along its top and a faint ring around it; the long soft shadow
        stays only for the edge that overhangs something lighter than itself. */
     --shadow-rim: inset 0 1px 0 var(--rim);
-    --shadow-float: inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
+    --shadow-float:
+      inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
       0 24px 60px -20px rgb(0 0 0 / 85%);
-    --shadow-hero: inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
+    --shadow-hero:
+      inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
       0 30px 70px -26px rgb(0 0 0 / 85%);
   }
 }
@@ -266,18 +332,30 @@
   --ink-2: #a1a1a1;
   --ink-3: #737373;
 
-  --material: #f47b74;
-  --material-soft: rgb(244 123 116 / 13%);
-  --held: #ecd065;
-  --held-soft: rgb(236 208 101 / 13%);
-  --cleared: #5ed8a9;
-  --cleared-soft: rgb(94 216 169 / 12%);
+  --material: var(--accent);
+  --material-soft: var(--accent-soft);
+  --held: #fafafa;
+  --held-soft: rgb(255 255 255 / 8%);
+  --cleared: #737373;
+  --cleared-soft: rgb(255 255 255 / 5%);
 
-  --mark: #fafafa;
+  --mark: var(--accent);
 
-  --code-ink: #fafafa;
-  --code-lit: #fafafa;
-  --code-comment: #737373;
+  /* The fill does not move between themes: a deep red on the void is the identity, and it
+     is the letterform that has to lift, because #971b1a is 2.3:1 on a panel here. */
+  --accent: #f27166;
+  --accent-fill: #971b1a;
+  --accent-on-fill: #fafafa;
+  --accent-strong: #b02220;
+  --accent-soft: rgb(242 113 102 / 13%);
+
+  /* Lifted a long way from the light values: the same hue at the same lightness on a
+     near-black ground is mud. The comment goes up with them — at `--ink-3` it was under
+     3.5:1 on `--sunken`, which is recessive past the point of being readable. */
+  --code-keyword: #d8b4fe;
+  --code-name: #93c5fd;
+  --code-lit: #67e8f9;
+  --code-comment: #8a8a8a;
 
   --band: #000000;
   --band-rule: rgb(255 255 255 / 12%);
@@ -286,9 +364,11 @@
      page here is the rim along its top and a faint ring around it; the long soft shadow
      stays only for the edge that overhangs something lighter than itself. */
   --shadow-rim: inset 0 1px 0 var(--rim);
-  --shadow-float: inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
+  --shadow-float:
+    inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
     0 24px 60px -20px rgb(0 0 0 / 85%);
-  --shadow-hero: inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
+  --shadow-hero:
+    inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
     0 30px 70px -26px rgb(0 0 0 / 85%);
 }
 
@@ -315,6 +395,12 @@
   --color-held-soft: var(--held-soft);
   --color-cleared: var(--cleared);
   --color-cleared-soft: var(--cleared-soft);
+
+  --color-accent: var(--accent);
+  --color-accent-fill: var(--accent-fill);
+  --color-accent-on-fill: var(--accent-on-fill);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
 
   --color-mark: var(--mark);
 
@@ -477,8 +563,9 @@
     cursor: pointer;
   }
 
-  /* Ink, like every other affordance. The ring used to be the accent, which made it the
-     one piece of chrome that could be mistaken for a verdict at the edge of vision. */
+  /* Ink, deliberately, now that there is an accent again. A focus ring answers "where is the
+     keyboard", which is a question about the reader rather than about the content — and red
+     means look here, so a red ring makes every tab press read as a validation failure. */
   :focus-visible {
     outline: 2px solid var(--ink);
     outline-offset: 2px;
@@ -595,33 +682,43 @@
    Highlighted code.
 
    The highlighter is a tokeniser: it emits these class names and this is where they are
-   given colour. Deliberately three values, not forty. An excerpt is evidence — measured
-   material sitting a few centimetres from a verdict — and a six-colour rainbow beside a
-   three-colour severity scale is two palettes arguing. A keyword carries its weight, a
-   literal takes the one non-verdict chroma because it is usually the string a reader is
-   scanning the excerpt for, and a comment recedes.
+   given colour. Four roles, not forty — highlight.js ships around thirty token classes and
+   colouring each one produces an excerpt harder to read than the editor it came from. The
+   question a reader is actually asking is which token is a name somebody chose, so the
+   classes are folded into the four groups that answer it and everything left over inherits
+   the block's ink rather than earning a colour of its own.
 --------------------------------------------------------------------------------------- */
+
+/* The language's own vocabulary. Bold as well as coloured, because these are the words that
+   give a block its shape — the `def`, the `if`, the `return` a reader skims for. */
 .hljs-keyword,
 .hljs-selector-tag,
 .hljs-literal,
 .hljs-doctag,
-.hljs-type,
+.hljs-built_in,
+.hljs-type {
+  color: var(--code-keyword);
+  font-weight: 600;
+}
+
+/* What somebody named. A function, a class, a tag, an attribute: the identifiers that carry
+   this repository's own vocabulary, and the reason an excerpt is on the page at all. */
 .hljs-title,
 .hljs-title.class_,
 .hljs-title.function_,
 .hljs-section,
 .hljs-name,
-.hljs-built_in {
-  color: var(--code-ink);
-  font-weight: 600;
+.hljs-attr,
+.hljs-attribute {
+  color: var(--code-name);
 }
 
+/* What is written out rather than referred to. Usually the thing a reader is scanning the
+   excerpt for — a path, a flag, a magic number. */
 .hljs-string,
 .hljs-regexp,
 .hljs-symbol,
 .hljs-number,
-.hljs-attr,
-.hljs-attribute,
 .hljs-meta,
 .hljs-bullet,
 .hljs-quote,
@@ -629,6 +726,8 @@
   color: var(--code-lit);
 }
 
+/* Prose inside code. Recessive on purpose: it is the one part of an excerpt that is not
+   evidence of what the code does. */
 .hljs-comment,
 .hljs-deletion {
   color: var(--code-comment);
@@ -641,4 +740,329 @@
 
 .hljs-emphasis {
   font-style: italic;
+}
+
+/* ---------------------------------------------------------------------------------------
+   The atlas.
+
+   A map is the one surface here that cannot be written in utilities. Everything below is
+   something Tailwind has no class for: an SVG paint that has to cascade from a parent, a
+   dash pattern that carries a relationship's kind, a keyframe, or a scroll container whose
+   own children are drawn in user units. Every value is a token — there is no colour in this
+   block that is not `--rule`, `--ink` or a verdict, and the verdicts arrive on the element
+   from `TONE_STROKE` rather than being named here.
+--------------------------------------------------------------------------------------- */
+
+.atlas-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+/* Fullscreen has two implementations because the Fullscreen API can be refused — a browser
+   that blocks it, an iframe without the permission — and a map that answered a press with
+   nothing would read as broken. The fixed layer is the fallback, and it is what the class
+   does on its own; the real fullscreen simply makes the same rules apply to a viewport that
+   is already the screen. */
+.atlas-panel--fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  border-radius: 0;
+  border: 0;
+}
+
+.atlas-layout {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: 1fr;
+}
+
+@media (width >= 64rem) {
+  .atlas-layout {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+  }
+}
+
+.atlas-viewport {
+  position: relative;
+  min-width: 0;
+}
+
+/* The canvas scrolls in both directions and is grabbed to pan, so it owns its own cursor and
+   suppresses the browser's touch panning — the pointer handlers in `viewport.ts` are the
+   only thing allowed to move it, or a pinch would zoom the map and scroll the page. */
+.atlas-canvas {
+  height: 32rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: none;
+  cursor: grab;
+  background: var(--canvas);
+}
+
+/* Fullscreen gives the canvas the room the controls did not take.
+ *
+ * `height: 100%` alone resolved against an auto-height ancestor and therefore against its own
+ * content, so a fullscreen panel holding a small graph drew a short canvas with the rest of
+ * the screen left as bare panel — the map appearing to end a third of the way down. The row
+ * has to be told to take the space before a percentage of it means anything. */
+.atlas-panel--fullscreen .atlas-layout {
+  flex: 1;
+  min-height: 0;
+}
+
+.atlas-panel--fullscreen .atlas-canvas {
+  height: 100%;
+}
+
+.atlas-canvas--panning {
+  cursor: grabbing;
+}
+
+.atlas-canvas:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.atlas-canvas__background {
+  fill: var(--canvas);
+}
+
+/* A grid, not a decoration: it is what makes a pan read as movement rather than as cards
+   changing size. At this opacity it is under the hairlines and never competes with an edge. */
+.atlas-grid-line {
+  stroke: var(--rule);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
+.atlas-empty {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+  color: var(--ink-3);
+  font-size: 0.875rem;
+}
+
+/* An enclosure is drawn the way this system draws every other one: a hairline, dashed to say
+   it is a region the map inferred rather than a border on something you could pick up. */
+.atlas-clusters rect {
+  fill: none;
+  stroke: var(--rule);
+  stroke-dasharray: 3 5;
+}
+
+.atlas-clusters text {
+  fill: var(--ink-3);
+  font-family: var(--font-code);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.atlas-node {
+  cursor: pointer;
+}
+
+.atlas-node__body {
+  fill: var(--surface);
+  transition: fill 150ms ease;
+}
+
+.atlas-node:hover .atlas-node__body {
+  fill: var(--sunken);
+}
+
+/* The ring is an affordance rather than content — it says where the reader is, not what the
+   repository holds — so it keeps its weight in screen pixels while the map scales. At 45% a
+   1.5 user-unit ring is two thirds of a pixel, which is how the selection went missing on
+   any graph large enough to need zooming out. */
+.atlas-node__ring {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.atlas-node__label {
+  fill: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.atlas-node__meta {
+  fill: var(--ink-3);
+  font-family: var(--font-code);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.atlas-node:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  border-radius: 10px;
+}
+
+/* Every edge is a hairline. Which relationship it is, is carried by the dash rather than by a
+   hue — the accent rule is a rule about meaning, and eight relationship kinds are not eight
+   things to look at. */
+.atlas-edge {
+  fill: none;
+  stroke: var(--rule-strong);
+  stroke-width: 1;
+}
+
+.atlas-edge--active {
+  stroke: var(--ink-3);
+  stroke-width: 1.25;
+}
+
+.atlas-edge--contains {
+  stroke-dasharray: 2 4;
+}
+
+.atlas-edge--tests,
+.atlas-edge--configures {
+  stroke-dasharray: 5 4;
+}
+
+/* A traced path is the one thing on the map the reader asked for by name, so it is the only
+   edge allowed full ink. */
+.atlas-edge--path {
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-dasharray: none;
+}
+
+.atlas-arrow {
+  fill: var(--rule-strong);
+}
+
+/* A sample of the line the map draws for this relationship, so a filter chip says which
+   connector it governs rather than only naming it. `currentColor` is what carries the chip's
+   own state: full-strength ink when the relationship is drawn, and the quiet grey of an
+   unpressed control when it is not. */
+.atlas-edge-swatch {
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  height: 0;
+  border-top: 1.5px solid currentColor;
+  opacity: 0.85;
+}
+
+.atlas-edge-swatch--contains {
+  border-top-style: dotted;
+}
+
+.atlas-edge-swatch--tests,
+.atlas-edge-swatch--configures {
+  border-top-style: dashed;
+}
+
+/* The neighbourhood of the selected card, animated. `pathLength` is normalised to 100 on
+   every pulse, so the dash below means the same fraction of a long edge and a short one and
+   the whole neighbourhood travels at one speed. The rank staggers them so the edges leave one
+   after another rather than as a single flash. */
+.atlas-pulse {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  opacity: 0;
+}
+
+[data-pulse="comet"] .atlas-pulse {
+  stroke-dasharray: 12 88;
+  animation: atlas-travel 2.4s linear infinite;
+  animation-delay: calc(var(--atlas-pulse-rank) * 120ms);
+  opacity: 0.55;
+}
+
+[data-pulse="travel"] .atlas-pulse {
+  stroke-dasharray: 3 9;
+  animation: atlas-travel 3.6s linear infinite;
+  opacity: 0.4;
+}
+
+[data-pulse="ripple"] .atlas-pulse {
+  stroke-dasharray: 10 90;
+  animation: atlas-travel 2s ease-out infinite;
+  animation-delay: calc(var(--atlas-pulse-rank) * 90ms);
+  opacity: 0.5;
+}
+
+/* Ripple sends every pulse *out* of the card the reader clicked, so the half of the
+   neighbourhood that points inward is played backwards. Deliberate: ripple is about the
+   selection, the other two are about the relationship. */
+[data-pulse="ripple"] .atlas-pulse--incoming {
+  animation-direction: reverse;
+}
+
+@keyframes atlas-travel {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.atlas-minimap {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  width: 9rem;
+  height: 6rem;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: var(--shadow-rim);
+  padding: 0;
+}
+
+.atlas-minimap svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Every stroke in here is `non-scaling`: the minimap draws the map's own coordinates into a
+   144px box, so a stroke measured in user units comes out at a third of a pixel and is not
+   drawn at all. */
+.atlas-minimap line {
+  stroke: var(--rule-strong);
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.atlas-minimap rect.atlas-minimap__card {
+  fill: var(--rule-strong);
+}
+
+.atlas-minimap rect.atlas-minimap__card.active {
+  fill: var(--ink);
+}
+
+/* Where the reader is looking, drawn over the whole. An outline rather than a tint, because a
+   tint over half the minimap hides the cards it is meant to locate.
+ *
+ * The class is on the same element as the card rule above was, and lost to it: `.atlas-minimap
+ * rect` is a descendant selector and outscores a single class, so the indicator was filled
+ * solid ink-3 and the minimap was one grey block. */
+.atlas-minimap rect.atlas-minimap__viewport {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
 }

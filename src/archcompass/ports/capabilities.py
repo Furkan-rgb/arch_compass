@@ -6,9 +6,9 @@ adapters decide whether an implementation uses LangChain, SQLite, or determinist
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from archcompass.domain import (
     Answer,
@@ -72,6 +72,16 @@ class JudgementRequest:
     policies: RetrievedPolicySet
 
 
+#: What a judge says about the batch it was asked for, while it is asking.
+#:
+#: `supports_batch` is a prediction — the provider is the only thing that knows whether it
+#: will take a batch from this key, and it says so by accepting or refusing the submission.
+#: So the prediction is not something to report to a person: a review that told its reader
+#: it had queued a batch, on the strength of a routing decision, went on saying so through
+#: the whole interactive fallback that followed a refusal. This is the observed half.
+BatchOutcome = Literal["queued", "unavailable"]
+
+
 @runtime_checkable
 class BatchArchitectureJudge(Protocol):
     """A judge that can put a whole review to the model in one submission.
@@ -81,12 +91,20 @@ class BatchArchitectureJudge(Protocol):
     and finishing. Whether that is available depends on the model selected right now, not
     on how the graph was built, so `supports_batch` is asked at dispatch time rather than
     answered once at startup.
+
+    `supports_batch` answering true is a prediction and never a promise. The Gemini Batch
+    API refuses a project that is not eligible with `400 FAILED_PRECONDITION`, which cannot
+    be known without submitting — so `judge_all` reports what actually happened through
+    `observe`, and every caller that tells somebody about a batch has to wait for it.
     """
 
     def supports_batch(self) -> bool: ...
 
     def judge_all(
-        self, requests: Sequence[JudgementRequest]
+        self,
+        requests: Sequence[JudgementRequest],
+        *,
+        observe: Callable[[BatchOutcome], None] | None = None,
     ) -> tuple[Finding, ...]: ...
 
 

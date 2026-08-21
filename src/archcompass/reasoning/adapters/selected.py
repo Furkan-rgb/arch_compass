@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from threading import Lock
@@ -25,7 +25,12 @@ from archcompass.domain import (
     Verdict,
 )
 from archcompass.domain.errors import NoReasoningModelSelectedError, ProviderError
+from archcompass.ports.batch_refusals import (
+    BatchRefusalStore,
+    InMemoryBatchRefusals,
+)
 from archcompass.ports.capabilities import (
+    BatchOutcome,
     InvestigatedFinding,
     JudgementRequest,
     ReviewSynopsis,
@@ -93,8 +98,13 @@ def _batching_enabled() -> bool:
 
 
 class SelectedLangChainJudge:
-    def __init__(self, selected: SelectedLangChainChatModel) -> None:
+    def __init__(
+        self,
+        selected: SelectedLangChainChatModel,
+        refusals: BatchRefusalStore | None = None,
+    ) -> None:
         self._selected = selected
+        self._refusals = refusals or InMemoryBatchRefusals()
         self._batch_refused = False
 
     def judge(
@@ -147,40 +157,70 @@ class SelectedLangChainJudge:
         config = self._selected.configuration()
         if config is None or config.provider != "google":
             return False
-        # A key the API has already turned away is not asked again for the life of this
-        # process: the refusal is about the project, not about this batch, and retrying it
-        # once per review would cost a pointless round trip before every judgement.
+        if not _batching_enabled():
+            return False
+        # A key the API has already turned away is not asked again. The refusal is about
+        # the project behind the key and not about this batch, so it does not expire when
+        # the process does — remembering it only in memory meant every restart paid another
+        # rejected submission, and showed another reader a review that said it had queued a
+        # batch and had not. A different key gets a fresh answer, because a different key
+        # may be on a project that is eligible.
         if self._batch_refused:
             return False
-        return _batching_enabled()
+        try:
+            api_key = resolve_api_key(config.api_key_env, provider="google")
+        except Exception:
+            # Not this method's refusal to make. A missing key fails loudly further in,
+            # with a message that names the variable to set.
+            return True
+        return not self._refusals.refused(api_key)
 
-    def judge_all(self, requests: Sequence[JudgementRequest]) -> tuple[Finding, ...]:
+    def judge_all(
+        self,
+        requests: Sequence[JudgementRequest],
+        *,
+        observe: Callable[[BatchOutcome], None] | None = None,
+    ) -> tuple[Finding, ...]:
         """Every candidate at once, batched where that means something.
 
         The fallback is not a lesser path: for Ollama and the deterministic provider a
         loop is exactly what a batch would be, and running it here keeps the graph's
         dispatch decision in one place instead of two.
+
+        `observe` is told what the provider did, and only ever after it has done it. A
+        review can be routed here and still be judged one candidate at a time, so anything
+        that reports a batch to a person has to hear it from the submission rather than
+        from the routing.
         """
 
         if not requests:
             return ()
         config = self._selected.configuration()
         if config is None or config.provider != "google":
+            if observe is not None:
+                observe("unavailable")
             return self._judge_each(requests, config)
 
         _, identity = self._selected.current()
+        api_key = resolve_api_key(config.api_key_env, provider="google")
         judge = GoogleBatchJudge(
-            api_key=resolve_api_key(config.api_key_env, provider="google"),
+            api_key=api_key,
             model=config.model,
+            thinking=config.thinking,
         )
         try:
-            return judge.judge_all(requests, model_identity=identity)
+            return judge.judge_all(
+                requests, model_identity=identity, observe=observe
+            )
         except BatchUnavailableError as refusal:
             # A batch is an optimisation, not a requirement. Losing a review that the
             # interactive path could have produced is a worse outcome than judging it the
             # slow way, so this degrades and says so rather than failing.
             _log.warning("%s", refusal)
+            self._refusals.record(api_key)
             self._batch_refused = True
+            if observe is not None:
+                observe("unavailable")
             return self._judge_each(requests, config)
 
     def _judge_each(

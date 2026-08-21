@@ -13,6 +13,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from archcompass.analysis.adapters.query_service import DeterministicAtlasQueryService
 from archcompass.analysis.atlas import (
     Atlas,
@@ -96,6 +99,38 @@ def _atlas(
 
 def _service() -> DeterministicAtlasQueryService:
     return DeterministicAtlasQueryService(_NoSource())
+
+
+def test_review_context_anchors_on_a_name_where_it_has_no_id() -> None:
+    """The map of a review judged before a finding carried the atlas node it was found on.
+
+    Those findings record only the qualified name, and without this the whole surface is a
+    sentence saying it cannot draw. Resolving the name is strictly worse than the id — one
+    name can answer to two nodes across a rebuild — so it is a fallback and the id, where
+    there is one, is what is asked for.
+    """
+
+    atlas = _atlas(
+        [_node("anchor_a"), _node("imported"), _node("stranger")],
+        [_edge("e1", "anchor_a", "imported")],
+    )
+
+    result = _service().execute(
+        atlas,
+        ReviewContextQuery(kind="review_context", qualified_names=["package.anchor_a"]),
+    )
+
+    assert result.node_ids == ["anchor_a"]
+    assert {summary.node_id for summary in result.node_summaries} == {"anchor_a", "imported"}
+
+
+def test_review_context_refuses_a_request_that_anchors_on_nothing() -> None:
+    """Neither an id nor a name is not a small map; it is a query with no subject, and the
+    tolerant lookup below would answer it with an empty result that reads as "nothing is
+    there" rather than as "you asked about nothing"."""
+
+    with pytest.raises(ValidationError):
+        ReviewContextQuery(kind="review_context")
 
 
 def test_review_context_returns_the_anchors_with_their_neighbourhood() -> None:

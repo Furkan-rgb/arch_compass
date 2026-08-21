@@ -7,6 +7,7 @@ import threading
 import pytest
 
 from archcompass.workflow.runs import ReviewRunner
+from archcompass.workflow.service import _JudgingProgress
 
 
 def test_a_run_is_addressable_before_it_has_finished() -> None:
@@ -85,6 +86,52 @@ def test_a_repeated_stage_is_recorded_once() -> None:
     runner.start(run_id="thread-5", work=work)
     _settle(runner, "thread-5")
     assert runner.state("thread-5").stages == ("review_candidates", "generate_questions")
+
+
+def test_the_candidate_loop_is_counted_because_a_stage_list_cannot_count_it() -> None:
+    """Judging is one step that is fifteen deep, and a sequence of names cannot say that.
+
+    The stage list already collapses a repeat, so fifteen judgements are one entry there and
+    the reader cannot tell a run on its second candidate from one on its last. The depth is
+    carried as a count instead of as fifteen rows saying the same words.
+    """
+
+    progress = _JudgingProgress()
+
+    assert progress.observe("select_initial_candidates", {"selected_candidates": (1, 2, 3)})
+    assert (progress.to_judge, progress.judged) == (3, 0)
+
+    # The subgraph's own nodes are entered per candidate and produce nothing to count.
+    assert not progress.observe("retrieve_policy_set", {"retrieval": object()})
+    assert progress.observe("judge_candidate", {"findings": {"a": object()}})
+    assert progress.judged == 1
+
+    # A second round counts its own selection rather than continuing the first's.
+    assert progress.observe("select_candidates_for_rejudgement", {"selected_candidates": (1,)})
+    assert (progress.to_judge, progress.judged) == (1, 0)
+
+
+def test_a_batch_judgement_counts_the_whole_selection_at_once() -> None:
+    """One node returns every verdict, so the count arrives in one step rather than fifteen."""
+
+    progress = _JudgingProgress()
+    progress.observe("select_initial_candidates", {"selected_candidates": (1, 2)})
+
+    assert progress.observe("review_candidates", {"findings": {"a": object(), "b": object()}})
+    assert (progress.to_judge, progress.judged) == (2, 2)
+
+
+def test_a_run_carries_how_far_through_its_candidates_it_is() -> None:
+    runner = ReviewRunner()
+
+    def work(report):
+        report("judge_candidate")
+        runner.report_judgements("thread-6", judged=4, to_judge=9)
+
+    runner.start(run_id="thread-6", work=work)
+    _settle(runner, "thread-6")
+    state = runner.state("thread-6")
+    assert (state.candidates_judged, state.candidates_to_judge) == (4, 9)
 
 
 def _settle(runner: ReviewRunner, run_id: str) -> None:

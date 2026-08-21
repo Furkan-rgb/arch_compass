@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { VIEWPORT, setViewportWidth } from "../../test-setup";
 import { LandingPage } from "./landing-page";
@@ -38,9 +38,11 @@ describe("the landing page", () => {
       "href",
       "/start",
     );
-    expect(screen.getByRole("link", { name: "Read a real finding" })).toHaveAttribute(
+    // One primary action, and the second is a walk down this page rather than a second
+    // button pointing at a review list that is empty on a first visit.
+    expect(screen.getByRole("link", { name: "See how a finding is made" })).toHaveAttribute(
       "href",
-      "/reviews",
+      "#finding",
     );
   });
 
@@ -92,6 +94,27 @@ describe("the landing page", () => {
   });
 
   /**
+   * The map and the callout are one statement, not two illustrations that happen to sit
+   * near each other: the candidate a finding was made against is a place on the atlas, and
+   * moving between the specimens has to move which place is lit. Render them independently
+   * and the hero is back to claiming the deterministic half rather than showing it.
+   *
+   * The map is `aria-hidden` — the callout names the candidate in text, so announcing the
+   * labels would say it twice — which is why this reads the DOM rather than the roles.
+   */
+  it("lights the atlas node the shown finding was made against", () => {
+    renderLanding();
+    const lit = () => document.querySelector("svg text.font-semibold:not([class*=uppercase])");
+
+    expect(lit()).toHaveTextContent("gateway");
+
+    const picker = screen.getByRole("group", { name: "Example bearings" });
+    fireEvent.click(within(picker).getAllByRole("button")[1]);
+    expect(lit()).toHaveTextContent("orders");
+    expect(within(specimen()).getByText("orders.Repository")).toBeInTheDocument();
+  });
+
+  /**
    * The card used to carry a `min-h` measured off one browser at one text size, with three
    * pixels of headroom. At a 20px root size the held specimen wrapped an extra line, grew
    * past it, and shoved the rest of the page down every six seconds.
@@ -114,6 +137,132 @@ describe("the landing page", () => {
     }
     // And exactly one of them is on show: the other two are hidden, not unmounted.
     expect(screen.getAllByRole("group", { name: /^(Material|Held|Cleared)$/ })).toHaveLength(1);
+  });
+
+  /**
+   * The picker is a showcase before it is a control.
+   *
+   * Two seconds is short enough that a visitor sees all three verdicts without deciding to,
+   * and the five-second hold is what stops that being hostile: touching a verdict has to buy
+   * enough time to read the one you asked for. Both numbers are the point of the feature, so
+   * both are asserted rather than the mere fact that something moves.
+   */
+  describe("the hero's showcase", () => {
+    beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+    afterEach(() => vi.useRealTimers());
+
+    const pressed = () =>
+      within(screen.getByRole("group", { name: "Example bearings" }))
+        .getAllByRole("button")
+        .findIndex((button) => button.getAttribute("aria-pressed") === "true");
+
+    it("moves through the three verdicts, two seconds each", () => {
+      renderLanding();
+
+      expect(pressed()).toBe(0);
+      act(() => void vi.advanceTimersByTime(2000));
+      expect(pressed()).toBe(1);
+      act(() => void vi.advanceTimersByTime(2000));
+      expect(pressed()).toBe(2);
+      act(() => void vi.advanceTimersByTime(2000));
+      expect(pressed()).toBe(0);
+    });
+
+    it("holds a chosen verdict for five seconds before the showcase resumes", () => {
+      renderLanding();
+      const buttons = within(screen.getByRole("group", { name: "Example bearings" })).getAllByRole(
+        "button",
+      );
+
+      fireEvent.click(buttons[2]);
+      expect(pressed()).toBe(2);
+
+      // Four seconds in, the two-second cycle would have moved twice. The hold is what keeps
+      // the reader on the one they asked for.
+      act(() => void vi.advanceTimersByTime(4000));
+      expect(pressed()).toBe(2);
+
+      // Five seconds, then the first interval of the resumed showcase.
+      act(() => void vi.advanceTimersByTime(1000));
+      act(() => void vi.advanceTimersByTime(2000));
+      expect(pressed()).toBe(0);
+    });
+
+    /**
+     * The pause belongs to the figure, not to the screen.
+     *
+     * `holdProps` used to sit on the whole hero section, which is most of a first screen —
+     * so a cursor resting anywhere in it stopped the showcase before it ran once. At eleven
+     * seconds a specimen that was invisible; at two it is the whole feature not working.
+     */
+    it("keeps moving while the cursor is elsewhere in the hero", () => {
+      renderLanding();
+
+      fireEvent.mouseEnter(screen.getByRole("heading", { level: 1 }));
+      act(() => void vi.advanceTimersByTime(2000));
+      expect(pressed()).toBe(1);
+    });
+
+    it("stops while the specimen or the picker is being read", () => {
+      renderLanding();
+
+      fireEvent.mouseEnter(specimen().parentElement as HTMLElement);
+      act(() => void vi.advanceTimersByTime(6000));
+      expect(pressed()).toBe(0);
+
+      fireEvent.mouseLeave(specimen().parentElement as HTMLElement);
+      act(() => void vi.advanceTimersByTime(2000));
+      expect(pressed()).toBe(1);
+    });
+
+    it("restarts the hold when the same verdict is chosen again", () => {
+      renderLanding();
+      const buttons = within(screen.getByRole("group", { name: "Example bearings" })).getAllByRole(
+        "button",
+      );
+
+      fireEvent.click(buttons[1]);
+      act(() => void vi.advanceTimersByTime(4000));
+      fireEvent.click(buttons[1]);
+      act(() => void vi.advanceTimersByTime(4000));
+      expect(pressed()).toBe(1);
+    });
+  });
+
+  /**
+   * The section used to draw its own copy of the finding surface, and outlived it: the
+   * attribution gutter it drew was deleted when the queue and the workbench became one
+   * docket, and the page kept showing it. What is asserted here is that the page renders the
+   * workbench's own component — the attribution lines, the measurement labels and the folds
+   * are `FindingBody`'s, and none of them can be produced by a drawing of it.
+   */
+  it("shows the workbench's own finding surface rather than a copy of it", async () => {
+    renderLanding();
+
+    // The section is loaded on its own, after the page. Scoped to it, because the hero names
+    // the same candidate — an unscoped query would pass on the specimen and prove nothing.
+    const surface = () => within(document.querySelector("#finding") as HTMLElement);
+    expect(await surface().findByText("Judged")).toBeInTheDocument();
+
+    // `Attribution`, `MEASUREMENT_LABELS` and `Disclosure` — all three from `finding-detail`.
+    expect(surface().getByText("Measured")).toBeInTheDocument();
+    expect(surface().getByText("referenced by")).toBeInTheDocument();
+    expect(surface().getByText("Provenance")).toBeInTheDocument();
+    expect(surface().getByText(/2 policies bore on this · 6 retrieved/)).toBeInTheDocument();
+    // And the decision it offers is the workbench's own wording, off `CHOICES`.
+    expect(surface().getByText("Accept and act")).toBeInTheDocument();
+  });
+
+  /** A row states its own claim, and opens in place. That is the docket's whole argument. */
+  it("opens a docket row in place", async () => {
+    renderLanding();
+
+    const row = await screen.findByRole("button", { name: /The orders domain imports/ });
+    expect(row).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(row);
+    expect(row).toHaveAttribute("aria-expanded", "true");
+    // The lookups behind the hinge, which is the newest thing on the finding surface.
+    expect(screen.getByText("Looked up")).toBeInTheDocument();
   });
 
   it("says plainly what the product is not", () => {

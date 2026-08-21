@@ -20,6 +20,7 @@ from archcompass.domain.errors import PathValidationError
 from archcompass.presentation.web.dependencies import RestrictionsDep, RuntimeDep
 from archcompass.presentation.web.restrictions import HostedRestrictions
 from archcompass.presentation.web.schemas import APIModel
+from archcompass.records import ThinkingMode
 
 
 class ModelIdentity(APIModel):
@@ -27,7 +28,7 @@ class ModelIdentity(APIModel):
     model: str
     #: Whether this model reasons before answering: `true` required, `false` forbidden,
     #: absent left to the model. Part of what was chosen, so part of what is reported.
-    thinking: bool | None = None
+    thinking: ThinkingMode = None
 
 
 class EmbeddingIdentity(APIModel):

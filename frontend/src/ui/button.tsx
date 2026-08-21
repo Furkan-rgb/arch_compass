@@ -7,8 +7,11 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "quiet" | "dange
 export type ButtonSize = "sm" | "md" | "lg";
 
 const VARIANTS: Record<ButtonVariant, string> = {
+  // The one action a screen is asking for, in the one hue the product has. `danger` below is
+  // the same red at a wash rather than a fill — a destructive action is consequential, not
+  // primary, and fill against wash is what keeps the two apart now that both are red.
   primary:
-    "border-ink bg-ink text-canvas hover:border-ink hover:bg-ink active:translate-y-px",
+    "border-accent-fill bg-accent-fill text-accent-on-fill hover:border-accent-strong hover:bg-accent-strong active:translate-y-px",
   // `bg-control` rather than `bg-surface`: a secondary button lands on the void, on a panel
   // and inside a sunken block, and on this ground it has to read as raised above all three.
   // One flat grey can only be brighter than one of them, so in dark the token is a film that
@@ -95,7 +98,18 @@ export function ExternalButtonLink({
   );
 }
 
-/** A pressed/unpressed control for filters — a button, not a checkbox pretending to be one. */
+/**
+ * A pressed/unpressed control for filters — a button, not a checkbox pretending to be one.
+ *
+ * What is on is *raised*, not inverted. `bg-ink text-canvas` is the loudest fill the system
+ * can draw, and a row of them — a set of filters at rest is usually a row of them — reads as
+ * a row of alarms rather than as a setting nobody has touched. So a pressed toggle wears the
+ * `secondary` button's recipe: the control film, a rim along its top edge, full-strength ink.
+ * White in light, a step up from the ground in dark: one gesture, not one colour.
+ *
+ * This is the same treatment `components/ui/toggle.tsx` gives a Radix switch, deliberately.
+ * Two toggles that look different are two toggles a reader has to learn separately.
+ */
 export function ToggleButton({
   pressed,
   className,
@@ -110,13 +124,13 @@ export function ToggleButton({
         // else — the same split `Button`'s `sm` size makes. A segmented control of three
         // chips is one line of text and two words of count; holding it at 44px with a mouse
         // spent a third of the queue's header on a strip that says which filter is on.
-        "inline-flex min-h-8 pointer-coarse:min-h-11 items-center gap-1.5 whitespace-nowrap rounded-sm px-2.5 text-xs font-semibold transition",
+        "inline-flex min-h-8 pointer-coarse:min-h-11 items-center gap-1.5 whitespace-nowrap rounded-sm border px-2.5 text-xs font-semibold transition duration-150",
         // A toggle for an empty set stays readable — it is telling you the count is zero,
         // which is information — but stops offering to filter to nothing.
         "disabled:pointer-events-none disabled:opacity-40",
         pressed
-          ? "bg-ink text-canvas"
-          : "text-ink-3 hover:bg-sunken hover:text-ink",
+          ? "border-rule-strong bg-control text-ink shadow-rim"
+          : "border-transparent text-ink-3 hover:bg-sunken hover:text-ink",
         className,
       )}
       {...props}

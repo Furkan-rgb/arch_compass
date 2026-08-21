@@ -23,8 +23,10 @@ assertion would put the file out of reach of the tier it is written for.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -85,6 +87,10 @@ class Lifecycle:
     conversation: dict[str, Any]
     corpus_policy_ids: frozenset[str]
     repository_root: str
+    #: Why each hinge that was investigated and lost was lost, in the order they were lost.
+    #: Empty is the passing shape. See `_dropped_investigations` for why the responses above
+    #: cannot answer this on their own.
+    dropped_investigations: tuple[BaseException | None, ...]
 
 
 def _require_google() -> None:
@@ -128,6 +134,43 @@ def _require_local_embeddings(runtime: Runtime) -> None:
         )
 
 
+#: The node that investigates hinges, and the message it logs when one is lost.
+#:
+#: Named here because the graph is deliberately built to survive this: an investigation is an
+#: improvement to a question, so `investigate_hinges` catches everything, logs, and lets the
+#: unimproved hinge go on to the person it was always going to reach. That is right for a
+#: running review and blinding for a test — a run where every investigation failed produces
+#: the same empty manifest as a run where the model was confident throughout, and the
+#: assertions on that manifest skip themselves in both.
+INVESTIGATION_LOGGER = "archcompass.workflow.nodes"
+INVESTIGATION_LOST = "was not investigated"
+
+
+@contextmanager
+def _dropped_investigations(losses: list[BaseException | None]) -> Iterator[None]:
+    """Collect the exceptions `investigate_hinges` swallows, without changing what it does.
+
+    A handler rather than `caplog`, because the review runs once in a module-scoped fixture
+    and `caplog` is per test. The exception is kept rather than the message: an exhausted
+    quota and a model that cannot honour its output schema are both a lost investigation
+    here, and only one of them is a defect the suite should fail on.
+    """
+
+    class _Collector(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if INVESTIGATION_LOST not in record.getMessage():
+                return
+            losses.append(record.exc_info[1] if record.exc_info else None)
+
+    logger = logging.getLogger(INVESTIGATION_LOGGER)
+    handler = _Collector(level=logging.WARNING)
+    logger.addHandler(handler)
+    try:
+        yield
+    finally:
+        logger.removeHandler(handler)
+
+
 def _run_lifecycle(runtime: Runtime, repository: str) -> Lifecycle:
     corpus = frozenset(
         policy.id
@@ -135,7 +178,8 @@ def _run_lifecycle(runtime: Runtime, repository: str) -> Lifecycle:
     )
     assert corpus, "the corpus is empty; the retrieval assertions would prove nothing"
 
-    with TestClient(create_app(runtime)) as client:
+    losses: list[BaseException | None] = []
+    with _dropped_investigations(losses), TestClient(create_app(runtime)) as client:
         started = client.post("/api/repositories/start", json={"root_path": repository})
         assert started.status_code == 200, started.text
         case_id = started.json()["case_id"]
@@ -243,6 +287,7 @@ def _run_lifecycle(runtime: Runtime, repository: str) -> Lifecycle:
             conversation=message.json(),
             corpus_policy_ids=corpus,
             repository_root=repository,
+            dropped_investigations=tuple(losses),
         )
 
 

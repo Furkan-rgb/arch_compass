@@ -401,6 +401,69 @@ def test_a_model_offering_two_thinking_modes_is_listed_as_two_candidates() -> No
     ]
 
 
+def test_a_model_with_a_dial_is_listed_once_per_depth_it_offers() -> None:
+    """A level is a mode like any other, so it is a row like any other.
+
+    Gemini 3 replaced the thinking switch with `thinking_level`, so the candidate list for a
+    Google model is five rows rather than two: four named depths, plus the model's own
+    dynamic thinking, which adjusts to the request and is a behaviour somebody may want
+    rather than the absence of the other four.
+    """
+
+    service = _service(
+        _descriptor(
+            "google",
+            _answering(
+                AvailableModel(
+                    name="gemini-3.5-flash-lite",
+                    thinking_modes=(None, "minimal", "low", "medium", "high"),
+                )
+            ),
+            _GOOGLE_DEFAULTS,
+        )
+    )
+
+    catalog = service.catalog()
+
+    assert [item.thinking for item in catalog.candidates] == [
+        None,
+        "minimal",
+        "low",
+        "medium",
+        "high",
+    ]
+
+    service.select("google", "gemini-3.5-flash-lite", "medium")
+    assert (config := service.current()) is not None and config.thinking == "medium"
+
+
+def test_only_the_depths_that_ask_for_little_get_the_smaller_output_budget() -> None:
+    """Thinking tokens are spent from the same allowance as the answer.
+
+    `None` is on the generous side of the line and that is the correction here. A request
+    naming no level does not get a model that skips thinking — on a Gemini 3 model it gets
+    one deciding for itself how much to do — so budgeting it as though it had chosen none is
+    how a structured answer arrives truncated.
+    """
+
+    service = _service(
+        _descriptor(
+            "google",
+            _answering(AvailableModel(name="gemini-3.6-flash")),
+            _GOOGLE_DEFAULTS,
+        )
+    )
+    budgets: dict[object, int] = {}
+    for mode in (None, False, "minimal", "low", "medium", "high", True):
+        service.select("google", "gemini-3.6-flash", mode)
+        config = service.current()
+        assert config is not None
+        budgets[mode] = config.max_output_tokens
+
+    assert budgets[False] == budgets["minimal"] == 16384
+    assert budgets[None] == budgets["low"] == budgets["high"] == budgets[True] == 32768
+
+
 def test_only_the_candidate_that_was_chosen_is_marked_selected() -> None:
     """A candidate is (provider, model, thinking), so the same model in the other mode is a
     different row and must not light up beside the chosen one."""

@@ -62,7 +62,12 @@ class AtlasService:
         )
 
     def review_context(
-        self, repository: Path, node_ids: list[str], *, limit: int = 25
+        self,
+        repository: Path,
+        node_ids: list[str],
+        *,
+        qualified_names: list[str] | None = None,
+        limit: int = 25,
     ) -> AtlasQueryResult:
         """Everything a map of these nodes needs, in one round trip.
 
@@ -73,7 +78,12 @@ class AtlasService:
 
         return self._execute_latest(
             repository,
-            ReviewContextQuery(kind="review_context", node_ids=node_ids, limit=limit),
+            ReviewContextQuery(
+                kind="review_context",
+                node_ids=node_ids,
+                qualified_names=qualified_names or [],
+                limit=limit,
+            ),
         )
 
     def hotspots(self, repository: Path, metric: str) -> AtlasQueryResult:

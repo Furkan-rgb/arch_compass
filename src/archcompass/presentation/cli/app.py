@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 import yaml
@@ -32,6 +32,7 @@ from archcompass.policies.evaluation import (
     choose_smallest_passing_k,
 )
 from archcompass.ports.review_conversation import ReviewConversation
+from archcompass.records import THINKING_LEVELS, ThinkingMode
 from archcompass.repositories.safety import (
     validate_repository_directory,
 )
@@ -161,12 +162,13 @@ def root_callback(
         typer.Option("--model", help="Reason with this model for this run only."),
     ] = None,
     thinking: Annotated[
-        bool | None,
+        str | None,
         typer.Option(
-            "--thinking/--no-thinking",
+            "--thinking",
             help=(
-                "Require or forbid reasoning before answering. Omitted leaves it to the "
-                "model, which is a third behaviour rather than the absence of the other two."
+                "How hard the model thinks before answering: on, off, or one of minimal, "
+                "low, medium, high where the provider has levels. Omitted leaves it to the "
+                "model, which is a behaviour of its own rather than the absence of the rest."
             ),
         ),
     ] = None,
@@ -179,13 +181,35 @@ def root_callback(
     if (provider is None) != (model is None):
         raise typer.BadParameter("--provider and --model are given together or not at all")
     if provider is None and thinking is not None:
-        raise typer.BadParameter("--thinking/--no-thinking needs --provider and --model")
+        raise typer.BadParameter("--thinking needs --provider and --model")
     pin = (
-        pinned_model(provider, model, thinking)
+        pinned_model(provider, model, _thinking_mode(thinking))
         if provider is not None and model is not None
         else None
     )
     context.obj = CLIState(workspace.expanduser().resolve(), pin)
+
+
+def _thinking_mode(given: str | None) -> ThinkingMode:
+    """One word off a command line as a thinking mode, refused by name if it is neither.
+
+    `on` and `off` are kept because a switch is what somebody types when they do not care
+    which level, and because they were the flag this option replaced. Where the provider has
+    levels they are read as its ends — see `google_thinking_level`.
+    """
+
+    if given is None:
+        return None
+    word = given.strip().casefold()
+    if word in {"on", "true", "yes"}:
+        return True
+    if word in {"off", "false", "no"}:
+        return False
+    if word in THINKING_LEVELS:
+        return cast("ThinkingMode", word)
+    raise typer.BadParameter(
+        f"--thinking takes on, off, or one of {', '.join(THINKING_LEVELS)}; not {given!r}"
+    )
 
 
 @app.command("init")

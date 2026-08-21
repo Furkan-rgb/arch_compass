@@ -25,6 +25,53 @@ function wrap(children: ReactNode) {
 afterEach(() => vi.restoreAllMocks());
 
 describe("a review being made", () => {
+  /**
+   * The notice is a claim about somebody's bill, so it waits for the provider.
+   *
+   * The graph routes to the batch node on `supports_batch`, which is a prediction: it is
+   * true for any Google key with batching switched on, and only the provider knows whether
+   * the project behind that key is eligible. A key that is not is refused with `400
+   * FAILED_PRECONDITION` and the review is judged interactively instead — and this panel,
+   * which read the stage, went on telling the reader for the whole fallback that their
+   * review had gone to the provider in one batch, at half price, guaranteed within a day.
+   */
+  describe("the batch notice", () => {
+    async function runWith(state: Parameters<typeof runFixture>[0]) {
+      vi.spyOn(api, "reviews").mockResolvedValue([]);
+      vi.spyOn(api, "reviewRun").mockResolvedValue(runFixture(state));
+      render(wrap(<RunPage />));
+      await screen.findByText("thread-9");
+    }
+
+    it("says nothing about a batch while the provider has not answered", async () => {
+      await runWith({ stage: "review_candidates", stages: ["review_candidates"] });
+
+      expect(screen.queryByText("Queued with the model")).not.toBeInTheDocument();
+      expect(screen.queryByText("Judging one candidate at a time")).not.toBeInTheDocument();
+    });
+
+    it("claims a batch only once one has been accepted", async () => {
+      await runWith({
+        stage: "review_candidates",
+        stages: ["review_candidates"],
+        batch: "queued",
+      });
+
+      expect(screen.getByText("Queued with the model")).toBeInTheDocument();
+    });
+
+    it("says so plainly when the provider would not take one", async () => {
+      await runWith({
+        stage: "review_candidates",
+        stages: ["review_candidates"],
+        batch: "unavailable",
+      });
+
+      expect(screen.queryByText("Queued with the model")).not.toBeInTheDocument();
+      expect(screen.getByText("Judging one candidate at a time")).toBeInTheDocument();
+    });
+  });
+
   it("reads as the next revision of its lineage, not as a job with a thread id", async () => {
     // Everything a review is filed under exists before the review does: the repository, the
     // branch, the case, and the sequence taken from the newest review on that branch. So the
@@ -60,6 +107,56 @@ describe("a review being made", () => {
     const progress = screen.getByRole("list", { name: "Review progress" });
     expect(within(progress).getByText("Judging candidates")).toBeInTheDocument();
     expect(within(rail).getByText("Judging candidates")).toBeInTheDocument();
+  });
+
+  it("says the candidate loop once, with how deep into it the run is", async () => {
+    // A loop is one step that is fifteen deep, not fifteen steps. Listing every turn made
+    // the progress list thirty rows of the same two labels alternating, which reads as a
+    // run that is stuck — and buried the steps that genuinely differ from each other.
+    vi.spyOn(api, "reviews").mockResolvedValue([]);
+    vi.spyOn(api, "reviewRun").mockResolvedValue(
+      runFixture({
+        stage: "judge_candidate",
+        stages: [
+          "load_context",
+          "select_initial_candidates",
+          "retrieve_policy_set",
+          "judge_candidate",
+          "review_candidate",
+          "judge_candidate",
+          "review_candidate",
+          "judge_candidate",
+        ],
+        candidates_to_judge: 15,
+        candidates_judged: 5,
+      }),
+    );
+
+    render(wrap(<RunPage />));
+
+    const progress = await screen.findByRole("list", { name: "Review progress" });
+    expect(within(progress).getByText("Judging candidate 6 of 15")).toBeInTheDocument();
+    // Two rows before it and none after: every turn through the loop is that one row.
+    expect(within(progress).getAllByRole("listitem")).toHaveLength(3);
+  });
+
+  it("counts the candidate loop as done once the run has left it", async () => {
+    vi.spyOn(api, "reviews").mockResolvedValue([]);
+    vi.spyOn(api, "reviewRun").mockResolvedValue(
+      runFixture({
+        status: "completed",
+        review_id: null,
+        stage: "record_review",
+        stages: ["judge_candidate", "record_review"],
+        candidates_to_judge: 15,
+        candidates_judged: 15,
+      }),
+    );
+
+    render(wrap(<RunPage />));
+
+    const progress = await screen.findByRole("list", { name: "Review progress" });
+    expect(within(progress).getByText("Judged 15 candidates")).toBeInTheDocument();
   });
 
   it("hands over to the review the moment there is one to read", async () => {

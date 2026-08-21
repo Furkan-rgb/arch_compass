@@ -11,11 +11,30 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 from pydantic_core import to_jsonable_python
+
+#: The named depths a provider offers, where it offers a depth rather than a switch.
+#:
+#: Google's is the vocabulary, because Google is the provider that has one: Gemini 3 takes
+#: `thinking_level` and the four words below, and has no way to be told simply "yes". A
+#: provider with a switch is still a switch — see `ThinkingMode`.
+THINKING_LEVELS = ("minimal", "low", "medium", "high")
+
+ThinkingLevel = Literal["minimal", "low", "medium", "high"]
+
+#: How hard a model is asked to think before it answers, in whichever of the two shapes the
+#: chosen provider actually has.
+#:
+#: `None` asks for nothing and leaves the model to its own default, which on a Gemini 3
+#: model means dynamic thinking rather than none. `True` and `False` are the switch Ollama
+#: has. A level is the dial Google has. Every adapter owes all of them, in its own spelling
+#: — see `google_thinking_level` for the one place a switch is read as a dial, and why
+#: `False` there is the floor rather than off.
+ThinkingMode = bool | ThinkingLevel | None
 
 
 class BoundaryDTO(BaseModel):

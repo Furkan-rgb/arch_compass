@@ -209,6 +209,47 @@ with something rather than with nothing. That is the difference between an explo
 something that helps decide the item. Repository-wide exploration stays on the repositories
 page, which is the page for a repository.
 
+### Atlas comes back as a tab, scoped to the review rather than to the repository
+
+This reverses half of the decision above, and the reason is worth writing down rather than
+quietly editing away.
+
+What was deleted was an explorer with no relationship to the work: a search box over the
+whole repository, seeded with five ANDed terms, opening on "0 matched". The objection was
+never that a map is not useful. It was that *that* map was not about this review.
+
+The tab that is back is the review's own neighbourhood. It anchors on the elements the
+findings were actually made about — every participant of every finding, by the atlas node the
+detector recorded and by qualified name where an older review has no node id — and asks the
+atlas for what surrounds them, under a node budget that shrinks the radius as the number of
+anchors grows. It opens on the **Judged** lens, so the first thing on screen is the elements a
+verdict was written about and whatever reaches them, each card carrying its finding's tone and
+a way into the finding. It is seeded with something, and it answers with something.
+
+So the peer question from *What was wrong* — is this a way of working through the review? —
+gets a different answer than it did for the old surface. Not because the rule changed, but
+because the surface did. The docket is still where the work happens; the atlas is where a
+reader goes to ask *where* the work is, and it is a document about the review in the same
+sense that Delta and Report are.
+
+Three things keep it honest, and each of them is a rule the old one broke:
+
+- **It says what it is reading.** Every card and every connector comes from the atlas the
+  review was pinned to. The header says so, and every exploration repeats it. A map that let a
+  reader believe it showed the repository as it stands now would be the more dangerous kind of
+  wrong.
+- **An empty answer is an answer.** Asking for an element's dependants and watching the map
+  not change is indistinguishable from a broken button, so every exploration and every trace
+  writes back one sentence — including "nothing came back". What the reader explicitly asked
+  for also survives every lens and every filter, because answering a request by not drawing
+  what came back is not answering it.
+- **Absent is not cleared.** Most of what is on the map was never looked at. The map draws no
+  verdict on those cards at all, rather than drawing them the way it draws a cleared one.
+
+The re-scoped Atlas inside the judgement-context drawer stays. The two are not the same
+question: the drawer's is "what else touches *this candidate*", asked while deciding it; the
+tab's is "what shape was this review looking at", asked before or after.
+
 ### The status ribbon is deleted
 
 The counts it uniquely carried go where they can be acted on. *Policies retrieved* moves to
@@ -371,6 +412,27 @@ in words, gives asking first-class standing, and says when *not* to ask, because
 interrupts a person and one raised on something the evidence already settles is worse than
 none.
 
+**The round is a stack, and that is the docket's rule applied to questions.** It used to be
+a slideshow: one question on screen, a stepper saying where you were, Previous and Next to
+move, and an animation to carry the swap. All four were paying for one decision — that
+answering a question should take it away — and that decision was already settled the other
+way two sections up: *rows open in place, and recording a decision opens the next row that
+wants a person while the row you just decided stays listed.* A clarification round is a list
+of things that want a person. It is a docket.
+
+So every question is on screen from the start. The one that wants you is open; the ones
+settled are single rows carrying **the answer that was given**, so the round reads back as a
+record of what you said rather than as a progress bar over questions you can no longer see;
+the ones still to come are single rows carrying their question, so nothing further down is a
+surprise waiting to happen. Answering or skipping opens the next row that wants a person —
+and where nothing else does, the row you just settled stays open, because a row closes when
+another one opens and with nothing to open nothing closes. That is not a special case for the
+round of one; the round of one is simply where it shows.
+
+Nothing travels, so there is nothing to animate but the opening itself, which is
+`--animate-expand` — the same token the docket's own rows use. The mirrored slide written for
+the swap was deleted with it.
+
 And the case has no other door. Constraints and decisions are gone from the domain: nothing
 in the product ever offered to write one and no review ever produced one, so the only way to
 fill them was hand-authoring YAML — the "confirm the architecture case" step from further up
@@ -423,6 +485,8 @@ except the last, which is not the kind of thing a test can hold.
 | The report leads with the summary, once | "leads the report with what the review comes to, and says it once" |
 | The docket has no box of its own to clip | `overflow.test.tsx` — "scrolls with the page rather than inside a box of its own" |
 | A question is answered by picking | `tests/browser/test_workspace.py` — "answering a clarification records a new revision" |
+| The round is a stack, not a slideshow | "stacks the round, and opens the next question when one is answered" |
+| A settled row still says what was said | "says where each question in the round stands, and reopens one" |
 | A case can only be told an answer | `tests/unit/test_case_management.py` — "a case has no way to be told anything but an answer" |
 | No count without a control | none; enforced by review against this document |
 
@@ -447,7 +511,8 @@ machine, the model and the person apart is placement and a line naming the autho
 `review-workbench.test.tsx` holds in exactly the way it used to hold the gutter.
 
 The clarification round's mechanics are untouched: proposed answers, writing your own, and an
-explicit skip, all of which the charter settles and none of which was wrong.
+explicit skip, all of which the charter settles and none of which was wrong. What changed is
+only the shape it is worked in — one question at a time became the stack described above.
 
 ## Where this is still open
 

@@ -27,6 +27,7 @@ from archcompass.reasoning.adapters.providers import (
     EMBEDDINGGEMMA_QUERY_PROMPT,
     GOOGLE_FIXED_SAMPLING_MODELS,
     TASK_PROMPTED_OLLAMA_MODELS,
+    google_thinking_level,
     ollama_model_family,
 )
 
@@ -95,6 +96,12 @@ def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:
             if config.model in GOOGLE_FIXED_SAMPLING_MODELS
             else {"temperature": 0.0}
         )
+        # The chosen depth, as the level Gemini 3 takes. Absent where nothing was asked
+        # for, because a request that names no level gets the model's dynamic thinking —
+        # which is a behaviour somebody can choose, not a gap to be filled in with a
+        # default of ours.
+        level = google_thinking_level(config.thinking)
+        thinking = {} if level is None else {"reasoning_effort": level}
         # `retries=0` leaves retrying to `archcompass.retrying`, which is the only place
         # that can wait for the length of a quota window, say in the log that it is
         # waiting, and fail as a `ProviderError` the API already knows how to report.
@@ -105,6 +112,7 @@ def build_chat_model(config: ReasoningModelConfig) -> BaseChatModel:
             request_timeout=config.timeout_seconds,
             retries=0,
             **sampling,
+            **thinking,
         )
     if config.provider in OPENAI_COMPATIBLE_PROVIDERS:
         # One branch for every vendor of this API, because the only thing that varies

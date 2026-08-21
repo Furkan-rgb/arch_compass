@@ -11,8 +11,22 @@ CandidateId = NewType("CandidateId", str)
 
 @dataclass(frozen=True, slots=True)
 class Participant:
+    """One named thing taking part in a candidate, and its part in it.
+
+    `node_id` is the atlas node this participant was detected on. It is carried rather than
+    looked up because the atlas is in hand at detection and nowhere afterwards — the same
+    reason `Candidate.relationships` resolves its endpoints there — and because a map of a
+    review has to put a verdict on the node the detector actually named, not on whichever
+    node happens to answer to the same qualified name later.
+
+    Optional, and never part of the identity: the name is what a candidate *is*, and a
+    finding stored before this field existed is still a finding. Anything drawing from it
+    must handle its absence rather than assume a rebuilt atlas will still hold the id.
+    """
+
     qualified_name: str
     role: str
+    node_id: str | None = None
 
     def __post_init__(self) -> None:
         require_text(self.qualified_name, "participant name")

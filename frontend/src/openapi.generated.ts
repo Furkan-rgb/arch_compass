@@ -99,7 +99,7 @@ export interface components {
     "AvailableModelResponse": {
     "provider": string;
     "model": string;
-    "thinking"?: boolean | null;
+    "thinking"?: boolean | "minimal" | "low" | "medium" | "high" | null;
     "label"?: string;
     "input_token_limit"?: number | null;
     "output_token_limit"?: number | null;
@@ -292,12 +292,12 @@ export interface components {
     "ModelIdentity": {
     "provider": string;
     "model": string;
-    "thinking"?: boolean | null;
+    "thinking"?: boolean | "minimal" | "low" | "medium" | "high" | null;
   };
     "ModelSelectionRequest": {
     "provider": string;
     "model": string;
-    "thinking"?: boolean | null;
+    "thinking"?: boolean | "minimal" | "low" | "medium" | "high" | null;
   };
     "NeighbourhoodQuery": {
     "kind": "forward_neighbourhood" | "reverse_neighbourhood";
@@ -322,6 +322,7 @@ export interface components {
     "ParticipantResponse": {
     "qualified_name": string;
     "role": string;
+    "node_id"?: string | null;
   };
     "PolicyBearingResponse": {
     "policy_id": string;
@@ -498,12 +499,14 @@ export interface components {
   };
     "ReviewContextQuery": {
     "kind": "review_context";
-    "node_ids": Array<string>;
+    "node_ids"?: Array<string>;
+    "qualified_names"?: Array<string>;
     "limit"?: number;
   };
     "ReviewContextRequest": {
     "root_path": string;
-    "node_ids": Array<string>;
+    "node_ids"?: Array<string>;
+    "qualified_names"?: Array<string>;
     "limit"?: number;
   };
     "ReviewConversationCreateRequest": {
@@ -552,6 +555,9 @@ export interface components {
     "stage": string;
     "stages": Array<string>;
     "failure": string;
+    "candidates_to_judge"?: number;
+    "candidates_judged"?: number;
+    "batch"?: string;
     "repository_name"?: string;
     "repository_root"?: string;
     "branch_name"?: string;

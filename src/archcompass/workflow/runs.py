@@ -42,6 +42,22 @@ class RunState:
     stage: str = ""
     #: Every stage seen, in order, so a reload can redraw the progress already made.
     stages: tuple[str, ...] = ()
+    #: How many candidates this round set out to judge, and how many now have a verdict.
+    #: Carried apart from `stages` because judging is a loop and a stage list is a sequence:
+    #: the loop entered fifteen times is one step that is fifteen deep, not fifteen steps,
+    #: and only a count can say that. Reset whenever a round selects its candidates, so a
+    #: second round counts its own work rather than continuing the first's.
+    candidates_to_judge: int = 0
+    candidates_judged: int = 0
+    #: What the provider did with the batch this run asked for, once it has done it.
+    #:
+    #: Empty until then, and empty for every run that was never routed to a batch at all.
+    #: Deliberately not set from the routing decision: `supports_batch` is a prediction, and
+    #: a run that reported a queued batch on the strength of it went on saying so through
+    #: the entire interactive fallback that followed the provider's refusal. `queued` means
+    #: a submission was accepted; `unavailable` means it was refused and the candidates were
+    #: judged one at a time instead.
+    batch: str = ""
     failure: str = ""
     started_at: datetime = field(default_factory=utc_now)
 
@@ -116,6 +132,16 @@ class ReviewRunner:
         """Record the review the run has produced, as soon as there is one to open."""
 
         self._update(run_id, review_id=review_id)
+
+    def report_judgements(self, run_id: str, *, judged: int, to_judge: int) -> None:
+        """How far through its candidates this round is."""
+
+        self._update(run_id, candidates_judged=judged, candidates_to_judge=to_judge)
+
+    def report_batch(self, run_id: str, outcome: str) -> None:
+        """What the provider did with the batch, as soon as it has done it."""
+
+        self._update(run_id, batch=outcome)
 
     def state(self, run_id: str) -> RunState | None:
         with self._lock:

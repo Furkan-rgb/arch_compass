@@ -42,10 +42,30 @@ const RIBBONS: Ribbon[] = [
 /** Two device pixels is enough for a hairline; past that it is memory for nothing. */
 const MAX_DENSITY = 2;
 
-function draw(canvas: HTMLCanvasElement) {
+/**
+ * How far past the band the sheet reaches, as a fraction of the band's own height.
+ *
+ * The field is drawn on a canvas taller than the section it belongs to, so the ribbons run
+ * out of the band rather than being cut off at its edge — up into the hero, and a little way
+ * down past it. Both are fractions rather than lengths so the canvas can be positioned with
+ * percentages: a length would have to be stated twice, once in CSS and once here, and the
+ * two would drift.
+ */
+export type Bleed = { top: number; bottom: number };
+
+const NO_BLEED: Bleed = { top: 0, bottom: 0 };
+
+function draw(canvas: HTMLCanvasElement, bleed: Bleed) {
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   if (!width || !height) return;
+
+  // Every ribbon is placed against the band, never against the canvas. The canvas is the
+  // larger of the two and grows with the bleed, so measuring from it would move the whole
+  // composition every time the bleed changed — which is how four ribbons across the band
+  // became one ribbon somewhere below it.
+  const span = height / (1 + bleed.top + bleed.bottom);
+  const origin = span * bleed.top;
 
   // jsdom has no 2D context. The band still renders; it simply has no field in it, which
   // is the same thing a reader with canvas disabled gets.
@@ -76,7 +96,8 @@ function draw(canvas: HTMLCanvasElement) {
       for (let x = 0; x <= width; x += 5) {
         const u = x / width;
         const y =
-          height * ribbon.y +
+          origin +
+          span * ribbon.y +
           offset +
           ribbon.slope * x +
           amplitude * Math.sin(u * 1.7 + ribbon.phase + across * 0.55) +
@@ -103,13 +124,15 @@ function draw(canvas: HTMLCanvasElement) {
   context.globalCompositeOperation = "source-over";
 }
 
-export function Field({ className }: { className?: string }) {
+export function Field({ bleed = NO_BLEED, className }: { bleed?: Bleed; className?: string }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
+  const { top, bottom } = bleed;
 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    draw(canvas);
+    const measure = { top, bottom };
+    draw(canvas, measure);
 
     // The band's height changes when its copy reflows, not only when the window does, so
     // this watches the element rather than the viewport.
@@ -117,14 +140,29 @@ export function Field({ className }: { className?: string }) {
     let frame = 0;
     const observer = new ResizeObserver(() => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => draw(canvas));
+      frame = requestAnimationFrame(() => draw(canvas, measure));
     });
     observer.observe(canvas);
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, []);
+  }, [top, bottom]);
 
-  return <canvas ref={ref} aria-hidden="true" className={className} />;
+  // The canvas is placed and masked from the same two numbers the ribbons are drawn from.
+  // It is full strength across the band and fades to nothing across each bleed, so the sheet
+  // has no edge anywhere a reader can see one — which is the whole reason it is oversized.
+  const whole = 1 + top + bottom;
+  // Width and height are stated rather than left to `inset-0`: a canvas is a replaced
+  // element, so `width: auto` is its intrinsic 300×150 and the `left`/`right` pair it was
+  // given is simply over-constrained and dropped. That is a canvas painting a full field
+  // into the top-left corner of the page, which is exactly what it did.
+  const style = {
+    top: `${-top * 100}%`,
+    width: "100%",
+    height: `${whole * 100}%`,
+    maskImage: `linear-gradient(to bottom, transparent 0, black ${((top / whole) * 100).toFixed(3)}%, black ${(((top + 1) / whole) * 100).toFixed(3)}%, transparent 100%)`,
+  };
+
+  return <canvas ref={ref} aria-hidden="true" style={style} className={className} />;
 }

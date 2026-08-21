@@ -64,6 +64,21 @@ The human owns the disposition — which is why `Finding` (what ArchCompass conc
 `StandingDecision` (what the team decided to do) are separate records, and why a decision
 never edits a judgement.
 
+A corollary, small enough to look like a coding convention and load-bearing enough to
+belong here: **a model may name what the application holds, and may never index into it.**
+Identity is the application's, so a list ArchCompass built for a prompt is never numbered for
+a model to point back into. Ask for the identifier and drop what does not match, or make one
+call about one thing so there is nothing to point at.
+
+The reason is that an ordinal has no wrong reading a program can see. Out of range it is
+fatal; in range but wrong it resolves to the wrong policy and is recorded for ever as a
+correct citation. A name has exactly one failure and it is visible: it matches nothing, and
+matching nothing can be dropped without losing the answer around it. This is not
+hypothetical — a clarification round that numbered every finding, forbade some of the numbers
+in prose and raised on the rest destroyed reviews that had already judged every candidate.
+`tests/unit/test_boundaries.py` sweeps the model schemas and fails on a field that asks for a
+place in a list.
+
 **3. A review is a record, not a message.** Reviews are immutable and sequenced per branch
 and case. That is what makes the second review meaningful: it can be compared with the
 first, candidates can be tracked through succession, and "we already decided this" survives

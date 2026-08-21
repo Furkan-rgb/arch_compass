@@ -5,11 +5,36 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Callable
 
+from archcompass.ports.batch_refusals import fingerprint_key
 from archcompass.reasoning.records import (
     EmbeddingModelSelection,
     ReasoningModelSelection,
 )
-from archcompass.records import utc_now
+from archcompass.records import THINKING_LEVELS, ThinkingMode, utc_now
+
+
+def _thinking(stored: object) -> ThinkingMode:
+    """A stored thinking mode, back in the shape it was chosen in.
+
+    Two shapes go into one column and they have to come out told apart: a switch was stored
+    as 1 or 0 and a level as the word itself. Reading a level back would otherwise depend on
+    how a union happens to coerce, and a row written by an older build — where every mode
+    was forced through `int()` — still reads as the switch it was.
+
+    Anything else is treated as no mode at all rather than raised on. A selection is a
+    preference, and the honest failure for one that cannot be read is the model's own
+    default, not a workspace that will not open.
+    """
+
+    if stored is None:
+        return None
+    if isinstance(stored, bool):
+        return stored
+    if isinstance(stored, int):
+        return bool(stored)
+    if isinstance(stored, str) and stored in THINKING_LEVELS:
+        return stored  # type: ignore[return-value]
+    return None
 
 
 class SQLiteCoreModelSelectionRepository:
@@ -22,6 +47,12 @@ class SQLiteCoreModelSelectionRepository:
                     id INTEGER PRIMARY KEY CHECK(id = 1),
                     provider TEXT NOT NULL,
                     model TEXT NOT NULL,
+                    -- `ThinkingMode` is two shapes, not one: a switch, which every column
+                    -- here was built for, and a level — `minimal`/`low`/`medium`/`high` —
+                    -- which Gemini 3 has instead of a switch. The declaration says INTEGER
+                    -- because that is what shipped, and SQLite stores what it is given
+                    -- regardless: a level is kept as text, a switch as 1 or 0. `_thinking`
+                    -- below is the one place the two are told apart on the way back.
                     thinking INTEGER,
                     selected_at TEXT NOT NULL,
                     failed_at TEXT,
@@ -39,7 +70,11 @@ class SQLiteCoreModelSelectionRepository:
                 "failure_detail, input_token_limit, output_token_limit "
                 "FROM core_reasoning_model_choice WHERE id = 1"
             ).fetchone()
-        return None if row is None else ReasoningModelSelection.model_validate(dict(row))
+        if row is None:
+            return None
+        stored = dict(row)
+        stored["thinking"] = _thinking(stored["thinking"])
+        return ReasoningModelSelection.model_validate(stored)
 
     def set(self, selection: ReasoningModelSelection) -> ReasoningModelSelection:
         with self._connect() as connection:
@@ -59,7 +94,12 @@ class SQLiteCoreModelSelectionRepository:
                 (
                     selection.provider,
                     selection.model,
-                    None if selection.thinking is None else int(selection.thinking),
+                    # Verbatim. This used to be `int(selection.thinking)`, which was written
+                    # when a thinking mode could only be a switch and which raises on every
+                    # Gemini 3 model — `int("high")` is a `ValueError`, and choosing one in
+                    # the picker answered 500. sqlite3 stores a bool as 1 or 0 and a level
+                    # as the word itself, which is exactly what is wanted.
+                    selection.thinking,
                     selection.selected_at.isoformat(),
                     selection.input_token_limit,
                     selection.output_token_limit,
@@ -142,3 +182,54 @@ class SQLiteEmbeddingModelSelectionRepository:
     def clear(self) -> None:
         with self._connect() as connection:
             connection.execute("DELETE FROM embedding_model_choice WHERE id = 1")
+
+
+class SQLiteBatchRefusalRepository:
+    """Keys the provider's batch facility has turned away, remembered across restarts.
+
+    `400 FAILED_PRECONDITION` from the Gemini Batch API is a fact about the project behind
+    the key: it is not eligible, and it will not be eligible tomorrow because the process
+    restarted. Holding that only in memory cost a rejected submission on the first review of
+    every session, and — worse — a review that told its reader it had queued a batch while
+    it judged every candidate interactively.
+
+    What is stored is a fingerprint, never the key. This has to answer "was this one
+    refused", and nothing here has any business being able to reproduce a credential.
+    """
+
+    def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
+        self._connect = connect
+        with self._connect() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS batch_refusal (
+                    key_fingerprint TEXT PRIMARY KEY,
+                    refused_at TEXT NOT NULL
+                )
+                """
+            )
+
+    def refused(self, api_key: str) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM batch_refusal WHERE key_fingerprint = ?",
+                (fingerprint_key(api_key),),
+            ).fetchone()
+        return row is not None
+
+    def record(self, api_key: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO batch_refusal(key_fingerprint, refused_at) "
+                "VALUES (?, ?)",
+                (fingerprint_key(api_key), utc_now().isoformat()),
+            )
+
+    def forget(self, api_key: str) -> None:
+        """Give a key another chance — for a project that has since enabled billing."""
+
+        with self._connect() as connection:
+            connection.execute(
+                "DELETE FROM batch_refusal WHERE key_fingerprint = ?",
+                (fingerprint_key(api_key),),
+            )

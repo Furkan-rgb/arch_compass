@@ -34,12 +34,29 @@ function offenders(pattern: RegExp, allowed: ReadonlySet<string> = new Set()): s
 }
 
 describe("the design system", () => {
-  it("has no accent hue to reach for", () => {
-    // The tokens are deleted rather than deprecated, which means a leftover `text-accent`
-    // compiles to nothing at all and disappears in review. This is what notices.
+  /**
+   * There is an accent again, and this is the budget on it.
+   *
+   * The first system had an indigo accent and the same written rule, unenforced, and the
+   * indigo reached 29 of 40 components — every one of them a local decision that looked
+   * reasonable. So the accent is back on the terms it lost the first time: it means one thing,
+   * look here, and it is spent in four places. Three of them are components and they are named
+   * below. The fourth is a material verdict, which is painted from a tone in `lib/format` and
+   * guarded by `verdict-hues.test.ts` rather than here.
+   *
+   * A focus ring is deliberately not on this list. It answers "where is the keyboard", which
+   * is a question about the reader rather than about the content, and a red ring makes every
+   * tab press read as a validation failure.
+   */
+  it("spends the accent in the places it was given, and nowhere else", () => {
+    const allowed = new Set([
+      "ui/brand.tsx", //  the mark: the identity
+      "ui/button.tsx", // the primary action, and the destructive one at a wash
+      "ui/tabs.tsx", //   the selected tab's underline — an indicator, never a slab
+    ]);
     expect(
-      offenders(/\b(?:bg|text|border|ring|from|to|via|decoration)-accent\b/),
-      "chrome is ink in this system — see docs/design-system.md",
+      offenders(/\b(?:bg|text|border|ring|from|to|via|decoration|fill|stroke)-accent(?:-[a-z-]+)?\b/, allowed),
+      "the accent is the mark, the primary action, a link to the source, and a material verdict",
     ).toEqual([]);
   });
 
@@ -158,7 +175,7 @@ describe("the design system", () => {
     const allowed = new Set([
       "ui/drawer.tsx",
       "ui/command-palette.tsx",
-      "features/landing/corpus-card.tsx",
+      "features/landing/specimen.tsx",
     ]);
     expect(
       offenders(/\bshadow-(?:float|hero|panel|sm|md|lg|xl|2xl|inner)\b/, allowed),

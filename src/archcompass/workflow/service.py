@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sized
 from dataclasses import dataclass, replace
 from typing import Protocol, cast
 
@@ -80,6 +80,44 @@ class SubmittedAnswer:
 class ReviewProgress:
     stage: str
     review: Review | None = None
+
+
+#: The nodes that produce a verdict. `judge_candidate` is one candidate's turn through the
+#: per-candidate subgraph; `review_candidates` is the whole selection judged in one batch.
+#: Both answer the same question a watcher is asking — how many are done — so both count.
+_JUDGING_STAGES = frozenset({"judge_candidate", "review_candidates"})
+
+
+@dataclass
+class _JudgingProgress:
+    """How far through its candidates a round is, read off the graph's own updates.
+
+    Nothing here is invented for the progress display: the total is the selection a round
+    made, and the count is the findings its judging nodes returned. A round that selects
+    again — a second round, after answers — starts over, because the reader is watching this
+    round rather than the run's whole history.
+    """
+
+    to_judge: int = 0
+    judged: int = 0
+
+    def observe(self, stage: str, update: Mapping[str, object] | None) -> bool:
+        """Take in one graph update. True where the counts moved and are worth reporting."""
+
+        if update is None:
+            return False
+        selected = update.get("selected_candidates")
+        if isinstance(selected, Sized):
+            self.to_judge = len(selected)
+            self.judged = 0
+            return True
+        if stage not in _JUDGING_STAGES:
+            return False
+        findings = update.get("findings")
+        if not isinstance(findings, Sized):
+            return False
+        self.judged = min(self.judged + len(findings), self.to_judge)
+        return True
 
 
 class ReviewWorkflowService:
@@ -195,15 +233,32 @@ class ReviewWorkflowService:
         )
 
         def work(report: Callable[[str], None]) -> None:
+            judging = _JudgingProgress()
             try:
                 for raw in self._graph.stream(
                     source,
                     self._config(thread_id),
-                    stream_mode="updates",
+                    # `custom` alongside `updates` because one thing a watcher needs to know
+                    # arrives while a node is still running rather than when it returns:
+                    # whether the provider took the batch. A node's return value cannot say
+                    # so — it arrives an hour later, when the answer no longer matters.
+                    stream_mode=["updates", "custom"],
                     subgraphs=True,
                 ):
-                    stage, update = self._progress_update(raw)
+                    mode, payload = self._streamed(raw)
+                    if mode == "custom":
+                        outcome = self._batch_outcome(payload)
+                        if outcome:
+                            self._runner.report_batch(thread_id, outcome)
+                        continue
+                    stage, update = self._progress_update(payload)
                     report(stage)
+                    if judging.observe(stage, update):
+                        self._runner.report_judgements(
+                            thread_id,
+                            judged=judging.judged,
+                            to_judge=judging.to_judge,
+                        )
                     review = update.get("review") if update is not None else None
                     if isinstance(review, Review):
                         bound = self._bind(thread_id, review)
@@ -415,6 +470,33 @@ class ReviewWorkflowService:
         recorded = self._reviews.record(failure)
         self._executions.bind(thread_id, recorded)
         return recorded
+
+    @staticmethod
+    def _batch_outcome(payload: object) -> str:
+        """What a `custom` event says about the batch, or nothing if it says something else."""
+
+        if not isinstance(payload, Mapping):
+            return ""
+        emitted = cast("Mapping[object, object]", payload).get("batch")
+        return emitted if isinstance(emitted, str) else ""
+
+    @staticmethod
+    def _streamed(raw: object) -> tuple[str, object]:
+        """One streamed item as `(mode, payload)`, however the graph wrapped it.
+
+        Asking for more than one stream mode changes the shape of every item — `(namespace,
+        mode, payload)` rather than `(namespace, payload)` — so the unwrapping is here and
+        the loop reads modes rather than guessing from the payload. An item that arrives in
+        neither shape is treated as an update, which is what it was before this existed.
+        """
+
+        if isinstance(raw, tuple):
+            parts = cast("tuple[object, ...]", raw)
+            if len(parts) == 3:
+                return str(parts[1]), parts[2]
+            if len(parts) == 2:
+                return "updates", parts[1]
+        return "updates", cast("object", raw)
 
     @staticmethod
     def _progress_update(raw: object) -> tuple[str, Mapping[str, object] | None]:

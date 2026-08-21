@@ -13,7 +13,7 @@ from pathlib import Path
 from pydantic import Field, model_validator
 
 from archcompass.domain.errors import ConfigurationError
-from archcompass.records import BoundaryDTO
+from archcompass.records import BoundaryDTO, ThinkingMode
 
 ENVIRONMENT_FILE_NAME = ".env"
 
@@ -134,7 +134,12 @@ class ReasoningModelConfig(BoundaryDTO):
     #: Thinking tokens are spent from `max_output_tokens` on both providers, so requiring
     #: it on a tight output budget can leave the structured answer truncated — which
     #: surfaces as a validation failure rather than as a silently wrong answer.
-    thinking: bool | None = None
+    #: A level where the provider has levels: `minimal`, `low`, `medium` or `high`. Gemini
+    #: 3 takes exactly these and has no boolean at all, so `true` there is read as `high` and
+    #: `false` as `minimal` — the floor, because a Gemini 3 model cannot be told to stop
+    #: thinking. That is an approximation and it is named here rather than hidden: where the
+    #: distinction matters, name the level.
+    thinking: ThinkingMode = None
     #: How many judgements may be in flight against this provider at once. A property of the
     #: provider rather than of the review, which is why it travels on the resolved
     #: configuration: a hosted API answers several requests at a time from a fleet that was

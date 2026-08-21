@@ -15,6 +15,7 @@ from archcompass.persistence.executions import SQLiteReviewExecutionRepository
 from archcompass.persistence.findings import SQLiteCoreFindingCache
 from archcompass.persistence.lineage import SQLiteLineageRepository
 from archcompass.persistence.model_selection import (
+    SQLiteBatchRefusalRepository,
     SQLiteCoreModelSelectionRepository,
     SQLiteEmbeddingModelSelectionRepository,
 )
@@ -26,6 +27,7 @@ from archcompass.persistence.sqlite.database import SQLiteDatabase
 
 __all__ = [
     "SQLiteAtlasRepository",
+    "SQLiteBatchRefusalRepository",
     "SQLiteCoreCaseRepository",
     "SQLiteCoreConversationRepository",
     "SQLiteCoreFindingCache",

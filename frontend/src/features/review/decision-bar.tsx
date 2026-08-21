@@ -19,7 +19,7 @@ import { decisionIsStale } from "./docket-rules";
  * owning the widest control in the bar. A reason input on permanent display was empty in
  * every state but one, and it was wider than the three decisions it sat above.
  */
-const CHOICES: Array<{ id: DecisionDisposition; label: string; key: string; help: string }> = [
+export const CHOICES: Array<{ id: DecisionDisposition; label: string; key: string; help: string }> = [
   {
     id: "accept",
     label: "Accept and act",

@@ -21,6 +21,7 @@ from archcompass.presentation.web.routes.workspace import (
     describe_workspace,
 )
 from archcompass.presentation.web.schemas import APIModel, problem_responses
+from archcompass.records import ThinkingMode
 
 
 class AvailableModelResponse(APIModel):
@@ -33,7 +34,7 @@ class AvailableModelResponse(APIModel):
 
     provider: str
     model: str
-    thinking: bool | None = None
+    thinking: ThinkingMode = None
     label: str = ""
     input_token_limit: int | None = None
     output_token_limit: int | None = None
@@ -65,7 +66,7 @@ class ModelSelectionRequest(APIModel):
     model: str = Field(min_length=1)
     #: Absent means the model's own default, which is a third choice rather than the absence
     #: of one — so it is sent as null rather than omitted where a page means it.
-    thinking: bool | None = None
+    thinking: ThinkingMode = None
 
 
 class EmbeddingModelResponse(APIModel):

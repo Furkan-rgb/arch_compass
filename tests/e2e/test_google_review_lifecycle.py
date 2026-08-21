@@ -12,9 +12,12 @@ wrote.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from archcompass.configuration import EmbeddingModelConfig
+from archcompass.domain.errors import ProviderError
 from archcompass.reasoning.adapters.factory import embedding_identity
 from tests.e2e.conftest import (
     EMBEDDING_DIMENSIONS,
@@ -59,6 +62,45 @@ def test_a_real_review_judges_every_candidate_within_the_domain_vocabulary(
         for bearing in finding["policies"]
     }
     assert cited <= lifecycle.corpus_policy_ids
+
+
+def test_the_summary_is_short_and_says_nothing_the_reader_already_knows(
+    lifecycle: Lifecycle,
+) -> None:
+    """The opening paragraph, held to being an answer rather than a word count.
+
+    The contract used to ask for "three to five sentences", and a floor on a summary is an
+    instruction to pad: a first review with one material finding in it came back with the
+    sentence that said so, plus two manufactured to reach the floor — that this was the
+    first review, that there was nothing to compare it against, that the team's intent was
+    not written down. Nothing checked, because nothing in the suite read the summary at all.
+
+    The bounds here are deliberately loose. This is prose from a live model and the point is
+    not to pin its wording; it is to fail when the paragraph goes back to being a paragraph.
+    """
+
+    summary = (lifecycle.first.get("synopsis") or "").strip()
+    if not summary:
+        pytest.skip("no summary was written for this review")
+
+    assert "\n" not in summary, "a summary is one paragraph, not a document"
+    assert not summary.lstrip().startswith(("#", "-", "*")), "no headings and no bullets"
+
+    # Sentence-ish: the ceiling is three, and one over is slack for an abbreviation or a
+    # decimal that this split would miscount.
+    sentences = [part for part in re.split(r"(?<=[.!?])\s+", summary) if part.strip()]
+    assert len(sentences) <= 4, f"{len(sentences)} sentences: {summary}"
+
+    # The three sentences the floor used to manufacture, and the frame that came with them.
+    padding = [
+        "first review",
+        "no previous",
+        "nothing to compare",
+        "team's intent",
+        "requires attention regarding",
+    ]
+    said = [phrase for phrase in padding if phrase in summary.lower()]
+    assert not said, f"the summary spends itself on {said}: {summary}"
 
 
 def test_questions_ground_in_candidates_the_application_identified(
@@ -261,3 +303,44 @@ def test_a_hinge_is_checked_against_the_repository_before_it_reaches_a_person(
         # The finding names its own record by content hash, which is what lets the workbench
         # show a reader the checking behind the verdict they are looking at.
         assert finding["investigation_identity"], "an investigated finding named no record"
+
+
+def test_a_live_model_resolves_its_hinges_in_the_shape_the_schema_requires(
+    lifecycle: Lifecycle,
+) -> None:
+    """The test above cannot fail, and this is the one that can.
+
+    `investigate_hinges` catches every exception on purpose: losing an investigation must
+    never cost the review the question it belongs to. The consequence is that a run where
+    the model answered in a shape `HingeResolutionOutput` rejects finishes green — the
+    manifest comes back empty, and the assertions on it skip themselves saying no hinge was
+    reached, which is a different fact and the opposite one.
+
+    This reads the losses instead. A hinge resolution is a tool loop and a structured call
+    in one breath, and the cross-field rules — a resolved hinge is not still hinged, an
+    unresolved one settles nothing — are rules no JSON schema can carry, so they hold only
+    if the prompt states them and the model honours them. Nothing offline proves that: every
+    other test drives this through a stub that answers in the right shape by construction.
+
+    An exhausted free tier is not a defect and skips, exactly as the fixture treats it
+    everywhere else. Every other loss fails, and the exception it fails with is the one the
+    review threw away.
+    """
+
+    losses = lifecycle.dropped_investigations
+    if not losses:
+        return
+
+    quota = tuple(loss for loss in losses if isinstance(loss, ProviderError))
+    if len(quota) == len(losses):
+        pytest.skip(f"the free tier ran out mid-investigation: {str(quota[0])[:200]}")
+
+    other = [loss for loss in losses if not isinstance(loss, ProviderError)]
+    reported = "\n\n".join(
+        f"{type(loss).__name__}: {loss}"[:600] for loss in other
+    )
+    raise AssertionError(
+        f"{len(other)} of {len(losses)} hinge investigations were thrown away by "
+        f"{REASONING_MODEL}, so the review asked its unimproved question instead:\n\n"
+        f"{reported}"
+    )

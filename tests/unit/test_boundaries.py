@@ -390,3 +390,73 @@ def test_every_record_a_checkpoint_can_hold_is_named_in_the_allowlist() -> None:
     assert not listed - reachable, "these are allowlisted but no longer reachable: " + str(
         sorted(listed - reachable)
     )
+
+
+#: Field names that would put a model's finger on a place in a list the application built.
+#:
+#: The plain nouns are here as well as the suffixed ones: `positions` was the field that
+#: broke, and a rename to `index` would satisfy a suffix-only sweep while changing nothing.
+_ORDINAL_NAMES = ("position", "positions", "index", "indexes", "indices", "ordinal")
+
+
+def _output_schema_fields(path: Path) -> list[tuple[str, str]]:
+    """Every annotated field on every Pydantic model in one file, as (class, field)."""
+
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    fields: list[tuple[str, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if not any(
+            isinstance(base, ast.Name) and base.id == "BaseModel" for base in node.bases
+        ):
+            continue
+        fields.extend(
+            (node.name, statement.target.id)
+            for statement in node.body
+            if isinstance(statement, ast.AnnAssign)
+            and isinstance(statement.target, ast.Name)
+        )
+    return fields
+
+
+def test_no_model_output_schema_asks_for_a_place_in_one_of_our_lists() -> None:
+    """A model may name what the application holds. It may never index into it.
+
+    This is the rule in `docs/charter.md`, and it is here because the failure it prevents is
+    invisible until a review dies. A judgement listed its policies `[1] [2] [3]` and took an
+    ordinal back; a clarification round listed every finding the same way, told the model in
+    prose which numbers were forbidden, and raised when it used one — losing a review that
+    had already judged every candidate.
+
+    Both halves of the damage come from the same property. An ordinal out of range is fatal,
+    and an ordinal in range but wrong resolves to the wrong policy and is recorded for ever
+    as a correct citation. A name has neither reading: it matches something the application
+    holds or it visibly matches nothing, and matching nothing can be dropped.
+
+    Two ways to satisfy it. Where one call handles one thing, do not ask at all — the
+    identity is the call, as `LangChainQuestionGenerator` now does with one question per held
+    finding. Where one call spans many, as a conversation citing several findings does, ask
+    for the identifier and drop the ones you do not recognise.
+    """
+
+    root = SOURCE_ROOT / "reasoning"
+    assert root.is_dir(), "reasoning/ is gone; this guard sweeps nothing"
+
+    schemas = [
+        (path, name, field)
+        for path in _python_files(root)
+        for name, field in _output_schema_fields(path)
+    ]
+    assert schemas, "no model output schemas were found; this guard sweeps nothing"
+
+    offenders = [
+        f"{path.relative_to(SOURCE_ROOT)}: {name}.{field}"
+        for path, name, field in schemas
+        if field in _ORDINAL_NAMES or field.rsplit("_", 1)[-1] in _ORDINAL_NAMES
+    ]
+    assert not offenders, (
+        "a model is being asked for a place in a list the application built: "
+        + str(sorted(offenders))
+        + " — ask for the identifier instead, or fan the call out so there is nothing to point at"
+    )

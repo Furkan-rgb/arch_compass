@@ -19,7 +19,7 @@ from datetime import datetime
 
 from pydantic import Field
 
-from archcompass.records import BoundaryDTO, utc_now
+from archcompass.records import BoundaryDTO, ThinkingMode, utc_now
 
 
 class AvailableModel(BoundaryDTO):
@@ -37,13 +37,15 @@ class AvailableModel(BoundaryDTO):
     #: why these are only ever applied downwards.
     input_token_limit: int | None = None
     output_token_limit: int | None = None
-    #: The thinking modes this model genuinely offers, as the provider reported them —
-    #: `True` requires reasoning, `False` forbids it, `None` leaves the model to its own
-    #: default. A model that can think is offered both ways; one that cannot is offered as
-    #: the single `None` row, because forbidding reasoning is still a request and there is
-    #: nothing there to ask. Which models are offered at all is the adapter's own decision;
-    #: this is not, and was wrong in both directions while it was declared by hand.
-    thinking_modes: tuple[bool | None, ...] = (None,)
+    #: The thinking modes this model genuinely offers, as the provider reported them.
+    #: `None` leaves the model to its own default; a bool is a switch; a level is a dial.
+    #: Which of the two a provider gets is the provider's business — Ollama has a switch and
+    #: Gemini 3 has `minimal`/`low`/`medium`/`high` and no switch — and a model that cannot
+    #: think at all is offered as the single `None` row, because forbidding reasoning is
+    #: still a request and there is nothing there to ask. Which models are offered at all is
+    #: the adapter's own decision; this is not, and was wrong in both directions while it was
+    #: declared by hand.
+    thinking_modes: tuple[ThinkingMode, ...] = (None,)
 
 
 class ProbeResult(BoundaryDTO):
@@ -87,9 +89,9 @@ class ModelCandidate(BoundaryDTO):
 
     provider: str
     model: str
-    #: `True` requires reasoning, `False` forbids it, `None` leaves the model to its own
+    #: The depth this row asks for — a level, a switch, or `None` for the model's own
     #: default. Part of the identity: a candidate is (provider, model, thinking).
-    thinking: bool | None = None
+    thinking: ThinkingMode = None
     label: str = ""
     input_token_limit: int | None = None
     output_token_limit: int | None = None
@@ -121,10 +123,10 @@ class ReasoningModelSelection(BoundaryDTO):
 
     provider: str
     model: str
-    #: `True` requires reasoning, `False` forbids it, `None` leaves the model to its own
-    #: default. Stored rather than derived: it is part of what was picked, and the same
-    #: model offers it both ways where the model supports both.
-    thinking: bool | None = None
+    #: The depth this workspace picked — a level where the provider has levels, a switch
+    #: where it has a switch, `None` for the model's own default. Stored rather than derived:
+    #: it is part of what was picked, and one model is offered once per depth it has.
+    thinking: ThinkingMode = None
     selected_at: datetime = Field(default_factory=utc_now)
     #: When a run against this selection last failed, and what the provider said. A probe
     #: cannot discover this — it only asks whether the model is listed, and an exhausted
@@ -151,7 +153,7 @@ class ReasoningModelStatus(BoundaryDTO):
     selection: ReasoningModelSelection | None = None
     provider: str = ""
     model: str = ""
-    thinking: bool | None = None
+    thinking: ThinkingMode = None
     #: True where this process was told which model to use, by `--provider` and `--model`.
     #: Then the choice is not the workspace's to make: the command said which provider this
     #: run costs against, and a stored selection quietly overriding it would make the flags

@@ -6,12 +6,14 @@ import logging
 from collections.abc import Callable, Mapping
 from typing import cast
 
+from langgraph.config import get_stream_writer
 from langgraph.types import interrupt
 
 from archcompass.domain import Answer, Finding, RecordedInvestigation
 from archcompass.ports.capabilities import (
     ArchitectureJudge,
     BatchArchitectureJudge,
+    BatchOutcome,
     CandidateDetector,
     CaseReviser,
     ContextLoader,
@@ -167,7 +169,18 @@ def review_candidates_node(retriever: PolicyRetriever, judge: ArchitectureJudge)
             )
             for candidate in selected
         )
-        findings = judge.judge_all(requests)
+        # What the provider actually did, told to whoever is watching the run the moment it
+        # does it. A custom stream event rather than part of this node's return value,
+        # because the return value arrives when judging is over and the whole reason anybody
+        # wants to know is that a batch takes an hour. The node is the right place for it:
+        # the graph's streaming belongs to the workflow layer, and a reasoning adapter that
+        # imported it would be a judge that knows what a run is.
+        writer = get_stream_writer()
+
+        def observed(outcome: BatchOutcome) -> None:
+            writer({"batch": outcome})
+
+        findings = judge.judge_all(requests, observe=observed)
         if len(findings) != len(requests):
             raise ValueError(
                 f"the judge answered {len(findings)} of {len(requests)} candidates"
@@ -240,20 +253,33 @@ def investigate_hinges_node(investigator: HingeInvestigator) -> Node:
 
 
 def generate_questions_node(generator: QuestionGenerator) -> Node:
+    """The round's questions, or none, but never the loss of the review that earned them.
+
+    A clarification round is an improvement to a review. By the time this node runs every
+    candidate has been retrieved for, judged and investigated, and letting a failure here
+    propagate throws all of that away to save nothing — which is exactly what happened when
+    a model named a finding this node had no question for. So it degrades like
+    `investigate_hinges` above it: no questions, a warning, and a review that finishes
+    instead of one that failed.
+    """
+
     def generate_questions(state: ReviewState) -> dict[str, object]:
         ordered = tuple(
             state["findings"][str(candidate.id)]
             for candidate in state["candidates"]
             if str(candidate.id) in state["findings"]
         )
-        return {
-            "questions": generator.generate(
+        try:
+            questions = generator.generate(
                 state["case"],
                 ordered,
                 round=state["round"],
                 excluded_equivalence_keys=state["excluded_equivalence_keys"],
             )
-        }
+        except Exception:
+            _log.warning("This review asked nothing this round", exc_info=True)
+            return {"questions": ()}
+        return {"questions": questions}
 
     return generate_questions
 
