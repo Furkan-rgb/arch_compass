@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -14,29 +15,37 @@ from archcompass.domain import (
     Candidate,
     CaseFacet,
     Finding,
+    InvestigationLookup,
     Participant,
     Policy,
     PolicyScope,
     PolicyStrength,
     Question,
+    RecordedInvestigation,
     RepositoryAtlas,
     RepositoryRef,
+    RetrievalProvenance,
     Review,
     ReviewDelta,
     ReviewStatus,
     Verdict,
 )
 from archcompass.domain._support import new_id, utc_now
+from archcompass.domain.errors import ProviderError
 from archcompass.persistence.executions import SQLiteReviewExecutionRepository
 from archcompass.persistence.reviews import SQLiteCoreReviewRepository
 from archcompass.policies.retrieval import DensePolicyRetriever, RejudgeAllCandidates
 from archcompass.ports.capabilities import (
     CandidateSelection,
+    HingeInvestigator,
+    InvestigatedFinding,
     LoadedReviewContext,
     ReviewDraft,
+    ReviewSynopsis,
 )
 from archcompass.ports.dense_policy_index import DensePolicyMatch
 from archcompass.workflow import ReviewWorkflowCapabilities, build_review_graph
+from archcompass.workflow.defaults import DeterministicReviewComposer, NoHingeInvestigation
 from archcompass.workflow.service import ReviewWorkflowService
 
 
@@ -269,6 +278,7 @@ def test_graph_exposes_capability_sequence_and_candidate_fanout(tmp_path: Path) 
     assert "detect_candidates" in rendered
     assert "calculate_delta" in rendered
     assert "review_candidate" in rendered
+    assert "investigate_hinges" in rendered
     assert "generate_questions" in rendered
     assert "select_candidates_for_rejudgement" in rendered
 
@@ -360,3 +370,405 @@ def test_workflow_records_a_failed_snapshot_after_context_exists(tmp_path: Path)
     assert failed[0].status is ReviewStatus.FAILED
     assert failed[0].failure == "RuntimeError: provider stopped"
     assert failed[0].retrieval_manifest == ()
+
+
+class Synopsist:
+    """A stand-in for the model asked what the review comes to."""
+
+    def __init__(self) -> None:
+        self.asked: list[tuple[int, bool]] = []
+
+    def write(
+        self,
+        case: ArchitectureCase,
+        findings: tuple[Finding, ...],
+        *,
+        questions: tuple[Question, ...],
+        delta: ReviewDelta,
+        previous: Review | None,
+        waiting: bool,
+    ) -> ReviewSynopsis | None:
+        self.asked.append((len(findings), waiting))
+        return ReviewSynopsis("the review comes to one thing", "stub:summariser")
+
+
+def test_the_summary_is_written_once_per_review_and_kept_on_it(tmp_path: Path) -> None:
+    """A review is a record, so the prose about it is part of the record.
+
+    Composed on the way to the composer rather than when somebody opens the report: two
+    readers of one immutable review have to see one document, and the Markdown that is
+    downloaded, attached to a pull request and rendered on the page is the same string.
+
+    The waiting review gets its own — it is a document a reviewer may hand over part-way
+    through a clarification round — which is why the writer is asked twice for one lineage.
+    """
+
+    repository = RepositoryRef("repo-1", tmp_path.resolve(), "branch-1", "content-1")
+    case = ArchitectureCase.create()
+    recorder = Recorder()
+    synopsist = Synopsist()
+    graph = build_review_graph(
+        ReviewWorkflowCapabilities(
+            context=Context(repository, case),
+            analyzer=Analyzer(),
+            detector=Detector(),
+            revisions=Revisions(),
+            initial_candidates=Initial(),
+            corpus=Corpus(),
+            retriever=DensePolicyRetriever(Index(), top_k=8),
+            judge=Judge(),
+            questions=Questions(),
+            rejudgements=RejudgeAllCandidates(),
+            cases=Cases(),
+            composer=DeterministicReviewComposer(),
+            recorder=recorder,
+            synopsist=synopsist,
+        ),
+        checkpointer=InMemorySaver(),
+    )
+    config = {"configurable": {"thread_id": "summary-thread"}}
+    paused = graph.invoke(
+        {
+            "repository_id": repository.id,
+            "branch_id": repository.branch_id,
+            "case_id": case.id,
+            "case_revision": None,
+            "ci": False,
+        },
+        config,
+    )
+    question = paused["questions"][0]
+    answer = Answer(question, AnswerStatus.ANSWERED, "No", "reader", utc_now())
+
+    completed = graph.invoke(Command(resume={"answers": [answer]}), config)
+
+    review = completed["review"]
+    assert review.synopsis == "the review comes to one thing"
+    assert review.synopsis_identity == "stub:summariser"
+    assert review.markdown_report is not None
+    assert "**In summary.** The review comes to one thing." in review.markdown_report
+    assert "- **Summarised by** `stub:summariser`" in review.markdown_report
+    assert [waiting for _, waiting in synopsist.asked] == [True, False]
+    assert all(count > 0 for count, _ in synopsist.asked)
+
+
+def test_a_workspace_with_no_summariser_composes_the_same_review(tmp_path: Path) -> None:
+    """The report opens on its counts, as it did before a summary existed."""
+
+    repository = RepositoryRef("repo-1", tmp_path.resolve(), "branch-1", "content-1")
+    case = ArchitectureCase.create()
+    graph = build_review_graph(
+        ReviewWorkflowCapabilities(
+            context=Context(repository, case),
+            analyzer=Analyzer(),
+            detector=Detector(),
+            revisions=Revisions(),
+            initial_candidates=Initial(),
+            corpus=Corpus(),
+            retriever=DensePolicyRetriever(Index(), top_k=8),
+            judge=Judge(),
+            questions=Questions(),
+            rejudgements=RejudgeAllCandidates(),
+            cases=Cases(),
+            composer=DeterministicReviewComposer(),
+            recorder=Recorder(),
+        ),
+        checkpointer=InMemorySaver(),
+    )
+    config = {"configurable": {"thread_id": "no-summary-thread"}}
+    graph.invoke(
+        {
+            "repository_id": repository.id,
+            "branch_id": repository.branch_id,
+            "case_id": case.id,
+            "case_revision": None,
+            "ci": False,
+        },
+        config,
+    )
+
+    completed = graph.invoke(Command(resume={"answers": [], "stop": True}), config)
+
+    review = completed["review"]
+    assert review.synopsis is None
+    assert review.markdown_report is not None
+    assert "**In summary.**" not in review.markdown_report
+
+
+def test_the_manifest_carries_provenance_only_for_findings_this_review_holds(
+    tmp_path: Path,
+) -> None:
+    """An addressed boundary's provenance leaves with it.
+
+    The manifest audits the policies each of this review's findings was judged against, and
+    the delta reads the corpus fingerprint out of it per candidate. Keeping the entry for a
+    boundary that is gone left a review claiming provenance for a finding it does not have —
+    and, because that entry named an older corpus, it made every later review report that
+    the corpus had moved.
+    """
+
+    repository = RepositoryRef("repo-1", tmp_path.resolve(), "branch-1", "content-1")
+    atlas = RepositoryAtlas("atlas-1", repository)
+    case = ArchitectureCase.create()
+    surviving = Candidate.identified(
+        pattern="sole_implementation",
+        summary="One adapter behind a port",
+        participants=(Participant("app.Port", "abstraction"),),
+    )
+    gone = Candidate.identified(
+        pattern="duplicated_knowledge",
+        summary="A constant stated twice",
+        participants=(Participant("app.limits.RETRY", "copy"),),
+    )
+    now = utc_now()
+    previous = Review(
+        "review-1",
+        1,
+        repository,
+        atlas,
+        case,
+        (
+            Finding(surviving, Verdict.CLEARED, "No conflict was found.", (), ()),
+            Finding(gone, Verdict.CLEARED, "No conflict was found.", (), ()),
+        ),
+        (),
+        ReviewStatus.COMPLETED,
+        ReviewDelta(new=(surviving, gone)),
+        now,
+        now,
+        retrieval_manifest=(
+            RetrievalProvenance(surviving.id, "dense", "1", "old-corpus", ("policy-a",)),
+            RetrievalProvenance(gone.id, "dense", "1", "old-corpus", ("policy-a",)),
+        ),
+    )
+    draft = ReviewDraft(
+        repository=repository,
+        atlas=atlas,
+        case=case,
+        findings=(Finding(surviving, Verdict.CLEARED, "Still no conflict.", (), ()),),
+        questions=(),
+        delta=ReviewDelta(unchanged=(surviving,)),
+        previous=previous,
+        retrievals=(),
+    )
+
+    review = DeterministicReviewComposer().compose(draft, waiting=False)
+
+    assert [str(item.candidate_id) for item in review.retrieval_manifest] == [
+        str(surviving.id)
+    ]
+
+
+class Investigator:
+    """A hinge pass whose answers a test dictates, recording what it was asked about.
+
+    Declared beside the tests that use it rather than up top, like `Synopsist`: every
+    other capability in this file is one a review cannot be produced without, and this is
+    one most workspaces will never have.
+    """
+
+    def __init__(self, *, resolve: bool = False, fail: bool = False) -> None:
+        self.seen: list[str] = []
+        self._resolve = resolve
+        self._fail = fail
+
+    def supports_tools(self) -> bool:
+        return True
+
+    def investigate(
+        self,
+        finding: Finding,
+        case: ArchitectureCase,
+        *,
+        repository: RepositoryRef,
+        atlas: RepositoryAtlas,
+    ) -> InvestigatedFinding:
+        del case, atlas
+        self.seen.append(str(finding.candidate.id))
+        if self._fail:
+            raise ProviderError("the provider stopped mid-investigation")
+        record = RecordedInvestigation(
+            candidate_id=finding.candidate.id,
+            lookups=(InvestigationLookup("find_code", (("name", "Port"),), "one row"),),
+            resolved=self._resolve,
+            atlas_fingerprint=repository.content_id,
+        )
+        if not self._resolve:
+            return InvestigatedFinding(
+                replace(finding, investigation_identity=record.identity), record
+            )
+        return InvestigatedFinding(
+            replace(
+                finding,
+                verdict=Verdict.CLEARED,
+                reasoning="The repository settles this.",
+                hinge=None,
+                investigation_identity=record.identity,
+            ),
+            record,
+        )
+
+
+class HingeSensitiveQuestions:
+    """The real generator's own gate: nothing to ask when nothing is hinged.
+
+    `Questions` above asks regardless, which is what most of this file needs. These tests
+    are about whether a settled hinge stops a person being interrupted, so they need the
+    rule the production generator actually applies (`langchain.py`, `generate`).
+    """
+
+    def generate(
+        self,
+        case: ArchitectureCase,
+        findings: tuple[Finding, ...],
+        *,
+        round: int,
+        excluded_equivalence_keys: frozenset[str],
+    ) -> tuple[Question, ...]:
+        del excluded_equivalence_keys
+        hinged = [item for item in findings if item.hinge]
+        if not hinged:
+            return ()
+        return (
+            Question.create(
+                text="Is another implementation planned?",
+                facet=CaseFacet.EXPECTED_CHANGE,
+                candidate_ids=tuple(str(item.candidate.id) for item in hinged),
+                round=round,
+            ),
+        )
+
+
+def _investigating(
+    repository: RepositoryRef,
+    case: ArchitectureCase,
+    investigator: HingeInvestigator | None = None,
+) -> ReviewWorkflowCapabilities:
+    """The capability set the investigation tests share.
+
+    Two of these differ from the literals above, and both differences are the point:
+    `HingeSensitiveQuestions` applies the rule the production generator applies, and the
+    real composer is what actually keeps a manifest.
+    """
+
+    return ReviewWorkflowCapabilities(
+        context=Context(repository, case),
+        analyzer=Analyzer(),
+        detector=Detector(),
+        revisions=Revisions(),
+        initial_candidates=Initial(),
+        corpus=Corpus(),
+        retriever=DensePolicyRetriever(Index(), top_k=8),
+        judge=Judge(),
+        questions=HingeSensitiveQuestions(),
+        rejudgements=RejudgeAllCandidates(),
+        cases=Cases(),
+        # The real composer, not the stub above: these tests are about what the review
+        # keeps, and the stub keeps none of the manifests.
+        composer=DeterministicReviewComposer(),
+        recorder=Recorder(),
+        investigator=investigator or NoHingeInvestigation(),
+    )
+
+
+def _run(
+    capabilities: ReviewWorkflowCapabilities,
+    repository: RepositoryRef,
+    case: ArchitectureCase,
+) -> dict[str, object]:
+    graph = build_review_graph(capabilities, checkpointer=InMemorySaver())
+    return graph.invoke(
+        {
+            "repository_id": repository.id,
+            "branch_id": repository.branch_id,
+            "case_id": case.id,
+            "case_revision": None,
+            "ci": False,
+        },
+        {"configurable": {"thread_id": "investigation-thread"}},
+    )
+
+
+def test_a_hinge_the_repository_settles_never_reaches_the_question_generator(
+    tmp_path: Path,
+) -> None:
+    """The whole point. A question a lookup answered is an interruption nobody needed."""
+
+    repository = RepositoryRef("repo-1", tmp_path.resolve(), "branch-1", "content-1")
+    case = ArchitectureCase.create()
+    investigator = Investigator(resolve=True)
+
+    state = _run(
+        _investigating(repository, case, investigator),
+        repository,
+        case,
+    )
+
+    assert investigator.seen
+    assert state["questions"] == ()
+    assert [item.verdict for item in state["review"].findings] == [Verdict.CLEARED]
+
+
+def test_a_hinge_nothing_could_settle_reaches_the_question_generator_unchanged(
+    tmp_path: Path,
+) -> None:
+    """The behaviour that existed before this pass, now guarded rather than assumed."""
+
+    repository = RepositoryRef("repo-2", tmp_path.resolve(), "branch-1", "content-1")
+    case = ArchitectureCase.create()
+
+    state = _run(
+        _investigating(repository, case, Investigator(resolve=False)),
+        repository,
+        case,
+    )
+
+    assert state["questions"]
+    assert [item.hinge for item in state["review"].findings] == ["future variation"]
+
+
+def test_a_review_composes_the_same_way_when_nothing_can_look_anything_up(
+    tmp_path: Path,
+) -> None:
+    """Omitting the capability entirely is the configuration most workspaces run."""
+
+    repository = RepositoryRef("repo-3", tmp_path.resolve(), "branch-1", "content-1")
+    case = ArchitectureCase.create()
+
+    state = _run(_investigating(repository, case), repository, case)
+
+    assert state["questions"]
+    assert state["review"].investigation_manifest == ()
+
+
+def test_an_investigation_that_fails_does_not_fail_the_review(tmp_path: Path) -> None:
+    """Losing an improvement must never cost the review the question belongs to."""
+
+    repository = RepositoryRef("repo-4", tmp_path.resolve(), "branch-1", "content-1")
+    case = ArchitectureCase.create()
+
+    state = _run(
+        _investigating(repository, case, Investigator(fail=True)),
+        repository,
+        case,
+    )
+
+    assert state["questions"]
+    assert [item.hinge for item in state["review"].findings] == ["future variation"]
+
+
+def test_the_review_keeps_what_each_hinge_checked(tmp_path: Path) -> None:
+    """A hinge nobody can see the checking behind is a hinge a reader cannot weigh."""
+
+    repository = RepositoryRef("repo-5", tmp_path.resolve(), "branch-1", "content-1")
+    case = ArchitectureCase.create()
+
+    state = _run(
+        _investigating(repository, case, Investigator(resolve=True)),
+        repository,
+        case,
+    )
+
+    manifest = state["review"].investigation_manifest
+    assert [item.tool for item in manifest[0].lookups] == ["find_code"]
+    assert manifest[0].identity == state["review"].findings[0].investigation_identity

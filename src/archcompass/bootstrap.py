@@ -24,6 +24,7 @@ from archcompass.analysis.analyzer import (
 )
 from archcompass.analysis.delta import DeterministicRevisionCalculator
 from archcompass.analysis.freshness import AtlasFreshnessService
+from archcompass.analysis.investigation import AtlasInvestigatorSource
 from archcompass.analysis.queries import AtlasService
 from archcompass.configuration import (
     ReasoningModelConfig,
@@ -78,9 +79,11 @@ from archcompass.reasoning.adapters.providers import (
 )
 from archcompass.reasoning.adapters.selected import (
     SelectedLangChainChatModel,
+    SelectedLangChainHingeInvestigator,
     SelectedLangChainJudge,
     SelectedLangChainQuestionGenerator,
     SelectedLangChainReviewAnswerer,
+    SelectedLangChainReviewSynopsist,
 )
 from archcompass.reasoning.cache import (
     CachingArchitectureJudge,
@@ -138,6 +141,81 @@ def embedding_is_pinned() -> bool:
 #: own repository has to leave out.
 WORKSPACE_STATE_DIRECTORY = Path(".archcompass")
 WORKSPACE_DATABASE_NAME = "workspace.sqlite3"
+
+#: Every record type a checkpointed `ReviewState` can hold, named by module and class.
+#:
+#: LangGraph revives an unlisted type as a raw dict rather than refusing it, so the
+#: failure surfaces much later — as an attribute error on a resumed run, in a node that
+#: has nothing to do with the type that was dropped. `test_boundaries` walks `ReviewState`
+#: and asserts this list still covers it, because the only path that exercises the
+#: allowlist is a real resume against a real SQLite checkpointer, and no unit test is one.
+CHECKPOINT_RECORD_TYPES: Final[tuple[tuple[str, str], ...]] = (
+    ("archcompass.domain.repository", "RepositoryRef"),
+    *[
+        ("archcompass.domain.case", name)
+        for name in (
+            "PolicyContext",
+            "ArchitectureCase",
+            "CaseFacet",
+            "Question",
+            "AnswerStatus",
+            "Answer",
+        )
+    ],
+    ("archcompass.domain.atlas", "RepositoryAtlas"),
+    *[
+        ("archcompass.domain.candidate", name)
+        for name in ("Participant", "Candidate")
+    ],
+    # Every nested record a checkpointed candidate holds has to be named here.
+    # An unlisted type is not refused — it is revived as a raw dict, so the
+    # failure surfaces much later as an attribute error on a resumed run.
+    *[
+        ("archcompass.domain.values", name)
+        for name in (
+            "SourceLocation",
+            "Evidence",
+            "Measurement",
+            "MetricNature",
+            "Relationship",
+        )
+    ],
+    *[
+        ("archcompass.domain.finding", name)
+        for name in ("Verdict", "PolicyBearing", "Finding")
+    ],
+    *[
+        ("archcompass.domain.review", name)
+        for name in (
+            "ReviewStatus",
+            "ChangeCause",
+            "CandidateChange",
+            "AddressedCandidate",
+            "ReviewDelta",
+            "RetrievalProvenance",
+            "InvestigationLookup",
+            "RecordedInvestigation",
+            "Review",
+        )
+    ],
+    *[
+        ("archcompass.domain.policy", name)
+        for name in ("PolicyScope", "PolicyStrength", "Policy")
+    ],
+    *[
+        ("archcompass.ports.policy_retrieval", name)
+        for name in ("PolicySelection", "RetrievedPolicySet")
+    ],
+    # `ReviewDraft` carries the synopsis, so the synopsis has to be named too. It was not,
+    # and the omission cost nothing visible: every path that composes a review writes a
+    # fresh synopsis first, so the dict a resume revived was always overwritten before the
+    # composer read it. What it did cost was a "Blocked deserialization" line on every
+    # resumed run, which is the warning this list exists to make unnecessary.
+    *[
+        ("archcompass.ports.capabilities", name)
+        for name in ("ReviewDraft", "ReviewSynopsis")
+    ],
+)
 
 #: Where a workspace keeps the clones it was asked to make, beside the database and the
 #: policies. A checkout is state Arch Compass wrote and can throw away — deleting the
@@ -315,7 +393,9 @@ def build_runtime(
     review_conversation_service = CoreReviewConversationService(
         reviews=core_reviews,
         conversations=core_conversations,
-        answerer=SelectedLangChainReviewAnswerer(selected_chat),
+        answerer=SelectedLangChainReviewAnswerer(
+            selected_chat, AtlasInvestigatorSource(queries)
+        ),
     )
     checkpoint_connection = sqlite3.connect(
         canonical_workspace / WORKSPACE_STATE_DIRECTORY / "review-checkpoints.db",
@@ -323,67 +403,7 @@ def build_runtime(
     )
     checkpointer = SqliteSaver(
         checkpoint_connection,
-        serde=JsonPlusSerializer(
-            allowed_msgpack_modules=[
-                ("archcompass.domain.repository", "RepositoryRef"),
-                *[
-                    ("archcompass.domain.case", name)
-                    for name in (
-                        "PolicyContext",
-                        "ArchitectureCase",
-                        "CaseConstraint",
-                        "CaseDecision",
-                        "CaseFacet",
-                        "Question",
-                        "AnswerStatus",
-                        "Answer",
-                    )
-                ],
-                ("archcompass.domain.atlas", "RepositoryAtlas"),
-                *[
-                    ("archcompass.domain.candidate", name)
-                    for name in ("Participant", "Candidate")
-                ],
-                # Every nested record a checkpointed candidate holds has to be named here.
-                # An unlisted type is not refused — it is revived as a raw dict, so the
-                # failure surfaces much later as an attribute error on a resumed run.
-                *[
-                    ("archcompass.domain.values", name)
-                    for name in (
-                        "SourceLocation",
-                        "Evidence",
-                        "Measurement",
-                        "MetricNature",
-                        "Relationship",
-                    )
-                ],
-                *[
-                    ("archcompass.domain.finding", name)
-                    for name in ("Verdict", "PolicyBearing", "Finding")
-                ],
-                *[
-                    ("archcompass.domain.review", name)
-                    for name in (
-                        "ReviewStatus",
-                        "ChangeCause",
-                        "CandidateChange",
-                        "AddressedCandidate",
-                        "ReviewDelta",
-                        "RetrievalProvenance",
-                        "Review",
-                    )
-                ],
-                *[
-                    ("archcompass.domain.policy", name)
-                    for name in ("PolicyScope", "PolicyStrength", "Policy")
-                ],
-                *[
-                    ("archcompass.ports.policy_retrieval", name)
-                    for name in ("PolicySelection", "RetrievedPolicySet")
-                ],
-                ("archcompass.ports.capabilities", "ReviewDraft"),
-            ],
-        ),
+        serde=JsonPlusSerializer(allowed_msgpack_modules=list(CHECKPOINT_RECORD_TYPES)),
     )
     checkpointer.setup()
     policy_corpus = DataclassPolicyCorpus(policy_service)
@@ -441,8 +461,12 @@ def build_runtime(
                 prompt_identity=selected_prompt_identity,
             ),
             questions=SelectedLangChainQuestionGenerator(selected_chat),
+            investigator=SelectedLangChainHingeInvestigator(
+                selected_chat, AtlasInvestigatorSource(queries)
+            ),
             rejudgements=RejudgeAllCandidates(),
             cases=PersistentCaseReviser(core_cases),
+            synopsist=SelectedLangChainReviewSynopsist(selected_chat),
             composer=DeterministicReviewComposer(),
             recorder=CachingReviewRecorder(core_reviews, core_finding_cache),
         ),

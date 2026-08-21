@@ -11,12 +11,13 @@ from archcompass.domain import (
     Finding,
     Policy,
     Question,
+    RecordedInvestigation,
     RepositoryAtlas,
     RepositoryRef,
     Review,
     ReviewDelta,
 )
-from archcompass.ports.capabilities import ReviewDraft
+from archcompass.ports.capabilities import ReviewDraft, ReviewSynopsis
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 
 
@@ -48,12 +49,14 @@ class ReviewState(ReviewInput):
     retrieval: RetrievedPolicySet
     retrievals: Annotated[dict[str, RetrievedPolicySet], merge_mappings]
     findings: Annotated[dict[str, Finding], merge_mappings]
+    investigations: Annotated[dict[str, RecordedInvestigation], merge_mappings]
     delta: ReviewDelta
     questions: tuple[Question, ...]
     pending_answers: tuple[Answer, ...]
     excluded_equivalence_keys: frozenset[str]
     round: int
     stop_requested: bool
+    synopsis: ReviewSynopsis | None
     draft: ReviewDraft
     review: Review
 

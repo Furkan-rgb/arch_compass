@@ -28,7 +28,10 @@ into Markdown:
 * **Nothing is inferred.** An empty section says it is empty rather than disappearing.
 
 Deterministic: the same review composes the same bytes, so a report can be diffed between
-revisions the way the reviews themselves can be.
+revisions the way the reviews themselves can be. The one paragraph a model wrote — the
+synopsis under the counts — arrives as an argument rather than being generated here, so this
+stays a pure function of what it prints and the prose stays part of the record it summarises
+rather than something regenerated per reader.
 """
 
 from __future__ import annotations
@@ -49,6 +52,7 @@ from archcompass.domain import (
 )
 from archcompass.domain.case import Question
 from archcompass.domain.values import Measurement, MetricNature
+from archcompass.ports.capabilities import ReviewSynopsis
 
 #: The order a reader should meet verdicts in — what needs a human first. The same order the
 #: attention queue uses, for the same reason.
@@ -361,19 +365,6 @@ def _judged_against(case: ArchitectureCase) -> str:
     """
 
     lines: list[str] = []
-    if case.constraints:
-        lines.append("**Constraints**")
-        lines.append("")
-        lines.extend(
-            f"- *{_humanise(constraint.facet.value)}* — {constraint.text}"
-            for constraint in case.constraints
-        )
-        lines.append("")
-    if case.decisions:
-        lines.append("**Decisions already taken**")
-        lines.append("")
-        lines.extend(f"- {decision.text}" for decision in case.decisions)
-        lines.append("")
     if case.answers:
         lines.append("**Clarifications answered**")
         lines.append("")
@@ -387,9 +378,10 @@ def _judged_against(case: ArchitectureCase) -> str:
         lines.append("")
     if not lines:
         return (
-            f"Case revision {case.revision} is empty. A case starts empty and fills in as "
-            "reviews ask for what they actually need, so these verdicts were reached from the "
-            "code and the policy corpus alone.\n"
+            f"Case revision {case.revision} is empty. A case holds what people have answered "
+            "when a judgement turned on something the repository could not settle, and "
+            "nothing here has been asked yet — so these verdicts were reached from the code "
+            "and the policy corpus alone.\n"
         )
     return "\n".join(lines).rstrip() + "\n"
 
@@ -401,6 +393,7 @@ def _provenance(
     case: ArchitectureCase,
     findings: Sequence[Finding],
     retrievers: Sequence[str],
+    synopsis: ReviewSynopsis | None,
 ) -> str:
     models = sorted({item.model_identity for item in findings if item.model_identity})
     prompts = sorted({item.prompt_identity for item in findings if item.prompt_identity})
@@ -416,6 +409,11 @@ def _provenance(
         + (f", commit `{repository.commit}`" if repository.commit else ""),
         f"- **Case** `{case.id}` at revision {case.revision}",
     ]
+    # Said separately from "judged by" because it is a separate call. A finding carried
+    # forward from review 2 was judged by whatever model was selected then; the paragraph at
+    # the top was written now, and a reader weighing it should be told by what.
+    if synopsis is not None and synopsis.model_identity:
+        lines.append(f"- **Summarised by** `{synopsis.model_identity}`")
     return "\n".join(lines) + "\n"
 
 
@@ -464,6 +462,7 @@ def compose_markdown_report(
     retrievers: Sequence[str],
     sequence: int,
     waiting: bool,
+    synopsis: ReviewSynopsis | None = None,
 ) -> str:
     """The whole document.
 
@@ -526,6 +525,14 @@ def compose_markdown_report(
             ]
         )
 
+    # The counts say how much there is; this says what it amounts to. It sits under them
+    # rather than over them because the document opens on what was measured and only then
+    # on what somebody concluded from it — and it carries a run-in label for the same reason
+    # every other model-authored block does: a document has no gutter to say whose voice
+    # this is.
+    if synopsis is not None and synopsis.text.strip():
+        lines.extend([f"**In summary.** {_sentence(synopsis.text)}", ""])
+
     for verdict in _VERDICT_ORDER:
         group = by_verdict[verdict]
         if not group:
@@ -579,6 +586,7 @@ def compose_markdown_report(
                 case=case,
                 findings=findings,
                 retrievers=retrievers,
+                synopsis=synopsis,
             ),
             "",
             "This document is what ArchCompass concluded. What the team decided to do about it "

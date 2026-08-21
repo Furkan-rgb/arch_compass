@@ -9,14 +9,69 @@ from archcompass.domain import (
     Answer,
     ArchitectureCase,
     Candidate,
+    Finding,
+    Question,
+    RepositoryAtlas,
+    RepositoryRef,
     Review,
     ReviewDelta,
     ReviewStatus,
 )
 from archcompass.domain._support import stable_id, utc_now
 from archcompass.domain.errors import NothingToReviewError
-from archcompass.ports.capabilities import CandidateSelection, ReviewDraft
+from archcompass.ports.capabilities import (
+    CandidateSelection,
+    InvestigatedFinding,
+    ReviewDraft,
+    ReviewSynopsis,
+)
 from archcompass.workflow.report import compose_markdown_report
+
+
+class NoReviewSynopsis:
+    """The seam filled when nothing is going to write a summary.
+
+    A workspace can compose a review without a reasoning model available — a rerun from the
+    CLI against cached findings, a test harness, a deployment that has not selected one — and
+    a report that fails to compose because its opening paragraph could not be written would
+    be the tail wagging the dog. The report simply opens on its counts, as it did before.
+    """
+
+    def write(
+        self,
+        case: ArchitectureCase,
+        findings: tuple[Finding, ...],
+        *,
+        questions: tuple[Question, ...],
+        delta: ReviewDelta,
+        previous: Review | None,
+        waiting: bool,
+    ) -> ReviewSynopsis | None:
+        return None
+
+
+class NoHingeInvestigation:
+    """The seam filled when nothing is going to look anything up.
+
+    Not every model can call tools and a workspace may have selected one that cannot, so
+    the absence answer here is not a failure — it is the finding, unchanged, and a hinge
+    that goes to a person the way every hinge did before this existed. `supports_tools`
+    answering False is what keeps the node cheap: it returns before it reads a finding.
+    """
+
+    def supports_tools(self) -> bool:
+        return False
+
+    def investigate(
+        self,
+        finding: Finding,
+        case: ArchitectureCase,
+        *,
+        repository: RepositoryRef,
+        atlas: RepositoryAtlas,
+    ) -> InvestigatedFinding:
+        del case, repository, atlas
+        return InvestigatedFinding(finding)
 
 
 class AppendAnswersCaseReviser:
@@ -93,6 +148,14 @@ class DeterministicReviewComposer:
         )
         current_manifest = tuple(item.provenance for item in draft.retrievals)
         current_candidates = {str(item.candidate_id) for item in current_manifest}
+        # The manifest audits *this* review's findings, so it carries provenance only for
+        # candidates this review still holds one for. Carrying every entry the previous
+        # review had kept the provenance of boundaries that no longer exist — and, because
+        # the delta reads the corpus fingerprint out of this manifest, one addressed
+        # candidate retrieved under an older corpus made every later review report that the
+        # corpus had moved, on a repository nobody had touched, for as long as the branch
+        # lived.
+        judged_candidates = {str(item.candidate.id) for item in draft.findings}
         carried_manifest = (
             ()
             if draft.previous is None
@@ -100,9 +163,24 @@ class DeterministicReviewComposer:
                 item
                 for item in draft.previous.retrieval_manifest
                 if str(item.candidate_id) not in current_candidates
+                and str(item.candidate_id) in judged_candidates
             )
         )
         retrieval_manifest = (*carried_manifest, *current_manifest)
+        # The same rule, for the same reason: an investigation audits a finding this
+        # review holds, and one carried from the previous review belongs here only
+        # where this review did not check that candidate again.
+        investigated_candidates = {str(item.candidate_id) for item in draft.investigations}
+        carried_investigations = (
+            ()
+            if draft.previous is None
+            else tuple(
+                item
+                for item in draft.previous.investigation_manifest
+                if str(item.candidate_id) not in investigated_candidates
+                and str(item.candidate_id) in judged_candidates
+            )
+        )
         model_identities = sorted(
             {item.model_identity for item in draft.findings if item.model_identity}
         )
@@ -130,6 +208,7 @@ class DeterministicReviewComposer:
             ),
             sequence=sequence,
             waiting=waiting,
+            synopsis=draft.synopsis,
         )
         return Review(
             id=review_id,
@@ -145,7 +224,10 @@ class DeterministicReviewComposer:
             finished_at=None if waiting else now,
             previous_review_id=None if draft.previous is None else draft.previous.id,
             markdown_report=report,
+            synopsis=None if draft.synopsis is None else draft.synopsis.text,
+            synopsis_identity="" if draft.synopsis is None else draft.synopsis.model_identity,
             retrieval_manifest=retrieval_manifest,
+            investigation_manifest=(*carried_investigations, *draft.investigations),
             model_identity=",".join(model_identities),
             prompt_identity=",".join(prompt_identities),
         )
@@ -155,5 +237,7 @@ __all__ = [
     "AppendAnswersCaseReviser",
     "ChangedAndNewCandidateSelector",
     "DeterministicReviewComposer",
+    "NoHingeInvestigation",
+    "NoReviewSynopsis",
     "PersistentCaseReviser",
 ]

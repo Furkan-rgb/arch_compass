@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from typing import cast
 
 from langgraph.types import interrupt
 
-from archcompass.domain import Answer
+from archcompass.domain import Answer, Finding, RecordedInvestigation
 from archcompass.ports.capabilities import (
     ArchitectureJudge,
     BatchArchitectureJudge,
     CandidateDetector,
     CaseReviser,
     ContextLoader,
+    HingeInvestigator,
     InitialCandidateSelector,
     JudgementRequest,
     PolicyCorpus,
@@ -24,9 +26,19 @@ from archcompass.ports.capabilities import (
     ReviewComposer,
     ReviewDraft,
     ReviewRecorder,
+    ReviewSynopsisWriter,
     RevisionCalculator,
 )
 from archcompass.workflow.state import ReviewState
+
+_log = logging.getLogger(__name__)
+
+#: How many hinged findings one round will investigate. A sequencing decision, and
+#: therefore the graph's rather than an adapter's: investigating is interactive by
+#: construction, so a review where everything hinged is a run of unbatched calls in
+#: front of a waiting reader. The ones past the ceiling keep their hinges and reach a
+#: person exactly as they did before this existed.
+MAX_INVESTIGATED_FINDINGS = 8
 
 Node = Callable[[ReviewState], dict[str, object]]
 
@@ -50,7 +62,9 @@ def load_context_node(loader: ContextLoader) -> Node:
             ),
             "retrievals": {},
             "findings": {},
+            "investigations": {},
             "stop_requested": False,
+            "synopsis": None,
         }
 
     return load_context
@@ -171,6 +185,60 @@ def review_candidates_node(retriever: PolicyRetriever, judge: ArchitectureJudge)
     return review_candidates
 
 
+def investigate_hinges_node(investigator: HingeInvestigator) -> Node:
+    """The findings that stopped to ask a person, checked against the repository first.
+
+    Its own node rather than something the judge does, because it is a second and
+    differently bounded conversation with a model, and a graph whose nodes are its
+    capabilities is how that stays visible. It runs after judgement because a hinge is what
+    judgement produces, and before `generate_questions` because a hinge the repository
+    settled is not a question worth anybody's interruption.
+
+    It writes back into `findings` under the same keys, so a hinge nothing could settle
+    reaches the generator exactly as it did before this existed — which is why the
+    unresolved path needed no new code anywhere downstream.
+    """
+
+    def investigate_hinges(state: ReviewState) -> dict[str, object]:
+        if not investigator.supports_tools():
+            return {}
+        # Ordered by the candidate list rather than by the findings mapping, like every
+        # other node that reads it: two runs over one review must investigate the same
+        # findings in the same order, and a dict's order is whichever branch finished first.
+        held = [
+            (str(candidate.id), state["findings"][str(candidate.id)])
+            for candidate in state["candidates"]
+            if str(candidate.id) in state["findings"]
+            and state["findings"][str(candidate.id)].hinge
+        ][:MAX_INVESTIGATED_FINDINGS]
+        if not held:
+            return {}
+        findings: dict[str, Finding] = {}
+        investigations: dict[str, RecordedInvestigation] = {}
+        for candidate_id, finding in held:
+            try:
+                investigated = investigator.investigate(
+                    finding,
+                    state["case"],
+                    repository=state["repository"],
+                    atlas=state["atlas"],
+                )
+            except Exception:
+                # An investigation is an improvement to a question. Losing one must never
+                # cost the review the question belongs to, so the hinge stands and the run
+                # goes on to ask it.
+                _log.warning(
+                    "The hinge on %s was not investigated", candidate_id, exc_info=True
+                )
+                continue
+            findings[candidate_id] = investigated.finding
+            if investigated.investigation is not None:
+                investigations[candidate_id] = investigated.investigation
+        return {"findings": findings, "investigations": investigations}
+
+    return investigate_hinges
+
+
 def generate_questions_node(generator: QuestionGenerator) -> Node:
     def generate_questions(state: ReviewState) -> dict[str, object]:
         ordered = tuple(
@@ -188,6 +256,36 @@ def generate_questions_node(generator: QuestionGenerator) -> Node:
         }
 
     return generate_questions
+
+
+def write_synopsis_node(synopsist: ReviewSynopsisWriter, *, waiting: bool) -> Node:
+    """The paragraph the report opens on, written after every verdict is in.
+
+    Its own node rather than something the composer does, because it is the one place in the
+    sequence where the model is asked about the review as a whole rather than about a
+    candidate, and a graph whose nodes are the capabilities is how that stays visible. It
+    runs before both composers: a waiting review is a document somebody may hand over
+    part-way through a clarification round, and it deserves the same opening as a final one.
+    """
+
+    def write_synopsis(state: ReviewState) -> dict[str, object]:
+        ordered = tuple(
+            state["findings"][str(candidate.id)]
+            for candidate in state["candidates"]
+            if str(candidate.id) in state["findings"]
+        )
+        return {
+            "synopsis": synopsist.write(
+                state["case"],
+                ordered,
+                questions=state["questions"],
+                delta=state["delta"],
+                previous=state["previous_review"],
+                waiting=waiting,
+            )
+        }
+
+    return write_synopsis
 
 
 def compose_review_node(composer: ReviewComposer, *, waiting: bool) -> Node:
@@ -211,6 +309,12 @@ def compose_review_node(composer: ReviewComposer, *, waiting: bool) -> Node:
             delta=state["delta"],
             previous=state["previous_review"],
             retrievals=ordered_retrievals,
+            investigations=tuple(
+                state["investigations"][str(candidate.id)]
+                for candidate in state["candidates"]
+                if str(candidate.id) in state["investigations"]
+            ),
+            synopsis=state["synopsis"],
         )
         return {"draft": draft, "review": composer.compose(draft, waiting=waiting)}
 

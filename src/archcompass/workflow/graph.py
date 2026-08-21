@@ -13,7 +13,7 @@ while ``Send`` exposes candidate fan-out to LangGraph rather than a private thre
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from langgraph.graph import END, START, StateGraph
@@ -26,6 +26,7 @@ from archcompass.ports.capabilities import (
     CandidateDetector,
     CaseReviser,
     ContextLoader,
+    HingeInvestigator,
     InitialCandidateSelector,
     PolicyCorpus,
     PolicyRetriever,
@@ -34,8 +35,10 @@ from archcompass.ports.capabilities import (
     RepositoryAnalyzer,
     ReviewComposer,
     ReviewRecorder,
+    ReviewSynopsisWriter,
     RevisionCalculator,
 )
+from archcompass.workflow.defaults import NoHingeInvestigation, NoReviewSynopsis
 from archcompass.workflow.nodes import (
     analyze_repository_node,
     await_answers_node,
@@ -43,6 +46,7 @@ from archcompass.workflow.nodes import (
     compose_review_node,
     detect_candidates_node,
     generate_questions_node,
+    investigate_hinges_node,
     judge_candidate_node,
     load_context_node,
     load_policy_corpus_node,
@@ -52,6 +56,7 @@ from archcompass.workflow.nodes import (
     revise_case_node,
     select_initial_candidates_node,
     select_rejudgements_node,
+    write_synopsis_node,
 )
 from archcompass.workflow.state import CandidateReviewOutput, ReviewInput, ReviewState
 
@@ -71,6 +76,16 @@ class ReviewWorkflowCapabilities:
     cases: CaseReviser
     composer: ReviewComposer
     recorder: ReviewRecorder
+    # Defaulted, unlike its peers, and therefore last: every other capability is something a
+    # review cannot be produced without, and this one writes the paragraph the report opens
+    # on. A workspace or a test with no use for it composes the same review with a report
+    # that opens on its counts, which is what the report did before this existed.
+    synopsist: ReviewSynopsisWriter = field(default_factory=NoReviewSynopsis)
+    # Defaulted for the same reason its neighbour is, and for one more: a review whose
+    # hinges were never checked is exactly the review this product produced yesterday.
+    # A workspace on a model that cannot call tools asks its questions the way it
+    # always asked them.
+    investigator: HingeInvestigator = field(default_factory=NoHingeInvestigation)
 
 
 def _candidate_graph(
@@ -111,22 +126,22 @@ def _dispatch_candidates(
 
 def _after_questions(
     state: ReviewState,
-) -> Literal["compose_final_review", "compose_waiting_review"]:
+) -> Literal["write_final_synopsis", "write_waiting_synopsis"]:
     if (
         not state["questions"]
         or state["ci"]
         or state["round"] >= 3
         or state["stop_requested"]
     ):
-        return "compose_final_review"
-    return "compose_waiting_review"
+        return "write_final_synopsis"
+    return "write_waiting_synopsis"
 
 
 def _after_case_revision(
     state: ReviewState,
-) -> Literal["compose_final_review", "select_candidates_for_rejudgement"]:
+) -> Literal["write_final_synopsis", "select_candidates_for_rejudgement"]:
     return (
-        "compose_final_review"
+        "write_final_synopsis"
         if state["stop_requested"]
         else "select_candidates_for_rejudgement"
     )
@@ -152,7 +167,14 @@ def build_review_graph(
         "review_candidates",
         review_candidates_node(capabilities.retriever, capabilities.judge),
     )
+    graph.add_node(
+        "investigate_hinges", investigate_hinges_node(capabilities.investigator)
+    )
     graph.add_node("generate_questions", generate_questions_node(capabilities.questions))
+    graph.add_node(
+        "write_waiting_synopsis",
+        write_synopsis_node(capabilities.synopsist, waiting=True),
+    )
     graph.add_node(
         "compose_waiting_review",
         compose_review_node(capabilities.composer, waiting=True),
@@ -166,6 +188,10 @@ def build_review_graph(
     graph.add_node(
         "select_candidates_for_rejudgement",
         select_rejudgements_node(capabilities.rejudgements),
+    )
+    graph.add_node(
+        "write_final_synopsis",
+        write_synopsis_node(capabilities.synopsist, waiting=False),
     )
     graph.add_node(
         "compose_final_review",
@@ -185,9 +211,17 @@ def build_review_graph(
         dispatch,
         ["review_candidate", "review_candidates", "generate_questions"],
     )
-    graph.add_edge("review_candidate", "generate_questions")
-    graph.add_edge("review_candidates", "generate_questions")
+    # Unconditional on purpose, and the node guards itself. `review_candidate` is fanned
+    # out with `Send`, and a conditional edge leaving it evaluates its predicate once
+    # per branch against that branch's state — so a routing decision about the whole
+    # set of findings does not belong on this edge. Both destinations reached
+    # `generate_questions` anyway, so the two-way routing bought nothing.
+    graph.add_edge("review_candidate", "investigate_hinges")
+    graph.add_edge("review_candidates", "investigate_hinges")
+    graph.add_edge("investigate_hinges", "generate_questions")
     graph.add_conditional_edges("generate_questions", _after_questions)
+    graph.add_edge("write_waiting_synopsis", "compose_waiting_review")
+    graph.add_edge("write_final_synopsis", "compose_final_review")
     graph.add_edge("compose_waiting_review", "record_waiting_review")
     graph.add_edge("record_waiting_review", "await_answers")
     graph.add_edge("await_answers", "revise_case")
