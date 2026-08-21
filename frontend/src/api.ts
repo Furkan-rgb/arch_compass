@@ -8,6 +8,8 @@ export type Candidate = Schema["CandidateResponse"];
 export type Question = Schema["QuestionResponse"];
 export type Evidence = Schema["EvidenceResponse"];
 export type RetrievalProvenance = Schema["RetrievalProvenanceResponse"];
+export type Investigation = Schema["RecordedInvestigationResponse"];
+export type InvestigationLookup = Schema["InvestigationLookupResponse"];
 export type PolicyDocument = Schema["PolicyDocument"];
 export type PolicyDraft = Schema["PolicyDraft"];
 export type PolicySourceRegistration = Schema["PolicySourceRegistration"];
@@ -218,12 +220,7 @@ export const api = {
   createCase: () =>
     request<CaseSummary>("/api/cases", {
       method: "POST",
-      body: JSON.stringify({ constraints: [], decisions: [], policy_context: {} }),
-    }),
-  updateCase: (id: string, patch: Schema["CasePatch"]) =>
-    request<CaseSummary>(`/api/cases/${encode(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify(patch),
+      body: JSON.stringify({ policy_context: {} }),
     }),
 
   // Policies -----------------------------------------------------------------------------

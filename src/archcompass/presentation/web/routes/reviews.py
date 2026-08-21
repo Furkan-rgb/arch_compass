@@ -15,7 +15,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import Field
 
 from archcompass.bootstrap import Runtime
-from archcompass.domain import AnswerStatus, Candidate, Evidence, Review
+from archcompass.domain import (
+    AnswerStatus,
+    Candidate,
+    Evidence,
+    RecordedInvestigation,
+    Review,
+)
 from archcompass.domain.errors import ReviewHasNoReportError
 from archcompass.presentation.web.dependencies import RuntimeDep, SpendsModelBudget
 from archcompass.presentation.web.schemas import APIModel, problem_responses
@@ -159,6 +165,7 @@ class FindingResponse(APIModel):
     model_identity: str
     prompt_identity: str
     retrieval_identity: str
+    investigation_identity: str
 
 
 class QuestionResponse(APIModel):
@@ -181,22 +188,9 @@ class AnswerResponse(APIModel):
     answered_at: str
 
 
-class CaseConstraintResponse(APIModel):
-    text: str
-    facet: str
-    source: str | None
-
-
-class CaseDecisionResponse(APIModel):
-    text: str
-    source: str | None
-
-
 class CaseResponse(APIModel):
     id: str
     revision: int
-    constraints: list[CaseConstraintResponse]
-    decisions: list[CaseDecisionResponse]
     answers: list[AnswerResponse]
     created_at: str
     updated_at: str
@@ -309,6 +303,58 @@ def _candidate(value: Candidate) -> CandidateResponse:
     )
 
 
+class InvestigationLookupResponse(APIModel):
+    tool: str
+    arguments: dict[str, str]
+    result: str
+
+
+class RecordedInvestigationResponse(APIModel):
+    """What one hinged finding checked against the repository before the review asked.
+
+    No `identity` field, following `RetrievalProvenanceResponse`: a reader joins these to
+    findings on `candidate_id`, and the hash a finding carries is the one thing that has to
+    be on the finding.
+    """
+
+    candidate_id: str
+    lookups: list[InvestigationLookupResponse]
+    closing: str
+    withheld: str
+    abandoned: str
+    resolved: bool
+    atlas_fingerprint: str
+    prompt_identity: str
+    model_identity: str
+
+
+def investigation_response(
+    value: RecordedInvestigation | None,
+) -> RecordedInvestigationResponse | None:
+    """One investigation for the wire, or None where nothing looked."""
+
+    if value is None:
+        return None
+    return RecordedInvestigationResponse(
+        candidate_id=str(value.candidate_id),
+        lookups=[
+            InvestigationLookupResponse(
+                tool=lookup.tool,
+                arguments=dict(lookup.arguments),
+                result=lookup.result,
+            )
+            for lookup in value.lookups
+        ],
+        closing=value.closing,
+        withheld=value.withheld,
+        abandoned=value.abandoned,
+        resolved=value.resolved,
+        atlas_fingerprint=value.atlas_fingerprint,
+        prompt_identity=value.prompt_identity,
+        model_identity=value.model_identity,
+    )
+
+
 class ReviewResponse(APIModel):
     """Complete, typed HTTP projection of one immutable review snapshot."""
 
@@ -323,7 +369,10 @@ class ReviewResponse(APIModel):
     questions: list[QuestionResponse]
     delta: DeltaResponse
     retrieval_manifest: list[RetrievalProvenanceResponse]
+    investigation_manifest: list[RecordedInvestigationResponse]
     markdown_report: str | None
+    synopsis: str | None
+    synopsis_identity: str
     model_identity: str
     prompt_identity: str
     started_at: str
@@ -384,18 +433,6 @@ class ReviewResponse(APIModel):
             case=CaseResponse(
                 id=review.case.id,
                 revision=review.case.revision,
-                constraints=[
-                    CaseConstraintResponse(
-                        text=item.text,
-                        facet=item.facet.value,
-                        source=item.source,
-                    )
-                    for item in review.case.constraints
-                ],
-                decisions=[
-                    CaseDecisionResponse(text=item.text, source=item.source)
-                    for item in review.case.decisions
-                ],
                 answers=[
                     AnswerResponse(
                         question=case_questions[item.question.id],
@@ -429,6 +466,7 @@ class ReviewResponse(APIModel):
                     model_identity=item.model_identity,
                     prompt_identity=item.prompt_identity,
                     retrieval_identity=item.retrieval_identity,
+                    investigation_identity=item.investigation_identity,
                 )
                 for item in review.findings
             ],
@@ -469,7 +507,14 @@ class ReviewResponse(APIModel):
                 )
                 for item in review.retrieval_manifest
             ],
+            investigation_manifest=[
+                response
+                for item in review.investigation_manifest
+                if (response := investigation_response(item)) is not None
+            ],
             markdown_report=review.markdown_report,
+            synopsis=review.synopsis,
+            synopsis_identity=review.synopsis_identity,
             model_identity=review.model_identity,
             prompt_identity=review.prompt_identity,
             started_at=review.started_at.isoformat(),

@@ -13,6 +13,10 @@ from pydantic import Field
 
 from archcompass.ports.review_conversation import ReviewConversation
 from archcompass.presentation.web.dependencies import RuntimeDep, SpendsModelBudget
+from archcompass.presentation.web.routes.reviews import (
+    RecordedInvestigationResponse,
+    investigation_response,
+)
 from archcompass.presentation.web.schemas import APIModel, problem_responses
 
 
@@ -27,6 +31,7 @@ class ReviewQuestionRequest(APIModel):
 class ConversationAnswerResponse(APIModel):
     text: str
     supporting_candidate_ids: list[str]
+    investigation: RecordedInvestigationResponse | None
 
 
 class ConversationMessageResponse(APIModel):
@@ -55,6 +60,7 @@ class ReviewConversationResponse(APIModel):
                         supporting_candidate_ids=list(
                             item.answer.supporting_candidate_ids
                         ),
+                        investigation=investigation_response(item.answer.investigation),
                     ),
                     asked_at=item.asked_at.isoformat(),
                 )

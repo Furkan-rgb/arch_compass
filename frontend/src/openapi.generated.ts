@@ -152,24 +152,17 @@ export interface components {
     "detection_rationale": string;
     "limitations": string;
   };
-    "CaseConstraintResponse": {
-    "text": string;
-    "facet": string;
-    "source": string | null;
+    "CaseAnswerDTO": {
+    "question": string;
+    "status": string;
+    "value": string | null;
+    "actor": string;
+    "answered_at": string;
   };
-    "CaseDecisionResponse": {
-    "text": string;
-    "source": string | null;
-  };
-    "CaseFacet": "goal" | "constraint" | "decision" | "assumption" | "expected_change" | "non_goal";
     "CasePatch": {
-    "constraints"?: Array<components["schemas"]["ConstraintDTO"]> | null;
-    "decisions"?: Array<components["schemas"]["DecisionDTO"]> | null;
-    "policy_context"?: components["schemas"]["PolicyContextDTO"] | null;
+    "policy_context"?: components["schemas"]["PolicyContextDTO"];
   };
     "CaseWrite": {
-    "constraints"?: Array<components["schemas"]["ConstraintDTO"]>;
-    "decisions"?: Array<components["schemas"]["DecisionDTO"]>;
     "policy_context"?: components["schemas"]["PolicyContextDTO"];
   };
     "CheckoutRefresh": {
@@ -178,14 +171,10 @@ export interface components {
     "updated"?: boolean;
     "branch_name"?: string | null;
   };
-    "ConstraintDTO": {
-    "text": string;
-    "facet"?: components["schemas"]["CaseFacet"];
-    "source"?: string | null;
-  };
     "ConversationAnswerResponse": {
     "text": string;
     "supporting_candidate_ids": Array<string>;
+    "investigation": components["schemas"]["RecordedInvestigationResponse"] | null;
   };
     "ConversationMessageResponse": {
     "question": string;
@@ -195,10 +184,6 @@ export interface components {
     "CyclesQuery": {
     "kind": "cyclic_components";
     "limit"?: number;
-  };
-    "DecisionDTO": {
-    "text": string;
-    "source"?: string | null;
   };
     "DecisionDisposition": "accept" | "waive" | "park";
     "DecisionRequest": {
@@ -276,11 +261,19 @@ export interface components {
     "model_identity": string;
     "prompt_identity": string;
     "retrieval_identity": string;
+    "investigation_identity": string;
   };
     "HotspotsQuery": {
     "kind": "hotspots";
     "metric": string;
     "limit"?: number;
+  };
+    "InvestigationLookupResponse": {
+    "tool": string;
+    "arguments": {
+    [key: string]: string;
+  };
+    "result": string;
   };
     "MeasurementResponse": {
     "name": string;
@@ -400,6 +393,17 @@ export interface components {
     "round": number;
     "equivalence_key": string;
     "options": Array<string>;
+  };
+    "RecordedInvestigationResponse": {
+    "candidate_id": string;
+    "lookups": Array<components["schemas"]["InvestigationLookupResponse"]>;
+    "closing": string;
+    "withheld": string;
+    "abandoned": string;
+    "resolved": boolean;
+    "atlas_fingerprint": string;
+    "prompt_identity": string;
+    "model_identity": string;
   };
     "RelationQuery": {
     "kind": "direct_dependencies" | "direct_dependants" | "known_callers" | "implementations" | "related_tests";
@@ -531,7 +535,10 @@ export interface components {
     "questions": Array<components["schemas"]["QuestionResponse"]>;
     "delta": components["schemas"]["DeltaResponse"];
     "retrieval_manifest": Array<components["schemas"]["RetrievalProvenanceResponse"]>;
+    "investigation_manifest": Array<components["schemas"]["RecordedInvestigationResponse"]>;
     "markdown_report": string | null;
+    "synopsis": string | null;
+    "synopsis_identity": string;
     "model_identity": string;
     "prompt_identity": string;
     "started_at": string;
@@ -624,8 +631,7 @@ export interface components {
     "archcompass__presentation__web__routes__cases__CaseResponse": {
     "case_id": string;
     "revision": number;
-    "constraints": Array<components["schemas"]["ConstraintDTO"]>;
-    "decisions": Array<components["schemas"]["DecisionDTO"]>;
+    "answers": Array<components["schemas"]["CaseAnswerDTO"]>;
     "policy_context": components["schemas"]["PolicyContextDTO"];
     "created_at": string;
     "updated_at": string;
@@ -633,8 +639,6 @@ export interface components {
     "archcompass__presentation__web__routes__reviews__CaseResponse": {
     "id": string;
     "revision": number;
-    "constraints": Array<components["schemas"]["CaseConstraintResponse"]>;
-    "decisions": Array<components["schemas"]["CaseDecisionResponse"]>;
     "answers": Array<components["schemas"]["AnswerResponse"]>;
     "created_at": string;
     "updated_at": string;
@@ -1387,6 +1391,21 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "rescope_case_api_cases__case_id__patch": {
+    parameters: {
+      query: never;
+      path: {
+      "case_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["CasePatch"];
+    responses: {
+      "200": components["schemas"]["archcompass__presentation__web__routes__cases__CaseResponse"];
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
   "select_embedding_model_api_embeddings_selection_put": {
     parameters: {
       query: never;
@@ -1472,21 +1491,6 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
-  "update_case_api_cases__case_id__patch": {
-    parameters: {
-      query: never;
-      path: {
-      "case_id": string;
-      };
-      header: never;
-      cookie: never;
-    };
-    requestBody: components["schemas"]["CasePatch"];
-    responses: {
-      "200": components["schemas"]["archcompass__presentation__web__routes__cases__CaseResponse"];
-      "422": components["schemas"]["ProblemDetail"];
-    };
-  };
   "update_policy_api_policies__policy_id__put": {
     parameters: {
       query: never;
@@ -1535,7 +1539,7 @@ export interface paths {
   };
   "/api/cases/{case_id}": {
     get: operations["get_case_api_cases__case_id__get"];
-    patch: operations["update_case_api_cases__case_id__patch"];
+    patch: operations["rescope_case_api_cases__case_id__patch"];
   };
   "/api/cases/{case_id}/history": {
     get: operations["case_history_api_cases__case_id__history_get"];
