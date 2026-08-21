@@ -121,6 +121,34 @@ class GitCommandLineClient:
 
         return self._ask(checkout, "rev-parse", "--verify", "--quiet", "HEAD") or None
 
+    def remote_branches(self, url: str) -> list[str]:
+        """Every branch `url` publishes, read straight off the remote.
+
+        `ls-remote` and not a clone: this answers a question asked while someone is still
+        deciding what to fetch, and cloning a repository to find out what is in it would cost
+        the whole transfer for a list of names.
+
+        An empty list for every failure, including a remote that asked for credentials git
+        does not have. The caller is filling in a chooser, and a chooser that cannot be filled
+        has to fall back to a name being typed — an exception here would turn "I could not
+        offer you the list" into "you may not clone this", which is a different and wrong
+        answer.
+        """
+
+        completed = self._execute(
+            ["git", "ls-remote", "--heads", "--", url], timeout=self._network_timeout
+        )
+        if completed is None:
+            return []
+        branches: list[str] = []
+        for line in completed.stdout.splitlines():
+            # `<sha>\trefs/heads/<name>`. Split once from the right of the tab so a branch
+            # name containing a slash — `feature/thing` — survives intact.
+            _, _, ref = line.partition("\t")
+            if ref.startswith("refs/heads/"):
+                branches.append(ref[len("refs/heads/") :])
+        return sorted(set(branches))
+
     def default_branch(self, checkout: Path) -> str:
         """The branch the remote hands out to a caller who does not name one.
 

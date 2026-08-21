@@ -1123,6 +1123,21 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
+  "list_remote_branches_api_repositories_remote_branches_get": {
+    parameters: {
+      query: {
+      "url": string;
+      };
+      path: never;
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": Array<string>;
+      "422": components["schemas"]["ProblemDetail"];
+    };
+  };
   "list_repositories_api_repositories_get": {
     parameters: {
       query: {
@@ -1591,6 +1606,9 @@ export interface paths {
   };
   "/api/repositories/refresh": {
     post: operations["refresh_repository_api_repositories_refresh_post"];
+  };
+  "/api/repositories/remote-branches": {
+    get: operations["list_remote_branches_api_repositories_remote_branches_get"];
   };
   "/api/repositories/review-context": {
     post: operations["repository_review_context_api_repositories_review_context_post"];

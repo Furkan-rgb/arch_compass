@@ -145,6 +145,15 @@ export const api = {
   // Repositories -------------------------------------------------------------------------
   repositories: () => request<RepositorySummary[]>("/api/repositories"),
   branches: () => request<RepositoryBranch[]>("/api/branches"),
+  /**
+   * The branches an address publishes, read off the remote without cloning it.
+   *
+   * An empty array is a real answer — a private remote git has no credentials for, a wrong
+   * address, or a deployment that fetches archives and never runs git — so a caller filling
+   * in a chooser has to be able to fall back to a name being typed.
+   */
+  remoteBranches: (url: string) =>
+    request<string[]>(`/api/repositories/remote-branches?url=${encode(url)}`),
   checkoutRepository: (url: string, branch: string | null) =>
     request<RepositoryCheckout>("/api/repositories/checkout", {
       method: "POST",

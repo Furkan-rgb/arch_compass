@@ -60,6 +60,17 @@ class GitClient(Protocol):
         """The commit the working tree is on, or `None` when there is not one yet."""
         ...
 
+    def remote_branches(self, url: str) -> list[str]:
+        """Every branch `url` publishes, without cloning it.
+
+        Asked of the remote rather than of a checkout, because the caller that wants this is
+        choosing a branch *before* there is anywhere to check one out to. An unreachable or
+        private remote answers with an empty list rather than an error: not being able to
+        offer a list is an ordinary outcome — git may have no credentials for this address —
+        and the caller's job is then to let a branch be named instead of refusing to proceed.
+        """
+        ...
+
     def default_branch(self, checkout: Path) -> str:
         """What the remote says its own default is, as a plain branch name."""
         ...

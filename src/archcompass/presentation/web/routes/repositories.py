@@ -230,6 +230,28 @@ def routes() -> APIRouter:
         hosted_mode.checkout()
         return runtime.checkout_service.checkout(request.url, branch=request.branch)
 
+    @router.get("/api/repositories/remote-branches", dependencies=[SpendsFetchBudget])
+    def list_remote_branches(
+        runtime: RuntimeDep,
+        url: Annotated[str, Query(min_length=1, max_length=2048)],
+    ) -> list[str]:
+        """What branches `url` publishes, so a branch can be chosen rather than spelled.
+
+        An empty list is a real answer and not an error. It means "no list can be offered
+        here" — the remote is private and git has no credentials for it, the address is wrong,
+        or this deployment fetches archives over HTTPS and never runs git at all, in which
+        case there is no way to enumerate refs without a host's own API. The caller's job in
+        every one of those cases is the same: let a branch be typed instead of refusing to
+        proceed, because being unable to list the branches says nothing about whether the one
+        the reader has in mind exists.
+        """
+
+        # Hosted mode has no git to ask. Answering empty rather than raising keeps the
+        # chooser's contract identical across deployments.
+        if runtime.source_service is not None:
+            return []
+        return runtime.checkout_service.remote_branches(url)
+
     @router.post(
         "/api/repositories/refresh",
         responses=problem_responses(409, 422),

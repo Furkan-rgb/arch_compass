@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { api } from "../../api";
+import { api, type RepositorySummary } from "../../api";
 import { cn } from "../../lib/cn";
 import { relativeTime, repositoryName } from "../../lib/format";
 import { Tag } from "../../ui/badge";
 import { Button } from "../../ui/button";
-import { Field, Input } from "../../ui/field";
+import { Field, Input, Select } from "../../ui/field";
 import { CheckIcon, FolderIcon, GitBranchIcon } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { EmptyState, ErrorNotice, Spinner } from "../../ui/states";
@@ -29,7 +29,30 @@ export function RepositoryPicker({
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const examples = useQuery({ queryKey: ["examples"], queryFn: api.examples });
 
-  const hasRecent = Boolean(repositories.data?.length);
+  /**
+   * One entry per repository, not per time it was indexed.
+   *
+   * `/api/repositories` answers "which checkouts have been indexed", and every re-index adds
+   * a row — which is correct for a version listing and wrong for a chooser. Anyone testing
+   * against the same repository ends up picking it out of eight copies of itself, and the
+   * eight-item cap then means eight copies of one repository is the whole list.
+   *
+   * Keyed on `root_path` because that is the only thing this control actually hands back;
+   * two paths are two choices even when they are clones of the same repository. The rows
+   * arrive newest first, so the first one seen is the one to keep, and the count beside it
+   * says how many indexes are behind it rather than hiding them.
+   */
+  const indexed = useMemo(() => {
+    const seen = new Map<string, { repository: RepositorySummary; versions: number }>();
+    for (const repository of repositories.data ?? []) {
+      const existing = seen.get(repository.root_path);
+      if (existing) existing.versions += 1;
+      else seen.set(repository.root_path, { repository, versions: 1 });
+    }
+    return [...seen.values()];
+  }, [repositories.data]);
+
+  const hasRecent = Boolean(indexed.length);
 
   return (
     <div>
@@ -39,7 +62,7 @@ export function RepositoryPicker({
         onChange={setTab}
         variant="solid"
         items={[
-          { id: "recent", label: "Indexed", count: repositories.data?.length },
+          { id: "recent", label: "Indexed", count: indexed.length || undefined },
           { id: "browse", label: "Browse" },
           { id: "clone", label: "Clone" },
           { id: "example", label: "Examples", count: examples.data?.length },
@@ -58,8 +81,8 @@ export function RepositoryPicker({
             </EmptyState>
           ) : (
             <ul className="grid gap-1.5 sm:grid-cols-2">
-              {repositories.data?.slice(0, 8).map((repository) => (
-                <li key={repository.version_id}>
+              {indexed.slice(0, 8).map(({ repository, versions }) => (
+                <li key={repository.root_path}>
                   <button
                     type="button"
                     onClick={() => onChange(repository.root_path)}
@@ -88,6 +111,11 @@ export function RepositoryPicker({
                         </span>
                       ) : null}
                       <span>indexed {relativeTime(repository.created_at)}</span>
+                      {versions > 1 ? (
+                        <span title={`${versions} atlas versions of this checkout`}>
+                          · {versions} indexes
+                        </span>
+                      ) : null}
                     </div>
                   </button>
                 </li>
@@ -205,10 +233,61 @@ function PathField({ value, onChange }: { value: string; onChange: (root: string
   );
 }
 
+/**
+ * How long to wait after the last keystroke before asking the remote what it has.
+ *
+ * `ls-remote` is a network round trip to somebody else's server, so this cannot run per
+ * keystroke — and a half-typed address is a request that was always going to fail. Long
+ * enough that pasting an address asks once; short enough that it feels like it answered by
+ * itself rather than after a pause worth noticing.
+ */
+const BRANCH_PROBE_DELAY_MS = 600;
+
+/** The option that swaps the chooser back to a text field. Not a branch name anyone has. */
+const NAME_IT_MYSELF = "\u0000name-it-myself";
+
+/** Enough of an address to be worth asking about, without being a URL parser. */
+const LOOKS_LIKE_AN_ADDRESS = /^(?:https?:\/\/|git@|ssh:\/\/|git:\/\/).+[^/]$/;
+
 function CloneForm({ onCheckedOut }: { onCheckedOut: (root: string) => void }) {
   const client = useQueryClient();
   const [url, setUrl] = useState("");
   const [branch, setBranch] = useState("");
+  const [naming, setNaming] = useState(false);
+
+  // The address the branch list belongs to, which trails what is in the field.
+  const [probed, setProbed] = useState("");
+  useEffect(() => {
+    const candidate = url.trim();
+    if (!LOOKS_LIKE_AN_ADDRESS.test(candidate)) {
+      setProbed("");
+      return;
+    }
+    const timer = setTimeout(() => setProbed(candidate), BRANCH_PROBE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [url]);
+
+  const remoteBranches = useQuery({
+    queryKey: ["remote-branches", probed],
+    queryFn: () => api.remoteBranches(probed),
+    enabled: Boolean(probed),
+    // The answer is a property of somebody else's server and does not change while a form is
+    // being filled in; refetching on every focus would be a network call for nothing.
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+
+  const offered = remoteBranches.data ?? [];
+  // A branch is chosen from the list wherever there is one to choose from. Typing is the
+  // fallback, not the default — but it stays reachable, because "no list" and "no such
+  // branch" are different facts and only the first of them is what an empty answer means.
+  const choosing = offered.length > 0 && !naming;
+
+  // A branch that is no longer in the list it was chosen from is a stale answer, and leaving
+  // it selected would clone the wrong thing quietly.
+  useEffect(() => {
+    if (offered.length && branch && !offered.includes(branch)) setBranch("");
+  }, [offered, branch]);
   const checkout = useMutation({
     mutationFn: () => api.checkoutRepository(url.trim(), branch.trim() || null),
     onSuccess: async (result) => {
@@ -231,16 +310,48 @@ function CloneForm({ onCheckedOut }: { onCheckedOut: (root: string) => void }) {
             />
           )}
         </Field>
-        <Field label="Branch" hint="Optional">
-          {(props) => (
-            <Input
-              {...props}
-              value={branch}
-              onChange={(event) => setBranch(event.target.value)}
-              placeholder="main"
-              autoComplete="off"
-            />
-          )}
+        <Field
+          label="Branch"
+          hint={
+            remoteBranches.isFetching
+              ? "Reading the remote…"
+              : choosing
+                ? `${offered.length} on this remote`
+                : "Optional"
+          }
+        >
+          {(props) =>
+            choosing ? (
+              <Select
+                {...props}
+                value={branch}
+                onChange={(event) => {
+                  if (event.target.value === NAME_IT_MYSELF) {
+                    setNaming(true);
+                    setBranch("");
+                    return;
+                  }
+                  setBranch(event.target.value);
+                }}
+              >
+                <option value="">The remote's default</option>
+                {offered.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+                <option value={NAME_IT_MYSELF}>Name one myself…</option>
+              </Select>
+            ) : (
+              <Input
+                {...props}
+                value={branch}
+                onChange={(event) => setBranch(event.target.value)}
+                placeholder="The remote's default"
+                autoComplete="off"
+              />
+            )
+          }
         </Field>
         <Button
           variant="secondary"

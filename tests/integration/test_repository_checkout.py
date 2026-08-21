@@ -154,6 +154,35 @@ def test_two_addresses_are_two_directories(
     assert one.root_path != other.root_path
 
 
+def test_a_remote_lists_its_branches_without_being_cloned(
+    tmp_path: Path, workspace_runtime: Runtime
+) -> None:
+    # What fills the branch chooser on the start page. Asked of the remote rather than of a
+    # checkout, because the reader is choosing a branch before there is anywhere to put one.
+    remote = _committed_repository(tmp_path / "remote")
+    _git(remote, "checkout", "-b", "release/2026-01")
+    _commit(remote, "release.py", "on the release branch")
+    _git(remote, "checkout", "main")
+
+    branches = workspace_runtime.checkout_service.remote_branches(_url(remote))
+
+    assert branches == ["main", "release/2026-01"]
+    # A slash in a branch name survives: the ref is split on its tab, not on its slashes.
+    assert not (tmp_path / "checkouts").exists() or not any(
+        (tmp_path / "checkouts").iterdir()
+    )
+
+
+def test_a_remote_that_cannot_be_reached_offers_no_branches_rather_than_failing(
+    workspace_runtime: Runtime,
+) -> None:
+    # An address git cannot reach — or a private one it has no credentials for — says nothing
+    # about whether the branch the reader has in mind exists. So this is an empty list and the
+    # form falls back to a name being typed; raising here would turn "I cannot offer you the
+    # list" into "you may not clone this".
+    assert workspace_runtime.checkout_service.remote_branches("https://example.invalid/x.git") == []
+
+
 def test_a_branch_the_remote_does_not_have_is_refused_by_name(
     tmp_path: Path, workspace_runtime: Runtime
 ) -> None:

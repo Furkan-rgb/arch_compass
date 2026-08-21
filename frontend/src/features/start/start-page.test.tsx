@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -60,6 +60,80 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.restoreAllMocks());
+
+/** The same checkout, indexed three times, which is what testing against one repository does. */
+function indexedThreeTimes() {
+  return [1, 2, 3].map((n) => ({
+    version_id: `version-${n}`,
+    repository_identity: "identity-1",
+    root_path: "/work/payments-platform",
+    git_commit_sha: "8f31c2a91b4d",
+    repo_id: "repo-1",
+    branch_name: "main",
+    created_at: `2026-01-0${4 - n}T00:00:00Z`,
+    node_count: 128,
+    edge_count: 214,
+    signal_count: 3,
+  }));
+}
+
+describe("choosing a repository", () => {
+  // The branch probe is debounced, so the wait has to be controllable rather than real.
+  beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+  afterEach(() => vi.useRealTimers());
+
+  it("lists a repository once, however many times it has been indexed", async () => {
+    vi.spyOn(api, "repositories").mockResolvedValue(indexedThreeTimes());
+
+    render(wrap(<StartPage />));
+
+    // One entry, not three. `/api/repositories` answers "which checkouts have been indexed",
+    // and every re-index adds a row — right for a version listing, wrong for a chooser.
+    const chosen = await screen.findAllByText("payments-platform");
+    expect(chosen).toHaveLength(1);
+    // And it says what it collapsed, rather than quietly dropping two records.
+    expect(screen.getByText(/3 indexes/)).toBeInTheDocument();
+  });
+
+  it("offers the remote's branches rather than asking for one to be spelled", async () => {
+    vi.spyOn(api, "remoteBranches").mockResolvedValue(["main", "release/2026-01"]);
+
+    render(wrap(<StartPage />));
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Clone/ }));
+    fireEvent.change(screen.getByLabelText(/Repository address/), {
+      target: { value: "https://github.com/org/repository" },
+    });
+
+    // Typed, so nothing is asked yet: ls-remote is a round trip to somebody else's server
+    // and a half-typed address is a request that was always going to fail.
+    expect(api.remoteBranches).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(700);
+
+    const chooser = await screen.findByRole("combobox", { name: /Branch/ });
+    expect(within(chooser).getByRole("option", { name: "release/2026-01" })).toBeInTheDocument();
+    // Nothing chosen means the remote's own default, which is a real answer and not a blank.
+    expect(within(chooser).getByRole("option", { name: /default/ })).toBeInTheDocument();
+  });
+
+  it("lets a branch be named when the remote will not say what it has", async () => {
+    // A private remote git has no credentials for answers with an empty list. That says
+    // nothing about whether the branch the reader wants exists, so the field has to stay
+    // fillable — refusing here would turn "I cannot offer a list" into "you may not clone".
+    vi.spyOn(api, "remoteBranches").mockResolvedValue([]);
+
+    render(wrap(<StartPage />));
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Clone/ }));
+    fireEvent.change(screen.getByLabelText(/Repository address/), {
+      target: { value: "https://github.com/org/private" },
+    });
+    await vi.advanceTimersByTimeAsync(700);
+
+    await waitFor(() => expect(api.remoteBranches).toHaveBeenCalled());
+    expect(screen.getByRole("textbox", { name: /Branch/ })).toBeInTheDocument();
+  });
+});
 
 describe("starting a review", () => {
   it("will not run until both models are chosen, and says which is missing", async () => {

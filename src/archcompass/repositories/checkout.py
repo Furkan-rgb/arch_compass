@@ -143,6 +143,11 @@ class RepositoryCheckoutService:
             managed=True,
         )
 
+    def remote_branches(self, url: str) -> list[str]:
+        """The branches `url` publishes, for a chooser being filled in before a clone."""
+
+        return self._git.remote_branches(self._validated_url(url))
+
     def refresh(self, root_path: str) -> CheckoutRefresh:
         """Bring the folder at `root_path` up to its remote, if it is ours to bring.
 
