@@ -10,33 +10,25 @@ import yaml
 from fastapi import APIRouter, Body, Query
 from pydantic import Field, ValidationError
 
-from archcompass.domain import (
-    ArchitectureCase,
-    CaseConstraint,
-    CaseDecision,
-    CaseFacet,
-    PolicyContext,
-)
+from archcompass.domain import ArchitectureCase, PolicyContext
 from archcompass.domain.errors import ModelOutputValidationError
 from archcompass.presentation.web.dependencies import RuntimeDep
 from archcompass.presentation.web.schemas import APIModel
 
 
-class ConstraintDTO(APIModel):
-    text: str
-    facet: CaseFacet = CaseFacet.CONSTRAINT
-    source: str | None = None
+class CaseAnswerDTO(APIModel):
+    """What a person said when a judgement stopped to ask.
 
-    def domain(self) -> CaseConstraint:
-        return CaseConstraint(self.text, self.facet, self.source)
+    The only way intent reaches a case, so it is the only thing a case listing has to show.
+    Attributed and timestamped, because "somebody decided this, in reply to this question,
+    on this date" is what a constraint could never say about itself.
+    """
 
-
-class DecisionDTO(APIModel):
-    text: str
-    source: str | None = None
-
-    def domain(self) -> CaseDecision:
-        return CaseDecision(self.text, self.source)
+    question: str
+    status: str
+    value: str | None
+    actor: str
+    answered_at: str
 
 
 class PolicyContextDTO(APIModel):
@@ -49,26 +41,25 @@ class PolicyContextDTO(APIModel):
 
 
 class CaseWrite(APIModel):
-    constraints: list[ConstraintDTO] = Field(
-        default_factory=lambda: list[ConstraintDTO]()
-    )
-    decisions: list[DecisionDTO] = Field(
-        default_factory=lambda: list[DecisionDTO]()
-    )
+    """Everything a person may state when opening a case: which policies it can reach.
+
+    It used to carry constraints and decisions too. Nothing in the product ever wrote one —
+    no surface offered it and no review produced it — so the only way to fill them was to
+    hand-author YAML, and what a review actually needs to know now arrives as an answer to a
+    question it asked.
+    """
+
     policy_context: PolicyContextDTO = Field(default_factory=PolicyContextDTO)
 
 
 class CasePatch(APIModel):
-    constraints: list[ConstraintDTO] | None = None
-    decisions: list[DecisionDTO] | None = None
-    policy_context: PolicyContextDTO | None = None
+    policy_context: PolicyContextDTO = Field(default_factory=PolicyContextDTO)
 
 
 class CaseResponse(APIModel):
     case_id: str
     revision: int
-    constraints: list[ConstraintDTO]
-    decisions: list[DecisionDTO]
+    answers: list[CaseAnswerDTO]
     policy_context: PolicyContextDTO
     created_at: str
     updated_at: str
@@ -78,13 +69,15 @@ class CaseResponse(APIModel):
         return cls(
             case_id=case.id,
             revision=case.revision,
-            constraints=[
-                ConstraintDTO(text=item.text, facet=item.facet, source=item.source)
-                for item in case.constraints
-            ],
-            decisions=[
-                DecisionDTO(text=item.text, source=item.source)
-                for item in case.decisions
+            answers=[
+                CaseAnswerDTO(
+                    question=item.question.text,
+                    status=item.status.value,
+                    value=item.value,
+                    actor=item.actor,
+                    answered_at=item.answered_at.isoformat(),
+                )
+                for item in case.answers
             ],
             policy_context=PolicyContextDTO(
                 user=case.policy_context.user,
@@ -112,9 +105,7 @@ def routes() -> APIRouter:
     @router.post("/api/cases", status_code=201)
     def create_case(runtime: RuntimeDep, request: CaseWrite) -> CaseResponse:
         case = runtime.case_service.create(
-            constraints=tuple(item.domain() for item in request.constraints),
-            decisions=tuple(item.domain() for item in request.decisions),
-            policy_context=request.policy_context.domain(),
+            policy_context=request.policy_context.domain()
         )
         return CaseResponse.from_domain(case)
 
@@ -138,24 +129,17 @@ def routes() -> APIRouter:
         return CaseResponse.from_domain(runtime.case_service.show(case_id, revision))
 
     @router.patch("/api/cases/{case_id}")
-    def update_case(
+    def rescope_case(
         runtime: RuntimeDep, case_id: str, request: CasePatch
     ) -> CaseResponse:
-        case = runtime.case_service.revise(
-            case_id,
-            constraints=(
-                None
-                if request.constraints is None
-                else tuple(item.domain() for item in request.constraints)
-            ),
-            decisions=(
-                None
-                if request.decisions is None
-                else tuple(item.domain() for item in request.decisions)
-            ),
-            policy_context=(
-                None if request.policy_context is None else request.policy_context.domain()
-            ),
+        """Re-scope which policies the case can retrieve.
+
+        All that is left to patch. Intent is not written here — it is answered, through
+        `POST /api/reviews/{id}/answers`, in reply to a question a judgement raised.
+        """
+
+        case = runtime.case_service.rescope(
+            case_id, policy_context=request.policy_context.domain()
         )
         return CaseResponse.from_domain(case)
 

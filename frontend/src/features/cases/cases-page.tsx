@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 
 import { api, type CaseSummary } from "../../api";
 import { cn } from "../../lib/cn";
-import { absoluteTime, humanise, relativeTime, repositoryName, shortId } from "../../lib/format";
+import { absoluteTime, plural, relativeTime, repositoryName, shortId } from "../../lib/format";
 import { Tag } from "../../ui/badge";
 import { Button, ButtonLink } from "../../ui/button";
 import { MetaLine, Mono } from "../../ui/meta";
@@ -55,7 +55,7 @@ export function CasesPage() {
       <PageHeader
         eyebrow="Human context"
         title="Architecture cases"
-        description="A case carries the constraints, decisions and clarification answers a review is judged against. It starts empty and grows by revision as reviews ask for what they need; nothing is overwritten."
+        description="A case carries what people have answered when a judgement stopped to ask. It starts empty and grows by revision as reviews ask for what they need; nothing is overwritten, and nothing is stated up front."
         actions={
           <Button disabled={create.isPending} onClick={() => create.mutate()}>
             {create.isPending ? <Spinner /> : "New case"}
@@ -119,22 +119,31 @@ export function CasesPage() {
                               {relativeTime(revision.updated_at)}
                             </span>
                           </div>
-                          {revision.constraints.length ? (
+                          {revision.answers.length ? (
                             <ul className="mt-2 grid gap-1.5">
-                              {revision.constraints.map((constraint, position) => (
+                              {revision.answers.map((answer, position) => (
                                 <li
                                   key={position}
                                   className="rounded-md border border-rule bg-surface-2 px-2.5 py-2 text-xs leading-5 text-ink-2"
                                 >
-                                  <span className="mr-1.5 font-semibold text-ink">
-                                    {humanise(constraint.facet ?? "constraint")}
+                                  <span className="block font-semibold text-ink">
+                                    {answer.question}
                                   </span>
-                                  {constraint.text}
+                                  {answer.status === "skipped" ? (
+                                    <span className="text-ink-3">Explicitly skipped</span>
+                                  ) : (
+                                    answer.value
+                                  )}
+                                  <span className="mt-1 block text-[11px] text-ink-3">
+                                    {answer.actor}
+                                  </span>
                                 </li>
                               ))}
                             </ul>
                           ) : (
-                            <p className="mt-1.5 text-xs text-ink-3">No constraint recorded yet.</p>
+                            <p className="mt-1.5 text-xs text-ink-3">
+                              Opened empty. Nothing has been asked yet.
+                            </p>
                           )}
                         </div>
                       </TimelineItem>
@@ -216,8 +225,7 @@ function CaseCard({
         className="mt-2"
         items={[
           `Revision ${value.revision}`,
-          `${value.constraints.length} constraints`,
-          `${value.decisions.length} decisions`,
+          plural(value.answers.length, "answer"),
           relativeTime(value.updated_at),
         ]}
       />
@@ -252,40 +260,29 @@ function CaseSnapshot({ value }: { value: CaseSummary }) {
           </div>
         </div>
         <div>
-          <Label>Constraints · {value.constraints.length}</Label>
-          {value.constraints.length ? (
+          <Label>Answered · {value.answers.length}</Label>
+          {value.answers.length ? (
             <ul className="mt-1.5 grid gap-1.5">
-              {value.constraints.map((constraint, index) => (
+              {value.answers.map((answer, index) => (
                 <li
                   key={index}
                   className="rounded-md border border-rule bg-surface-2 px-2.5 py-2 text-xs leading-5 text-ink-2"
                 >
-                  <span className="mr-1.5 font-semibold text-ink">
-                    {humanise(constraint.facet ?? "constraint")}
-                  </span>
-                  {constraint.text}
+                  <span className="block font-semibold text-ink">{answer.question}</span>
+                  {answer.status === "skipped" ? (
+                    <span className="text-ink-3">Explicitly skipped</span>
+                  ) : (
+                    answer.value
+                  )}
+                  <span className="mt-1 block text-[11px] text-ink-3">{answer.actor}</span>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="mt-1.5 text-sm text-ink-3">None recorded.</p>
-          )}
-        </div>
-        <div>
-          <Label>Decisions · {value.decisions.length}</Label>
-          {value.decisions.length ? (
-            <ul className="mt-1.5 grid gap-1.5">
-              {value.decisions.map((decision, index) => (
-                <li
-                  key={index}
-                  className="rounded-md border border-rule bg-surface-2 px-2.5 py-2 text-xs leading-5 text-ink-2"
-                >
-                  {decision.text}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-1.5 text-sm text-ink-3">None recorded.</p>
+            <p className="mt-1.5 text-sm text-ink-3">
+              Nothing asked yet. A case fills in when a judgement turns on something the
+              repository cannot settle.
+            </p>
           )}
         </div>
       </PanelBody>

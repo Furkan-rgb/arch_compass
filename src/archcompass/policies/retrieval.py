@@ -5,6 +5,7 @@ from __future__ import annotations
 from hashlib import sha256
 
 from archcompass.domain import (
+    AnswerStatus,
     ArchitectureCase,
     Candidate,
     CandidateId,
@@ -30,7 +31,15 @@ def retrieval_query(candidate: Candidate, case: ArchitectureCase) -> str:
     measurements = "; ".join(
         f"{item.name}: {item.display}" for item in candidate.measurements
     )
-    constraints = "; ".join(item.text for item in case.constraints)
+    # The case contributes what a person has answered, and nothing else — there is no
+    # hand-authored intent to embed any more. An unanswered case says so rather than
+    # contributing an empty line, because "none" is a fact about this repository and a
+    # blank is a fact about the query builder.
+    answered = "; ".join(
+        f"{item.question.text} {item.value}"
+        for item in case.answers
+        if item.status is AnswerStatus.ANSWERED and item.value
+    )
     return "\n".join(
         (
             f"Pattern: {candidate.pattern}",
@@ -38,7 +47,7 @@ def retrieval_query(candidate: Candidate, case: ArchitectureCase) -> str:
             f"Participants: {participants}",
             f"Measurements: {measurements or 'none'}",
             f"Detection limits: {candidate.limitations or 'none stated'}",
-            f"Constraints: {constraints or 'none stated'}",
+            f"Answered about this architecture: {answered or 'nothing yet'}",
         )
     )
 

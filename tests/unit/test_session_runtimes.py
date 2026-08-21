@@ -6,7 +6,7 @@ from pathlib import Path
 
 from starlette.requests import Request
 
-from archcompass.domain import CaseConstraint, CaseFacet
+from archcompass.domain import PolicyContext
 from archcompass.presentation.web.runtimes import (
     SESSION_COOKIE,
     SessionRuntimeProvider,
@@ -26,7 +26,7 @@ def _request(cookie: str | None = None) -> Request:
 
 def _write_case(provider: SessionRuntimeProvider, cookie: str, title: str) -> str:
     created = provider.acquire(_request(cookie)).case_service.create(
-        constraints=(CaseConstraint(title, CaseFacet.CONSTRAINT),)
+        policy_context=PolicyContext(organisation=title)
     )
     return created.id
 

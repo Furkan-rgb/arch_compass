@@ -7,8 +7,6 @@ from typing import Protocol
 
 from archcompass.domain import (
     ArchitectureCase,
-    CaseConstraint,
-    CaseDecision,
     PolicyContext,
     Review,
 )
@@ -60,21 +58,13 @@ class ArchitectureCaseService:
         self._reviews = reviews
         self._lineages = lineages
 
-    def create(
-        self,
-        *,
-        constraints: tuple[CaseConstraint, ...] = (),
-        decisions: tuple[CaseDecision, ...] = (),
-        policy_context: PolicyContext | None = None,
-    ) -> ArchitectureCase:
+    def create(self, *, policy_context: PolicyContext | None = None) -> ArchitectureCase:
         context = PolicyContext() if policy_context is None else policy_context
         case = ArchitectureCase.create()
-        if constraints or decisions or context != PolicyContext():
+        if context != PolicyContext():
             case = ArchitectureCase(
                 case.id,
                 case.revision,
-                constraints,
-                decisions,
                 policy_context=context,
                 created_at=case.created_at,
                 updated_at=case.updated_at,
@@ -103,20 +93,16 @@ class ArchitectureCaseService:
     def show(self, case_id: str, revision: int | None = None) -> ArchitectureCase:
         return self._cases.get(case_id, revision)
 
-    def revise(
-        self,
-        case_id: str,
-        *,
-        constraints: tuple[CaseConstraint, ...] | None = None,
-        decisions: tuple[CaseDecision, ...] | None = None,
-        policy_context: PolicyContext | None = None,
-    ) -> ArchitectureCase:
+    def rescope(self, case_id: str, *, policy_context: PolicyContext) -> ArchitectureCase:
+        """Change which policies this case can retrieve, as a new revision.
+
+        Named for what it does now. It was `revise`, when a person could also write
+        constraints and decisions through it; nothing writes those any more, and a method
+        called "revise the case" invites putting them back.
+        """
+
         return self._cases.record(
-            self._cases.get(case_id).revise(
-                constraints=constraints,
-                decisions=decisions,
-                policy_context=policy_context,
-            )
+            self._cases.get(case_id).revise(policy_context=policy_context)
         )
 
     def history(self, case_id: str) -> tuple[ArchitectureCase, ...]:

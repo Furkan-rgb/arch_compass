@@ -29,25 +29,6 @@ class AnswerStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class CaseConstraint:
-    text: str
-    facet: CaseFacet = CaseFacet.CONSTRAINT
-    source: str | None = None
-
-    def __post_init__(self) -> None:
-        require_text(self.text, "constraint")
-
-
-@dataclass(frozen=True, slots=True)
-class CaseDecision:
-    text: str
-    source: str | None = None
-
-    def __post_init__(self) -> None:
-        require_text(self.text, "decision")
-
-
-@dataclass(frozen=True, slots=True)
 class PolicyContext:
     user: str | None = None
     organisation: str | None = None
@@ -135,28 +116,36 @@ class Answer:
 
 @dataclass(frozen=True, slots=True)
 class ArchitectureCase:
-    """The human context a review is judged against.
+    """The human context a review is judged against: answers, and nothing else.
 
-    There is deliberately no goal here. A goal was one prose sentence standing in for the
-    team's intent, and it was worse than nothing at both jobs: it was rarely written, so
-    almost every case carried a blank one, and where it was written it duplicated what the
-    policies already say in a form nothing could retrieve against. Intent enters judgement
-    through the policies that bear on a candidate, through constraints and decisions, and
-    through the answers a clarification round records — all of which are specific,
-    attributable, and asked for only when something turns on them.
+    Three fields have been removed from this record over its life — a free-text goal, then
+    hand-authored constraints and decisions — and all three failed the same way. Each was a
+    box asking a person to state their intent before they had seen a finding, so each was
+    almost always empty; where one was filled in it duplicated what the policy corpus
+    already says, in prose nothing could retrieve against. Constraints and decisions failed
+    twice over: no surface in the product ever offered to write one, and no review ever
+    produced one, so they were a channel that could only be fed by hand-authoring YAML.
+
+    What is left is the channel that fills itself. When a judgement turns on something the
+    repository cannot answer, the model states a hinge, the review stops and asks, and the
+    reply is recorded here as an `Answer` — carrying the question it replies to, who
+    answered, and when. That is the charter's "ask rather than assume", and it is the only
+    way intent enters a case. Everything else a review is judged against is the policy
+    corpus, which is authored where policies live and retrieved per candidate.
+
+    `policy_context` is not intent. It scopes which policies are retrievable — a user, an
+    organisation, a repository — and is the one thing here a person still sets directly.
     """
 
     id: str
     revision: int
-    constraints: tuple[CaseConstraint, ...] = ()
-    decisions: tuple[CaseDecision, ...] = ()
     answers: tuple[Answer, ...] = ()
     policy_context: PolicyContext = PolicyContext()
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
-        freeze_sequences(self, "constraints", "decisions", "answers")
+        freeze_sequences(self, "answers")
         require_text(self.id, "case id")
         if self.revision < 1:
             raise ValueError("case revision must be positive")
@@ -185,22 +174,17 @@ class ArchitectureCase:
             updated_at=utc_now(),
         )
 
-    def revise(
-        self,
-        *,
-        constraints: tuple[CaseConstraint, ...] | None = None,
-        decisions: tuple[CaseDecision, ...] | None = None,
-        policy_context: PolicyContext | None = None,
-    ) -> ArchitectureCase:
-        """Create the next human-authored revision without mutating this snapshot."""
+    def revise(self, *, policy_context: PolicyContext) -> ArchitectureCase:
+        """Re-scope which policies are retrievable, as the next revision.
+
+        All this can still change is the policy scope. Intent arrives through `with_answers`
+        and nowhere else, so there is no longer a general "revise the case" operation for a
+        person to reach for — which is the point, not an omission.
+        """
 
         return replace(
             self,
             revision=self.revision + 1,
-            constraints=self.constraints if constraints is None else constraints,
-            decisions=self.decisions if decisions is None else decisions,
-            policy_context=(
-                self.policy_context if policy_context is None else policy_context
-            ),
+            policy_context=policy_context,
             updated_at=utc_now(),
         )

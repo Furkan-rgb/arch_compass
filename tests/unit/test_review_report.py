@@ -11,9 +11,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from archcompass.domain import (
+    Answer,
+    AnswerStatus,
     ArchitectureCase,
     Candidate,
-    CaseConstraint,
     CaseFacet,
     Evidence,
     Finding,
@@ -32,6 +33,7 @@ from archcompass.domain import (
 )
 from archcompass.domain.case import Question
 from archcompass.domain.values import Measurement, MetricNature
+from archcompass.ports.capabilities import ReviewSynopsis
 from archcompass.workflow.report import compose_markdown_report
 
 REPOSITORY = RepositoryRef(
@@ -137,11 +139,23 @@ CLEARED = Finding(
 
 
 def case(*, revision: int = 2) -> ArchitectureCase:
+    answered = Question.create(
+        text="Is Stripe the only provider this has to support?",
+        facet=CaseFacet.DECISION,
+        candidate_ids=("candidate-1",),
+        round=1,
+    )
     return ArchitectureCase(
         id="case-1",
         revision=revision,
-        constraints=(
-            CaseConstraint(text="Stripe is the only provider today", facet=CaseFacet.CONSTRAINT),
+        answers=(
+            Answer(
+                answered,
+                AnswerStatus.ANSWERED,
+                "Stripe is the only provider today",
+                "architect",
+                datetime(2026, 1, 1, tzinfo=UTC),
+            ),
         ),
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
         updated_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -372,3 +386,37 @@ def test_the_same_review_composes_the_same_bytes() -> None:
 
     assert report() == report()
     assert "\n\n\n" not in report()
+
+
+def test_the_report_opens_on_what_the_review_amounts_to() -> None:
+    """The counts say how much there is; the summary says what it comes to.
+
+    Under the counts rather than over them: the document opens on what was measured and only
+    then on what somebody concluded from it. Labelled, because a document has no gutter and
+    a run-in label is how every other model-authored block in here says whose voice it is.
+    """
+
+    text = report(
+        synopsis=ReviewSynopsis(
+            "both material findings reach past the ports layer", "google:gemini-3-pro"
+        )
+    )
+
+    counts = text.index("Three candidates judged")
+    summary = text.index("**In summary.**")
+    material = text.index("## Material — 1")
+    assert counts < summary < material
+    assert "**In summary.** Both material findings reach past the ports layer." in text
+    # Said where every other provenance is said, and apart from "judged by": a finding
+    # carried forward was judged by whatever was selected then.
+    assert "- **Summarised by** `google:gemini-3-pro`" in text
+
+
+def test_a_report_with_nothing_to_summarise_opens_on_its_counts() -> None:
+    """No summary is a state the document already had, not a hole in it."""
+
+    text = report(synopsis=None)
+
+    assert "**In summary.**" not in text
+    assert "Summarised by" not in text
+    assert "Three candidates judged" in text

@@ -22,8 +22,6 @@ from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain import (
     AnswerStatus,
     ArchitectureCase,
-    CaseConstraint,
-    CaseDecision,
     PolicyContext,
     Review,
 )
@@ -88,19 +86,14 @@ class RetrievalEvaluationFile(BaseModel):
 
 
 class CaseWriteFile(BaseModel):
-    constraints: list[CaseConstraint] = Field(
-        default_factory=lambda: list[CaseConstraint]()
-    )
-    decisions: list[CaseDecision] = Field(
-        default_factory=lambda: list[CaseDecision]()
-    )
+    """A case file, which is now only a policy scope.
+
+    It carried constraints and decisions, and this was the only way to write one: no screen
+    offered it and no review produced it. Intent reaches a case by answering the question a
+    judgement raised, which is a thing the product does rather than a file somebody keeps.
+    """
+
     policy_context: PolicyContext = PolicyContext()
-
-
-class CaseUpdateFile(BaseModel):
-    constraints: list[CaseConstraint] | None = None
-    decisions: list[CaseDecision] | None = None
-    policy_context: PolicyContext | None = None
 
 
 @retrieval_app.command("evaluate")
@@ -363,9 +356,7 @@ def case_create(
 ) -> None:
     request = CaseWriteFile.model_validate(_read_yaml(source))
     case = _state(context).runtime.case_service.create(
-        constraints=tuple(request.constraints),
-        decisions=tuple(request.decisions),
-        policy_context=request.policy_context,
+        policy_context=request.policy_context
     )
     typer.echo(_case_json(case))
 
@@ -375,18 +366,17 @@ def case_show(context: typer.Context, case_id: str) -> None:
     typer.echo(_case_json(_state(context).runtime.case_service.show(case_id)))
 
 
-@case_app.command("update")
-def case_update(
+@case_app.command("rescope")
+def case_rescope(
     context: typer.Context,
     case_id: str,
-    source: Annotated[Path, typer.Option("--from", help="Partial case update YAML file.")],
+    source: Annotated[Path, typer.Option("--from", help="Policy scope YAML file.")],
 ) -> None:
-    update = CaseUpdateFile.model_validate(_read_yaml(source))
-    case = _state(context).runtime.case_service.revise(
-        case_id,
-        constraints=None if update.constraints is None else tuple(update.constraints),
-        decisions=None if update.decisions is None else tuple(update.decisions),
-        policy_context=update.policy_context,
+    """Change which policies this case can retrieve."""
+
+    update = CaseWriteFile.model_validate(_read_yaml(source))
+    case = _state(context).runtime.case_service.rescope(
+        case_id, policy_context=update.policy_context
     )
     typer.echo(_case_json(case))
 
