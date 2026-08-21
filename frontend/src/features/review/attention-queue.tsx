@@ -13,6 +13,7 @@ import {
   verdictOf,
   verdictRank,
 } from "../../lib/format";
+import { Mark } from "../../ui/mark";
 import { Badge } from "../../ui/badge";
 import { Spine } from "../../ui/spine";
 import { ToggleButton } from "../../ui/button";
@@ -362,7 +363,6 @@ export function AttentionQueue({
     ...visible.map((finding) => ({ kind: "finding", candidateId: finding.candidate.id }) as const),
   ];
   const keys = items.map(itemKey);
-  const at = selection ? keys.indexOf(itemKey(selection)) : -1;
 
   /**
    * Move the reader one item, from a key or from the header's own control.
@@ -389,6 +389,11 @@ export function AttentionQueue({
    *
    * `j`/`k` are ignored while something typeable has focus, because a reviewer writing a
    * waiver's reasoning means the letter.
+   *
+   * There is no longer a `‹ 1 of 7 ›` strip advertising this. It sat under the filter and
+   * cost the header a whole row to say a number the list itself shows and to duplicate what
+   * clicking a row already does — and the keys work the same whether or not a legend is
+   * printed above them.
    */
   function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement;
@@ -405,11 +410,6 @@ export function AttentionQueue({
     if (move(step)) event.preventDefault();
   }
 
-  // 44px because it is a touch target on a phone, `-my-1.5` because it should not be a 44px
-  // hole in the queue header. The box is the target — a pseudo-element cannot be, since
-  // getBoundingClientRect ignores an absolutely positioned ::after and a finger does not.
-  const stepper =
-    "inline-flex size-11 shrink-0 -my-1.5 items-center justify-center rounded-sm text-[13px] text-ink-3 transition hover:bg-sunken hover:text-ink disabled:pointer-events-none disabled:opacity-30";
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
@@ -448,49 +448,6 @@ export function AttentionQueue({
             </ToggleButton>
           ))}
         </div>
-
-        {/* Position belongs beside the keys that change it. It used to float in the tab
-            strip on the other side of the page, a long way from the list it was counting
-            and with no control next to it, so the only way to act on the number was to
-            already know the keys. */}
-        {items.length ? (
-          <div className="mt-1.5 flex items-center justify-between gap-2">
-            <div role="group" aria-label="Move through the queue" className="flex items-center">
-              <button
-                type="button"
-                aria-label="Previous in the queue"
-                disabled={at <= 0}
-                onClick={() => move(-1)}
-                className={stepper}
-              >
-                <span aria-hidden="true">‹</span>
-              </button>
-              {/* A fixed track, so the `›` does not step sideways when the count goes from
-                  one digit to two under a reader walking the list. */}
-              <span className="min-w-14 px-0.5 text-center font-mono text-[10.5px] tabular-nums text-ink-3">
-                {at >= 0 ? at + 1 : "—"} of {items.length}
-              </span>
-              <button
-                type="button"
-                aria-label="Next in the queue"
-                disabled={at >= items.length - 1}
-                onClick={() => move(1)}
-                className={stepper}
-              >
-                <span aria-hidden="true">›</span>
-              </button>
-            </div>
-            <span className="flex shrink-0 items-center gap-1 text-[10px] text-ink-3">
-              <kbd className="rounded-xs border border-rule bg-sunken px-1 py-px font-mono text-[10px] leading-none">
-                j
-              </kbd>
-              <kbd className="rounded-xs border border-rule bg-sunken px-1 py-px font-mono text-[10px] leading-none">
-                k
-              </kbd>
-              to walk
-            </span>
-          </div>
-        ) : null}
       </div>
 
       {/* `overflow-y-auto` alone makes this a scroller sideways too — CSS resolves the
@@ -710,9 +667,19 @@ function QueueRow({
             >
               {leaf}
             </span>
-            <span className="mt-0.5 line-clamp-2 text-[12.5px] leading-[1.4] text-ink-2 [overflow-wrap:anywhere]">
-              {finding.candidate.summary}
-            </span>
+            {/* The summary is announced and not drawn.
+
+                It used to be a two-line clamp under the name, which meant most rows ended
+                mid-sentence — the queue showing a sentence it could not finish, thirty times
+                down the column, for a detail the workbench states in full the moment the row
+                is opened. Scanning wants the name and the state; that is what choosing the
+                next thing to look at actually takes.
+
+                It stays in the accessible name because a screen reader arrives at a row
+                without the group header above it, and `domain.orders` alone is not enough to
+                choose from there. Sighted readers get that context from the header; this is
+                how the reader who cannot see the header gets it too. */}
+            <span className="sr-only">{finding.candidate.summary}</span>
             {!homogeneous || words.length ? (
               <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[10.5px] text-ink-3">
                 {homogeneous ? null : (
@@ -740,7 +707,7 @@ function QueueRow({
               </span>
             ) : disposition ? (
               <span className="mt-1 flex items-center gap-1 text-[10.5px] font-semibold text-ink-2">
-                <span aria-hidden="true">{disposition.glyph}</span>
+                <Mark shape={disposition.glyph} />
                 {disposition.label} by the team
               </span>
             ) : null}
@@ -781,12 +748,7 @@ function ClarificationRow({
       )}
     >
       <div className="grid grid-cols-[0.75rem_minmax(0,1fr)] gap-2.5">
-        <span
-          aria-hidden="true"
-          className="mt-[3px] block text-center text-[10px] leading-4 text-held"
-        >
-          ◆
-        </span>
+        <Mark shape="diamond" className="mt-[5px] size-[10px] justify-self-center text-held" />
         <span className="min-w-0">
           <span className="block truncate text-[10px] font-bold uppercase tracking-[0.12em] text-ink-3">
             Clarification · round {review.questions[0]?.round ?? 1}
@@ -827,11 +789,8 @@ function WorkedThrough({
   const cleared = review.findings.filter((finding) => finding.verdict === "cleared").length;
   return (
     <div className="flex flex-col items-center px-5 py-10 text-center">
-      <span
-        aria-hidden="true"
-        className="flex size-9 items-center justify-center rounded-full border border-rule-strong text-[13px] text-ink"
-      >
-        ●
+      <span className="flex size-9 items-center justify-center rounded-full border border-rule-strong text-ink">
+        <Mark shape="circle" className="size-[13px]" />
       </span>
       <h3 className="mt-3 font-display text-[15px] font-semibold tracking-tight text-ink">
         Worked through

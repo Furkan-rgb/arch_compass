@@ -9,8 +9,12 @@ export type ButtonSize = "sm" | "md" | "lg";
 const VARIANTS: Record<ButtonVariant, string> = {
   primary:
     "border-ink bg-ink text-canvas hover:border-ink hover:bg-ink active:translate-y-px",
+  // `bg-control` rather than `bg-surface`: a secondary button lands on the void, on a panel
+  // and inside a sunken block, and on this ground it has to read as raised above all three.
+  // One flat grey can only be brighter than one of them, so in dark the token is a film that
+  // steps up from whatever is behind it, and the rim is the light along its top edge.
   secondary:
-    "border-rule-strong bg-surface text-ink hover:border-rule-strong hover:bg-sunken active:translate-y-px",
+    "border-rule-strong bg-control text-ink shadow-rim hover:border-rule-strong hover:bg-control-2 active:translate-y-px",
   ghost: "border-transparent text-ink-2 hover:bg-sunken hover:text-ink",
   quiet: "border-rule bg-sunken/70 text-ink-2 hover:border-rule-strong hover:text-ink",
   danger: "border-material/30 bg-material-soft text-material hover:border-material/55",
@@ -102,10 +106,11 @@ export function ToggleButton({
       type="button"
       aria-pressed={pressed}
       className={cn(
-        // A filter chip owns its row everywhere it is used, so it has the room to be a real
-        // 44px target. Faking the hit area around a 32px box is no cheaper here and leaves
-        // three chips in a segmented control whose targets touch or overlap.
-        "inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-sm px-2.5 text-xs font-semibold transition",
+        // 44px is a *touch* requirement, so it is answered on a coarse pointer and nowhere
+        // else — the same split `Button`'s `sm` size makes. A segmented control of three
+        // chips is one line of text and two words of count; holding it at 44px with a mouse
+        // spent a third of the queue's header on a strip that says which filter is on.
+        "inline-flex min-h-8 pointer-coarse:min-h-11 items-center gap-1.5 whitespace-nowrap rounded-sm px-2.5 text-xs font-semibold transition",
         // A toggle for an empty set stays readable — it is telling you the count is zero,
         // which is information — but stops offering to filter to nothing.
         "disabled:pointer-events-none disabled:opacity-40",

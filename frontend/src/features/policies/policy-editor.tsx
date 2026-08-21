@@ -10,6 +10,7 @@ import { Label, Panel, PanelBody, PanelFooter, PanelHeader } from "../../ui/pane
 import { ErrorNotice, Spinner } from "../../ui/states";
 import { Tabs, TabPanel } from "../../ui/tabs";
 import { missingSections, policyTemplate, sectionStates } from "./sections";
+import { Mark } from "../../ui/mark";
 
 const EMPTY: PolicyDraft = {
   title: "",
@@ -176,7 +177,7 @@ export function PolicyEditor({
                   section.present ? "text-ink-3" : "font-medium text-ink",
                 )}
               >
-                <span aria-hidden="true">{section.present ? "●" : "○"}</span>
+                <Mark shape={section.present ? "circle" : "ring"} className="size-[11px]" />
                 {section.name}
                 <span className="sr-only">{section.present ? " written" : " still missing"}</span>
               </li>

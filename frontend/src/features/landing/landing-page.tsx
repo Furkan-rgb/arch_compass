@@ -19,6 +19,7 @@ import { Mono } from "../../ui/meta";
 import { Reveal } from "../../ui/reveal";
 import { CorpusCard } from "./corpus-card";
 import { Field } from "./field";
+import { Mark } from "../../ui/mark";
 
 /**
  * The landing page.
@@ -115,7 +116,7 @@ function LandingNav() {
     <header
       className={cn(
         "sticky top-0 z-40 border-b transition",
-        scrolled ? "border-rule bg-canvas/85 backdrop-blur" : "border-transparent bg-transparent",
+        scrolled ? "border-rule bg-chrome backdrop-blur-chrome" : "border-transparent bg-transparent",
       )}
     >
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
@@ -284,7 +285,14 @@ function Hero() {
  */
 function IntentBand() {
   return (
-    <section id="intent" className="relative overflow-hidden bg-band py-20 text-band-ink sm:py-[132px]">
+    // The band carries its own ground in both themes, and in dark that ground is now the
+    // same void the page is on — so a change of colour no longer marks the section. Two
+    // hairlines and the ribbon field drawn across it do the work instead, which is how the
+    // finding section below already says where it begins.
+    <section
+      id="intent"
+      className="relative overflow-hidden border-y border-band-rule bg-band py-20 text-band-ink sm:py-[132px]"
+    >
       <Field className="pointer-events-none absolute inset-0 h-full w-full max-md:opacity-[0.34]" />
       <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
         <Reveal className="max-w-[58ch]">
@@ -384,7 +392,10 @@ function FindingSection() {
             <Mono className="text-[15px] font-semibold tracking-tight text-ink">
               payments.gateway.PaymentGateway
             </Mono>
-            <Mono className="text-[11px] text-ink-3">▲ material · changed since review 3</Mono>
+            <Mono className="inline-flex items-center gap-1.5 text-[11px] text-ink-3">
+              <Mark shape="triangle" className="size-[10px]" />
+              material · changed since review 3
+            </Mono>
           </div>
 
           <GutterBlock voice="Measured" who={["sole_implementation", "detector v1.4.0", "8f31c2a"]}>
@@ -425,7 +436,7 @@ function FindingSection() {
 
           <GutterBlock voice="Judged" who={["google:gemini-3.6", "judge:v1", "2026-08-21"]}>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-material/25 bg-material-soft px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-material">
-              <span aria-hidden="true">▲</span> Material
+              <Mark shape="triangle" className="size-[9px]" /> Material
             </span>
             <p className="mt-3 max-w-[58ch] text-[15.5px] leading-[1.68] text-ink-2">
               The port was introduced to keep payment providers replaceable, and it is not doing

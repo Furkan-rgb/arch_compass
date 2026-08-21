@@ -3,12 +3,14 @@ import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import {
   type Descriptor,
+  type MarkShape,
   type Tone,
   dispositionOf,
   statusOf,
   strengthOf,
   verdictOf,
 } from "../lib/format";
+import { Mark } from "./mark";
 
 const TONES: Record<Tone, string> = {
   neutral: "border-rule-strong bg-sunken text-ink-2",
@@ -26,7 +28,7 @@ export function Badge({
   title,
 }: {
   tone?: Tone;
-  glyph?: string;
+  glyph?: MarkShape;
   children: ReactNode;
   className?: string;
   title?: string;
@@ -45,11 +47,7 @@ export function Badge({
         className,
       )}
     >
-      {glyph ? (
-        <span aria-hidden="true" className="text-[9px] leading-none opacity-80">
-          {glyph}
-        </span>
-      ) : null}
+      {glyph ? <Mark shape={glyph} className="size-[0.82em] opacity-80" /> : null}
       {children}
     </span>
   );

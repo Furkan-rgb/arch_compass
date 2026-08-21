@@ -17,6 +17,7 @@ import { StatusBadge } from "../../ui/badge";
 import { Button, ButtonLink } from "../../ui/button";
 import { Drawer } from "../../ui/drawer";
 import { MetaLine, TONE_TEXT } from "../../ui/meta";
+import { Mark } from "../../ui/mark";
 import { Panel, PanelBody } from "../../ui/panel";
 import { ErrorNotice, LoadingPanel } from "../../ui/states";
 import { Tabs, TabPanel } from "../../ui/tabs";
@@ -130,7 +131,7 @@ function ReviewOrientation({ review, className }: { review: Review; className?: 
                       count ? TONE_TEXT[descriptor.tone] : "text-ink-3",
                     )}
                   >
-                    {descriptor.glyph}
+                    <Mark shape={descriptor.glyph} />
                   </span>
                   <span
                     className={cn("font-semibold tabular-nums", count ? "text-ink" : "text-ink-3")}

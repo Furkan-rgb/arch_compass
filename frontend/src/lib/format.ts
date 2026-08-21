@@ -9,11 +9,22 @@
 
 export type Tone = "neutral" | "marked" | "material" | "held" | "cleared";
 
+/**
+ * The shape a descriptor wears, named rather than typed.
+ *
+ * These were literal characters until the glyphs turned out to be the one part of the type
+ * that neither shipped face contains — every one of them fell back to whatever the system
+ * had, at three different optical sizes on three different baselines. `ui/mark.tsx` draws
+ * them now. This stays a plain union so the vocabulary below is still data: no JSX in `lib`,
+ * and a descriptor is still something a test can compare.
+ */
+export type MarkShape = "triangle" | "diamond" | "circle" | "ring" | "half";
+
 export type Descriptor = {
   label: string;
   tone: Tone;
-  /** A text mark, not an emoji: it has to read as part of the type, and be announced. */
-  glyph: string;
+  /** Which of the five shapes says this without colour. Drawn by `ui/mark.tsx`. */
+  glyph: MarkShape;
   description?: string;
 };
 
@@ -21,29 +32,29 @@ const VERDICTS: Record<string, Descriptor> = {
   material: {
     label: "Material",
     tone: "material",
-    glyph: "▲",
+    glyph: "triangle",
     description: "The evidence supports an architectural concern worth acting on.",
   },
   held: {
     label: "Held",
     tone: "held",
-    glyph: "◆",
+    glyph: "diamond",
     description: "Judgement is waiting on context the repository cannot supply.",
   },
   cleared: {
     label: "Cleared",
     tone: "cleared",
-    glyph: "●",
+    glyph: "circle",
     description: "The candidate was assessed and found unproblematic.",
   },
 };
 
 const STATUSES: Record<string, Descriptor> = {
-  completed: { label: "Completed", tone: "cleared", glyph: "●" },
-  awaiting_answers: { label: "Awaiting answers", tone: "held", glyph: "◆" },
-  running: { label: "Running", tone: "marked", glyph: "◐" },
-  failed: { label: "Failed", tone: "material", glyph: "▲" },
-  cancelled: { label: "Cancelled", tone: "neutral", glyph: "○" },
+  completed: { label: "Completed", tone: "cleared", glyph: "circle" },
+  awaiting_answers: { label: "Awaiting answers", tone: "held", glyph: "diamond" },
+  running: { label: "Running", tone: "marked", glyph: "half" },
+  failed: { label: "Failed", tone: "material", glyph: "triangle" },
+  cancelled: { label: "Cancelled", tone: "neutral", glyph: "ring" },
 };
 
 /**
@@ -66,19 +77,19 @@ const STATUSES: Record<string, Descriptor> = {
  * which is what those exist for. Emphasis without alarm, and no hue at all.
  */
 const STRENGTHS: Record<string, Descriptor> = {
-  required: { label: "Required", tone: "marked", glyph: "▲" },
-  preferred: { label: "Preferred", tone: "neutral", glyph: "◆" },
-  guidance: { label: "Guidance", tone: "neutral", glyph: "○" },
+  required: { label: "Required", tone: "marked", glyph: "triangle" },
+  preferred: { label: "Preferred", tone: "neutral", glyph: "diamond" },
+  guidance: { label: "Guidance", tone: "neutral", glyph: "ring" },
 };
 
 const DISPOSITIONS: Record<string, Descriptor> = {
-  accept: { label: "Accepted", tone: "cleared", glyph: "●" },
-  park: { label: "Parked", tone: "held", glyph: "◆" },
-  waive: { label: "Waived", tone: "neutral", glyph: "○" },
+  accept: { label: "Accepted", tone: "cleared", glyph: "circle" },
+  park: { label: "Parked", tone: "held", glyph: "diamond" },
+  waive: { label: "Waived", tone: "neutral", glyph: "ring" },
 };
 
 function lookup(table: Record<string, Descriptor>, value: string): Descriptor {
-  return table[value] ?? { label: humanise(value), tone: "neutral", glyph: "○" };
+  return table[value] ?? { label: humanise(value), tone: "neutral", glyph: "ring" };
 }
 
 export const verdictOf = (value: string) => lookup(VERDICTS, value);

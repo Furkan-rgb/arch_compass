@@ -66,12 +66,43 @@
   /* Zero chroma, deliberately. The bone was a second temperature: it sat at the same warmth
      as the `held` amber and cost that amber some of its distance from the ground. These are
      the neutral ramp — no channel is more than any other, at any step — so the only coloured
-     thing on screen is a verdict. */
+     thing on screen is a verdict.
+
+     One rule orders the ramp in both themes: light means elevation. In light that reads as
+     white on grey, which is what this already was. In dark it reads as a film of white laid
+     over the void — the same rule, running the only direction it can once the ground is
+     already at the bottom. */
   --canvas: #f5f5f5;
   --sunken: #ebebeb;
   --surface: #ffffff;
   --surface-2: #fafafa;
   --overlay: rgb(0 0 0 / 45%);
+
+  /* A bar that content scrolls underneath — the shell's header, the landing nav. It is the
+     only surface in the system that is deliberately see-through, and the blur is what makes
+     that legible rather than smeared.
+
+     Everywhere else a translucent surface would be a bug rather than a look: a sticky group
+     heading and an open listbox both have real content passing behind them. So the glass is
+     baked into the ramp above as flat values, which is indistinguishable from compositing it
+     at paint time when the ground is one flat colour, and safe where it is not. */
+  --chrome: rgb(255 255 255 / 72%);
+
+  /* The fill of something you operate: a text field, a button that is not the primary one.
+
+     A control is raised, which on this ground can only mean brighter than whatever it was
+     dropped onto — and it lands on three different values (the void, a panel, a sunken
+     block), so in dark it is a film rather than a colour and composites a step up from all
+     three. In light it is the white it always was: there the surface beneath it is known,
+     and a fourth flat grey would say nothing. */
+  --control: #ffffff;
+  --control-2: #ebebeb;
+
+  /* The light caught along a surface's top edge, which is what makes a raised thing read as
+     raised on a ground too dark to take a shadow. In light there is nothing to catch — the
+     shadow still works and the surface is already the brightest thing on screen — so this is
+     empty on purpose rather than by omission. */
+  --rim: transparent;
 
   /* Hairlines are the primary structural device: this system separates with a rule and
      reserves a border for something you could pick up. */
@@ -121,24 +152,52 @@
   --band-ink-2: #a1a1a1;
   --band-rule: rgb(255 255 255 / 14%);
 
-  /* A shadow is for something that actually floats. Panels do not; they have a rule. */
-  --shadow-float: 0 1px 2px rgb(0 0 0 / 5%), 0 12px 32px rgb(0 0 0 / 9%);
-  --shadow-hero: 0 1px 3px rgb(0 0 0 / 5%), 0 28px 64px rgb(0 0 0 / 11%);
+  /* Two devices, and the difference between them is the whole rule.
+
+     A *rim* is the edge of a surface: one inset hairline of light along the top, no blur,
+     no offset. It lifts nothing off the page and costs nothing to draw, so any surface may
+     have one — it is how a panel says where it begins on a ground too dark for a hairline
+     to carry alone.
+
+     A *lift* is for something that genuinely left the page, which is still only the drawer
+     and the landing hero. `ui/design-system.test.ts` holds that line. */
+  --shadow-rim: inset 0 1px 0 var(--rim);
+  --shadow-float: inset 0 1px 0 var(--rim), 0 1px 2px rgb(0 0 0 / 5%), 0 12px 32px rgb(0 0 0 / 9%);
+  --shadow-hero: inset 0 1px 0 var(--rim), 0 1px 3px rgb(0 0 0 / 5%), 0 28px 64px rgb(0 0 0 / 11%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
 
-    --canvas: #0a0a0a;
-    --sunken: #000000;
-    --surface: #171717;
-    --surface-2: #262626;
-    --overlay: rgb(0 0 0 / 70%);
+    /* The ground is the void and every surface above it is a measured film of white.
+       Nothing here is darker than the page: `--sunken` used to be pure black, which is a hole
+       you cannot dig once the ground is already at the bottom, so the quiet inset it names —
+       a hover, a selected row, a block of code — is now the brightest of the four. The name
+       still says what it does, which is to set a region apart from the surface it sits on. */
+    --canvas: #000000; /*     0% — the void            */
+    --surface: #0d0d0d; /*    5% — a panel              */
+    --surface-2: #141414; /*  8% — a strip inside a panel */
+    --sunken: #1f1f1f; /*    12% — a quiet inset        */
+    --overlay: rgb(0 0 0 / 72%);
 
-    /* shadcn's own dark --border and --input, unchanged: white at 10% and 15%. */
-    --rule: rgb(255 255 255 / 10%);
-    --rule-strong: rgb(255 255 255 / 15%);
+    /* A hairline works against #0d0d0d now rather than #171717, so both are one step up from
+       shadcn's white-at-10-and-15. */
+    --rule: rgb(255 255 255 / 11%);
+    --rule-strong: rgb(255 255 255 / 17%);
+
+    --chrome: rgb(0 0 0 / 62%);
+
+    /* The fill of something you operate: a text field, a button that is not the primary one.
+
+       A control is raised, which on this ground can only mean brighter than whatever it was
+       dropped onto — and it lands on three different values (the void, a panel, a sunken
+       block), so in dark it is a film rather than a colour and composites a step up from all
+       three. In light it is the white it always was: there the surface beneath it is known,
+       and a fourth flat grey would say nothing. */
+    --control: rgb(255 255 255 / 7%);
+    --control-2: rgb(255 255 255 / 13%);
+    --rim: rgb(255 255 255 / 8%);
 
     --ink: #fafafa;
     --ink-2: #a1a1a1;
@@ -160,23 +219,48 @@
     --band: #000000;
     --band-rule: rgb(255 255 255 / 12%);
 
-    --shadow-float: 0 1px 2px rgb(0 0 0 / 40%), 0 12px 32px rgb(0 0 0 / 50%);
-    --shadow-hero: 0 1px 3px rgb(0 0 0 / 40%), 0 28px 64px rgb(0 0 0 / 55%);
+    /* A black blur on a black ground draws nothing at all. What separates a drawer from the
+       page here is the rim along its top and a faint ring around it; the long soft shadow
+       stays only for the edge that overhangs something lighter than itself. */
+    --shadow-rim: inset 0 1px 0 var(--rim);
+    --shadow-float: inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
+      0 24px 60px -20px rgb(0 0 0 / 85%);
+    --shadow-hero: inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
+      0 30px 70px -26px rgb(0 0 0 / 85%);
   }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --canvas: #0a0a0a;
-  --sunken: #000000;
-  --surface: #171717;
-  --surface-2: #262626;
-  --overlay: rgb(0 0 0 / 70%);
+  /* The ground is the void and every surface above it is a measured film of white.
+     Nothing here is darker than the page: `--sunken` used to be pure black, which is a hole
+     you cannot dig once the ground is already at the bottom, so the quiet inset it names —
+     a hover, a selected row, a block of code — is now the brightest of the four. The name
+     still says what it does, which is to set a region apart from the surface it sits on. */
+  --canvas: #000000; /*     0% — the void            */
+  --surface: #0d0d0d; /*    5% — a panel              */
+  --surface-2: #141414; /*  8% — a strip inside a panel */
+  --sunken: #1f1f1f; /*    12% — a quiet inset        */
+  --overlay: rgb(0 0 0 / 72%);
 
-  /* shadcn's own dark --border and --input, unchanged: white at 10% and 15%. */
-  --rule: rgb(255 255 255 / 10%);
-  --rule-strong: rgb(255 255 255 / 15%);
+  /* A hairline works against #0d0d0d now rather than #171717, so both are one step up from
+     shadcn's white-at-10-and-15. */
+  --rule: rgb(255 255 255 / 11%);
+  --rule-strong: rgb(255 255 255 / 17%);
+
+  --chrome: rgb(0 0 0 / 62%);
+
+  /* The fill of something you operate: a text field, a button that is not the primary one.
+
+     A control is raised, which on this ground can only mean brighter than whatever it was
+     dropped onto — and it lands on three different values (the void, a panel, a sunken
+     block), so in dark it is a film rather than a colour and composites a step up from all
+     three. In light it is the white it always was: there the surface beneath it is known,
+     and a fourth flat grey would say nothing. */
+  --control: rgb(255 255 255 / 7%);
+  --control-2: rgb(255 255 255 / 13%);
+  --rim: rgb(255 255 255 / 8%);
 
   --ink: #fafafa;
   --ink-2: #a1a1a1;
@@ -198,8 +282,14 @@
   --band: #000000;
   --band-rule: rgb(255 255 255 / 12%);
 
-  --shadow-float: 0 1px 2px rgb(0 0 0 / 40%), 0 12px 32px rgb(0 0 0 / 50%);
-  --shadow-hero: 0 1px 3px rgb(0 0 0 / 40%), 0 28px 64px rgb(0 0 0 / 55%);
+  /* A black blur on a black ground draws nothing at all. What separates a drawer from the
+     page here is the rim along its top and a faint ring around it; the long soft shadow
+     stays only for the edge that overhangs something lighter than itself. */
+  --shadow-rim: inset 0 1px 0 var(--rim);
+  --shadow-float: inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
+    0 24px 60px -20px rgb(0 0 0 / 85%);
+  --shadow-hero: inset 0 1px 0 var(--rim), inset 0 0 0 1px rgb(255 255 255 / 6%),
+    0 30px 70px -26px rgb(0 0 0 / 85%);
 }
 
 @theme inline {
@@ -208,6 +298,9 @@
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-overlay: var(--overlay);
+  --color-chrome: var(--chrome);
+  --color-control: var(--control);
+  --color-control-2: var(--control-2);
 
   --color-rule: var(--rule);
   --color-rule-strong: var(--rule-strong);
@@ -244,6 +337,10 @@
   --radius-lg: 14px; /* a panel                        */
   --radius-xl: 20px; /* a surface the panel sits on    */
 
+  /* One blur, for the one kind of surface that is see-through. */
+  --blur-chrome: 22px;
+
+  --shadow-rim: var(--shadow-rim);
   --shadow-float: var(--shadow-float);
   --shadow-hero: var(--shadow-hero);
 }

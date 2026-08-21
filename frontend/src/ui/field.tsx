@@ -10,7 +10,7 @@ import { cn } from "../lib/cn";
 
 /** `rounded-sm` is the control step, and an input almost always sits beside a `Button`. */
 export const controlClass =
-  "w-full rounded-sm border border-rule-strong bg-surface px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink-3 focus:border-ink focus:ring-2 focus:ring-ink/15 disabled:cursor-not-allowed disabled:opacity-55";
+  "w-full rounded-sm border border-rule-strong bg-control px-3 py-2 text-sm text-ink outline-none transition placeholder:text-ink-3 focus:border-ink focus:ring-2 focus:ring-ink/15 disabled:cursor-not-allowed disabled:opacity-55";
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cn(controlClass, className)} {...props} />;

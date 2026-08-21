@@ -21,8 +21,16 @@ export function Panel({
     <Tag
       className={cn(
         "rounded-lg border",
-        tone === "raised" && "border-rule bg-surface",
+        // The rim is one inset hairline of light along the top edge — no blur, no offset,
+        // nothing lifted off the page. On a black ground a hairline border alone loses the
+        // top of a panel, because the border and the void meet at almost the same value;
+        // the rim is the light that says where the surface starts. It is invisible in light
+        // mode by design: `--rim` is transparent there, because a white panel on grey has
+        // no edge to lose. `flat` is the same surface without it.
+        tone === "raised" && "border-rule bg-surface shadow-rim",
         tone === "flat" && "border-rule bg-surface",
+        // A sunken or marked region is set *into* a panel, so it gets no rim: a rim on an
+        // inset would say the opposite of what the tone is for.
         tone === "sunken" && "border-rule bg-sunken/60",
         tone === "marked" && "border-rule-strong bg-sunken",
         className,

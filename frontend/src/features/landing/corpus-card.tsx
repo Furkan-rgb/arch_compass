@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { cn } from "../../lib/cn";
 import { type Tone, strengthOf, verdictOf } from "../../lib/format";
+import { Mark } from "../../ui/mark";
 import { Mono } from "../../ui/meta";
 
 /**
@@ -154,7 +155,8 @@ function Specimen({ bearing, hidden }: { bearing: Bearing; hidden: boolean }) {
               strength.tone === "marked" ? "text-ink" : "text-ink-3",
             )}
           >
-            <span aria-hidden="true">{strength.glyph}</span> {strength.label}
+            <Mark shape={strength.glyph} className="mr-0.5 align-[-0.09em]" />
+            {strength.label}
           </Mono>
           <Mono className="text-[9.5px] uppercase tracking-[0.14em] text-ink-3">
             · {bearing.origin}
@@ -182,9 +184,10 @@ function Specimen({ bearing, hidden }: { bearing: Bearing; hidden: boolean }) {
 
       <div className="flex-1 px-5 pb-4 pt-3.5">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span aria-hidden="true" className={cn("text-[12px]", TONE_TEXT[verdict.tone])}>
-            {verdict.glyph}
-          </span>
+          <Mark
+            shape={verdict.glyph}
+            className={cn("size-[11px] self-center", TONE_TEXT[verdict.tone])}
+          />
           <span
             className={cn(
               "font-display text-[17px] font-semibold leading-tight tracking-tight",

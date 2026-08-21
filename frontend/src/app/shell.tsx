@@ -199,7 +199,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </aside>
 
         <div className="min-w-0">
-          <header className="sticky top-0 z-30 border-b border-rule bg-surface/85 backdrop-blur">
+          <header className="sticky top-0 z-30 border-b border-rule bg-chrome backdrop-blur-chrome">
             <div className="flex items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
               <div className="flex min-w-0 items-center gap-2">
                 {/* 44px of target inside a 32px row: the box grows, the negative margin

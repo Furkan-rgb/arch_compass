@@ -7,6 +7,7 @@ import { stageLabel } from "../start/run-progress";
 import { TONE_TEXT } from "../../ui/meta";
 import { Spinner } from "../../ui/states";
 import { Timeline, TimelineItem } from "../../ui/timeline";
+import { Mark } from "../../ui/mark";
 
 /**
  * The lineage a review belongs to: same repository branch, same case, in sequence.
@@ -68,9 +69,7 @@ export function RevisionRail({
                       status.tone === "neutral" ? "text-ink-3" : TONE_TEXT[status.tone],
                     )}
                   >
-                    <span aria-hidden="true" className="mr-1">
-                      {status.glyph}
-                    </span>
+                    <Mark shape={status.glyph} className="mr-1" />
                     {status.label}
                   </span>
                 }

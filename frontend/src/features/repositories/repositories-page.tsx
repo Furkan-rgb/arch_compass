@@ -65,7 +65,7 @@ function RepositoryCard({
           <h2 className="font-display text-base font-semibold tracking-tight text-ink">
             {repositoryName(repository.root_path)}
           </h2>
-          <Badge tone={freshness.tone} glyph={freshness.tone === "cleared" ? "●" : "◆"}>
+          <Badge tone={freshness.tone} glyph={freshness.tone === "cleared" ? "circle" : "diamond"}>
             Atlas {freshness.label}
           </Badge>
           {latest ? (

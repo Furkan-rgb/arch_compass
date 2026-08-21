@@ -102,16 +102,61 @@ describe("the design system", () => {
     ).toEqual([]);
   });
 
-  it("keeps a shadow for something that actually floats", () => {
-    // A panel has a rule. `shadow-float` and `shadow-hero` are for a drawer and for the
-    // landing hero, which are the only two things on screen that leave the page.
-    const allowed = new Set([
-      "ui/drawer.tsx",
-      "features/landing/corpus-card.tsx",
-    ]);
+  /**
+   * A rim is not a shadow, and this is the distinction the whole elevation system rests on.
+   *
+   * `shadow-rim` is one inset hairline of light along a surface's top edge: no blur, no
+   * offset, nothing leaves the page. It exists because the ground is now the void, and on
+   * black a hairline border loses the top of a panel — the border and the ground meet at
+   * almost the same value. So a rim is allowed on any surface, and `ui/panel.tsx` puts one
+   * on every raised panel without a call site having to ask.
+   *
+   * A *lift* — `shadow-float`, `shadow-hero` — is still only for the drawer and the landing
+   * hero, which are the two things on screen that genuinely left the page. The old rule was
+   * "structure is separated by a rule, not lifted off the page", and that half has not
+   * changed; what changed is that a rule alone is no longer enough to draw an edge.
+   */
+  /**
+   * A geometric shape is drawn, never typed.
+   *
+   * `\u25b2 \u25c6 \u25cf \u25cb \u25d0` are the one part of the interface neither Onest nor IBM Plex Mono
+   * contains, so every one of them fell through to whatever the operating system had —
+   * arriving at three different optical sizes on three different baselines, beside a word set
+   * in 11px uppercase. `ui/mark.tsx` draws them at one size now, and the failure mode this
+   * catches is the cheap one: somebody typing the character back into a string because it is
+   * one keystroke and looks right in the editor.
+   *
+   * Comment lines are skipped rather than allowlisted: `ui/spine.tsx` draws its segments as
+   * boxes and says so with `\u25ae\u25ae\u25af` in its own doc comment, which is a description of the
+   * thing and not the thing. A file-level exemption would have covered the code in it too.
+   *
+   * Written as escapes so this file is not itself an offender.
+   */
+  it("draws a geometric shape rather than typing one", () => {
     expect(
-      offenders(/\bshadow-(?:float|hero|panel|sm|md|lg|xl)\b/, allowed),
-      "structure is separated by a rule, not lifted off the page",
+      offenders(/^(?![*/])[^\n]*[\u25a0-\u25ff]/),
+      "use <Mark shape=…> — a pasted shape falls back to the system font and breaks the set",
+    ).toEqual([]);
+  });
+
+  it("lifts only the two things that leave the page", () => {
+    const allowed = new Set(["ui/drawer.tsx", "features/landing/corpus-card.tsx"]);
+    expect(
+      offenders(/\bshadow-(?:float|hero|panel|sm|md|lg|xl|2xl|inner)\b/, allowed),
+      "structure is separated by a rule and a rim, not lifted off the page",
+    ).toEqual([]);
+  });
+
+  /**
+   * The other half of the same rule: a rim has to come from the token, not from somebody
+   * hand-rolling an inset shadow that happens to look like one. An arbitrary
+   * `shadow-[inset_0_1px_0_…]` is how a second, slightly-different rim gets into the system,
+   * and two rims a percent apart read as a rendering bug rather than as a decision.
+   */
+  it("has one rim, and it comes from the token", () => {
+    expect(
+      offenders(/\bshadow-\[[^\]]*inset/),
+      "use shadow-rim — the rim is --rim, declared once per theme",
     ).toEqual([]);
   });
 });
