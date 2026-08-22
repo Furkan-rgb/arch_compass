@@ -138,7 +138,7 @@ def test_the_report_leads_with_the_summary_and_says_it_once(page, review_url: st
     assert _visible(page.get_by_text("Where this came from").first)
 
 
-def test_answering_a_clarification_records_a_new_revision(page, review_url: str) -> None:  # type: ignore[no-untyped-def]
+def test_answering_a_clarification_completes_the_revision(page, review_url: str) -> None:  # type: ignore[no-untyped-def]
     """A question is answered by picking, and the box is what you reach for when none fit.
 
     This used to type into the textarea, because a question arrived with nothing to pick
@@ -169,13 +169,17 @@ def test_answering_a_clarification_records_a_new_revision(page, review_url: str)
     choices.first.click()
     page.get_by_role("button", name="Save and rejudge").click()
 
+    # The URL moves because the record does — a waiting snapshot is superseded by the one
+    # that came back with the verdicts. The revision it belongs to does not move: this is
+    # still review 1, now holding the case revision the answer completed.
     page.wait_for_url(lambda url: url != first_url, timeout=REVIEW_TIMEOUT_MS)
-    page.get_by_text("Review 2", exact=False).first.wait_for(timeout=REVIEW_TIMEOUT_MS)
+    page.get_by_text("Review 1", exact=False).first.wait_for(timeout=REVIEW_TIMEOUT_MS)
 
-    # The answer became case context, and the lineage now holds both revisions.
     page.get_by_role("tab", name="Docket").click()
     assert _visible(page.get_by_text("Review lineage"))
     assert _visible(page.get_by_text("case revision 2", exact=False).first)
+    # One review, one entry. Answering did not add a revision to the rail.
+    assert page.get_by_text("One immutable revision").count() == 1
 
 
 def test_policies_render_as_markdown_and_navigation_survives_a_phone(  # type: ignore[no-untyped-def]

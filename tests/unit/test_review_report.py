@@ -271,7 +271,7 @@ def test_a_hinge_is_stated_and_does_not_run_into_the_next_sentence() -> None:
 
     assert (
         "**Waiting on a person.** The constraints this architecture has to respect. "
-        "Answering it produces the next case revision" in text
+        "Answering it completes this review's case revision" in text
     )
 
 

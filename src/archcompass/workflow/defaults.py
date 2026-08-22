@@ -75,25 +75,44 @@ class NoHingeInvestigation:
 
 
 class AppendAnswersCaseReviser:
+    """The revision a review opens, in memory, with nowhere to write it."""
+
+    def open(self, case: ArchitectureCase) -> ArchitectureCase:
+        return case.open_revision()
+
     def revise(
         self, case: ArchitectureCase, answers: Sequence[Answer]
     ) -> ArchitectureCase:
         return case.with_answers(tuple(answers))
 
+    def seal(self, case: ArchitectureCase) -> ArchitectureCase:
+        return case
+
 
 class CaseSnapshotRecorder(Protocol):
     def record(self, case: ArchitectureCase) -> ArchitectureCase: ...
 
+    def next_revision(self, case_id: str) -> int: ...
+
 
 class PersistentCaseReviser(AppendAnswersCaseReviser):
+    """The same revision, written once, at the end.
+
+    It used to write on every round, which is what made a review that asked twice leave
+    three revisions behind. Now the store is asked for a free number when the revision
+    opens — so a review started from an older revision takes the next number rather than
+    colliding with one that is already there — and the snapshot is written when the review
+    that opened it finishes. A review nobody answered writes nothing.
+    """
+
     def __init__(self, cases: CaseSnapshotRecorder) -> None:
         self._cases = cases
 
-    def revise(
-        self, case: ArchitectureCase, answers: Sequence[Answer]
-    ) -> ArchitectureCase:
-        revised = super().revise(case, answers)
-        return self._cases.record(revised)
+    def open(self, case: ArchitectureCase) -> ArchitectureCase:
+        return case.open_revision(self._cases.next_revision(case.id))
+
+    def seal(self, case: ArchitectureCase) -> ArchitectureCase:
+        return self._cases.record(case)
 
 
 class ChangedAndNewCandidateSelector:
@@ -138,12 +157,17 @@ class DeterministicReviewComposer:
     def compose(self, draft: ReviewDraft, *, waiting: bool) -> Review:
         status = ReviewStatus.AWAITING_ANSWERS if waiting else ReviewStatus.COMPLETED
         sequence = 1 if draft.previous is None else draft.previous.sequence + 1
+        # The round is part of the identity, and has to be: a review asks under one case
+        # revision now and keeps that revision however many rounds it takes, so two waiting
+        # snapshots of one review would otherwise be filed under one id and the second
+        # would be dropped as a duplicate of the first.
         review_id = stable_id(
             "review",
             draft.repository.branch_id,
             draft.atlas.id,
             draft.case.id,
             str(draft.case.revision),
+            str(draft.round),
             status.value,
         )
         current_manifest = tuple(item.provenance for item in draft.retrievals)
@@ -209,10 +233,12 @@ class DeterministicReviewComposer:
             sequence=sequence,
             waiting=waiting,
             synopsis=draft.synopsis,
+            round=draft.round,
         )
         return Review(
             id=review_id,
             sequence=sequence,
+            round=draft.round,
             repository=draft.repository,
             atlas=draft.atlas,
             case=draft.case,

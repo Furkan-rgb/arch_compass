@@ -181,6 +181,7 @@ function ReviewHead({
             </h1>
             <span className="text-[10px] font-bold uppercase tracking-[0.13em] text-ink-3">
               Review {review.sequence} · case revision {review.case.revision} ·{" "}
+              {review.round > 1 ? <>round {review.round} · </> : null}
               {relativeTime(review.started_at)}
             </span>
           </div>

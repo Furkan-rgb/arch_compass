@@ -329,8 +329,8 @@ function ClarificationCard({
             {review.questions.length === 1 ? "s" : ""} an answer
           </span>
           <span className="mt-0.5 block text-[12.5px] leading-[1.5] text-ink-2">
-            Nothing below can be finished until these are answered. Answering produces the next
-            case revision and re-judges what it touches.
+            Nothing below can be finished until these are answered. Answering completes this
+            review's case revision and re-judges what it touches.
           </span>
         </span>
         <ChevronDown

@@ -231,8 +231,8 @@ def _entry(finding: Finding, *, delta_state: str | None, measured: bool = True) 
     if finding.hinge:
         lines.extend(
             [
-                f"**Waiting on a person.** {_sentence(finding.hinge)} Answering it produces "
-                "the next case revision and re-judges what it touches.",
+                f"**Waiting on a person.** {_sentence(finding.hinge)} Answering it completes "
+                "this review's case revision and re-judges what it touches.",
                 "",
             ]
         )
@@ -346,7 +346,7 @@ def _questions(questions: Sequence[Question], *, waiting: bool) -> str:
             lines.extend(f"  - {option}" for option in question.options)
     lines.append("")
     lines.append(
-        "Answering these records them on the architecture case as a new revision and re-judges "
+        "Answering these records them on the case revision this review opened and re-judges "
         "the candidates they touch. Anything left unanswered is recorded as explicitly skipped, "
         "not guessed at."
         if waiting
@@ -463,6 +463,7 @@ def compose_markdown_report(
     sequence: int,
     waiting: bool,
     synopsis: ReviewSynopsis | None = None,
+    round: int = 1,
 ) -> str:
     """The whole document.
 
@@ -480,6 +481,10 @@ def compose_markdown_report(
     previous_sequence = None if previous is None else previous.sequence
 
     identity = [f"review {sequence}", f"case revision {case.revision}"]
+    # Only past the first. A review that settled without asking has one round, and printing
+    # "round 1" on every document would make the ordinary case look like a partial one.
+    if round > 1:
+        identity.append(f"round {round}")
     if repository.branch:
         identity.insert(0, f"branch `{repository.branch}`")
     if repository.commit:

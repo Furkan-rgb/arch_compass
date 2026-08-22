@@ -97,6 +97,7 @@ export function reviewFixture(overrides: Partial<Review> = {}): Review {
   return {
     id: "review-1",
     sequence: 1,
+    round: 1,
     status: "awaiting_answers",
     previous_review_id: null,
     repository,

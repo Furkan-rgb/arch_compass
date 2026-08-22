@@ -172,11 +172,17 @@ class Questions:
 
 
 class Cases:
+    def open(self, case: ArchitectureCase) -> ArchitectureCase:
+        return case.open_revision()
+
     def revise(self, case: ArchitectureCase, answers: tuple[Answer, ...]) -> ArchitectureCase:
         revised = case
         for answer in answers:
             revised = revised.with_answer(answer)
         return revised
+
+    def seal(self, case: ArchitectureCase) -> ArchitectureCase:
+        return case
 
 
 class Composer:
@@ -185,6 +191,7 @@ class Composer:
         return Review(
             id=new_id("review"),
             sequence=1 if draft.previous is None else draft.previous.sequence + 1,
+            round=draft.round,
             repository=draft.repository,
             atlas=draft.atlas,
             case=draft.case,
@@ -249,6 +256,177 @@ def test_graph_interrupts_and_resumes_through_explicit_nodes(tmp_path: Path) -> 
         ReviewStatus.COMPLETED,
     ]
     assert completed["review"].case.answers == (answer,)
+
+
+class TwoRoundQuestions:
+    """A generator that asks once, is answered, asks again, and then settles."""
+
+    def generate(
+        self,
+        case: ArchitectureCase,
+        findings: tuple[Finding, ...],
+        *,
+        round: int,
+        excluded_equivalence_keys: frozenset[str],
+    ) -> tuple[Question, ...]:
+        if round > 2:
+            return ()
+        question = Question.create(
+            text="Is another implementation planned?"
+            if round == 1
+            else "Is the second one owned by this team?",
+            facet=CaseFacet.EXPECTED_CHANGE if round == 1 else CaseFacet.DECISION,
+            candidate_ids=tuple(str(item.candidate.id) for item in findings),
+            round=round,
+        )
+        return () if question.equivalence_key in excluded_equivalence_keys else (question,)
+
+
+def test_a_review_that_asks_twice_stays_one_revision(tmp_path: Path) -> None:
+    """Answering completes the revision that asked. It does not start the next one.
+
+    Every snapshot the run files carries one sequence and one case revision — the waiting
+    record of each round, and the record it finished as. What tells them apart is the round,
+    which is why the round is on the review rather than only in the graph's state.
+    """
+
+    repository = RepositoryRef("repo-1", tmp_path.resolve(), "branch-1", "content-1")
+    case = ArchitectureCase.create()
+    recorder = Recorder()
+    graph = build_review_graph(
+        ReviewWorkflowCapabilities(
+            context=Context(repository, case),
+            analyzer=Analyzer(),
+            detector=Detector(),
+            revisions=Revisions(),
+            initial_candidates=Initial(),
+            corpus=Corpus(),
+            retriever=DensePolicyRetriever(Index(), top_k=8),
+            judge=Judge(),
+            questions=TwoRoundQuestions(),
+            rejudgements=RejudgeAllCandidates(),
+            cases=Cases(),
+            composer=Composer(),
+            recorder=recorder,
+        ),
+        checkpointer=InMemorySaver(),
+    )
+    config = {"configurable": {"thread_id": "review-thread"}}
+
+    state = graph.invoke(
+        {
+            "repository_id": repository.id,
+            "branch_id": repository.branch_id,
+            "case_id": case.id,
+            "case_revision": None,
+            "ci": False,
+        },
+        config,
+    )
+    for _ in range(2):
+        question = state["questions"][0]
+        state = graph.invoke(
+            Command(
+                resume={
+                    "answers": [
+                        Answer(question, AnswerStatus.ANSWERED, "No", "reader", utc_now())
+                    ]
+                }
+            ),
+            config,
+        )
+
+    assert [item.status for item in recorder.recorded] == [
+        ReviewStatus.AWAITING_ANSWERS,
+        ReviewStatus.AWAITING_ANSWERS,
+        ReviewStatus.COMPLETED,
+    ]
+    assert {item.sequence for item in recorder.recorded} == {1}
+    assert [item.round for item in recorder.recorded] == [1, 2, 3]
+    # One revision opened, and both rounds recorded on it. The first snapshot is the case
+    # as it was loaded, because nothing had been answered when it was filed.
+    assert [item.case.revision for item in recorder.recorded] == [1, 2, 2]
+    assert len(recorder.recorded[-1].case.answers) == 2
+
+
+class NoQuestions:
+    def generate(
+        self,
+        case: ArchitectureCase,
+        findings: tuple[Finding, ...],
+        *,
+        round: int,
+        excluded_equivalence_keys: frozenset[str],
+    ) -> tuple[Question, ...]:
+        return ()
+
+
+class CountingCases(Cases):
+    def __init__(self) -> None:
+        self.sealed: list[ArchitectureCase] = []
+
+    def seal(self, case: ArchitectureCase) -> ArchitectureCase:
+        self.sealed.append(case)
+        return case
+
+
+def test_a_review_that_asks_nothing_writes_no_case_revision(tmp_path: Path) -> None:
+    """No answers, no revision. A number nobody put anything in is a number to read past."""
+
+    repository = RepositoryRef("repo-1", tmp_path.resolve(), "branch-1", "content-1")
+    case = ArchitectureCase.create()
+    cases = CountingCases()
+    graph = build_review_graph(
+        ReviewWorkflowCapabilities(
+            context=Context(repository, case),
+            analyzer=Analyzer(),
+            detector=Detector(),
+            revisions=Revisions(),
+            initial_candidates=Initial(),
+            corpus=Corpus(),
+            retriever=DensePolicyRetriever(Index(), top_k=8),
+            judge=Judge(),
+            questions=NoQuestions(),
+            rejudgements=RejudgeAllCandidates(),
+            cases=cases,
+            composer=Composer(),
+            recorder=Recorder(),
+        ),
+    )
+
+    state = graph.invoke(
+        {
+            "repository_id": repository.id,
+            "branch_id": repository.branch_id,
+            "case_id": case.id,
+            "case_revision": None,
+            "ci": False,
+        },
+    )
+
+    assert state["review"].status is ReviewStatus.COMPLETED
+    assert cases.sealed == []
+    assert state["review"].case.revision == case.revision
+
+
+def test_rejudgement_asks_for_answers_rather_than_a_higher_number() -> None:
+    """The guard reads the answers, because the revision no longer moves between rounds."""
+
+    opened = ArchitectureCase.create().open_revision()
+    question = Question.create(
+        text="Who owns the boundary?",
+        facet=CaseFacet.DECISION,
+        candidate_ids=("candidate-1",),
+        round=1,
+    )
+    answered = opened.with_answer(
+        Answer(question, AnswerStatus.ANSWERED, "Platform", "reader", utc_now())
+    )
+    selector = RejudgeAllCandidates()
+
+    assert selector.select((Detector.candidate,), opened, answered) == (Detector.candidate,)
+    with pytest.raises(ValueError, match="answers the previous round did not record"):
+        selector.select((Detector.candidate,), answered, answered)
 
 
 def test_graph_exposes_capability_sequence_and_candidate_fanout(tmp_path: Path) -> None:

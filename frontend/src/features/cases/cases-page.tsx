@@ -16,8 +16,8 @@ import { Timeline, TimelineItem } from "../../ui/timeline";
 /**
  * Cases are the human half of a review: what this architecture is for, what it must live
  * with, what has already been decided, and what a reviewer answered when asked. Each
- * clarification produces a new revision rather than overwriting the last, so the page is
- * built around the sequence rather than around a form.
+ * review that asks opens one revision and keeps it, rather than overwriting the last, so
+ * the page is built around the sequence rather than around a form.
  */
 export function CasesPage() {
   const client = useQueryClient();
@@ -97,7 +97,7 @@ export function CasesPage() {
             <Panel>
               <PanelHeader
                 title="Revision history"
-                description="Every clarification answered produces the next revision; earlier ones stay readable."
+                description="Each review that asked opened one revision; earlier ones stay readable."
               />
               <PanelBody>
                 {history.isLoading ? (

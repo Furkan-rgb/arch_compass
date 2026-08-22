@@ -55,6 +55,10 @@ class ReviewState(ReviewInput):
     pending_answers: tuple[Answer, ...]
     excluded_equivalence_keys: frozenset[str]
     round: int
+    #: Whether this review has opened a case revision of its own. False until the first
+    #: answers arrive, so a review that settled without asking, or that nobody answered,
+    #: seals nothing.
+    case_opened: bool
     stop_requested: bool
     synopsis: ReviewSynopsis | None
     draft: ReviewDraft

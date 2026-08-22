@@ -38,7 +38,7 @@ def test_case_revision_is_immutable_and_records_an_answer() -> None:
     )
     answer = Answer(question, AnswerStatus.ANSWERED, "No", "reader", utc_now())
 
-    revised = original.with_answer(answer)
+    revised = original.open_revision().with_answer(answer)
 
     assert original.answers == ()
     assert revised.revision == original.revision + 1
@@ -46,7 +46,43 @@ def test_case_revision_is_immutable_and_records_an_answer() -> None:
     assert question.candidate_ids == ("candidate_a", "candidate_b")
 
 
-def test_one_clarification_submission_creates_one_revision() -> None:
+def test_answering_twice_stays_on_the_revision_the_review_opened() -> None:
+    original = ArchitectureCase.create()
+    opened = original.open_revision()
+    first = Question.create(
+        text="Who owns the boundary?",
+        facet=CaseFacet.DECISION,
+        candidate_ids=("candidate-1",),
+        round=1,
+    )
+    second = Question.create(
+        text="Is latency constrained?",
+        facet=CaseFacet.CONSTRAINT,
+        candidate_ids=("candidate-2",),
+        round=2,
+    )
+
+    after_first = opened.with_answer(
+        Answer(first, AnswerStatus.ANSWERED, "Platform", "user", utc_now())
+    )
+    after_second = after_first.with_answer(
+        Answer(second, AnswerStatus.ANSWERED, "No", "user", utc_now())
+    )
+
+    assert after_first.revision == opened.revision
+    assert after_second.revision == opened.revision
+    assert len(after_second.answers) == 2
+
+
+def test_a_revision_cannot_be_opened_backwards() -> None:
+    case = ArchitectureCase.create().open_revision(7)
+
+    assert case.revision == 7
+    with pytest.raises(ValueError, match="later than the one it opens from"):
+        case.open_revision(7)
+
+
+def test_one_clarification_submission_records_every_answer() -> None:
     original = ArchitectureCase.create()
     first = Question.create(
         text="Who owns the boundary?",
@@ -68,7 +104,7 @@ def test_one_clarification_submission_creates_one_revision() -> None:
         )
     )
 
-    assert revised.revision == original.revision + 1
+    assert revised.revision == original.revision
     assert len(revised.answers) == 2
 
 

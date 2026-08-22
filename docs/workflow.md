@@ -80,5 +80,7 @@ new candidates are judged; disappeared candidates become addressed after conserv
 succession matching. Historical candidates can be marked resurfaced. Standing decisions
 read through branch and succession lineage without entering judgement.
 
-After a case revision, `RejudgeAllCandidates` initially selects every extant candidate. A
+After a round of answers, `RejudgeAllCandidates` initially selects every extant candidate.
+It reads the answers rather than the revision number, which no longer moves between one
+review's rounds. A
 dependency-aware selector can later replace it without changing the graph or domain.

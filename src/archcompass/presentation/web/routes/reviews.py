@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from contextlib import suppress
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -22,7 +23,7 @@ from archcompass.domain import (
     RecordedInvestigation,
     Review,
 )
-from archcompass.domain.errors import ReviewHasNoReportError
+from archcompass.domain.errors import ReviewHasNoReportError, ReviewNotFoundError
 from archcompass.presentation.web.dependencies import RuntimeDep, SpendsModelBudget
 from archcompass.presentation.web.schemas import APIModel, problem_responses
 from archcompass.workflow.runs import RunState
@@ -379,6 +380,11 @@ class ReviewResponse(APIModel):
 
     id: str
     sequence: int
+    #: Which clarification round of this revision the snapshot was taken in. A revision that
+    #: asked and was answered has a snapshot per round under one `sequence`, so a client
+    #: comparing two reviews needs this to tell "the same revision, later" from "the next
+    #: revision".
+    round: int
     status: str
     previous_review_id: str | None
     repository: RepositoryResponse
@@ -436,6 +442,7 @@ class ReviewResponse(APIModel):
         return cls(
             id=review.id,
             sequence=review.sequence,
+            round=review.round,
             status=review.status.value,
             previous_review_id=review.previous_review_id,
             repository=repository,
@@ -585,10 +592,16 @@ def routes() -> APIRouter:
         repository = repositories.repository(lineage.repository_id)
         branch = repositories.get_branch(lineage.branch_id)
         root = repository.canonical_root if repository else ""
-        # The sequence the composed review will carry, taken from the newest review on the
-        # branch rather than guessed: a first review is 1, and every later one follows the
-        # review it is about to be compared against.
-        previous = runtime.review_workflow_service.latest_for_branch(lineage.branch_id)
+        # A run that has already composed a snapshot carries that snapshot's number: it is
+        # the revision, not the one before it. Only a run with nothing filed yet has to be
+        # told what number it is going to take.
+        sequence = None
+        if state.review_id is not None:
+            with suppress(ReviewNotFoundError):
+                sequence = runtime.review_workflow_service.get(state.review_id).sequence
+        if sequence is None:
+            previous = runtime.review_workflow_service.latest_for_branch(lineage.branch_id)
+            sequence = (previous.sequence + 1) if previous else 1
         return ReviewRunResponse.from_state(
             state,
             repository_name=Path(root).name if root else "this repository",
@@ -596,7 +609,7 @@ def routes() -> APIRouter:
             branch_name=branch.branch_name if branch else "",
             branch_id=lineage.branch_id,
             case_id=lineage.case_id,
-            sequence=(previous.sequence + 1) if previous else 1,
+            sequence=sequence,
         )
 
     @router.post(

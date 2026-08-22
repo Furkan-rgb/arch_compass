@@ -178,6 +178,9 @@ class RecordedInvestigation:
 @dataclass(frozen=True, slots=True)
 class Review:
     id: str
+    #: Which revision of the branch this is. One review takes one number and keeps it, from
+    #: the first snapshot it records to the last — asking a question and being answered is
+    #: something that happens inside a revision, not something that starts the next one.
     sequence: int
     repository: RepositoryRef
     atlas: RepositoryAtlas
@@ -189,6 +192,12 @@ class Review:
     started_at: datetime
     finished_at: datetime | None = None
     previous_review_id: str | None = None
+    #: Which clarification round of this revision the snapshot was taken in. A review that
+    #: settled without asking is round 1; a review that asked, was answered and asked again
+    #: records round 1, round 2 and a final snapshot under one `sequence`. It is here so
+    #: that two snapshots of one revision can be told apart — by a reader, and by the
+    #: identity a snapshot is filed under — without the revision number having to move.
+    round: int = 1
     markdown_report: str | None = None
     #: The model's own account of what this review found, written once when the review was
     #: composed and stored with it. Not derived on read: a review is a record, and prose
@@ -217,3 +226,5 @@ class Review:
             "retrieval_manifest",
             "investigation_manifest",
         )
+        if self.round < 1:
+            raise ValueError("review round must be positive")

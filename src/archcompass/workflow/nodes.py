@@ -59,6 +59,7 @@ def load_context_node(loader: ContextLoader) -> Node:
             "previous_review": loaded.previous_review,
             "review_history": loaded.review_history,
             "round": 1,
+            "case_opened": False,
             "excluded_equivalence_keys": frozenset(
                 answer.question.equivalence_key for answer in loaded.case.answers
             ),
@@ -327,6 +328,7 @@ def compose_review_node(composer: ReviewComposer, *, waiting: bool) -> Node:
             if str(candidate.id) in state["retrievals"]
         )
         draft = ReviewDraft(
+            round=state["round"],
             repository=state["repository"],
             atlas=state["atlas"],
             case=state["case"],
@@ -347,13 +349,17 @@ def compose_review_node(composer: ReviewComposer, *, waiting: bool) -> Node:
     return compose_review
 
 
-def record_review_node(recorder: ReviewRecorder, *, advance_lineage: bool = False) -> Node:
+def record_review_node(recorder: ReviewRecorder) -> Node:
+    """File a snapshot of this review. It never advances `previous_review`.
+
+    `previous_review` is the review this one is judged against, and a review is not judged
+    against itself. It used to be moved on here when a waiting snapshot was filed, which
+    gave the next snapshot of the same review a fresh sequence number and put one review on
+    the rail as two.
+    """
+
     def record_review(state: ReviewState) -> dict[str, object]:
-        recorded = recorder.record(state["review"])
-        update: dict[str, object] = {"review": recorded}
-        if advance_lineage:
-            update["previous_review"] = recorded
-        return update
+        return {"review": recorder.record(state["review"])}
 
     return record_review
 
@@ -389,19 +395,53 @@ def await_answers_node() -> Node:
 
 
 def revise_case_node(reviser: CaseReviser) -> Node:
+    """Record a round's answers on this review's case revision.
+
+    The revision is opened once, here, the first time there are answers to put on it — and
+    every later round adds to that same revision rather than starting another. Which round
+    this is is the graph's to know, so the decision is on this side of the capability.
+    """
+
     def revise_case(state: ReviewState) -> dict[str, object]:
-        revised = reviser.revise(state["case"], state["pending_answers"])
+        case = state["case"]
+        opened = state["case_opened"]
+        # A round that recorded nothing opens nothing. Every question a waiting review asked
+        # comes back answered or explicitly skipped, so this is the reader who stopped the
+        # review rather than answered it, and stopping is not human context.
+        if not state["pending_answers"]:
+            return {"previous_case": case, "round": state["round"] + 1}
+        if not opened:
+            case = reviser.open(case)
+            opened = True
+        revised = reviser.revise(case, state["pending_answers"])
         excluded = state["excluded_equivalence_keys"] | {
             answer.question.equivalence_key for answer in state["pending_answers"]
         }
         return {
             "previous_case": state["case"],
             "case": revised,
+            "case_opened": opened,
             "round": state["round"] + 1,
             "excluded_equivalence_keys": frozenset(excluded),
         }
 
     return revise_case
+
+
+def seal_case_node(reviser: CaseReviser) -> Node:
+    """Write the revision this review opened, once, on the way out.
+
+    A review that asked nothing, or that nobody answered, opened no revision and writes
+    none: there is no new human context to file, and a revision holding none would be a
+    number a later review had to read past.
+    """
+
+    def seal_case(state: ReviewState) -> dict[str, object]:
+        if not state["case_opened"]:
+            return {}
+        return {"case": reviser.seal(state["case"])}
+
+    return seal_case
 
 
 def select_rejudgements_node(selector: RejudgementSelector) -> Node:

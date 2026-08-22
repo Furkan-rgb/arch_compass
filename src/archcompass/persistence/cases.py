@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Callable
 
 from archcompass.domain import ArchitectureCase
-from archcompass.domain.errors import CaseNotFoundError
+from archcompass.domain.errors import CaseNotFoundError, CaseRevisionConflictError
 from archcompass.persistence.sqlite.codecs import DataclassRecordCodec
 
 
@@ -27,20 +27,55 @@ class SQLiteCoreCaseRepository:
             )
 
     def record(self, case: ArchitectureCase) -> ArchitectureCase:
+        """Write one revision. Writing a different one over it is an error, not a no-op.
+
+        This used to insert with `DO NOTHING` and then read the row back, which is only
+        harmless while a revision number can be taken once. It cannot: a review started
+        from an older revision opens the number after that one, and where that number was
+        already on disk the run's answers were dropped and the caller was handed somebody
+        else's revision with no error anywhere.
+
+        Recording the same revision twice is still fine, because a resumed graph replays
+        the node that wrote it. Same bytes, same revision, nothing to say.
+        """
+
         document = self._codec.encode(case)
         with self._connect() as connection:
-            connection.execute(
-                "INSERT INTO core_case_snapshots(case_id, revision, case_json) "
-                "VALUES (?, ?, ?) ON CONFLICT(case_id, revision) DO NOTHING",
-                (case.id, case.revision, document),
-            )
-            row = connection.execute(
+            stored = connection.execute(
                 "SELECT case_json FROM core_case_snapshots "
                 "WHERE case_id = ? AND revision = ?",
                 (case.id, case.revision),
             ).fetchone()
-        assert row is not None
-        return self._codec.decode(str(row[0]), description=f"Case {case.id}")
+            if stored is None:
+                connection.execute(
+                    "INSERT INTO core_case_snapshots(case_id, revision, case_json) "
+                    "VALUES (?, ?, ?)",
+                    (case.id, case.revision, document),
+                )
+                return case
+        if str(stored[0]) != document:
+            raise CaseRevisionConflictError(
+                f"Architecture case {case.id} already records a different revision "
+                f"{case.revision}"
+            )
+        return self._codec.decode(str(stored[0]), description=f"Case {case.id}")
+
+    def next_revision(self, case_id: str) -> int:
+        """The first revision number this case has not used.
+
+        Not `latest + 1` off a case somebody is holding: a review opened from an older
+        revision is holding a number that has moved on, and this is what stops it writing
+        over the revision that took it.
+        """
+
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT MAX(revision) FROM core_case_snapshots WHERE case_id = ?",
+                (case_id,),
+            ).fetchone()
+        if row is None or row[0] is None:
+            raise CaseNotFoundError(f"Architecture case {case_id} was not found")
+        return int(row[0]) + 1
 
     def get(self, case_id: str, revision: int | None = None) -> ArchitectureCase:
         query = "SELECT case_json FROM core_case_snapshots WHERE case_id = ?"

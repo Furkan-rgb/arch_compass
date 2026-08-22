@@ -529,6 +529,7 @@ export interface components {
     "ReviewResponse": {
     "id": string;
     "sequence": number;
+    "round": number;
     "status": string;
     "previous_review_id": string | null;
     "repository": components["schemas"]["RepositoryResponse"];

@@ -164,6 +164,15 @@ class RejudgeAllCandidates:
         previous_case: ArchitectureCase,
         revised_case: ArchitectureCase,
     ) -> tuple[Candidate, ...]:
-        if revised_case.id != previous_case.id or revised_case.revision <= previous_case.revision:
-            raise ValueError("rejudgement requires a later revision of the same case")
+        if revised_case.id != previous_case.id:
+            raise ValueError("rejudgement requires the same case")
+        # Answers, not the revision number: one review keeps one revision however many
+        # rounds it asks, so what says a round happened is that the case records answers
+        # the round before it did not. They are appended in order, which makes the earlier
+        # answers a prefix of the later ones and the check exact.
+        earlier = previous_case.answers
+        if revised_case.answers[: len(earlier)] != earlier:
+            raise ValueError("rejudgement requires the answers already recorded")
+        if len(revised_case.answers) == len(earlier):
+            raise ValueError("rejudgement requires answers the previous round did not record")
         return candidates

@@ -356,6 +356,7 @@ ops.backfill           imports  adapters.db.Store`,
 export const CASE_FILE: Review = {
   id: "review-4",
   sequence: 4,
+  round: 1,
   status: "awaiting_answers",
   previous_review_id: "review-3",
   repository: REPOSITORY,

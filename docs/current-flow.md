@@ -61,10 +61,21 @@ clarifications. When clarification is needed, ArchCompass composes and records a
 `awaiting_answers` review before `await_answers` interrupts. The client resumes the same
 thread using the review ID; it does not submit a continuation pointer.
 
-Every pending question is recorded as answered or explicitly skipped. `revise_case` creates
-the next immutable `ArchitectureCase` revision. The initial selector then rejudges every
-extant candidate, retrieves policies again, and returns to question generation. Early
+Every pending question is recorded as answered or explicitly skipped. `revise_case` opens
+one `ArchitectureCase` revision the first time a review has an answer to record, and every
+later round of that review adds to the same revision. The initial selector then rejudges
+every extant candidate, retrieves policies again, and returns to question generation. Early
 conclusion and a three-round cap terminate with remaining uncertainty preserved.
+
+Every exit from that loop passes through `seal_case`, which writes the revision the review
+opened — once, and only if the review opened one. A review that asked nothing, or that
+nobody answered, leaves no case revision behind. The number it takes comes from the store
+rather than from the case in hand, so a review started against an older revision writes
+beside the newer ones instead of over them.
+
+A review keeps one `sequence` for its whole life. Each waiting snapshot and the record it
+finishes as are snapshots of one revision, told apart by `Review.round`, and the newest of
+them is the one every listing shows. Superseded snapshots stay readable by id.
 
 ## Completion, failure, and cancellation
 

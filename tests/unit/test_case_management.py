@@ -3,7 +3,18 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from archcompass.domain import ArchitectureCase, PolicyContext
+import pytest
+
+from archcompass.domain import (
+    Answer,
+    AnswerStatus,
+    ArchitectureCase,
+    CaseFacet,
+    PolicyContext,
+    Question,
+)
+from archcompass.domain._support import utc_now
+from archcompass.domain.errors import CaseRevisionConflictError
 from archcompass.persistence.cases import SQLiteCoreCaseRepository
 from archcompass.persistence.reviews import SQLiteCoreReviewRepository
 from archcompass.workflow.cases import ArchitectureCaseService
@@ -57,3 +68,61 @@ def test_a_case_has_no_way_to_be_told_anything_but_an_answer() -> None:
     }
 
     assert stated == {"answers", "policy_context"}
+
+
+def test_a_revision_number_is_taken_from_the_store_not_from_the_case(
+    tmp_path: Path,
+) -> None:
+    """A review opened from an older revision writes beside it rather than over it.
+
+    Answering used to bump the revision the run was holding and insert it with `DO NOTHING`.
+    Open a case at revision 2 while revision 3 already existed, and the answers went to a
+    number that was taken: the insert did nothing, the read handed back somebody else's
+    revision, and nothing anywhere said so.
+    """
+
+    database = tmp_path / "cases.db"
+
+    def connect() -> sqlite3.Connection:
+        return sqlite3.connect(database)
+
+    cases = SQLiteCoreCaseRepository(connect)
+    first = cases.record(ArchitectureCase.create())
+    second = cases.record(first.open_revision())
+    cases.record(second.open_revision())
+
+    assert cases.next_revision(first.id) == 4
+    # What the reviser does with the older revision it was handed.
+    reopened = cases.get(first.id, revision=2)
+    forked = cases.record(reopened.open_revision(cases.next_revision(first.id)))
+
+    assert forked.revision == 4
+    assert cases.get(first.id).revision == 4
+    assert [item.revision for item in cases.history(first.id)] == [1, 2, 3, 4]
+
+
+def test_writing_a_different_revision_over_one_already_stored_is_an_error(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "cases.db"
+
+    def connect() -> sqlite3.Connection:
+        return sqlite3.connect(database)
+
+    cases = SQLiteCoreCaseRepository(connect)
+    stored = cases.record(ArchitectureCase.create())
+    question = Question.create(
+        text="Who owns this boundary?",
+        facet=CaseFacet.DECISION,
+        candidate_ids=("candidate-1",),
+        round=1,
+    )
+    answered = stored.with_answer(
+        Answer(question, AnswerStatus.ANSWERED, "Platform", "reader", utc_now())
+    )
+
+    # Recording the same revision again is a resumed graph replaying a node, and says
+    # nothing. Recording a different one under that number is a lost answer.
+    assert cases.record(stored) == stored
+    with pytest.raises(CaseRevisionConflictError):
+        cases.record(answered)

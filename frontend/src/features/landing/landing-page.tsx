@@ -96,7 +96,7 @@ const FAQ = [
   ],
   [
     "What happens after I answer a clarification question?",
-    "The answer is written to the architecture case as a new revision, the affected candidates are judged again, and a new review revision is recorded with a delta against the previous one.",
+    "The answer is written to the case revision this review opened, the affected candidates are judged again, and the review is recorded with a delta against the previous one.",
   ],
   [
     "Can I add my own architecture policies?",

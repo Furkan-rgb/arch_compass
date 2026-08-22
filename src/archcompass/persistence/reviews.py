@@ -1,4 +1,4 @@
-"""Immutable review snapshots for the replacement workflow."""
+"""Immutable review snapshots: several per revision, one of them current."""
 
 from __future__ import annotations
 
@@ -18,14 +18,13 @@ class SQLiteCoreReviewRepository:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS core_review_snapshots (
-                    review_id TEXT PRIMARY KEY REFERENCES core_review_snapshots(review_id)
-                        ON DELETE CASCADE,
+                    review_id TEXT PRIMARY KEY,
                     repository_id TEXT NOT NULL,
                     branch_id TEXT NOT NULL,
                     sequence INTEGER NOT NULL,
+                    round INTEGER NOT NULL DEFAULT 1,
                     status TEXT NOT NULL,
-                    review_json TEXT NOT NULL,
-                    UNIQUE(repository_id, branch_id, sequence)
+                    review_json TEXT NOT NULL
                 )
                 """
             )
@@ -36,8 +35,9 @@ class SQLiteCoreReviewRepository:
             connection.execute(
                 """
                 INSERT INTO core_review_snapshots(
-                    review_id, repository_id, branch_id, sequence, status, review_json
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    review_id, repository_id, branch_id, sequence, round, status,
+                    review_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(review_id) DO NOTHING
                 """,
                 (
@@ -45,6 +45,7 @@ class SQLiteCoreReviewRepository:
                     review.repository.id,
                     review.repository.branch_id,
                     review.sequence,
+                    review.round,
                     review.status.value,
                     document,
                 ),
@@ -66,11 +67,28 @@ class SQLiteCoreReviewRepository:
             raise ReviewNotFoundError(f"Review {review_id} was not found")
         return self._codec.decode(str(row[0]), description=f"Review {review_id}")
 
+    #: The newest snapshot of each revision, and only that one.
+    #:
+    #: A revision is recorded more than once — each round it waited for an answer in, and
+    #: the record it finished as — and the older ones are superseded rather than separate:
+    #: a listing that showed them would show one review three times, under one number, with
+    #: the last two saying it was still waiting. They stay readable by id, because a link
+    #: somebody already holds must not stop working, and they stay out of every listing.
+    #:
+    #: `rowid` orders them because it is insertion order, which is exactly what "superseded"
+    #: means here. Status cannot: a review can finish as completed, failed or cancelled.
+    _NEWEST_PER_REVISION = (
+        "snapshots.rowid = (SELECT MAX(newer.rowid) FROM core_review_snapshots AS newer "
+        "WHERE newer.repository_id = snapshots.repository_id "
+        "AND newer.branch_id = snapshots.branch_id "
+        "AND newer.sequence = snapshots.sequence)"
+    )
+
     def latest_for_branch(self, branch_id: str) -> Review | None:
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT review_json FROM core_review_snapshots "
-                "WHERE branch_id = ? ORDER BY sequence DESC LIMIT 1",
+                "WHERE branch_id = ? ORDER BY sequence DESC, rowid DESC LIMIT 1",
                 (branch_id,),
             ).fetchone()
         return (
@@ -82,8 +100,9 @@ class SQLiteCoreReviewRepository:
     def history_for_branch(self, branch_id: str) -> tuple[Review, ...]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT review_json FROM core_review_snapshots "
-                "WHERE branch_id = ? ORDER BY sequence DESC, review_id DESC",
+                "SELECT snapshots.review_json FROM core_review_snapshots AS snapshots "
+                f"WHERE snapshots.branch_id = ? AND {self._NEWEST_PER_REVISION} "
+                "ORDER BY snapshots.sequence DESC",
                 (branch_id,),
             ).fetchall()
         return tuple(
@@ -94,8 +113,9 @@ class SQLiteCoreReviewRepository:
     def list(self, *, limit: int = 100) -> tuple[Review, ...]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT review_json FROM core_review_snapshots "
-                "ORDER BY sequence DESC, review_id DESC LIMIT ?",
+                "SELECT snapshots.review_json FROM core_review_snapshots AS snapshots "
+                f"WHERE {self._NEWEST_PER_REVISION} "
+                "ORDER BY snapshots.sequence DESC, snapshots.rowid DESC LIMIT ?",
                 (limit,),
             ).fetchall()
         return tuple(

@@ -340,13 +340,13 @@ class ReviewWorkflowService:
             raise ReviewNotCancellableError(
                 f"Review {review_id} is {waiting.status.value}, not awaiting answers"
             )
+        # The same revision, cancelled — not the one after it. Cancelling is how this
+        # review ended, and a review that ended does not become its own successor.
         cancelled = replace(
             waiting,
             id=stable_id("review", waiting.id, ReviewStatus.CANCELLED.value),
-            sequence=waiting.sequence + 1,
             status=ReviewStatus.CANCELLED,
             finished_at=utc_now(),
-            previous_review_id=waiting.id,
         )
         recorded = self._reviews.record(cancelled)
         thread_id = self._executions.thread_for_review(review_id)
@@ -449,9 +449,14 @@ class ReviewWorkflowService:
                 if isinstance(item, RetrievalProvenance):
                     provenance.append(item)
         now = utc_now()
+        # `previous` is the review this run was judged against and never this run itself,
+        # so the number after it is this run's own — including where the run had already
+        # filed a waiting snapshot under it.
+        round_value = values.get("round")
         failure = Review(
             id=stable_id("review", thread_id, ReviewStatus.FAILED.value),
             sequence=1 if previous is None else previous.sequence + 1,
+            round=round_value if isinstance(round_value, int) and round_value >= 1 else 1,
             repository=repository,
             atlas=atlas,
             case=case,

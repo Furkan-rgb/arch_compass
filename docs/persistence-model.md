@@ -24,7 +24,11 @@ sequence, and `previous_review_id`.
 ## Immutable records
 
 Review snapshots are inserted at awaiting, completed, failed, and cancelled boundaries.
-Case answers create new case revisions. Standing decisions and conversations are append-only.
+Case answers are recorded on the revision the review that asked them opened — one per
+review, written when that review finishes, and never written over: a second, different
+revision under a number already stored is an error rather than a silent no-op. Standing
+decisions and conversations are append-only. A review is stored once per snapshot and
+several snapshots share one `sequence`, so listings read the newest snapshot per revision.
 Pydantic `TypeAdapter` codecs validate stored JSON before domain dataclasses are rebuilt.
 
 The finding cache is keyed from the candidate, case, generic retrieval identity, reasoning
@@ -56,6 +60,13 @@ old shape. The file itself is not truncated by the migration and can be deleted.
 
 `002_candidate_evidence_epoch.sql` is the worked example — measurements moved from
 name/value pairs to records that state their own nature and limits.
+
+Not every schema change is an epoch. `003_one_revision_per_review.sql` rebuilds
+`core_review_snapshots` in place instead of dropping it: what changed is which numbers a
+*new* review takes, and a review already recorded is still a true record of what was judged
+under the numbers it was read under. It drops the uniqueness of `(repository, branch,
+sequence)`, because one review now files a snapshot per clarification round under one
+sequence, and adds the `round` that tells them apart.
 
 ### The checkpoint allowlist
 

@@ -54,6 +54,7 @@ from archcompass.workflow.nodes import (
     retrieve_policy_set_node,
     review_candidates_node,
     revise_case_node,
+    seal_case_node,
     select_initial_candidates_node,
     select_rejudgements_node,
     write_synopsis_node,
@@ -126,25 +127,21 @@ def _dispatch_candidates(
 
 def _after_questions(
     state: ReviewState,
-) -> Literal["write_final_synopsis", "write_waiting_synopsis"]:
+) -> Literal["seal_case", "write_waiting_synopsis"]:
     if (
         not state["questions"]
         or state["ci"]
         or state["round"] >= 3
         or state["stop_requested"]
     ):
-        return "write_final_synopsis"
+        return "seal_case"
     return "write_waiting_synopsis"
 
 
 def _after_case_revision(
     state: ReviewState,
-) -> Literal["write_final_synopsis", "select_candidates_for_rejudgement"]:
-    return (
-        "write_final_synopsis"
-        if state["stop_requested"]
-        else "select_candidates_for_rejudgement"
-    )
+) -> Literal["seal_case", "select_candidates_for_rejudgement"]:
+    return "seal_case" if state["stop_requested"] else "select_candidates_for_rejudgement"
 
 
 def build_review_graph(
@@ -179,12 +176,16 @@ def build_review_graph(
         "compose_waiting_review",
         compose_review_node(capabilities.composer, waiting=True),
     )
+    # `advance_lineage` stays off. A waiting snapshot is this revision mid-question, not
+    # the revision before the next one — treating it as lineage is what made a review that
+    # asked once occupy two numbers on the rail.
     graph.add_node(
         "record_waiting_review",
-        record_review_node(capabilities.recorder, advance_lineage=True),
+        record_review_node(capabilities.recorder),
     )
     graph.add_node("await_answers", await_answers_node())
     graph.add_node("revise_case", revise_case_node(capabilities.cases))
+    graph.add_node("seal_case", seal_case_node(capabilities.cases))
     graph.add_node(
         "select_candidates_for_rejudgement",
         select_rejudgements_node(capabilities.rejudgements),
@@ -220,6 +221,9 @@ def build_review_graph(
     graph.add_edge("review_candidates", "investigate_hinges")
     graph.add_edge("investigate_hinges", "generate_questions")
     graph.add_conditional_edges("generate_questions", _after_questions)
+    # Every way out of the loop passes through here, which is why the revision this review
+    # opened is written in one place rather than at each exit.
+    graph.add_edge("seal_case", "write_final_synopsis")
     graph.add_edge("write_waiting_synopsis", "compose_waiting_review")
     graph.add_edge("write_final_synopsis", "compose_final_review")
     graph.add_edge("compose_waiting_review", "record_waiting_review")

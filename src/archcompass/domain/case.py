@@ -138,6 +138,9 @@ class ArchitectureCase:
     """
 
     id: str
+    #: One review's worth of answering. A review opens a revision the first time it records
+    #: an answer and keeps adding to it however many times it asks, so the number identifies
+    #: what a review was judged against rather than counting clarification rounds.
     revision: int
     answers: tuple[Answer, ...] = ()
     policy_context: PolicyContext = PolicyContext()
@@ -155,11 +158,36 @@ class ArchitectureCase:
         now = utc_now()
         return cls(new_id("case"), 1, created_at=now, updated_at=now)
 
+    def open_revision(self, revision: int | None = None) -> ArchitectureCase:
+        """Start the next revision of this case, carrying what is already answered.
+
+        A review opens one revision, the first time it has an answer to record, and every
+        later round of the same review adds to that one. The number is therefore the
+        review's rather than the round's, which is the whole point: a person answering a
+        question is completing the revision that asked, not starting another.
+
+        `revision` names the number to take, for the store that knows which numbers are
+        free. Left out, it takes the next one — which is right whenever this case is the
+        newest revision of itself, and wrong for a revision somebody reopened behind the
+        newest one, so the caller that can tell passes the number in.
+        """
+
+        number = self.revision + 1 if revision is None else revision
+        if number <= self.revision:
+            raise ValueError("a case revision must be later than the one it opens from")
+        return replace(self, revision=number, updated_at=utc_now())
+
     def with_answer(self, answer: Answer) -> ArchitectureCase:
         return self.with_answers((answer,))
 
     def with_answers(self, answers: tuple[Answer, ...]) -> ArchitectureCase:
-        """Record one clarification submission as exactly one case revision."""
+        """Record a clarification submission on this revision.
+
+        The revision does not move. It moved here once, per submission, which made a review
+        that asked twice occupy three case revisions and made the number beside a review
+        change while somebody was reading it. Opening a revision is `open_revision`, and a
+        review does it once.
+        """
 
         if not answers:
             raise ValueError("a case revision must record at least one answer")
@@ -169,7 +197,6 @@ class ArchitectureCase:
             raise ValueError("this case already records an equivalent question")
         return replace(
             self,
-            revision=self.revision + 1,
             answers=(*self.answers, *answers),
             updated_at=utc_now(),
         )

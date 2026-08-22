@@ -15,6 +15,11 @@ import { Mark } from "../../ui/mark";
  * Reviews are immutable, so this is history rather than navigation between drafts — every
  * entry is still readable exactly as it was recorded.
  *
+ * One entry per revision, not per snapshot. A revision that asked a question is recorded
+ * again each round it waited in, and the API hands back the newest of those — so answering
+ * a question changes what this entry says rather than adding another entry under a number
+ * nobody asked for.
+ *
  * A run in flight is one of the entries. Every identifier a review is filed under is known
  * before the review exists — the repository, the branch, the case, and the sequence it will
  * take — so the next revision can be listed and opened while it is still being made. What
@@ -61,7 +66,17 @@ export function RevisionRail({
                 to={`/reviews/${review.id}`}
                 active={active}
                 sequence={review.sequence}
-                detail={`Case rev ${review.case.revision} · ${relativeTime(review.started_at)}`}
+                detail={[
+                  `Case rev ${review.case.revision}`,
+                  // Only past the first, and only because one revision can be recorded
+                  // several times: a review that asked, was answered and asked again is
+                  // still this entry, and the round is what says which of its snapshots
+                  // is being read.
+                  review.round > 1 ? `round ${review.round}` : "",
+                  relativeTime(review.started_at),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
                 badge={
                   <span
                     className={cn(

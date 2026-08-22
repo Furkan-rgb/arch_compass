@@ -27,9 +27,11 @@ Policy -----------------------+
 ## Primary concepts
 
 - `ArchitectureCase` is revisioned human context, and the only human context in it is
-  `answers` — what somebody said when a judgement stopped to ask. `with_answer()` returns a
-  new revision. It also carries `policy_context`, which is not intent: it scopes which
-  policies are retrievable, and `revise()` exists only to change it.
+  `answers` — what somebody said when a judgement stopped to ask. One revision is one
+  review's worth of answering: `open_revision()` starts it, `with_answer()` records on it
+  without moving the number, and however many rounds a review asks in, it opens one. It
+  also carries `policy_context`, which is not intent: it scopes which policies are
+  retrievable, and `revise()` exists only to change it.
 
   Constraints and decisions were removed from this record for the same reason the free-text
   goal was before them. They were a channel nothing in the product could feed — no surface
@@ -59,7 +61,10 @@ Policy -----------------------+
 - `StandingDecision` records accept, waive, or park independently from the finding. Waivers
   require reasoning and every decision pins the finding context it answered.
 - `Review` is an immutable snapshot linking repository, atlas, case, findings, questions,
-  status, delta, report, synopsis, provenance, lineage, and timing. The synopsis is the
+  status, delta, report, synopsis, provenance, lineage, and timing. `sequence` is the
+  revision of the branch and belongs to the whole review, waiting rounds included;
+  `round` says which snapshot of that revision this is. Asking a question and being
+  answered happens inside a revision and never starts the next one. The synopsis is the
   model's paragraph about the review as a whole, written when the review was composed and
   attributed by `synopsis_identity`; it is kept on the record rather than derived on read,
   because a review whose prose changed between two readings would not be one.

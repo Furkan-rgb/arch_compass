@@ -175,9 +175,22 @@ class RejudgementSelector(Protocol):
 
 
 class CaseReviser(Protocol):
+    """The case a review is judged against, over the life of that one review.
+
+    Three methods because a revision has three moments and only the graph knows which one
+    it is in. `open` takes the number, once, the first time this review has an answer to
+    record. `revise` adds a round's answers to the revision that is open. `seal` writes it,
+    at the end, so that a review which asked and was never answered leaves no revision
+    behind and a review which asked three times leaves exactly one.
+    """
+
+    def open(self, case: ArchitectureCase) -> ArchitectureCase: ...
+
     def revise(
         self, case: ArchitectureCase, answers: Sequence[Answer]
     ) -> ArchitectureCase: ...
+
+    def seal(self, case: ArchitectureCase) -> ArchitectureCase: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +223,9 @@ class ReviewDraft:
     retrievals: tuple[RetrievedPolicySet, ...]
     synopsis: ReviewSynopsis | None = None
     investigations: tuple[RecordedInvestigation, ...] = ()
+    #: Which clarification round this snapshot is being composed in. Defaulted because a
+    #: review that never asks is only ever in the first one.
+    round: int = 1
 
 
 class ReviewSynopsisWriter(Protocol):

@@ -32,7 +32,9 @@ def test_clean_break_stream_exposes_graph_stages(runtime: Runtime) -> None:
         cancelled = client.post(f"/api/reviews/{waiting['id']}/cancel")
         assert cancelled.status_code == 200, cancelled.text
         assert cancelled.json()["status"] == "cancelled"
-        assert cancelled.json()["sequence"] == waiting["sequence"] + 1
+        # Cancelling is how this revision ended, not the revision after it.
+        assert cancelled.json()["sequence"] == waiting["sequence"]
+        assert cancelled.json()["round"] == waiting["round"]
 
 
 def test_clean_break_api_resumes_the_same_graph_without_elicited_from(
@@ -64,8 +66,20 @@ def test_clean_break_api_resumes_the_same_graph_without_elicited_from(
         assert resumed.status_code == 200, resumed.text
         completed = resumed.json()
         assert completed["status"] == "completed"
-        assert completed["previous_review_id"] == waiting["id"]
+        # One review, one revision: answering the questions finished the revision that
+        # asked them rather than starting the next one, and the case revision it was
+        # judged against is the one this review opened and kept.
+        assert completed["sequence"] == waiting["sequence"]
+        assert completed["previous_review_id"] == waiting["previous_review_id"]
+        assert completed["round"] == waiting["round"] + 1
+        assert completed["case"]["revision"] == waiting["case"]["revision"] + 1
         assert all(answer["status"] == "skipped" for answer in completed["case"]["answers"])
+
+        # A superseded waiting snapshot stays readable under the id somebody was already
+        # holding. What it no longer does is appear in a listing as a revision of its own.
+        assert client.get(f"/api/reviews/{waiting['id']}").json()["status"] == (
+            "awaiting_answers"
+        )
 
         candidate_id = completed["findings"][0]["candidate"]["id"]
         invalid_waiver = client.post(
@@ -121,7 +135,7 @@ def test_clean_break_api_resumes_the_same_graph_without_elicited_from(
 
         listing = client.get("/api/reviews")
         assert listing.status_code == 200
-        assert {item["id"] for item in listing.json()} >= {waiting["id"], completed["id"]}
+        assert {item["id"] for item in listing.json()} == {completed["id"]}
 
         obsolete = client.post(
             "/api/reviews",

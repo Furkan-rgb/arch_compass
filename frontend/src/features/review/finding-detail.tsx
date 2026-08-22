@@ -260,7 +260,7 @@ export function FindingBody({
                 </Notice>
                 <Footnote>
                   {waitingOn
-                    ? "Answering produces the next case revision and re-judges what it touches."
+                    ? "Answering completes this review's case revision and re-judges what it touches."
                     : "No open question covers this. The round was concluded with the uncertainty preserved."}{" "}
                   {plural(answered.length, "answer")} recorded so far.
                 </Footnote>
