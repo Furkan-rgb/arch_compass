@@ -135,6 +135,7 @@ class SelectedDensePolicyRetriever:
                     embedding_identity=identity,
                     dimensions=config.dimensions,
                     prebuilt=shipped,
+                    allow_generation=False,
                 )
                 self._cached = (
                     cache_identity,

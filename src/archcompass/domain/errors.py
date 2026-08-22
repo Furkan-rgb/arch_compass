@@ -21,6 +21,14 @@ class NoReasoningModelSelectedError(ConfigurationError):
     """
 
 
+class PolicyEmbeddingsMissingError(ConfigurationError):
+    """No prebuilt policy embeddings exist for this embedding model and policy corpus.
+
+    Policy embeddings must be generated ahead of time using scripts/build_policy_index.py
+    rather than embedded on the fly during a review.
+    """
+
+
 class PathValidationError(ArchCompassError):
     pass
 

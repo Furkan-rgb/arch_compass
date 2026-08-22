@@ -211,5 +211,9 @@ class Review:
 
     def __post_init__(self) -> None:
         freeze_sequences(
-            self, "findings", "questions", "retrieval_manifest", "investigation_manifest"
+            self,
+            "findings",
+            "questions",
+            "retrieval_manifest",
+            "investigation_manifest",
         )

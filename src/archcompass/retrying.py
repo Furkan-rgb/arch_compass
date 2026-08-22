@@ -90,17 +90,16 @@ def suggested_delay(error: BaseException) -> float | None:
 class RetryPolicy:
     """How many times to wait, and for how long.
 
-    The defaults add at most 52 seconds to a call before giving up, which is what makes
-    them useful against a per-minute quota: the window the refusal is about has closed by
-    the time the last attempt is sent. Growing the wait rather than repeating it matters
-    for the same reason — three attempts four seconds apart all land inside the same
-    exhausted minute and fail together.
+    The defaults add up to two minutes across 5 retries (6 attempts total), ensuring
+    that a per-minute quota window has fully closed before giving up. Growing the wait
+    rather than repeating it matters for the same reason — several rapid attempts all
+    land inside the same exhausted minute and fail together.
     """
 
-    #: Attempts after the first one, so the default sends the request at most four times.
-    retries: int = 3
+    #: Attempts after the first one, so the default sends the request at most six times.
+    retries: int = 5
     first_delay_seconds: float = 4.0
-    multiplier: float = 3.0
+    multiplier: float = 2.0
     #: A ceiling on any single wait, including one the provider asks for. A review that has
     #: paused for a minute is better reported as failed than left looking hung.
     maximum_delay_seconds: float = 60.0

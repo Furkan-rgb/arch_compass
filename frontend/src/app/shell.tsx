@@ -5,6 +5,7 @@ import { Link, NavLink, useLocation } from "react-router-dom";
 
 import { api } from "../api";
 import { cn } from "../lib/cn";
+import type { Tone } from "../lib/format";
 import { useTheme } from "../lib/theme";
 import { StatusDot } from "../ui/badge";
 import { Drawer } from "../ui/drawer";
@@ -104,30 +105,66 @@ function ThemeToggle() {
  * A dot and a name rather than a labelled card: in a 48px rail there is one line to spend,
  * and what a reader checks here is whether something is selected at all. The role stays in
  * the accessible name so the link is still askable for by what it is.
+ *
+ * The dot reads the severity scale straight: a recorded failure is the red end, nothing
+ * chosen is waiting on a person, and a selection that has not failed is settled and recedes.
+ * Which is what the scale said before — it just resolved against the *page*, so on a light
+ * theme `held` came out black on the black rail and the one state worth seeing was the one
+ * that was invisible. `.on-band` on the header is what fixes that; see `styles.css`.
+ *
+ * What this cannot say is whether a provider is answering right now. `describe_workspace`
+ * costs one row and no network on purpose, and the failure it does carry is the last one
+ * recorded against the selection. Reachability is asked where somebody is waiting on the
+ * answer, which is the chooser on `/settings`.
  */
 function ModelChips({ className, stacked }: { className?: string; stacked?: boolean }) {
   const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
-  const chip = (role: string, value: string | undefined, pinned: boolean | undefined) => (
-    <Link
-      to="/settings"
-      aria-label={`${role} model: ${value || "not selected"}`}
-      title={`${role}${pinned ? " · pinned" : ""}: ${value || "not selected"}`}
-      className={cn(
-        railControl,
-        "min-w-0 gap-1.5 font-mono text-[11px]",
-        stacked && "justify-start",
-      )}
-    >
-      <StatusDot tone={value ? "cleared" : "held"} />
-      <span className="sr-only">{role}</span>
-      <span aria-hidden="true" className="max-w-[9rem] truncate">
-        {value || "not selected"}
-      </span>
-    </Link>
-  );
+  const chip = (
+    role: string,
+    value: string | undefined,
+    pinned: boolean | undefined,
+    failure?: string,
+  ) => {
+    // Pending is not a fourth state on the scale — it is the scale not knowing yet. A dot
+    // that breathes says "still asking" without claiming a grade the answer might contradict
+    // a moment later.
+    const state: { tone: Tone; pulse?: boolean; note: string } = workspace.isPending
+      ? { tone: "neutral", pulse: true, note: "reading the workspace…" }
+      : failure
+        ? { tone: "material", note: failure }
+        : value
+          ? { tone: "cleared", note: pinned ? "selected · pinned" : "selected" }
+          : { tone: "held", note: "not selected" };
+    return (
+      <Link
+        to="/settings"
+        aria-label={`${role} model: ${value || "not selected"} — ${state.note}`}
+        title={`${role}: ${value || "not selected"}\n${state.note}`}
+        className={cn(
+          railControl,
+          "min-w-0 gap-1.5 font-mono text-[11px]",
+          stacked && "justify-start",
+        )}
+      >
+        <StatusDot tone={state.tone} pulse={state.pulse} />
+        <span className="sr-only">{role}</span>
+        <span aria-hidden="true" className="max-w-[9rem] truncate">
+          {value || "not selected"}
+        </span>
+      </Link>
+    );
+  };
   return (
     <div className={cn("flex min-w-0 items-center gap-0.5", stacked && "flex-col items-stretch", className)}>
-      {chip("Reasoning", workspace.data?.models.reasoning?.model, workspace.data?.models.pinned)}
+      {chip(
+        "Reasoning",
+        workspace.data?.models.reasoning?.model,
+        workspace.data?.models.pinned,
+        // The recorded failure is against the reasoning selection alone — it is
+        // `model_catalog_service.status().selection`, not a workspace-wide fault — so it may
+        // not colour the embedding chip beside it.
+        workspace.data?.models.failure || undefined,
+      )}
       {chip("Embedding", workspace.data?.models.embedding?.model, workspace.data?.models.embedding_pinned)}
     </div>
   );
@@ -219,7 +256,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* One rail, dark in both themes, 48px, and the only chrome in the product.
           It is sticky rather than fixed so a document page scrolls under it and a workspace
           page can measure against it: the desk below is exactly `100svh - 3rem`. */}
-      <header className="sticky top-0 z-30 shrink-0 border-b border-band-rule bg-band text-band-ink">
+      <header className="on-band sticky top-0 z-30 shrink-0 border-b border-band-rule bg-band text-band-ink">
         <div className="flex h-12 items-center gap-1 px-2 sm:px-3">
           <button
             type="button"

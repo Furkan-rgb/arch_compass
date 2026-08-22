@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from threading import Lock
 
@@ -76,7 +75,9 @@ class SelectedLangChainChatModel:
             )
         identity = f"{config.provider}:{config.model}:thinking={config.thinking}"
         if config.provider == "fake":
-            raise ValueError("the deterministic provider has no LangChain chat transport")
+            raise ValueError(
+                "the deterministic provider has no LangChain chat transport"
+            )
         with self._lock:
             if self._cached is None or self._cached[0] != identity:
                 self._cached = (identity, build_chat_model(config))
@@ -209,9 +210,7 @@ class SelectedLangChainJudge:
             thinking=config.thinking,
         )
         try:
-            return judge.judge_all(
-                requests, model_identity=identity, observe=observe
-            )
+            return judge.judge_all(requests, model_identity=identity, observe=observe)
         except BatchUnavailableError as refusal:
             # A batch is an optimisation, not a requirement. Losing a review that the
             # interactive path could have produced is a worse outcome than judging it the
@@ -229,8 +228,10 @@ class SelectedLangChainJudge:
         workers = max(1, config.concurrent_requests if config is not None else 1)
         if workers == 1:
             return tuple(
-                self.judge(item.candidate, item.case, item.policies) for item in requests
+                self.judge(item.candidate, item.case, item.policies)
+                for item in requests
             )
+
         def judge_one(item: JudgementRequest) -> Finding:
             return self.judge(item.candidate, item.case, item.policies)
 
@@ -451,7 +452,9 @@ class SelectedLangChainHingeInvestigator:
         except (NotImplementedError, ProviderError) as error:
             # A hinge that could not be checked is the hinge this product produced
             # yesterday. It goes to a person, and the record says why nothing settled it.
-            _log.warning("The hinge on %s was not investigated: %s", finding.candidate.id, error)
+            _log.warning(
+                "The hinge on %s was not investigated: %s", finding.candidate.id, error
+            )
             self._tools_refused = isinstance(error, NotImplementedError)
             return InvestigatedFinding(finding)
 

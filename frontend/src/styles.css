@@ -200,6 +200,16 @@
   --band-ink-2: #a1a1a1;
   --band-rule: rgb(255 255 255 / 14%);
 
+  /* The accent, at the lightness a permanently dark ground needs.
+
+     `--accent` inverts with the *page*, and the band does not invert at all — so on a light
+     page the band would be handed `#971b1a`, which is 2.3:1 on black and stops being a
+     signal. This is the same lift the dark theme already gives the letterform, held still
+     rather than switched, for the one ground that never changes. `.on-band` below is what
+     hands it to a verdict; nothing paints it directly. */
+  --accent-on-band: #f27166;
+  --accent-on-band-soft: rgb(242 113 102 / 13%);
+
   /* Two devices, and the difference between them is the whole rule.
 
      A *rim* is the edge of a surface: one inset hairline of light along the top, no blur,
@@ -590,6 +600,30 @@
   summary::-webkit-details-marker {
     display: none;
   }
+}
+
+/* A dark ground on a page that is not: the shell's rail, and the landing page's field band.
+
+   The band already carries its own ink, because it does not invert with the theme. What it
+   never carried is its own *verdicts*, and the rail is the first place one landed — the two
+   model chips wear a status dot. So on a light page the dot resolved `held` to `#0a0a0a`
+   and drew black on black: the state that means "nobody has chosen a model yet" was the one
+   state a reader could not see, and the other two were a grey that never changed.
+
+   Scoped as a class rather than fixed in `ui/badge.tsx`, because the fault is the ground and
+   not the dot. Anything that reads the severity scale — a badge, a dot, a left edge — is
+   correct inside here without knowing it is on a band. The values are the dark theme's own,
+   held still: in dark this rule is a no-op, which is the point.
+
+   `--accent-on-band` rather than `--accent` for the alarm, for the reason given where it is
+   declared. `--material` stays an alias so a second red still cannot appear. */
+.on-band {
+  --held: #fafafa;
+  --held-soft: rgb(255 255 255 / 8%);
+  --cleared: #737373;
+  --cleared-soft: rgb(255 255 255 / 5%);
+  --material: var(--accent-on-band);
+  --material-soft: var(--accent-on-band-soft);
 }
 
 .scrollbar-none {

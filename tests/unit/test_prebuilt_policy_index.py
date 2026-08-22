@@ -10,7 +10,10 @@ import pytest
 
 from archcompass.configuration import EmbeddingModelConfig
 from archcompass.domain import Policy, PolicyScope, PolicyStrength
-from archcompass.domain.errors import ConfigurationError
+from archcompass.domain.errors import (
+    ConfigurationError,
+    PolicyEmbeddingsMissingError,
+)
 from archcompass.policies.adapters.prebuilt import (
     MANIFEST_SCHEMA,
     MANIFEST_TABLE,
@@ -69,7 +72,9 @@ def _corpus() -> tuple[Policy, ...]:
     )
 
 
-def _config(model: str = "test-embedding", dimensions: int = _DIMENSIONS) -> EmbeddingModelConfig:
+def _config(
+    model: str = "test-embedding", dimensions: int = _DIMENSIONS
+) -> EmbeddingModelConfig:
     return EmbeddingModelConfig(
         provider="fake",
         model=model,
@@ -168,15 +173,22 @@ def test_a_shipped_index_built_for_another_model_is_not_used(tmp_path: Path) -> 
 
     # Every chunk embedded here, rather than a search quietly scoring against vectors from a
     # model these queries will never be compared with.
-    assert len(embeddings.documents) == len(desired_chunks(corpus, embedding_identity(_config())))
+    assert len(embeddings.documents) == len(
+        desired_chunks(corpus, embedding_identity(_config()))
+    )
 
 
-def test_an_edited_policy_is_embedded_and_shadows_the_shipped_chunk(tmp_path: Path) -> None:
+def test_an_edited_policy_is_embedded_and_shadows_the_shipped_chunk(
+    tmp_path: Path,
+) -> None:
     config = _config()
     shipped = tmp_path / "policy-index.sqlite3"
     _build_shipped_index(shipped, _corpus(), config)
 
-    edited = (_corpus()[0], _policy("name-things-well", "A body that has since been rewritten."))
+    edited = (
+        _corpus()[0],
+        _policy("name-things-well", "A body that has since been rewritten."),
+    )
     embeddings = CountingEmbeddings()
     index = SQLitePolicyIndex(
         _connect(tmp_path / "workspace.sqlite3"),
@@ -195,7 +207,9 @@ def test_an_edited_policy_is_embedded_and_shadows_the_shipped_chunk(tmp_path: Pa
     assert {match.policy_id for match in found} == {item.id for item in edited}
 
 
-def test_a_shipped_index_holding_a_policy_the_corpus_dropped_is_refused(tmp_path: Path) -> None:
+def test_a_shipped_index_holding_a_policy_the_corpus_dropped_is_refused(
+    tmp_path: Path,
+) -> None:
     config = _config()
     shipped = tmp_path / "policy-index.sqlite3"
     _build_shipped_index(shipped, _corpus(), config)
@@ -245,3 +259,22 @@ def test_a_file_that_is_not_an_index_has_no_manifest(tmp_path: Path) -> None:
     stray.write_text("not a database", encoding="utf-8")
 
     assert read_manifest(stray) is None
+
+
+def test_sqlite_index_refuses_missing_embeddings_when_generation_is_disallowed(
+    tmp_path: Path,
+) -> None:
+    corpus = _corpus()
+    config = _config()
+    index = SQLitePolicyIndex(
+        _connect(tmp_path / "workspace.sqlite3"),
+        CountingEmbeddings(),
+        embedding_identity=embedding_identity(config),
+        dimensions=config.dimensions,
+        allow_generation=False,
+    )
+
+    with pytest.raises(
+        PolicyEmbeddingsMissingError, match="No prebuilt policy embeddings found"
+    ):
+        index.synchronize(corpus)

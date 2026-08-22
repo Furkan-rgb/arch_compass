@@ -59,6 +59,44 @@ describe("the application shell", () => {
     );
   });
 
+  /**
+   * The dot beside a model name is the only place the rail reports a state, and it reported
+   * two of them in a colour that never changed: `held` resolved against the page, so on a
+   * light theme "nothing is selected" drew `#0a0a0a` on the black rail and vanished.
+   *
+   * Asserted through the accessible name rather than through a class, because what a reader
+   * has to be able to tell apart is the state, and the fill is `.on-band`'s job — the header
+   * carrying that class is the second half, checked below.
+   */
+  it("says which state each model chip is in, and reports a recorded failure", async () => {
+    vi.spyOn(api, "workspace").mockResolvedValue(
+      workspaceFixture({
+        models: {
+          reasoning: { provider: "fake", model: "deterministic", thinking: null },
+          embedding: null,
+          failure: "anthropic refused the last call: 401",
+          pinned: true,
+          embedding_pinned: false,
+        },
+      }),
+    );
+    render(wrap());
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("link", { name: /Reasoning model: deterministic — anthropic refused/ })[0],
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.getAllByRole("link", { name: /Embedding model: not selected — not selected/ })[0],
+    ).toBeInTheDocument();
+  });
+
+  it("scopes the verdict palette to the rail, which is dark on a light page too", () => {
+    render(wrap());
+    expect(screen.getByRole("banner")).toHaveClass("on-band");
+  });
+
   it("puts navigation behind a drawer on a phone, and closes it with Escape", async () => {
     setViewportWidth(VIEWPORT.phone);
     render(wrap());

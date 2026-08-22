@@ -55,10 +55,10 @@ def test_a_rate_limited_call_succeeds_on_a_later_attempt() -> None:
     assert len(attempts) == 3
     # Growing rather than repeating: three waits four seconds apart would all land inside
     # the same exhausted minute the first one was refused in.
-    assert sleep.waits == [4.0, 12.0]
+    assert sleep.waits == [4.0, 8.0]
 
 
-def test_the_provider_is_asked_at_most_four_times() -> None:
+def test_the_provider_is_asked_at_most_six_times() -> None:
     calls: list[int] = []
     sleep = Recorder()
 
@@ -69,11 +69,11 @@ def test_the_provider_is_asked_at_most_four_times() -> None:
     with pytest.raises(ProviderError) as failure:
         call_with_retry(operation, subject="A finding", sleep=sleep)
 
-    assert len(calls) == 4
-    assert sleep.waits == [4.0, 12.0, 36.0]
+    assert len(calls) == 6
+    assert sleep.waits == [4.0, 8.0, 16.0, 32.0, 60.0]
     # The report says it was temporary, so a caller reading it knows to try again rather
     # than to change the request.
-    assert "refused 4 times" in str(failure.value)
+    assert "refused 6 times" in str(failure.value)
 
 
 def test_a_refusal_about_the_request_is_raised_immediately() -> None:

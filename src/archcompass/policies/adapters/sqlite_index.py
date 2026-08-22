@@ -14,6 +14,7 @@ import sqlite_vec
 from langchain_core.embeddings import Embeddings
 
 from archcompass.domain import Policy
+from archcompass.domain.errors import PolicyEmbeddingsMissingError
 from archcompass.ports.dense_policy_index import (
     BatchDocumentEmbeddings,
     DensePolicyMatch,
@@ -114,6 +115,7 @@ class SQLitePolicyIndex:
         embedding_identity: str,
         dimensions: int,
         prebuilt: Path | None = None,
+        allow_generation: bool = True,
     ) -> None:
         if dimensions < 1:
             raise ValueError("embedding dimensions must be positive")
@@ -122,6 +124,7 @@ class SQLitePolicyIndex:
         self._embedding_identity = embedding_identity
         self._dimensions = dimensions
         self._namespace = namespace_for(embedding_identity)
+        self._allow_generation = allow_generation
         #: A read-only index shipped with the corpus it was built from, or nothing. It saves
         #: the whole of a cold workspace's indexing — which on a metered free tier is minutes
         #: of waiting, paid again by every hosted visitor, for vectors that are identical for
@@ -173,8 +176,7 @@ class SQLitePolicyIndex:
 
     def _setup(self) -> None:
         with self._connection() as connection:
-            connection.execute(
-                """
+            connection.execute("""
                 CREATE TABLE IF NOT EXISTS main.policy_embedding_chunks (
                     namespace TEXT NOT NULL,
                     chunk_id TEXT NOT NULL,
@@ -189,8 +191,7 @@ class SQLitePolicyIndex:
                     embedding BLOB NOT NULL,
                     PRIMARY KEY (namespace, chunk_id)
                 )
-                """
-            )
+                """)
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS main.policy_embedding_policy "
                 "ON policy_embedding_chunks(namespace, policy_id)"
@@ -231,6 +232,12 @@ class SQLitePolicyIndex:
                 for chunk_id, entry in desired.items()
                 if stored.get(chunk_id) != entry[1]
             ]
+            if missing and not self._allow_generation:
+                raise PolicyEmbeddingsMissingError(
+                    f"No prebuilt policy embeddings found for '{self._embedding_identity}' "
+                    f"({len(missing)} chunk(s) missing). Please generate embeddings first "
+                    "using 'uv run python scripts/build_policy_index.py'."
+                )
             self._embed_missing(connection, missing)
             # Only ever our own rows. The shipped ones are not ours to delete, and nothing
             # asks them to be: where they no longer match, `_shipped_in_use` has already
@@ -274,10 +281,15 @@ class SQLitePolicyIndex:
         if not missing:
             return
         embeddings = self._embeddings
-        if isinstance(embeddings, BatchDocumentEmbeddings) and embeddings.supports_batch():
+        if (
+            isinstance(embeddings, BatchDocumentEmbeddings)
+            and embeddings.supports_batch()
+        ):
             texts = [entry[3] for entry in missing]
             try:
-                self._store(connection, missing, embeddings.embed_documents_batched(texts))
+                self._store(
+                    connection, missing, embeddings.embed_documents_batched(texts)
+                )
                 return
             except BatchUnavailableError as refusal:
                 # The batch facility is not available to this key. Indexing the slow way is
@@ -286,7 +298,9 @@ class SQLitePolicyIndex:
                 _log.warning("%s", refusal)
         for start in range(0, len(missing), _EMBEDDING_BATCH):
             batch = missing[start : start + _EMBEDDING_BATCH]
-            self._store(connection, batch, self._embed_chunk([entry[3] for entry in batch]))
+            self._store(
+                connection, batch, self._embed_chunk([entry[3] for entry in batch])
+            )
 
     def _embed_chunk(self, texts: list[str]) -> list[list[float]]:
         return call_with_retry(
@@ -370,7 +384,9 @@ class SQLitePolicyIndex:
                 """,
                 (blob, *self._chunk_source_parameters(), limit),
             ).fetchall()
-        return tuple(DensePolicyMatch(str(policy_id), float(score)) for policy_id, score in rows)
+        return tuple(
+            DensePolicyMatch(str(policy_id), float(score)) for policy_id, score in rows
+        )
 
     def _chunk_source(self) -> str:
         """The vectors a search scores against: this workspace's, and the shipped ones.

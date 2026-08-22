@@ -11,6 +11,7 @@ from archcompass.domain import (
     AnswerStatus,
     ArchitectureCase,
     Candidate,
+    CandidateChange,
     CaseFacet,
     ChangeCause,
     Finding,
@@ -211,7 +212,9 @@ def test_a_stale_manifest_entry_does_not_move_the_corpus_for_everything_else(
         now,
         now,
         retrieval_manifest=(
-            RetrievalProvenance(gone.id, "any-strategy", "1", "old-corpus", ("policy-a",)),
+            RetrievalProvenance(
+                gone.id, "any-strategy", "1", "old-corpus", ("policy-a",)
+            ),
             RetrievalProvenance(
                 surviving.id, "any-strategy", "1", "current-corpus", ("policy-a",)
             ),
@@ -277,9 +280,21 @@ def test_revision_calculator_records_succession_and_resurfacing(tmp_path: Path) 
     assert delta.addressed == ()
 
 
+def test_candidate_change_freezes_causes_sequence() -> None:
+    candidate = Candidate.identified(
+        pattern="dependency_direction",
+        summary="Domain imports an adapter",
+        participants=(Participant("domain.order", "source"),),
+    )
+    change = CandidateChange(candidate, [ChangeCause.MODEL, ChangeCause.PROMPT])  # type: ignore[arg-type]
+    assert isinstance(change.causes, tuple)
+    assert change.causes == (ChangeCause.MODEL, ChangeCause.PROMPT)
+
+
 def test_offered_answers_keep_the_model_s_order_and_drop_repeats() -> None:
     """The model puts the likeliest answer first, so the offer is not sorted into another
-    shape. A repeat in a different case is the same answer twice, which is one choice."""
+    shape. A repeat in a different case is the same answer twice, which is one choice.
+    """
 
     question = Question.create(
         text="Who owns persistence?",
@@ -309,7 +324,8 @@ def test_a_question_without_proposed_answers_is_still_a_question() -> None:
 
 def test_proposed_answers_do_not_change_what_counts_as_the_same_question() -> None:
     """Equivalence stops the same question being asked twice. Two rounds proposing
-    different answers to the same question of the same candidates are still one question."""
+    different answers to the same question of the same candidates are still one question.
+    """
 
     first = Question.create(
         text="Who owns persistence?",
