@@ -1,12 +1,16 @@
 import {
   ArrowLeft as LucideArrowLeft,
+  ArrowDown as LucideArrowDown,
   ArrowRight as LucideArrowRight,
   ArrowUp as LucideArrowUp,
   BookOpen,
   Check,
   ChevronDown as LucideChevronDown,
+  CircleHelp,
   ClipboardList,
   Compass,
+  Copy,
+  ExternalLink,
   Folder,
   GitBranch,
   Layers,
@@ -73,6 +77,10 @@ export const CheckIcon = icon(Check);
 export const GitBranchIcon = icon(GitBranch);
 export const SearchIcon = icon(Search);
 export const ArrowUp = icon(LucideArrowUp);
+export const ArrowDown = icon(LucideArrowDown);
+export const CopyIcon = icon(Copy);
+export const QuestionIcon = icon(CircleHelp);
+export const OpenExternalIcon = icon(ExternalLink);
 
 /**
  * A decision the branch still holds, against a verdict that has since moved.

@@ -5,13 +5,12 @@ import { api, type Review, type ReviewConversation } from "../../api";
 import { cn } from "../../lib/cn";
 import { type MarkShape, humanise, shortId, splitQualified } from "../../lib/format";
 import { Badge, Tag, VerdictBadge } from "../../ui/badge";
-import { Button, ExternalButtonLink, ToggleButton } from "../../ui/button";
+import { Button, ToggleButton } from "../../ui/button";
 import { Input } from "../../ui/field";
 import { ArrowRight, ChevronDown } from "../../ui/icons";
 import { Mark } from "../../ui/mark";
-import { Markdown } from "../../ui/markdown";
 import { Label, Panel, PanelBody, PanelFooter, PanelHeader } from "../../ui/panel";
-import { EmptyState, ErrorNotice, LoadingPanel, Spinner } from "../../ui/states";
+import { EmptyState, ErrorNotice, Spinner } from "../../ui/states";
 import { InvestigationTranscript, investigationSummary } from "./investigation";
 
 type DeltaState = "addressed" | "changed" | "new" | "unchanged";
@@ -269,17 +268,21 @@ export function DeltaSurface({ review, onOpen }: { review: Review; onOpen?: (can
    * `ReviewDelta` records the last verdict only for a candidate that has gone away; for one
    * that changed it records the causes and nothing about what the model used to say. So the
    * before half of "was held, now material" has to come from the previous review itself.
-   * This is the query the revision rail already runs, under the same key, so it is served
-   * from the cache rather than fetched again — and if the previous review is not in the
-   * lineage the list returned, no transition is claimed. Saying nothing is the honest
-   * failure here; guessing at a verdict is not.
+   *
+   * That review, by its id — not the whole review list filtered down to it. A stored review
+   * is most of a repository's atlas, so asking for every review on the workspace to read one
+   * verdict off one of them downloaded megabytes to print a badge. Where it cannot be read,
+   * no transition is claimed: saying nothing is the honest failure here, and guessing at a
+   * verdict is not.
    */
-  const lineage = useQuery({
-    queryKey: ["reviews"],
-    queryFn: api.reviews,
+  const earlier = useQuery({
+    queryKey: ["review", review.previous_review_id],
+    queryFn: () => api.review(review.previous_review_id!),
     enabled: Boolean(review.previous_review_id),
+    // A recorded review cannot change, so this is fetched once for the life of the tab.
+    staleTime: Infinity,
   });
-  const previous = lineage.data?.find((item) => item.id === review.previous_review_id) ?? null;
+  const previous = earlier.data ?? null;
 
   const findingOf = (candidateId: string) => review.findings.find((item) => item.candidate.id === candidateId) ?? null;
   /**
@@ -490,104 +493,6 @@ export function DeltaSurface({ review, onOpen }: { review: Review; onOpen?: (can
   );
 }
 
-/**
- * The review as one document.
- *
- * Not gated on the review being finished any more. The report is composed for a waiting
- * review too and opens on a line saying it is not final, which is the same thing the empty
- * state used to say and a great deal more use — a reviewer part-way through a clarification
- * round can still hand somebody what has been judged so far.
- *
- * The description used to read "The same Markdown the API serves, rendered", which tells a
- * reviewer about the API rather than about their review.
- */
-/**
- * The run-in label `workflow/report.py` puts on the summary paragraph.
- *
- * The document carries the summary because it has to stand on its own — downloaded,
- * attached to a pull request, printed by the CLI. The page carries it too, hoisted out of
- * the document and set the way every other model-authored paragraph in the product is set.
- * Both would mean saying it twice on one screen, so the page renders the document without
- * that one paragraph.
- *
- * The two sides of this literal are in different languages and can drift apart in silence,
- * which is why `tests/browser/test_workspace.py` opens a real report and counts the summary
- * once. Nothing here can catch a rename in Python.
- */
-const SUMMARY_LABEL = "**In summary.**";
-
-/** The document minus the paragraph the page is about to set for itself. */
-function withoutSummary(markdown: string): string {
-  return markdown
-    .split("\n\n")
-    .filter((block) => !block.startsWith(SUMMARY_LABEL))
-    .join("\n\n");
-}
-
-export function ReportSurface({ review }: { review: Review }) {
-  const report = useQuery({
-    queryKey: ["review-report", review.id],
-    queryFn: () => api.reviewReport(review.id),
-  });
-  if (report.isLoading) return <LoadingPanel label="Rendering the report…" />;
-  if (report.error) return <ErrorNotice error={report.error} />;
-  const markdown = report.data?.trim() ?? "";
-  const summary = review.synopsis?.trim() ?? "";
-  return (
-    <Panel>
-      <PanelHeader
-        title="Review report"
-        description="The whole review as one document — what was found, what moved since last time, and the context it was judged against. Written to be read away from here."
-        actions={
-          <ExternalButtonLink
-            size="sm"
-            href={`/api/reviews/${encodeURIComponent(review.id)}/report`}
-            download={`archcompass-${review.id}.md`}
-          >
-            Download Markdown
-          </ExternalButtonLink>
-        }
-      />
-      {/* What the review comes to, before the document that establishes it.
-
-          The counts inside the report say how much there is; a reader arriving at a review
-          of forty candidates wants to know what it amounts to, and "1 material, 3 held" is
-          not that. Set like the reasoning on a finding — an attribution line in the machine
-          voice, then the sentences at the reading size — because it is the same kind of
-          thing: a paragraph the model wrote, which a reader is meant to weigh rather than
-          take as a reading.
-
-          Absent rather than empty when no model wrote one. A heading over a blank space
-          reads as a component that failed, and the document below opens on its counts
-          exactly as it did before summaries existed. */}
-      {summary ? (
-        <div className="border-t border-rule px-4 py-5 sm:px-5">
-          <p className="font-mono text-[10.5px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
-            <span className="font-semibold uppercase tracking-[0.1em] text-ink">In summary</span>
-            {review.synopsis_identity ? ` · ${review.synopsis_identity}` : null}
-          </p>
-          <p className="mt-3 max-w-[60ch] whitespace-pre-line text-[17px] leading-[1.68] text-ink wrap-anywhere">
-            {summary}
-          </p>
-        </div>
-      ) : null}
-      <PanelBody>
-        {/* The fourth state. A request that succeeds and returns nothing used to render as a
-            panel with a header and a blank body, which reads as a component that failed
-            rather than as a review with nothing in it yet — and the download beside it would
-            have handed over an empty file without saying so. */}
-        {markdown ? (
-          <Markdown>{withoutSummary(markdown)}</Markdown>
-        ) : (
-          <EmptyState title="The report is empty">
-            This review has been composed but has nothing in it to write up yet. It fills in as candidates are judged.
-          </EmptyState>
-        )}
-      </PanelBody>
-    </Panel>
-  );
-}
-
 /** What a conversation is called: the question that opened it. */
 function conversationTitle(conversation: ReviewConversation, index: number): string {
   const first = conversation.messages[0]?.question.trim();
@@ -724,11 +629,25 @@ export function AskSurface({ review, onOpen }: { review: Review; onOpen?: (candi
             is not true and the reader can do something about it. */}
         {conversations.isLoading ? (
           <div role="status" aria-live="polite" className="flex items-center gap-2.5 text-sm text-ink-2">
-            <Spinner />
+            {/* The sentence beside it says what is being waited on, so the spinner does not
+                say it a second time. */}
+            <Spinner label="" />
             Looking for the questions asked about this review…
           </div>
         ) : conversations.error ? (
-          <ErrorNotice error={conversations.error} title="The questions asked about this review could not be loaded" />
+          <ErrorNotice
+            error={conversations.error}
+            title="The questions asked about this review could not be loaded"
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void conversations.refetch()}
+              >
+                Try again
+              </Button>
+            }
+          />
         ) : current?.messages.length ? (
           <ol className="grid gap-4">
             {current.messages.map((message, index) => (
@@ -866,17 +785,56 @@ export function AskSurface({ review, onOpen }: { review: Review; onOpen?: (candi
 
         {ask.error ? (
           <div className="mt-3">
-            <ErrorNotice error={ask.error} />
+            <ErrorNotice
+              error={ask.error}
+              title="That question was not answered"
+              action={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={ask.isPending}
+                  onClick={() => ask.mutate()}
+                >
+                  Ask it again
+                </Button>
+              }
+            />
           </div>
         ) : null}
-        {discard.error ? (
+        {discard.error && confirming ? (
           <div className="mt-3">
-            <ErrorNotice error={discard.error} />
+            <ErrorNotice
+              error={discard.error}
+              title="That conversation was not discarded"
+              action={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={discard.isPending}
+                  onClick={() => discard.mutate(confirming)}
+                >
+                  Try again
+                </Button>
+              }
+            />
           </div>
         ) : null}
         {open.error ? (
           <div className="mt-3">
-            <ErrorNotice error={open.error} />
+            <ErrorNotice
+              error={open.error}
+              title="That conversation was not opened"
+              action={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={open.isPending}
+                  onClick={() => open.mutate()}
+                >
+                  Try again
+                </Button>
+              }
+            />
           </div>
         ) : null}
       </PanelBody>

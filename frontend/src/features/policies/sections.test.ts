@@ -2,7 +2,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { REQUIRED_SECTIONS, missingSections, policyTemplate, sectionsIn } from "./sections";
+import {
+  REQUIRED_SECTIONS,
+  SECTION_PROMPTS,
+  missingSections,
+  policyTemplate,
+  sectionsIn,
+} from "./sections";
 
 describe("policy sections", () => {
   /**
@@ -30,11 +36,27 @@ describe("policy sections", () => {
     expect(missingSections(body)).not.toContain("Intent");
   });
 
-  it("scaffolds a draft that already satisfies the parser", () => {
-    expect(missingSections(policyTemplate())).toEqual([]);
+  /**
+   * The claim this test used to make was that the scaffold "already satisfies the parser",
+   * and it was true: the template wrote its own prompt under every heading and
+   * `sectionStates` asked only whether a heading had text beneath it. So a title, a
+   * description and an untouched body were enough to press Create policy, and what reached
+   * the retrieval corpus — and the judge, as authored guidance — was nine instructions to
+   * the author. A scaffold is a shape to fill in; nothing about it is written yet.
+   */
+  it("scaffolds the sections without writing any of them", () => {
+    const template = policyTemplate();
     for (const section of REQUIRED_SECTIONS) {
-      expect(policyTemplate()).toContain(`## ${section}`);
+      expect(template).toContain(`## ${section}`);
     }
+    expect(missingSections(template)).toEqual([...REQUIRED_SECTIONS]);
+    expect(template).not.toContain(SECTION_PROMPTS.Intent);
+  });
+
+  it("does not count a section that still holds the prompt it was asked", () => {
+    const pasted = `## Intent\n\n${SECTION_PROMPTS.Intent}\n\n## Guidance\n\nName the port.\n`;
+    expect(missingSections(pasted)).toContain("Intent");
+    expect(missingSections(pasted)).not.toContain("Guidance");
   });
 
   it("ignores headings that are not level two, as the parser does", () => {

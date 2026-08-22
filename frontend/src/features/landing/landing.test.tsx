@@ -16,6 +16,17 @@ beforeEach(() => setViewportWidth(VIEWPORT.desktop));
  */
 const specimen = () => screen.getByRole("group", { name: /^(Material|Held|Cleared)$/ });
 
+/**
+ * The three verdicts in the picker, without the pause control that stands beside them.
+ *
+ * The picker is a legend and a chooser and now an off switch as well, so "the buttons in the
+ * picker" is no longer the same set as "the verdicts".
+ */
+const verdictButtons = () =>
+  within(screen.getByRole("group", { name: "Example bearings" }))
+    .getAllByRole("button")
+    .filter((button) => !button.getAttribute("aria-label")?.includes("showcase"));
+
 function renderLanding() {
   return render(
     <MemoryRouter>
@@ -81,8 +92,7 @@ describe("the landing page", () => {
   it("shows a verdict as one of three states and never as a score", () => {
     renderLanding();
 
-    const picker = screen.getByRole("group", { name: "Example bearings" });
-    const buttons = within(picker).getAllByRole("button");
+    const buttons = verdictButtons();
     expect(buttons.map((button) => button.textContent)).toEqual(["Material", "Held", "Cleared"]);
     expect(buttons[0]).toHaveAttribute("aria-pressed", "true");
 
@@ -152,11 +162,18 @@ describe("the landing page", () => {
     afterEach(() => vi.useRealTimers());
 
     const pressed = () =>
-      within(screen.getByRole("group", { name: "Example bearings" }))
-        .getAllByRole("button")
-        .findIndex((button) => button.getAttribute("aria-pressed") === "true");
+      verdictButtons().findIndex((button) => button.getAttribute("aria-pressed") === "true");
+    const pause = () => screen.getByRole("button", { name: "Pause the showcase" });
 
-    it("moves through the three verdicts, two seconds each", () => {
+    /**
+     * One pass, and then it is the reader's page again.
+     *
+     * Three verdicts is the whole vocabulary: six seconds teaches that there are three of
+     * them and that the picker moves between them. After that the movement has nothing left
+     * to say and is only taking a ninety-word specimen away from somebody reading it, on the
+     * first screen of the page, for ever.
+     */
+    it("moves through the three verdicts, two seconds each, and then stops", () => {
       renderLanding();
 
       expect(pressed()).toBe(0);
@@ -166,13 +183,34 @@ describe("the landing page", () => {
       expect(pressed()).toBe(2);
       act(() => void vi.advanceTimersByTime(2000));
       expect(pressed()).toBe(0);
+
+      // The pass ended where it began, and the reader gets to finish that one.
+      act(() => void vi.advanceTimersByTime(6000));
+      expect(pressed()).toBe(0);
+      expect(pause()).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("stops on the specimen being read when the pause is pressed, and replays it", () => {
+      renderLanding();
+
+      expect(pause()).toHaveAttribute("aria-pressed", "false");
+      fireEvent.click(pause());
+      expect(pause()).toHaveAttribute("aria-pressed", "true");
+
+      // Two full cycles' worth of time, and nothing moved.
+      act(() => void vi.advanceTimersByTime(4000));
+      expect(pressed()).toBe(0);
+
+      // Pressing it again runs the pass from the top rather than being a control for nothing.
+      fireEvent.click(pause());
+      expect(pause()).toHaveAttribute("aria-pressed", "false");
+      act(() => void vi.advanceTimersByTime(2000));
+      expect(pressed()).toBe(1);
     });
 
     it("holds a chosen verdict for five seconds before the showcase resumes", () => {
       renderLanding();
-      const buttons = within(screen.getByRole("group", { name: "Example bearings" })).getAllByRole(
-        "button",
-      );
+      const buttons = verdictButtons();
 
       fireEvent.click(buttons[2]);
       expect(pressed()).toBe(2);
@@ -217,9 +255,7 @@ describe("the landing page", () => {
 
     it("restarts the hold when the same verdict is chosen again", () => {
       renderLanding();
-      const buttons = within(screen.getByRole("group", { name: "Example bearings" })).getAllByRole(
-        "button",
-      );
+      const buttons = verdictButtons();
 
       fireEvent.click(buttons[1]);
       act(() => void vi.advanceTimersByTime(4000));

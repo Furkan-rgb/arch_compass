@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
-import { api, type Review } from "../../api";
+import { api, type Finding, type Review } from "../../api";
 import { cn } from "../../lib/cn";
+import { useRunsBecomeReviews } from "../../lib/runs";
 import {
   VERDICT_ORDER,
   plural,
@@ -17,6 +18,7 @@ import { Button, ButtonLink } from "../../ui/button";
 import { Drawer } from "../../ui/drawer";
 import { TONE_TEXT } from "../../ui/meta";
 import { Mark } from "../../ui/mark";
+import { Label } from "../../ui/panel";
 import { ErrorNotice, LoadingPanel } from "../../ui/states";
 import { Tabs, TabPanel } from "../../ui/tabs";
 import {
@@ -26,10 +28,22 @@ import {
   useStandingDecisions,
 } from "./docket-rules";
 import { AtlasSurface } from "./atlas-surface";
+import { useRoundAnswers } from "./clarification";
 import { ContextRail } from "./context-rail";
 import { Docket } from "./docket";
 import { RevisionRail, lineageOf } from "./revision-rail";
-import { AskSurface, DeltaSurface, ReportSurface } from "./surfaces";
+import { AskSurface, DeltaSurface } from "./surfaces";
+
+/**
+ * The report arrives with the tab, and not before.
+ *
+ * It is the only surface here that renders authored prose, so it is the only one that needs
+ * the Markdown engine — some 160KB of it, which `surfaces.tsx` used to pull into the review's
+ * own chunk for a tab that is not the default. Four of the five tabs never touch it.
+ */
+const ReportSurface = lazy(() =>
+  import("./report-surface").then((module) => ({ default: module.ReportSurface })),
+);
 
 /**
  * What the page is showing.
@@ -59,6 +73,18 @@ const DEFAULT_SURFACE = "docket";
 const SURFACE_PARAM = "tab";
 
 /**
+ * What names one finding in a link: `/reviews/:id?candidate=<id>`.
+ *
+ * Read on arrival and never written afterwards, which is the whole of the distinction the
+ * experience doc draws: *which document you are reading is where you are, and your position
+ * inside the docket is what you were doing there.* That argument is about walking the list,
+ * and it holds — a parameter rewritten on every `j` would put forty entries in the reader's
+ * history. It does not cover handing a colleague one finding, which without this means
+ * "open review 4, set the filter to All, and scroll to InvoiceGateway".
+ */
+const CANDIDATE_PARAM = "candidate";
+
+/**
  * The one number in the head that means act, and the verdict spread behind it.
  *
  * A reviewer arrives with two questions — is anything waiting on me, and what is it — and the
@@ -69,9 +95,17 @@ const SURFACE_PARAM = "tab";
  * dashboard. The leading count is deliberately plain ink even where most of what it counts is
  * material: a hue on a mixed total would be a verdict painted on something that is not one.
  */
-function ReviewCounts({ review, className }: { review: Review; className?: string }) {
+function ReviewCounts({
+  review,
+  findings,
+  className,
+}: {
+  review: Review;
+  /** The same sorted list the docket is showing, sorted once by the page for both. */
+  findings: Finding[];
+  className?: string;
+}) {
   const { byCandidate: decisions } = useStandingDecisions(review);
-  const findings = orderedFindings(review);
 
   const outstanding = findings.filter((finding) =>
     needsAttention(finding, decisions.get(finding.candidate.id)),
@@ -149,12 +183,17 @@ function ReviewCounts({ review, className }: { review: Review; className?: strin
  */
 function ReviewHead({
   review,
+  findings,
   onCancel,
   cancelling,
+  failure,
 }: {
   review: Review;
+  findings: Finding[];
   onCancel: () => void;
   cancelling: boolean;
+  /** A cancellation that did not go through, which used to be reported nowhere at all. */
+  failure?: unknown;
 }) {
   const waiting = review.status === "awaiting_answers" && review.questions.length > 0;
   return (
@@ -179,11 +218,11 @@ function ReviewHead({
                 <span className="text-[0.8em]">{shortId(review.repository.commit, 10)}</span>
               ) : null}
             </h1>
-            <span className="text-[10px] font-bold uppercase tracking-[0.13em] text-ink-3">
+            <Label>
               Review {review.sequence} · case revision {review.case.revision} ·{" "}
               {review.round > 1 ? <>round {review.round} · </> : null}
               {relativeTime(review.started_at)}
-            </span>
+            </Label>
           </div>
 
           {/* One control, and it is the way out rather than the way on. */}
@@ -201,7 +240,24 @@ function ReviewHead({
           </div>
         </div>
 
-        <ReviewCounts review={review} className="mt-2" />
+        <ReviewCounts review={review} findings={findings} className="mt-2" />
+
+        {/* A cancellation that failed used to be swallowed whole: the button re-enabled, the
+            review carried on waiting, and nothing said why. It belongs beside the control
+            that was pressed. */}
+        {failure ? (
+          <div className="mt-2.5">
+            <ErrorNotice
+              error={failure}
+              title="This review was not cancelled"
+              action={
+                <Button variant="secondary" size="sm" disabled={cancelling} onClick={onCancel}>
+                  Try again
+                </Button>
+              }
+            />
+          </div>
+        ) : null}
       </div>
     </header>
   );
@@ -253,24 +309,109 @@ export function ReviewPage() {
    */
   const [openId, setOpenId] = useState<string | null | undefined>(undefined);
   const [contextOpen, setContextOpen] = useState(false);
+  /**
+   * Which tab of the judgement-context drawer is open.
+   *
+   * Here rather than in the drawer, which unmounts its contents when it closes: a reviewer
+   * checking Policies on twenty consecutive candidates was pressing Policies twenty times.
+   */
+  const [contextTab, setContextTab] = useState("case");
+  /**
+   * What the reviewer has typed into the clarification round, and what they have checked for
+   * a bulk decision, and which rows settled under them this session.
+   *
+   * All three are "what you were doing there", and all three used to live inside components
+   * that a tab switch, a keystroke or a collapsed card unmounts. The round's answers are the
+   * worst of them — the experience doc's rule is *never navigate away from unsaved input*,
+   * and pressing `j` with the round open threw away every answer in it.
+   */
+  const answers = useRoundAnswers();
+  const [settledHere, setSettledHere] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
 
-  const review = useQuery({ queryKey: ["review", reviewId], queryFn: () => api.review(reviewId) });
-  const reviews = useQuery({ queryKey: ["reviews"], queryFn: api.reviews });
+  const review = useQuery({
+    queryKey: ["review", reviewId],
+    queryFn: () => api.review(reviewId),
+    // A review is a record, not a message. It is immutable and sequenced per branch and case
+    // — the charter's third commitment — so nothing about it can come back different, and
+    // the five-second default had every remount re-download 180KB to redraw the same page.
+    staleTime: Infinity,
+  });
+  /**
+   * The lineage, as a list rather than as a stack of reviews.
+   *
+   * A stored review is most of a repository's atlas, and the rail under the docket draws a
+   * number, a state and a date off each entry — so the summary listing is exactly what it
+   * needs, and asking for the whole thing was megabytes a row to draw a line of text.
+   */
+  const summaries = useQuery({ queryKey: ["review-summaries"], queryFn: api.reviewSummaries });
   const runs = useQuery({
     queryKey: ["review-runs"],
     queryFn: api.reviewRuns,
     refetchInterval: (query) => (query.state.data?.length ? 4000 : false),
   });
+  // A run leaving that list is a review arriving. Polling it and not acting on the change is
+  // what left a finished background run invisible until a reload.
+  useRunsBecomeReviews(runs.data);
   const cancel = useMutation({
     mutationFn: () => api.cancel(reviewId),
     onSuccess: async (next) => {
-      await client.invalidateQueries({ queryKey: ["reviews"] });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["review-summaries"] }),
+        client.invalidateQueries({ queryKey: ["reviews"] }),
+      ]);
       navigate(`/reviews/${next.id}`);
     },
   });
 
   const value = review.data;
   const { byCandidate: decisions, ready } = useStandingDecisions(value);
+
+  /**
+   * The order a reviewer meets candidates in, sorted once for everything that shows it.
+   *
+   * The head's counts and the docket both want this list, and each of them used to sort the
+   * whole review for itself — on every render of this page, which is every keystroke, every
+   * filter press, every drawer toggle and every four-second run poll.
+   */
+  const findings = useMemo(() => (value ? orderedFindings(value) : []), [value]);
+
+  /** The lineage this review belongs to, oldest first. */
+  const lineage = useMemo(
+    () =>
+      value
+        ? [...lineageOf(summaries.data ?? [], value.repository.branch_id, value.case.id)].sort(
+            (left, right) => left.sequence - right.sequence,
+          )
+        : [],
+    [summaries.data, value],
+  );
+
+  /**
+   * The reviews themselves, and only where there is a trajectory to draw with them.
+   *
+   * A candidate's trajectory is the verdict each revision reached about it, which is a fact
+   * that lives inside each review's findings and cannot be read off a listing. So this is the
+   * heavy request, and it is asked for only when the lineage the rail drew says there is more
+   * than one revision — which on a first review, the common case, means it is never made.
+   */
+  const revisions = useQuery({
+    queryKey: ["reviews"],
+    queryFn: api.reviews,
+    enabled: lineage.length > 1,
+    // No `staleTime: Infinity` here, unlike the review itself: each *review* in this list is
+    // immutable, the list is not — a run finishing adds a revision, and a trajectory that
+    // could never learn about it would be a strip that stops at the day the tab was opened.
+  });
+  const trajectory = useMemo(
+    () =>
+      value && revisions.data
+        ? [...lineageOf(revisions.data, value.repository.branch_id, value.case.id)].sort(
+            (left, right) => left.sequence - right.sequence,
+          )
+        : [],
+    [revisions.data, value],
+  );
 
   /**
    * Which item the docket opens on: the clarification when one is waiting, otherwise the
@@ -292,11 +433,11 @@ export function ReviewPage() {
   const defaultOpen = useMemo<string | null>(() => {
     if (!value) return null;
     if (value.status === "awaiting_answers" && value.questions.length) return "clarification";
-    const first = orderedFindings(value).find((finding) =>
+    const first = findings.find((finding) =>
       needsAttention(finding, decisions.get(finding.candidate.id)),
     );
     return first ? first.candidate.id : null;
-  }, [value, decisions]);
+  }, [value, findings, decisions]);
 
   const open = openId === undefined ? defaultOpen : openId;
 
@@ -312,7 +453,17 @@ export function ReviewPage() {
 
   useEffect(() => {
     setOpenId(undefined);
+    setSettledHere([]);
+    setSelected([]);
   }, [reviewId]);
+
+  // A retained row is retained against *this* question of the list. Asking a different one —
+  // which is what changing the filter is — is the moment the reader stops needing to see
+  // what they just decided. Nothing retained means nothing to clear: an unconditional `[]`
+  // is a new array every time and therefore a render every time the page mounts.
+  useEffect(() => {
+    setSettledHere((kept) => (kept.length ? [] : kept));
+  }, [filter]);
 
   const pendingRun =
     (value &&
@@ -321,18 +472,41 @@ export function ReviewPage() {
       )) ||
     null;
 
-  /** The revisions of this branch and case, oldest first, for a candidate's trajectory. */
-  const lineage = useMemo(
-    () =>
-      value
-        ? [...lineageOf(reviews.data ?? [value], value.repository.branch_id, value.case.id)].sort(
-            (left, right) => left.sequence - right.sequence,
-          )
-        : [],
-    [reviews.data, value],
-  );
+  /**
+   * The finding a link named, opened once and never written back.
+   *
+   * After the decisions have landed, because `openCandidate` widens the filter to show the
+   * candidate and cannot tell whether it wants a person until it knows what the team decided
+   * about it. The ref is what makes this "on arrival" rather than "whenever the parameter is
+   * still there": a reader who walks away from the named row must not be dragged back to it.
+   */
+  const honoured = useRef<string | null>(null);
+  const requestedCandidate = search.get(CANDIDATE_PARAM);
+  useEffect(() => {
+    if (!ready || !value || !requestedCandidate) return;
+    if (honoured.current === requestedCandidate) return;
+    honoured.current = requestedCandidate;
+    openCandidate(requestedCandidate);
+    // `openCandidate` closes over the filter and the decisions this should read, and the ref
+    // above is what stops it running twice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, value, requestedCandidate]);
 
-  if (review.isLoading) {
+  /**
+   * The review, and what the team has already decided about it, before anything is drawn.
+   *
+   * The docket's whole claim is *what still wants a person*, and that is not knowable from
+   * the review alone: a waived material finding is settled, and a decision taken against a
+   * verdict that has since moved is not. Painting the list while the branch's decisions are
+   * in flight puts rows in the attention filter that the team settled last week, moves them
+   * out from under the reader a moment later, and — because the keyboard is live from the
+   * first paint — offers `A` on a row that was never outstanding.
+   *
+   * `ready` is true the moment the request settles either way, so a workspace that cannot
+   * answer this does not hold the page: it draws the review with nothing decided, which is
+   * what an unanswerable question about decisions honestly amounts to.
+   */
+  if (review.isLoading || !ready) {
     return (
       <div className="mx-auto w-full max-w-[76rem] p-4 sm:p-6">
         <LoadingPanel label="Opening the review…" rows={5} />
@@ -342,7 +516,23 @@ export function ReviewPage() {
   if (review.error || !value) {
     return (
       <div className="mx-auto w-full max-w-[76rem] p-4 sm:p-6">
-        <ErrorNotice error={review.error || new Error("That review could not be found")} />
+        {/* A retry rather than a reload, because the workspace is a local process and a
+            failed read is far more often a moment than a fault. Only where there is a
+            request to make again: "that review could not be found" is an answer. */}
+        <ErrorNotice
+          error={review.error || new Error("That review could not be found")}
+          action={
+            review.error ? (
+              <Button variant="secondary" size="sm" onClick={() => void review.refetch()}>
+                Try again
+              </Button>
+            ) : (
+              <ButtonLink to="/reviews" variant="secondary" size="sm">
+                Your reviews
+              </ButtonLink>
+            )
+          }
+        />
       </div>
     );
   }
@@ -372,7 +562,13 @@ export function ReviewPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ReviewHead review={value} cancelling={cancel.isPending} onCancel={() => cancel.mutate()} />
+      <ReviewHead
+        review={value}
+        findings={findings}
+        cancelling={cancel.isPending}
+        onCancel={() => cancel.mutate()}
+        failure={cancel.error}
+      />
 
       <div className="border-b border-rule bg-surface">
         <div className="mx-auto w-full max-w-[76rem] px-2 sm:px-4">
@@ -394,12 +590,21 @@ export function ReviewPage() {
       <TabPanel id="docket" active={surface}>
         <Docket
           review={value}
+          findings={findings}
           decisions={decisions}
-          lineage={lineage}
+          // Empty rather than short while the reviews are still arriving. A trajectory drawn
+          // from half a lineage is a claim that the candidate was not raised in the revisions
+          // that are missing, which is a different thing from not knowing yet.
+          lineage={trajectory}
+          answers={answers}
           filter={filter}
           onFilterChange={setFilter}
           openId={open}
           onOpen={show}
+          settledHere={settledHere}
+          onSettledHere={setSettledHere}
+          selected={selected}
+          onSelectedChange={setSelected}
           onOpenContext={() => setContextOpen(true)}
           onReadReport={() => setSurface("report")}
         />
@@ -407,11 +612,23 @@ export function ReviewPage() {
             is a fact about the page, not a thing you consult while deciding. */}
         <div className="mx-auto w-full max-w-[76rem] px-4 pb-8 sm:px-6">
           <div className="rounded-lg border border-rule bg-surface px-4 py-3 shadow-rim">
-            <RevisionRail
-              reviews={lineageOf(reviews.data ?? [value], value.repository.branch_id, value.case.id)}
-              currentReviewId={value.id}
-              pending={pendingRun}
-            />
+            {/* A failed request used to fall back to `[value]` — this review, alone — so a
+                review 4 whose lineage could not be read printed "One immutable revision" and
+                every trajectory on the page quietly vanished. A lineage that cannot be read
+                is not a lineage of one. */}
+            {summaries.error ? (
+              <ErrorNotice
+                error={summaries.error}
+                title="The lineage could not be read"
+                action={
+                  <Button variant="secondary" size="sm" onClick={() => void summaries.refetch()}>
+                    Try again
+                  </Button>
+                }
+              />
+            ) : (
+              <RevisionRail reviews={lineage} currentReviewId={value.id} pending={pendingRun} />
+            )}
           </div>
         </div>
       </TabPanel>
@@ -426,7 +643,12 @@ export function ReviewPage() {
         <DeltaSurface review={value} onOpen={openCandidate} />
       </TabPanel>
       <TabPanel id="report" active={surface} className="mx-auto w-full max-w-[76rem] p-4 sm:p-6">
-        <ReportSurface review={value} />
+        {/* The fallback is what the reader sees while the Markdown chunk arrives, and it says
+            the same thing the report's own loading state says — a tab that flashed a blank
+            panel between two spinners would read as a surface that failed and recovered. */}
+        <Suspense fallback={<LoadingPanel label="Rendering the report…" />}>
+          <ReportSurface review={value} />
+        </Suspense>
       </TabPanel>
       <TabPanel id="ask" active={surface} className="mx-auto w-full max-w-[76rem] p-4 sm:p-6">
         <AskSurface review={value} onOpen={openCandidate} />
@@ -446,6 +668,8 @@ export function ReviewPage() {
           finding={
             value.findings.find((finding) => finding.candidate.id === open) ?? null
           }
+          tab={contextTab}
+          onTabChange={setContextTab}
         />
       </Drawer>
     </div>

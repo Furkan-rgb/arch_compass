@@ -1,13 +1,42 @@
 import { Link } from "react-router-dom";
 
-import type { Review, ReviewRun } from "../../api";
+import type { ReviewRun } from "../../api";
 import { cn } from "../../lib/cn";
 import { relativeTime, statusOf } from "../../lib/format";
 import { stageLabel } from "../start/run-progress";
 import { TONE_TEXT } from "../../ui/meta";
+import { Label } from "../../ui/panel";
 import { Spinner } from "../../ui/states";
 import { Timeline, TimelineItem } from "../../ui/timeline";
 import { Mark } from "../../ui/mark";
+
+/**
+ * A revision, in either of the two shapes the wire has for one.
+ *
+ * A stored review is most of a repository's atlas, and this rail draws a number, a status, a
+ * case revision and a date off each entry — so the pages that only need the line of text ask
+ * for `api.reviewSummaries()` and the page that renders a review already has the whole thing.
+ * Both are a revision of a lineage, and neither should have to be converted into the other to
+ * be listed. The only field they spell differently is the case, which `caseOf` reads.
+ */
+export type Revision = {
+  id: string;
+  sequence: number;
+  round: number;
+  status: string;
+  started_at: string;
+  repository: { branch_id: string };
+} & (
+  | { case: { id: string; revision: number } }
+  | { case_id: string; case_revision: number }
+);
+
+/** The case a revision belongs to and which revision of it this is, from either shape. */
+function caseOf(review: Revision): { id: string; revision: number } {
+  return "case" in review
+    ? { id: review.case.id, revision: review.case.revision }
+    : { id: review.case_id, revision: review.case_revision };
+}
 
 /**
  * The lineage a review belongs to: same repository branch, same case, in sequence.
@@ -34,7 +63,7 @@ export function RevisionRail({
   className,
 }: {
   /** The lineage, already narrowed to one branch and case, in sequence order. */
-  reviews: Review[];
+  reviews: Revision[];
   currentReviewId?: string;
   /** The revision being made right now, if there is one. */
   pending?: ReviewRun | null;
@@ -67,7 +96,7 @@ export function RevisionRail({
                 active={active}
                 sequence={review.sequence}
                 detail={[
-                  `Case rev ${review.case.revision}`,
+                  `Case rev ${caseOf(review).revision}`,
                   // Only past the first, and only because one revision can be recorded
                   // several times: a review that asked, was answered and asked again is
                   // still this entry, and the round is what says which of its snapshots
@@ -78,15 +107,15 @@ export function RevisionRail({
                   .filter(Boolean)
                   .join(" · ")}
                 badge={
-                  <span
+                  <Label
                     className={cn(
-                      "text-[10px] font-bold uppercase tracking-[0.08em]",
+                      "shrink-0",
                       status.tone === "neutral" ? "text-ink-3" : TONE_TEXT[status.tone],
                     )}
                   >
                     <Mark shape={status.glyph} className="mr-1" />
                     {status.label}
-                  </span>
+                  </Label>
                 }
               />
             </TimelineItem>
@@ -101,9 +130,9 @@ export function RevisionRail({
               sequence={pending.sequence ?? entries.length + 1}
               detail={pending.stage ? stageLabel(pending.stage) : "starting"}
               badge={
-                <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.08em] text-ink-3">
-                  <Spinner /> In progress
-                </span>
+                <Label className="flex shrink-0 items-center gap-1">
+                  <Spinner label="" /> In progress
+                </Label>
               }
             />
           </TimelineItem>
@@ -153,13 +182,13 @@ function RailEntry({
  * agree on what "the same line of work" means, and a run knows its branch and case before
  * it knows anything else.
  */
-export function lineageOf(
-  reviews: Review[],
+export function lineageOf<T extends Revision>(
+  reviews: T[],
   branchId: string | null | undefined,
   caseId: string | null | undefined,
-): Review[] {
+): T[] {
   if (!branchId || !caseId) return [];
   return reviews.filter(
-    (review) => review.repository.branch_id === branchId && review.case.id === caseId,
+    (review) => review.repository.branch_id === branchId && caseOf(review).id === caseId,
   );
 }

@@ -158,7 +158,7 @@ def test_a_scoped_atlas_is_not_reported_stale_the_moment_it_is_read(
         assert indexed.status_code == 201, indexed.text
 
         summary = client.get(
-            "/api/repositories/summary", params={"root_path": str(repository)}
+            "/api/repositories/hotspots", params={"root_path": str(repository)}
         )
 
         assert summary.status_code == 200, summary.text

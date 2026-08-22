@@ -96,9 +96,10 @@ describe("a docket row's width", () => {
     await screen.findByRole("list", { name: "Candidates" });
 
     // Truncating for the eye is not the same as hiding: hovering still names the thing.
-    const row = screen.getByRole("button", {
-      name: new RegExp(splitQualified(LONG_IDENTIFIER).leaf),
-    });
+    // Asked for by `data-candidate` rather than by name, because the name is on more than one
+    // control now — the open row's involved-code list carries a copy button per participant,
+    // and what is being asserted is the *row's* title.
+    const row = document.querySelector<HTMLElement>("[data-candidate]")!;
     expect(row).toHaveAttribute("title", LONG_IDENTIFIER);
   });
 

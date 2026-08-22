@@ -22,7 +22,7 @@ export const REQUIRED_SECTIONS = [
   "Related policies",
 ] as const;
 
-export type SectionState = { name: string; present: boolean };
+export type SectionState = { name: string; prompt: string; present: boolean };
 
 /** The same split the workspace parser performs: `^## Heading` up to the next one. */
 export function sectionsIn(body: string): Map<string, string> {
@@ -36,22 +36,15 @@ export function sectionsIn(body: string): Map<string, string> {
   return found;
 }
 
-/** Which required sections a draft already carries with something written under them. */
-export function sectionStates(body: string): SectionState[] {
-  const found = sectionsIn(body);
-  return REQUIRED_SECTIONS.map((name) => ({
-    name,
-    present: Boolean(found.get(name.toLowerCase())),
-  }));
-}
-
-export function missingSections(body: string): string[] {
-  return sectionStates(body)
-    .filter((section) => !section.present)
-    .map((section) => section.name);
-}
-
-const PROMPTS: Record<string, string> = {
+/**
+ * What each section is for, said where the author is writing rather than inside the draft.
+ *
+ * These were the body of the scaffold, which made them a document the parser accepted and
+ * the judge would have read. They are a hint now: the checklist prints one under every
+ * section still outstanding, so the guidance arrives at the moment it is needed and never
+ * as the policy.
+ */
+export const SECTION_PROMPTS: Record<string, string> = {
   Intent: "What this policy protects, in one or two sentences.",
   Guidance: "What to do. Be specific enough to act on.",
   Signals: "What in a repository suggests this policy applies.",
@@ -63,7 +56,48 @@ const PROMPTS: Record<string, string> = {
   "Related policies": "Policies that reinforce or trade off against this one.",
 };
 
-/** A starting document with every required section present and prompted. */
+/** Whitespace and case removed, so a prompt that was reflowed is still the same prompt. */
+function normalise(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Which required sections somebody has actually written, rather than which have a heading.
+ *
+ * "Has text under it" was the whole test, and the scaffold below used to write its own
+ * prompt under every heading — so an untouched template reported nine of nine written and
+ * the form offered to save it. What that saved was a policy whose body read *"What this
+ * policy protects, in one or two sentences."* nine times, into the corpus retrieval draws
+ * on and the judge reads as authored guidance.
+ *
+ * The scaffold no longer carries the prompts, and this compares against them anyway. The
+ * prompt is on screen beside the section it belongs to, which is one paste away from being
+ * in the box — and a section holding the question it was asked is not an answer to it.
+ */
+export function sectionStates(body: string): SectionState[] {
+  const found = sectionsIn(body);
+  return REQUIRED_SECTIONS.map((name) => {
+    const prompt = SECTION_PROMPTS[name];
+    const written = found.get(name.toLowerCase()) ?? "";
+    return { name, prompt, present: Boolean(written) && normalise(written) !== normalise(prompt) };
+  });
+}
+
+export function missingSections(body: string): string[] {
+  return sectionStates(body)
+    .filter((section) => !section.present)
+    .map((section) => section.name);
+}
+
+/**
+ * The nine headings, in order, with nothing written under them.
+ *
+ * A scaffold is a shape to fill in, not a draft. This one used to arrive with its own
+ * prompts as the prose, which the workspace parser accepts and this page counted as written
+ * — so the shortest path from opening the form to a saved policy was a title, a description
+ * and a body of nine instructions to the author. The prompts live in `SECTION_PROMPTS` and
+ * are shown beside the checklist instead.
+ */
 export function policyTemplate(): string {
-  return REQUIRED_SECTIONS.map((name) => `## ${name}\n\n${PROMPTS[name]}`).join("\n\n") + "\n";
+  return REQUIRED_SECTIONS.map((name) => `## ${name}\n`).join("\n") + "\n";
 }

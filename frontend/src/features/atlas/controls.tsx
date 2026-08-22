@@ -14,8 +14,9 @@ import { humanise } from "../../lib/format";
 import { Button } from "../../ui/button";
 import { SearchInput } from "../../ui/field";
 import { Mono } from "../../ui/meta";
+import { Tooltip } from "../../ui/tooltip";
 import { MAX_ZOOM, MIN_ZOOM, ZOOM_STEP, edgeKindClass } from "./geometry";
-import { LENSES, type AtlasExplorerProps, type AtlasLens } from "./graph";
+import { LENSES, type AtlasExploration, type AtlasExplorerProps, type AtlasLens } from "./graph";
 import { PULSES, type AtlasPulse } from "./pulse";
 import type { AtlasViewport } from "./viewport";
 
@@ -63,10 +64,11 @@ export function LensPicker({
 
 /** The row that narrows what is drawn: search, the filters, and the atlas-wide asks. */
 export function LensControls({
-  lens,
   searchValue,
   onSearchValue,
   onSubmitSearch,
+  matches,
+  onNextMatch,
   hideTests,
   onHideTests,
   publicOnly,
@@ -79,10 +81,12 @@ export function LensControls({
   onToggleEdgeKind,
   loading,
 }: {
-  lens: AtlasLens;
   searchValue: string;
   onSearchValue: (value: string) => void;
   onSubmitSearch: (event: FormEvent) => void;
+  /** Every card the term matched, and which of them the reader is standing on. */
+  matches: { count: number; index: number };
+  onNextMatch: (backwards?: boolean) => void;
   hideTests: boolean;
   onHideTests: () => void;
   publicOnly: boolean;
@@ -148,6 +152,22 @@ export function LensControls({
             <Button type="submit" variant="secondary" size="sm" disabled={!searchValue.trim()}>
               Find
             </Button>
+            {/* Where the reader is in the matches, and the way to the next one. The search
+                used to select one arbitrary card out of however many matched and say nothing
+                at all about the rest, which is a search that has answered a different
+                question from the one asked. */}
+            {matches.count > 0 ? (
+              <>
+                <Mono className="shrink-0 text-[11px] tabular-nums text-ink-2">
+                  {matches.index + 1} of {matches.count} match
+                </Mono>
+                <Tooltip content="n for the next match, Shift-n for the one before.">
+                  <Button variant="quiet" size="sm" onClick={() => onNextMatch()}>
+                    Next
+                  </Button>
+                </Tooltip>
+              </>
+            ) : null}
           </form>
 
           {/* Two independent settings, so no track: either, both or neither can be on. */}
@@ -188,7 +208,12 @@ export function LensControls({
             </Select>
           </div>
 
-          {lens === "judged" && onExploreAtlas && (
+          {/* On every lens. These two ask the atlas a question about the whole repository —
+              where the cycles are, where the signals are — and neither answer is about
+              verdicts, so hiding them outside the judged lens took the cycle control away at
+              exactly the moment a reader tracing a dependency path wanted it: tracing forces
+              the lens to Dependencies. */}
+          {onExploreAtlas && (
             <div className="ml-auto inline-flex items-center gap-0.5">
               <Button
                 variant="ghost"
@@ -244,6 +269,51 @@ export function LensControls({
   );
 }
 
+/**
+ * What the reader has added to this map, and the way back to what it opened as.
+ *
+ * Drawn only once there is something to say, because a strip that is empty on every first
+ * visit is a row of chrome above the surface it describes. The requests were already stored
+ * and already named — every exploration is "Dependants of `Gateway`" in the note beside the
+ * button that made it — so nothing here is new information. What was missing was that
+ * nothing ever came *off* the map: three presses of "Two hops out" turned ninety cards into
+ * three hundred for the rest of the session and the only way back was a reload.
+ */
+export function ExplorationStrip({
+  explorations,
+  onReset,
+}: {
+  explorations: AtlasExploration[];
+  onReset: () => void;
+}) {
+  if (!explorations.length) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-rule px-3 py-2">
+      <Mono className="shrink-0 text-[10px] uppercase tracking-[0.13em] text-ink-3">
+        Added to the map
+      </Mono>
+      <ul className="flex min-w-0 flex-wrap items-center gap-1.5">
+        {explorations.map((exploration) => (
+          <li key={exploration.id}>
+            {/* The word rather than a cross, because a cross that is not from the mark set
+                is a typed glyph pretending to be an icon — and "Drop" is what pressing it
+                does. */}
+            <Button variant="quiet" size="sm" onClick={exploration.onDrop}>
+              {exploration.label}
+              <span className="font-semibold uppercase tracking-[0.13em] text-[10px] text-ink-3">
+                Drop
+              </span>
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <Button variant="ghost" size="sm" className="ml-auto" onClick={onReset}>
+        Reset the map
+      </Button>
+    </div>
+  );
+}
+
 /** The strip under the controls: where the camera is pointed. */
 export function ViewportToolbar({
   instructionsId,
@@ -258,7 +328,25 @@ export function ViewportToolbar({
         className="hidden text-[10px] uppercase tracking-[0.13em] text-ink-3 lg:inline"
         id={instructionsId}
       >
-        Drag to pan · pinch or ⌘-scroll to zoom
+        {/* Which way an arrow points, said once. Every edge is stored from the dependent to
+            the dependency and every arrowhead follows it, and a reader with no sentence to go
+            on has to infer a convention from a triangle. */}
+        Drag to pan · pinch or ⌘-scroll to zoom · an arrow points from a dependent to what it
+        depends on
+      </Mono>
+      {/* A fit that could not fit did it silently, and left the reader looking at a corner of
+          a map they had asked to see whole.
+
+          Always in the document, parked out of the flow until there is something to say: a
+          live region inserted at the moment its content appears is a live region most screen
+          readers never announce. */}
+      <Mono
+        aria-live="polite"
+        className={cn("min-w-0 text-[11px] leading-4 text-ink-2", !view.fitFloored && "sr-only")}
+      >
+        {view.fitFloored
+          ? "Fit stopped at the smallest readable card, so this is part of the map — the minimap says which part."
+          : ""}
       </Mono>
       <div
         className="ml-auto inline-flex items-center gap-2"

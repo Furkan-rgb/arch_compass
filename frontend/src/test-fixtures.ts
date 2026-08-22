@@ -6,6 +6,7 @@ import type {
   PolicyDocument,
   Review,
   ReviewRun,
+  ReviewSummary,
   Workspace,
 } from "./api";
 
@@ -147,7 +148,6 @@ export function reviewFixture(overrides: Partial<Review> = {}): Review {
       },
     ],
     investigation_manifest: [],
-    markdown_report: null,
     synopsis: null,
     synopsis_identity: "",
     model_identity: "fake:deterministic",
@@ -155,6 +155,38 @@ export function reviewFixture(overrides: Partial<Review> = {}): Review {
     started_at: "2026-01-01T00:00:00Z",
     finished_at: null,
     failure: null,
+    ...overrides,
+  };
+}
+
+/**
+ * The same review as a listing reads it: counts in place of the collections they count.
+ *
+ * Kept beside `reviewFixture` rather than derived from it, because the wire shapes are
+ * different records and a fixture that computed one from the other would hide a listing
+ * that had drifted from the review it lists.
+ */
+export function reviewSummaryFixture(overrides: Partial<ReviewSummary> = {}): ReviewSummary {
+  return {
+    id: "review-1",
+    sequence: 1,
+    round: 1,
+    status: "awaiting_answers",
+    previous_review_id: null,
+    repository,
+    case_id: "case-1",
+    case_revision: 1,
+    started_at: "2026-01-01T00:00:00Z",
+    finished_at: null,
+    finding_count: 3,
+    material_count: 1,
+    held_count: 1,
+    cleared_count: 1,
+    question_count: 1,
+    unchanged_count: 1,
+    changed_count: 0,
+    new_count: 2,
+    addressed_count: 0,
     ...overrides,
   };
 }
@@ -167,6 +199,7 @@ export function runFixture(overrides: Partial<ReviewRun> = {}): ReviewRun {
     review_id: null,
     failure: "",
     sequence: 2,
+    started_at: "2026-01-01T00:00:00Z",
     stage: "judge_candidate",
     stages: ["load_context", "analyze_repository", "judge_candidate"],
     repository_name: "payments-platform",

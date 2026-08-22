@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
+import { LABEL_SIZE, MIN_LABEL_SIZE, READABLE_ZOOM } from "./geometry";
 import type { AtlasEdgeView, AtlasNodeView } from "./graph";
+import { PULSE_STORAGE_KEY, readPulse, writePulse } from "./pulse";
 import { NODE_HEIGHT, NODE_WIDTH, layoutAtlas } from "./layout";
 import { drawnBounds, surfaceFor } from "./surface";
 import { graphSignatureOf, visibleGraphFor } from "./visible-graph";
@@ -254,6 +256,21 @@ describe("the lenses", () => {
     expect(visible.nodes.some((node) => node.id === "store")).toBe(true);
   });
 
+  /**
+   * `edgePath` cannot draw a curve from a card to itself, so the canvas never drew one — and
+   * the footer counted it anyway, telling the reader about a line that is nowhere on the map.
+   */
+  it("does not count a relationship it cannot draw", () => {
+    const { nodes, edges } = graph();
+    const visible = visibleGraphFor({
+      ...NO_FILTERS,
+      nodes,
+      edges: [...edges, { id: "self", sourceId: "gateway", targetId: "gateway", kind: "imports" }],
+      lens: "dependencies",
+    });
+    expect(visible.edges.some((edge) => edge.id === "self")).toBe(false);
+  });
+
   it("hides a relationship kind the reader switched off", () => {
     const { nodes, edges } = graph();
     const visible = visibleGraphFor({
@@ -360,5 +377,46 @@ describe("the drawn surface", () => {
       expect(surface.offsetY).toBeGreaterThanOrEqual(0);
       expect(surface.offsetY + layout.height).toBeLessThanOrEqual(surface.height + 0.001);
     }
+  });
+});
+
+/**
+ * The floor on the automatic fit, which is the zoom a review's map opens at.
+ *
+ * `READABLE_ZOOM` was `0.45` under a comment naming seven pixels as the point a label stops
+ * being one — and 13 × 0.45 is 5.85. A number that has drifted from the reason for it is the
+ * kind of thing only arithmetic notices, so the arithmetic is here.
+ */
+describe("the readable floor", () => {
+  it("never fits to a zoom the card's own label cannot survive", () => {
+    expect(LABEL_SIZE * READABLE_ZOOM).toBeGreaterThanOrEqual(MIN_LABEL_SIZE);
+  });
+
+  it("is derived from the label rather than asserted beside it", () => {
+    // The value it used to hold, kept as the thing this test exists to refuse.
+    expect(LABEL_SIZE * 0.45).toBeLessThan(MIN_LABEL_SIZE);
+    expect(READABLE_ZOOM).toBeCloseTo(MIN_LABEL_SIZE / LABEL_SIZE, 10);
+  });
+});
+
+/**
+ * The one loop that used to run inside the workbench.
+ *
+ * `pulse` defaulted to `comet`, so selecting a card started an infinite animation on every
+ * edge touching it and left it running until the reader found a menu. A map being read
+ * closely should be allowed to hold still, and a reader who wants the movement says so once.
+ */
+describe("the highlight preference", () => {
+  afterEach(() => globalThis.localStorage.removeItem(PULSE_STORAGE_KEY));
+
+  it("is stillness until somebody says otherwise, and is remembered when they do", () => {
+    expect(readPulse()).toBe("none");
+    writePulse("travel");
+    expect(readPulse()).toBe("travel");
+  });
+
+  it("takes nothing from storage that is not one of the five", () => {
+    globalThis.localStorage.setItem(PULSE_STORAGE_KEY, "sparkle");
+    expect(readPulse()).toBe("none");
   });
 });

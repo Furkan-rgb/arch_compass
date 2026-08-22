@@ -1,5 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 
 import { api, type Question, type Review } from "../../api";
@@ -12,6 +19,33 @@ import { QuestionItem } from "./question";
 
 /** Where a question stands, which is the only thing its marker has to draw. */
 type Standing = "answered" | "skipped" | "open";
+
+/**
+ * What has been typed into a clarification round, and who holds it.
+ *
+ * A round is a form, and a form's contents cannot live in a component that three ordinary
+ * gestures unmount. `useRoundAnswers` is called by the page and handed down, so collapsing
+ * the card, walking the docket or reading the report all leave the answers where they were.
+ */
+export type RoundAnswers = {
+  values: Record<string, string>;
+  setValues: Dispatch<SetStateAction<Record<string, string>>>;
+  skipped: Set<string>;
+  setSkipped: Dispatch<SetStateAction<Set<string>>>;
+  /**
+   * Which questions the reviewer has taken off the menu. Tracked separately from the value
+   * because "I will write my own" is chosen before there is anything written.
+   */
+  own: Set<string>;
+  setOwn: Dispatch<SetStateAction<Set<string>>>;
+};
+
+export function useRoundAnswers(): RoundAnswers {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  const [own, setOwn] = useState<Set<string>>(new Set());
+  return { values, setValues, skipped, setSkipped, own, setOwn };
+}
 
 /**
  * The mark in the gutter beside one question.
@@ -172,14 +206,27 @@ function RoundRow({
  * opening row moves.
  *
  * Every answer lives here rather than in the question, because a closed row does not render
- * one.
+ * one. And it lives *above* here rather than in this component, because this component is
+ * unmounted by three ordinary gestures — see `answers`.
  */
 export function ClarificationRound({
   review,
+  answers,
   className,
   bare = false,
 }: {
   review: Review;
+  /**
+   * What has been typed into the round, held by the page.
+   *
+   * These three were `useState` here, and the round is rendered as `{open ? <round /> : null}`
+   * inside a card on a docket. So collapsing the card, pressing `j`, and switching to Atlas,
+   * Delta, Report or Ask each unmounted it and wiped every answer in the round, with no
+   * warning and nothing to undo it with. The experience doc's rule is *never navigate away
+   * from unsaved input*, and it had been enforced against the links inside the round and not
+   * against the three controls around it.
+   */
+  answers: RoundAnswers;
   className?: string;
   /**
    * Drop the card and the title block, because something above already said both.
@@ -193,14 +240,13 @@ export function ClarificationRound({
 }) {
   const navigate = useNavigate();
   const client = useQueryClient();
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [skipped, setSkipped] = useState<Set<string>>(new Set());
-  // Which questions the reviewer has taken off the menu. Tracked separately from the value
-  // because "I will write my own" is chosen before there is anything written.
-  const [own, setOwn] = useState<Set<string>>(new Set());
+  const { values, setValues, skipped, setSkipped, own, setOwn } = answers;
   // Null until the reviewer moves it themselves. The round opens on the first row that wants
   // a person, and which row that is changes as the round is worked — so it is derived rather
   // than seeded, and a stored id cannot go stale against a round that came back shorter.
+  //
+  // This one stays here on purpose: it is where the round is, not what was typed into it, and
+  // it is derived from the answers the moment they come back.
   const [opened, setOpened] = useState<string | null>(null);
 
   const isResolved = (questionId: string) =>
@@ -222,9 +268,23 @@ export function ClarificationRound({
     review.questions.find((question) => !isResolved(question.id))?.id ??
     null;
 
+  /**
+   * Answering starts a run, and the page follows it there.
+   *
+   * This used to be one POST that held the whole rejudgement open — every extant candidate
+   * judged again, minutes of model work — and returned the finished review. That made the
+   * browser tab the thing keeping the work alive: a reload, a closed laptop or a sixty-second
+   * proxy timeout left a person unable to tell whether their answers had been recorded at
+   * all. `api.ts` records that this exact failure was already fixed for the initial review,
+   * and the clarification path still had it.
+   *
+   * So it answers with a run, and `/runs/{id}` is somewhere to come back to. The run page
+   * hands over to the review the moment one is composed, which is the same hand-over the
+   * first review already uses.
+   */
   const resume = useMutation({
     mutationFn: (stop: boolean) =>
-      api.answer(
+      api.answerRun(
         review.id,
         review.questions.map((question) => {
           const value = values[question.id]?.trim();
@@ -237,9 +297,15 @@ export function ClarificationRound({
         }),
         stop,
       ),
-    onSuccess: async (next) => {
-      await client.invalidateQueries({ queryKey: ["reviews"] });
-      navigate(`/reviews/${next.id}`);
+    onSuccess: async (run) => {
+      // The run is listed under the branch and case this review belongs to, so both listings
+      // that draw a lineage have a new entry to draw.
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["review-runs"] }),
+        client.invalidateQueries({ queryKey: ["review-summaries"] }),
+        client.invalidateQueries({ queryKey: ["reviews"] }),
+      ]);
+      navigate(`/runs/${run.run_id}`);
     },
   });
 
@@ -346,9 +412,7 @@ export function ClarificationRound({
               <div className="font-display text-lg font-semibold tabular-nums text-ink">
                 {resolved.length}/{total}
               </div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-ink-3">
-                resolved
-              </div>
+              <Label>resolved</Label>
             </div>
           </div>
         </header>
@@ -414,7 +478,7 @@ export function ClarificationRound({
             >
               {resume.isPending ? (
                 <>
-                  <Spinner /> Saving context…
+                  <Spinner label="" /> Saving context…
                 </>
               ) : (
                 "Save and rejudge"
@@ -429,7 +493,20 @@ export function ClarificationRound({
         </LiveRegion>
         {resume.error ? (
           <div className="mt-3">
-            <ErrorNotice error={resume.error} />
+            <ErrorNotice
+              error={resume.error}
+              title="These answers were not recorded"
+              action={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={resume.isPending}
+                  onClick={() => resume.mutate(resume.variables ?? false)}
+                >
+                  Try again
+                </Button>
+              }
+            />
           </div>
         ) : null}
       </footer>

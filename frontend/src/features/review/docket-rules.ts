@@ -47,18 +47,50 @@ export function useStandingDecisions(review: Review | undefined): {
   return { byCandidate, ready: !branchId || decisions.isSuccess || decisions.isError };
 }
 
+/**
+ * The delta as three sets of candidate ids, built once for a whole list.
+ *
+ * The delta arrives as three arrays, and asking "where does this candidate stand" of the
+ * arrays is three linear scans. That is fine for one candidate and quadratic for a sort:
+ * `orderedFindings`' comparator asks it twice per comparison, so a 40-candidate review on a
+ * 35KB delta did the scans some two thousand times, on every render of the page.
+ */
+export type DeltaIndex = {
+  new: Set<string>;
+  changed: Set<string>;
+  unchanged: Set<string>;
+};
+
+export function deltaIndexOf(review: Review): DeltaIndex {
+  return {
+    new: new Set(review.delta.new),
+    changed: new Set(review.delta.changed.map((item) => item.candidate_id)),
+    unchanged: new Set(review.delta.unchanged),
+  };
+}
+
+/**
+ * Handed a review, this builds the index for the one question being asked, which is what a
+ * caller asking about a single candidate wants. A caller walking a list builds one index with
+ * `deltaIndexOf` and hands it in — that is the difference between linear and quadratic here.
+ */
+function asIndex(source: Review | DeltaIndex): DeltaIndex {
+  return "delta" in source ? deltaIndexOf(source) : source;
+}
+
 /** Where a candidate stands against the previous review, said in one word. */
-export function deltaStateOf(review: Review, candidateId: string): string | null {
-  if (review.delta.new.includes(candidateId)) return "new";
-  if (review.delta.changed.some((item) => item.candidate_id === candidateId)) return "changed";
-  if (review.delta.unchanged.includes(candidateId)) return "unchanged";
+export function deltaStateOf(source: Review | DeltaIndex, candidateId: string): string | null {
+  const delta = asIndex(source);
+  if (delta.new.has(candidateId)) return "new";
+  if (delta.changed.has(candidateId)) return "changed";
+  if (delta.unchanged.has(candidateId)) return "unchanged";
   return null;
 }
 
 /** Whether this candidate is one of the ones that moved since the review before. */
-export function movedSincePrevious(review: Review, candidateId: string): boolean {
-  const state = deltaStateOf(review, candidateId);
-  return state === "new" || state === "changed";
+export function movedSincePrevious(source: Review | DeltaIndex, candidateId: string): boolean {
+  const delta = asIndex(source);
+  return delta.new.has(candidateId) || delta.changed.has(candidateId);
 }
 
 /**
@@ -102,12 +134,18 @@ export function needsAttention(finding: Finding, decision?: Decision | null): bo
  * Movement leads and the verdict orders within it, which is only an honest ranking because
  * the list is grouped under headings that say so. A flat list that put a moved-and-cleared
  * candidate above an unmoved material one would be claiming a priority nothing supports.
+ *
+ * The index is built before the sort rather than inside the comparator. It is the same three
+ * questions either way; the difference is asking them once per candidate instead of once per
+ * comparison. Callers memoise the result — this runs on a list a person is reading, and the
+ * page around it re-renders on every keystroke and every four-second poll.
  */
 export function orderedFindings(review: Review): Finding[] {
+  const delta = deltaIndexOf(review);
   return [...review.findings].sort((left, right) => {
     const moved =
-      Number(movedSincePrevious(review, right.candidate.id)) -
-      Number(movedSincePrevious(review, left.candidate.id));
+      Number(movedSincePrevious(delta, right.candidate.id)) -
+      Number(movedSincePrevious(delta, left.candidate.id));
     if (moved !== 0) return moved;
     const rank = verdictRank(left.verdict) - verdictRank(right.verdict);
     if (rank !== 0) return rank;

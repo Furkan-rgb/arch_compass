@@ -1,22 +1,39 @@
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import { cn } from "../lib/cn";
 import { relativeTime, repositoryName } from "../lib/format";
+import { hasOpenModal, isTyping } from "../lib/keyboard";
+import { useOverlay } from "../lib/motion";
 import { SearchIcon } from "./icons";
+import { Label } from "./panel";
 
 export type PaletteSection = { to: string; label: string };
 
 type Entry = { id: string; to: string; label: string; hint?: string; group: string };
 
 /**
+ * `aria-activedescendant` points at an id, so the options need ids that are stable for as
+ * long as the pointer is on them. The index rather than the entry's own id: an entry id is a
+ * route or an absolute path, and neither is a legal fragment to hand a screen reader.
+ */
+const LIST_ID = "palette-results";
+const optionId = (index: number) => `${LIST_ID}-${index}`;
+
+/**
  * Open from anywhere with the one shortcut every tool has trained people to try.
  *
  * Bound at the document, refused while something is being typed into and while a modal is
- * already up — the same three guards the decision keys carry, for the same reason: a
- * shortcut that fires inside a waiver's reason box is a bug, not a shortcut.
+ * already up — the same guards the decision keys carry, from `lib/keyboard.ts`, for the same
+ * reason: a shortcut that fires inside a waiver's reason box is a bug, not a shortcut. The
+ * comment used to say all of that while the handler checked the key and the modifier alone,
+ * so `Ctrl+K` — kill-to-end-of-line on macOS — opened the palette over whatever you were
+ * writing, and `⌘K` with the context drawer open stacked a second modal on a live focus trap.
+ *
+ * It opens rather than toggles. Escape is how a palette closes, and a shortcut that also
+ * closes has to decide what to do when the reader has typed a query and pressed it again.
  */
 export function useCommandPalette() {
   const [isOpen, setOpen] = useState(false);
@@ -24,8 +41,9 @@ export function useCommandPalette() {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key.toLowerCase() !== "k" || !(event.metaKey || event.ctrlKey)) return;
+      if (isTyping(event.target) || hasOpenModal()) return;
       event.preventDefault();
-      setOpen((value) => !value);
+      setOpen(true);
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
@@ -61,8 +79,11 @@ export function CommandPalette({
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [at, setAt] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  // The trap focuses the first focusable thing inside the dialog, which is the search
+  // field — so the palette gets its own focus, the page behind it stops scrolling, and
+  // focus goes back to whatever opened it, from the same hook the drawer uses.
+  const dialogRef = useOverlay(open, onClose);
 
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: api.reviews, enabled: open });
   const repositories = useQuery({
@@ -90,7 +111,11 @@ export function CommandPalette({
       })),
       ...(repositories.data ?? []).map((repository) => ({
         id: `repository:${repository.root_path}`,
-        to: "/repositories",
+        // Every entry used to lead to a bare `/repositories`, so searching `billing-service`
+        // and pressing Enter landed on whichever repository the page happened to select —
+        // indistinguishable from the palette not working. The page reads `?root=` on mount
+        // and an explicit one beats its own search filter.
+        to: `/repositories?root=${encodeURIComponent(repository.root_path)}`,
         label: repositoryName(repository.root_path),
         hint: repository.root_path,
         group: "Repositories",
@@ -107,15 +132,16 @@ export function CommandPalette({
   // reopening starts from the top rather than wherever the last search left off.
   useEffect(() => setAt(0), [query, open]);
   useEffect(() => {
-    if (open) inputRef.current?.focus();
-    else setQuery("");
+    if (!open) setQuery("");
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
     listRef.current
       ?.querySelectorAll("[data-entry]")
-      [at]?.scrollIntoView({ block: "nearest" });
+      // The second `?.` the way the docket writes it: jsdom implements no `scrollIntoView`
+      // at all, and this is the one keyboard path in the palette every test walks.
+      [at]?.scrollIntoView?.({ block: "nearest" });
   }, [at, open]);
 
   if (!open) return null;
@@ -126,11 +152,10 @@ export function CommandPalette({
     navigate(entry.to);
   }
 
+  // Escape is not here: the overlay hook owns it, at the document and in the capture phase,
+  // so it closes the palette whether or not the keystroke started inside the dialog.
   function onKeyDown(event: React.KeyboardEvent) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      onClose();
-    } else if (event.key === "ArrowDown") {
+    if (event.key === "ArrowDown") {
       event.preventDefault();
       setAt((value) => Math.min(value + 1, entries.length - 1));
     } else if (event.key === "ArrowUp") {
@@ -154,6 +179,7 @@ export function CommandPalette({
       {/* One of the three things in this product that genuinely leaves the page, so it is one
           of the three allowed a lift. */}
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Search everything"
@@ -162,8 +188,17 @@ export function CommandPalette({
       >
         <div className="flex shrink-0 items-center gap-2.5 border-b border-rule px-3.5">
           <SearchIcon className="size-4 shrink-0 text-ink-3" />
+          {/* A real combobox over a real listbox. It used to be an input beside a column of
+              buttons carrying `aria-current`, which announces nothing while the arrow keys
+              move it — the highlight was visible and silent. Focus stays here and
+              `aria-activedescendant` says which option it is on, which is what lets one
+              keystroke both filter and walk. */}
           <input
-            ref={inputRef}
+            role="combobox"
+            aria-expanded={entries.length > 0}
+            aria-controls={LIST_ID}
+            aria-activedescendant={entries[at] ? optionId(at) : undefined}
+            aria-autocomplete="list"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             aria-label="Search reviews, repositories and sections"
@@ -176,25 +211,34 @@ export function CommandPalette({
         </div>
 
         {entries.length ? (
-          <ul ref={listRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-clip py-1.5">
+          <ul
+            ref={listRef}
+            id={LIST_ID}
+            role="listbox"
+            aria-label="Results"
+            className="min-h-0 flex-1 overflow-y-auto overflow-x-clip py-1.5"
+          >
             {entries.map((entry, index) => {
               const heading = entry.group !== group ? entry.group : null;
               group = entry.group;
               return (
-                <li key={entry.id}>
+                <Fragment key={entry.id}>
+                  {/* A heading inside a listbox is not an option, and saying so is what
+                      keeps the option count honest for anyone listening to it. */}
                   {heading ? (
-                    <div className="px-3.5 pb-1 pt-2.5 text-[10px] font-bold uppercase tracking-[0.13em] text-ink-3">
-                      {heading}
-                    </div>
+                    <li role="presentation">
+                      <Label className="px-3.5 pb-1 pt-2.5">{heading}</Label>
+                    </li>
                   ) : null}
-                  <button
-                    type="button"
+                  <li
+                    role="option"
+                    id={optionId(index)}
                     data-entry={entry.id}
-                    aria-current={index === at ? "true" : undefined}
+                    aria-selected={index === at}
                     onMouseEnter={() => setAt(index)}
                     onClick={() => go(entry)}
                     className={cn(
-                      "flex min-h-10 w-full items-baseline gap-2.5 px-3.5 py-1.5 text-left transition",
+                      "flex min-h-10 cursor-pointer items-baseline gap-2.5 px-3.5 py-1.5 text-left transition",
                       index === at ? "bg-sunken" : "hover:bg-sunken/60",
                     )}
                   >
@@ -206,8 +250,8 @@ export function CommandPalette({
                         {entry.hint}
                       </span>
                     ) : null}
-                  </button>
-                </li>
+                  </li>
+                </Fragment>
               );
             })}
           </ul>

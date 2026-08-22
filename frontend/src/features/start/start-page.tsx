@@ -1,18 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
-import { api, type Review } from "../../api";
+import { api, type RepositorySummary, type Review, type ReviewRun } from "../../api";
 import { cn } from "../../lib/cn";
+import { useRunsBecomeReviews } from "../../lib/runs";
 import { plural, repositoryName } from "../../lib/format";
 import { Button, ButtonLink } from "../../ui/button";
 import { CheckIcon } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
 import { Label, Panel, PanelBody, PanelFooter, PanelHeader } from "../../ui/panel";
-import { ErrorNotice, Spinner } from "../../ui/states";
+import { ErrorNotice, Skeleton, Spinner } from "../../ui/states";
 import { RepositoryPicker } from "./repository-picker";
-import { ScopePicker } from "./scope-picker";
+import { ScopePicker, filesInScope, useRepositoryTree } from "./scope-picker";
 
 /** Graph events, said the way a reader would describe the step. */
 const PIPELINE = [
@@ -24,10 +25,127 @@ const PIPELINE = [
   ["Review", "Recorded as an immutable revision with its own delta."],
 ] as const;
 
+/**
+ * Two spellings of one path, as far as this page can tell.
+ *
+ * The workspace canonicalises with `expanduser().resolve()` and nothing in a browser can
+ * reproduce that, so a trailing slash is the one difference worth collapsing here and every
+ * other difference is left standing as one. Where that leaves no confident match the page
+ * says so rather than guessing — see `caseMatch`.
+ */
+const samePath = (left: string | null | undefined, right: string) =>
+  Boolean(left) && left!.replace(/\/+$/, "") === right.replace(/\/+$/, "");
+
+/**
+ * What the run button is doing, in the two phases the click actually has.
+ *
+ * `startRepository` indexes the whole repository before it answers, and on a large codebase
+ * that is the longest single wait in the product — behind a button that read "Review in
+ * progress…", which was not yet true of anything. The review does not exist until the second
+ * call returns.
+ *
+ * The better fix is for the run to accept a root and index inside itself, so parsing becomes
+ * the first visible stage on the run page and this page hands over immediately. That needs
+ * the workspace to change; this is the honest label until it does.
+ */
+type Phase = "idle" | "indexing" | "starting";
+
+const PHASE_LABEL: Record<Exclude<Phase, "idle">, string> = {
+  indexing: "Indexing the repository…",
+  starting: "Starting the review…",
+};
+
+/**
+ * What this run will do about the architecture case — as much of it as this page can actually
+ * know, which is less than it used to claim.
+ *
+ * The old answer matched the newest review by exact string on the path, and did not look at
+ * the branch at all. So a trailing slash produced "opens a new architecture case" while the
+ * workspace went on to continue revision 4, and a feature branch was told `main`'s revision
+ * and `main`'s answer count. Both are the same mistake: a fact stated with more confidence
+ * than the data supports, under a link somebody clicks because of it.
+ */
+type CaseMatch =
+  | { kind: "asking" }
+  | { kind: "continues"; prior: Review }
+  | { kind: "new" }
+  | { kind: "unknown" };
+
+function caseMatch(
+  picked: RepositorySummary | undefined,
+  reviews: Review[] | undefined,
+  asking: boolean,
+): CaseMatch {
+  if (asking) return { kind: "asking" };
+  // A path this workspace has never indexed is a path with no branch attached to it here, so
+  // there is nothing to key a lineage off and nothing honest to say about which case it is.
+  if (!picked) return { kind: "unknown" };
+  const prior = [...(reviews ?? [])]
+    .filter(
+      (review) =>
+        samePath(review.repository.path, picked.root_path) &&
+        (review.repository.branch ?? null) === (picked.branch_name ?? null),
+    )
+    .sort((left, right) => right.sequence - left.sequence)[0];
+  return prior ? { kind: "continues", prior } : { kind: "new" };
+}
+
+/**
+ * What the last review of this repository cost, in the units a review is actually spent in.
+ *
+ * Step 2 measures Python files, and a review does not spend files — it spends candidates and
+ * minutes, and neither of those was named anywhere on this page. Both are recorded on the
+ * previous review of this branch, so this is read off the record rather than estimated, and
+ * it is omitted where there is no prior review to read.
+ */
+function lastReviewNote(match: CaseMatch): string | null {
+  if (match.kind !== "continues") return null;
+  const prior = match.prior;
+  if (!prior.finished_at) return null;
+  const minutes = Math.round(
+    (Date.parse(prior.finished_at) - Date.parse(prior.started_at)) / 60_000,
+  );
+  if (!Number.isFinite(minutes) || minutes < 0) return null;
+  const took = minutes < 1 ? "under a minute" : plural(minutes, "minute");
+  return `Review ${prior.sequence} of this branch judged ${plural(
+    prior.findings.length,
+    "candidate",
+  )} and took ${took}.`;
+}
+
 export function StartPage() {
   const navigate = useNavigate();
   const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
+  /**
+   * The whole review list, deliberately, rather than `api.reviewSummaries()`.
+   *
+   * The case sentence below prints how many answers the case it will continue already
+   * carries, and the summary projection does not carry them — it has `case_id` and
+   * `case_revision` and no answers at all. That sentence is the one thing on this page
+   * somebody takes a decision on, so it reads the record the count is on. An `answer_count`
+   * on the projection would move this to the cheaper call.
+   */
   const reviews = useQuery({ queryKey: ["reviews"], queryFn: api.reviews });
+  const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
+  /**
+   * What is already running, on the same query key the shell's run indicator uses so the two
+   * share one request rather than each polling for itself.
+   *
+   * Nothing else stopped a second run of the same repository. `phase` guards a double-click
+   * and nothing more, so going back to this page, opening a second tab, or arriving from the
+   * repositories page with `?root=` all left the button live for a repository already being
+   * reviewed — two runs judging the same branch and the same case, spending the model budget
+   * twice for two reviews of one commit.
+   */
+  const runs = useQuery({
+    queryKey: ["review-runs"],
+    queryFn: api.reviewRuns,
+    refetchInterval: (query) => (query.state.data?.length ? 4000 : false),
+  });
+  // A run leaving that list is a review arriving. Polling it and not acting on the change is
+  // what left a finished background run invisible until a reload.
+  useRunsBecomeReviews(runs.data);
+
   // `?root=` is how the repositories page hands a repository over: the choice was already made
   // there, and re-picking it here would be the same click twice.
   const [params] = useSearchParams();
@@ -36,21 +154,39 @@ export function StartPage() {
   // `src/vendor` exists in both and is not the same subtree.
   const [excluded, setExcluded] = useState<string[]>([]);
   const [clean, setClean] = useState(false);
-  const [running, setRunning] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [failure, setFailure] = useState<unknown>(null);
+  const reasonId = useId();
+
+  const chosen = root.trim();
+  const tree = useRepositoryTree(chosen);
+  const inScope = filesInScope(tree.data, excluded);
 
   const reasoning = workspace.data?.models.reasoning;
   const embedding = workspace.data?.models.embedding;
   const ready = Boolean(reasoning && embedding);
 
-  // What this repository already has recorded against it, which is a fact to state and not
-  // a question to ask. The charter is explicit that a case starts empty and fills in as
-  // reviews ask for what they need — so nothing here asks anyone to confirm one.
-  const prior: Review | undefined = root.trim()
-    ? [...(reviews.data ?? [])]
-        .filter((review) => review.repository.path === root.trim())
-        .sort((left, right) => right.sequence - left.sequence)[0]
+  // The indexed checkout this path names, which is what turns the case sentence below from a
+  // string comparison into a fact about a branch.
+  const picked = chosen
+    ? repositories.data?.find((repository) => samePath(repository.root_path, chosen))
     : undefined;
+  const match = caseMatch(
+    picked,
+    reviews.data,
+    Boolean(chosen) && (repositories.isPending || reviews.isPending),
+  );
+
+  const lastReview = lastReviewNote(match);
+
+  const running: ReviewRun | undefined = chosen
+    ? runs.data?.find((run) => run.status === "running" && samePath(run.repository_root, chosen))
+    : undefined;
+
+  // The tree's failure belongs here too. The button used to stay enabled and red beside a
+  // notice reading "That repository could not be read", offering to review something the
+  // workspace has already said it cannot open.
+  const blocked = !chosen || phase !== "idle" || !ready || tree.isError;
 
   /**
    * Hand the review to the workspace and go and watch it.
@@ -61,20 +197,49 @@ export function StartPage() {
    * that survives a reload.
    */
   async function start() {
-    setRunning(true);
+    setPhase("indexing");
     setFailure(null);
     try {
       // Sent on every run, including as `[]`. Absent would mean "keep whatever this
       // repository was last indexed under", and the reader has the folders on screen in
       // front of them — so what the screen shows is what the review reads.
-      const started = await api.startRepository(root.trim(), clean, excluded);
-      const run = await api.startReviewRun(started.case_id, root.trim());
+      const started = await api.startRepository(chosen, clean, excluded);
+      setPhase("starting");
+      const run = await api.startReviewRun(started.case_id, chosen);
       navigate(`/runs/${run.run_id}`);
     } catch (error) {
       setFailure(error);
-      setRunning(false);
+      setPhase("idle");
     }
   }
+
+  const reading = inScope === null ? null : plural(inScope, "Python file");
+  const reason = !chosen ? (
+    "Choose a repository to enable the run."
+  ) : phase === "indexing" ? (
+    reading ? `Reading ${reading}. Nothing is judged until this finishes.` : "Nothing is judged until this finishes."
+  ) : phase === "starting" ? (
+    "The repository is indexed. Handing the review to the workspace."
+  ) : tree.isError ? (
+    "That repository could not be read, so there is nothing to review."
+  ) : workspace.isPending ? (
+    "Reading which models this workspace is set to."
+  ) : !ready ? (
+    "Both models must be chosen before a review can run."
+  ) : running ? (
+    <>
+      A review of {repositoryName(chosen)} is already running.{" "}
+      <Link
+        to={`/runs/${running.run_id}`}
+        className="font-semibold text-ink underline underline-offset-2"
+      >
+        Watch it
+      </Link>
+      .
+    </>
+  ) : (
+    `Reviewing ${repositoryName(chosen)}${reading ? ` · ${reading}` : ""}`
+  );
 
   return (
     <div>
@@ -129,7 +294,12 @@ export function StartPage() {
               description="Left-out folders are not parsed, not detected in, and not judged. The counts are Python files, counted recursively."
             />
             <PanelBody>
-              <ScopePicker root={root} excluded={excluded} onChange={setExcluded} />
+              <ScopePicker root={chosen} excluded={excluded} onChange={setExcluded} />
+              {lastReview ? (
+                <p className="mt-3 border-t border-rule pt-3 text-xs leading-5 text-ink-3">
+                  {lastReview}
+                </p>
+              ) : null}
             </PanelBody>
           </Panel>
 
@@ -141,41 +311,63 @@ export function StartPage() {
           <Panel>
             <PanelHeader
               title="Run"
-              description="The run pauses for clarification only when the code genuinely cannot answer."
+              description="A review takes several minutes and keeps running in the workspace if you close this tab. It pauses for clarification only when the code genuinely cannot answer."
             />
             <PanelBody>
               <ModelReadiness
+                asking={workspace.isPending}
                 reasoning={reasoning?.model}
                 embedding={embedding?.model}
                 ready={ready}
               />
-              <CaseNote
-                root={root.trim()}
-                prior={prior}
-                clean={clean}
-                onCleanChange={setClean}
-              />
+              {chosen ? (
+                <CaseNote match={match} clean={clean} onCleanChange={setClean} />
+              ) : null}
             </PanelBody>
             <PanelFooter>
               <div className="flex flex-wrap items-center gap-3">
-                <Button size="lg" disabled={!root.trim() || running || !ready} onClick={start}>
-                  {running ? (
-                    <>
-                      <Spinner /> Review in progress…
-                    </>
+                {/* Demoted rather than removed where one is already running. Reviewing the
+                    same commit twice is occasionally what somebody means, and refusing it
+                    would be this page deciding that for them — but it must not be the
+                    unlabelled default click. */}
+                <Button
+                  size="lg"
+                  variant={running ? "secondary" : "primary"}
+                  inactive={blocked}
+                  aria-describedby={reasonId}
+                  onClick={start}
+                >
+                  {phase === "idle" ? (
+                    running ? (
+                      "Run another anyway"
+                    ) : (
+                      "Run review"
+                    )
                   ) : (
-                    "Run review"
+                    <>
+                      <Spinner label="" /> {PHASE_LABEL[phase]}
+                    </>
                   )}
                 </Button>
-                <span className="text-xs text-ink-3">
-                  {root
-                    ? `Reviewing ${repositoryName(root)}`
-                    : "Choose a repository to enable the run."}
+                {/* The reason the button cannot run is the button's description, not a
+                    sentence that happens to sit beside it. It had no `id` and nothing
+                    pointed at it, so the one thing that explains the page's primary action
+                    was reachable only by looking. */}
+                <span id={reasonId} className="text-xs leading-5 text-ink-3">
+                  {reason}
                 </span>
               </div>
               {failure ? (
                 <div className="mt-3">
-                  <ErrorNotice error={failure} title="The review stopped" />
+                  <ErrorNotice
+                    error={failure}
+                    title="The review stopped"
+                    action={
+                      <Button variant="secondary" size="sm" onClick={start}>
+                        Try again
+                      </Button>
+                    }
+                  />
                 </div>
               ) : null}
             </PanelFooter>
@@ -219,19 +411,29 @@ export function StartPage() {
  * before they have seen a finding.
  */
 function CaseNote({
-  root,
-  prior,
+  match,
   clean,
   onCleanChange,
 }: {
-  root: string;
-  prior: Review | undefined;
+  match: CaseMatch;
   clean: boolean;
   onCleanChange: (value: boolean) => void;
 }) {
-  if (!root) return null;
+  // Nothing at all while the workspace is still being asked. A sentence that names a case
+  // revision is a claim, and a claim made before the answer arrives is the defect this
+  // component was rewritten for.
+  if (match.kind === "asking") return null;
 
-  const recorded = prior ? plural(prior.case.answers.length, "answer") : null;
+  const prior = match.kind === "continues" ? match.prior : undefined;
+  const empty = (
+    <button
+      type="button"
+      onClick={() => onCleanChange(true)}
+      className="font-semibold text-ink underline underline-offset-2 hover:text-ink-2"
+    >
+      Start from an empty case instead
+    </button>
+  );
 
   return (
     <p className="mt-3 border-t border-rule pt-3 text-[13px] leading-6 text-ink-2">
@@ -253,30 +455,28 @@ function CaseNote({
           </button>
           .
         </>
-      ) : prior ? (
+      ) : match.kind === "continues" ? (
         <>
           Continues case revision{" "}
-          <span className="font-semibold text-ink">{prior.case.revision}</span>
-          {prior.repository.branch ? (
+          <span className="font-semibold text-ink">{match.prior.case.revision}</span>
+          {match.prior.repository.branch ? (
             <>
               {" "}
-              on <Mono className="text-ink">{prior.repository.branch}</Mono>
+              on <Mono className="text-ink">{match.prior.repository.branch}</Mono>
             </>
           ) : null}{" "}
-          — {recorded}.{" "}
-          <button
-            type="button"
-            onClick={() => onCleanChange(true)}
-            className="font-semibold text-ink underline underline-offset-2 hover:text-ink-2"
-          >
-            Start from an empty case instead
-          </button>
-          .
+          — {plural(match.prior.case.answers.length, "answer")}. {empty}.
         </>
-      ) : (
+      ) : match.kind === "new" ? (
         <>
           Opens a new architecture case for this repository. It starts empty and fills in as
           reviews ask for what they need — nothing is demanded up front.
+        </>
+      ) : (
+        <>
+          This path has not been indexed in this workspace, so which case it belongs to is not
+          known here yet. The review continues the newest case on the branch it finds, and
+          opens an empty one where there is none. {empty}.
         </>
       )}
     </p>
@@ -284,10 +484,12 @@ function CaseNote({
 }
 
 function ModelReadiness({
+  asking,
   reasoning,
   embedding,
   ready,
 }: {
+  asking: boolean;
   reasoning?: string;
   embedding?: string;
   ready: boolean;
@@ -302,13 +504,24 @@ function ModelReadiness({
           key={label}
           className={cn(
             "rounded-md border px-3 py-2.5",
-            model ? "border-rule bg-surface-2" : "border-rule-strong bg-sunken",
+            model || asking ? "border-rule bg-surface-2" : "border-rule-strong bg-sunken",
           )}
         >
           <div className="flex items-center gap-2">
             {/* Chosen or not chosen is a step in this flow, not a grade. The verdict hues
-                belong to the queue, where green means a candidate came back cleared. */}
-            {model ? (
+                belong to the queue, where green means a candidate came back cleared.
+
+                Pending is not a third position on that step either — it is the page not
+                knowing yet, which is the treatment the shell's model chips already give it.
+                Two cards reading "not chosen yet" in full ink while the request is still out
+                tell a correctly configured workspace that it is unconfigured, and point it
+                at Settings to fix nothing. */}
+            {asking ? (
+              <span
+                aria-hidden="true"
+                className="size-3.5 shrink-0 animate-breathe rounded-full border-2 border-rule-strong"
+              />
+            ) : model ? (
               <CheckIcon className="size-3.5 shrink-0 text-ink-3" aria-hidden="true" />
             ) : (
               <span
@@ -319,12 +532,16 @@ function ModelReadiness({
             <span className="text-xs font-semibold text-ink">{label}</span>
             <span className="text-[11px] text-ink-3">· {role}</span>
           </div>
-          <Mono className={cn("mt-1 block truncate text-[12px]", !model && "text-ink")}>
-            {model ?? "not chosen yet"}
-          </Mono>
+          {asking ? (
+            <Skeleton className="mt-1.5 h-3 w-32" />
+          ) : (
+            <Mono className={cn("mt-1 block truncate text-[12px]", !model && "text-ink")}>
+              {model ?? "not chosen yet"}
+            </Mono>
+          )}
         </div>
       ))}
-      {!ready ? (
+      {!ready && !asking ? (
         <p className="text-xs leading-5 text-ink-2 sm:col-span-2">
           Both are needed before a review can run.{" "}
           <Link to="/settings" className="font-semibold text-mark underline underline-offset-2">

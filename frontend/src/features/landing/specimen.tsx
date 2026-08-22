@@ -2,6 +2,7 @@ import { type CSSProperties, useCallback, useEffect, useState } from "react";
 
 import { cn } from "../../lib/cn";
 import { type Tone, strengthOf, verdictOf } from "../../lib/format";
+import { prefersReducedMotion } from "../../lib/motion";
 import { Mark } from "../../ui/mark";
 import { Mono } from "../../ui/meta";
 import { type Bearing, BEARINGS } from "./bearings";
@@ -39,6 +40,19 @@ const SHOWCASE_MS = 2000;
 const HELD_MS = 5000;
 
 /**
+ * The showcase makes one pass and then stops, which is the difference between a
+ * demonstration and a carousel.
+ *
+ * Three verdicts is the whole vocabulary. Six seconds teaches that there are three of them
+ * and that the picker moves between them, and after that the movement has nothing left to
+ * say — it is only taking a ninety-word specimen away from somebody in the middle of reading
+ * it, for ever, on the first screen of the page. So the pass ends where it began, on the
+ * first specimen, and the reader gets to finish that one. The picker is how anybody sees the
+ * other two again, which is what a picker is for; the pause control replays it.
+ */
+const SHOWCASE_STEPS = BEARINGS.length;
+
+/**
  * The picker, the cycle, and which node of the atlas is lit — one hook, because all three
  * are the same piece of state and the map and the callout both need it.
  */
@@ -50,21 +64,27 @@ export function useSpecimen() {
   // effect re-runs — and the hold restarts — even when `held` was already true.
   const [held, setHeld] = useState(false);
   const [chose, setChose] = useState(0);
+  // The reader's own stop, which is not the hover pause: leaving the figure must not undo a
+  // control somebody pressed.
+  const [stopped, setStopped] = useState(false);
+  const [steps, setSteps] = useState(0);
+
+  const finished = steps >= SHOWCASE_STEPS;
+  const showcasing = !stopped && !finished;
 
   useEffect(() => {
-    if (paused) return;
-    const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduced) return;
+    if (paused || !showcasing) return;
+    if (prefersReducedMotion()) return;
     if (held) {
       const hold = setTimeout(() => setHeld(false), HELD_MS);
       return () => clearTimeout(hold);
     }
-    const timer = setInterval(
-      () => setIndex((current) => (current + 1) % BEARINGS.length),
-      SHOWCASE_MS,
-    );
+    const timer = setInterval(() => {
+      setIndex((current) => (current + 1) % BEARINGS.length);
+      setSteps((count) => count + 1);
+    }, SHOWCASE_MS);
     return () => clearInterval(timer);
-  }, [paused, held, chose]);
+  }, [paused, held, chose, showcasing]);
 
   const select = useCallback((next: number) => {
     setIndex(next);
@@ -72,9 +92,22 @@ export function useSpecimen() {
     setChose((count) => count + 1);
   }, []);
 
+  /** Stop it where it is, or run the pass again from the top. */
+  const toggleShowcase = useCallback(() => {
+    if (showcasing) {
+      setStopped(true);
+      return;
+    }
+    setSteps(0);
+    setHeld(false);
+    setStopped(false);
+  }, [showcasing]);
+
   return {
     index,
     select,
+    showcasing,
+    toggleShowcase,
     bearing: BEARINGS[index],
     /**
      * Spread onto the specimen and onto the picker, and onto nothing larger.
@@ -234,11 +267,16 @@ export function SpecimenCallout({
 export function SpecimenPicker({
   index,
   onSelect,
+  showcasing,
+  onToggleShowcase,
   hold,
   className,
 }: {
   index: number;
   onSelect: (index: number) => void;
+  /** Whether the pass is still running, which is what the control reports and reverses. */
+  showcasing?: boolean;
+  onToggleShowcase?: () => void;
   hold?: HoldProps;
   className?: string;
 }) {
@@ -271,6 +309,28 @@ export function SpecimenPicker({
       <Mono className="ml-1.5 text-[10px] uppercase tracking-[0.13em] text-ink-3">
         Three verdicts, no score
       </Mono>
+      {/* Something that moves on its own has to have an off switch, and this one had none:
+          not a control, not a pause on hovering the headline, nothing. It sits in the picker
+          because the picker is already the thing that decides which specimen is on show, and
+          it carries the same 44px floor as its siblings for the same reason they do. */}
+      {onToggleShowcase ? (
+        <button
+          type="button"
+          // One name in both states, with `aria-pressed` carrying which one it is in — the
+          // shape every other toggle in this product takes. A name that swapped to "Play"
+          // would be a second control wearing the first one's box, and pressed would then
+          // have to mean the opposite of what it says.
+          aria-label="Pause the showcase"
+          aria-pressed={!showcasing}
+          onClick={onToggleShowcase}
+          className={cn(
+            "ml-auto inline-flex min-h-11 items-center rounded-sm px-2.5 font-mono text-[10px] uppercase tracking-[0.13em] transition",
+            showcasing ? "text-ink-3 hover:text-ink" : "bg-sunken text-ink",
+          )}
+        >
+          Pause
+        </button>
+      ) : null}
     </div>
   );
 }

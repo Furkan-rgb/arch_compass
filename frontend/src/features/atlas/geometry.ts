@@ -10,14 +10,30 @@ import { NODE_HEIGHT, NODE_WIDTH } from "./layout";
 export const MIN_ZOOM = 0.15;
 
 /**
+ * The size the label on a card is set at, and the smallest a reader should be asked to read it.
+ *
+ * The first is `.atlas-node__label`'s own `font-size`; the second is the floor the comment
+ * below has always named. They are here rather than in the stylesheet because the fit control
+ * is arithmetic on them, and a number the code cannot see is a number the code cannot honour.
+ */
+export const LABEL_SIZE = 13;
+export const MIN_LABEL_SIZE = 8;
+
+/**
  * The scale a card stops being readable below, and therefore the floor on the *automatic* fit.
  *
- * A card is 190 by 78 with a 13px label. Below about this the label is under seven pixels and
- * the map becomes a picture of where things are rather than of what they are — which is a
- * legitimate thing to want, and the zoom control goes there. It is not what a surface should
- * choose on the reader's behalf before they have looked at anything.
+ * A card is 190 by 78 with a 13px label. Below about this the map becomes a picture of where
+ * things are rather than of what they are — which is a legitimate thing to want, and the zoom
+ * control goes there. It is not what a surface should choose on the reader's behalf before
+ * they have looked at anything.
+ *
+ * Derived rather than asserted. This was `0.45` under a comment naming seven pixels as the
+ * floor, which is 5.85 — the number and the reason for it had drifted apart, and since a
+ * review's neighbourhood lays out larger than the canvas, that drifted number *was* the
+ * default view of the Atlas on a desktop. Dividing one constant by the other is what stops
+ * them drifting again: move either size and the floor follows.
  */
-export const READABLE_ZOOM = 0.45;
+export const READABLE_ZOOM = MIN_LABEL_SIZE / LABEL_SIZE;
 export const MAX_ZOOM = 1.8;
 export const ZOOM_STEP = 0.15;
 

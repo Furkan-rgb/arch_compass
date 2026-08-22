@@ -1,14 +1,16 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 
 import type { Finding, RetrievalProvenance, Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { humanise, plural, shortId, verdictOf } from "../../lib/format";
 import { InvestigationTranscript, investigationSummary } from "./investigation";
 import { Tag } from "../../ui/badge";
-import { Button } from "../../ui/button";
+import { Button, CopyButton } from "../../ui/button";
 import { EvidenceBlock } from "../../ui/code";
 import { ChevronDown } from "../../ui/icons";
 import { MetaList, MetaRow, Mono, PathRef } from "../../ui/meta";
+import { Label } from "../../ui/panel";
 import { Notice } from "../../ui/states";
 
 
@@ -53,15 +55,6 @@ function retrievalLabel(finding: Finding, retrieval?: RetrievalProvenance): stri
   return finding.retrieval_identity ? shortId(finding.retrieval_identity, 12) : "no retrieval";
 }
 
-/** `ports.py:14-17`, or `ports.py:14` when the span is one line. */
-function locationLabel(location: { path: string; start_line: number; end_line: number }): string {
-  const span =
-    location.end_line && location.end_line !== location.start_line
-      ? `${location.start_line}-${location.end_line}`
-      : `${location.start_line}`;
-  return `${location.path}:${span}`;
-}
-
 /**
  * What `Policies` says while it is closed.
  *
@@ -91,17 +84,42 @@ function Footnote({ children, className }: { children: ReactNode; className?: st
   return <p className={cn("mt-3 max-w-[62ch] text-[12px] leading-5 text-ink-3", className)}>{children}</p>;
 }
 
-/** A small uppercase label above a block. Ten pixels, and it never says a sentence. */
+/**
+ * A small uppercase label above a block. Ten pixels, and it never says a sentence.
+ *
+ * `Label` with one addition: a block label here regularly carries a count or a qualified
+ * name after its word, and a qualified name is one token to the line breaker.
+ */
 function BlockLabel({ children, className }: { children: ReactNode; className?: string }) {
+  return <Label className={cn("[overflow-wrap:anywhere]", className)}>{children}</Label>;
+}
+
+/**
+ * A policy, as the way to read it.
+ *
+ * A finding says which policies bore on it and prints the id it cites them under, and until
+ * now that id was plain mono: a reader asking why a candidate was called material could see
+ * the title and the model's reasoning about it, and had no way to the policy's own words
+ * short of going to Policies and searching the title by hand. The charter's fourth decision
+ * rule is that provenance is reachable, and the design system names a policy as one of the
+ * three things `--mark` exists to link to.
+ *
+ * It lives in this file rather than beside the drawer that also uses it because
+ * `ui/design-system.test.ts` allowlists the files that may spend the mark, and one link
+ * written twice is the drift that allowlist exists to stop.
+ */
+export function PolicyRef({ id, className }: { id: string; className?: string }) {
   return (
-    <div
+    <Link
+      to={`/policies?open=${encodeURIComponent(id)}`}
+      title={`Read the policy ${id}`}
       className={cn(
-        "text-[10px] font-bold uppercase tracking-[0.13em] text-ink-3 [overflow-wrap:anywhere]",
+        "font-mono text-[11px] text-mark underline decoration-rule-strong underline-offset-2 transition hover:decoration-current [overflow-wrap:anywhere]",
         className,
       )}
     >
-      {children}
-    </div>
+      {id}
+    </Link>
   );
 }
 
@@ -116,13 +134,40 @@ function BlockLabel({ children, className }: { children: ReactNode; className?: 
 function Attribution({ voice, by, className }: { voice: string; by?: ReactNode; className?: string }) {
   return (
     <p className={cn("flex flex-wrap items-baseline gap-x-2 gap-y-0.5", className)}>
-      <span className="text-[10px] font-bold uppercase tracking-[0.13em] text-ink">{voice}</span>
+      {/* A `span`, because a voice sits on the same baseline as the identity beside it and
+          this line is a `p`. Full ink rather than the label's meta grey: the voice is the
+          thing being named, not a caption on it. */}
+      <Label as="span" className="text-ink">
+        {voice}
+      </Label>
       {by ? (
         <span className="min-w-0 font-mono text-[11px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
           {by}
         </span>
       ) : null}
     </p>
+  );
+}
+
+/**
+ * A provenance value whose whole purpose is to be pasted somewhere else.
+ *
+ * Nine rows of 64-character hashes, and until there was a clipboard in this product the only
+ * way to take one anywhere was to select it by hand across three wrapped lines. The tick is
+ * the confirmation and it costs no width until it is earned.
+ */
+function HashRow({ label, value }: { label: string; value: string }) {
+  return (
+    <MetaRow label={label}>
+      <span className="flex min-w-0 items-start gap-1">
+        <Mono className="min-w-0 flex-1 [overflow-wrap:anywhere]">{value}</Mono>
+        <CopyButton
+          value={value}
+          label={`Copy the ${label.toLowerCase()}`}
+          className="-my-1 shrink-0"
+        />
+      </span>
+    </MetaRow>
   );
 }
 
@@ -149,9 +194,7 @@ function Disclosure({
   return (
     <details className="group border-t border-rule">
       <summary className="flex min-h-11 list-none items-start gap-3 px-4 py-3 transition hover:bg-surface-2 focus-visible:-outline-offset-2 sm:px-6">
-        <span className="shrink-0 text-[10px] font-bold uppercase leading-5 tracking-[0.13em] text-ink">
-          {label}
-        </span>
+        <Label className="shrink-0 leading-5 text-ink">{label}</Label>
         <span className="min-w-0 flex-1 font-mono text-[11px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
           {summary}
         </span>
@@ -317,9 +360,9 @@ export function FindingBody({
                 {finding.candidate.participants.map((participant) => (
                   <li
                     key={`${participant.qualified_name}-${participant.role}`}
-                    className="max-w-full"
+                    className="flex max-w-full items-start gap-1"
                   >
-                    <Tag className="max-w-full flex-col items-start gap-0.5 px-2.5 py-1.5">
+                    <Tag className="min-w-0 flex-col items-start gap-0.5 px-2.5 py-1.5">
                       <Mono className="text-[11px] text-ink wrap-anywhere">
                         {participant.qualified_name}
                       </Mono>
@@ -327,6 +370,14 @@ export function FindingBody({
                         {humanise(participant.role)}
                       </span>
                     </Tag>
+                    {/* The reviewer's next action after reading a finding is to go to the
+                        code, and the qualified name is what an editor's *go to symbol* box
+                        and a search take. */}
+                    <CopyButton
+                      value={participant.qualified_name}
+                      label={`Copy ${participant.qualified_name}`}
+                      className="mt-0.5 shrink-0"
+                    />
                   </li>
                 ))}
               </ul>
@@ -391,17 +442,21 @@ export function FindingBody({
             and you cannot read source code in a gutter. */}
         {finding.evidence.length ? (
           <section className="min-w-0 border-t border-rule px-4 py-4 sm:px-5 lg:border-l lg:border-t-0">
-            <BlockLabel>
-              Evidence
+            {/* The location was set in the mark with an underline under it and did nothing at
+                all when pressed — the one decoration this system reserves for "this goes to
+                the source", promising a destination it did not have. `PathRef` is that
+                promise kept: it copies `path:line`, and opens the file where somebody has
+                said which editor they use. */}
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+              <BlockLabel>Evidence</BlockLabel>
               {firstLocation ? (
-                <>
-                  {" · "}
-                  <span className="font-medium normal-case tracking-normal text-mark underline decoration-rule underline-offset-2">
-                    {locationLabel(firstLocation)}
-                  </span>
-                </>
+                <PathRef
+                  path={firstLocation.path}
+                  line={firstLocation.start_line}
+                  endLine={firstLocation.end_line}
+                />
               ) : null}
-            </BlockLabel>
+            </div>
             <div className="mt-1.5 grid gap-2">
               {finding.evidence.map((evidence, index) => (
                 <EvidenceBlock
@@ -426,9 +481,7 @@ export function FindingBody({
               <li key={bearing.policy_id} className="rounded-md border border-rule bg-surface px-3.5 py-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                   <span className="text-[13px] font-semibold text-ink">{bearing.policy_title}</span>
-                  <Mono className="text-[10.5px] text-ink-3 [overflow-wrap:anywhere]">
-                    {bearing.policy_id}
-                  </Mono>
+                  <PolicyRef id={bearing.policy_id} className="text-[10.5px]" />
                 </div>
                 <p className="mt-1.5 text-[14px] leading-relaxed text-ink-2 wrap-anywhere">
                   {bearing.reasoning}
@@ -470,22 +523,12 @@ export function FindingBody({
         }
       >
         <MetaList>
-          <MetaRow label="Candidate">
-            <Mono className="[overflow-wrap:anywhere]">{finding.candidate.id}</Mono>
-          </MetaRow>
-          <MetaRow label="Judge">
-            <Mono className="[overflow-wrap:anywhere]">{finding.model_identity}</Mono>
-          </MetaRow>
-          <MetaRow label="Prompt">
-            <Mono className="[overflow-wrap:anywhere]">{finding.prompt_identity}</Mono>
-          </MetaRow>
-          <MetaRow label="Retrieval">
-            <Mono className="[overflow-wrap:anywhere]">{finding.retrieval_identity}</Mono>
-          </MetaRow>
+          <HashRow label="Candidate" value={finding.candidate.id} />
+          <HashRow label="Judge" value={finding.model_identity} />
+          <HashRow label="Prompt" value={finding.prompt_identity} />
+          <HashRow label="Retrieval" value={finding.retrieval_identity} />
           {finding.investigation_identity ? (
-            <MetaRow label="Investigation">
-              <Mono className="[overflow-wrap:anywhere]">{finding.investigation_identity}</Mono>
-            </MetaRow>
+            <HashRow label="Investigation" value={finding.investigation_identity} />
           ) : null}
           {retrieval ? (
             <MetaRow label="Retriever">
@@ -494,11 +537,7 @@ export function FindingBody({
               </Mono>
             </MetaRow>
           ) : null}
-          {retrieval ? (
-            <MetaRow label="Corpus">
-              <Mono className="[overflow-wrap:anywhere]">{retrieval.corpus_fingerprint}</Mono>
-            </MetaRow>
-          ) : null}
+          {retrieval ? <HashRow label="Corpus" value={retrieval.corpus_fingerprint} /> : null}
           {measurements.length ? (
             <MetaRow label="Measured as">
               <span className="flex flex-wrap gap-1.5">

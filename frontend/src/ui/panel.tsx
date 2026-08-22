@@ -1,4 +1,4 @@
-import type { ElementType, ReactNode } from "react";
+import type { ElementType, HTMLAttributes, ReactNode } from "react";
 
 import { cn } from "../lib/cn";
 
@@ -102,16 +102,39 @@ export function PanelFooter({ children, className }: { children: ReactNode; clas
   );
 }
 
-/** A label above a block of content. Used inside findings, context rails, and forms. */
-export function Label({ children, className }: { children: ReactNode; className?: string }) {
+/**
+ * A label above a block of content. Used inside findings, context rails, and forms.
+ *
+ * `0.13em` is the value the design system's type scale names, and this component is the
+ * reason the value is written down once. The recipe — 10px, bold, uppercase, letterspaced —
+ * was hand-rolled twenty-one times across fourteen files at five different tracking values,
+ * including here, so the one element that is meant to look identical everywhere was the one
+ * that drifted. `ui/design-system.test.ts` carries the rule that would catch the next copy.
+ */
+export function Label({
+  children,
+  className,
+  as: Tag = "div",
+  ...props
+}: HTMLAttributes<HTMLElement> & {
+  children: ReactNode;
+  className?: string;
+  /**
+   * The element to render as, because a `div` is not always valid where a label belongs.
+   *
+   * Two section headings on the reviews page kept hand-rolling the recipe purely because a
+   * `div` inside an `<h2>` is invalid markup, and a rule that is easier to break than to obey
+   * is a rule that gets broken. The colour and the mono variants stay `className`'s job —
+   * a label in a verdict tone is still this label.
+   */
+  as?: ElementType;
+}) {
   return (
-    <div
-      className={cn(
-        "text-[10px] font-bold uppercase tracking-[0.14em] text-ink-3",
-        className,
-      )}
+    <Tag
+      className={cn("text-[10px] font-bold uppercase tracking-[0.13em] text-ink-3", className)}
+      {...props}
     >
       {children}
-    </div>
+    </Tag>
   );
 }

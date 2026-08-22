@@ -5,14 +5,11 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Iterator
 from contextlib import suppress
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Query, Response
-from fastapi.responses import StreamingResponse
 from pydantic import Field
 
 from archcompass.bootstrap import Runtime
@@ -21,9 +18,11 @@ from archcompass.domain import (
     Candidate,
     Evidence,
     RecordedInvestigation,
+    RepositoryRef,
     Review,
 )
 from archcompass.domain.errors import ReviewHasNoReportError, ReviewNotFoundError
+from archcompass.persistence.reviews import ReviewSummary
 from archcompass.presentation.web.dependencies import RuntimeDep, SpendsModelBudget
 from archcompass.presentation.web.schemas import APIModel, problem_responses
 from archcompass.workflow.runs import RunState
@@ -78,6 +77,11 @@ class ReviewRunResponse(APIModel):
     #: Which revision this will be. Derived from the newest review on the branch, so it is
     #: the number the composed review will carry rather than a placeholder.
     sequence: int = 1
+    #: When this process started the run, so a page watching one can say how long it has
+    #: been. `None` where the run was started by a process that has since gone: the start
+    #: time lives in memory beside the stages, and inventing one after a restart would put a
+    #: number on screen that counts from the restart rather than from the work.
+    started_at: str | None = None
 
     @classmethod
     def from_state(cls, state: RunState, **lineage: object) -> ReviewRunResponse:
@@ -98,6 +102,7 @@ class ReviewRunResponse(APIModel):
             candidates_to_judge=state.candidates_to_judge,
             candidates_judged=state.candidates_judged,
             batch=state.batch,
+            started_at=(None if state.started_at is None else state.started_at.isoformat()),
             **cast("dict[str, Any]", lineage),
         )
 
@@ -284,6 +289,18 @@ def _evidence(value: Evidence) -> EvidenceResponse:
     )
 
 
+def _repository(value: RepositoryRef) -> RepositoryResponse:
+    return RepositoryResponse(
+        id=value.id,
+        path=str(value.path),
+        branch_id=value.branch_id,
+        content_id=value.content_id,
+        remote_url=value.remote_url,
+        branch=value.branch,
+        commit=value.commit,
+    )
+
+
 def _candidate(value: Candidate) -> CandidateResponse:
     return CandidateResponse(
         id=str(value.id),
@@ -395,7 +412,10 @@ class ReviewResponse(APIModel):
     delta: DeltaResponse
     retrieval_manifest: list[RetrievalProvenanceResponse]
     investigation_manifest: list[RecordedInvestigationResponse]
-    markdown_report: str | None
+    # No `markdown_report`. It is twenty kilobytes of Markdown on every review in every
+    # listing, and the one surface that renders it fetches it from
+    # `/api/reviews/{id}/report` — which is where a document that is read as a document
+    # belongs, and which is still here.
     synopsis: str | None
     synopsis_identity: str
     model_identity: str
@@ -406,15 +426,7 @@ class ReviewResponse(APIModel):
 
     @classmethod
     def from_domain(cls, review: Review) -> ReviewResponse:
-        repository = RepositoryResponse(
-            id=review.repository.id,
-            path=str(review.repository.path),
-            branch_id=review.repository.branch_id,
-            content_id=review.repository.content_id,
-            remote_url=review.repository.remote_url,
-            branch=review.repository.branch,
-            commit=review.repository.commit,
-        )
+        repository = _repository(review.repository)
         questions = {
             item.id: QuestionResponse(
                 id=item.id,
@@ -538,7 +550,6 @@ class ReviewResponse(APIModel):
                 for item in review.investigation_manifest
                 if (response := investigation_response(item)) is not None
             ],
-            markdown_report=review.markdown_report,
             synopsis=review.synopsis,
             synopsis_identity=review.synopsis_identity,
             model_identity=review.model_identity,
@@ -551,8 +562,87 @@ class ReviewResponse(APIModel):
         )
 
 
+class ReviewSummaryResponse(APIModel):
+    """One review as a listing shows it, and nothing else.
+
+    Eight screens list reviews. Between them they read a repository name, a branch, a
+    number, a case revision, two timestamps and a few counts — and every one of them was
+    served the whole review to find them, atlas included. So this is the listing shape:
+    the same identity and the same lineage as `ReviewResponse`, with the counts in place
+    of the collections they are counts of.
+
+    Not a `ReviewResponse` with fields omitted, because the two are read differently and a
+    reader holding one has to know which it is. The counts are named for what they count
+    rather than nested, so a listing reads `material_count` instead of filtering an array
+    that is not there.
+    """
+
+    id: str
+    sequence: int
+    round: int
+    status: str
+    previous_review_id: str | None
+    repository: RepositoryResponse
+    case_id: str
+    case_revision: int
+    started_at: str
+    finished_at: str | None
+    #: How many candidates this review judged, and how each verdict fell. `finding_count` is
+    #: their sum and is carried anyway: it is the number a listing prints, and deriving it
+    #: from three others is arithmetic on the wrong side of the wire.
+    finding_count: int
+    material_count: int
+    held_count: int
+    cleared_count: int
+    #: Questions this review is waiting on. Zero for every review that settled without
+    #: asking, which is not the same as a review whose questions have all been answered —
+    #: that one is `completed` and has none pending either.
+    question_count: int
+    #: The delta, as the four numbers a listing states it in. The candidates themselves are
+    #: on the review, which is where a reader goes to see what moved.
+    unchanged_count: int
+    changed_count: int
+    new_count: int
+    addressed_count: int
+
+    @classmethod
+    def from_summary(cls, summary: ReviewSummary) -> ReviewSummaryResponse:
+        return cls(
+            id=summary.id,
+            sequence=summary.sequence,
+            round=summary.round,
+            status=summary.status,
+            previous_review_id=summary.previous_review_id,
+            repository=_repository(summary.repository),
+            case_id=summary.case_id,
+            case_revision=summary.case_revision,
+            started_at=summary.started_at.isoformat(),
+            finished_at=(
+                None if summary.finished_at is None else summary.finished_at.isoformat()
+            ),
+            finding_count=summary.finding_count,
+            material_count=summary.material_count,
+            held_count=summary.held_count,
+            cleared_count=summary.cleared_count,
+            question_count=summary.question_count,
+            unchanged_count=summary.unchanged_count,
+            changed_count=summary.changed_count,
+            new_count=summary.new_count,
+            addressed_count=summary.addressed_count,
+        )
+
+
 def _identity(runtime: Runtime, root: str) -> tuple[str, str]:
     return runtime.atlas_service.repository_identity(Path(root))
+
+
+def _submitted(request: ReviewAnswersRequest) -> tuple[SubmittedAnswer, ...]:
+    """One round of answers as the workflow takes them, however the caller will wait."""
+
+    return tuple(
+        SubmittedAnswer(item.question_id, item.status, item.value, item.actor)
+        for item in request.answers
+    )
 
 
 def routes() -> APIRouter:
@@ -640,34 +730,22 @@ def routes() -> APIRouter:
         return _describe_run(run_id, runtime)
 
     @router.post(
-        "/api/reviews/stream",
-        response_class=StreamingResponse,
-        dependencies=[SpendsModelBudget],
+        "/api/reviews/runs/{run_id}/cancel", responses=problem_responses(404)
     )
-    def stream_review(runtime: RuntimeDep, request: ReviewRequest) -> StreamingResponse:
-        def lines() -> Iterator[str]:
-            try:
-                repository_id, branch_id = _identity(runtime, request.repository_root)
-                for progress in runtime.review_workflow_service.start_stream(
-                    repository_id=repository_id,
-                    branch_id=branch_id,
-                    case_id=request.case_id,
-                    case_revision=request.case_revision,
-                    ci=request.ci,
-                ):
-                    event: dict[str, object] = {"event": progress.stage}
-                    if progress.review is not None:
-                        event["review"] = ReviewResponse.from_domain(
-                            progress.review
-                        ).model_dump(mode="json")
-                    yield json.dumps(event, separators=(",", ":")) + "\n"
-            except Exception as error:  # The response has already begun; failure is an event.
-                yield json.dumps(
-                    {"event": "failed", "message": str(error)},
-                    separators=(",", ":"),
-                ) + "\n"
+    def cancel_review_run(runtime: RuntimeDep, run_id: str) -> ReviewRunResponse:
+        """Stop a run somebody no longer wants, and answer with what became of it.
 
-        return StreamingResponse(lines(), media_type="application/x-ndjson")
+        200 rather than 204, because the answer is the run: it keeps its id, its stages and
+        whatever review it had already filed, under the status `cancelled`. A person who
+        started a review of the wrong repository could otherwise only wait it out.
+
+        Not idempotent in the sense of doing nothing twice — cancelling a run that has
+        already finished still writes `cancelled` over the row — so a caller that means
+        "stop this" reads the answer rather than assuming it.
+        """
+
+        state = runtime.review_workflow_service.cancel_run(run_id)
+        return _describe_run(state.run_id, runtime)
 
     @router.post(
         "/api/reviews/{review_id}/answers",
@@ -676,22 +754,58 @@ def routes() -> APIRouter:
     def answer_review(
         runtime: RuntimeDep, review_id: str, request: ReviewAnswersRequest
     ) -> ReviewResponse:
+        """Answer a clarification round and wait for the rejudgement in this request.
+
+        Kept beside the run below because the CLI and every non-browser caller reads a
+        review out of one call and has nowhere to come back to. A browser should use the
+        run: this holds a connection open for the length of a full rejudgement.
+        """
+
         review = runtime.review_workflow_service.resume(
             review_id,
-            tuple(
-                SubmittedAnswer(item.question_id, item.status, item.value, item.actor)
-                for item in request.answers
-            ),
+            _submitted(request),
             stop=request.stop,
         )
         return ReviewResponse.from_domain(review)
+
+    @router.post(
+        "/api/reviews/{review_id}/answers/runs",
+        status_code=202,
+        # No `SpendsModelBudget`, matching the route above it. The budget admits a review,
+        # and this is a review that was already admitted reaching its end — a demo that
+        # charged again for each clarification round would ration finishing rather than
+        # starting, and would stop a review it had already agreed to.
+        responses=problem_responses(404, 409, 422, 503),
+    )
+    def answer_review_run(
+        runtime: RuntimeDep, review_id: str, request: ReviewAnswersRequest
+    ) -> ReviewRunResponse:
+        """Answer a clarification round and get a run to watch it on.
+
+        The same fix `POST /api/reviews/runs` was for, on the other half of a review.
+        Answering rejudges every extant candidate, which is minutes of model work, and it
+        used to happen inside this request — so a reload, a closed laptop or a proxy's idle
+        timeout left the person unable to tell whether their answers had been recorded.
+
+        202, and the run is the one the review has been on all along: same thread id, same
+        address, so `/api/reviews/runs/{id}` keeps working across the whole review. The
+        answers are still validated here, where a question that does not exist can be
+        refused properly rather than becoming a failed run.
+        """
+
+        state = runtime.review_workflow_service.resume_background(
+            review_id,
+            _submitted(request),
+            stop=request.stop,
+        )
+        return _describe_run(state.run_id, runtime)
 
     @router.get("/api/reviews/runs")
     def list_review_runs(
         runtime: RuntimeDep,
         limit: Annotated[int, Query(ge=1, le=200)] = 50,
     ) -> list[ReviewRunResponse]:
-        """Every run that has begun and has no review yet.
+        """Every run that has begun and has not finished.
 
         Registered above `/api/reviews/{review_id}` so `runs` is not read as an id.
 
@@ -699,6 +813,11 @@ def routes() -> APIRouter:
         holding: start a review, navigate away, and there was no way back to it short of the
         browser's history. A batch judgement takes as long as a batch takes, which makes
         "navigate away" the ordinary case rather than the careless one.
+
+        A run stays here until it is genuinely done, `review_id` and all. It used to leave
+        the moment a review was attached, which is several nodes before the end — so the
+        progress marker vanished, the review was not in the reviews listing yet, and a
+        client could not tell a run that had finished from one that had never existed.
         """
 
         return [
@@ -710,7 +829,27 @@ def routes() -> APIRouter:
     def list_reviews(
         runtime: RuntimeDep,
         limit: Annotated[int, Query(ge=1, le=500)] = 100,
-    ) -> list[ReviewResponse]:
+        view: Annotated[Literal["full", "summary"], Query()] = "full",
+    ) -> list[ReviewResponse] | list[ReviewSummaryResponse]:
+        """Every review, either whole or as a listing reads it.
+
+        `view=summary` is the one to ask for unless the caller is going to render a review.
+        A stored review is most of a repository's atlas, and the listing screens read a
+        name, a number and a few counts off it — so the full view was several megabytes a
+        row to produce a line of text, and the server decoded every one of those rows to
+        count five integers off it. The summary is projected in SQL and never opens the
+        document at all.
+
+        One route with a view rather than two routes, because it is one listing: the rows
+        and their order are the same either way, and only how much of each row travels
+        differs.
+        """
+
+        if view == "summary":
+            return [
+                ReviewSummaryResponse.from_summary(item)
+                for item in runtime.review_workflow_service.list_summaries(limit=limit)
+            ]
         return [
             ReviewResponse.from_domain(item)
             for item in runtime.review_workflow_service.list(limit=limit)
@@ -719,17 +858,6 @@ def routes() -> APIRouter:
     @router.get("/api/reviews/{review_id}", responses=problem_responses(404, 422))
     def get_review(runtime: RuntimeDep, review_id: str) -> ReviewResponse:
         return ReviewResponse.from_domain(runtime.review_workflow_service.get(review_id))
-
-    @router.get("/api/reviews/{review_id}/source", responses=problem_responses(404, 422))
-    def get_review_source(
-        runtime: RuntimeDep, review_id: str
-    ) -> list[EvidenceResponse]:
-        review = runtime.review_workflow_service.get(review_id)
-        return [
-            _evidence(evidence)
-            for finding in review.findings
-            for evidence in finding.evidence
-        ]
 
     @router.get(
         "/api/reviews/{review_id}/report",

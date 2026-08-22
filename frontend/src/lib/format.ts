@@ -213,6 +213,11 @@ const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ["day", 86_400_000],
   ["hour", 3_600_000],
   ["minute", 60_000],
+  // Seconds are here for the one place a reader is watching the clock rather than reading a
+  // record: a provider probe, and a run's elapsed time. "just now" is the right answer for a
+  // review filed forty seconds ago and the wrong one for a reachability check, where the
+  // question being asked is exactly how stale the answer is.
+  ["second", 1_000],
 ];
 
 /** "4 minutes ago", without pulling in a date library. */
@@ -241,12 +246,28 @@ export function plural(count: number, singular: string, pluralForm = `${singular
   return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
-/** Freshness of an indexed atlas, stated the way a reviewer asks about it. */
-export function atlasFreshness(indexedAt: string | null | undefined, now = Date.now()) {
-  if (!indexedAt) return { label: "Never indexed", tone: "neutral" as Tone };
+/**
+ * Freshness of an indexed atlas, as a position on a scale rather than as a grade.
+ *
+ * It used to answer with a verdict tone — `cleared` for Fresh, `held` for Ageing, `material`
+ * for Stale — and that is the one hue in the product saying *the evidence supports an
+ * architectural concern worth acting on*, spent on an index nobody had rebuilt this week.
+ * `verdict-hues.test.ts` allows this file to name a hue because of `verdictOf`, which is the
+ * table that decides which **verdict** takes which tone; a second table in the same file
+ * dressing something else in the same three was exactly what that allowance was not for.
+ *
+ * So it answers with a `MarkShape` from the step set — solid, outline, dashed — which is what
+ * `docs/design-system.md` reserves for a position that is not a grade. The word beside it
+ * already says which step it is, so nothing is carried by the shape alone.
+ */
+export function atlasFreshness(
+  indexedAt: string | null | undefined,
+  now = Date.now(),
+): { label: string; step: MarkShape } {
+  if (!indexedAt) return { label: "Never indexed", step: "dashed" };
   const age = now - Date.parse(indexedAt);
-  if (Number.isNaN(age)) return { label: "Never indexed", tone: "neutral" as Tone };
-  if (age < 3_600_000) return { label: "Fresh", tone: "cleared" as Tone };
-  if (age < 604_800_000) return { label: "Ageing", tone: "held" as Tone };
-  return { label: "Stale", tone: "material" as Tone };
+  if (Number.isNaN(age)) return { label: "Never indexed", step: "dashed" };
+  if (age < 3_600_000) return { label: "Fresh", step: "solid" };
+  if (age < 604_800_000) return { label: "Ageing", step: "hollow" };
+  return { label: "Stale", step: "dashed" };
 }

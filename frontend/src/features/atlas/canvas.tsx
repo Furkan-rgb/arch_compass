@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
-import type { Tone } from "../../lib/format";
+import { splitQualified, type Tone } from "../../lib/format";
+import { Button } from "../../ui/button";
 import { Mark } from "../../ui/mark";
 import { distance, edgeKindClass, edgePath, truncate } from "./geometry";
 import type { AtlasEdgeView, AtlasNodeView } from "./graph";
@@ -41,6 +42,22 @@ const TONE_MARK: Record<Tone, "alert" | "pause" | "check" | "hollow"> = {
   cleared: "check",
 };
 
+/**
+ * Why the map is blank, and the way back.
+ *
+ * The canvas used to print the caller's `emptyMessage` whenever the node count was zero,
+ * whatever had emptied it — so a reader who pressed "Public only" was told the review's
+ * elements were no longer in the indexed atlas. That is a false statement of cause, and
+ * telling an empty answer apart from a broken control is the thing the experience doc asks
+ * this surface for by name. The reason is worked out where the lens and the filters are
+ * known, which is not here, and arrives already knowing which of the three it is.
+ */
+export type AtlasEmptyAnswer = {
+  sentence: string;
+  /** Whatever undoes it: switch to a lens that draws something, clear the filters that bite. */
+  action?: { label: string; onAction: () => void };
+};
+
 export function AtlasCanvas({
   graph,
   layout,
@@ -48,9 +65,10 @@ export function AtlasCanvas({
   onSelectNode,
   highlightedNodes,
   highlightedEdges,
+  matchedNodes,
   pulse,
   loading,
-  emptyMessage,
+  empty,
   view,
   gridId,
   arrowId,
@@ -63,9 +81,11 @@ export function AtlasCanvas({
   /** Nodes and edges on a traced dependency path, which paint above the rest of the mesh. */
   highlightedNodes: Set<string>;
   highlightedEdges: Set<string>;
+  /** Every card the reader's search term matched, ringed so the count beside Find is checkable. */
+  matchedNodes: Set<string>;
   pulse: AtlasPulse;
   loading: boolean;
-  emptyMessage: string;
+  empty: AtlasEmptyAnswer;
   view: AtlasViewport;
   gridId: string;
   arrowId: string;
@@ -89,15 +109,31 @@ export function AtlasCanvas({
     offsetY,
   } = surfaceFor(layout, view.canvasSize, zoom);
 
+  /**
+   * Reading order: down the map, then across. `navigateNode` walks it, `Home` and `End` are
+   * its two ends, and the first card in it is where the keyboard comes in.
+   */
+  const sorted = [...graph.nodes].sort((left, right) => {
+    const leftPosition = positions.get(left.id) || { x: 0, y: 0 };
+    const rightPosition = positions.get(right.id) || { x: 0, y: 0 };
+    return leftPosition.y - rightPosition.y || leftPosition.x - rightPosition.x;
+  });
+
+  /**
+   * The card that holds the tab stop while nothing is selected.
+   *
+   * Every card was `tabIndex={-1}` until one was selected, and nothing is selected when the
+   * surface opens — so the arrow-key walk below, which is the only way to read this map
+   * without a pointer, could not be reached at all. One card takes the stop, the rest stay at
+   * -1, and from there the arrows own the movement. That is the roving pattern the tabs and
+   * the docket already use.
+   */
+  const keyboardEntry = selected ? undefined : sorted[0]?.id;
+
   const navigateNode = (
     nodeId: string,
     key: "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" | "Home" | "End",
   ) => {
-    const sorted = [...graph.nodes].sort((left, right) => {
-      const leftPosition = positions.get(left.id) || { x: 0, y: 0 };
-      const rightPosition = positions.get(right.id) || { x: 0, y: 0 };
-      return leftPosition.y - rightPosition.y || leftPosition.x - rightPosition.x;
-    });
     let next: AtlasNodeView | undefined;
     if (key === "Home") next = sorted[0];
     else if (key === "End") next = sorted.at(-1);
@@ -145,7 +181,6 @@ export function AtlasCanvas({
     selected && pulse !== "none" && pulse !== "breathe"
       ? graph.edges.filter(
           (edge) =>
-            edge.sourceId !== edge.targetId &&
             !highlightedEdges.has(edge.id) &&
             (edge.sourceId === selected.id || edge.targetId === selected.id),
         )
@@ -182,7 +217,7 @@ export function AtlasCanvas({
   const renderEdge = (edge: AtlasEdgeView) => {
     const source = positions.get(edge.sourceId);
     const target = positions.get(edge.targetId);
-    if (!source || !target || edge.sourceId === edge.targetId) return null;
+    if (!source || !target) return null;
     const connected = edge.sourceId === selected?.id || edge.targetId === selected?.id;
     return (
       <path
@@ -205,6 +240,18 @@ export function AtlasCanvas({
     // leave room for — a fixed indent on every card would open a column of nothing down the
     // side of a map that is mostly unjudged.
     const labelX = node.tone ? 40 : 18;
+    const kind = node.kind.replaceAll("_", " ");
+    const leaf = truncate(node.label, node.tone ? 17 : 20);
+    /**
+     * The segment that tells two cut labels apart, drawn only where one was cut.
+     *
+     * `PaymentGatewayAdapter` draws as `PaymentGatewayA…`, and so does every other class whose
+     * first sixteen characters match — at which point the card names nothing. The namespace's
+     * last segment is what is left to identify it by, and it costs a line the card has spare.
+     * A leaf that fits is already an identifier and gets the card to itself.
+     */
+    const namespace =
+      leaf === node.label ? "" : splitQualified(node.qualified).namespace.split(".").at(-1) || "";
     return (
       <g
         key={node.id}
@@ -214,10 +261,15 @@ export function AtlasCanvas({
         }}
         data-atlas-node-id={node.id}
         role="button"
-        tabIndex={active ? 0 : -1}
+        tabIndex={active || node.id === keyboardEntry ? 0 : -1}
         aria-pressed={active}
-        aria-label={`${node.label}, ${node.kind.replaceAll("_", " ")}${
-          node.tone ? ", judged" : ""
+        /* The whole qualified name, and the verdict in the word rather than in the hue.
+           This read `${node.label}, ${node.kind}, judged` — the leaf, already cut to
+           seventeen characters, and one word that said the same thing for a material finding
+           and a cleared one. `orders` is not an identity when three packages have one, and a
+           colour never carries meaning alone. */
+        aria-label={`${node.qualified}, ${kind}${
+          node.verdictLabel ? `, ${node.verdictLabel}` : ""
         }`}
         className={`atlas-node ${active ? "atlas-node--active" : ""} ${
           highlightedNodes.has(node.id) ? "atlas-node--path" : ""
@@ -250,6 +302,23 @@ export function AtlasCanvas({
           }
         }}
       >
+        {/* The whole name, on hover, for nothing: a native SVG tooltip is the one place the
+            map can carry a string this long without covering the neighbours it was consulted
+            about. First child because that is where the user agent looks for it. */}
+        <title>{node.qualified}</title>
+        {/* The ring a card wears when the reader's search term matched it. Every match, not
+            one of them: a term with nine hits used to select an arbitrary card and leave the
+            other eight unmarked. */}
+        {matchedNodes.has(node.id) && (
+          <rect
+            className="atlas-node__match"
+            x={-3}
+            y={-3}
+            width={NODE_WIDTH + 6}
+            height={NODE_HEIGHT + 6}
+            rx={12}
+          />
+        )}
         {/* The ring the selection wears. Outside the card rather than on it, so the border
             keeps saying what the verdict is while the ring says where the reader is. */}
         {active && (
@@ -275,11 +344,26 @@ export function AtlasCanvas({
             <Mark shape={TONE_MARK[node.tone]} width={15} height={15} />
           </g>
         )}
+        {namespace ? (
+          <text className="atlas-node__meta" x={labelX} y={16}>
+            {truncate(namespace, 22)}
+          </text>
+        ) : null}
         <text className="atlas-node__label" x={labelX} y={31}>
-          {truncate(node.label, node.tone ? 17 : 20)}
+          {leaf}
         </text>
+        {/* The verdict beside the kind, which is the slot the signal count leaves free on
+            most cards and which is wide enough for both on the rest. A card had a hue on its
+            border and a mark inside it and nowhere at all did it say Material, Held or
+            Cleared — the hue was carrying the meaning by itself, which is the one thing the
+            charter says a hue may never do. */}
         <text className="atlas-node__meta" x={18} y={59}>
-          {truncate(node.kind.replaceAll("_", " "), 20)}
+          {truncate(kind, node.verdictLabel ? 12 : 20)}
+          {node.verdictLabel ? (
+            <tspan className="atlas-node__verdict" dx="7">
+              {node.verdictLabel}
+            </tspan>
+          ) : null}
         </text>
         {/* A ternary rather than `&&`: a card carrying no signal has a count of zero, and
             `0 &&` renders the zero as the card's own caption. */}
@@ -327,13 +411,19 @@ export function AtlasCanvas({
               <pattern id={gridId} width="24" height="24" patternUnits="userSpaceOnUse">
                 <path className="atlas-grid-line" d="M 24 0 L 0 0 0 24" fill="none" />
               </pattern>
+              {/* Sized in world units rather than in multiples of the stroke that carries it.
+                  A hairline is 1 unit wide, so `markerWidth="5"` was five units — 2.4 CSS
+                  pixels once the map is framed, which is a smudge rather than an arrowhead,
+                  on the one lens whose whole subject is direction. Which way it points is
+                  said once, in the toolbar, rather than guessed at from a triangle. */}
               <marker
                 id={arrowId}
                 viewBox="0 0 10 10"
                 refX="9"
                 refY="5"
-                markerWidth="5"
-                markerHeight="5"
+                markerUnits="userSpaceOnUse"
+                markerWidth="13"
+                markerHeight="13"
                 orient="auto-start-reverse"
               >
                 <path className="atlas-arrow" d="M 0 0 L 10 5 L 0 10 z" />
@@ -410,10 +500,29 @@ export function AtlasCanvas({
             {graph.nodes.filter((node) => node.id === selected?.id).map(renderNode)}
           </svg>
         ) : (
-          <p className="atlas-empty">{loading ? "Reading the atlas…" : emptyMessage}</p>
+          /* Why, and the way out of it. A blank map with one sentence that is not about what
+             actually emptied it is worse than a blank map: the reader believes the sentence
+             and stops looking for the control they just pressed. */
+          <div className="atlas-empty">
+            <p>{loading ? "Reading the atlas…" : empty.sentence}</p>
+            {!loading && empty.action ? (
+              <Button variant="secondary" size="sm" onClick={empty.action.onAction}>
+                {empty.action.label}
+              </Button>
+            ) : null}
+          </div>
         )}
       </div>
       {view.showMinimap && graph.nodes.length > 1 && (
+        /**
+         * The whole surface in miniature, in the surface's own coordinates.
+         *
+         * It drew the *layout* box and mapped a click through it, while `surfaceFor` centres a
+         * graph smaller than the canvas by shifting the world — so on exactly those graphs the
+         * indicator sat off the region it claimed to mark and the recentre landed somewhere
+         * else again. Everything here is `+ offset`, which is the same world the canvas above
+         * is drawing and the same world `centreOn` scrolls to.
+         */
         <button
           type="button"
           className="atlas-minimap"
@@ -421,13 +530,20 @@ export function AtlasCanvas({
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             const bounds = event.currentTarget.getBoundingClientRect();
+            // A keyboard activation has no pointer behind it, and a click reported at the
+            // origin used to jump the camera to the top-left corner. Enter on a control
+            // labelled "recentre" means the middle of the map, which is what it now does.
+            if (event.detail === 0) {
+              view.centreOn(worldWidth / 2, worldHeight / 2);
+              return;
+            }
             view.centreOn(
-              ((event.clientX - bounds.left) / bounds.width) * layout.width,
-              ((event.clientY - bounds.top) / bounds.height) * layout.height,
+              ((event.clientX - bounds.left) / bounds.width) * worldWidth,
+              ((event.clientY - bounds.top) / bounds.height) * worldHeight,
             );
           }}
         >
-          <svg viewBox={`0 0 ${layout.width} ${layout.height}`} aria-hidden="true">
+          <svg viewBox={`0 0 ${worldWidth} ${worldHeight}`} aria-hidden="true">
             {graph.edges.map((edge) => {
               const source = positions.get(edge.sourceId);
               const target = positions.get(edge.targetId);
@@ -435,10 +551,10 @@ export function AtlasCanvas({
               return (
                 <line
                   key={edge.id}
-                  x1={source.x + NODE_WIDTH / 2}
-                  y1={source.y + NODE_HEIGHT / 2}
-                  x2={target.x + NODE_WIDTH / 2}
-                  y2={target.y + NODE_HEIGHT / 2}
+                  x1={source.x + offsetX + NODE_WIDTH / 2}
+                  y1={source.y + offsetY + NODE_HEIGHT / 2}
+                  x2={target.x + offsetX + NODE_WIDTH / 2}
+                  y2={target.y + offsetY + NODE_HEIGHT / 2}
                 />
               );
             })}
@@ -449,8 +565,8 @@ export function AtlasCanvas({
                 <rect
                   key={node.id}
                   className={`atlas-minimap__card ${node.id === selected?.id ? "active" : ""}`}
-                  x={position.x}
-                  y={position.y}
+                  x={position.x + offsetX}
+                  y={position.y + offsetY}
                   width={NODE_WIDTH}
                   height={NODE_HEIGHT}
                   rx="8"
@@ -462,8 +578,8 @@ export function AtlasCanvas({
               className="atlas-minimap__viewport"
               x={view.viewport.x}
               y={view.viewport.y}
-              width={Math.min(layout.width, view.viewport.width)}
-              height={Math.min(layout.height, view.viewport.height)}
+              width={Math.min(worldWidth, view.viewport.width)}
+              height={Math.min(worldHeight, view.viewport.height)}
             />
           </svg>
         </button>

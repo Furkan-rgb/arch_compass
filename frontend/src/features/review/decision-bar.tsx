@@ -1,15 +1,37 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 
-import { api, type DecisionDisposition, type Finding, type Review } from "../../api";
+import { api, type Decision, type DecisionDisposition, type Finding, type Review } from "../../api";
 import { cn } from "../../lib/cn";
-import { absoluteTime, verdictOf } from "../../lib/format";
+import { absoluteTime, dispositionOf, verdictOf } from "../../lib/format";
+import { hasOpenModal, isTyping } from "../../lib/keyboard";
 import { DispositionBadge } from "../../ui/badge";
 import { buttonClass } from "../../ui/button";
 import { controlClass } from "../../ui/field";
+import { ChevronDown } from "../../ui/icons";
 import { Label } from "../../ui/panel";
-import { ErrorNotice, LiveRegion } from "../../ui/states";
+import { ErrorNotice, LiveRegion, Spinner } from "../../ui/states";
 import { decisionIsStale } from "./docket-rules";
+
+/** What `GET /api/branches/{id}/decisions` answers with, named where it is written to. */
+type BranchDecisions = Awaited<ReturnType<typeof api.decisions>>;
+
+/**
+ * The branch's standing decisions with one candidate's replaced, or added where it is new.
+ *
+ * A standing decision is one per candidate per branch — the record of what the team has
+ * decided, not a log of what they have decided over time — so writing one is a replacement.
+ * The history of the earlier ones is its own request, behind the fold at the foot of the bar.
+ */
+function withDecision(current: BranchDecisions, decision: Decision): BranchDecisions {
+  return {
+    ...current,
+    decisions: [
+      ...current.decisions.filter((item) => item.candidate_id !== decision.candidate_id),
+      decision,
+    ],
+  };
+}
 
 /**
  * The three dispositions, in the order a reviewer meets them, each with the key that takes it.
@@ -34,21 +56,6 @@ export const CHOICES: Array<{ id: DecisionDisposition; label: string; key: strin
     help: "The team disagrees, or accepts the trade-off. Needs a reason.",
   },
 ];
-
-/**
- * Whether the keystroke belongs to something being typed into.
- *
- * The queue's `j`/`k` already carries this guard and the reason is the same one, one letter
- * worse: a reviewer typing the word "Park" into a waiver's reason box means the word. With
- * `A`, `P` and `W` bound at the document there is no keystroke in a text field that is not
- * also a decision, so the guard is what makes the shortcuts safe to have at all.
- */
-function isTyping(target: EventTarget | null): boolean {
-  const node = target as HTMLElement | null;
-  return Boolean(
-    node && (node.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(node.tagName)),
-  );
-}
 
 /**
  * The key that takes this decision, shown on the control that takes it.
@@ -114,6 +121,24 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
   const current = decisions.data?.decisions.find((item) => item.candidate_id === candidateId);
   const stale = decisionIsStale(finding, current);
 
+  /**
+   * The decision lands on the list before the request does, and is taken back if it fails.
+   *
+   * It used to be two blocking round trips with a 45% fade over them: the POST, and then a
+   * refetch of every standing decision on the branch — three hundred of them on an old
+   * branch, re-downloaded to learn one new row — before the docket would settle the row and
+   * move on. From the keyboard, scrolled away from the bar, there was no signal at all.
+   *
+   * So the optimistic row is written into the branch's list, which is where `needsAttention`
+   * reads from, and the answer is *merged* into it rather than invalidating the query. What
+   * the server adds — the id, the timestamp, the identities the finding was judged under — is
+   * exactly what makes the merge worth doing rather than keeping the guess.
+   *
+   * The failure path is deliberately not only this bar. `main.tsx` toasts every mutation
+   * error that a call site does not claim, and this one does not claim it: a decision taken
+   * from the keyboard fails somewhere the reader is not looking, which is the whole reason
+   * the toast exists.
+   */
   const decide = useMutation({
     mutationFn: ({
       disposition,
@@ -122,11 +147,49 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
       disposition: DecisionDisposition;
       reasoning: string | null;
     }) => api.decide(review.id, candidateId, disposition, reasoning),
-    onSuccess: async (_result, variables) => {
+    onMutate: async ({ disposition, reasoning }) => {
+      await client.cancelQueries({ queryKey: ["decisions", branchId] });
+      const previous = client.getQueryData<BranchDecisions>(["decisions", branchId]);
+      const optimistic: Decision = {
+        // The one field that is honestly a guess until the server answers. It is never shown:
+        // the row keys on `candidate_id`, and the id exists so the merge has something to
+        // replace.
+        id: `pending-${candidateId}`,
+        branch_id: branchId,
+        candidate_id: candidateId,
+        disposition,
+        author: "user",
+        reasoning,
+        decided_at: new Date().toISOString(),
+        review_id: review.id,
+        // Decided against what is on screen, which is what makes the row settle rather than
+        // re-raise the moment it is written.
+        finding_verdict: finding.verdict,
+        finding_model_identity: finding.model_identity,
+        finding_prompt_identity: finding.prompt_identity,
+        finding_retrieval_identity: finding.retrieval_identity,
+      };
+      client.setQueryData<BranchDecisions>(["decisions", branchId], (current) =>
+        withDecision(current ?? { branch_id: branchId, decisions: [] }, optimistic),
+      );
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      // Back to exactly what was there. A rolled-back row returns to the attention filter,
+      // which is the truth: nothing was recorded.
+      if (context?.previous) client.setQueryData(["decisions", branchId], context.previous);
+    },
+    onSuccess: (recorded, variables) => {
       returning.current = variables.disposition === "waive" && waiving;
       setWaiving(false);
       setReason("");
-      await client.invalidateQueries({ queryKey: ["decisions", branchId] });
+      client.setQueryData<BranchDecisions>(["decisions", branchId], (current) =>
+        withDecision(current ?? { branch_id: branchId, decisions: [] }, recorded),
+      );
+      // Every decision about this candidate, which the fold below reads. It is lazy, so this
+      // only matters where somebody has opened it — and there it is the one query that
+      // genuinely gained a row.
+      void client.invalidateQueries({ queryKey: ["decision-history", branchId, candidateId] });
     },
   });
 
@@ -164,7 +227,8 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
    * the queue when they decide — `j`/`k` to walk, then one letter — and the bar is scrolled
    * past on a phone. Three things are refused: a keystroke inside a text field, a keystroke
    * with a modifier (that is a browser command, not ours), and a keystroke while a drawer is
-   * open, which is a focus trap and not this surface.
+   * open, which is a focus trap and not this surface. The first and third are `lib/keyboard`,
+   * which is where every surface that binds at the document asks the same two questions.
    *
    * `W` opens the reveal rather than waiving, because a waiver without a reason is not a
    * decision this product will record.
@@ -172,8 +236,7 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (isTyping(event.target)) return;
-      if (document.querySelector('[aria-modal="true"]')) return;
+      if (isTyping(event.target) || hasOpenModal()) return;
       const choice = CHOICES.find((item) => item.key.toLowerCase() === event.key.toLowerCase());
       if (!choice || busy) return;
       event.preventDefault();
@@ -199,15 +262,20 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
         {current ? <DispositionBadge disposition={current.disposition} /> : null}
       </div>
 
-      {/* Who decided, and what they said. `wrap-anywhere` because both are free text from a
-          person: an author name from a shell environment and a reason someone pasted are the
-          two strings here long enough to widen the bar, and the bar is the narrowest column
-          on a phone. */}
+      {/* When it was decided, and what was said. `wrap-anywhere` because the reason is free
+          text somebody pasted, and the bar is the narrowest column on a phone.
+
+          It used to lead with `current.author`, set in ink as though it were a name. Every
+          decision this product records carries the author `"user"`, so it printed a person
+          called user, and the name travelled into the immutable record and into every future
+          review's comparison. The content rule is explicit that an explicit unknown outranks
+          an implied one, and a fake name is worse than a blank — so until there is an
+          identity to record, the sentence says what is actually known: this branch, and
+          when. The field stays on the wire, where a real identity will arrive. */}
       <p className="mt-1.5 max-w-[58ch] text-sm leading-6 text-ink-2 wrap-anywhere">
         {current ? (
           <>
-            <span className="font-medium text-ink">{current.author}</span> decided this on{" "}
-            {absoluteTime(current.decided_at)}.
+            Recorded on this branch on {absoluteTime(current.decided_at)}.
             {current.reasoning ? (
               <span className="mt-1 block text-ink-3">“{current.reasoning}”</span>
             ) : null}
@@ -219,9 +287,7 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
 
       {stale && current ? (
         <div className="mt-3 border-l-2 border-held pl-3.5">
-          <div className="text-[10px] font-bold uppercase tracking-[0.11em] text-held">
-            Decided against a different verdict
-          </div>
+          <Label className="text-held">Decided against a different verdict</Label>
           <p className="mt-1.5 max-w-[58ch] text-[13px] leading-6 text-ink-2">
             The team decided this when ArchCompass called it{" "}
             <span className="font-semibold text-ink">
@@ -363,10 +429,139 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
         {decide.isSuccess ? <LiveRegion>Standing decision recorded.</LiveRegion> : null}
         {decide.error ? (
           <div className="mt-3">
-            <ErrorNotice error={decide.error} />
+            <ErrorNotice
+              error={decide.error}
+              title="That decision was not recorded"
+              action={
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    // The same decision, not a fresh one: what failed was the request, and
+                    // asking the reviewer to choose again would be asking them to re-decide.
+                    if (decide.variables) mutate(decide.variables);
+                  }}
+                  className={cn(buttonClass("secondary", "sm"))}
+                >
+                  Record it again
+                </button>
+              }
+            />
           </div>
         ) : null}
+
+        {current ? <DecisionHistory branchId={branchId} finding={finding} /> : null}
       </div>
     </section>
+  );
+}
+
+/**
+ * What the team has decided about this candidate before, newest first.
+ *
+ * `api.decisionHistory` has been written, typed and called from nowhere. The question it
+ * answers is the one a re-raised row now provokes: the bar says "the team decided this when
+ * ArchCompass called it held", and the immediate next question is what was decided the last
+ * four times, by whom, and against what.
+ *
+ * Fetched on opening rather than with the review. Most rows are never asked this, and a
+ * request per row of a forty-row docket to fill a fold nobody opened is the shape of thing
+ * this audit exists to remove.
+ *
+ * It reads the identity triple as well as the verdict. A decision taken when a different
+ * model judged, or against a different policy corpus, is a decision made about something
+ * else — which the row-level staleness check cannot see, because it compares verdicts, and
+ * two models can agree on a verdict for different reasons.
+ */
+function DecisionHistory({ branchId, finding }: { branchId: string; finding: Finding }) {
+  const candidateId = finding.candidate.id;
+  const [asked, setAsked] = useState(false);
+  const history = useQuery({
+    queryKey: ["decision-history", branchId, candidateId],
+    queryFn: () => api.decisionHistory(branchId, candidateId),
+    enabled: asked,
+    // A decision that has been recorded cannot change; only a new one can arrive, and the
+    // bar above invalidates this when it records one.
+    staleTime: Infinity,
+  });
+
+  return (
+    <details
+      className="group mt-3 border-t border-rule pt-3"
+      onToggle={(event) => {
+        if (event.currentTarget.open) setAsked(true);
+      }}
+    >
+      <summary className="flex min-h-11 list-none items-center gap-2 rounded-sm transition focus-visible:-outline-offset-2">
+        <Label className="min-w-0 flex-1 text-left">
+          Decided before{history.data ? ` · ${history.data.length}` : ""}
+        </Label>
+        <ChevronDown className="size-4 shrink-0 text-ink-3 transition group-open:rotate-180" />
+      </summary>
+
+      {history.isLoading ? (
+        <p className="flex items-center gap-2 text-[12.5px] text-ink-3">
+          <Spinner label="" /> Reading what was decided before…
+        </p>
+      ) : history.error ? (
+        <ErrorNotice
+          error={history.error}
+          title="That history could not be read"
+          action={
+            <button
+              type="button"
+              onClick={() => void history.refetch()}
+              className={cn(buttonClass("secondary", "sm"))}
+            >
+              Try again
+            </button>
+          }
+        />
+      ) : !history.data?.length ? (
+        <p className="text-[12.5px] leading-6 text-ink-3">
+          Nothing was decided about this candidate before the record above.
+        </p>
+      ) : (
+        <ol className="grid gap-1.5">
+          {history.data.map((entry) => {
+            const disposition = dispositionOf(entry.disposition);
+            // The whole judgement it answered, not only its verdict. A decision taken under
+            // a different model or a different corpus is one taken about a different thing,
+            // and today that passes in silence on every model change.
+            const judgedBy = [
+              entry.finding_model_identity === finding.model_identity ? null : "a different model",
+              entry.finding_prompt_identity === finding.prompt_identity
+                ? null
+                : "a different prompt",
+              entry.finding_retrieval_identity === finding.retrieval_identity
+                ? null
+                : "a different retrieval",
+            ].filter(Boolean) as string[];
+            return (
+              <li
+                key={entry.id}
+                className="rounded-md border border-rule bg-surface-2 px-3 py-2 text-[12.5px] leading-5 text-ink-2"
+              >
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                  <span className="font-semibold text-ink">{disposition.label}</span>
+                  <span className="text-ink-3">
+                    against {verdictOf(entry.finding_verdict).label.toLowerCase()}
+                  </span>
+                  <span className="font-mono text-[11px] text-ink-3">
+                    {absoluteTime(entry.decided_at)}
+                  </span>
+                </div>
+                {judgedBy.length ? (
+                  <p className="mt-1 text-ink-3">Judged by {judgedBy.join(", ")} than this one.</p>
+                ) : null}
+                {entry.reasoning ? (
+                  <p className="mt-1 wrap-anywhere">“{entry.reasoning}”</p>
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </details>
   );
 }

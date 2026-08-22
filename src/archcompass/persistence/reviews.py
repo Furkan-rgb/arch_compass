@@ -4,10 +4,54 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
-from archcompass.domain import Review
+from archcompass.domain import RepositoryRef, Review
 from archcompass.domain.errors import ReviewNotFoundError
 from archcompass.persistence.sqlite.codecs import DataclassRecordCodec
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewSummary:
+    """One review as a listing reads it, assembled without opening the review.
+
+    A listing shows a handful of facts about a review, and a stored review is most of a
+    repository's atlas — several megabytes of it. Listing a hundred used to decode a
+    hundred of those documents into a full object graph so that five integers could be
+    counted off it, which is the same work as opening every review at once and then
+    throwing all of them away.
+
+    So this is read out of the stored document by SQLite: the columns where there is a
+    column, `json_extract` and `json_each` where there is not, and the blob never enters
+    Python at all. `repository` is the real domain record because every field of it is one
+    `json_extract` away and a listing already knows how to render one.
+
+    Deliberately not a `Review` with the expensive fields left empty. A record that says it
+    is a review and has no findings would eventually be handed to something that needs
+    them, and would answer that there are none.
+    """
+
+    id: str
+    sequence: int
+    round: int
+    status: str
+    repository: RepositoryRef
+    case_id: str
+    case_revision: int
+    started_at: datetime
+    finished_at: datetime | None = None
+    previous_review_id: str | None = None
+    finding_count: int = 0
+    material_count: int = 0
+    held_count: int = 0
+    cleared_count: int = 0
+    question_count: int = 0
+    unchanged_count: int = 0
+    changed_count: int = 0
+    new_count: int = 0
+    addressed_count: int = 0
 
 
 class SQLiteCoreReviewRepository:
@@ -122,6 +166,61 @@ class SQLiteCoreReviewRepository:
             self._codec.decode(str(row[0]), description="Stored review") for row in rows
         )
 
+    #: Everything a listing shows, read off the stored document without decoding it.
+    #:
+    #: Four of the values are columns and the rest are `json_extract`, which parses the
+    #: document — so the calls are kept to what a listing genuinely reads, and the verdict
+    #: tally is one `json_each` per verdict rather than a scan per finding. SQLite keeps a
+    #: small cache of recently parsed JSON, and every call in one row is over the same text,
+    #: so the row costs about one parse rather than one per column.
+    _SUMMARY_COLUMNS = """
+        snapshots.review_id,
+        snapshots.sequence,
+        snapshots.round,
+        snapshots.status,
+        json_extract(snapshots.review_json, '$.repository.id'),
+        json_extract(snapshots.review_json, '$.repository.path'),
+        snapshots.branch_id,
+        json_extract(snapshots.review_json, '$.repository.content_id'),
+        json_extract(snapshots.review_json, '$.repository.remote_url'),
+        json_extract(snapshots.review_json, '$.repository.branch'),
+        json_extract(snapshots.review_json, '$.repository.commit'),
+        json_extract(snapshots.review_json, '$.case.id'),
+        json_extract(snapshots.review_json, '$.case.revision'),
+        json_extract(snapshots.review_json, '$.started_at'),
+        json_extract(snapshots.review_json, '$.finished_at'),
+        json_extract(snapshots.review_json, '$.previous_review_id'),
+        json_array_length(snapshots.review_json, '$.findings'),
+        (SELECT COUNT(*) FROM json_each(snapshots.review_json, '$.findings')
+            WHERE json_extract(json_each.value, '$.verdict') = 'material'),
+        (SELECT COUNT(*) FROM json_each(snapshots.review_json, '$.findings')
+            WHERE json_extract(json_each.value, '$.verdict') = 'held'),
+        (SELECT COUNT(*) FROM json_each(snapshots.review_json, '$.findings')
+            WHERE json_extract(json_each.value, '$.verdict') = 'cleared'),
+        json_array_length(snapshots.review_json, '$.questions'),
+        json_array_length(snapshots.review_json, '$.delta.unchanged'),
+        json_array_length(snapshots.review_json, '$.delta.changed'),
+        json_array_length(snapshots.review_json, '$.delta.new'),
+        json_array_length(snapshots.review_json, '$.delta.addressed')
+    """
+
+    def list_summaries(self, *, limit: int = 100) -> tuple[ReviewSummary, ...]:
+        """The same reviews `list` returns, projected rather than decoded.
+
+        Same rows and same order as `list`, so a caller can move between the two without
+        the listing changing under it.
+        """
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT {self._SUMMARY_COLUMNS} "
+                "FROM core_review_snapshots AS snapshots "
+                f"WHERE {self._NEWEST_PER_REVISION} "
+                "ORDER BY snapshots.sequence DESC, snapshots.rowid DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return tuple(_summary(row) for row in rows)
+
     def delete(self, review_id: str) -> None:
         # Review deletion is an explicit user operation. Provenance and checkpoints are
         # otherwise append-only and are never cleaned up as a side effect of startup.
@@ -131,3 +230,48 @@ class SQLiteCoreReviewRepository:
             )
         if cursor.rowcount != 1:
             raise ReviewNotFoundError(f"Review {review_id} was not found")
+
+
+def _moment(value: object) -> datetime | None:
+    """One stored timestamp back as a datetime, so a summary reads like a review.
+
+    The document holds what Pydantic wrote — `2026-01-01T00:00:00Z` — and everything that
+    reads a review reads `datetime`. Parsing here rather than passing the string on keeps
+    the two listings saying the same thing about the same review.
+    """
+
+    return None if value is None else datetime.fromisoformat(str(value))
+
+
+def _summary(row: tuple[object, ...]) -> ReviewSummary:
+    started = _moment(row[13])
+    assert started is not None  # A stored review always has a start; the column is not null.
+    return ReviewSummary(
+        id=str(row[0]),
+        sequence=int(str(row[1])),
+        round=int(str(row[2])),
+        status=str(row[3]),
+        repository=RepositoryRef(
+            id=str(row[4]),
+            path=Path(str(row[5])),
+            branch_id=str(row[6]),
+            content_id=str(row[7]),
+            remote_url=None if row[8] is None else str(row[8]),
+            branch=None if row[9] is None else str(row[9]),
+            commit=None if row[10] is None else str(row[10]),
+        ),
+        case_id=str(row[11]),
+        case_revision=int(str(row[12])),
+        started_at=started,
+        finished_at=_moment(row[14]),
+        previous_review_id=None if row[15] is None else str(row[15]),
+        finding_count=int(str(row[16])),
+        material_count=int(str(row[17])),
+        held_count=int(str(row[18])),
+        cleared_count=int(str(row[19])),
+        question_count=int(str(row[20])),
+        unchanged_count=int(str(row[21])),
+        changed_count=int(str(row[22])),
+        new_count=int(str(row[23])),
+        addressed_count=int(str(row[24])),
+    )

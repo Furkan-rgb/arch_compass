@@ -437,7 +437,6 @@ export const CASE_FILE: Review = {
   },
   retrieval_manifest: RETRIEVAL,
   investigation_manifest: INVESTIGATION,
-  markdown_report: null,
   synopsis: null,
   synopsis_identity: "",
   model_identity: "google:gemini-3.6",

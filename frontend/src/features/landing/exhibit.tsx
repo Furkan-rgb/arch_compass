@@ -104,9 +104,13 @@ function Row({
               {leaf}
             </span>
             {!settled ? (
+              // The block-label recipe, and deliberately not `Label`: this one is inline in
+              // a row of baselines rather than a block above one, and it takes the verdict's
+              // tone instead of the meta grey. What it had no excuse for was the tracking —
+              // `0.11em` was a paste, and `0.13em` is the value the type scale names.
               <span
                 className={cn(
-                  "text-[10px] font-bold uppercase tracking-[0.11em]",
+                  "text-[10px] font-bold uppercase tracking-[0.13em]",
                   TONE_TEXT[descriptor.tone],
                 )}
               >

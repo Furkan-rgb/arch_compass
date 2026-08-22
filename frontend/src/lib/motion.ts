@@ -1,6 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
+ * Whether this reader has asked for less movement, read once at the moment it is asked.
+ *
+ * Three hooks were each writing this line out, and `useSpecimen` and the atlas both want it
+ * too. It is a function rather than a constant because the preference can be changed while
+ * the page is open, and a module-level read would answer for whatever it was at import.
+ *
+ * `globalThis.matchMedia?.` because jsdom without the test setup's stub has none, and a
+ * missing media query means "no preference recorded" rather than a page that fails to
+ * render.
+ */
+export function prefersReducedMotion(): boolean {
+  return Boolean(globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+}
+
+/**
  * Reveal an element the first time it scrolls into view, once.
  *
  * The element carries `.reveal` and is finished by `data-revealed`, so the transition is
@@ -15,8 +30,7 @@ export function useReveal<T extends HTMLElement = HTMLDivElement>() {
   useEffect(() => {
     const node = ref.current;
     if (!node || revealed) return;
-    const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduced || typeof IntersectionObserver === "undefined") {
+    if (prefersReducedMotion() || typeof IntersectionObserver === "undefined") {
       setRevealed(true);
       return;
     }
@@ -36,9 +50,29 @@ export function useReveal<T extends HTMLElement = HTMLDivElement>() {
   return { ref, revealed };
 }
 
-/** Trap tab focus inside an open overlay, and restore it to the opener when it closes. */
+/**
+ * Trap tab focus inside an open overlay, and restore it to the opener when it closes.
+ *
+ * `onClose` is held in a ref and deliberately not a dependency. It was one, and every call
+ * site passes a fresh arrow on every render — so the effect tore down and re-ran on each of
+ * them, and each run put focus back on the first focusable thing in the overlay. The review
+ * page polls the run list every four seconds; that made typing into the drawer's search box
+ * lose its keystrokes on a four-second cycle, which reads as a broken input rather than as a
+ * focus bug.
+ *
+ * `[open]` is therefore the whole dependency list: the trap is set up when the overlay opens
+ * and torn down when it closes, and nothing a parent re-renders can move focus.
+ */
 export function useFocusTrap(open: boolean, onClose: () => void) {
   const ref = useRef<HTMLDivElement | null>(null);
+  const close = useRef(onClose);
+
+  // After every render rather than during one: a ref written in the render pass is a write
+  // React is allowed to run twice or discard, and the handler below only reads it when a
+  // key is actually pressed — which is always after the render that set it.
+  useEffect(() => {
+    close.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -56,7 +90,7 @@ export function useFocusTrap(open: boolean, onClose: () => void) {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.stopPropagation();
-        onClose();
+        close.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -79,7 +113,37 @@ export function useFocusTrap(open: boolean, onClose: () => void) {
       document.removeEventListener("keydown", onKeyDown, true);
       opener?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
+
+  return ref;
+}
+
+/**
+ * Everything an overlay owes the page behind it: a focus trap, and a page that stops
+ * scrolling under it.
+ *
+ * The drawer carried both and the command palette carried neither, which is how a dialog
+ * declaring `aria-modal="true"` came to let Tab walk into the page behind it. Two things
+ * that are modal in the same sense should be modal in the same way, so this is the one
+ * place either behaviour is written and both call sites take it whole.
+ *
+ * Returns the ref that goes on the dialog element — the trap needs to know which box it is
+ * trapping inside.
+ */
+export function useOverlay(open: boolean, onClose: () => void) {
+  const ref = useFocusTrap(open, onClose);
+
+  useEffect(() => {
+    if (!open) return;
+    // The previous value rather than an empty string: overlays can be stacked — a drawer
+    // with a sheet over it — and the inner one must give back what it found, not what the
+    // document started with.
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [open]);
 
   return ref;
 }

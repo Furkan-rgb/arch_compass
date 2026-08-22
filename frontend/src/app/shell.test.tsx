@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../api";
 import { VIEWPORT, setViewportWidth } from "../test-setup";
-import { workspaceFixture } from "../test-fixtures";
+import { runFixture, workspaceFixture } from "../test-fixtures";
 import { AppShell } from "./shell";
 
 function wrap(entry = "/reviews") {
@@ -24,6 +24,7 @@ function wrap(entry = "/reviews") {
 beforeEach(() => {
   setViewportWidth(VIEWPORT.desktop);
   vi.spyOn(api, "workspace").mockResolvedValue(workspaceFixture());
+  vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
   window.localStorage.clear();
 });
 
@@ -109,6 +110,104 @@ describe("the application shell", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "ArchCompass" })).not.toBeInTheDocument(),
     );
+  });
+
+  /**
+   * The 256 pixels between the hamburger going and the chips arriving.
+   *
+   * `lg:hidden` on the drawer button and `xl:flex` on the chips left a band — 1024 to
+   * 1279, an ordinary window width — where there was no drawer to open and no chips, so
+   * nothing on any page said which repository root the workspace pointed at or which two
+   * models it ran. The two breakpoints are the same one now.
+   *
+   * Asserted at the class rather than through visibility, because jsdom applies no
+   * stylesheet: what is being checked is which breakpoint the element was given.
+   */
+  it("still names the two models at a width with no navigation drawer", async () => {
+    setViewportWidth(VIEWPORT.tablet);
+    render(wrap());
+
+    const chip = (await screen.findAllByRole("link", { name: /Reasoning/ }))[0];
+    const chips = chip.parentElement;
+    expect(chips).toHaveClass("lg:flex");
+    expect(chips).not.toHaveClass("xl:flex");
+
+    // The drawer's own trigger goes at exactly the width the chips arrive at, so no width
+    // has neither.
+    expect(screen.getByRole("button", { name: "Open navigation" })).toHaveClass("lg:hidden");
+  });
+
+  /** The dead `stacked` prop had no call site, so below `lg` the drawer named nothing. */
+  it("names them again inside the navigation drawer, where the rail cannot", async () => {
+    setViewportWidth(VIEWPORT.phone);
+    render(wrap());
+
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    const drawer = await screen.findByRole("dialog", { name: "ArchCompass" });
+    await waitFor(() =>
+      expect(within(drawer).getByRole("link", { name: /Reasoning model/ })).toHaveTextContent(
+        "deterministic",
+      ),
+    );
+    expect(within(drawer).getByRole("link", { name: /Embedding model/ })).toBeInTheDocument();
+  });
+
+  /**
+   * Two controls on the dark rail drew their focus ring in ink, and ink on a light page is
+   * near-black — so the first thing a keyboard reaches on every screen, and the one button
+   * that starts a review, both rang black on black. The band's own ink is white in both
+   * themes, which is the only value that reads on this ground.
+   */
+  it("draws the rail's focus rings in a colour the rail can show", () => {
+    render(wrap());
+    expect(screen.getByRole("link", { name: "Skip to content" })).toHaveClass(
+      "focus-visible:outline-band-ink",
+    );
+    expect(screen.getByRole("link", { name: "New review" })).toHaveClass(
+      "focus-visible:outline-band-ink",
+    );
+  });
+
+  /**
+   * A run is minutes long and the run page says you can leave. Leaving used to remove every
+   * trace of it: no badge, no count, nothing anywhere else in the product.
+   */
+  it("says a review is running wherever you are, and says nothing when none is", async () => {
+    render(wrap("/policies"));
+    await waitFor(() => expect(api.reviewRuns).toHaveBeenCalled());
+    expect(screen.queryByRole("link", { name: /review running/ })).not.toBeInTheDocument();
+
+    vi.mocked(api.reviewRuns).mockResolvedValue([runFixture()]);
+    render(wrap("/policies"));
+
+    const indicator = await screen.findByRole("link", { name: /1 review running/ });
+    expect(indicator).toHaveAttribute("href", "/runs/thread-9");
+  });
+
+  it("opens the shortcut sheet from the rail and from the ? key", async () => {
+    render(wrap());
+
+    fireEvent.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
+    const sheet = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    expect(within(sheet).getByText("Accept and act on the open finding")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Keyboard shortcuts" })).not.toBeInTheDocument(),
+    );
+
+    fireEvent.keyDown(document, { key: "?" });
+    expect(await screen.findByRole("dialog", { name: "Keyboard shortcuts" })).toBeInTheDocument();
+  });
+
+  it("refuses ? while something is being typed into", async () => {
+    render(wrap());
+    const search = screen.getByRole("button", { name: "Search everything" });
+    fireEvent.click(search);
+    const field = await screen.findByRole("combobox");
+
+    fireEvent.keyDown(field, { key: "?", target: field });
+    expect(screen.queryByRole("dialog", { name: "Keyboard shortcuts" })).not.toBeInTheDocument();
   });
 
   it("cycles the theme preference and remembers it", async () => {

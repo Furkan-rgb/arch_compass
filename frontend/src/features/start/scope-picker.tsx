@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import type { CSSProperties } from "react";
 
-import { api, type RepositoryFolder } from "../../api";
+import { api, type RepositoryFolder, type RepositoryFolderTree } from "../../api";
 import { cn } from "../../lib/cn";
 import { plural } from "../../lib/format";
 import { Tag } from "../../ui/badge";
@@ -8,6 +9,44 @@ import { Button } from "../../ui/button";
 import { FolderIcon } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { EmptyState, ErrorNotice, Spinner } from "../../ui/states";
+
+/**
+ * Whether a path is worth asking the workspace about at all.
+ *
+ * `/api/repositories/tree` walks the folder with `rglob("*")` and a `stat()` per file, so a
+ * half-typed path is not a cheap request that comes back 404 — it is a full recursive walk of
+ * whatever directory the prefix happens to name. `/Users/me` is a real directory on the way
+ * to everything under it, which is how typing a path once walked somebody's entire home
+ * folder. Nothing that is not an absolute path can be read, so nothing else is sent.
+ */
+export const isAbsolutePath = (path: string) => path.startsWith("/");
+
+/**
+ * The repository's folders, asked for once however many components want them.
+ *
+ * The start page needs the file count for what it prints under the run button and for
+ * whether the button can run at all; this picker needs the folders themselves. One query
+ * key, so React Query answers both from one request rather than each opening its own.
+ */
+export function useRepositoryTree(root: string) {
+  return useQuery({
+    queryKey: ["repository-tree", root],
+    queryFn: ({ signal }) => api.repositoryTree(root, signal),
+    enabled: isAbsolutePath(root),
+  });
+}
+
+/** The Python files this run will actually read, given what has been left out. */
+export function filesInScope(
+  tree: RepositoryFolderTree | undefined,
+  excluded: string[],
+): number | null {
+  if (!tree) return null;
+  const skipped = (tree.folders ?? [])
+    .filter((folder) => excluded.includes(folder.path))
+    .reduce((sum, folder) => sum + folder.python_files, 0);
+  return (tree.total_python_files ?? 0) - skipped;
+}
 
 /**
  * Which parts of the repository this review reads.
@@ -31,25 +70,42 @@ export function ScopePicker({
   excluded: string[];
   onChange: (next: string[]) => void;
 }) {
-  const tree = useQuery({
-    queryKey: ["repository-tree", root],
-    queryFn: () => api.repositoryTree(root),
-    enabled: Boolean(root),
-  });
+  const tree = useRepositoryTree(root);
 
   if (!root) {
     return (
       <p className="text-sm text-ink-3">Choose a repository first, and its folders appear here.</p>
     );
   }
+  if (!isAbsolutePath(root)) {
+    return (
+      <p className="text-sm text-ink-3">
+        A repository is named by an absolute path on this machine, and its folders appear here
+        as soon as this one is.
+      </p>
+    );
+  }
   if (tree.isLoading) {
     return (
       <div className="flex items-center gap-2 py-3 text-sm text-ink-3">
-        <Spinner /> Reading the repository…
+        {/* The label is printed right beside it, so the spinner does not say it again. */}
+        <Spinner label="" /> Reading the repository…
       </div>
     );
   }
-  if (tree.error) return <ErrorNotice error={tree.error} title="That repository could not be read" />;
+  if (tree.error) {
+    return (
+      <ErrorNotice
+        error={tree.error}
+        title="That repository could not be read"
+        action={
+          <Button variant="secondary" size="sm" onClick={() => void tree.refetch()}>
+            Try again
+          </Button>
+        }
+      />
+    );
+  }
 
   const folders = tree.data?.folders ?? [];
   if (!folders.length) {
@@ -61,9 +117,8 @@ export function ScopePicker({
   }
 
   const total = tree.data?.total_python_files ?? 0;
-  const skipped = folders
-    .filter((folder) => excluded.includes(folder.path))
-    .reduce((sum, folder) => sum + folder.python_files, 0);
+  const reading = filesInScope(tree.data, excluded) ?? total;
+  const skipped = total - reading;
   const suggested = folders.filter((folder) => folder.suggested).map((folder) => folder.path);
 
   const toggle = (path: string) => {
@@ -81,8 +136,7 @@ export function ScopePicker({
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-ink-2">
-          Reviewing{" "}
-          <strong className="font-semibold tabular-nums text-ink">{total - skipped}</strong> of{" "}
+          Reviewing <strong className="font-semibold tabular-nums text-ink">{reading}</strong> of{" "}
           <span className="tabular-nums">{plural(total, "Python file")}</span>
           {skipped ? <span className="text-ink-3"> · {skipped} left out</span> : null}
         </p>
@@ -130,35 +184,61 @@ function FolderRow({
   onToggle: () => void;
 }) {
   const depth = folder.path.split("/").length - 1;
+  const cut = folder.path.lastIndexOf("/");
+  const parent = cut > 0 ? folder.path.slice(0, cut) : "";
+  const leaf = cut > 0 ? folder.path.slice(cut + 1) : folder.path;
+  const dimmed = checked || covered;
+
   return (
     <li>
       <label
+        // The whole path, always, wherever the row had to shorten it. There was none, so a
+        // truncated row had nothing behind it to recover the difference from.
+        title={folder.path}
+        style={{ "--depth": `${depth * 1.1}rem` } as CSSProperties}
         className={cn(
-          "flex cursor-pointer items-center gap-2.5 rounded-sm border px-2.5 py-2 transition",
-          checked || covered
+          "flex cursor-pointer items-center gap-2.5 rounded-sm border py-2 pr-2.5 transition",
+          // The indent is what makes this a tree, and below `sm` it is what the tree costs:
+          // at 390px a depth-2 row left about 120px for a mono path, so `src/infrastructure`
+          // and `src/interfaces` truncated to the same string. The narrow layout drops the
+          // indent and says the parent once, small, above the leaf — which is the docket's
+          // own treatment for rows that share a namespace.
+          "pl-2.5 sm:pl-[calc(0.625rem_+_var(--depth))]",
+          dimmed
             ? "border-rule bg-sunken text-ink-3"
             : "border-transparent hover:border-rule hover:bg-sunken/60",
           covered && "cursor-not-allowed opacity-60",
         )}
-        style={{ paddingLeft: `${0.625 + depth * 1.1}rem` }}
       >
         <input
           type="checkbox"
-          checked={checked || covered}
+          checked={dimmed}
           disabled={covered}
           onChange={onToggle}
           className="size-4 shrink-0 accent-[var(--ink)]"
           aria-label={`Leave out ${folder.path}`}
         />
         <FolderIcon className="size-4 shrink-0 text-ink-3" />
-        <Mono
-          className={cn(
-            "min-w-0 flex-1 truncate text-[12px]",
-            checked || covered ? "text-ink-3 line-through" : "text-ink",
-          )}
-        >
-          {folder.path}
-        </Mono>
+        <span className="min-w-0 flex-1">
+          {parent ? (
+            <Mono className="block truncate text-[10px] text-ink-3 sm:hidden">{parent}/</Mono>
+          ) : null}
+          <Mono
+            className={cn(
+              "block truncate text-[12px]",
+              dimmed ? "text-ink-3 line-through" : "text-ink",
+            )}
+          >
+            {parent ? (
+              <>
+                <span className="sm:hidden">{leaf}</span>
+                <span className="hidden sm:inline">{folder.path}</span>
+              </>
+            ) : (
+              folder.path
+            )}
+          </Mono>
+        </span>
         {folder.suggested ? <Tag>usually skipped</Tag> : null}
         <span className="shrink-0 text-[11px] tabular-nums text-ink-3">
           {folder.python_files.toLocaleString()}

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from threading import Lock
 

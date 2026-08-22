@@ -15,6 +15,7 @@ import { VIEWPORT, setViewportWidth } from "../../test-setup";
 import {
   investigationFixture,
   reviewFixture,
+  reviewSummaryFixture,
   runFixture,
 } from "../../test-fixtures";
 import { ReviewPage } from "./review-page";
@@ -33,6 +34,9 @@ function wrap(children: ReactNode, path = "/reviews/review-1") {
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/reviews/:reviewId" element={children} />
+          {/* Answering a clarification hands the rejudgement to a run and follows it there,
+              so the router needs somewhere for it to land. */}
+          <Route path="/runs/:runId" element={<span>The run</span>} />
         </Routes>
         {/* A memory router never touches `window.location`, so the URL a test asserts on has
             to be read from the router itself. */}
@@ -61,6 +65,80 @@ async function docket() {
   return rows();
 }
 
+/**
+ * The progress strip's marks, and how many of them are filled.
+ *
+ * Read off the class rather than through a hook of its own: the strip is `aria-hidden`
+ * decoration beside a sentence that carries the same fact in words, and a `data-` attribute
+ * added to it would exist for this test and for nothing else.
+ */
+function progress() {
+  const marks = Array.from(
+    document.querySelectorAll<HTMLElement>('span[class*="w-[5px]"]'),
+  );
+  return {
+    total: marks.length,
+    filled: marks.filter((mark) => mark.className.includes("bg-ink")).length,
+  };
+}
+
+/** A review with more candidates than the docket's own devices are sized for. */
+function wideReview(count: number, cleared: number) {
+  const base = reviewFixture({ status: "completed", questions: [] });
+  const [template] = base.findings;
+  const findings = Array.from({ length: count }, (_, index) => ({
+    ...template,
+    verdict: index < cleared ? "cleared" : "material",
+    candidate: {
+      ...template.candidate,
+      id: `wide-${index}`,
+      summary: `Candidate ${index} claims something`,
+      participants: [
+        { qualified_name: `domain.wide.Thing${index}`, role: "source", node_id: null },
+      ],
+    },
+  }));
+  return {
+    ...base,
+    findings,
+    delta: {
+      unchanged: [],
+      changed: [],
+      new: findings.map((finding) => finding.candidate.id),
+      addressed: [],
+    },
+  };
+}
+
+/** A workspace that records what it is told, so a second decision sees the first. */
+function recordDecisions(review: ReturnType<typeof reviewFixture>) {
+  const recorded: Decision[] = [];
+  vi.spyOn(api, "decisions").mockImplementation(async () => ({
+    branch_id: "branch-1",
+    decisions: [...recorded],
+  }));
+  vi.spyOn(api, "decide").mockImplementation(async (_review, candidateId) => {
+    const finding = review.findings.find((item) => item.candidate.id === candidateId)!;
+    const decision: Decision = {
+      id: `decision-${candidateId}`,
+      branch_id: "branch-1",
+      candidate_id: candidateId,
+      disposition: "accept",
+      author: "user",
+      reasoning: null,
+      decided_at: "2026-01-01T00:00:00Z",
+      review_id: "review-1",
+      finding_verdict: finding.verdict,
+      finding_model_identity: "fake:deterministic",
+      finding_prompt_identity: "judge:v1",
+      finding_retrieval_identity: "retrieval-1",
+    };
+    recorded.push(decision);
+    return decision;
+  });
+  return recorded;
+}
+
 beforeEach(() => {
   setViewportWidth(VIEWPORT.desktop);
   vi.spyOn(api, "decisions").mockResolvedValue({
@@ -68,6 +146,9 @@ beforeEach(() => {
     decisions: [],
   });
   vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
+  // The lineage rail reads the listing rather than the reviews themselves — a stored review
+  // is most of a repository's atlas, and the rail draws a number and a date off each entry.
+  vi.spyOn(api, "reviewSummaries").mockResolvedValue([reviewSummaryFixture()]);
 });
 
 afterEach(() => {
@@ -253,15 +334,15 @@ describe("the review workbench", () => {
     );
   });
 
-  it("records an explicit skip and resumes by review identity", async () => {
+  it("records an explicit skip and hands the rejudgement to a run", async () => {
+    // Answering rejudges every extant candidate, which is minutes of model work. It used to
+    // be held inside one POST, so the browser tab was the thing keeping it alive: a reload, a
+    // closed laptop or a proxy timeout left a person unable to tell whether their answers had
+    // been recorded at all. The run is somewhere to come back to.
     const review = reviewFixture();
     vi.spyOn(api, "review").mockResolvedValue(review);
     vi.spyOn(api, "reviews").mockResolvedValue([review]);
-    const answer = vi
-      .spyOn(api, "answer")
-      .mockResolvedValue(
-        reviewFixture({ id: "review-2", status: "completed", questions: [] }),
-      );
+    const answer = vi.spyOn(api, "answerRun").mockResolvedValue(runFixture());
 
     render(wrap(<ReviewPage />));
 
@@ -288,6 +369,10 @@ describe("the review workbench", () => {
         false,
       ),
     );
+    // And the page follows the work rather than waiting on it.
+    await waitFor(() =>
+      expect(screen.getByTestId("path")).toHaveTextContent("/runs/thread-9"),
+    );
   });
 
   it("stacks the round, and opens the next question when one is answered", async () => {
@@ -311,11 +396,7 @@ describe("the review workbench", () => {
     });
     vi.spyOn(api, "review").mockResolvedValue(review);
     vi.spyOn(api, "reviews").mockResolvedValue([review]);
-    const answer = vi
-      .spyOn(api, "answer")
-      .mockResolvedValue(
-        reviewFixture({ id: "review-2", status: "completed", questions: [] }),
-      );
+    const answer = vi.spyOn(api, "answerRun").mockResolvedValue(runFixture());
 
     render(wrap(<ReviewPage />));
 
@@ -487,11 +568,7 @@ describe("the review workbench", () => {
     });
     vi.spyOn(api, "review").mockResolvedValue(review);
     vi.spyOn(api, "reviews").mockResolvedValue([review]);
-    const answer = vi
-      .spyOn(api, "answer")
-      .mockResolvedValue(
-        reviewFixture({ id: "review-2", status: "completed", questions: [] }),
-      );
+    const answer = vi.spyOn(api, "answerRun").mockResolvedValue(runFixture());
 
     render(wrap(<ReviewPage />));
 
@@ -523,11 +600,7 @@ describe("the review workbench", () => {
     const review = reviewFixture();
     vi.spyOn(api, "review").mockResolvedValue(review);
     vi.spyOn(api, "reviews").mockResolvedValue([review]);
-    const answer = vi
-      .spyOn(api, "answer")
-      .mockResolvedValue(
-        reviewFixture({ id: "review-2", status: "completed", questions: [] }),
-      );
+    const answer = vi.spyOn(api, "answerRun").mockResolvedValue(runFixture());
 
     render(wrap(<ReviewPage />));
 
@@ -562,11 +635,7 @@ describe("the review workbench", () => {
     const review = reviewFixture();
     vi.spyOn(api, "review").mockResolvedValue(review);
     vi.spyOn(api, "reviews").mockResolvedValue([review]);
-    const answer = vi
-      .spyOn(api, "answer")
-      .mockResolvedValue(
-        reviewFixture({ id: "review-2", status: "completed", questions: [] }),
-      );
+    const answer = vi.spyOn(api, "answerRun").mockResolvedValue(runFixture());
 
     render(wrap(<ReviewPage />));
 
@@ -1444,6 +1513,370 @@ describe("the review workbench", () => {
     // candidate has to be opened before its assessment is on screen.
     fireEvent.click(within(article).getByRole("button", { expanded: false }));
     expect(within(article).queryByText("Looked up")).not.toBeInTheDocument();
+  });
+
+  it("fills the progress strip by proportion, not by counting segments", async () => {
+    // The strip is capped at 24 marks and the fill compared a mark's *index* against the raw
+    // settled count, so any review larger than the strip read as finished the moment 24
+    // things were settled. It is the first thing on the docket, on exactly the reviews where
+    // knowing how far through you are matters most.
+    const review = wideReview(30, 12);
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+    await docket();
+
+    const marks = progress();
+    expect(marks.total).toBe(24);
+    // Twelve of thirty, drawn on a scale of twenty-four. The old arithmetic filled twelve of
+    // twenty-four, which is half the strip for 40% of the work — and every mark at 24.
+    expect(marks.filled).toBe(Math.round((12 / 30) * 24));
+    expect(marks.filled).toBeLessThan(marks.total);
+    // The sentence beside it is exact whatever the strip rounds to.
+    expect(screen.getByText(/settled$/)).toHaveTextContent("12 of 30 settled");
+  });
+
+  it("marks the review worked through in the session that worked through it", async () => {
+    // `WorkedThrough` rendered only when the list was empty, and the list deliberately keeps
+    // every row that settled under you — so deciding the last outstanding candidate left it
+    // non-empty and the one moment in the product worth marking was skipped in the very
+    // session that earned it. You got a list of settled rows and silence.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    recordDecisions(review);
+
+    render(wrap(<ReviewPage />));
+
+    await docket();
+    fireEvent.click(screen.getByRole("button", { name: "Accept and act" }));
+    await waitFor(() => expect(rows()[1]).toHaveAttribute("aria-expanded", "true"));
+    fireEvent.click(screen.getByRole("button", { name: "Accept and act" }));
+
+    const marked = await screen.findByText("Worked through");
+    // Above the rows it is about, which are still listed: they are what it counts.
+    expect(rows()).toHaveLength(2);
+    expect(
+      marked.compareDocumentPosition(rows()[0]) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("keeps a clarification's answers through the gestures that unmount the round", async () => {
+    // The round's answers were state inside a component rendered as `{open ? <round/> : null}`
+    // inside a card on a docket — so collapsing the card, pressing `j`, and reading another
+    // surface each wiped every answer typed into it. "Never navigate away from unsaved input."
+    const review = reviewFixture();
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(
+      await screen.findByRole("radio", {
+        name: "The domain owns it and adapters implement its ports",
+      }),
+    );
+    /**
+     * The answer, in whichever of its two shapes the round happens to be showing.
+     *
+     * A question that is open shows it as the option that is chosen; one that is closed shows
+     * it as the answer on the row, which is the shape the doc asks a settled question to take.
+     * Both are the answer still being there, which is the claim.
+     */
+    const held = () =>
+      screen.queryByRole("radio", {
+        name: "The domain owns it and adapters implement its ports",
+        checked: true,
+      }) ??
+      screen.queryByRole("button", {
+        name: /Who owns persistence\? — answered: The domain owns it/,
+      });
+    expect(held()).toBeInTheDocument();
+
+    // Collapsing the card that holds the round.
+    const card = screen.getByRole("button", { name: /1 question wants an answer/ });
+    fireEvent.click(card);
+    fireEvent.click(card);
+    expect(held()).toBeInTheDocument();
+
+    // Walking the docket, which closes the round and opens a finding.
+    fireEvent.keyDown(document.body, { key: "j" });
+    expect(screen.queryByText("Who owns persistence?")).not.toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: "k" });
+    expect(held()).toBeInTheDocument();
+
+    // And reading another surface, which unmounts the whole docket.
+    fireEvent.click(screen.getByRole("tab", { name: /Delta/ }));
+    fireEvent.click(screen.getByRole("tab", { name: /Docket/ }));
+    expect(held()).toBeInTheDocument();
+
+    // Reopening the question hands back what was chosen, rather than a blank menu.
+    fireEvent.click(held()!);
+    expect(
+      screen.getByRole("radio", {
+        name: "The domain owns it and adapters implement its ports",
+        checked: true,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("walks the list from the keyboard when focus is nowhere near it", async () => {
+    // The walk keys were a React `onKeyDown` on the docket's own div, so they only fired
+    // while focus was inside it — and recording a decision unmounts the button that was
+    // pressed, dropping focus on `<body>`. `A` went on working and `j` did not, which is a
+    // half-dead keyboard with nothing on screen to explain it.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    const listed = await docket();
+    expect(listed[0]).toHaveAttribute("aria-expanded", "true");
+
+    document.body.focus();
+    fireEvent.keyDown(document.body, { key: "j" });
+    expect(rows()[1]).toHaveAttribute("aria-expanded", "true");
+
+    // And Escape closes what is open, which is the only key on the docket that was missing.
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(rows()[1]).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("settles a row before the request comes back, and says what happened", async () => {
+    // A decision used to be two blocking round trips — the POST, then a refetch of every
+    // standing decision on the branch — with three buttons fading to 45% as the only signal.
+    // Pressed from the keyboard while scrolled away there was no signal at all.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    const branch = vi.spyOn(api, "decisions").mockResolvedValue({
+      branch_id: "branch-1",
+      decisions: [],
+    });
+    // Never answers, so everything asserted below happens while the request is still open.
+    vi.spyOn(api, "decide").mockImplementation(() => new Promise(() => {}));
+
+    render(wrap(<ReviewPage />));
+
+    await docket();
+    const reads = branch.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Accept and act" }));
+
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Accepted by the team"),
+    );
+    // And the cursor has moved on, which is the other half of what a reader has to be told.
+    expect(rows()[1]).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByText(/^Accepted\. Now on domain\.orders, held\.$/),
+    ).toBeInTheDocument();
+    // Nothing was re-read to learn one row.
+    expect(branch.mock.calls.length).toBe(reads);
+  });
+
+  it("takes a decision back when the request refuses it", async () => {
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "decide").mockRejectedValue(new Error("The workspace is not answering"));
+
+    render(wrap(<ReviewPage />));
+
+    await docket();
+    fireEvent.click(screen.getByRole("button", { name: "Accept and act" }));
+
+    // The row returns to the attention filter, because nothing was recorded...
+    await screen.findByRole("alert");
+    expect(rows()[0].textContent).not.toContain("Accepted by the team");
+    // ...and the failure says so where the reader is, with the way to try it again.
+    expect(
+      screen.getByRole("button", { name: "Record it again" }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens the finding a link names, and never writes one as you walk", async () => {
+    // `?tab=` is in the URL by design and the open row is page state, also by design. That
+    // reasoning is about walking the list; it does not cover handing a colleague one finding,
+    // which without this means "open review 4, set the filter to All, and scroll to it".
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />, "/reviews/review-1?candidate=candidate-3"));
+
+    // candidate-3 is cleared, so the default Attention filter would have hidden it.
+    await docket();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Settled/ })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+    const named = rows().find((row) => row.dataset.candidate === "candidate-3")!;
+    expect(named).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("button", { name: "Copy link to this finding" }),
+    ).toBeInTheDocument();
+
+    // Walking away from it does not rewrite the parameter — a link that followed the cursor
+    // would put an entry in the reader's history for every row they open.
+    fireEvent.keyDown(document.body, { key: "j" });
+    expect(screen.getByTestId("path")).toHaveTextContent(
+      "/reviews/review-1?candidate=candidate-3",
+    );
+  });
+
+  it("keeps the verdict word on a settled row, and withdraws only the hue", async () => {
+    // Under the Settled filter — the surface for "what did we decide, and about what" — a
+    // waived material finding was visually identical to a cleared one: the word was dropped,
+    // the glyph greyed and the edge made transparent. A verdict is a glyph, a word and a hue.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    vi.spyOn(api, "decisions").mockResolvedValue({
+      branch_id: "branch-1",
+      decisions: [
+        {
+          id: "decision-1",
+          branch_id: "branch-1",
+          candidate_id: "candidate-2",
+          disposition: "waive",
+          author: "reviewer",
+          reasoning: "The trade-off is deliberate.",
+          decided_at: "2026-01-02T00:00:00Z",
+          review_id: "review-1",
+          finding_verdict: "material",
+          finding_model_identity: "fake:deterministic",
+          finding_prompt_identity: "judge:v1",
+          finding_retrieval_identity: "retrieval-1",
+        },
+      ],
+    });
+
+    render(wrap(<ReviewPage />));
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Settled 2/ }));
+    const waived = (await docket()).find(
+      (row) => row.dataset.candidate === "candidate-2",
+    )!;
+    expect(waived.textContent).toContain("Material");
+    expect(waived.textContent).toContain("Waived by the team");
+    // The word, in the settled ink rather than in the verdict's own hue.
+    const word = within(waived).getByText("Material");
+    expect(word.className).toContain("text-ink-3");
+    expect(word.className).not.toContain("text-material");
+  });
+
+  it("decides a run of candidates at once, and refuses to waive them that way", async () => {
+    // `/api/decisions/bulk` and `decide_many` have existed all along and had never been
+    // called. The doc's blocker is real and narrower than it looks: a reason that fits twelve
+    // findings is usually not a reason — which is an argument about waiving and nothing else.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    const bulk = vi.spyOn(api, "decideMany").mockResolvedValue({
+      recorded: 2,
+      decisions: [],
+    });
+
+    render(wrap(<ReviewPage />));
+
+    const listed = await docket();
+    // The open row from the keyboard, and the other one with its box.
+    fireEvent.keyDown(document.body, { key: "x" });
+    fireEvent.click(screen.getAllByRole("checkbox")[1]);
+
+    expect(await screen.findByText("2 candidates selected")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Waive all/ }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Accept all" }));
+    await waitFor(() =>
+      expect(bulk).toHaveBeenCalledWith(
+        "review-1",
+        [listed[0].dataset.candidate, listed[1].dataset.candidate],
+        "accept",
+      ),
+    );
+  });
+
+  it("finds a candidate by name, and groups a first review by what it detected", async () => {
+    // Three filters was the whole of the navigation on a review of any size, and none of them
+    // is "the one about SqlAlchemy". The grouping is the other half: a first review has no
+    // movement to group on and always has a pattern, which is the machine-measured fact the
+    // experience doc names as the way out of a first-review wall.
+    const review = wideReview(10, 0);
+    review.findings.forEach((finding, index) => {
+      finding.candidate.pattern = index < 4 ? "dependency_direction" : "sole_implementation";
+    });
+    review.findings[7].candidate.participants = [
+      { qualified_name: "domain.orders.InvoiceGateway", role: "source", node_id: null },
+    ];
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+    await docket();
+
+    // No predecessor, so the groups are the patterns rather than what moved — and two lists
+    // called the same thing are one list to anything reading the page, so each names itself.
+    expect(
+      screen.getByRole("list", { name: "Candidates dependency direction" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("list", { name: "Candidates sole implementation" }),
+    ).toBeInTheDocument();
+
+    const box = screen.getByRole("searchbox", {
+      name: "Find a candidate in this review",
+    });
+    fireEvent.change(box, { target: { value: "invoicegateway" } });
+
+    const found = rows();
+    expect(found).toHaveLength(1);
+    expect(found[0].dataset.candidate).toBe(review.findings[7].candidate.id);
+    // A count on the control that produced it, rather than a number nobody can act on.
+    expect(box.parentElement).toHaveTextContent("1 of 10");
+    // One row is not a wall, so it is not grouped into headings of one either.
+    expect(
+      screen.queryByRole("list", { name: "Candidates sole implementation" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("reads the delta once for the whole list rather than once per comparison", async () => {
+    // `orderedFindings`' comparator called `movedSincePrevious`, which walked all three delta
+    // arrays — three linear scans inside a sort, on a 35KB delta. Neither call site memoised
+    // it, so the head's counts and the docket each re-sorted the whole review on every render
+    // of the page: every keystroke, every filter press and every four-second run poll.
+    const review = wideReview(16, 4);
+    let reads = 0;
+    const delta = review.delta;
+    Object.defineProperty(review, "delta", {
+      get() {
+        reads += 1;
+        return delta;
+      },
+    });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+    await docket();
+
+    // Once for the order and once for the rows' own delta states. The comparator alone used
+    // to reach three figures on a list this size.
+    const settled = reads;
+    expect(settled).toBeLessThan(8);
+
+    // And re-rendering the page does not ask again: the sort is the page's, and both the
+    // counts in the head and the docket read the one answer.
+    fireEvent.click(screen.getByRole("button", { name: /^All/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Attention/ }));
+    fireEvent.keyDown(document.body, { key: "j" });
+    expect(reads).toBe(settled);
   });
 });
 

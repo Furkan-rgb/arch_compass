@@ -139,8 +139,8 @@ logo, and white on `#971b1a` clears 8.4:1 either way — while `--accent` itself
 `#f27166` in dark, where the deep red drops to 2.3:1 and stops being text at all.
 
 This is the second accent this system has had, and the first one reached 29 of 40 components.
-So it comes back on a budget: `ui/design-system.test.ts` names the three files allowed to say
-`-accent` (`ui/brand.tsx`, `ui/button.tsx`, `ui/tabs.tsx`), and the fourth place — a material
+So it comes back on a budget: `ui/design-system.test.ts` names the four files allowed to say
+`-accent` (`ui/brand.tsx`, `ui/button.tsx`, `ui/tabs.tsx`, `ui/shortcuts.tsx`), and the fifth place — a material
 verdict — is painted from a tone in `lib/format` and guarded by `verdict-hues.test.ts`. A
 focus ring is deliberately *not* on that list: it answers "where is the keyboard", which is a
 question about the reader rather than about the content, and a red ring makes every tab press
@@ -167,13 +167,13 @@ thing you can dig at the bottom.
 | `--rule-strong` | `rgb(0 0 0 / 15%)` | `rgb(255 255 255 / 17%)` | A border on something you could pick up |
 | `--ink` | `#0a0a0a` | `#fafafa` | Body |
 | `--ink-2` | `#525252` | `#a1a1a1` | Secondary |
-| `--ink-3` | `#737373` | `#737373` | Meta — the one value that is the same in both |
+| `--ink-3` | `#5f5f5f` | `#8f8f8f` | Meta — measured against all four grounds, not eyeballed |
 | `--accent` | `#971b1a` | `#f27166` | The one hue: a letterform, an icon, an indicator |
 | `--accent-fill` | `#971b1a` | `#971b1a` | A solid fill — the mark, the primary action. Does not move between themes |
 | `--accent-on-fill` | `#ffffff` | `#fafafa` | What sits on that fill |
 | `--material` | `var(--accent)` | `var(--accent)` | Act on it |
 | `--held` | `#0a0a0a` | `#fafafa` | Waiting on a person — full ink, present, not an alarm |
-| `--cleared` | `#737373` | `#737373` | Settled, and settled things recede |
+| `--cleared` | `var(--ink-3)` | `var(--ink-3)` | Settled, and settled things recede |
 
 **Two of the three verdicts gave up their hue, and this cost something real.** The scale was
 red, amber and green; it is now one hue and two weights. What that buys is that red is never
@@ -220,7 +220,7 @@ Four roles, from roughly thirty token classes the highlighter emits:
 | `--code-keyword` | the language's own words — `def`, `class`, `return` | `#7e22ce` | `#d8b4fe` |
 | `--code-name` | what somebody named — a function, a class, a tag | `#1d4ed8` | `#93c5fd` |
 | `--code-lit` | what is written out — a string, a number | `#0e7490` | `#67e8f9` |
-| `--code-comment` | prose inside code; the only neutral, and italic | `#737373` | `#8a8a8a` |
+| `--code-comment` | prose inside code; the only neutral, and italic | `#5f5f5f` | `#8a8a8a` |
 
 Everything the highlighter emits outside those four inherits the block's ink. Colouring all
 thirty classes produces an excerpt harder to read than the editor it came from.
@@ -481,9 +481,16 @@ Every rule below is a test in `frontend/src/ui/design-system.test.ts`, `ui/token
   everywhere a count sits in a column, which is a utility on every one of them rather than a
   font feature set once. If a column of digits is ever seen to jitter, the fix is
   `font-variant-numeric` on the token, not another `tabular-nums`.
-- **`--ink-3` is the same value in both themes.** It reads correctly on both grounds today,
-  which is a coincidence of `#737373` sitting near the middle. It is the first token that will
-  need splitting if either ground moves.
+- ~~**`--ink-3` is the same value in both themes.**~~ **Settled.** It was `#737373` in both, on
+  the argument that sitting near the middle made it read correctly on either ground. Measured,
+  it cleared 4.5:1 on two of its eight ground-and-theme pairs — 4.35 on the canvas in light,
+  3.48 on a sunken block in dark — and it carries the docket's meta line, every `Label` and
+  every empty state, so the tier that explains the interface was its least readable text. It is
+  now `#5f5f5f` and `#8f8f8f`, both clearing 5:1 on all four grounds of their own theme.
+  `--cleared` was a hardcoded copy of the old value and drifted when the tier moved, which is
+  why it is now `var(--ink-3)` — the same relationship `--material` has to `--accent`, for the
+  same reason. `ui/tokens.test.ts` measures the whole ramp against every ground rather than
+  trusting a value to stay legible after a ground moves under it.
 - **The dark ramp's four greys are close.** `#0d0d0d`, `#141414` and `#1f1f1f` are three and
   eleven steps apart, which holds on a good display and is the first thing to give way on a
   cheap one. The rim is what carries the separation there, and it is doing more work than a

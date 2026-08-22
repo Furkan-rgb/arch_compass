@@ -187,12 +187,19 @@ def surface_tabs(page):  # type: ignore[no-untyped-def]
 def show_everything(page) -> None:  # type: ignore[no-untyped-def]
     """Widen the docket's filter to the one that hides nothing.
 
-    Located as the last control in the docket's only filter group rather than by its label:
-    the three filters run narrowest to widest, so the widest is the last, and that ordering
-    is structural in a way "All" is not.
+    Located by the group's own accessible name, and then as the last control inside it: the
+    three filters run narrowest to widest, so the widest is the last, and that ordering is
+    structural in a way "All" is not.
+
+    It used to take `get_by_role("group").first` on the argument that the docket's filter was
+    the first group on the page. That stopped being true and nothing said so — the review
+    grew surfaces with groups of their own, and `<details>` carries the group role
+    implicitly, so "the first group" silently became something else and this helper failed on
+    a count it could not explain. A name is the thing that identifies this control; its
+    position among unrelated controls never was.
     """
 
-    group = page.get_by_role("group").first
+    group = page.get_by_role("group", name="Filter the docket").first
     toggles = group.get_by_role("button")
     assert toggles.count() >= 2, "the docket filter is no longer a group of toggles"
     toggles.last.click()

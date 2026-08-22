@@ -3,6 +3,7 @@ import { cn } from "../../lib/cn";
 import { verdictOf } from "../../lib/format";
 import { Mark } from "../../ui/mark";
 import { TONE_TEXT } from "../../ui/meta";
+import { Label } from "../../ui/panel";
 
 /**
  * What this candidate has been called, review after review.
@@ -26,7 +27,15 @@ import { TONE_TEXT } from "../../ui/meta";
  *
  * It is a strip and not a chart. Four to eight nodes at 11px is a glance; anything that
  * needed a legend would be a dashboard, and the charter is blunt about those.
+ *
+ * Which is also why it is capped. A branch reviewed weekly for a quarter has a dozen
+ * revisions, and the strip was `shrink-0`: it took whatever width it wanted from the row and
+ * the claim — the line that makes the docket readable — gave up the difference. The last six
+ * are drawn, prefixed with what that leaves out, and the full sequence stays in the sentence
+ * below, which is the copy that was already carrying it for anyone not looking at the strip.
  */
+const DRAWN = 6;
+
 export function CandidateTrajectory({
   lineage,
   candidateId,
@@ -58,65 +67,78 @@ export function CandidateTrajectory({
     )
     .join(", ");
 
+  const drawn = steps.slice(-DRAWN);
+  const elided = steps.length - drawn.length;
+
   return (
-    <div className={cn("flex min-w-0 items-start gap-2", className)}>
+    <div className={cn("flex min-w-0 max-w-[15rem] items-start gap-2", className)}>
       <span className="sr-only">Across this branch — {said}.</span>
-      <span
-        aria-hidden="true"
-        className="shrink-0 pt-[3px] text-[10px] font-bold uppercase tracking-[0.13em] text-ink-3"
-      >
-        Across
-      </span>
-      <ol aria-hidden="true" className="flex min-w-0 flex-wrap items-center">
-        {steps.map((step, index) => {
-          const descriptor = step.verdict ? verdictOf(step.verdict) : null;
-          return (
-            <li key={step.id} className="flex items-center">
-              {index ? <span className="mb-4 block h-px w-3 bg-rule-strong sm:w-4" /> : null}
-              <span className="flex w-6 flex-col items-center gap-1 sm:w-7">
-                {/* A fixed box so a verdict mark and the smaller "not raised" dot share one
-                    centre line, and the strip stays level whatever each step holds. */}
-                <span className="grid h-[18px] place-items-center">
-                  {descriptor ? (
-                    <Mark
-                      shape={descriptor.glyph}
-                      className={cn(
-                        "size-[13px]",
-                        TONE_TEXT[descriptor.tone],
-                        // The revision being read is the one at full strength; the rest of
-                        // the lineage recedes. Emphasis by contrast rather than by chrome —
-                        // which is also the only option left now that the marks are
-                        // themselves circles, because a ring around one reads as two
-                        // concentric circles and says nothing.
-                        !step.current && "opacity-45",
-                      )}
-                    />
-                  ) : (
-                    <span
-                      className={cn(
-                        "block size-[5px] rounded-full border border-rule-strong",
-                        !step.current && "opacity-45",
-                      )}
-                    />
-                  )}
+      <div aria-hidden="true" className="flex min-w-0 items-start gap-2">
+        <Label className="shrink-0 pt-[3px]">Across</Label>
+        {/* The count of what is not drawn, in the same mono the numbers under the nodes are
+            set in: a strip that silently began at review 7 would be claiming the candidate
+            started there. */}
+        {elided ? (
+          <span className="shrink-0 pt-[3px] font-mono text-[10px] tabular-nums text-ink-3">
+            +{elided}
+          </span>
+        ) : null}
+        <ol className="flex min-w-0 flex-wrap items-center">
+          {drawn.map((step, index) => {
+            const descriptor = step.verdict ? verdictOf(step.verdict) : null;
+            return (
+              <li key={step.id} className="flex items-center">
+                {index ? <span className="mb-4 block h-px w-3 bg-rule-strong sm:w-4" /> : null}
+                <span className="flex w-6 flex-col items-center gap-1 sm:w-7">
+                  {/* A fixed box so a verdict mark and the smaller "not raised" dot share one
+                      centre line, and the strip stays level whatever each step holds. */}
+                  <span className="grid h-[18px] place-items-center">
+                    {descriptor ? (
+                      <Mark
+                        shape={descriptor.glyph}
+                        className={cn(
+                          "size-[13px]",
+                          TONE_TEXT[descriptor.tone],
+                          // The revision being read is the one at full strength; the rest of
+                          // the lineage recedes. Emphasis by contrast rather than by chrome —
+                          // which is also the only option left now that the marks are
+                          // themselves circles, because a ring around one reads as two
+                          // concentric circles and says nothing.
+                          !step.current && "opacity-45",
+                        )}
+                      />
+                    ) : (
+                      <span
+                        className={cn(
+                          "block size-[5px] rounded-full border border-rule-strong",
+                          !step.current && "opacity-45",
+                        )}
+                      />
+                    )}
+                  </span>
+                  <span
+                    className={cn(
+                      "font-mono text-[10px] leading-none tabular-nums",
+                      step.current ? "font-semibold text-ink" : "text-ink-3",
+                    )}
+                  >
+                    {step.sequence}
+                  </span>
+                  {/* "You are here", as the underline this system already uses for it — a rule
+                      and weight, never a hue and never a container. Drawn for every step so the
+                      strip does not change height when the read revision changes. */}
+                  <span
+                    className={cn(
+                      "block h-[2px] w-3 rounded-full",
+                      step.current ? "bg-ink" : "bg-transparent",
+                    )}
+                  />
                 </span>
-                <span
-                  className={cn(
-                    "font-mono text-[10px] leading-none tabular-nums",
-                    step.current ? "font-semibold text-ink" : "text-ink-3",
-                  )}
-                >
-                  {step.sequence}
-                </span>
-                {/* "You are here", as the underline this system already uses for it — a rule
-                    and weight, never a hue and never a container. Drawn for every step so the
-                    strip does not change height when the read revision changes. */}
-                <span className={cn("block h-[2px] w-3 rounded-full", step.current ? "bg-ink" : "bg-transparent")} />
-              </span>
-            </li>
-          );
-        })}
-      </ol>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
     </div>
   );
 }

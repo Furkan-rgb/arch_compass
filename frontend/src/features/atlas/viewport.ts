@@ -14,6 +14,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
+import { prefersReducedMotion } from "../../lib/motion";
 import { MAX_ZOOM, MIN_ZOOM, READABLE_ZOOM, clamp, pointerDistance } from "./geometry";
 import type { AtlasNodeView } from "./graph";
 import { NODE_HEIGHT, NODE_WIDTH, type AtlasLayout } from "./layout";
@@ -36,6 +37,14 @@ export function useAtlasViewport({
   const [fullscreen, setFullscreen] = useState(false);
   const [showMinimap, setShowMinimap] = useState(true);
   const [viewport, setViewport] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  /**
+   * Whether the last automatic fit stopped at the readable floor rather than framing the graph.
+   *
+   * A fit that cannot fit is a fit that did something else, and the reader is looking at a
+   * corner of a map they asked to see whole. The camera knows which of the two happened and
+   * nothing else can work it out, so it says.
+   */
+  const [fitFloored, setFitFloored] = useState(false);
   /**
    * How big the canvas is, in CSS pixels.
    *
@@ -150,14 +159,12 @@ export function useAtlasViewport({
   const fitGraph = () => {
     const canvas = canvasRef.current;
     if (!canvas || !canvas.clientWidth || !canvas.clientHeight) return;
-    const next = clamp(
-      Math.min(
-        (canvas.clientWidth - 24) / layout.width,
-        (canvas.clientHeight - 24) / layout.height,
-      ),
-      READABLE_ZOOM,
-      1.15,
+    const whole = Math.min(
+      (canvas.clientWidth - 24) / layout.width,
+      (canvas.clientHeight - 24) / layout.height,
     );
+    const next = clamp(whole, READABLE_ZOOM, 1.15);
+    setFitFloored(whole < READABLE_ZOOM);
     setZoom(next);
     window.requestAnimationFrame(() => {
       if (typeof canvas.scrollTo !== "function") return;
@@ -320,7 +327,11 @@ export function useAtlasViewport({
         0,
         (position.y + NODE_HEIGHT / 2) * zoom - canvas.clientHeight / 2,
       ),
-      behavior: "smooth",
+      // A preference asked for once and honoured everywhere. The stylesheet collapses every
+      // duration under `prefers-reduced-motion`, and a scroll animated from JavaScript walks
+      // straight past that — this one on every arrow key, because `navigateNode` selects as it
+      // moves, so a reader who asked for stillness got the map gliding under each keystroke.
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
     });
   }, [positions, selected, zoom]);
 
@@ -449,6 +460,7 @@ export function useAtlasViewport({
     setShowMinimap,
     viewport,
     canvasSize,
+    fitFloored,
     setViewportZoom,
     fitGraph,
     centreOn,

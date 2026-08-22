@@ -505,6 +505,45 @@ def test_workflow_service_resumes_idempotently_and_records_omissions_as_skips(
     assert completed.case.answers[0].status is AnswerStatus.SKIPPED
     assert duplicate.id == completed.id
 
+    # The listing projection, which is read out of the stored document by SQLite rather
+    # than by decoding it. It has to agree with the full listing on every row it shares,
+    # because eight screens read one and the review page reads the other.
+    summaries = service.list_summaries()
+    listed = service.list()
+    assert [item.id for item in summaries] == [item.id for item in listed]
+    summary = summaries[0]
+    review = listed[0]
+    assert summary.sequence == review.sequence
+    assert summary.round == review.round
+    assert summary.status == review.status.value
+    assert summary.repository == review.repository
+    assert (summary.case_id, summary.case_revision) == (review.case.id, review.case.revision)
+    assert summary.started_at == review.started_at
+    assert summary.finished_at == review.finished_at
+    assert summary.previous_review_id == review.previous_review_id
+    assert summary.finding_count == len(review.findings)
+    assert summary.question_count == len(review.questions)
+    assert summary.material_count == sum(
+        1 for finding in review.findings if finding.verdict is Verdict.MATERIAL
+    )
+    assert summary.held_count == sum(
+        1 for finding in review.findings if finding.verdict is Verdict.HELD
+    )
+    assert summary.cleared_count == sum(
+        1 for finding in review.findings if finding.verdict is Verdict.CLEARED
+    )
+    assert (
+        summary.unchanged_count,
+        summary.changed_count,
+        summary.new_count,
+        summary.addressed_count,
+    ) == (
+        len(review.delta.unchanged),
+        len(review.delta.changed),
+        len(review.delta.new),
+        len(review.delta.addressed),
+    )
+
 
 def test_workflow_records_a_failed_snapshot_after_context_exists(tmp_path: Path) -> None:
     repository = RepositoryRef("repo-1", tmp_path.resolve(), "branch-1", "content-1")

@@ -88,6 +88,7 @@ describe("a review, turned into a map", () => {
     expect(reviewAnchors(reviewFixture())).toEqual({
       nodeIds: ["node-candidate-1", "node-candidate-2", "node-candidate-3"],
       qualifiedNames: [],
+      dropped: 0,
     });
   });
 
@@ -117,6 +118,7 @@ describe("a review, turned into a map", () => {
     expect(reviewAnchors(older)).toEqual({
       nodeIds: [],
       qualifiedNames: ["domain.orders"],
+      dropped: 0,
     });
   });
 
@@ -185,10 +187,14 @@ describe("the atlas surface", () => {
     render(wrap(<AtlasSurface review={reviewFixture()} onOpen={onOpen} />));
 
     const map = await screen.findByRole("group", { name: /structure/i });
-    const card = await within(map).findByRole("button", { name: /^Orders, class, judged/ });
+    const card = await within(map).findByRole("button", {
+      name: "domain.orders.Orders, class, Held",
+    });
     fireEvent.click(card);
 
-    expect(await screen.findByText("domain.orders.Orders")).toBeInTheDocument();
+    // The panel names it too, so the whole name is now in three places: the card's hover, its
+    // accessible name, and here.
+    expect(await screen.findAllByText("domain.orders.Orders")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Open the finding" }));
     expect(onOpen).toHaveBeenCalledWith("candidate-1");
   });
@@ -245,6 +251,16 @@ describe("the atlas surface", () => {
   });
 
   /** A count that does not say what it is a count *of* reads as the whole repository. */
+  /** The Atlas was the one surface in the workbench running an infinite animation inside the work. */
+  it("opens holding still", async () => {
+    vi.spyOn(api, "reviewContext").mockResolvedValue(atlasResult());
+    render(wrap(<AtlasSurface review={reviewFixture()} />));
+    expect(await screen.findByRole("group", { name: /structure/i })).toHaveAttribute(
+      "data-pulse",
+      "none",
+    );
+  });
+
   it("says how much of what it was given is on screen", async () => {
     vi.spyOn(api, "reviewContext").mockResolvedValue(atlasResult());
     render(wrap(<AtlasSurface review={reviewFixture()} />));
@@ -269,7 +285,9 @@ describe("the atlas surface", () => {
     fireEvent.click(within(map).getAllByRole("button")[0]);
     fireEvent.click(await screen.findByRole("button", { name: "Dependants" }));
 
-    expect(await screen.findByText(/No dependants are recorded/)).toBeInTheDocument();
+    expect(
+      await screen.findByText("Nothing in this atlas depends on this element."),
+    ).toBeInTheDocument();
   });
 
   it("says what an exploration added when it found something", async () => {
@@ -381,6 +399,197 @@ describe("the atlas surface", () => {
     expect(screen.getByRole("button", { name: "Hide tests" }).closest("details")).not.toBeNull();
     expect(screen.getByRole("search").closest("details")).not.toBeNull();
     expect(screen.getByText(/search and filters/i).closest("summary")).not.toBeNull();
+  });
+
+  /**
+   * The canvas has the node count and nothing else, so it printed the caller's sentence
+   * whatever had emptied the map — telling a reader who had just pressed a filter that the
+   * review's elements were gone from the atlas. A false statement of cause is worse than no
+   * statement: it is the reader's own control, and they stop looking for it.
+   */
+  it("names the control that emptied the map, not the caller's sentence", async () => {
+    const result = atlasResult();
+    vi.spyOn(api, "reviewContext").mockResolvedValue({
+      ...result,
+      node_summaries: (result.node_summaries ?? []).map((node) => ({
+        ...node,
+        is_public: false,
+      })),
+    } as AtlasQueryResult);
+    render(wrap(<AtlasSurface review={reviewFixture()} />));
+    await screen.findByRole("group", { name: /structure/i });
+
+    fireEvent.click(screen.getByRole("button", { name: "Public only" }));
+
+    expect(await screen.findByText(/Public only leaves nothing to draw/)).toBeInTheDocument();
+    expect(screen.queryByText(/no longer in the indexed atlas/)).not.toBeInTheDocument();
+
+    // And the way back is the thing that did it, offered where the reader is looking.
+    fireEvent.click(screen.getByRole("button", { name: "Clear the filters" }));
+    expect(await screen.findByRole("group", { name: /structure/i })).toBeInTheDocument();
+  });
+
+  /**
+   * `find` answers "is there one", which is not the question the box asks. A term with five
+   * matches used to select one arbitrary card, mark none of the others and say nothing about
+   * how many there were.
+   */
+  it("finds every card a term matches, and walks them", async () => {
+    vi.spyOn(api, "reviewContext").mockResolvedValue(atlasResult());
+    const explore = vi.spyOn(api, "exploreRepository");
+    render(wrap(<AtlasSurface review={reviewFixture()} />));
+    await screen.findByRole("group", { name: /structure/i });
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "domain" } });
+    fireEvent.click(screen.getByRole("button", { name: "Find" }));
+
+    expect(await screen.findByText("1 of 5 match")).toBeInTheDocument();
+    // A term the map can answer never becomes a query: a query brings back cards nobody
+    // asked to add.
+    expect(explore).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("2 of 5 match")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "n" });
+    expect(await screen.findByText("3 of 5 match")).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "n", shiftKey: true });
+    expect(await screen.findByText("2 of 5 match")).toBeInTheDocument();
+  });
+
+  /**
+   * The charter: a colour never carries meaning alone, and every verdict has a glyph, a word
+   * and a hue. The card had the first and the third, and its accessible name said "judged"
+   * for a material finding and for a cleared one.
+   */
+  it("says the verdict in words on the card and in its accessible name", async () => {
+    vi.spyOn(api, "reviewContext").mockResolvedValue(atlasResult());
+    render(wrap(<AtlasSurface review={reviewFixture()} />));
+
+    const map = await screen.findByRole("group", { name: /structure/i });
+    const material = await within(map).findByRole("button", {
+      name: "domain.billing.Billing, class, Material",
+    });
+    expect(within(material).getByText("Material")).toBeInTheDocument();
+
+    const cleared = within(map).getByRole("button", {
+      name: "domain.invoice.Invoice, class, Cleared",
+    });
+    expect(within(cleared).getByText("Cleared")).toBeInTheDocument();
+  });
+
+  /**
+   * `orders` is not an identity when three packages have one — the experience doc's own words
+   * about this exact case. The leaf was cut to seventeen characters, the accessible name used
+   * the same cut string, and nothing on the card carried the rest of it.
+   */
+  it("keeps the whole name reachable when the card can only show part of it", async () => {
+    const result = atlasResult();
+    vi.spyOn(api, "reviewContext").mockResolvedValue({
+      ...result,
+      node_summaries: [
+        ...(result.node_summaries ?? []),
+        {
+          node_id: "long",
+          qualified_name: "domain.billing.PaymentGatewayAdapter",
+          node_type: "class" as never,
+          path: "domain/billing/gateway.py",
+          is_public: true,
+        },
+      ],
+      relationships: [
+        ...(result.relationships ?? []),
+        {
+          edge_id: "billing-imports-long",
+          source_id: "node-candidate-2",
+          target_id: "long",
+          edge_type: "imports" as never,
+          confidence: 1,
+        },
+      ],
+    } as AtlasQueryResult);
+    render(wrap(<AtlasSurface review={reviewFixture()} />));
+
+    const map = await screen.findByRole("group", { name: /structure/i });
+    const card = await within(map).findByRole("button", {
+      name: "domain.billing.PaymentGatewayAdapter, class",
+    });
+    expect(within(card).getByText("PaymentGatewayAdapt…")).toBeInTheDocument();
+    // The segment that tells two cards cut to the same characters apart, and the whole name
+    // on the hover.
+    expect(within(card).getByText("billing")).toBeInTheDocument();
+    expect(
+      within(card).getByText("domain.billing.PaymentGatewayAdapter").tagName,
+    ).toBe("title");
+  });
+
+  /**
+   * The map only grew: three presses of an exploration turned a ninety-card neighbourhood
+   * into a mesh held for the rest of the session, and the only way back was a reload.
+   */
+  it("lists what the reader added to the map, and takes it back off", async () => {
+    vi.spyOn(api, "reviewContext").mockResolvedValue(atlasResult());
+    vi.spyOn(api, "exploreRepository").mockResolvedValue({
+      ...atlasResult(),
+      node_summaries: [
+        {
+          node_id: "brand-new",
+          qualified_name: "adapters.http.Client",
+          node_type: "class" as never,
+          path: "adapters/http.py",
+          is_public: true,
+        },
+      ],
+    } as never);
+    render(wrap(<AtlasSurface review={reviewFixture()} />));
+
+    const map = await screen.findByRole("group", { name: /structure/i });
+    fireEvent.click(within(map).getAllByRole("button")[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Children" }));
+
+    expect(await screen.findByText(/of 7 elements/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Children of/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset the map" }));
+    expect(await screen.findByText(/of 6 elements/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Children of/ })).not.toBeInTheDocument();
+  });
+
+  /**
+   * What the reader explicitly asked the atlas for is protected from every lens and filter —
+   * `visible-graph.ts` calls that absolute. It was the *last* request only, so asking a second
+   * question quietly took the answer to the first one back off the map.
+   */
+  it("keeps every exploration's answer drawn, not only the last one", async () => {
+    vi.spyOn(api, "reviewContext").mockResolvedValue(atlasResult());
+    const explore = vi
+      .spyOn(api, "exploreRepository")
+      .mockResolvedValueOnce({
+        ...atlasResult(),
+        node_summaries: [
+          {
+            node_id: "brand-new",
+            qualified_name: "adapters.http.Client",
+            node_type: "class" as never,
+            path: "adapters/http.py",
+            is_public: true,
+          },
+        ],
+      } as never)
+      .mockResolvedValue(atlasResult());
+    render(wrap(<AtlasSurface review={reviewFixture()} />));
+
+    const map = await screen.findByRole("group", { name: /structure/i });
+    fireEvent.click(within(map).getAllByRole("button")[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Children" }));
+    expect(await screen.findByText(/of 7 elements/)).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Callers" }));
+    await waitFor(() => expect(explore).toHaveBeenCalledTimes(2));
+
+    // Seven drawn, not six: the element the first exploration brought back is judged by
+    // nothing and reaches nothing, so only the protection keeps it on a judged map.
+    expect(await screen.findByText(/7 of 7 elements/)).toBeInTheDocument();
   });
 
   it("offers a way to retry the read that failed", async () => {

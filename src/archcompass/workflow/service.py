@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping, Sized
+from collections.abc import Callable, Mapping, Sized
 from dataclasses import dataclass, replace
 from typing import Protocol, cast
 
@@ -25,6 +25,7 @@ from archcompass.domain import (
 from archcompass.domain._support import new_id, stable_id, utc_now
 from archcompass.domain.errors import ReviewNotCancellableError
 from archcompass.persistence.executions import ExecutionRecord
+from archcompass.persistence.reviews import ReviewSummary
 from archcompass.workflow.runs import ReviewRunner, RunState
 from archcompass.workflow.state import ReviewInput, ReviewState
 
@@ -35,6 +36,8 @@ class ReviewSnapshotStore(Protocol):
     def get(self, review_id: str) -> Review: ...
 
     def list(self, *, limit: int = 100) -> tuple[Review, ...]: ...
+
+    def list_summaries(self, *, limit: int = 100) -> tuple[ReviewSummary, ...]: ...
 
     def delete(self, review_id: str) -> None: ...
 
@@ -63,7 +66,11 @@ class ReviewExecutionStore(Protocol):
 
     def in_flight(self, *, limit: int = 50) -> tuple[ExecutionRecord, ...]: ...
 
+    def resume(self, thread_id: str) -> None: ...
+
     def fail(self, thread_id: str) -> None: ...
+
+    def cancel(self, thread_id: str) -> None: ...
 
     def abandon_running(self) -> None: ...
 
@@ -76,16 +83,26 @@ class SubmittedAnswer:
     actor: str = "user"
 
 
-@dataclass(frozen=True, slots=True)
-class ReviewProgress:
-    stage: str
-    review: Review | None = None
-
-
 #: The nodes that produce a verdict. `judge_candidate` is one candidate's turn through the
 #: per-candidate subgraph; `review_candidates` is the whole selection judged in one batch.
 #: Both answer the same question a watcher is asking — how many are done — so both count.
 _JUDGING_STAGES = frozenset({"judge_candidate", "review_candidates"})
+
+#: The nodes that file a snapshot, and therefore the only updates whose review is on disk.
+#:
+#: `compose_final_review` and `compose_waiting_review` also put a `Review` in the state, and
+#: binding one of those published an id that nothing could open yet: the recorder had not
+#: run, so the run had left every "still working" listing and the review it named answered
+#: 404 for as long as the recording took. A run says it has a review when there is one.
+_RECORDING_STAGES = frozenset({"record_review", "record_waiting_review"})
+
+#: Execution statuses that describe a review rather than the run that produced it.
+#:
+#: They are written when a snapshot is filed, which is before the run stops, so they are
+#: only the whole truth once there is no thread on the run any more.
+_REVIEW_STATUSES = frozenset(
+    {ReviewStatus.AWAITING_ANSWERS.value, ReviewStatus.COMPLETED.value}
+)
 
 
 @dataclass
@@ -162,50 +179,6 @@ class ReviewWorkflowService:
             raise
         return self._bind(thread_id, state["review"])
 
-    def start_stream(
-        self,
-        *,
-        repository_id: str,
-        branch_id: str,
-        case_id: str,
-        case_revision: int | None = None,
-        ci: bool = False,
-    ) -> Iterator[ReviewProgress]:
-        """Expose graph stages as they happen without inventing presentation events."""
-
-        thread_id = self._begin(repository_id, branch_id, case_id)
-        source = ReviewInput(
-            repository_id=repository_id,
-            branch_id=branch_id,
-            case_id=case_id,
-            case_revision=case_revision,
-            ci=ci,
-        )
-        latest: Review | None = None
-        try:
-            for raw in self._graph.stream(
-                source,
-                self._config(thread_id),
-                stream_mode="updates",
-                subgraphs=True,
-            ):
-                stage, update = self._progress_update(raw)
-                review = update.get("review") if update is not None else None
-                typed_review = review if isinstance(review, Review) else None
-                if typed_review is not None:
-                    latest = self._bind(thread_id, typed_review)
-                yield ReviewProgress(stage, typed_review)
-        except Exception as error:
-            self._record_failure(thread_id, error)
-            raise
-        if latest is None:
-            snapshot = self._graph.get_state(self._config(thread_id)).values
-            review = snapshot.get("review")
-            if not isinstance(review, Review):
-                raise RuntimeError("Review graph ended without a review snapshot")
-            latest = self._bind(thread_id, review)
-        yield ReviewProgress(latest.status.value, latest)
-
     def start_background(
         self,
         *,
@@ -231,6 +204,52 @@ class ReviewWorkflowService:
             case_revision=case_revision,
             ci=ci,
         )
+        return self._runner.start(run_id=thread_id, work=self._driver(thread_id, source))
+
+    def resume_background(
+        self,
+        review_id: str,
+        submissions: tuple[SubmittedAnswer, ...],
+        *,
+        stop: bool = False,
+    ) -> RunState:
+        """Record the answers and rejudge on a run, rather than inside the request.
+
+        Answering a clarification round rejudges every extant candidate, which is the same
+        minutes of model work the first review spent — and it used to be spent inside one
+        POST, so a reload, a closed laptop or a proxy's idle timeout left the person unable
+        to tell whether their answers had been recorded at all. That is the failure
+        `start_background` exists to prevent, and this is the same fix on the other half of
+        the review: the answers are validated here, where a bad one can still be refused
+        properly, and the judging goes on a run somebody can come back to.
+
+        The run is the thread the review has always been on, so its id is the one the first
+        run carried and `/api/reviews/runs/{id}` keeps working across the whole review.
+        """
+
+        thread_id, command = self._resume_command(review_id, submissions, stop=stop)
+        if command is None:
+            # Already answered, by a retry or a second tab. There is nothing to start, and
+            # the run this would have been is the one that took the first submission.
+            return self.run_state(thread_id)
+        # The row said `awaiting_answers`, which stops being true the moment these answers
+        # are accepted. Written before the thread starts, so a listing asked immediately
+        # afterwards sees a run rather than a review that is still waiting.
+        self._executions.resume(thread_id)
+        return self._runner.start(
+            run_id=thread_id, work=self._driver(thread_id, command)
+        )
+
+    def _driver(
+        self, thread_id: str, source: ReviewInput | Command[str]
+    ) -> Callable[[Callable[[str], None]], None]:
+        """The work of one run: drive the graph, report on it, and stop when asked to.
+
+        Shared by starting a review and by rejudging one after a clarification round,
+        because a watcher of either is asking the same questions — which stage, how many
+        candidates, what the provider did with the batch — and two copies of this loop would
+        answer them differently the first time one of them changed.
+        """
 
         def work(report: Callable[[str], None]) -> None:
             judging = _JudgingProgress()
@@ -260,9 +279,14 @@ class ReviewWorkflowService:
                             to_judge=judging.to_judge,
                         )
                     review = update.get("review") if update is not None else None
-                    if isinstance(review, Review):
+                    if stage in _RECORDING_STAGES and isinstance(review, Review):
                         bound = self._bind(thread_id, review)
                         self._runner.bind_review(thread_id, bound.id)
+                    # Between stages, never inside one: the node that just returned wrote a
+                    # checkpoint, and stopping here leaves the graph resumable from it
+                    # rather than half way through a step.
+                    if self._runner.is_cancelled(thread_id):
+                        return
             except Exception as error:
                 self._record_failure(thread_id, error)
                 raise
@@ -270,7 +294,7 @@ class ReviewWorkflowService:
             if current is not None:
                 self._runner.bind_review(thread_id, current)
 
-        return self._runner.start(run_id=thread_id, work=work)
+        return work
 
     def run_state(self, run_id: str) -> RunState:
         """What a watcher is told, whether or not this process started the run.
@@ -279,6 +303,16 @@ class ReviewWorkflowService:
         one, so the store decides the status and memory fills in the stages. After a
         restart that leaves a run with no stages and an honest status, which beats a
         progress list that claims to be live and is not.
+
+        With one correction, which is what `_REVIEW_STATUSES` is for. `awaiting_answers`
+        and `completed` are written the moment the graph files a snapshot, and the run goes
+        on for a little longer after that — so a watcher was told the run had ended while
+        this process still had a thread on it, and a client acting on that answer got a
+        refusal for work it had just been told was finished. A run this process is still
+        working on says `running`.
+
+        A run somebody cancelled is not corrected: that status is about the run rather than
+        about a review it filed, and it is the answer to "what did my button do".
         """
 
         live = self._runner.state(run_id)
@@ -286,6 +320,8 @@ class ReviewWorkflowService:
         review_id = self._executions.current_review_id(run_id)
         if live is None:
             return RunState(run_id=run_id, status=status, review_id=review_id)
+        if status in _REVIEW_STATUSES and self._runner.is_running(run_id):
+            status = "running"
         return replace(live, status=status, review_id=review_id or live.review_id)
 
     def resume(
@@ -295,12 +331,39 @@ class ReviewWorkflowService:
         *,
         stop: bool = False,
     ) -> Review:
+        thread_id, command = self._resume_command(review_id, submissions, stop=stop)
+        if command is None:
+            return self._recorded_for(thread_id, review_id)
+        try:
+            state = self._graph.invoke(command, self._config(thread_id))
+        except Exception as error:
+            self._record_failure(thread_id, error)
+            raise
+        return self._bind(thread_id, state["review"])
+
+    def _recorded_for(self, thread_id: str, review_id: str) -> Review:
+        current_id = self._executions.current_review_id(thread_id)
+        if current_id is None:
+            raise ValueError(f"Review execution for {review_id} has no snapshot")
+        return self._reviews.get(current_id)
+
+    def _resume_command(
+        self,
+        review_id: str,
+        submissions: tuple[SubmittedAnswer, ...],
+        *,
+        stop: bool = False,
+    ) -> tuple[str, Command[str] | None]:
+        """Check one round of answers and turn them into the graph's resume command.
+
+        `None` where there is nothing left to resume. The same answers arriving twice — a
+        retry, a second tab, a run that already took them — is a question about work that
+        has been done rather than a conflict, so the caller is handed what was recorded.
+        """
+
         thread_id = self._executions.thread_for_review(review_id)
         if self._executions.status(thread_id) != ReviewStatus.AWAITING_ANSWERS.value:
-            current_id = self._executions.current_review_id(thread_id)
-            if current_id is None:
-                raise ValueError(f"Review execution for {review_id} has no snapshot")
-            return self._reviews.get(current_id)
+            return thread_id, None
         waiting = self._reviews.get(review_id)
         if waiting.status is not ReviewStatus.AWAITING_ANSWERS:
             raise ValueError(f"Review {review_id} is not awaiting answers")
@@ -324,15 +387,7 @@ class ReviewWorkflowService:
             )
             for question in waiting.questions
         )
-        try:
-            state = self._graph.invoke(
-                Command(resume={"answers": answers, "stop": stop}),
-                self._config(thread_id),
-            )
-        except Exception as error:
-            self._record_failure(thread_id, error)
-            raise
-        return self._bind(thread_id, state["review"])
+        return thread_id, Command(resume={"answers": answers, "stop": stop})
 
     def cancel(self, review_id: str) -> Review:
         waiting = self._reviews.get(review_id)
@@ -353,6 +408,28 @@ class ReviewWorkflowService:
         self._executions.bind(thread_id, recorded)
         return recorded
 
+    def cancel_run(self, run_id: str) -> RunState:
+        """Stop a run somebody no longer wants, and say so where the run is read.
+
+        The run keeps its id and its stages and takes the status `cancelled` — the same
+        word the domain already uses for a review a person stopped, and deliberately not
+        `failed`, which would send a reader looking for a defect that is not there. It is
+        also not a deletion: a run that vanished would leave whoever pressed the button
+        unable to tell that it had, and the address they were given answering nothing.
+
+        Where the graph had already recorded a snapshot, that review is untouched and stays
+        exactly what it was — cancelling stops the work that had not been done, and never
+        rewrites what had.
+
+        Answered before the thread has noticed, because the flag is read between stages and
+        the stage in flight may be a batch. The status is what was decided; the stages a
+        watcher keeps polling are what has happened.
+        """
+
+        self._runner.cancel(run_id)
+        self._executions.cancel(run_id)
+        return self.run_state(run_id)
+
     def get(self, review_id: str) -> Review:
         return self._reviews.get(review_id)
 
@@ -364,6 +441,17 @@ class ReviewWorkflowService:
             return reviews
         return tuple(review for review in reviews if review.case.id == case_id)
 
+    def list_summaries(self, *, limit: int = 100) -> tuple[ReviewSummary, ...]:
+        """The listing every screen but the workbench actually reads.
+
+        A review carries its atlas, and eight surfaces show a name, a number and a count
+        off it. Kept beside `list` rather than replacing it because the review page needs
+        the whole record and asking it to assemble one out of summaries would be the same
+        download in more requests.
+        """
+
+        return self._reviews.list_summaries(limit=limit)
+
     def delete(self, review_id: str) -> None:
         self._reviews.delete(review_id)
 
@@ -371,11 +459,14 @@ class ReviewWorkflowService:
         return self._reviews.latest_for_branch(branch_id)
 
     def in_flight(self, *, limit: int = 50) -> tuple[ExecutionRecord, ...]:
-        """Runs that have begun and have no review yet.
+        """Runs that have begun and are not finished.
 
-        Listed beside the reviews rather than instead of them: a run becomes a review the
-        moment the graph composes one, and until then there is no review to list — the
-        atlas it would have to carry has not been built.
+        Listed beside the reviews rather than instead of them. Most of these have no review
+        yet — the atlas one would have to carry has not been built — and a rejudgement after
+        a clarification round has one, because it is judging answers against the snapshot
+        the reader is holding. A listing that drops a run the moment a review is attached
+        drops it several minutes before it ends, which is what made a finished run and a
+        run that never existed look identical.
         """
 
         return self._executions.in_flight(limit=limit)

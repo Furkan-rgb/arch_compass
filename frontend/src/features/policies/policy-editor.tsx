@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { api, type PolicyDocument, type PolicyDraft } from "../../api";
 import { cn } from "../../lib/cn";
@@ -9,6 +9,7 @@ import { Markdown } from "../../ui/markdown";
 import { Label, Panel, PanelBody, PanelFooter, PanelHeader } from "../../ui/panel";
 import { ErrorNotice, Spinner } from "../../ui/states";
 import { Tabs, TabPanel } from "../../ui/tabs";
+import { useToast } from "../../ui/toast";
 import { missingSections, policyTemplate, sectionStates } from "./sections";
 import { Mark } from "../../ui/mark";
 
@@ -36,15 +37,27 @@ function draftFrom(policy: PolicyDocument | null): PolicyDraft {
  *
  * The same form edits an existing workspace policy, because writing one and correcting one
  * are the same act — only the request differs.
+ *
+ * `onDirtyChange` is how the page around this knows not to throw the draft away. Four
+ * ordinary gestures used to destroy it without a word — Cancel, the header button, pressing
+ * Edit on another policy, and leaving the page — and the experience doc names the rule all
+ * four broke: *never navigate away from unsaved input*. The three that are controls are
+ * guarded by the page, which owns them; the fourth is guarded here, because `beforeunload`
+ * belongs to whoever holds the text.
  */
 export function PolicyEditor({
   policy,
-  onClose,
+  onCancel,
+  onSaved,
+  onDirtyChange,
 }: {
   policy: PolicyDocument | null;
-  onClose: () => void;
+  onCancel: () => void;
+  onSaved: () => void;
+  onDirtyChange: (dirty: boolean) => void;
 }) {
   const client = useQueryClient();
+  const say = useToast().say;
   const [draft, setDraft] = useState<PolicyDraft>(() => draftFrom(policy));
   const [tags, setTags] = useState((policy?.tags ?? []).join(", "));
   const [tab, setTab] = useState("write");
@@ -60,15 +73,44 @@ export function PolicyEditor({
       .filter(Boolean),
   });
 
+  const started = draftFrom(policy);
+  const dirty =
+    draft.title !== started.title ||
+    draft.description !== started.description ||
+    draft.body !== started.body ||
+    draft.strength !== started.strength ||
+    tags !== (policy?.tags ?? []).join(", ");
+
+  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
+
+  /**
+   * The one way out of this form that no control on the page can intercept.
+   *
+   * A reload, a typed address, the back gesture — none of them go through Cancel, and a
+   * browser only offers to stop them if something asks. `preventDefault` is the whole ask;
+   * the wording is the browser's and cannot be set.
+   */
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
   const save = useMutation({
+    // The failure is rendered in the footer of this panel, a few centimetres from the button
+    // that caused it, so the global toast would be saying it twice in one eyeline.
+    meta: { handled: true },
     mutationFn: () =>
       policy ? api.updatePolicy(policy.id, payload()) : api.createPolicy(payload()),
-    onSuccess: async () => {
+    onSuccess: async (saved) => {
       await client.invalidateQueries({ queryKey: ["policies"] });
-      onClose();
+      say(`“${saved.title}” is in the corpus the next review reads.`, "Policy saved");
+      onSaved();
     },
   });
 
+  const sections = sectionStates(draft.body);
   const outstanding = missingSections(draft.body);
   const incomplete =
     !draft.title.trim() || !draft.description.trim() || !draft.body.trim() || outstanding.length > 0;
@@ -79,7 +121,7 @@ export function PolicyEditor({
         title={policy ? `Edit “${policy.title}”` : "New workspace policy"}
         description="Durable architectural guidance. Retrieval mechanics stay out of the policy itself."
         actions={
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button variant="ghost" size="sm" onClick={onCancel}>
             Cancel
           </Button>
         }
@@ -90,6 +132,10 @@ export function PolicyEditor({
             {(props) => (
               <Input
                 {...props}
+                // Opening the form used to move no focus at all, so reaching the first field
+                // from the keyboard meant tabbing back down the whole page to a panel that
+                // had just appeared above it.
+                autoFocus
                 value={draft.title}
                 onChange={(event) => setDraft({ ...draft, title: event.target.value })}
                 placeholder="Keep domain code framework-free"
@@ -166,22 +212,31 @@ export function PolicyEditor({
             The workspace re-reads this policy with the same parser it uses for the bundled
             corpus, which needs all nine sections present and written.
           </p>
-          <ul className="mt-2.5 grid gap-1 sm:grid-cols-3">
-            {sectionStates(draft.body).map((section) => (
+          <ul className="mt-2.5 grid gap-2 sm:grid-cols-3">
+            {sections.map((section) => (
               <li
                 key={section.name}
                 // A checklist should point at what is left, not congratulate what is done —
                 // and "written" is not a verdict, which is what the green said it was.
-                className={cn(
-                  "flex items-center gap-1.5 text-xs",
-                  section.present ? "text-ink-3" : "font-medium text-ink",
-                )}
+                className={cn("text-xs", section.present ? "text-ink-3" : "text-ink")}
               >
-                {/* A step on a scale, not a grade: written and not-yet-written, solid to
-                    dashed. Deliberately not a tick — see the class note above. */}
-                <Mark shape={section.present ? "solid" : "dashed"} className="size-[13px]" />
-                {section.name}
-                <span className="sr-only">{section.present ? " written" : " still missing"}</span>
+                <span className="flex items-center gap-1.5">
+                  {/* A step on a scale, not a grade: written and not-yet-written, solid to
+                      dashed. Deliberately not a tick — see the class note above. */}
+                  <Mark shape={section.present ? "solid" : "dashed"} className="size-[13px]" />
+                  <span className={section.present ? undefined : "font-medium"}>
+                    {section.name}
+                  </span>
+                  <span className="sr-only">{section.present ? " written" : " still missing"}</span>
+                </span>
+                {/* The prompt used to be the body of the scaffold, which is how nine of them
+                    reached the corpus as a policy. It says the same thing here and cannot be
+                    saved by accident, because it is not in the box. */}
+                {section.present ? null : (
+                  <span className="mt-0.5 block pl-[19px] leading-5 text-ink-3">
+                    {section.prompt}
+                  </span>
+                )}
               </li>
             ))}
           </ul>

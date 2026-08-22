@@ -23,18 +23,49 @@
     <link rel="icon" sizes="48x48" href="/favicon.ico" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- The two faces the first paint is set in: Onest's latin subset and the reading weight
+         of IBM Plex Mono. Nothing was preloaded, so the landing page's 62px display headline
+         painted in the fallback stack and reflowed once the woff2 arrived — the single most
+         visible thing on the one route guaranteed to be somebody's first. The extended subset
+         and the 600 mono cut are deliberately not here: neither is needed for a latin first
+         paint, and a preload for something the page may not use is bandwidth taken from
+         something it will. `crossorigin` is mandatory on a font preload; without it the
+         request is made in a different mode and the file is fetched twice. -->
+    <link
+      rel="preload"
+      href="/src/assets/fonts/onest.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/src/assets/fonts/plex-mono-400.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
     <title>ArchCompass — architecture review workbench</title>
+    <!-- Wrapped, for the reason `lib/theme.ts` wraps the same two calls: a browser in private
+         mode, or an embedded webview with storage switched off, *throws* on `localStorage`
+         access rather than returning null. This script runs before anything else on the page,
+         so a throw here is a blank document rather than a theme flash — and the whole of what
+         it buys is that the page does not flash the wrong theme, which is not worth a page
+         that does not load at all. -->
     <script>
       (() => {
-        const saved = localStorage.getItem("archcompass.theme");
-        const preference =
-          saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
-        const theme =
-          preference === "system"
-            ? matchMedia("(prefers-color-scheme: dark)").matches
-              ? "dark"
-              : "light"
-            : preference;
+        let preference = "system";
+        try {
+          const saved = localStorage.getItem("archcompass.theme");
+          if (saved === "light" || saved === "dark" || saved === "system") preference = saved;
+        } catch {}
+        let theme = preference;
+        if (preference === "system") {
+          theme = "light";
+          try {
+            if (matchMedia("(prefers-color-scheme: dark)").matches) theme = "dark";
+          } catch {}
+        }
         document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme;
         document

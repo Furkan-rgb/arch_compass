@@ -1,42 +1,54 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
-import { api, type ProviderAvailability, type ThinkingMode } from "../../api";
+import {
+  api,
+  type EmbeddingCatalog,
+  type ModelCatalog,
+  type ProviderAvailability,
+  type ThinkingMode,
+  type Workspace,
+} from "../../api";
 import { cn } from "../../lib/cn";
-import { plural } from "../../lib/format";
+import {
+  EDITOR_LABELS,
+  readEditorScheme,
+  writeEditorScheme,
+  type EditorScheme,
+} from "../../lib/editor";
+import { plural, relativeTime } from "../../lib/format";
 import { useTheme } from "../../lib/theme";
 import { Badge, StatusDot, Tag } from "../../ui/badge";
-import { CheckIcon } from "../../ui/icons";
+import { Button, ToggleButton } from "../../ui/button";
+import { Field, Select } from "../../ui/field";
+import { CheckIcon, RefreshIcon } from "../../ui/icons";
 import { Mono } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
 import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
-import { ErrorNotice, LoadingPanel, Notice } from "../../ui/states";
+import { ErrorNotice, LoadingPanel, Notice, Spinner } from "../../ui/states";
+import { useToast } from "../../ui/toast";
 
 /** One model on offer, in the terms this page renders rather than the terms it arrived in. */
 type Choice = {
   key: string;
   provider: string;
-  title: string;
+  /** The identifier the provider knows it by, and what several tiles can share. */
+  model: string;
+  /** What tells this tile apart from the others of the same model, where anything does. */
+  variant: string | null;
   detail: string;
+  limits: string | null;
   selected: boolean;
   extra?: ReactNode;
   select: () => void;
 };
 
-/** A provider and everything it currently offers, which is what a section is. */
-type Group = { provider: ProviderAvailability; choices: Choice[] };
+/** One model id and every variant of it a provider offers. */
+type ModelRow = { model: string; choices: Choice[] };
 
-/**
- * A section per provider, because a provider is what a reader is actually deciding between.
- *
- * The models used to be one flat grid with the provider printed inside each tile, which read
- * as one list of fifteen unrelated things — and put the reason a provider had nothing to
- * offer ("GROQ_API_KEY is unset") in a separate availability panel, several rows away from
- * the empty space it explained. Grouping puts the cure beside the absence.
- *
- * Providers with nothing to offer are kept and shown last. They are the rows that say what
- * to fix, and dropping them would answer "why is Groq not here" with silence.
- */
+/** A provider and everything it currently offers, which is what a section is. */
+type Group = { provider: ProviderAvailability; models: ModelRow[]; count: number };
+
 /**
  * How hard this row asks the model to think, said in the provider's own vocabulary.
  *
@@ -45,15 +57,30 @@ type Group = { provider: ProviderAvailability; choices: Choice[] };
  * are the switch Ollama has; the four levels are the dial Gemini 3 has, which replaced the
  * switch — there is no request to a Gemini 3 model that means "do not think".
  */
-function thinkingTag(thinking: ThinkingMode): ReactNode {
+function thinkingLabel(thinking: ThinkingMode): string | null {
   if (thinking === null || thinking === undefined) return null;
-  if (thinking === true) return <Tag>thinking</Tag>;
-  if (thinking === false) return <Tag>direct</Tag>;
-  return <Tag>{thinking} thinking</Tag>;
+  if (thinking === true) return "thinking";
+  if (thinking === false) return "direct";
+  return `${thinking} thinking`;
+}
+
+function thinkingTag(thinking: ThinkingMode): ReactNode {
+  const label = thinkingLabel(thinking);
+  return label ? <Tag>{label}</Tag> : null;
+}
+
+/** What a model will take and give back — on the wire since the catalog existed, never shown. */
+function limitsOf(input: number | null | undefined, output: number | null | undefined) {
+  const parts = [
+    input ? `context ${input.toLocaleString()}` : null,
+    output ? `output ${output.toLocaleString()}` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
 }
 
 export function SettingsPage() {
   const client = useQueryClient();
+  const say = useToast().say;
   const catalog = useQuery({ queryKey: ["models"], queryFn: api.models });
   const embeddings = useQuery({ queryKey: ["embeddings"], queryFn: api.embeddings });
   const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
@@ -67,36 +94,48 @@ export function SettingsPage() {
   };
 
   const selectReasoning = useMutation({
+    meta: { handled: true },
     mutationFn: (choice: { provider: string; model: string; thinking: ThinkingMode }) =>
       api.selectModel(choice.provider, choice.model, choice.thinking),
     onSuccess: refresh,
   });
   const selectEmbedding = useMutation({
+    meta: { handled: true },
     mutationFn: (choice: { provider: string; model: string }) =>
       api.selectEmbedding(choice.provider, choice.model),
     onSuccess: refresh,
   });
+  const clearReasoning = useMutation({
+    mutationFn: () => api.clearModelSelection(),
+    onSuccess: async () => {
+      await refresh();
+      say("Nothing is set. Choose a reasoning model before the next review.", "Selection cleared");
+    },
+  });
+  const clearEmbedding = useMutation({
+    mutationFn: () => api.clearEmbeddingSelection(),
+    onSuccess: async () => {
+      await refresh();
+      say("Nothing is set. Choose an embedding model before the next review.", "Selection cleared");
+    },
+  });
 
-  if (catalog.isLoading || embeddings.isLoading || workspace.isLoading) {
-    return <LoadingPanel label="Asking each provider what it can offer…" rows={5} />;
-  }
-  if (catalog.error) return <ErrorNotice error={catalog.error} />;
-  if (embeddings.error) return <ErrorNotice error={embeddings.error} />;
-  if (workspace.error) return <ErrorNotice error={workspace.error} />;
-
-  const reasoningPinned = Boolean(workspace.data?.models.pinned);
-  const embeddingPinned = Boolean(workspace.data?.models.embedding_pinned);
-  const failure = workspace.data?.models.failure;
+  const models = workspace.data?.models;
+  const reasoningPinned = Boolean(models?.pinned);
+  const embeddingPinned = Boolean(models?.embedding_pinned);
+  const failure = models?.failure;
 
   const reasoningGroups = grouped(
     catalog.data?.providers ?? [],
     (catalog.data?.candidates ?? []).map((model) => ({
       key: `${model.provider}:${model.model}:${model.thinking}`,
       provider: model.provider,
-      title: model.model,
+      model: model.model,
+      variant: thinkingLabel(model.thinking ?? null),
       detail: model.label || "chat model",
+      limits: limitsOf(model.input_token_limit, model.output_token_limit),
       selected: Boolean(model.is_selected),
-      extra: thinkingTag(model.thinking),
+      extra: thinkingTag(model.thinking ?? null),
       select: () =>
         selectReasoning.mutate({
           provider: model.provider,
@@ -111,26 +150,64 @@ export function SettingsPage() {
     (embeddings.data?.candidates ?? []).map((model) => ({
       key: `${model.provider}:${model.model}:${model.dimensions}`,
       provider: model.provider,
-      title: model.model,
+      model: model.model,
+      variant: null,
       detail: model.label || "embedding model",
+      limits: null,
       selected: Boolean(model.is_selected),
       extra: <Tag>{model.dimensions.toLocaleString()} dimensions</Tag>,
       select: () => selectEmbedding.mutate({ provider: model.provider, model: model.model }),
     })),
   );
 
+  const rechecking = catalog.isFetching || embeddings.isFetching;
+
   return (
     <div>
       <PageHeader
         eyebrow="Runtime"
         title="Models"
-        description="ArchCompass separates the model that judges architecture from the model that retrieves policy. Either can be local or hosted, and neither constrains the other."
-        actions={<ThemeChoice />}
+        description="The model that judges architecture and the model that retrieves policy are set separately."
+        actions={
+          <>
+            {/* A provider is probed when this page asks for the catalog, and never again.
+                Starting Ollama after the page had painted needed a browser reload. */}
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={rechecking}
+              onClick={() => void refresh()}
+            >
+              {/* The label is printed right beside it. */}
+              {rechecking ? (
+                <Spinner label="" />
+              ) : (
+                <RefreshIcon aria-hidden="true" className="size-3.5" />
+              )}
+              Re-check providers
+            </Button>
+            <ThemeChoice />
+          </>
+        }
       />
 
       {failure ? (
         <div className="mb-5">
           <ErrorNotice error={new Error(failure)} title="The workspace reported a problem" />
+        </div>
+      ) : null}
+
+      {workspace.error ? (
+        <div className="mb-5">
+          <ErrorNotice
+            error={workspace.error}
+            title="The workspace could not say what is selected"
+            action={
+              <Button size="sm" variant="secondary" onClick={() => void workspace.refetch()}>
+                Try again
+              </Button>
+            }
+          />
         </div>
       ) : null}
 
@@ -145,6 +222,25 @@ export function SettingsPage() {
           busy={selectReasoning.isPending}
           error={selectReasoning.error}
           emptyNotice="This provider has no reasoning models to offer."
+          loading={catalog.isLoading}
+          loadingLabel="Asking each provider what it can offer…"
+          failure={catalog.error}
+          onRetry={() => void catalog.refetch()}
+          selection={
+            workspace.isLoading ? null : (
+              <Selection
+                identity={selectedIdentity(workspace.data, "reasoning")}
+                extra={thinkingTag(models?.reasoning?.thinking ?? null)}
+                providers={catalog.data?.providers ?? []}
+                answering={isAnswering(catalog.data, models?.reasoning)}
+                provider={models?.reasoning?.provider}
+                pinned={reasoningPinned}
+                empty="No reasoning model is selected."
+                onClear={() => clearReasoning.mutate()}
+                clearing={clearReasoning.isPending}
+              />
+            )
+          }
         />
 
         <ModelSection
@@ -157,23 +253,147 @@ export function SettingsPage() {
           busy={selectEmbedding.isPending}
           error={selectEmbedding.error}
           emptyNotice="This provider serves no embeddings."
+          loading={embeddings.isLoading}
+          loadingLabel="Asking each provider what it can embed…"
+          failure={embeddings.error}
+          onRetry={() => void embeddings.refetch()}
+          selection={
+            workspace.isLoading ? null : (
+              <Selection
+                identity={selectedIdentity(workspace.data, "embedding")}
+                extra={
+                  models?.embedding ? (
+                    <Tag>{models.embedding.dimensions.toLocaleString()} dimensions</Tag>
+                  ) : null
+                }
+                providers={embeddings.data?.providers ?? []}
+                answering={isAnswering(embeddings.data, models?.embedding)}
+                provider={models?.embedding?.provider}
+                pinned={embeddingPinned}
+                empty="No embedding model is selected."
+                onClear={() => clearEmbedding.mutate()}
+                clearing={clearEmbedding.isPending}
+              />
+            )
+          }
         />
+
+        <EditorChoice />
       </div>
     </div>
   );
 }
 
+/** `provider:model`, which is how the workspace names what it is set to. */
+function selectedIdentity(workspace: Workspace | undefined, kind: "reasoning" | "embedding") {
+  const identity = kind === "reasoning" ? workspace?.models.reasoning : workspace?.models.embedding;
+  return identity ? `${identity.provider}:${identity.model}` : null;
+}
+
+/** Whether what the workspace is set to is among what its provider is offering right now. */
+function isAnswering(
+  catalog: ModelCatalog | EmbeddingCatalog | undefined,
+  identity: { provider: string; model: string } | null | undefined,
+): boolean {
+  if (!identity) return true;
+  return (catalog?.candidates ?? []).some(
+    (candidate) =>
+      candidate.provider === identity.provider && candidate.model === identity.model,
+  );
+}
+
 /**
- * Choices filed under the provider that offers them, available providers first.
+ * What this workspace is actually set to, read from the workspace rather than from the probe.
+ *
+ * `is_selected` is computed per candidate from the live probe, so the moment a provider stops
+ * answering the selected model has no tile at all and nothing on the page wears the Selected
+ * chip. The reader saw fifteen tiles, none of them marked, and no statement anywhere of what
+ * the workspace was set to — while the answer sat unrendered in `workspace.models`.
+ *
+ * `Clear selection` sits beside it for the same reason. The server's own docstring calls it
+ * "the way back out of a choice that turned out to be wrong. There is no file to edit
+ * instead", and it matters most in exactly this state, where there is no tile to click away
+ * from. It is not offered where the choice was made by environment configuration, because
+ * then there is nothing here to clear.
+ */
+function Selection({
+  identity,
+  extra,
+  providers,
+  answering,
+  provider,
+  pinned,
+  empty,
+  onClear,
+  clearing,
+}: {
+  identity: string | null;
+  extra: ReactNode;
+  providers: ProviderAvailability[];
+  answering: boolean;
+  provider: string | undefined;
+  pinned: boolean;
+  empty: string;
+  onClear: () => void;
+  clearing: boolean;
+}) {
+  const label = providers.find((item) => item.provider === provider)?.label || provider;
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-rule bg-surface-2 px-3.5 py-3">
+      <div className="min-w-0">
+        <Label>Currently selected</Label>
+        {identity ? (
+          <p className="mt-1 text-sm leading-6 text-ink-2">
+            <Mono className="text-[13px] font-semibold text-ink">{identity}</Mono> is this
+            workspace&rsquo;s model.{answering ? "" : ` ${label} is not answering.`}
+            {extra ? <span className="ml-1.5 align-middle">{extra}</span> : null}
+          </p>
+        ) : (
+          // An explicit unknown outranks an implied one: a blank line here reads as a page
+          // that failed to load rather than as a workspace nobody has chosen for.
+          <p className="mt-1 text-sm text-ink-3">{empty}</p>
+        )}
+      </div>
+      {identity && !pinned ? (
+        <Button size="sm" variant="secondary" disabled={clearing} onClick={onClear}>
+          {clearing ? <Spinner /> : "Clear selection"}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Choices filed under the provider that offers them, available providers first, and one row
+ * per model id inside each.
+ *
+ * A section per provider, because a provider is what a reader is actually deciding between.
+ * The models used to be one flat grid with the provider printed inside each tile, which read
+ * as one list of fifteen unrelated things — and put the reason a provider had nothing to
+ * offer ("GROQ_API_KEY is unset") in a separate availability panel, several rows away from
+ * the empty space it explained. Grouping puts the cure beside the absence. Providers with
+ * nothing to offer are kept and shown last: they are the rows that say what to fix, and
+ * dropping them would answer "why is Groq not here" with silence.
+ *
+ * The second grouping is the model id. A thinking variant is a separate candidate, so the
+ * page printed `gemma4:26b-mlx` twice and `gemini-3.5-flash-lite` four times — the id set
+ * loud in every one of them, and the only thing that differed between the four carried by a
+ * small quiet tag. The id is said once per model now, and the tile leads with the variant.
  *
  * The order within each half is the order the backend named them, which is the order the
  * deployment enabled them in — so a workspace that put Ollama first still reads that way.
  */
 function grouped(providers: ProviderAvailability[], choices: Choice[]): Group[] {
-  const groups = providers.map((provider) => ({
-    provider,
-    choices: choices.filter((choice) => choice.provider === provider.provider),
-  }));
+  const groups = providers.map((provider) => {
+    const offered = choices.filter((choice) => choice.provider === provider.provider);
+    const models: ModelRow[] = [];
+    for (const choice of offered) {
+      const row = models.find((item) => item.model === choice.model);
+      if (row) row.choices.push(choice);
+      else models.push({ model: choice.model, choices: [choice] });
+    }
+    return { provider, models, count: offered.length };
+  });
   return [
     ...groups.filter((group) => group.provider.available),
     ...groups.filter((group) => !group.provider.available),
@@ -188,21 +408,79 @@ function ThemeChoice() {
       aria-label="Colour theme"
       className="flex gap-1 rounded-md border border-rule bg-surface p-1"
     >
+      {/* `ToggleButton` rather than the `bg-ink text-canvas` this hand-rolled: the one toggle
+          recipe the design system retired by name — *a toggle that is on is raised, not
+          inverted* — and the only control on the page that missed the coarse-pointer floor. */}
       {(["light", "dark", "system"] as const).map((option) => (
-        <button
+        <ToggleButton
           key={option}
-          type="button"
-          aria-pressed={preference === option}
+          pressed={preference === option}
           onClick={() => setPreference(option)}
-          className={cn(
-            "min-h-8 rounded-sm px-2.5 text-xs font-semibold capitalize transition",
-            preference === option ? "bg-ink text-canvas" : "text-ink-3 hover:bg-sunken hover:text-ink",
-          )}
+          className="capitalize"
         >
           {option}
-        </button>
+        </ToggleButton>
       ))}
     </div>
+  );
+}
+
+/**
+ * Which editor a path on this machine opens in, which is what turns every path in a review
+ * into somewhere to go.
+ *
+ * `ui/meta.tsx` has offered an *open* control beside every source path for as long as there
+ * has been a scheme to build one from, and nothing anywhere wrote the scheme — so the
+ * affordance existed and never once appeared. It is a per-machine fact rather than a
+ * workspace one, and off until somebody says otherwise; `lib/editor.ts` argues both at length.
+ */
+function EditorChoice() {
+  const [scheme, setScheme] = useState<EditorScheme>(readEditorScheme);
+  return (
+    <section className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)] xl:gap-6">
+      <div className="xl:sticky xl:top-20 xl:self-start">
+        <Label>Opens the source</Label>
+        <h2 className="mt-1.5 font-display text-xl font-semibold tracking-tight text-ink">
+          This machine
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-ink-3">
+          Kept in this browser rather than in the workspace. Two people reading the same review
+          may run different editors, and one of them may be reading it over SSH where no local
+          path resolves at all.
+        </p>
+      </div>
+      <Panel>
+        <PanelHeader
+          title="Open in editor"
+          description="Every source path in a review grows an open control once an editor is named."
+        />
+        <PanelBody>
+          <Field
+            label="Editor"
+            hint="Nothing is offered by default. A link that silently fails costs a click to discover and looks like the product being broken."
+          >
+            {(props) => (
+              <Select
+                {...props}
+                value={scheme}
+                onChange={(event) => {
+                  const next = event.target.value as EditorScheme;
+                  writeEditorScheme(next);
+                  setScheme(next);
+                }}
+                className="max-w-80"
+              >
+                {(Object.keys(EDITOR_LABELS) as EditorScheme[]).map((option) => (
+                  <option key={option} value={option}>
+                    {EDITOR_LABELS[option]}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+        </PanelBody>
+      </Panel>
+    </section>
   );
 }
 
@@ -216,6 +494,11 @@ function ModelSection({
   busy,
   error,
   emptyNotice,
+  loading,
+  loadingLabel,
+  failure,
+  onRetry,
+  selection,
 }: {
   title: string;
   role: string;
@@ -226,6 +509,11 @@ function ModelSection({
   busy: boolean;
   error: unknown;
   emptyNotice: string;
+  loading: boolean;
+  loadingLabel: string;
+  failure: unknown;
+  onRetry: () => void;
+  selection: ReactNode;
 }) {
   return (
     <section className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)] xl:gap-6">
@@ -241,9 +529,24 @@ function ModelSection({
       </div>
 
       <div className="grid gap-3">
+        {selection}
+
         {pinned ? <Notice>{pinnedNotice}</Notice> : null}
 
-        {groups.length ? (
+        {/* One slow or failed probe used to replace the whole page — including the half that
+            would have let you pick a different provider. It replaces its own section now. */}
+        {failure ? (
+          <ErrorNotice
+            error={failure}
+            action={
+              <Button size="sm" variant="secondary" onClick={onRetry}>
+                Try again
+              </Button>
+            }
+          />
+        ) : loading ? (
+          <LoadingPanel label={loadingLabel} rows={3} />
+        ) : groups.length ? (
           groups.map((group) => (
             <ProviderSection
               key={group.provider.provider}
@@ -271,7 +574,7 @@ function ProviderSection({
   disabled: boolean;
   emptyNotice: string;
 }) {
-  const { provider, choices } = group;
+  const { provider, models, count } = group;
   const available = provider.available;
   return (
     <Panel tone={available ? "raised" : "flat"}>
@@ -286,27 +589,66 @@ function ProviderSection({
         // Held one panel away it read as an unrelated status list.
         description={provider.detail || undefined}
         actions={
-          available ? (
-            <span className="text-xs tabular-nums text-ink-3">
-              {plural(choices.length, "model")}
-            </span>
-          ) : (
-            <Badge tone="material" glyph="alert">
-              Unavailable
-            </Badge>
-          )
+          <span className="flex flex-wrap items-center justify-end gap-2 text-xs text-ink-3">
+            {available ? (
+              <span className="tabular-nums">{plural(count, "model")}</span>
+            ) : (
+              <Badge tone="material" glyph="alert">
+                Unavailable
+              </Badge>
+            )}
+            {/* When the probe ran, which is the difference between "Ollama is not running"
+                and "Ollama was not running when this page was built". */}
+            <span>checked {relativeTime(provider.probed_at)}</span>
+          </span>
         }
       />
       <PanelBody>
-        {choices.length ? (
+        {models.length ? (
           <div className="grid gap-2 md:grid-cols-2">
-            {choices.map((choice) => (
-              <ModelChoice
-                key={choice.key}
-                choice={choice}
-                disabled={disabled || !available}
-              />
-            ))}
+            {models.map((row) =>
+              row.choices.length === 1 ? (
+                <ModelChoice
+                  key={row.choices[0].key}
+                  choice={row.choices[0]}
+                  lead={
+                    <Mono
+                      className="block truncate text-[13px] font-semibold text-ink"
+                      title={row.model}
+                    >
+                      {row.model}
+                    </Mono>
+                  }
+                  disabled={disabled || !available}
+                />
+              ) : (
+                <div
+                  key={row.model}
+                  className="rounded-md border border-rule bg-surface-2 p-2 md:col-span-2"
+                >
+                  {/* Said once, above the variants of it, rather than in the loudest line of
+                      four tiles that are otherwise identical. */}
+                  <Mono className="block px-1 pb-2 text-[13px] font-semibold text-ink">
+                    {row.model}
+                  </Mono>
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                    {row.choices.map((choice) => (
+                      <ModelChoice
+                        key={choice.key}
+                        choice={choice}
+                        lead={
+                          <span className="block truncate text-[13px] font-semibold capitalize text-ink">
+                            {choice.variant ?? row.model}
+                          </span>
+                        }
+                        name={`${row.model} ${choice.variant ?? ""}`.trim()}
+                        disabled={disabled || !available}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ),
+            )}
           </div>
         ) : (
           <p className="text-sm text-ink-3">
@@ -318,13 +660,25 @@ function ProviderSection({
   );
 }
 
-function ModelChoice({ choice, disabled }: { choice: Choice; disabled: boolean }) {
+function ModelChoice({
+  choice,
+  lead,
+  name,
+  disabled,
+}: {
+  choice: Choice;
+  lead: ReactNode;
+  /** The whole identity, where what is on screen is only the half that distinguishes it. */
+  name?: string;
+  disabled: boolean;
+}) {
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={choice.select}
       aria-pressed={choice.selected}
+      aria-label={name}
       className={cn(
         "rounded-md border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50",
         choice.selected
@@ -334,18 +688,23 @@ function ModelChoice({ choice, disabled }: { choice: Choice; disabled: boolean }
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <Mono className="block truncate text-[13px] font-semibold text-ink" title={choice.title}>
-            {choice.title}
-          </Mono>
+          {lead}
           {/* The provider is the heading above this tile now, so the tile says what the
               model is instead of repeating where it came from. */}
           <div className="mt-1 text-xs text-ink-3">{choice.detail}</div>
+          {choice.limits ? (
+            <div className="mt-1 text-[11px] tabular-nums text-ink-3">{choice.limits}</div>
+          ) : null}
         </div>
+        {/* `Badge` rather than the 10px uppercase recipe this had hand-rolled: the recipe
+            belongs to one component and this is a badge. The tick comes from `ui/icons.tsx`
+            rather than from `Mark`'s vocabulary, whose sign register is for what is *graded*
+            — and a chosen model is not a verdict. */}
         {choice.selected ? (
-          <span className="inline-flex items-center gap-1 rounded-sm bg-ink px-1.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-canvas">
-            <CheckIcon className="size-3" />
+          <Badge tone="marked" className="shrink-0">
+            <CheckIcon aria-hidden="true" className="size-3" />
             Selected
-          </span>
+          </Badge>
         ) : null}
       </div>
       {/* The provider's own heading says whether it answered; repeating it on every tile

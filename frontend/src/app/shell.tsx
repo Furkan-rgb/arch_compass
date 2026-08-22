@@ -9,6 +9,9 @@ import type { Tone } from "../lib/format";
 import { useTheme } from "../lib/theme";
 import { StatusDot } from "../ui/badge";
 import { Drawer } from "../ui/drawer";
+import { Label } from "../ui/panel";
+import { ShortcutSheet, useShortcutSheet } from "../ui/shortcuts";
+import { Tooltip } from "../ui/tooltip";
 import { CommandPalette, useCommandPalette } from "../ui/command-palette";
 import {
   BookIcon,
@@ -20,6 +23,7 @@ import {
   MonitorIcon,
   MoonIcon,
   PlayIcon,
+  QuestionIcon,
   SearchIcon,
   SlidersIcon,
   SunIcon,
@@ -82,20 +86,35 @@ const isWorkspaceRoute = (pathname: string) =>
 const railControl =
   "inline-flex min-h-9 min-w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11 items-center justify-center gap-2 rounded-sm px-2.5 text-[13px] font-medium text-band-ink-2 transition hover:bg-white/8 hover:text-band-ink focus-visible:outline-band-ink";
 
+/**
+ * The same control, painted for the page rather than for the rail.
+ *
+ * Two of the rail's controls also belong in the navigation drawer, which is an ordinary
+ * surface that inverts with the theme — so band ink, which is white in both themes, would be
+ * white on white there. Only the three colours change; the shape, the target size and the
+ * spacing are the rail's, because it is the same control and should read as one.
+ */
+const pageControl = "text-ink-2 hover:bg-sunken hover:text-ink focus-visible:outline-ink";
+
 function ThemeToggle() {
   const { preference, cycle } = useTheme();
   const Glyph = preference === "light" ? SunIcon : preference === "dark" ? MoonIcon : MonitorIcon;
   const next = preference === "system" ? "light" : preference === "light" ? "dark" : "system";
+  const says = `Theme: ${preference}. Switch to ${next}.`;
   return (
-    <button
-      type="button"
-      onClick={cycle}
-      title={`Theme: ${preference}. Switch to ${next}.`}
-      aria-label={`Theme: ${preference}. Switch to ${next}.`}
-      className={cn(railControl, "min-w-9 justify-center px-0")}
-    >
-      <Glyph className="size-4" />
-    </button>
+    // A tooltip rather than `title`: this is an icon with no label, so the sentence is the
+    // only thing that says which of the three states the glyph is in — and `title` never
+    // appears for a keyboard and never appears at all on a touch screen.
+    <Tooltip content={says}>
+      <button
+        type="button"
+        onClick={cycle}
+        aria-label={says}
+        className={cn(railControl, "min-w-9 justify-center px-0")}
+      >
+        <Glyph className="size-4" />
+      </button>
+    </Tooltip>
   );
 }
 
@@ -136,22 +155,34 @@ function ModelChips({ className, stacked }: { className?: string; stacked?: bool
           ? { tone: "cleared", note: pinned ? "selected · pinned" : "selected" }
           : { tone: "held", note: "not selected" };
     return (
-      <Link
-        to="/settings"
-        aria-label={`${role} model: ${value || "not selected"} — ${state.note}`}
-        title={`${role}: ${value || "not selected"}\n${state.note}`}
-        className={cn(
-          railControl,
-          "min-w-0 gap-1.5 font-mono text-[11px]",
-          stacked && "justify-start",
-        )}
+      // The chip prints a truncated model id and a dot, so the role and the state it is in
+      // are visible nowhere else. That was a `title`, which a keyboard never sees.
+      <Tooltip
+        content={
+          <>
+            <span className="font-semibold text-ink">{role}</span>: {value || "not selected"}
+            <span className="mt-0.5 block text-ink-3">{state.note}</span>
+          </>
+        }
+        side="bottom"
       >
-        <StatusDot tone={state.tone} pulse={state.pulse} />
-        <span className="sr-only">{role}</span>
-        <span aria-hidden="true" className="max-w-[9rem] truncate">
-          {value || "not selected"}
-        </span>
-      </Link>
+        <Link
+          to="/settings"
+          aria-label={`${role} model: ${value || "not selected"} — ${state.note}`}
+          className={cn(
+            railControl,
+            "min-w-0 gap-1.5 font-mono text-[11px]",
+            // Stacked means the drawer, which is a page surface rather than the rail.
+            stacked && cn("justify-start", pageControl),
+          )}
+        >
+          <StatusDot tone={state.tone} pulse={state.pulse} />
+          <span className="sr-only">{role}</span>
+          <span aria-hidden="true" className="max-w-[9rem] truncate">
+            {value || "not selected"}
+          </span>
+        </Link>
+      </Tooltip>
     );
   };
   return (
@@ -170,13 +201,55 @@ function ModelChips({ className, stacked }: { className?: string; stacked?: bool
   );
 }
 
+/**
+ * A review that is running, said everywhere rather than only on the page watching it.
+ *
+ * The run page tells you that you can close it and come back to the address, and then every
+ * trace of the run disappears the moment you do: no badge, no count, nothing on Policies or
+ * Settings saying the workspace is busy. For a job measured in minutes, going and doing
+ * something else is the ordinary case, so the one place that survives every route has to
+ * carry it.
+ *
+ * The poll stops when the list empties — `refetchInterval` reads the last answer rather than
+ * being a fixed timer — so a workspace with nothing running costs one request per mount and
+ * no further traffic. The same query key the reviews page uses, so the two share one
+ * request rather than each running their own.
+ *
+ * Nothing is rendered when the list is empty. An indicator that is always there, reading
+ * "nothing running", is a count nobody can act on.
+ */
+function RunIndicator({ className }: { className?: string }) {
+  const runs = useQuery({
+    queryKey: ["review-runs"],
+    queryFn: api.reviewRuns,
+    refetchInterval: (query) => (query.state.data?.length ? 4000 : false),
+  });
+
+  const running = runs.data ?? [];
+  if (!running.length) return null;
+
+  // One run goes to the run itself; more than one has no single address, so it goes to the
+  // list that shows all of them.
+  const to = running.length === 1 ? `/runs/${running[0].run_id}` : "/reviews";
+  const label = running.length === 1 ? "1 review running" : `${running.length} reviews running`;
+
+  return (
+    <Link to={to} className={cn(railControl, "gap-2 whitespace-nowrap", className)}>
+      {/* `neutral` and breathing, which is the reading the model chips already established:
+          this is not a fourth state on the severity scale, it is the scale not knowing yet.
+          `held` would be the wrong claim — nobody is waiting on the reader, the workspace is
+          working. */}
+      <StatusDot tone="neutral" pulse />
+      {label}
+    </Link>
+  );
+}
+
 /** The nav as a column, for the phone drawer. Full labels here — there is room for them. */
 function DrawerNav({ onNavigate }: { onNavigate: () => void }) {
   const group = (label: string, items: NavItem[]) => (
     <div>
-      <div className="px-2.5 pb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-ink-3">
-        {label}
-      </div>
+      <Label className="px-2.5 pb-1.5">{label}</Label>
       <ul className="grid gap-0.5">
         {items.map((item) => (
           <li key={item.to}>
@@ -218,7 +291,7 @@ function WorkspacePath() {
   // narrower than its content. Truncation is a promise the ancestors have to keep.
   return (
     <div className="min-w-0 rounded-md border border-rule bg-surface-2 p-3">
-      <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-3">Workspace</div>
+      <Label>Workspace</Label>
       <div
         title={workspace.data?.workspace}
         className="mt-1.5 min-w-0 truncate font-mono text-[11px] text-ink-2"
@@ -234,10 +307,33 @@ function WorkspacePath() {
   );
 }
 
+/**
+ * The keyboard, discoverable with a pointer.
+ *
+ * `?` is how the sheet is opened by anyone who already knows it exists, which is nobody on
+ * their first review — so the same thing is a quiet control in the rail, beside the theme
+ * toggle, where the other settings-shaped controls are.
+ */
+function ShortcutsButton({ onOpen }: { onOpen: () => void }) {
+  return (
+    <Tooltip content="Keyboard shortcuts — press ?">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label="Keyboard shortcuts"
+        className={cn(railControl, "min-w-9 justify-center px-0")}
+      >
+        <QuestionIcon className="size-4" />
+      </button>
+    </Tooltip>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const [navOpen, setNavOpen] = useState(false);
   const location = useLocation();
   const palette = useCommandPalette();
+  const shortcuts = useShortcutSheet();
   const workspace = isWorkspaceRoute(location.pathname);
 
   useEffect(() => {
@@ -246,9 +342,15 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-svh flex-col bg-canvas text-ink">
+      {/* `outline-band-ink`, because this lands on the rail rather than on the page.
+          The ring is ink everywhere else, and ink on a light page is near-black — so the
+          first thing a keyboard reaches on every screen drew a black ring on the black rail,
+          around a black chip, and the one control whose entire job is to be findable by
+          keyboard was invisible to it. The band's own ink is white in both themes, which is
+          the only value that reads on this ground. */}
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-sm focus:bg-ink focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-canvas"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-sm focus:bg-ink focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-canvas focus-visible:outline-band-ink"
       >
         Skip to content
       </a>
@@ -295,32 +397,44 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <span className="flex-1" />
 
+          <RunIndicator className="hidden md:inline-flex" />
+
           {/* The way to anything, and the reason the sidebar could go. Everything the nav
-              lists is in here, plus every review and every repository by name. */}
+              lists is in here, plus every review and every repository by name.
+
+              It gives its width back below `xl` and keeps only the icon and the word. The
+              chips beside it are what a reader checks without meaning to — which repository
+              root, which two models — and a 13rem box holding one word nobody has typed into
+              yet is not worth the workspace's identity disappearing for 256 pixels. */}
           <button
             type="button"
             onClick={palette.open}
             aria-label="Search everything"
             className={cn(
               railControl,
-              "gap-2 border border-band-rule text-band-ink-2 sm:min-w-[13rem] sm:justify-start",
+              "gap-2 border border-band-rule text-band-ink-2 sm:justify-start xl:min-w-[13rem]",
             )}
           >
             <SearchIcon className="size-4 shrink-0" />
             <span className="hidden sm:inline">Search…</span>
             <kbd
               aria-hidden="true"
-              className="ml-auto hidden rounded-xs border border-band-rule px-1 font-mono text-[10px] leading-4 sm:inline"
+              className="ml-auto hidden rounded-xs border border-band-rule px-1 font-mono text-[10px] leading-4 xl:inline"
             >
               ⌘K
             </kbd>
           </button>
 
-          <ModelChips className="hidden xl:flex" />
+          {/* `lg`, which is where the hamburger goes. The two used to be `lg:hidden` and
+              `xl:flex`, so between 1024 and 1280 — an ordinary window width — there was no
+              drawer to open and no chips, and nothing on any page said which repository root
+              the workspace pointed at or which two models it ran. */}
+          <ModelChips className="hidden lg:flex" />
+          <ShortcutsButton onOpen={shortcuts.open} />
           <ThemeToggle />
           <Link
             to="/start"
-            className="ml-1 hidden min-h-9 shrink-0 items-center rounded-sm bg-band-ink px-3 text-[13px] font-semibold text-band transition hover:opacity-90 sm:inline-flex"
+            className="ml-1 hidden min-h-9 shrink-0 items-center rounded-sm bg-band-ink px-3 text-[13px] font-semibold text-band transition hover:opacity-90 focus-visible:outline-band-ink sm:inline-flex"
           >
             New review
           </Link>
@@ -351,6 +465,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="grid min-w-0 gap-4 p-3">
           <DrawerNav onNavigate={() => setNavOpen(false)} />
           <WorkspacePath />
+          {/* The drawer is where the workspace says what it is, so the chips belong here
+              too — which is what `stacked` was written for. It had no call site at all,
+              so below the rail's own breakpoint nothing named the two models anywhere. */}
+          <div className="min-w-0 rounded-md border border-rule bg-surface-2 p-1.5">
+            <Label className="px-1 pb-1">Models</Label>
+            <ModelChips stacked />
+          </div>
+          <RunIndicator className={cn(pageControl, "justify-start")} />
         </div>
       </Drawer>
 
@@ -359,6 +481,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         onClose={palette.close}
         sections={NAV.map((item) => ({ to: item.to, label: item.label }))}
       />
+
+      <ShortcutSheet open={shortcuts.isOpen} onClose={shortcuts.close} />
     </div>
   );
 }

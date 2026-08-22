@@ -36,6 +36,9 @@ class CandidateChange:
     causes: tuple[ChangeCause, ...]
     predecessor_id: CandidateId | None = None
 
+    def __post_init__(self) -> None:
+        freeze_sequences(self, "causes")
+
 
 @dataclass(frozen=True, slots=True)
 class AddressedCandidate:

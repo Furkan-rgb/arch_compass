@@ -1,11 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../../api";
-import { reviewFixture, runFixture } from "../../test-fixtures";
+import { reviewSummaryFixture, runFixture } from "../../test-fixtures";
 import { RunPage } from "./run-page";
 
 function wrap(children: ReactNode) {
@@ -37,7 +37,7 @@ describe("a review being made", () => {
    */
   describe("the batch notice", () => {
     async function runWith(state: Parameters<typeof runFixture>[0]) {
-      vi.spyOn(api, "reviews").mockResolvedValue([]);
+      vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
       vi.spyOn(api, "reviewRun").mockResolvedValue(runFixture(state));
       render(wrap(<RunPage />));
       await screen.findByText("thread-9");
@@ -76,12 +76,12 @@ describe("a review being made", () => {
     // Everything a review is filed under exists before the review does: the repository, the
     // branch, the case, and the sequence taken from the newest review on that branch. So the
     // page is the review page's head and rail, with progress where the findings will go.
-    const previous = reviewFixture({ status: "completed", questions: [], sequence: 1 });
-    vi.spyOn(api, "reviews").mockResolvedValue([previous]);
+    const previous = reviewSummaryFixture({ status: "completed", sequence: 1 });
+    vi.spyOn(api, "reviewSummaries").mockResolvedValue([previous]);
     vi.spyOn(api, "reviewRun").mockResolvedValue(
       runFixture({
         branch_id: previous.repository.branch_id,
-        case_id: previous.case.id,
+        case_id: previous.case_id,
         sequence: 2,
       }),
     );
@@ -89,9 +89,15 @@ describe("a review being made", () => {
     render(wrap(<RunPage />));
 
     expect(await screen.findByText(/Review 2 · in progress/)).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: /Architecture review of payments-platform/ }),
-    ).toBeInTheDocument();
+    // The same head a recorded revision wears: the repository and the branch in mono, then
+    // the path. It used to be "Architecture review of payments-platform" at 30px — the exact
+    // string at the exact size the review page deleted as the largest type on the page spent
+    // on the fact the reader is least in doubt about.
+    const head = screen.getByRole("heading", { name: /payments-platform/ });
+    expect(head).toHaveClass("font-mono");
+    expect(within(head).getByText("main")).toBeInTheDocument();
+    expect(screen.queryByText(/Architecture review of/)).not.toBeInTheDocument();
+    expect(screen.getByText("/work/payments-platform")).toBeInTheDocument();
 
     // The rail carries the revision before it and this one, in sequence.
     const rail = (await screen.findByText("Review lineage")).parentElement!;
@@ -113,7 +119,7 @@ describe("a review being made", () => {
     // A loop is one step that is fifteen deep, not fifteen steps. Listing every turn made
     // the progress list thirty rows of the same two labels alternating, which reads as a
     // run that is stuck — and buried the steps that genuinely differ from each other.
-    vi.spyOn(api, "reviews").mockResolvedValue([]);
+    vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
     vi.spyOn(api, "reviewRun").mockResolvedValue(
       runFixture({
         stage: "judge_candidate",
@@ -141,7 +147,7 @@ describe("a review being made", () => {
   });
 
   it("counts the candidate loop as done once the run has left it", async () => {
-    vi.spyOn(api, "reviews").mockResolvedValue([]);
+    vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
     vi.spyOn(api, "reviewRun").mockResolvedValue(
       runFixture({
         status: "completed",
@@ -160,7 +166,7 @@ describe("a review being made", () => {
   });
 
   it("hands over to the review the moment there is one to read", async () => {
-    vi.spyOn(api, "reviews").mockResolvedValue([]);
+    vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
     vi.spyOn(api, "reviewRun").mockResolvedValue(
       runFixture({ status: "completed", review_id: "review-7", stage: "record_review" }),
     );
@@ -172,7 +178,7 @@ describe("a review being made", () => {
   });
 
   it("says a failed run failed, and offers the way back", async () => {
-    vi.spyOn(api, "reviews").mockResolvedValue([]);
+    vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
     vi.spyOn(api, "reviewRun").mockResolvedValue(
       runFixture({
         status: "failed",
@@ -185,6 +191,58 @@ describe("a review being made", () => {
 
     expect(await screen.findByText(/Review 2 · did not finish/)).toBeInTheDocument();
     expect(screen.getByText(/The provider refused the batch/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Start again" })).toHaveAttribute("href", "/start");
+    // The repository the run failed on, carried into the form rather than thrown away. It
+    // went to a blank `/start`, where the reader found the repository again and re-ticked
+    // every folder they had left out — while the path was printed twenty lines above.
+    expect(screen.getByRole("link", { name: "Start again" })).toHaveAttribute(
+      "href",
+      "/start?root=%2Fwork%2Fpayments-platform",
+    );
+  });
+
+  /**
+   * A failed poll is a fact about the connection, not about the run.
+   *
+   * The page gated on `run.error || !state`, and React Query keeps `data` and sets `error`
+   * when a *background* refetch fails — so a sleeping laptop or one 502 during a poll that
+   * runs every 1500ms for minutes replaced a healthy run with "No such run", then put it
+   * back on the next poll.
+   */
+  it("keeps the run on screen when a poll fails, and says contact was lost", async () => {
+    vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
+    const poll = vi
+      .spyOn(api, "reviewRun")
+      .mockResolvedValueOnce(runFixture({}))
+      .mockRejectedValue(new Error("Failed to fetch"));
+
+    render(wrap(<RunPage />));
+
+    await screen.findByRole("list", { name: "Review progress" });
+    // The poll runs at 1500ms, which is longer than the default wait.
+    await waitFor(() => expect(poll.mock.calls.length).toBeGreaterThan(1), { timeout: 3000 });
+
+    expect(await screen.findByText(/Lost contact with the workspace/)).toBeInTheDocument();
+    // And nothing that was on screen has been taken away by the refresh that failed.
+    expect(screen.queryByText("No such run")).not.toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Review progress" })).toBeInTheDocument();
+    expect(screen.getByText("thread-9")).toBeInTheDocument();
+  });
+
+  it("offers a way to stop a run somebody no longer wants", async () => {
+    vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
+    vi.spyOn(api, "reviewRun").mockResolvedValue(runFixture({}));
+    const cancelled = vi
+      .spyOn(api, "cancelRun")
+      .mockResolvedValue(runFixture({ status: "cancelled", stage: "judge_candidate" }));
+
+    render(wrap(<RunPage />));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Stop this run" }));
+
+    await waitFor(() => expect(cancelled).toHaveBeenCalledWith("thread-9"));
+    // The run keeps its id under `cancelled`, so this address goes on answering rather than
+    // navigating anywhere — and the page says which of the three ends it came to.
+    expect(await screen.findByText(/Review 2 · stopped/)).toBeInTheDocument();
+    expect(screen.getByText("This review was stopped")).toBeInTheDocument();
   });
 });

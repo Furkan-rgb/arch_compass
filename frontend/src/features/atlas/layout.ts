@@ -883,22 +883,39 @@ type ElkLayoutEngine = {
 /**
  * One engine for the page, loaded the first time a map asks for it.
  *
- * The bundled kernel is large, and most of the workspace never draws a graph, so it is not
- * part of the initial chunk. The promise is cached rather than the instance: two lenses
- * switched quickly would otherwise each construct their own kernel.
+ * The kernel is large, and most of the workspace never draws a graph, so it is not part of the
+ * initial chunk. The promise is cached rather than the instance: two lenses switched quickly
+ * would otherwise each construct their own kernel.
+ *
+ * It runs in a worker. `elk-worker.min.js` ships in the same package as the bundled build and
+ * was simply never reached for, so every placement on this surface ran on the thread that
+ * draws it — and a placement is hundreds of milliseconds on the graph a real review produces,
+ * during which nothing on the page moves. The bundled build stays as the answer for anywhere
+ * without workers, which is chiefly the test environment; both expose the same `layout`.
  */
 let engine: Promise<ElkLayoutEngine> | null = null;
 
 function layoutEngine(): Promise<ElkLayoutEngine> {
-  if (!engine) {
-    engine = import("elkjs/lib/elk.bundled.js").then((module) => {
-      const Constructor = (module.default ?? module) as unknown as new (
-        options?: unknown,
-      ) => ElkLayoutEngine;
-      return new Constructor();
-    });
-  }
+  if (!engine) engine = startEngine();
   return engine;
+}
+
+async function startEngine(): Promise<ElkLayoutEngine> {
+  if (typeof Worker === "function") {
+    const [api, worker] = await Promise.all([
+      import("elkjs/lib/elk-api.js"),
+      import("elkjs/lib/elk-worker.min.js?worker"),
+    ]);
+    const Constructor = (api.default ?? api) as unknown as new (
+      options?: unknown,
+    ) => ElkLayoutEngine;
+    return new Constructor({ workerFactory: () => new worker.default() });
+  }
+  const module = await import("elkjs/lib/elk.bundled.js");
+  const Constructor = (module.default ?? module) as unknown as new (
+    options?: unknown,
+  ) => ElkLayoutEngine;
+  return new Constructor();
 }
 
 /**
@@ -974,24 +991,39 @@ export async function layoutAtlasElk(
   // than wherever a box of its size happened to fit.
   ordered.filter((node) => roots.has(node.id)).forEach((node) => boxes.push(card(node)));
 
-  for (const [clusterId, group] of orderedGroups) {
-    if (group.length < 2) {
-      boxes.push(card(group[0]));
-      continue;
+  /**
+   * Every cluster at once rather than one after another.
+   *
+   * The clusters are independent — each is laid out from its own members and its own internal
+   * edges, and nothing about one can change another — so awaiting them in a loop was waiting
+   * out the sum of a set of answers that could have cost the longest of them. `Promise.all`
+   * preserves the order of `orderedGroups`, which is what the packing pass reads, so the
+   * placement stays as deterministic as the rest of this file insists on being.
+   */
+  const placements = await Promise.all(
+    orderedGroups.map(([clusterId, group]) => {
+      if (group.length < 2) return Promise.resolve(null);
+      const memberIds = new Set(group.map((node) => node.id));
+      return elk.layout({
+        id: `${CLUSTER_PREFIX}${clusterId}`,
+        layoutOptions: CLUSTER_OPTIONS,
+        children: group.map(card),
+        edges: validEdges
+          .filter((edge) => memberIds.has(edge.sourceId) && memberIds.has(edge.targetId))
+          .map((edge) => ({
+            id: edge.id,
+            sources: [edge.sourceId],
+            targets: [edge.targetId],
+          })),
+      });
+    }),
+  );
+
+  placements.forEach((placed, index) => {
+    if (!placed) {
+      boxes.push(card(orderedGroups[index][1][0]));
+      return;
     }
-    const memberIds = new Set(group.map((node) => node.id));
-    const placed = await elk.layout({
-      id: `${CLUSTER_PREFIX}${clusterId}`,
-      layoutOptions: CLUSTER_OPTIONS,
-      children: group.map(card),
-      edges: validEdges
-        .filter((edge) => memberIds.has(edge.sourceId) && memberIds.has(edge.targetId))
-        .map((edge) => ({
-          id: edge.id,
-          sources: [edge.sourceId],
-          targets: [edge.targetId],
-        })),
-    });
     interiors.set(
       placed.id,
       new Map(
@@ -1003,7 +1035,7 @@ export async function layoutAtlasElk(
       width: placed.width || NODE_WIDTH,
       height: placed.height || NODE_HEIGHT,
     });
-  }
+  });
 
   const packed = await elk.layout({
     id: "atlas",

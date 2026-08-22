@@ -50,6 +50,11 @@ export function visibleGraphFor({
   const allowedIds = new Set(allowedNodes.map((node) => node.id));
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const byLens = edges.filter((edge) => {
+    // A curve from a card to itself is not something `edgePath` can draw, so the canvas has
+    // always skipped one — and the footer counted it anyway, promising the reader a line that
+    // is nowhere on the map. Decided here instead, once, where every count of what is drawn
+    // is read from.
+    if (edge.sourceId === edge.targetId) return false;
     if (hiddenEdgeKinds.has(edge.kind)) return false;
     if (lens === "structure") return edge.kind === "contains";
     if (lens === "dependencies") return edge.kind !== "contains";

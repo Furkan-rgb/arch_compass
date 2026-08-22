@@ -1,5 +1,6 @@
 import { cn } from "../lib/cn";
 import { highlight, languageForPath } from "../lib/highlight";
+import { CopyButton } from "./button";
 import { PathRef } from "./meta";
 
 /**
@@ -32,29 +33,39 @@ export function SourceExcerpt({
   const coloured = highlight(body, resolved);
 
   return (
-    <div
-      className={cn(
-        "scrollbar-slim overflow-x-auto rounded-md border border-rule bg-sunken/70",
-        className,
-      )}
-    >
-      <div className="flex min-w-full py-2.5 font-mono text-[12px] leading-[1.65]">
-        <div
-          aria-hidden="true"
-          className="shrink-0 select-none px-3 text-right tabular-nums text-ink-3/70"
-        >
-          {lines.map((_, index) => (
-            <div key={index}>{startLine ? startLine + index : index + 1}</div>
-          ))}
+    <div className={cn("relative rounded-md border border-rule bg-sunken/70", className)}>
+      {/* On the box rather than inside the scroller: a button positioned inside an
+          `overflow-x-auto` element travels with the code when the excerpt is wider than its
+          column, and ends up somewhere in the middle of line one.
+
+          Selecting forty lines by hand was the alternative, and it takes the line numbers
+          with it on any browser that does not honour `user-select: none` in a copy. What
+          goes on the clipboard here is the file's own text, which is what an editor wants
+          back. */}
+      <CopyButton
+        value={body}
+        label="Copy the excerpt"
+        className="absolute right-1 top-1 z-10 bg-sunken"
+      />
+      <div className="scrollbar-slim overflow-x-auto">
+        <div className="flex min-w-full py-2.5 font-mono text-[12px] leading-[1.65]">
+          <div
+            aria-hidden="true"
+            className="shrink-0 select-none px-3 text-right tabular-nums text-ink-3/70"
+          >
+            {lines.map((_, index) => (
+              <div key={index}>{startLine ? startLine + index : index + 1}</div>
+            ))}
+          </div>
+          {/* The excerpt is the file's own text, so it stays selectable and copyable without
+              the numbers coming with it. */}
+          <pre className="min-w-0 flex-1 pr-11 text-ink">
+            <code
+              className={resolved ? `language-${resolved}` : undefined}
+              dangerouslySetInnerHTML={{ __html: coloured || " " }}
+            />
+          </pre>
         </div>
-        {/* The excerpt is the file's own text, so it stays selectable and copyable without
-            the numbers coming with it. */}
-        <pre className="min-w-0 flex-1 pr-4 text-ink">
-          <code
-            className={resolved ? `language-${resolved}` : undefined}
-            dangerouslySetInnerHTML={{ __html: coloured || " " }}
-          />
-        </pre>
       </div>
     </div>
   );

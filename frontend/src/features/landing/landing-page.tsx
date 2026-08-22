@@ -189,7 +189,7 @@ function LandingNav() {
 }
 
 function Hero() {
-  const { index, select, bearing, holdProps } = useSpecimen();
+  const { index, select, bearing, holdProps, showcasing, toggleShowcase } = useSpecimen();
 
   return (
     // The figure is taken out of the flow above `xl` so it can bleed off the right edge, so
@@ -236,6 +236,8 @@ function Hero() {
           <SpecimenPicker
             index={index}
             onSelect={select}
+            showcasing={showcasing}
+            onToggleShowcase={toggleShowcase}
             hold={holdProps}
             className="mt-8 border-t border-rule-strong pt-2.5"
           />

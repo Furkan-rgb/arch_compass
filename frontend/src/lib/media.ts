@@ -25,5 +25,13 @@ export function useMediaQuery(query: string, fallback = false): boolean {
   return matches;
 }
 
-export const useIsDesktop = () => useMediaQuery("(min-width: 1280px)");
+/**
+ * One named breakpoint, because one is what genuinely changes a layout in JavaScript.
+ *
+ * There was a `useIsDesktop` at 1280px beside it with no call site at all. A width constant
+ * nothing reads is worse than no constant: it looks like the place to add the next one, and
+ * the two of them disagreed about which width "the desk" starts at while the stylesheet
+ * quietly used a third. Everything that is only a style stays in CSS, where a breakpoint is
+ * a class rather than a subscription and a re-render.
+ */
 export const useIsTabletUp = () => useMediaQuery("(min-width: 1024px)");

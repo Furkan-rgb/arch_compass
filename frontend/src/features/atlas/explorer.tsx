@@ -1,13 +1,14 @@
 import { type FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { plural } from "../../lib/format";
+import { isPlainShortcut } from "../../lib/keyboard";
 import { Mono } from "../../ui/meta";
-import { AtlasCanvas } from "./canvas";
-import { LensControls, LensPicker, ViewportToolbar } from "./controls";
+import { AtlasCanvas, type AtlasEmptyAnswer } from "./canvas";
+import { ExplorationStrip, LensControls, LensPicker, ViewportToolbar } from "./controls";
 import { AtlasDetailPanel } from "./detail";
-import type { AtlasExplorerProps, AtlasLens } from "./graph";
+import { LENSES, type AtlasExplorerProps, type AtlasLens } from "./graph";
 import { usePlacedLayout } from "./placement";
-import type { AtlasPulse } from "./pulse";
+import { readPulse, writePulse, type AtlasPulse } from "./pulse";
 import { useAtlasViewport } from "./viewport";
 import { graphSignatureOf, visibleGraphFor } from "./visible-graph";
 
@@ -41,13 +42,23 @@ export function AtlasExplorer({
   exploreNote,
   traceNote,
   revealedNodeIds = [],
+  explorations = [],
+  onResetExplorations,
 }: AtlasExplorerProps) {
   const [lens, setLens] = useState<AtlasLens>(initialLens);
   const [searchValue, setSearchValue] = useState("");
   const [hiddenEdgeKinds, setHiddenEdgeKinds] = useState<Set<string>>(new Set());
   const [hideTests, setHideTests] = useState(false);
   const [publicOnly, setPublicOnly] = useState(false);
-  const [pulse, setPulse] = useState<AtlasPulse>("comet");
+  const [pulse, setPulse] = useState<AtlasPulse>(readPulse);
+  /**
+   * Every card the last submitted term matched, and which of them the reader is standing on.
+   *
+   * A set rather than one card because a term with nine matches has nine answers. The search
+   * used to take the first `find` and select it, which is a search that answered "is there
+   * one" — a different and much less useful question than the one the box asks.
+   */
+  const [matches, setMatches] = useState<{ ids: string[]; index: number }>({ ids: [], index: 0 });
   const selected = selectedNodeId
     ? nodes.find((node) => node.id === selectedNodeId)
     : undefined;
@@ -77,11 +88,34 @@ export function AtlasExplorer({
   const layout = usePlacedLayout(visibleGraph, lens, graphSignature);
   const highlightedNodes = useMemo(() => new Set(highlightedNodeIds), [highlightedNodeIds]);
   const highlightedEdges = useMemo(() => new Set(highlightedEdgeIds), [highlightedEdgeIds]);
+  const drawnEdgeIds = useMemo(
+    () => new Set(visibleGraph.edges.map((edge) => edge.id)),
+    [visibleGraph],
+  );
+  /**
+   * The matches that are still on the map, and where in them the reader is standing.
+   *
+   * Dropping an exploration takes its cards away, and a count of five over three rings is the
+   * surface disagreeing with itself. Derived rather than pruned in place, because the source
+   * of truth for what is on the map is what is on the map.
+   */
+  const matchIds = useMemo(() => {
+    if (!matches.ids.length) return matches.ids;
+    const present = new Set(nodes.map((node) => node.id));
+    return matches.ids.filter((id) => present.has(id));
+  }, [matches, nodes]);
+  const matchIndex = matchIds.length ? Math.min(matches.index, matchIds.length - 1) : 0;
+  const matchedNodes = useMemo(() => new Set(matchIds), [matchIds]);
   const view = useAtlasViewport({ layout, graphSignature, selected, onSelectNode });
   const definitionId = useId().replaceAll(":", "");
   const gridId = `atlas-grid-${definitionId}`;
   const arrowId = `atlas-arrow-${definitionId}`;
   const instructionsId = `atlas-instructions-${definitionId}`;
+
+  const choosePulse = (next: AtlasPulse) => {
+    setPulse(next);
+    writePulse(next);
+  };
 
   const submitSearch = (event: FormEvent) => {
     event.preventDefault();
@@ -89,14 +123,41 @@ export function AtlasExplorer({
     if (!term) return;
     // What is already on the map is found on the map. Only a term that matches nothing here
     // becomes a query, because a query brings back cards the reader did not ask to add.
-    const localMatch = nodes.find((node) =>
+    const found = nodes.filter((node) =>
       `${node.label} ${node.qualified} ${node.path} ${node.kind}`
         .toLocaleLowerCase()
         .includes(term),
     );
-    if (localMatch) onSelectNode(localMatch.id);
+    setMatches({ ids: found.map((node) => node.id), index: 0 });
+    if (found.length) onSelectNode(found[0].id);
     else onSearch?.(searchValue.trim());
   };
+
+  /** Round the matches, forwards or back, selecting each one as it lands on it. */
+  const stepMatch = (backwards = false) => {
+    if (matchIds.length < 2) return;
+    const next = (matchIndex + (backwards ? -1 : 1) + matchIds.length) % matchIds.length;
+    setMatches({ ids: matchIds, index: next });
+    onSelectNode(matchIds[next]);
+  };
+
+  /**
+   * `n` and `Shift-n` walk the matches, behind the guards every document-bound key here carries.
+   *
+   * Bound only while there is something to walk, so the letter is the reader's own everywhere
+   * else. `isPlainShortcut` is what keeps it out of the search box it was just typed into.
+   */
+  useEffect(() => {
+    if (matchIds.length < 2) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key.toLowerCase() !== "n" || !isPlainShortcut(event)) return;
+      event.preventDefault();
+      stepMatch(event.shiftKey);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchIds, matchIndex]);
 
   const toggleEdgeKind = (kind: string) => {
     setHiddenEdgeKinds((current) => {
@@ -106,6 +167,87 @@ export function AtlasExplorer({
       return next;
     });
   };
+
+  const clearFilters = () => {
+    setHiddenEdgeKinds(new Set());
+    setHideTests(false);
+    setPublicOnly(false);
+  };
+
+  /**
+   * Why the canvas is blank, worked out where the answer is knowable.
+   *
+   * The canvas has the node count and nothing else, so it printed the caller's sentence
+   * whatever had emptied it — telling a reader who pressed "Public only" that the review's
+   * elements were gone from the indexed atlas. Three causes, and only the first is the
+   * caller's: nothing was given, the lens draws nothing, or the filters take everything out.
+   * Each of the other two is checked by asking what the graph would be without it, which is
+   * the only way to be sure which one to name, and is only ever run on an empty map.
+   */
+  const empty = useMemo<AtlasEmptyAnswer>(() => {
+    if (!nodes.length) return { sentence: emptyMessage };
+    if (visibleGraph.nodes.length) return { sentence: emptyMessage };
+
+    const named = [
+      hideTests && "Hide tests",
+      publicOnly && "Public only",
+      hiddenEdgeKinds.size > 0 &&
+        `${plural(hiddenEdgeKinds.size, "relationship filter")} switched off`,
+    ].filter((value): value is string => Boolean(value));
+    if (named.length) {
+      const unfiltered = visibleGraphFor({
+        nodes,
+        edges,
+        lens,
+        hiddenEdgeKinds: new Set(),
+        hideTests: false,
+        publicOnly: false,
+        selected,
+        revealed,
+      });
+      if (unfiltered.nodes.length) {
+        return {
+          sentence: `${named.join(" and ")} leaves nothing to draw. Without ${
+            named.length > 1 ? "them" : "it"
+          } this lens draws ${plural(unfiltered.nodes.length, "element")}.`,
+          action: { label: "Clear the filters", onAction: clearFilters },
+        };
+      }
+    }
+
+    for (const other of LENSES) {
+      if (other.value === lens) continue;
+      const drawn = visibleGraphFor({
+        nodes,
+        edges,
+        lens: other.value,
+        hiddenEdgeKinds,
+        hideTests,
+        publicOnly,
+        selected,
+        revealed,
+      });
+      if (!drawn.nodes.length) continue;
+      return {
+        sentence: `The ${lens} lens draws nothing here. The ${other.label.toLocaleLowerCase()} lens draws ${plural(
+          drawn.nodes.length,
+          "element",
+        )}.`,
+        action: {
+          label: `Show the ${other.label.toLocaleLowerCase()} lens`,
+          onAction: () => setLens(other.value),
+        },
+      };
+    }
+
+    return {
+      sentence: `Nothing is drawn: the ${lens} lens and the filters that are on leave no element between them.`,
+      ...(named.length
+        ? { action: { label: "Clear the filters", onAction: clearFilters } }
+        : {}),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emptyMessage, edges, hiddenEdgeKinds, hideTests, lens, nodes, publicOnly, visibleGraph]);
 
   // A traced path is drawn along dependency edges, so the lens that draws none of them would
   // answer the request with an unchanged picture.
@@ -159,22 +301,31 @@ export function AtlasExplorer({
       <LensPicker lens={lens} onLens={setLens} />
 
       <LensControls
-        lens={lens}
         searchValue={searchValue}
-        onSearchValue={setSearchValue}
+        onSearchValue={(value) => {
+          setSearchValue(value);
+          // The count belongs to the term that was submitted, so editing the box retires it.
+          if (matches.ids.length) setMatches({ ids: [], index: 0 });
+        }}
         onSubmitSearch={submitSearch}
+        matches={{ count: matchIds.length, index: matchIndex }}
+        onNextMatch={stepMatch}
         hideTests={hideTests}
         onHideTests={() => setHideTests((value) => !value)}
         publicOnly={publicOnly}
         onPublicOnly={() => setPublicOnly((value) => !value)}
         pulse={pulse}
-        onPulse={setPulse}
+        onPulse={choosePulse}
         onExploreAtlas={onExploreAtlas}
         edgeKinds={availableEdgeKinds}
         hiddenEdgeKinds={hiddenEdgeKinds}
         onToggleEdgeKind={toggleEdgeKind}
         loading={loading}
       />
+
+      {onResetExplorations ? (
+        <ExplorationStrip explorations={explorations} onReset={onResetExplorations} />
+      ) : null}
 
       <ViewportToolbar instructionsId={instructionsId} view={view} />
 
@@ -186,9 +337,10 @@ export function AtlasExplorer({
           onSelectNode={onSelectNode}
           highlightedNodes={highlightedNodes}
           highlightedEdges={highlightedEdges}
+          matchedNodes={matchedNodes}
           pulse={pulse}
           loading={loading}
-          emptyMessage={emptyMessage}
+          empty={empty}
           view={view}
           gridId={gridId}
           arrowId={arrowId}
@@ -199,6 +351,7 @@ export function AtlasExplorer({
           node={selected}
           edges={edges}
           nodes={nodes}
+          drawnEdgeIds={drawnEdgeIds}
           onSelectNode={onSelectNode}
           onOpenFinding={onOpenFinding}
           onExploreNode={onExploreNode}

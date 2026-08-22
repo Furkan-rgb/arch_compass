@@ -352,10 +352,6 @@ def routes() -> APIRouter:
             case = runtime.case_service.continue_from_repository(root, branch_id=None)
         return StartedCaseResponse(case_id=case.id, revision=case.revision)
 
-    @router.get("/api/repositories/summary")
-    def repository_summary(runtime: RuntimeDep, root_path: str) -> AtlasQueryResult:
-        return runtime.atlas_service.summary(Path(root_path))
-
     @router.get("/api/repositories/hotspots")
     def repository_hotspots(
         runtime: RuntimeDep,
@@ -364,9 +360,11 @@ def routes() -> APIRouter:
     ) -> AtlasQueryResult:
         return runtime.atlas_service.hotspots(Path(root_path), metric)
 
-    @router.get("/api/repositories/inspect")
-    def repository_inspect(runtime: RuntimeDep, root_path: str, node_id: str) -> AtlasQueryResult:
-        return runtime.atlas_service.inspect(Path(root_path), node_id)
+    # No `/summary` and no `/inspect`. Both were answered over HTTP for a browser that
+    # never asked: the map draws itself from `/review-context`, which returns a node's
+    # neighbours as well as the node, and a whole-repository count is not a question any
+    # screen puts. `archcompass atlas summary` and `atlas inspect` still ask them, of the
+    # same service, without a server in between.
 
     @router.post("/api/repositories/review-context")
     def repository_review_context(

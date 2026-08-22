@@ -49,6 +49,39 @@ function oklch([r, g, b]: [number, number, number]): { l: number; c: number; h: 
   return { l: L, c: Math.hypot(A, Bb), h: ((Math.atan2(Bb, A) * 180) / Math.PI + 360) % 360 };
 }
 
+/** WCAG relative luminance, which is a different curve from OKLCH's lightness. */
+function luminance([r, g, b]: [number, number, number]): number {
+  const lin = (v: number) => {
+    const s = v / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function contrast(a: [number, number, number], b: [number, number, number]): number {
+  const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (high + 0.05) / (low + 0.05);
+}
+
+/**
+ * The value each token resolves to in one theme.
+ *
+ * Light is `:root`, which is declared first, so the first occurrence of a name is its light
+ * value; every later one is a dark override and the last of those is what a dark reader
+ * gets. This is the same reading `keeps code colour off the accent` below makes, hoisted
+ * because two tests now need it.
+ */
+function resolved(theme: "light" | "dark"): Map<string, [number, number, number]> {
+  const values = new Map<string, [number, number, number]>();
+  for (const { name, value } of declarations()) {
+    const rgb = channels(value);
+    if (!rgb) continue;
+    if (theme === "light" && values.has(name)) continue;
+    values.set(name, rgb);
+  }
+  return values;
+}
+
 /**
  * The one family that carries meaning by hue. Everything outside the exemptions below is grey.
  *
@@ -170,5 +203,52 @@ describe("the token layer", () => {
         }
       }
     }
+  });
+
+  /**
+   * The ramp has to be readable on every ground the ramp itself defines.
+   *
+   * `--ink-3` was `#737373` in both themes, on the argument that a value near the middle
+   * reads correctly on either ground. It did not: two of its eight ground-and-theme pairs
+   * cleared 4.5:1, and the six that failed included the canvas in light and every surface in
+   * dark. The tier carries the docket's meta line, every `Label` and every empty state, so
+   * the text explaining the interface was the least readable text in it.
+   *
+   * What made that survivable for so long is that nothing measured it. A hex code that looks
+   * mid-grey in a diff is indistinguishable from one that is, and the four grounds moved
+   * twice under it — `--sunken` went from black to the brightest of the dark four — without
+   * anything re-checking what still sat on them. So this is the arithmetic rather than the
+   * taste: every ink against every ground of its own theme, at the AA bar for body text.
+   *
+   * The four grounds are the ones an ink is ever painted on. `--overlay` and `--chrome` are
+   * not among them — both are translucent and composite over whichever of the four is behind
+   * them, so a ratio against either would be a ratio against nothing.
+   */
+  it("keeps every ink readable on every ground it is painted on", () => {
+    const GROUNDS = ["--canvas", "--surface", "--surface-2", "--sunken"] as const;
+    const failures: string[] = [];
+
+    for (const theme of ["light", "dark"] as const) {
+      const values = resolved(theme);
+      const inks = [...values.keys()].filter((name) => /^--ink(-\d+)?$/.test(name));
+      expect(inks.sort(), `${theme}: the ink ramp is three steps`).toEqual([
+        "--ink",
+        "--ink-2",
+        "--ink-3",
+      ]);
+
+      for (const ink of inks) {
+        for (const ground of GROUNDS) {
+          const ratio = contrast(values.get(ink)!, values.get(ground)!);
+          if (ratio < 4.5) {
+            failures.push(`${theme}: ${ink} on ${ground} is ${ratio.toFixed(2)}:1`);
+          }
+        }
+      }
+    }
+
+    expect(failures, "an ink that fails AA on a ground is unreadable text, not a quiet one").toEqual(
+      [],
+    );
   });
 });

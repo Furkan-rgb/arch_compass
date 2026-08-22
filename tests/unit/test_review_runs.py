@@ -6,6 +6,7 @@ import threading
 
 import pytest
 
+from archcompass.domain.errors import ReviewStillRunningError
 from archcompass.workflow.runs import ReviewRunner
 from archcompass.workflow.service import _JudgingProgress
 
@@ -64,13 +65,65 @@ def test_a_failure_is_a_state_to_read_rather_than_a_lost_thread() -> None:
 
 
 def test_the_same_run_is_not_started_twice() -> None:
+    """A refusal a caller can act on: two tabs answering one round reach this."""
+
     runner = ReviewRunner()
     release = threading.Event()
     runner.start(run_id="thread-4", work=lambda report: release.wait(timeout=5))
-    with pytest.raises(ValueError, match="already in flight"):
+    with pytest.raises(ReviewStillRunningError, match="already in flight"):
         runner.start(run_id="thread-4", work=lambda report: None)
     release.set()
     _settle(runner, "thread-4")
+
+
+def test_a_cancelled_run_stops_at_the_next_stage_and_says_it_was_cancelled() -> None:
+    """Cancelled, not failed: the work stopped because somebody stopped it.
+
+    Cooperative, because the alternative is killing a thread part way through a node and
+    leaving a checkpoint written by half a step. So the flag is read between stages: the
+    stage in flight finishes and no further one starts.
+    """
+
+    runner = ReviewRunner()
+    entered = threading.Event()
+    reached_second_stage = False
+
+    def work(report):
+        nonlocal reached_second_stage
+        report("analyze_repository")
+        entered.wait(timeout=5)
+        if runner.is_cancelled("thread-7"):
+            return
+        reached_second_stage = True
+        report("detect_candidates")
+
+    runner.start(run_id="thread-7", work=work)
+    runner.cancel("thread-7")
+    entered.set()
+    _settle(runner, "thread-7")
+
+    state = runner.state("thread-7")
+    assert state.status == "cancelled"
+    assert not reached_second_stage
+    # The stage it reached is kept. A cancelled run is a record of work that was done.
+    assert state.stages == ("analyze_repository",)
+
+
+def test_a_run_started_again_is_not_stopped_by_yesterday_s_cancellation() -> None:
+    """The id is the review's thread, and the next round of the same review reuses it."""
+
+    runner = ReviewRunner()
+    cancelled = threading.Event()
+    runner.start(run_id="thread-8", work=lambda report: cancelled.wait(timeout=5))
+    runner.cancel("thread-8")
+    cancelled.set()
+    _settle(runner, "thread-8")
+    assert runner.state("thread-8").status == "cancelled"
+
+    runner.start(run_id="thread-8", work=lambda report: report("select_rejudgements"))
+    _settle(runner, "thread-8")
+    assert not runner.is_cancelled("thread-8")
+    assert runner.state("thread-8").status == "finished"
 
 
 def test_a_repeated_stage_is_recorded_once() -> None:
@@ -142,14 +195,18 @@ def _settle(runner: ReviewRunner, run_id: str) -> None:
     raise AssertionError(f"run {run_id} never finished")
 
 
-def test_a_run_is_listed_until_it_has_a_review_to_be_listed_as(tmp_path) -> None:
+def test_a_run_is_listed_until_it_is_finished(tmp_path) -> None:
     """The half of findability the id could never provide.
 
     An address is only findable by somebody still holding it, and a run that judges in a
     batch is answered in minutes or hours — long enough that looking at something else in
-    between is the ordinary way to use the page, not a mistake. So a run that has begun and
-    has no review yet is listed, and stops being listed the moment there is a review to list
-    in its place. Never both: one row per thing.
+    between is the ordinary way to use the page, not a mistake. So a run that has begun is
+    listed, and stops being listed when it is done.
+
+    It used to stop the moment a review id was attached, which is several nodes before the
+    end — so the marker vanished while the run was still judging, the review was not in the
+    reviews listing yet either, and a finished run and a run that never existed gave the
+    same answer.
     """
 
     import sqlite3
@@ -173,11 +230,47 @@ def test_a_run_is_listed_until_it_has_a_review_to_be_listed_as(tmp_path) -> None
 
     class _Review:
         id = "review-1"
+        status = ReviewStatus.AWAITING_ANSWERS
+
+    executions.bind("thread-1", _Review())
+
+    # It asked a question and stopped, so it is a review now rather than a run.
+    assert executions.in_flight() == ()
+
+    # Answering it is minutes of judging on the same thread, and that is a run again.
+    executions.resume("thread-1")
+    assert [item.thread_id for item in executions.in_flight()] == ["thread-1"]
+    assert executions.current_review_id("thread-1") == "review-1"
+
+    class _Completed:
+        id = "review-2"
         status = ReviewStatus.COMPLETED
 
-    executions.bind("thread-1", _Review())  # type: ignore[arg-type]
+    executions.bind("thread-1", _Completed())
+    assert executions.in_flight() == ()
+
+
+def test_a_cancelled_run_leaves_the_listing_and_keeps_its_row(tmp_path) -> None:
+    """Cancelled is a status to read, not a deletion: the id somebody holds still answers."""
+
+    import sqlite3
+
+    from archcompass.persistence.executions import SQLiteReviewExecutionRepository
+
+    executions = SQLiteReviewExecutionRepository(
+        lambda: sqlite3.connect(tmp_path / "executions.sqlite3")
+    )
+    executions.begin(
+        thread_id="thread-1",
+        repository_id="repo-1",
+        branch_id="branch-1",
+        case_id="case-1",
+    )
+    executions.cancel("thread-1")
 
     assert executions.in_flight() == ()
+    assert executions.status("thread-1") == "cancelled"
+    assert executions.record("thread-1") is not None
 
 
 def test_the_newest_run_is_listed_first(tmp_path) -> None:

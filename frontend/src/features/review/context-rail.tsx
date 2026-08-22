@@ -12,6 +12,7 @@ import { MetaList, MetaRow, Mono } from "../../ui/meta";
 import { Label } from "../../ui/panel";
 import { Tabs, TabPanel } from "../../ui/tabs";
 import { EmptyState, ErrorNotice, Spinner } from "../../ui/states";
+import { PolicyRef } from "./finding-detail";
 
 /**
  * Why ArchCompass reached the conclusion beside it.
@@ -31,13 +32,24 @@ import { EmptyState, ErrorNotice, Spinner } from "../../ui/states";
 export function ContextRail({
   review,
   finding,
+  tab,
+  onTabChange,
   className,
 }: {
   review: Review;
   finding: Finding | null;
+  /**
+   * Which of the four is open, held by the page rather than by this component.
+   *
+   * The drawer unmounts what is inside it when it closes, so a tab kept here reset to Case
+   * on every open — and a reviewer checking Policies on twenty consecutive candidates
+   * pressed Policies twenty times. The drawer already follows you to the next candidate
+   * while it is open; this is the same promise across closing it.
+   */
+  tab: string;
+  onTabChange: (tab: string) => void;
   className?: string;
 }) {
-  const [tab, setTab] = useState("case");
   const provenance = finding
     ? review.retrieval_manifest.find((item) => item.candidate_id === finding.candidate.id)
     : undefined;
@@ -53,7 +65,7 @@ export function ContextRail({
         <Tabs
           label="Judgement context"
           active={tab}
-          onChange={setTab}
+          onChange={onTabChange}
           items={[
             { id: "case", label: "Case" },
             { id: "policies", label: "Policies", count: finding?.policies.length },
@@ -88,7 +100,11 @@ export function ContextRail({
                     <div className="text-sm font-semibold leading-5 text-ink">
                       {bearing.policy_title}
                     </div>
-                    <Mono className="mt-1 block text-[11px] text-ink-3">{bearing.policy_id}</Mono>
+                    {/* The way to the policy's own words. A reader in this tab is asking why
+                        a candidate was called what it was called, and the answer to the next
+                        question — what does the policy actually say — was a page and a
+                        by-hand title search away. */}
+                    <PolicyRef id={bearing.policy_id} className="mt-1 block" />
                     <p className="mt-1.5 text-xs leading-5 text-ink-2">{bearing.reasoning}</p>
                   </li>
                 ))}
@@ -320,11 +336,21 @@ function StructureContext({ review, finding }: { review: Review; finding: Findin
         </Button>
       </div>
 
-      {explore.error ? <ErrorNotice error={explore.error} /> : null}
+      {explore.error ? (
+        <ErrorNotice
+          error={explore.error}
+          action={
+            <Button variant="secondary" size="sm" onClick={search} disabled={!query.trim()}>
+              Search again
+            </Button>
+          }
+        />
+      ) : null}
 
       {explore.isPending ? (
         <div className="flex items-center gap-2 text-sm text-ink-3">
-          <Spinner /> Reading the atlas…
+          {/* The sentence is printed right beside it, so the spinner does not say it again. */}
+          <Spinner label="" /> Reading the atlas…
         </div>
       ) : !explore.data ? (
         <EmptyState title="Nothing searched yet" className="border-0 bg-transparent py-8">
@@ -429,11 +455,11 @@ function CaseContext({ review, finding }: { review: Review; finding: Finding | n
 
       {rest.length ? (
         <details className="group">
-          <summary className="flex min-h-11 list-none items-center gap-2 rounded-md px-1 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-ink-3 transition hover:bg-surface-2 focus-visible:-outline-offset-2">
-            <span className="min-w-0 flex-1 text-left">
+          <summary className="flex min-h-11 list-none items-center gap-2 rounded-md px-1 py-2 transition hover:bg-surface-2 focus-visible:-outline-offset-2">
+            <Label className="min-w-0 flex-1 text-left">
               Asked about other candidates · {rest.length}
-            </span>
-            <ChevronDown className="size-4 shrink-0 transition group-open:rotate-180" />
+            </Label>
+            <ChevronDown className="size-4 shrink-0 text-ink-3 transition group-open:rotate-180" />
           </summary>
           <ul className="mt-1.5 grid gap-1.5">
             {rest.map((answer) => (

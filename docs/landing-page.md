@@ -87,7 +87,7 @@ that happen to sit near each other.
 | **The map** | `atlas.tsx`, `AtlasMap` | 4 modules, 15 nodes, 25 edges, drawn in a 900×700 viewBox. Three nodes carry a verdict; everything else is hairline |
 | **The callout** | `specimen.tsx`, `SpecimenCallout` | The policy that bore, then the finding it produced, then the two retrieval counts. The one lift on the page |
 | **The leader** | `atlas.tsx`, `Node.leader` | A dashed hairline from the lit node to the callout's corner |
-| **The picker** | `specimen.tsx`, `SpecimenPicker` | Material · Held · Cleared, as the map's legend *and* as the control that moves between the three specimens |
+| **The picker** | `specimen.tsx`, `SpecimenPicker` | Material · Held · Cleared, as the map's legend *and* as the control that moves between the three specimens, with the showcase's `Pause` toggle at its end |
 
 ### One statement, and what makes it one
 
@@ -332,15 +332,32 @@ reason.
   arriving by keyboard should be told that before the pieces arrive one at a time. Each
   specimen inside is a group named by its verdict.
 - **The cycle stops when anybody is reading it.** `holdProps` — `onMouseEnter`,
-  `onMouseLeave`, `onFocusCapture`, `onBlurCapture` — is spread onto the whole hero section,
-  so hovering *or* tabbing into any part of the figure pauses it.
+  `onMouseLeave`, `onFocusCapture`, `onBlurCapture` — is spread onto the specimen and onto
+  the picker, so hovering *or* tabbing into either of them pauses it. It used to be spread
+  onto the whole hero section, which at eleven seconds a specimen was a courtesy and at two
+  is the feature's off switch: the hero is most of a first screen, so a cursor resting
+  anywhere in it — which is where a cursor rests — meant the showcase never ran once.
 - **Reduced motion stops the cycle entirely**, not just the transition. `useSpecimen` checks
   `prefers-reduced-motion` and never starts the interval; the first specimen simply stays.
   The picker still works, so nothing becomes unreachable.
-- **The interval is 11 seconds** (`CYCLE_MS`). It was 6.2, which is under a third of the
-  time it takes to read the ninety-odd words a specimen carries — so a reader who never
-  touched the figure never finished a single one, which is a carousel that exists to be
-  watched rather than read.
+- **The interval is 2 seconds (`SHOWCASE_MS`) and the showcase makes exactly one pass**
+  (`SHOWCASE_STEPS`, which is the number of bearings). It was 11 seconds and it looped for
+  ever, on the argument that eleven is what the ninety-odd words of a specimen take to read
+  and that anything shorter is a carousel to be watched rather than read. That argument was
+  answering the wrong question. The cycle is not how anybody reads a specimen — a hover stops
+  it, and touching a verdict buys five seconds (`HELD_MS`) on the one you asked for. What the
+  cycle is for is teaching, in the time it takes to notice the figure at all, that there are
+  three verdicts and that the picker moves between them. Six seconds does that. After the
+  third step the pass has ended where it began, on the first specimen, and the reader gets to
+  finish that one; the picker is how anybody sees the other two again, which is what a picker
+  is for.
+- **The picker carries a `Pause` toggle**, with `aria-pressed` reporting whether the showcase
+  is stopped and the same 44px floor its siblings have. Its name does not change with its
+  state — a name that swapped to *Play* would be a second control wearing the first one's
+  box, and *pressed* would then have to mean the opposite of what it says. Pressing it while
+  the pass is over replays the pass from the top, so it is never a control for nothing. This
+  is what makes the movement answerable rather than only interruptible: hovering pauses while
+  the cursor is there, and this is the reader saying stop.
 - **Scroll reveals finish immediately where they cannot animate.** `useReveal` reveals at
   once under `prefers-reduced-motion` and where `IntersectionObserver` is undefined, which
   is the same path jsdom takes — so no test waits for an animation and no reader is left
@@ -363,7 +380,9 @@ reason.
   but the *unlit* verdict nodes have nothing else.
 - **Three specimens is a number, not a rule.** A fourth needs a fourth authored leader, a
   fourth free node position, a wider picker, and it makes the callout's fixed height the
-  height of whichever specimen wraps worst. Nothing enforces the count.
+  height of whichever specimen wraps worst. It also lengthens the showcase's one pass, which
+  is `BEARINGS.length` steps — six seconds is short enough to be a demonstration and eight
+  may not be. Nothing enforces the count.
 - **The comment block at the head of `frontend/src/styles.css` predates the palette that
   file now declares.** It says the model's voice is a serif and that there is no accent hue —
   both were true of the previous system and neither is true a hundred lines below it in the

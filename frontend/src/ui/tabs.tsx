@@ -26,13 +26,27 @@ export function Tabs({
 }) {
   const listRef = useRef<HTMLDivElement | null>(null);
 
+  /**
+   * Left and right walk, Home and End jump.
+   *
+   * The two jumps are part of the tablist pattern rather than an extra, and they are worth
+   * more here than in most tablists: the review's strip runs to five or six tabs on a narrow
+   * column, where it scrolls, and "back to the first one" was six keystrokes past the edge
+   * of what is on screen.
+   */
   function onKeyDown(event: React.KeyboardEvent) {
     const index = items.findIndex((item) => item.id === active);
     if (index === -1) return;
-    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-    if (!step) return;
+
+    let target: number;
+    if (event.key === "ArrowRight") target = (index + 1) % items.length;
+    else if (event.key === "ArrowLeft") target = (index - 1 + items.length) % items.length;
+    else if (event.key === "Home") target = 0;
+    else if (event.key === "End") target = items.length - 1;
+    else return;
+
     event.preventDefault();
-    const next = items[(index + step + items.length) % items.length];
+    const next = items[target];
     onChange(next.id);
     listRef.current?.querySelector<HTMLButtonElement>(`#tab-${next.id}`)?.focus();
   }

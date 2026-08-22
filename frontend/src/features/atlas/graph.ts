@@ -32,6 +32,16 @@ export type AtlasNodeView = {
    * the whole value of the sweep.
    */
   tone?: Tone;
+  /**
+   * The verdict in one word — `Material`, `Held`, `Cleared` — wherever `tone` is set.
+   *
+   * The charter: a colour never carries meaning alone, and every verdict has a glyph, a word
+   * and a hue. The card had the glyph and the hue, and its accessible name said "judged" for
+   * a material finding and for a cleared one — the two verdicts this whole surface exists to
+   * tell apart. The word travels with the tone so the card can never carry one without the
+   * other.
+   */
+  verdictLabel?: string;
   /** Which finding to open, on the element a finding was made about. */
   candidateId?: string;
   /** The verdict in words, and why — shown in the panel beside the map. */
@@ -84,12 +94,35 @@ export type ExploreOperation =
   | "forward_neighbourhood"
   | "reverse_neighbourhood";
 
+/**
+ * Something the reader added to the map, and the way to take it back off again.
+ *
+ * The map only ever grew: every exploration appended to a list nothing removed, so three
+ * presses of "Two hops out" turned a ninety-card neighbourhood into a three-hundred-card mesh
+ * for the rest of the session, with no way back but a reload. The requests were already
+ * stored and already named; all that was missing was saying so and offering the reverse.
+ */
+export type AtlasExploration = {
+  id: string;
+  /** What was asked, in words: "Dependants of `Gateway`". */
+  label: string;
+  onDrop: () => void;
+};
+
 export type AtlasExplorerProps = {
   nodes: AtlasNodeView[];
   edges: AtlasEdgeView[];
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string | null) => void;
   loading?: boolean;
+  /**
+   * What to say when the caller handed the map nothing at all.
+   *
+   * Only that case. A map emptied by the reader's own lens or filter says which one did it,
+   * and printing the caller's sentence there told a reader who had just pressed "Public only"
+   * that the review's elements were gone from the atlas — a false statement of cause, which
+   * is the exact failure the experience doc asks this surface to prevent.
+   */
   emptyMessage?: string;
   /**
    * The lens the map opens on.
@@ -125,4 +158,7 @@ export type AtlasExplorerProps = {
   traceNote?: string;
   /** Elements the reader explicitly asked for, which no lens or filter may hide. */
   revealedNodeIds?: string[];
+  /** What the reader has added to this map, each with a way to drop it, and all of them. */
+  explorations?: AtlasExploration[];
+  onResetExplorations?: () => void;
 };

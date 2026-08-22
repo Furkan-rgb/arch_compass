@@ -115,16 +115,30 @@
   --rule: rgb(0 0 0 / 10%);
   --rule-strong: rgb(0 0 0 / 15%);
 
+  /* The meta tier is the one that had to move, and it moved because it was never checked.
+
+     `--ink-3` was `#737373` in both themes on the argument that it sat near the middle and
+     read correctly on either ground. Measured, it cleared 4.5:1 on two of its eight
+     ground-and-theme pairs: 4.35 on the canvas in light, 3.48 on a sunken block in dark. It
+     carries the docket's meta line, every `Label` and every empty state, so the tier that
+     explains the interface was its least readable text. Split, both values clear 5:1 on
+     all four grounds of their own theme, and `ui/tokens.test.ts` measures the whole ramp
+     rather than trusting a value to stay legible after a ground moves under it. */
   --ink: #0a0a0a;
   --ink-2: #525252;
-  --ink-3: #737373;
+  --ink-3: #5f5f5f;
 
   /* One hue for three verdicts, and the two that lose it are carried by weight instead.
 
      The scale is still act on it, waiting on a person, settled — it is simply no longer three
      colours. Material is the accent, so the thing asking to be acted on is the same red as
      everything else on screen that asks to be looked at. Held is full ink: present, unmissable,
-     not an alarm. Cleared is `--ink-3`: settled, and settled things recede.
+     not an alarm. Cleared is `--ink-3` — declared as `var(--ink-3)` rather than as its own hex, for the
+     same reason `--material` is declared as `var(--accent)`: settled and the meta tier are
+     one grey by intent, and a copy of a value drifts the moment the original moves. It did.
+     The tier was corrected for contrast and this verdict kept the old number, which left the
+     cleared badge at 3.48:1 on a sunken block in dark — 11px, bold, and the least readable
+     text in the product.
 
      What this costs is real and was chosen with it named — a docket column no longer separates
      held from cleared at the edge of vision, and the mark, the word and the left edge have to
@@ -133,7 +147,7 @@
   --material-soft: var(--accent-soft);
   --held: #0a0a0a;
   --held-soft: rgb(0 0 0 / 5%);
-  --cleared: #737373;
+  --cleared: var(--ink-3);
   --cleared-soft: rgb(0 0 0 / 3%);
 
   /* Getting to the source a claim came from is the accent's fourth job: a file, a policy,
@@ -182,7 +196,10 @@
   --code-keyword: #7e22ce; /* the language's own words: def, class, if, return */
   --code-name: #1d4ed8; /*    what somebody named: a function, a class, a tag  */
   --code-lit: #0e7490; /*     what is written out: a string, a number          */
-  --code-comment: #737373; /* prose inside code, and the only neutral here     */
+  /* The ink tier's light value, not the grey it used to share with it: a comment sits on
+     `bg-sunken/70`, where `#737373` measured 4.20:1 and a docstring is the sentence that
+     says what the abstraction is for. Dark already cleared 5:1 and is unchanged. */
+  --code-comment: #5f5f5f; /* prose inside code, and the only neutral here     */
 
   --font-display: "Onest", ui-sans-serif, system-ui, sans-serif;
   --font-ui: "Onest", ui-sans-serif, system-ui, sans-serif;
@@ -263,13 +280,13 @@
 
     --ink: #fafafa;
     --ink-2: #a1a1a1;
-    --ink-3: #737373;
+    --ink-3: #8f8f8f;
 
     --material: var(--accent);
     --material-soft: var(--accent-soft);
     --held: #fafafa;
     --held-soft: rgb(255 255 255 / 8%);
-    --cleared: #737373;
+    --cleared: var(--ink-3);
     --cleared-soft: rgb(255 255 255 / 5%);
 
     --mark: var(--accent);
@@ -340,13 +357,13 @@
 
   --ink: #fafafa;
   --ink-2: #a1a1a1;
-  --ink-3: #737373;
+  --ink-3: #8f8f8f;
 
   --material: var(--accent);
   --material-soft: var(--accent-soft);
   --held: #fafafa;
   --held-soft: rgb(255 255 255 / 8%);
-  --cleared: #737373;
+  --cleared: var(--ink-3);
   --cleared-soft: rgb(255 255 255 / 5%);
 
   --mark: var(--accent);
@@ -620,7 +637,9 @@
 .on-band {
   --held: #fafafa;
   --held-soft: rgb(255 255 255 / 8%);
-  --cleared: #737373;
+  /* The dark theme's own `--ink-3`, spelled out rather than referenced: on a light page the
+     token holds the light value, and the band does not invert with the page. */
+  --cleared: #8f8f8f;
   --cleared-soft: rgb(255 255 255 / 5%);
   --material: var(--accent-on-band);
   --material-soft: var(--accent-on-band-soft);
@@ -709,6 +728,20 @@
   .reveal {
     opacity: 1;
     transform: none;
+  }
+
+  /* The rule above stops the spinner mid-rotation, and a ring with one dark quarter that
+     never moves is not a quieter spinner — it is a circle that looks like it failed to
+     paint. In several places it is also the only progress signal there is: a pressed button,
+     a model chip, a run stage.
+
+     So the mark changes rather than merely stopping. A broken ring is unambiguous at 14px,
+     costs no animation, and is the same thing said a different way — which is what reduced
+     motion asks for, rather than saying nothing. The colour goes to `--ink-2` because the
+     quarter that carried the contrast is gone. */
+  .spinner {
+    border-style: dashed;
+    border-color: var(--ink-2);
   }
 }
 
@@ -830,7 +863,10 @@
    suppresses the browser's touch panning — the pointer handlers in `viewport.ts` are the
    only thing allowed to move it, or a pinch would zoom the map and scroll the page. */
 .atlas-canvas {
-  height: 32rem;
+  /* A map takes the screen it is given. It was `32rem` on every viewport outside
+     fullscreen, so a 27-inch monitor drew the same 512px window as a laptop and a real
+     judged neighbourhood fitted at a zoom below the label's own readable floor. */
+  height: clamp(24rem, calc(100vh - 22rem), 60rem);
   overflow: auto;
   overscroll-behavior: contain;
   touch-action: none;
@@ -876,13 +912,20 @@
 
 .atlas-empty {
   display: flex;
+  flex-direction: column;
   height: 100%;
   align-items: center;
   justify-content: center;
+  gap: 0.75rem;
   padding: 2rem;
   text-align: center;
   color: var(--ink-3);
   font-size: 0.875rem;
+}
+
+/* A measure rather than a width: the sentence names a lens or a filter and its cause. */
+.atlas-empty p {
+  max-width: 46ch;
 }
 
 /* An enclosure is drawn the way this system draws every other one: a hairline, dashed to say
@@ -941,6 +984,24 @@
   text-transform: uppercase;
 }
 
+/* The word half of the verdict. The hue is on the border and on the mark, and the charter
+   puts the hue last of the three — so this is ink, and it is what a screen reader and a
+   colour-blind reader get instead of the border. */
+.atlas-node__verdict {
+  fill: var(--ink);
+  font-weight: 600;
+}
+
+/* Dashed, so a search match never reads as the selection. Non-scaling for the same reason
+   the selection ring is: it says something about the reader, not about the repository. */
+.atlas-node__match {
+  fill: none;
+  stroke: var(--ink-3);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
 .atlas-node:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 3px;
@@ -961,13 +1022,37 @@
   stroke-width: 1.25;
 }
 
+/* One dash per kind, because five of the eight drew as the same hairline — so on the lens
+   for reading a coupling finding the map could not tell "A inherits from B" from "A mentions
+   B in a docstring", and the chip swatches claimed to sample a line they shared. Ordered by
+   how much the relationship binds: a long dash is an is-a, a dot is a mention, and `imports`
+   keeps the plain hairline as the baseline the others are read against. */
 .atlas-edge--contains {
   stroke-dasharray: 2 4;
 }
 
-.atlas-edge--tests,
-.atlas-edge--configures {
+.atlas-edge--references {
+  stroke-dasharray: 1 5;
+}
+
+.atlas-edge--calls {
+  stroke-dasharray: 3 3;
+}
+
+.atlas-edge--tests {
   stroke-dasharray: 5 4;
+}
+
+.atlas-edge--configures {
+  stroke-dasharray: 6 3 1 3;
+}
+
+.atlas-edge--inherits {
+  stroke-dasharray: 12 4;
+}
+
+.atlas-edge--implements {
+  stroke-dasharray: 12 4 2 4;
 }
 
 /* A traced path is the one thing on the map the reader asked for by name, so it is the only
@@ -983,25 +1068,59 @@
 }
 
 /* A sample of the line the map draws for this relationship, so a filter chip says which
-   connector it governs rather than only naming it. `currentColor` is what carries the chip's
-   own state: full-strength ink when the relationship is drawn, and the quiet grey of an
-   unpressed control when it is not. */
+   connector it governs rather than only naming it. A gradient rather than a border style,
+   because `dotted` and `dashed` are two patterns and there are eight kinds — the stops below
+   are the same numbers as the `stroke-dasharray` above, which is what makes it a sample
+   rather than a decoration. `currentColor` carries the chip's own state: full-strength ink
+   when the relationship is drawn, and the quiet grey of an unpressed control when it is
+   not. */
 .atlas-edge-swatch {
   display: inline-block;
   flex: none;
-  width: 14px;
-  height: 0;
-  border-top: 1.5px solid currentColor;
+  width: 20px;
+  height: 1.5px;
+  background: currentColor;
   opacity: 0.85;
 }
 
 .atlas-edge-swatch--contains {
-  border-top-style: dotted;
+  background: repeating-linear-gradient(to right, currentColor 0 2px, transparent 2px 6px);
 }
 
-.atlas-edge-swatch--tests,
+.atlas-edge-swatch--references {
+  background: repeating-linear-gradient(to right, currentColor 0 1px, transparent 1px 6px);
+}
+
+.atlas-edge-swatch--calls {
+  background: repeating-linear-gradient(to right, currentColor 0 3px, transparent 3px 6px);
+}
+
+.atlas-edge-swatch--tests {
+  background: repeating-linear-gradient(to right, currentColor 0 5px, transparent 5px 9px);
+}
+
 .atlas-edge-swatch--configures {
-  border-top-style: dashed;
+  background: repeating-linear-gradient(
+    to right,
+    currentColor 0 6px,
+    transparent 6px 9px,
+    currentColor 9px 10px,
+    transparent 10px 13px
+  );
+}
+
+.atlas-edge-swatch--inherits {
+  background: repeating-linear-gradient(to right, currentColor 0 12px, transparent 12px 16px);
+}
+
+.atlas-edge-swatch--implements {
+  background: repeating-linear-gradient(
+    to right,
+    currentColor 0 12px,
+    transparent 12px 16px,
+    currentColor 16px 18px,
+    transparent 18px 22px
+  );
 }
 
 /* The neighbourhood of the selected card, animated. `pathLength` is normalised to 100 on
@@ -1049,6 +1168,16 @@
   }
   to {
     stroke-dashoffset: 0;
+  }
+}
+
+/* A pulse is motion and nothing else, so with motion off there is nothing left for it to
+   say — and the global block freezes an animation rather than removing it, which leaves a
+   12% dash of ink sitting on every edge round the selection, for ever. That reads as a mark
+   the map is making. `.atlas-edge--active` still shows the neighbourhood. */
+@media (prefers-reduced-motion: reduce) {
+  .atlas-pulse {
+    display: none;
   }
 }
 

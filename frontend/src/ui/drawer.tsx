@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 
 import { cn } from "../lib/cn";
-import { useFocusTrap } from "../lib/motion";
+import { useOverlay } from "../lib/motion";
 import { Button } from "./button";
 
 /**
@@ -30,16 +30,7 @@ export function Drawer({
   className?: string;
 }) {
   const close = useCallback(() => onClose(), [onClose]);
-  const ref = useFocusTrap(open, close);
-
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, [open]);
+  const ref = useOverlay(open, close);
 
   if (!open) return null;
 

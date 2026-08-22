@@ -46,7 +46,7 @@ export function Wordmark({
           <span className="font-normal text-ink-2">Arch</span>Compass
         </span>
         {subtitle ? (
-          <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-3">
+          <span className="block text-[10px] font-semibold uppercase tracking-[0.13em] text-ink-3">
             {subtitle}
           </span>
         ) : null}

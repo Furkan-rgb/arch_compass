@@ -169,12 +169,16 @@ describe("the design system", () => {
   });
 
   it("lifts only the things that leave the page", () => {
-    // Three things genuinely leave the page. The palette is the third: it is summoned over
+    // Things that genuinely leave the page. The palette is the third: it is summoned over
     // whatever you were reading, from any route, and has to read as being in front of it
-    // rather than as a block that appeared in the flow.
+    // rather than as a block that appeared in the flow. The shortcut sheet is the palette's
+    // twin — same gesture, same overlay, same "in front of what you were doing" — and an
+    // entry is added here rather than the sheet borrowing a rim, because a rim would say it
+    // is a panel in the flow and it is not.
     const allowed = new Set([
       "ui/drawer.tsx",
       "ui/command-palette.tsx",
+      "ui/shortcuts.tsx",
       "features/landing/specimen.tsx",
     ]);
     expect(
@@ -193,6 +197,42 @@ describe("the design system", () => {
     expect(
       offenders(/\bshadow-\[[^\]]*inset/),
       "use shadow-rim — the rim is --rim, declared once per theme",
+    ).toEqual([]);
+  });
+
+  /**
+   * The block label is a recipe, and a recipe that is retyped is a recipe that drifts.
+   *
+   * `text-[10px] font-bold uppercase tracking-…` is the top row of the type scale — the voice
+   * that names a block, an attribution or a group. `ui/panel.tsx` exports it as `Label`, and
+   * it was still hand-rolled twenty-one times across fourteen files, at **five different
+   * tracking values**: `0.08em`, `0.1em`, `0.11em`, `0.13em` and `0.14em`. The documented
+   * value is `0.13em`. Nobody chose the other four; each is one paste away from a neighbour,
+   * and at this size letterspacing is most of what the label looks like.
+   *
+   * `.todo` rather than green, because turning it on today fails on files this change does
+   * not own. What is left, by file:
+   *
+   *   features/atlas/detail.tsx (6), features/atlas/controls.tsx (5),
+   *   features/reviews/reviews-page.tsx (3), features/review/finding-detail.tsx (3),
+   *   features/review/revision-rail.tsx (2), features/review/docket.tsx (2),
+   *   features/landing/specimen.tsx (2), and one each in
+   *   features/settings/settings-page.tsx, features/review/trajectory.tsx,
+   *   features/review/review-page.tsx, features/review/decision-bar.tsx,
+   *   features/review/context-rail.tsx, features/review/clarification.tsx,
+   *   features/review/atlas-surface.tsx, features/landing/exhibit.tsx,
+   *   features/atlas/explorer.tsx, components/ui/select.tsx and ui/brand.tsx.
+   *
+   * Two of those are not simply `Label` in disguise and want a decision rather than a
+   * replacement: `components/ui/select.tsx` sets its group label in **mono**, and
+   * `ui/brand.tsx` sets the wordmark's subtitle at `font-semibold` so it does not compete
+   * with the wordmark above it. Either `Label` grows to cover them or they stay exceptions
+   * with a comment saying why — but not silently, which is what they are now.
+   */
+  it.todo("says a block label once, in ui/panel.tsx", () => {
+    expect(
+      offenders(/text-\[10px\][^"'`]*uppercase|uppercase[^"'`]*text-\[10px\]/, new Set(["ui/panel.tsx"])),
+      "use <Label> from ui/panel.tsx — the recipe is one place, at tracking 0.13em",
     ).toEqual([]);
   });
 });

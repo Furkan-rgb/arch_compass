@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../../api";
-import { workspaceFixture } from "../../test-fixtures";
+import { reviewFixture, runFixture, workspaceFixture } from "../../test-fixtures";
 import { StartPage } from "./start-page";
 
 /** Stands in for the run page, and reports the address the start page moved to. */
@@ -47,6 +47,15 @@ beforeEach(() => {
     },
   ]);
   vi.spyOn(api, "examples").mockResolvedValue([]);
+  vi.spyOn(api, "reviews").mockResolvedValue([]);
+  // Nothing else in this workspace is running, which is the ordinary case and the one the
+  // rest of these tests are about.
+  vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
+  vi.spyOn(api, "directories").mockResolvedValue({
+    path: "/work",
+    parent: "/",
+    directories: [{ name: "payments-platform", path: "/work/payments-platform" }],
+  });
   vi.spyOn(api, "repositoryTree").mockResolvedValue({
     root_path: "/work/payments-platform",
     folders: [
@@ -116,6 +125,45 @@ describe("choosing a repository", () => {
     expect(within(chooser).getByRole("option", { name: /default/ })).toBeInTheDocument();
   });
 
+  /**
+   * A path being typed is not a path anybody has chosen yet.
+   *
+   * `PathField` called `onChange` per character, which re-keyed the repository tree query —
+   * and that route walks the folder with `rglob("*")` and a `stat()` per file. So every
+   * prefix that happened to be a real directory was walked in full on the way to the one the
+   * reader meant, including their whole home folder as they typed past it, and the panel
+   * flickered between "Reading the repository…" and "That repository could not be read".
+   */
+  it("does not walk a repository for every keystroke of the path being typed", async () => {
+    render(wrap(<StartPage />));
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Browse/ }));
+    const field = await screen.findByLabelText(/Repository path/);
+    for (const value of ["/", "/w", "/wo", "/work", "/work/payments-platform"]) {
+      fireEvent.change(field, { target: { value } });
+    }
+
+    expect(api.repositoryTree).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(700);
+    await waitFor(() => expect(api.repositoryTree).toHaveBeenCalledTimes(1));
+    expect(api.repositoryTree).toHaveBeenCalledWith(
+      "/work/payments-platform",
+      expect.anything(),
+    );
+  });
+
+  it("takes a path the moment Enter is pressed, without waiting out the debounce", async () => {
+    render(wrap(<StartPage />));
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Browse/ }));
+    const field = await screen.findByLabelText(/Repository path/);
+    fireEvent.change(field, { target: { value: "/work/payments-platform" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    await waitFor(() => expect(api.repositoryTree).toHaveBeenCalledTimes(1));
+  });
+
   it("lets a branch be named when the remote will not say what it has", async () => {
     // A private remote git has no credentials for answers with an empty list. That says
     // nothing about whether the branch the reader wants exists, so the field has to stay
@@ -147,7 +195,18 @@ describe("starting a review", () => {
 
     expect(await screen.findByText("not chosen yet")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Choose models" })).toHaveAttribute("href", "/settings");
-    expect(screen.getByRole("button", { name: /Run review/ })).toBeDisabled();
+
+    // `aria-disabled`, not `disabled`, and the difference is the whole point: this is the one
+    // action the page exists for, so it keeps its tab stop and stays reachable — a keyboard
+    // user who tabs onto it hears that it is unavailable and hears why, from the sentence
+    // `aria-describedby` names. A real `disabled` took it out of the tab order and told them
+    // nothing at all. So both halves are asserted: it announces as off, and it does nothing.
+    const started = vi.spyOn(api, "startRepository");
+    const run = screen.getByRole("button", { name: /Run review/ });
+    expect(run).toHaveAttribute("aria-disabled", "true");
+    expect(run).toHaveAccessibleDescription(/repository|models/i);
+    fireEvent.click(run);
+    expect(started).not.toHaveBeenCalled();
   });
 
   it("takes a repository handed over by the repositories page", async () => {
@@ -225,7 +284,8 @@ describe("starting a review", () => {
     render(wrap(<StartPage />, "/start?root=%2Fwork%2Fpayments-platform"));
 
     // The count is the question the reader is answering: what would leaving this out save.
-    expect(await screen.findByText(/128 Python files/)).toBeInTheDocument();
+    // Said twice on purpose — once over the folders, and once under the button that spends it.
+    expect(await screen.findAllByText(/128 Python files/)).toHaveLength(2);
     fireEvent.click(screen.getByRole("checkbox", { name: "Leave out src" }));
     // A parent covers its children, so `src/vendor` is no longer a decision of its own.
     expect(screen.getByRole("checkbox", { name: "Leave out src/vendor" })).toBeDisabled();
@@ -252,5 +312,212 @@ describe("starting a review", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Run review" })).not.toBeDisabled(),
     );
+  });
+
+  /**
+   * A second run of the same repository spends the model budget twice for two reviews of one
+   * commit.
+   *
+   * Nothing stopped it: the page's own busy flag guards a double-click and nothing else, so
+   * going back to `/start`, opening a second tab, or arriving from the repositories page with
+   * `?root=` all left the primary button live for a repository already being reviewed.
+   */
+  it("points at the run already in flight rather than offering a second one", async () => {
+    vi.spyOn(api, "workspace").mockResolvedValue(workspaceFixture());
+    vi.spyOn(api, "reviewRuns").mockResolvedValue([
+      runFixture({ run_id: "thread-3", repository_root: "/work/payments-platform" }),
+    ]);
+
+    render(wrap(<StartPage />, "/start?root=%2Fwork%2Fpayments-platform"));
+
+    expect(await screen.findByRole("link", { name: "Watch it" })).toHaveAttribute(
+      "href",
+      "/runs/thread-3",
+    );
+    // Demoted, not removed: reviewing the same commit twice is occasionally what somebody
+    // means, and it must not be the unlabelled default click.
+    expect(screen.queryByRole("button", { name: "Run review" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run another anyway" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * The case sentence is a fact somebody takes a decision on, so it may not be a guess.
+ *
+ * It matched the newest review by exact string on the path while the workspace canonicalises
+ * with `expanduser().resolve()`, and it did not filter by branch at all. So a trailing slash
+ * produced "opens a new architecture case" while the workspace went on to continue revision
+ * 4, and a feature branch was told `main`'s case revision and `main`'s answer count — with
+ * "Start from an empty case instead" sitting directly under both.
+ */
+describe("which case a run will continue", () => {
+  const priorOnMain = reviewFixture({
+    id: "review-9",
+    sequence: 3,
+    status: "completed",
+    questions: [],
+    case: {
+      id: "case-1",
+      revision: 2,
+      answers: [
+        {
+          // A review's case carries the whole question it was asked, not an id: the answer
+          // is a record of what was put to a person, and an id resolves against a review
+          // that may not be the one being read.
+          question: {
+            id: "question-1",
+            text: "Who owns persistence?",
+            facet: "decision",
+            candidate_ids: ["candidate-1"],
+            round: 1,
+            equivalence_key: "decision:candidate-1",
+            options: ["The domain owns it", "The persistence layer owns it"],
+          },
+          status: "answered",
+          value: "The domain owns it",
+          actor: "engineer",
+          answered_at: "2026-01-01T00:10:00Z",
+        },
+      ],
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:10:00Z",
+    },
+    started_at: "2026-01-01T00:00:00Z",
+    finished_at: "2026-01-01T00:07:00Z",
+  });
+
+  beforeEach(() => {
+    vi.spyOn(api, "workspace").mockResolvedValue(workspaceFixture());
+    vi.spyOn(api, "reviews").mockResolvedValue([priorOnMain]);
+  });
+
+  it("finds the case behind a path spelled with a trailing slash", async () => {
+    render(wrap(<StartPage />, "/start?root=%2Fwork%2Fpayments-platform%2F"));
+
+    expect(await screen.findByText(/Continues case revision/)).toHaveTextContent(
+      /Continues case revision 2 on main — 1 answer/,
+    );
+  });
+
+  it("does not give a feature branch the case and the answers of another branch", async () => {
+    // The same checkout, indexed on a different branch. The reviews on record are `main`'s.
+    vi.spyOn(api, "repositories").mockResolvedValue([
+      {
+        version_id: "version-2",
+        repository_identity: "identity-1",
+        root_path: "/work/payments-platform",
+        git_commit_sha: "1c0ffee",
+        repo_id: "repo-1",
+        branch_name: "feature/ports",
+        created_at: "2026-01-02T00:00:00Z",
+        node_count: 128,
+        edge_count: 214,
+        signal_count: 3,
+      },
+    ]);
+
+    render(wrap(<StartPage />, "/start?root=%2Fwork%2Fpayments-platform"));
+
+    expect(await screen.findByText(/Opens a new architecture case/)).toBeInTheDocument();
+    expect(screen.queryByText(/Continues case revision/)).not.toBeInTheDocument();
+  });
+
+  it("says it cannot tell, rather than claiming a new case for a path it has never indexed", async () => {
+    render(wrap(<StartPage />, "/start?root=%2Fwork%2Fsomewhere-else"));
+
+    expect(await screen.findByText(/has not been indexed in this workspace/)).toBeInTheDocument();
+    expect(screen.queryByText(/Opens a new architecture case/)).not.toBeInTheDocument();
+    // And the other choice is still reachable, because starting clean is always available.
+    expect(
+      screen.getByRole("button", { name: "Start from an empty case instead" }),
+    ).toBeInTheDocument();
+  });
+
+  /**
+   * Step 2 measures Python files, and a review does not spend files — it spends candidates
+   * and minutes. Both are on the record of the previous review, so both are read off it
+   * rather than estimated, and the sentence is absent where there is no prior review.
+   */
+  it("says what the last review of this branch actually cost", async () => {
+    render(wrap(<StartPage />, "/start?root=%2Fwork%2Fpayments-platform"));
+
+    expect(
+      await screen.findByText("Review 3 of this branch judged 3 candidates and took 7 minutes."),
+    ).toBeInTheDocument();
+  });
+});
+
+/**
+ * A fresh install opened on an empty tab and was never told five example repositories ship.
+ *
+ * `Indexed` is the right first tab for anybody who has indexed something and the wrong one
+ * for everybody else: on a first run it was a sentence with no buttons under it, while the
+ * bundled examples — the shortest route in this product to a real finding — sat unmentioned
+ * on the fourth tab.
+ */
+describe("a workspace with nothing in it", () => {
+  const example = {
+    name: "acme-shop",
+    title: "Acme Shop",
+    description: "A layered shop with one boundary worth arguing about.",
+    repository_root: "/examples/acme-shop",
+  };
+
+  beforeEach(() => {
+    vi.spyOn(api, "workspace").mockResolvedValue(workspaceFixture());
+    vi.spyOn(api, "repositories").mockResolvedValue([]);
+    vi.spyOn(api, "examples").mockResolvedValue([example]);
+  });
+
+  it("opens on the bundled examples rather than on an empty list", async () => {
+    render(wrap(<StartPage />));
+
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /Examples/ })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      ),
+    );
+    expect(screen.getByRole("button", { name: /Acme Shop/ })).toBeInTheDocument();
+  });
+
+  it("gives the empty list two ways out instead of a sentence and nothing", async () => {
+    render(wrap(<StartPage />));
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Indexed/ }));
+    expect(screen.getByText("Nothing indexed yet")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Browse this machine" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open an example" }));
+    expect(screen.getByRole("button", { name: /Acme Shop/ })).toBeInTheDocument();
+  });
+
+  it("says an example is being indexed, and stops offering the others while it is", async () => {
+    vi.spyOn(api, "examples").mockResolvedValue([
+      example,
+      { ...example, name: "ledger", title: "Ledger", repository_root: "/examples/ledger" },
+    ]);
+    // Held open, because what is being asserted is the state during the load — which reached
+    // the screen nowhere at all, so a click read as having done nothing and people clicked a
+    // second example on top of the first.
+    let finish = () => {};
+    vi.spyOn(api, "loadExample").mockReturnValue(
+      new Promise((resolve) => {
+        finish = () => resolve({ repository_identity: "identity-1" } as never);
+      }),
+    );
+
+    render(wrap(<StartPage />));
+
+    const shop = await screen.findByRole("button", { name: /Acme Shop/ });
+    fireEvent.click(shop);
+
+    await waitFor(() => expect(shop).toHaveAttribute("aria-pressed", "true"));
+    expect(within(shop).getByText("indexing…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ledger/ })).toBeDisabled();
+    expect(shop).toBeDisabled();
+
+    finish();
+    await waitFor(() => expect(screen.getByRole("button", { name: /Ledger/ })).not.toBeDisabled());
   });
 });

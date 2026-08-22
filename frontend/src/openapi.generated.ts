@@ -540,7 +540,6 @@ export interface components {
     "delta": components["schemas"]["DeltaResponse"];
     "retrieval_manifest": Array<components["schemas"]["RetrievalProvenanceResponse"]>;
     "investigation_manifest": Array<components["schemas"]["RecordedInvestigationResponse"]>;
-    "markdown_report": string | null;
     "synopsis": string | null;
     "synopsis_identity": string;
     "model_identity": string;
@@ -565,6 +564,28 @@ export interface components {
     "branch_id"?: string;
     "case_id"?: string;
     "sequence"?: number;
+    "started_at"?: string | null;
+  };
+    "ReviewSummaryResponse": {
+    "id": string;
+    "sequence": number;
+    "round": number;
+    "status": string;
+    "previous_review_id": string | null;
+    "repository": components["schemas"]["RepositoryResponse"];
+    "case_id": string;
+    "case_revision": number;
+    "started_at": string;
+    "finished_at": string | null;
+    "finding_count": number;
+    "material_count": number;
+    "held_count": number;
+    "cleared_count": number;
+    "question_count": number;
+    "unchanged_count": number;
+    "changed_count": number;
+    "new_count": number;
+    "addressed_count": number;
   };
     "SearchNodesQuery": {
     "kind": "search_nodes";
@@ -685,6 +706,24 @@ export interface operations {
       "503": components["schemas"]["ProblemDetail"];
     };
   };
+  "answer_review_run_api_reviews__review_id__answers_runs_post": {
+    parameters: {
+      query: never;
+      path: {
+      "review_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody: components["schemas"]["ReviewAnswersRequest"];
+    responses: {
+      "202": components["schemas"]["ReviewRunResponse"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
+      "409": components["schemas"]["ProblemDetail"];
+      "503": components["schemas"]["ProblemDetail"];
+    };
+  };
   "ask_review_question_api_review_conversations__conversation_id__messages_post": {
     parameters: {
       query: never;
@@ -732,6 +771,22 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
       "409": components["schemas"]["ProblemDetail"];
+    };
+  };
+  "cancel_review_run_api_reviews_runs__run_id__cancel_post": {
+    parameters: {
+      query: never;
+      path: {
+      "run_id": string;
+      };
+      header: never;
+      cookie: never;
+    };
+    requestBody?: never;
+    responses: {
+      "200": components["schemas"]["ReviewRunResponse"];
+      "422": components["schemas"]["ProblemDetail"];
+      "404": components["schemas"]["ProblemDetail"];
     };
   };
   "case_history_api_cases__case_id__history_get": {
@@ -1008,22 +1063,6 @@ export interface operations {
       "409": components["schemas"]["ProblemDetail"];
     };
   };
-  "get_review_source_api_reviews__review_id__source_get": {
-    parameters: {
-      query: never;
-      path: {
-      "review_id": string;
-      };
-      header: never;
-      cookie: never;
-    };
-    requestBody?: never;
-    responses: {
-      "200": Array<components["schemas"]["EvidenceResponse"]>;
-      "422": components["schemas"]["ProblemDetail"];
-      "404": components["schemas"]["ProblemDetail"];
-    };
-  };
   "import_case_yaml_api_cases_import_yaml_post": {
     parameters: {
       query: never;
@@ -1199,6 +1238,7 @@ export interface operations {
     parameters: {
       query: {
       "limit"?: number;
+      "view"?: "full" | "summary";
       };
       path: never;
       header: never;
@@ -1206,7 +1246,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      "200": Array<components["schemas"]["ReviewResponse"]>;
+      "200": Array<components["schemas"]["ReviewResponse"]> | Array<components["schemas"]["ReviewSummaryResponse"]>;
       "422": components["schemas"]["ProblemDetail"];
     };
   };
@@ -1341,22 +1381,6 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
     };
   };
-  "repository_inspect_api_repositories_inspect_get": {
-    parameters: {
-      query: {
-      "root_path": string;
-      "node_id": string;
-      };
-      path: never;
-      header: never;
-      cookie: never;
-    };
-    requestBody?: never;
-    responses: {
-      "200": components["schemas"]["AtlasQueryResult"];
-      "422": components["schemas"]["ProblemDetail"];
-    };
-  };
   "repository_review_context_api_repositories_review_context_post": {
     parameters: {
       query: never;
@@ -1365,21 +1389,6 @@ export interface operations {
       cookie: never;
     };
     requestBody: components["schemas"]["ReviewContextRequest"];
-    responses: {
-      "200": components["schemas"]["AtlasQueryResult"];
-      "422": components["schemas"]["ProblemDetail"];
-    };
-  };
-  "repository_summary_api_repositories_summary_get": {
-    parameters: {
-      query: {
-      "root_path": string;
-      };
-      path: never;
-      header: never;
-      cookie: never;
-    };
-    requestBody?: never;
     responses: {
       "200": components["schemas"]["AtlasQueryResult"];
       "422": components["schemas"]["ProblemDetail"];
@@ -1468,19 +1477,6 @@ export interface operations {
       "422": components["schemas"]["ProblemDetail"];
       "404": components["schemas"]["ProblemDetail"];
       "503": components["schemas"]["ProblemDetail"];
-    };
-  };
-  "stream_review_api_reviews_stream_post": {
-    parameters: {
-      query: never;
-      path: never;
-      header: never;
-      cookie: never;
-    };
-    requestBody: components["schemas"]["ReviewRequest"];
-    responses: {
-      "200": unknown;
-      "422": components["schemas"]["ProblemDetail"];
     };
   };
   "stream_review_question_api_review_conversations__conversation_id__messages_stream_post": {
@@ -1612,9 +1608,6 @@ export interface paths {
   "/api/repositories/index": {
     post: operations["index_repository_api_repositories_index_post"];
   };
-  "/api/repositories/inspect": {
-    get: operations["repository_inspect_api_repositories_inspect_get"];
-  };
   "/api/repositories/refresh": {
     post: operations["refresh_repository_api_repositories_refresh_post"];
   };
@@ -1626,9 +1619,6 @@ export interface paths {
   };
   "/api/repositories/start": {
     post: operations["start_from_repository_api_repositories_start_post"];
-  };
-  "/api/repositories/summary": {
-    get: operations["repository_summary_api_repositories_summary_get"];
   };
   "/api/repositories/tree": {
     post: operations["repository_tree_api_repositories_tree_post"];
@@ -1658,8 +1648,8 @@ export interface paths {
   "/api/reviews/runs/{run_id}": {
     get: operations["read_review_run_api_reviews_runs__run_id__get"];
   };
-  "/api/reviews/stream": {
-    post: operations["stream_review_api_reviews_stream_post"];
+  "/api/reviews/runs/{run_id}/cancel": {
+    post: operations["cancel_review_run_api_reviews_runs__run_id__cancel_post"];
   };
   "/api/reviews/{review_id}": {
     get: operations["get_review_api_reviews__review_id__get"];
@@ -1668,14 +1658,14 @@ export interface paths {
   "/api/reviews/{review_id}/answers": {
     post: operations["answer_review_api_reviews__review_id__answers_post"];
   };
+  "/api/reviews/{review_id}/answers/runs": {
+    post: operations["answer_review_run_api_reviews__review_id__answers_runs_post"];
+  };
   "/api/reviews/{review_id}/cancel": {
     post: operations["cancel_review_api_reviews__review_id__cancel_post"];
   };
   "/api/reviews/{review_id}/report": {
     get: operations["get_review_report_api_reviews__review_id__report_get"];
-  };
-  "/api/reviews/{review_id}/source": {
-    get: operations["get_review_source_api_reviews__review_id__source_get"];
   };
   "/api/workspace": {
     get: operations["workspace_summary_api_workspace_get"];

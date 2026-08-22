@@ -1,7 +1,10 @@
 import type { HTMLAttributes, ReactNode } from "react";
 
+import { useCopy } from "../lib/clipboard";
 import { cn } from "../lib/cn";
+import { editorHref, useEditorScheme } from "../lib/editor";
 import type { Tone } from "../lib/format";
+import { CheckIcon, OpenExternalIcon } from "./icons";
 
 /**
  * Identifiers, paths, commits, fingerprints, model identities. Monospace, always.
@@ -36,8 +39,13 @@ export function Mono({
  *
  * So the affordance is an underline and a weight, which is what the rest of the system uses
  * for "this leads to the source" and what survives being the same colour as its neighbours.
- * Dropping the box also puts the path back on the text baseline of whatever it sits beside,
- * which is where a reader looks for it.
+ *
+ * **And now it leads somewhere.** For a long time this was an underline that went nowhere:
+ * it wore the one decoration the system reserves for "this goes to the source" and did
+ * nothing at all when pressed, which is a worse promise than no promise. Pressing it copies
+ * `path:line` — the form an editor's *go to file* box takes, and the form a reviewer pastes
+ * into a message — and where somebody has said which editor they use, an *open* control
+ * appears beside it. The link is not offered by default; see `lib/editor.ts` for why.
  */
 export function PathRef({
   path,
@@ -51,19 +59,49 @@ export function PathRef({
   className?: string;
 }) {
   const span = line ? (endLine && endLine !== line ? `:${line}-${endLine}` : `:${line}`) : "";
+  const { copied, copy } = useCopy();
+  // `path:line` rather than the rendered span: a range reads well on screen and is not what
+  // any editor or any search box accepts.
+  const value = line ? `${path}:${line}` : path;
+  const href = editorHref(path, line, useEditorScheme());
+
   return (
-    <span
-      title={`${path}${span}`}
-      className={cn(
-        // `truncate` and `max-w-full`: an absolute path is one word and is wider than a
-        // phone, and a reference that widens its own column is worse than an elided one.
-        "block max-w-full truncate font-mono text-[11px] font-medium text-ink",
-        "underline decoration-rule-strong underline-offset-2",
-        className,
-      )}
-    >
-      {path}
-      {span ? <span className="text-ink-3">{span}</span> : null}
+    <span className={cn("flex min-w-0 max-w-full items-baseline gap-1.5", className)}>
+      {/* Still `title` rather than `ui/tooltip.tsx`, deliberately. The full path is already
+          in the accessible name, so the attribute is not the only route to it — it is the
+          pointer's route to an elided string, which is the one thing `title` is decent at.
+          And a `PathRef` is not one control: a docket of forty findings draws one per
+          evidence block, and a Radix root under each of them is machinery per row for a
+          string a reader can also just widen the window to see. */}
+      <button
+        type="button"
+        onClick={() => void copy(value)}
+        title={`${path}${span} — click to copy`}
+        aria-label={copied ? `Copied ${value}` : `Copy ${value}`}
+        className={cn(
+          // `truncate` and `max-w-full`: an absolute path is one word and is wider than a
+          // phone, and a reference that widens its own column is worse than an elided one.
+          "block min-w-0 max-w-full truncate text-left font-mono text-[11px] font-medium text-ink",
+          "underline decoration-rule-strong underline-offset-2 transition hover:decoration-ink",
+        )}
+      >
+        {path}
+        {span ? <span className="text-ink-3">{span}</span> : null}
+      </button>
+      {/* The tick is the whole confirmation, and it occupies no space until it is earned —
+          a control that reserves room for a state it is usually not in makes every path on
+          the page 14px narrower for the one moment it is. */}
+      {copied ? <CheckIcon aria-hidden="true" className="shrink-0 text-[13px] text-ink" /> : null}
+      {href ? (
+        <a
+          href={href}
+          title={`Open ${path} in your editor`}
+          className="shrink-0 rounded-xs p-0.5 text-[13px] text-ink-3 transition hover:text-ink"
+        >
+          <OpenExternalIcon aria-hidden="true" />
+          <span className="sr-only">Open in your editor</span>
+        </a>
+      ) : null}
     </span>
   );
 }

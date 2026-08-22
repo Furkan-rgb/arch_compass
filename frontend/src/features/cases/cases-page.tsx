@@ -2,16 +2,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { api, type CaseSummary } from "../../api";
+import { api, type CaseSummary, type PolicyContext } from "../../api";
 import { cn } from "../../lib/cn";
 import { absoluteTime, plural, relativeTime, repositoryName, shortId } from "../../lib/format";
 import { Tag } from "../../ui/badge";
 import { Button, ButtonLink } from "../../ui/button";
+import { Field, Input } from "../../ui/field";
 import { MetaLine, Mono } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
 import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
 import { EmptyState, ErrorNotice, LoadingPanel, Spinner } from "../../ui/states";
 import { Timeline, TimelineItem } from "../../ui/timeline";
+import { useToast } from "../../ui/toast";
 
 /**
  * Cases are the human half of a review: what this architecture is for, what it must live
@@ -20,9 +22,11 @@ import { Timeline, TimelineItem } from "../../ui/timeline";
  * the page is built around the sequence rather than around a form.
  */
 export function CasesPage() {
-  const client = useQueryClient();
   const cases = useQuery({ queryKey: ["cases"], queryFn: api.cases });
-  const reviews = useQuery({ queryKey: ["reviews"], queryFn: api.reviews });
+  // Identity, lineage and counts, which is everything this page reads off a review. Asking
+  // for the reviews themselves downloaded most of a repository's atlas per row to print a
+  // number.
+  const reviews = useQuery({ queryKey: ["review-summaries"], queryFn: api.reviewSummaries });
   const [selected, setSelected] = useState<string | null>(null);
 
   const selectedId = selected ?? cases.data?.[0]?.case_id ?? null;
@@ -30,51 +34,70 @@ export function CasesPage() {
     queryKey: ["case-history", selectedId],
     queryFn: () => api.caseHistory(selectedId!),
     enabled: Boolean(selectedId),
-  });
-  const create = useMutation({
-    mutationFn: () => api.createCase(),
-    onSuccess: async (created) => {
-      setSelected(created.case_id);
-      await client.invalidateQueries({ queryKey: ["cases"] });
-    },
+    // A recorded revision is immutable — the charter's third commitment — so there is
+    // nothing here that a refetch could learn.
+    staleTime: Infinity,
   });
 
-  if (cases.isLoading) return <LoadingPanel label="Loading architecture cases…" rows={4} />;
-  if (cases.error) return <ErrorNotice error={cases.error} />;
+  const header = (
+    <PageHeader
+      eyebrow="Human context"
+      title="Architecture cases"
+      description="What people answered when a judgement stopped to ask."
+    />
+  );
+
+  if (cases.isLoading) {
+    return (
+      <div>
+        {header}
+        <LoadingPanel label="Loading architecture cases…" rows={4} />
+      </div>
+    );
+  }
+  if (cases.error) {
+    return (
+      <div>
+        {header}
+        <ErrorNotice
+          error={cases.error}
+          action={
+            <Button size="sm" variant="secondary" onClick={() => void cases.refetch()}>
+              Try again
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
 
   const all = cases.data ?? [];
   const repositoryFor = (caseId: string) => {
-    const review = (reviews.data ?? []).find((item) => item.case.id === caseId);
+    const review = (reviews.data ?? []).find((item) => item.case_id === caseId);
     return review ? repositoryName(review.repository.path) : null;
   };
-  const related = (reviews.data ?? []).filter((review) => review.case.id === selectedId);
+  const related = (reviews.data ?? []).filter((review) => review.case_id === selectedId);
   const latest = history.data?.at(-1) ?? all.find((item) => item.case_id === selectedId);
 
   return (
     <div>
-      <PageHeader
-        eyebrow="Human context"
-        title="Architecture cases"
-        description="A case carries what people have answered when a judgement stopped to ask. It starts empty and grows by revision as reviews ask for what they need; nothing is overwritten, and nothing is stated up front."
-        actions={
-          <Button disabled={create.isPending} onClick={() => create.mutate()}>
-            {create.isPending ? <Spinner /> : "New case"}
-          </Button>
-        }
-      />
-      {create.error ? (
-        <div className="mb-5">
-          <ErrorNotice error={create.error} />
-        </div>
-      ) : null}
+      {header}
 
       {!all.length ? (
+        /**
+         * There is no "New case" button here any more, and there was never anything a case
+         * made this way could be used for. `POST /api/repositories/start` picks the case
+         * itself — *which case that is, is the application's to decide and not the client's*
+         * — so one opened here was never selectable from the form that starts a review, and
+         * sat in this list for ever labelled "Not yet reviewed". It was the deleted "confirm
+         * the architecture case" step wearing a third shape.
+         */
         <EmptyState
           title="No architecture case yet"
           action={<ButtonLink to="/start">Start a review</ButtonLink>}
         >
-          A case is opened automatically when a repository review starts. Opening one here gives
-          you an empty case that reviews will fill in.
+          A case is opened by the review that needs it, and fills in as later reviews ask for
+          what they cannot read from the code.
         </EmptyState>
       ) : (
         <div className="grid items-start gap-4 xl:grid-cols-[minmax(280px,0.75fr)_minmax(0,1.25fr)]">
@@ -102,19 +125,25 @@ export function CasesPage() {
               <PanelBody>
                 {history.isLoading ? (
                   <div className="flex items-center gap-2 text-sm text-ink-3">
-                    <Spinner /> Loading revisions…
+                    {/* The label is printed right beside it. */}
+                    <Spinner label="" /> Loading revisions…
                   </div>
                 ) : history.error ? (
-                  <ErrorNotice error={history.error} />
+                  <ErrorNotice
+                    error={history.error}
+                    action={
+                      <Button size="sm" variant="secondary" onClick={() => void history.refetch()}>
+                        Try again
+                      </Button>
+                    }
+                  />
                 ) : (
                   <Timeline>
                     {(history.data ?? []).map((revision, index, list) => (
                       <TimelineItem key={revision.revision} current={index === list.length - 1}>
                         <div className="pb-5">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-ink-3">
-                              Revision {revision.revision}
-                            </span>
+                            <Label>Revision {revision.revision}</Label>
                             <span className="text-[11px] text-ink-3">
                               {relativeTime(revision.updated_at)}
                             </span>
@@ -174,8 +203,8 @@ export function CasesPage() {
                           </span>
                           <MetaLine
                             items={[
-                              `case rev ${review.case.revision}`,
-                              `${review.findings.length} candidates`,
+                              `case rev ${review.case_revision}`,
+                              `${review.finding_count} candidates`,
                               relativeTime(review.started_at),
                             ]}
                           />
@@ -236,6 +265,135 @@ function CaseCard({
   );
 }
 
+/**
+ * What each field of the policy context does, said beside the box that sets it.
+ *
+ * These are not free-text notes. `PolicyDocument.applies_in` compares a scoped policy's
+ * `applies_to` against exactly one of them, so a value that is nearly right retrieves
+ * nothing at all — which is the whole reason the sentence names the comparison rather than
+ * describing the field.
+ */
+const SCOPE_FIELDS = [
+  {
+    key: "user" as const,
+    label: "User",
+    hint: "A user-scoped policy is retrieved only when its subject is exactly this.",
+  },
+  {
+    key: "organisation" as const,
+    label: "Organisation",
+    hint: "An organisation-scoped policy is retrieved only when its subject is exactly this.",
+  },
+  {
+    key: "repository" as const,
+    label: "Repository",
+    hint: "A repository or accepted-ADR policy is retrieved only when its subject is exactly this.",
+  },
+];
+
+/**
+ * The one thing about a case a person still sets directly, and until now could not.
+ *
+ * `PolicyContext` decides applicability: a non-general policy whose subject does not match
+ * the case's user, organisation or repository never enters the mandatory lane. Nothing set
+ * it — `createCase` sent an empty object and the rescope endpoint had no client — so every
+ * scoped policy in the corpus was unreachable, and the Policies page offered a scope filter
+ * across four kinds of policy that no judgement could retrieve.
+ *
+ * Not a revision. Scope is patched, because it is a statement about which policies apply
+ * rather than an answer to something a review asked, and the case's sequence of revisions is
+ * the record of answers.
+ */
+function PolicyScopeEditor({ value }: { value: CaseSummary }) {
+  const client = useQueryClient();
+  const say = useToast().say;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<PolicyContext>(value.policy_context);
+
+  const save = useMutation({
+    meta: { handled: true },
+    mutationFn: () =>
+      api.rescopeCase(value.case_id, {
+        user: draft.user?.trim() || null,
+        organisation: draft.organisation?.trim() || null,
+        repository: draft.repository?.trim() || null,
+      }),
+    onSuccess: async () => {
+      setEditing(false);
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["cases"] }),
+        client.invalidateQueries({ queryKey: ["case-history", value.case_id] }),
+      ]);
+      say("Scoped policies are retrievable for this case from the next review.", "Scope saved");
+    },
+  });
+
+  const pinned = SCOPE_FIELDS.filter(({ key }) => value.policy_context[key]);
+
+  if (!editing) {
+    return (
+      <div>
+        <Label>Policy context</Label>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {pinned.length ? (
+            pinned.map(({ key, label }) => (
+              <Tag key={key}>
+                {label.toLowerCase()}: {value.policy_context[key]}
+              </Tag>
+            ))
+          ) : (
+            <span className="text-sm text-ink-3">
+              No scope pinned, so only general policies can be retrieved.
+            </span>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setDraft(value.policy_context);
+              setEditing(true);
+            }}
+          >
+            {pinned.length ? "Change scope" : "Set scope"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="grid gap-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        save.mutate();
+      }}
+    >
+      <Label>Policy context</Label>
+      {SCOPE_FIELDS.map(({ key, label, hint }) => (
+        <Field key={key} label={label} hint={hint}>
+          {(props) => (
+            <Input
+              {...props}
+              value={draft[key] ?? ""}
+              onChange={(event) => setDraft({ ...draft, [key]: event.target.value })}
+            />
+          )}
+        </Field>
+      ))}
+      {save.error ? <ErrorNotice error={save.error} /> : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" type="submit" disabled={save.isPending}>
+          {save.isPending ? <Spinner /> : "Save scope"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 function CaseSnapshot({ value }: { value: CaseSummary }) {
   return (
     <Panel>
@@ -244,21 +402,7 @@ function CaseSnapshot({ value }: { value: CaseSummary }) {
         description={`Revision ${value.revision} · updated ${absoluteTime(value.updated_at)}`}
       />
       <PanelBody className="grid gap-4 md:grid-cols-2">
-        <div>
-          <Label>Policy context</Label>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {Object.entries(value.policy_context)
-              .filter(([, scope]) => Boolean(scope))
-              .map(([key, scope]) => (
-                <Tag key={key}>
-                  {key}: {String(scope)}
-                </Tag>
-              ))}
-            {Object.values(value.policy_context).every((scope) => !scope) ? (
-              <span className="text-sm text-ink-3">No scope pinned.</span>
-            ) : null}
-          </div>
-        </div>
+        <PolicyScopeEditor value={value} />
         <div>
           <Label>Answered · {value.answers.length}</Label>
           {value.answers.length ? (

@@ -130,10 +130,16 @@ function collectSignals(results: AtlasQueryResult[]) {
  * Sorted, so the same review asks the same question however its findings are ordered, and
  * deduplicated because one class can take part in two of the candidates examined.
  */
-export function reviewAnchors(review: Review): { nodeIds: string[]; qualifiedNames: string[] } {
+export function reviewAnchors(review: Review): {
+  nodeIds: string[];
+  qualifiedNames: string[];
+  /** How many distinct elements the cap left out — the thing the comment above promises to say. */
+  dropped: number;
+} {
   const seen = new Set<string>();
   const nodeIds: string[] = [];
   const qualifiedNames: string[] = [];
+  let dropped = 0;
   // Every judged element before any of its context: the route takes forty anchors, and a
   // sweep large enough to reach that limit should still have all of its verdicts on the map.
   const inOrder = [
@@ -141,14 +147,19 @@ export function reviewAnchors(review: Review): { nodeIds: string[]; qualifiedNam
     ...review.findings.map((finding) => finding.candidate.participants.slice(1)),
   ].flat();
   for (const participant of inOrder) {
-    if (nodeIds.length + qualifiedNames.length >= MAX_SUBJECTS) break;
     const key = participant.node_id ?? `name:${participant.qualified_name}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    // Counted rather than broken out of: the surface says how many it left behind, and it
+    // cannot say so without walking to the end of the list.
+    if (nodeIds.length + qualifiedNames.length >= MAX_SUBJECTS) {
+      dropped += 1;
+      continue;
+    }
     if (participant.node_id) nodeIds.push(participant.node_id);
     else qualifiedNames.push(participant.qualified_name);
   }
-  return { nodeIds: nodeIds.sort(), qualifiedNames: qualifiedNames.sort() };
+  return { nodeIds: nodeIds.sort(), qualifiedNames: qualifiedNames.sort(), dropped };
 }
 
 export function reviewAtlasNodes(results: AtlasQueryResult[], review: Review): AtlasNodeView[] {
@@ -190,6 +201,9 @@ export function reviewAtlasNodes(results: AtlasQueryResult[], review: Review): A
       kind: node.node_type,
       isPublic: node.is_public,
       tone: finding ? verdictOf(finding.verdict).tone : undefined,
+      // The word, beside the hue and the mark. A card that carried only the other two said
+      // exactly the same thing about a material finding and a cleared one.
+      verdictLabel: finding ? verdictOf(finding.verdict).label : undefined,
       candidateId: finding?.candidate.id,
       description: finding
         ? `${verdictOf(finding.verdict).label}. ${finding.reasoning}`
@@ -226,18 +240,102 @@ export function reviewAtlasEdges(
 }
 
 /**
+ * What each request is, said in words rather than derived from the name of its enum.
+ *
+ * `No ${humanise(operation)} are recorded in this atlas` produced "No search are recorded in
+ * this atlas" and "No forward neighbourhood are recorded in this atlas" — sentences built by a
+ * template that was only ever right for the four operations whose names happen to be plural
+ * nouns. Prose is not a transformation of an identifier, so it is written out.
+ *
+ * `asking` completes "Asking the atlas for …"; `empty` is the whole sentence for an answer of
+ * nothing; `noun` is what the exploration is called once it is on the map.
+ */
+const OPERATIONS: Record<string, { asking: string; empty: string; noun: string }> = {
+  children: {
+    asking: "what this contains",
+    empty: "The atlas records nothing inside this element.",
+    noun: "Children",
+  },
+  dependencies: {
+    asking: "what this depends on",
+    empty: "This element depends on nothing the atlas recorded.",
+    noun: "Dependencies",
+  },
+  dependants: {
+    asking: "what depends on this",
+    empty: "Nothing in this atlas depends on this element.",
+    noun: "Dependants",
+  },
+  callers: {
+    asking: "what calls this",
+    empty: "Nothing in this atlas calls this element.",
+    noun: "Callers",
+  },
+  implementations: {
+    asking: "what implements this",
+    empty: "Nothing in this atlas implements this element.",
+    noun: "Implementations",
+  },
+  tests: {
+    asking: "the tests that reach this",
+    empty: "No test in this atlas reaches this element.",
+    noun: "Tests",
+  },
+  forward_neighbourhood: {
+    asking: "everything two hops out",
+    empty: "Nothing is recorded within two hops of this element.",
+    noun: "Two hops out",
+  },
+  reverse_neighbourhood: {
+    asking: "everything two hops back",
+    empty: "Nothing within two hops of this atlas reaches this element.",
+    noun: "Two hops back",
+  },
+  search: {
+    asking: "elements matching that term",
+    empty: "Nothing in this atlas matches that term.",
+    noun: "Search",
+  },
+  cycles: {
+    asking: "the dependency cycles it recorded",
+    empty: "This atlas records no dependency cycle.",
+    noun: "Cycles",
+  },
+  signals: {
+    asking: "the elements it raised signals against",
+    empty: "This atlas raised no structural signal.",
+    noun: "Signals",
+  },
+  shortest_path: {
+    asking: "a path",
+    empty: "No dependency path joins those two in this atlas.",
+    noun: "Path",
+  },
+};
+
+function operationOf(operation: string) {
+  return (
+    OPERATIONS[operation] ?? {
+      asking: "that",
+      empty: "The atlas has nothing to answer that with.",
+      noun: humanise(operation),
+    }
+  );
+}
+
+/**
  * Counts, and the map's legend, as one line.
  *
  * "What does the red border mean" and "how many are red" are the same question asked twice,
  * and answering them in two places a hand's width apart is how a legend and a dashboard both
  * end up on a page that wanted neither.
+ *
+ * The counts are of what is **drawn**, not of what the review judged. They were of the review,
+ * over a map that draws a bounded subset of it, so a sixty-finding review printed "Material 9"
+ * above six red cards — a legend disagreeing with the picture it is a legend for. What is not
+ * drawn is said in the header instead, where there is room to say why.
  */
-function AtlasLegend({ review, className }: { review: Review; className?: string }) {
-  const counts = new Map<string, number>(VERDICT_ORDER.map((verdict) => [verdict, 0]));
-  for (const finding of review.findings) {
-    counts.set(finding.verdict, (counts.get(finding.verdict) ?? 0) + 1);
-  }
-
+function AtlasLegend({ counts, className }: { counts: Map<string, number>; className?: string }) {
   return (
     <dl className={cn("flex flex-wrap items-center gap-x-5 gap-y-2", className)}>
       {VERDICT_ORDER.map((verdict) => {
@@ -276,7 +374,7 @@ export function AtlasSurface({
   const [pathStartNodeId, setPathStartNodeId] = useState<string | null>(null);
 
   const anchors = useMemo(() => reviewAnchors(review), [review]);
-  const { nodeIds, qualifiedNames } = anchors;
+  const { nodeIds, qualifiedNames, dropped } = anchors;
   const byName = qualifiedNames.length && !nodeIds.length;
   const neighbours = Math.min(
     MAX_NEIGHBOURS,
@@ -321,6 +419,27 @@ export function AtlasSurface({
       request,
     ]);
   };
+  /**
+   * Taking one back off, and taking all of them off.
+   *
+   * The map only ever grew. Three presses of "Two hops out" turned a ninety-card
+   * neighbourhood into a three-hundred-card mesh, held at `staleTime: Infinity` for the rest
+   * of the session, and the only way back to the review's own shape was to reload the page.
+   * The list of requests was already here and already the right thing to undo — nothing had
+   * ever offered the reverse of `explore`.
+   */
+  const drop = (request: ExploreRequest) => {
+    client.setQueryData<ExploreRequest[]>(exploredKey, (current = []) =>
+      current.filter((item) => JSON.stringify(item) !== JSON.stringify(request)),
+    );
+  };
+  const resetMap = () => {
+    client.setQueryData<ExploreRequest[]>(exploredKey, []);
+    // Both of these point at cards that may have just left the map, and a half-finished
+    // gesture against an element that is gone is not a gesture anyone can finish.
+    setSelectedNodeId(null);
+    setPathStartNodeId(null);
+  };
   const explorations = useQueries({
     queries: explored.data.map((request) => ({
       queryKey: ["repository-explore", request],
@@ -349,6 +468,51 @@ export function AtlasSurface({
   const edges = useMemo(() => reviewAtlasEdges(results, nodes), [results, nodes]);
 
   /**
+   * The verdicts the map actually drew, which is what the legend beside it is a legend for.
+   *
+   * A finding is on the map when the element it was written about came back from the atlas.
+   * Findings drop out for two reasons and the header says both: the map anchors on a bounded
+   * number of elements, and an atlas rebuilt since the review can no longer hold one.
+   */
+  const drawnVerdicts = useMemo(() => {
+    const placed = new Set(nodes.map((node) => node.candidateId).filter(Boolean));
+    const counts = new Map<string, number>(VERDICT_ORDER.map((verdict) => [verdict, 0]));
+    for (const finding of review.findings) {
+      if (!placed.has(finding.candidate.id)) continue;
+      counts.set(finding.verdict, (counts.get(finding.verdict) ?? 0) + 1);
+    }
+    return counts;
+  }, [nodes, review]);
+  const undrawn =
+    review.findings.length - [...drawnVerdicts.values()].reduce((sum, count) => sum + count, 0);
+
+  /**
+   * What the reader has added, named the way the button that added it is named.
+   *
+   * Read off the stored requests rather than tracked beside them, for the same reason the
+   * traced path is: a second copy of what is on the map is a second thing that can disagree
+   * with it.
+   */
+  const added = useMemo(
+    () =>
+      explored.data.map((request) => {
+        const noun = operationOf(request.operation).noun;
+        const on = request.node_id
+          ? nodes.find((node) => node.id === request.node_id)?.label
+          : undefined;
+        const label =
+          request.operation === "search"
+            ? `Search for ${(request.terms ?? []).join(" ")}`
+            : on
+              ? `${noun} of ${on}`
+              : noun;
+        return { id: JSON.stringify(request), label, onDrop: () => drop(request) };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [explored.data, nodes],
+  );
+
+  /**
    * The path the reader last asked for, as the two sets the map draws it with.
    *
    * What is drawn is read off the answer rather than tracked beside it: the route returns the
@@ -360,7 +524,12 @@ export function AtlasSurface({
   const traced = useMemo(() => {
     const requests = explored.data;
     for (let index = requests.length - 1; index >= 0; index -= 1) {
-      if (requests[index].operation === "shortest_path") return explorations[index]?.data;
+      // A cycle is the same kind of answer as a path — a named set of relationships the
+      // reader asked for by pressing something — and drawing it as an ordinary hairline in a
+      // mesh of hairlines is why "Surface cycles" read as a button that did nothing. Whichever
+      // of the two was asked for last is the one on the map.
+      const { operation } = requests[index];
+      if (operation === "shortest_path" || operation === "cycles") return explorations[index]?.data;
     }
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -410,21 +579,47 @@ export function AtlasSurface({
   const exploreNote = useMemo(() => {
     if (!lastExploration) return undefined;
     const { request, query, found, added } = lastExploration;
-    const named = humanise(request.operation).toLocaleLowerCase();
-    if (query?.isLoading) return `Asking the atlas for ${named}…`;
-    if (query?.error) return `The atlas did not answer the request for ${named}.`;
-    if (!found.length) return `No ${named} are recorded in this atlas.`;
-    if (!added.length) {
-      return found.length === 1
+    const operation = operationOf(request.operation);
+    if (query?.isLoading) return `Asking the atlas for ${operation.asking}…`;
+    if (query?.error) return `The atlas did not answer the request for ${operation.asking}.`;
+    if (!found.length) return operation.empty;
+    const counted = !added.length
+      ? found.length === 1
         ? "1 element, already on the map."
-        : `${plural(found.length, "element")}, all already on the map.`;
-    }
-    if (added.length === found.length) return `${plural(added.length, "element")}, added.`;
-    return `${plural(found.length, "element")}, ${added.length} of them new to the map.`;
+        : `${plural(found.length, "element")}, all already on the map.`
+      : added.length === found.length
+        ? `${plural(added.length, "element")}, added.`
+        : `${plural(found.length, "element")}, ${added.length} of them new to the map.`;
+    if (request.operation !== "cycles") return counted;
+    // A cycle whose relationships are not pointed at is a handful of extra cards in a mesh.
+    // The route returns the edges that make it one, and they are drawn the way a traced path
+    // is — so the note says which line on the map is the answer.
+    const round = query?.data?.relationships ?? [];
+    return `${counted} The ${plural(round.length, "relationship")} that ${
+      round.length === 1 ? "makes" : "make"
+    } the cycles are drawn in full ink, as a traced path is.`;
   }, [lastExploration]);
 
-  /** Whatever the last exploration brought back, which no lens may then hide. */
-  const revealedNodeIds = useMemo(() => lastExploration?.found ?? [], [lastExploration]);
+  /**
+   * Everything the reader has explicitly asked the atlas for, which no lens or filter may hide.
+   *
+   * The union over every exploration, not the last one. It was the last one — so exploring
+   * implementations and then dependants dropped the implementations back out of the set, and
+   * they lost the protection `visible-graph.ts` documents as absolute the moment the reader
+   * asked a second question. Nothing takes an element back off this list except dropping the
+   * exploration that put it there.
+   */
+  const revealedNodeIds = useMemo(() => {
+    const revealed = new Set<string>();
+    explored.data.forEach((request, index) => {
+      if (request.operation === "shortest_path") return;
+      for (const node of explorations[index]?.data?.node_summaries ?? []) {
+        revealed.add(node.node_id);
+      }
+    });
+    return [...revealed];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [explored.data, answered]);
 
   const traceNote = useMemo(() => {
     const requests = explored.data;
@@ -434,7 +629,7 @@ export function AtlasSurface({
       if (query?.isLoading) return "Looking for a path…";
       if (query?.error) return "The atlas did not answer the request for a path.";
       const steps = query?.data?.node_ids?.length ?? 0;
-      if (!steps) return "No dependency path joins those two in this atlas.";
+      if (!steps) return operationOf("shortest_path").empty;
       return `A path of ${plural(steps, "element")}, drawn on the map.`;
     }
     return undefined;
@@ -534,6 +729,8 @@ export function AtlasSurface({
         exploreNote={exploreNote}
         traceNote={traceNote}
         revealedNodeIds={revealedNodeIds}
+        explorations={added}
+        onResetExplorations={resetMap}
         header={
           <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-rule px-3 py-3">
             <p className="max-w-[54ch] text-sm leading-6 text-ink-2">
@@ -549,8 +746,26 @@ export function AtlasSurface({
                   matched by name — a renamed element is missing rather than moved.
                 </>
               ) : null}
+              {/* What is bounded, said out loud, which is what `MAX_SUBJECTS` promised in a
+                  comment and never did. Two sentences because they are two different reasons
+                  a finding is not on the map, and a reader can act on the first. */}
+              {dropped > 0 ? (
+                <>
+                  {" "}
+                  This review names more elements than one read of the atlas anchors on, so{" "}
+                  {plural(dropped, "element")} past the first {MAX_SUBJECTS} went unasked for.
+                </>
+              ) : null}
+              {undrawn > 0 ? (
+                <>
+                  {" "}
+                  The legend counts what is drawn: {plural(undrawn, "finding")} of{" "}
+                  {review.findings.length} {undrawn === 1 ? "is" : "are"} not on the map, and
+                  exploring from a card is the way to reach {undrawn === 1 ? "it" : "them"}.
+                </>
+              ) : null}
             </p>
-            <AtlasLegend review={review} />
+            <AtlasLegend counts={drawnVerdicts} />
           </div>
         }
       />

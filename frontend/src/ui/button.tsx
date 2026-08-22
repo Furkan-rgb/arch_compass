@@ -1,7 +1,9 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Link, type LinkProps } from "react-router-dom";
 
+import { useCopy } from "../lib/clipboard";
 import { cn } from "../lib/cn";
+import { CheckIcon, CopyIcon } from "./icons";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "quiet" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
@@ -50,7 +52,10 @@ export function buttonClass(variant: ButtonVariant = "primary", size: ButtonSize
     // and a button that took it would be rounder than the panel it sits in relative to its
     // own height.
     "inline-flex select-none items-center justify-center rounded-sm border font-semibold transition duration-150",
+    // `aria-disabled` gets the same wash and the same inert pointer as `disabled`. What it
+    // keeps is the tab stop — see `Button` below for when that is the right trade.
     "disabled:pointer-events-none disabled:opacity-45",
+    "aria-disabled:pointer-events-none aria-disabled:opacity-45",
     VARIANTS[variant],
     SIZES[size],
   );
@@ -59,6 +64,21 @@ export function buttonClass(variant: ButtonVariant = "primary", size: ButtonSize
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
   size?: ButtonSize;
+  /**
+   * Off, but still reachable — for the one action a screen exists to perform.
+   *
+   * A real `disabled` attribute takes the control out of the tab order, which is right for a
+   * button among several and wrong for the *only* thing a page is asking somebody to do. On
+   * `/start`, "Run review" is disabled until a repository is chosen and the reason for it sits
+   * in a sibling span; a keyboard or screen-reader user tabbed from the scope list straight
+   * past the page's whole purpose and was never told it existed, let alone why it was off.
+   *
+   * So this is `aria-disabled`: announced as unavailable, focusable, and inert — the click is
+   * dropped here rather than left to a handler that has to remember. Pair it with
+   * `aria-describedby` pointing at the sentence that says why, or it announces a wall with no
+   * door. Everything else keeps the real attribute, which is still the better default.
+   */
+  inactive?: boolean;
 };
 
 export function Button({
@@ -66,9 +86,19 @@ export function Button({
   variant = "primary",
   size = "md",
   type = "button",
+  inactive,
+  onClick,
   ...props
 }: ButtonProps) {
-  return <button type={type} className={cn(buttonClass(variant, size), className)} {...props} />;
+  return (
+    <button
+      type={type}
+      aria-disabled={inactive || undefined}
+      onClick={inactive ? undefined : onClick}
+      className={cn(buttonClass(variant, size), className)}
+      {...props}
+    />
+  );
 }
 
 export function ButtonLink({
@@ -95,6 +125,54 @@ export function ExternalButtonLink({
     <a className={cn(buttonClass(variant, size), className)} {...props}>
       {children}
     </a>
+  );
+}
+
+/**
+ * Put something on the clipboard, and say for a moment and a half that it worked.
+ *
+ * Ghost and icon-only, because it sits beside the thing it copies rather than being an
+ * action a screen is asking for — an excerpt, a path, a run id. The word is `sr-only`: what
+ * it copies is named there (*Copy the path*), so the button is askable for by name and a
+ * listener is told which of several on a page they have landed on.
+ *
+ * The mark changing to a tick is the whole confirmation, and it is deliberately not a toast:
+ * the reader is looking directly at the control they just pressed, and a message in the
+ * corner of the screen for something that took no time would be reporting the obvious. A
+ * copy that *fails* says nothing here either — `useCopy` returns false and the tick never
+ * appears, which is the honest signal, and a caller that needs to say more can pass
+ * `onCopied`.
+ */
+export function CopyButton({
+  value,
+  label,
+  className,
+  onCopied,
+}: {
+  value: string;
+  /** What is being copied, for the accessible name: "Copy the path". */
+  label: string;
+  className?: string;
+  onCopied?: (ok: boolean) => void;
+}) {
+  const { copied, copy } = useCopy();
+  const Glyph = copied ? CheckIcon : CopyIcon;
+  return (
+    <button
+      type="button"
+      onClick={() => void copy(value).then((ok) => onCopied?.(ok))}
+      className={cn(
+        buttonClass("ghost", "sm"),
+        "min-w-8 px-0 pointer-coarse:min-w-11",
+        // The confirmation is a state of the control, so it takes full ink rather than the
+        // ghost's secondary — the difference is what makes the swap visible at this size.
+        copied && "text-ink",
+        className,
+      )}
+    >
+      <Glyph className="size-3.5" aria-hidden="true" />
+      <span className="sr-only">{copied ? `${label} — copied` : label}</span>
+    </button>
   );
 }
 
