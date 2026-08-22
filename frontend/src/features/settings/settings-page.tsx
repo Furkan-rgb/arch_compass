@@ -231,9 +231,11 @@ export function SettingsPage() {
               <Selection
                 identity={selectedIdentity(workspace.data, "reasoning")}
                 extra={thinkingTag(models?.reasoning?.thinking ?? null)}
-                providers={catalog.data?.providers ?? []}
-                answering={isAnswering(catalog.data, models?.reasoning)}
-                provider={models?.reasoning?.provider}
+                missing={whyMissing(
+                  catalog.data,
+                  models?.reasoning,
+                  providerLabel(catalog.data?.providers, models?.reasoning?.provider),
+                )}
                 pinned={reasoningPinned}
                 empty="No reasoning model is selected."
                 onClear={() => clearReasoning.mutate()}
@@ -266,9 +268,11 @@ export function SettingsPage() {
                     <Tag>{models.embedding.dimensions.toLocaleString()} dimensions</Tag>
                   ) : null
                 }
-                providers={embeddings.data?.providers ?? []}
-                answering={isAnswering(embeddings.data, models?.embedding)}
-                provider={models?.embedding?.provider}
+                missing={whyMissing(
+                  embeddings.data,
+                  models?.embedding,
+                  providerLabel(embeddings.data?.providers, models?.embedding?.provider),
+                )}
                 pinned={embeddingPinned}
                 empty="No embedding model is selected."
                 onClear={() => clearEmbedding.mutate()}
@@ -290,16 +294,52 @@ function selectedIdentity(workspace: Workspace | undefined, kind: "reasoning" | 
   return identity ? `${identity.provider}:${identity.model}` : null;
 }
 
-/** Whether what the workspace is set to is among what its provider is offering right now. */
-function isAnswering(
+/** A provider's own name for itself, falling back to the identifier the workspace stores. */
+function providerLabel(
+  providers: ProviderAvailability[] | undefined,
+  provider: string | undefined,
+): string {
+  return (providers ?? []).find((item) => item.provider === provider)?.label || provider || "";
+}
+
+/**
+ * Why the selected model has no tile, in the reader's terms — or null when it has one.
+ *
+ * These are two different faults with two different repairs, and they were one sentence. The
+ * page said "Ollama is not answering" whenever the selected model was missing from the
+ * catalogue, including when Ollama had answered a moment earlier and listed everything it
+ * had: the workspace was pinned to `nomic-embed-text`, the machine had `embeddinggemma`, and
+ * the page reported the daemon as down beside a provider row reading "1 model · checked just
+ * now". Restarting a provider that is already running is the wrong repair, and it is the one
+ * that sentence asks for. Pulling the model, or choosing another, is the right one.
+ *
+ * `available` is the probe's own answer about the provider, so the distinction costs nothing
+ * to make — it was on the wire already and this page was not reading it.
+ */
+function whyMissing(
   catalog: ModelCatalog | EmbeddingCatalog | undefined,
   identity: { provider: string; model: string } | null | undefined,
-): boolean {
-  if (!identity) return true;
-  return (catalog?.candidates ?? []).some(
+  label: string,
+): string | null {
+  if (!identity) return null;
+  const listed = (catalog?.candidates ?? []).some(
     (candidate) =>
       candidate.provider === identity.provider && candidate.model === identity.model,
   );
+  if (listed) return null;
+
+  const availability = (catalog?.providers ?? []).find(
+    (item) => item.provider === identity.provider,
+  );
+  // Unreachable is the claim that needs the probe to have made it. Absent one — a provider
+  // the catalogue does not mention at all — the honest statement is the narrow one, which is
+  // also the one that is true either way.
+  if (availability && !availability.available) {
+    return availability.detail
+      ? `${label} is not answering: ${availability.detail}`
+      : `${label} is not answering.`;
+  }
+  return `${label} is answering, but it is not offering this model.`;
 }
 
 /**
@@ -319,9 +359,7 @@ function isAnswering(
 function Selection({
   identity,
   extra,
-  providers,
-  answering,
-  provider,
+  missing,
   pinned,
   empty,
   onClear,
@@ -329,15 +367,12 @@ function Selection({
 }: {
   identity: string | null;
   extra: ReactNode;
-  providers: ProviderAvailability[];
-  answering: boolean;
-  provider: string | undefined;
+  missing: string | null;
   pinned: boolean;
   empty: string;
   onClear: () => void;
   clearing: boolean;
 }) {
-  const label = providers.find((item) => item.provider === provider)?.label || provider;
   return (
     <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-rule bg-surface-2 px-3.5 py-3">
       <div className="min-w-0">
@@ -345,7 +380,7 @@ function Selection({
         {identity ? (
           <p className="mt-1 text-sm leading-6 text-ink-2">
             <Mono className="text-[13px] font-semibold text-ink">{identity}</Mono> is this
-            workspace&rsquo;s model.{answering ? "" : ` ${label} is not answering.`}
+            workspace&rsquo;s model.{missing ? ` ${missing}` : ""}
             {extra ? <span className="ml-1.5 align-middle">{extra}</span> : null}
           </p>
         ) : (

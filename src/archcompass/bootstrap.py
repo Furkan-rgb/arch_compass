@@ -373,11 +373,16 @@ def build_runtime(
         policy_store=MarkdownPolicyStore(),
     )
     case_service = ArchitectureCaseService(core_cases, core_reviews, lineages)
+    # One client for both of the things that ask git something. The checkout service writes
+    # with it and the index service only reads, and neither holds state, so a second instance
+    # would be two copies of the same pair of timeouts.
+    git = GitCommandLineClient()
     repository_service = RepositoryIndexService(
         analyzer=analyzer,
         atlases=atlases,
         lineages=lineages,
         scope_selections=scope_selections,
+        git=git,
     )
     atlas_service = AtlasService(
         atlases=atlases,
@@ -492,7 +497,7 @@ def build_runtime(
         decisions=standing_decision_service,
     )
     checkout_service = RepositoryCheckoutService(
-        git=GitCommandLineClient(),
+        git=git,
         checkouts_root=canonical_workspace / CHECKOUT_DIRECTORY,
     )
     # Only built when a deployment named the hosts it will fetch from. `None` everywhere

@@ -48,7 +48,13 @@ class AtlasRepository(Protocol):
 
     def latest_for_path(self, root: Path) -> Atlas | None: ...
 
-    def list_versions(self, *, limit: int = 100) -> list[RepositorySummary]: ...
+    def list_repositories(self, *, limit: int = 100) -> list[RepositorySummary]:
+        """Each indexed repository once, described by the newest atlas built of it.
+
+        `limit` counts repositories. It used to count atlas versions, which is the same
+        number only in a workspace where nothing has ever been indexed twice.
+        """
+        ...
 
 
 class ScopeSelectionRepository(Protocol):

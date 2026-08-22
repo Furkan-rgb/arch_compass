@@ -343,6 +343,49 @@ describe("the models page", () => {
     await waitFor(() => expect(clear).toHaveBeenCalled());
   });
 
+  /**
+   * The other half of the same missing tile, and the one the page got wrong. A provider that
+   * answered and simply does not have the model this workspace names is not a provider that
+   * is down, and the two faults have opposite repairs: restart the daemon, or pull the model.
+   * The page reported the first for both, beside a provider row saying "checked just now".
+   */
+  it("separates a provider that is down from one that does not have the model", async () => {
+    vi.spyOn(api, "workspace").mockResolvedValue(
+      workspaceFixture({
+        models: {
+          ...workspaceFixture().models,
+          reasoning: { provider: "ollama", model: "qwen3:32b", thinking: false },
+        },
+      }),
+    );
+    vi.mocked(api.models).mockResolvedValue({
+      providers: [
+        {
+          provider: "ollama",
+          label: "Ollama",
+          available: true,
+          probed_at: new Date().toISOString(),
+        },
+      ],
+      candidates: [
+        {
+          provider: "ollama",
+          model: "embeddinggemma:latest",
+          label: "embeddinggemma:latest",
+          is_selected: false,
+        } as never,
+      ],
+    });
+
+    render(wrap(<SettingsPage />));
+
+    const section = (await screen.findByText("ollama:qwen3:32b")).closest("section")!;
+    expect(
+      within(section).getByText(/Ollama is answering, but it is not offering this model/),
+    ).toBeInTheDocument();
+    expect(within(section).queryByText(/is not answering/)).not.toBeInTheDocument();
+  });
+
   it("re-checks the providers without a browser reload", async () => {
     vi.spyOn(api, "workspace").mockResolvedValue(workspaceFixture());
 

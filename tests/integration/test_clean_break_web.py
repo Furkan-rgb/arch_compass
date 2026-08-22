@@ -274,3 +274,46 @@ def test_clean_break_api_resumes_the_same_graph_without_elicited_from(
             },
         )
         assert obsolete.status_code == 422
+
+
+def test_a_run_carries_the_folders_it_was_started_without(runtime: Runtime) -> None:
+    """The run says what it left out, so what started it can be offered again.
+
+    "Start again" after a failed run carried `?root=` and nothing else, because nothing on
+    the wire recorded which folders the run had skipped. The repository came back and the
+    scope did not, so the reader re-ticked by hand a choice that was on screen twenty lines
+    above — and a rerun made with a different scope is a review of a different question.
+
+    Sorted rather than echoed back as it was sent, because that is what the workspace
+    recorded: one scope typed two ways is one scope, and a client comparing the two spellings
+    would find a difference the analysis does not have.
+    """
+
+    repository = str(Path("examples/cases/warehouse-sync/repository").resolve())
+    with TestClient(create_app(runtime)) as client:
+        started = client.post(
+            "/api/repositories/start",
+            json={"root_path": repository, "excluded_paths": ["tests", "reporting"]},
+        )
+        assert started.status_code == 200, started.text
+
+        run = client.post(
+            "/api/reviews/runs",
+            json={
+                "case_id": started.json()["case_id"],
+                "repository_root": repository,
+            },
+        )
+        assert run.status_code == 202, run.text
+        assert run.json()["excluded_paths"] == ["reporting", "tests"]
+
+        # And on every later read of the same run, because the page that offers to start
+        # again is reading a run it did not start.
+        run_id = run.json()["run_id"]
+        cancelled = client.post(f"/api/reviews/runs/{run_id}/cancel")
+        assert cancelled.json()["excluded_paths"] == ["reporting", "tests"]
+        assert client.get(f"/api/reviews/runs/{run_id}").json()["excluded_paths"] == [
+            "reporting",
+            "tests",
+        ]
+        _quiet()

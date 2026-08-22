@@ -496,6 +496,7 @@ except the last, which is not the kind of thing a test can hold.
 | The audit is behind what it audits | "keeps the audit behind the judgement it audits" |
 | The report leads with the summary, once | "leads the report with what the review comes to, and says it once" |
 | The docket has no box of its own to clip | `overflow.test.tsx` — "scrolls with the page rather than inside a box of its own" |
+| You can always see which document you are on, and leave it | "keeps the surface strip on screen while a long docket is read" |
 | A question is answered by picking | `tests/browser/test_workspace.py` — "answering a clarification completes the revision" |
 | The round is a stack, not a slideshow | "stacks the round, and opens the next question when one is answered" |
 | A settled row still says what was said | "says where each question in the round stands, and reopens one" |

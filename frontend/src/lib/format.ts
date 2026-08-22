@@ -259,11 +259,24 @@ export function plural(count: number, singular: string, pluralForm = `${singular
  * So it answers with a `MarkShape` from the step set — solid, outline, dashed — which is what
  * `docs/design-system.md` reserves for a position that is not a grade. The word beside it
  * already says which step it is, so nothing is carried by the shape alone.
+ *
+ * The distance leads and the clock is the fallback, because the reviewer's question is
+ * whether the atlas still describes the code on disk and only one of the two answers it. By
+ * the clock, an index built 61 minutes ago against an untouched checkout read "Ageing" and
+ * one built 50 minutes ago with twelve commits landed since read "Fresh" — the wrong answer
+ * twice, in the two cases somebody would actually act on. `commitsBehind` is `null` where
+ * the workspace cannot say (a folder outside git, or a commit the checkout no longer holds),
+ * and only then is age all there is to go on.
  */
 export function atlasFreshness(
   indexedAt: string | null | undefined,
+  commitsBehind?: number | null,
   now = Date.now(),
 ): { label: string; step: MarkShape } {
+  if (typeof commitsBehind === "number") {
+    if (commitsBehind <= 0) return { label: "Current", step: "solid" };
+    return { label: `${plural(commitsBehind, "commit")} behind`, step: "dashed" };
+  }
   if (!indexedAt) return { label: "Never indexed", step: "dashed" };
   const age = now - Date.parse(indexedAt);
   if (Number.isNaN(age)) return { label: "Never indexed", step: "dashed" };

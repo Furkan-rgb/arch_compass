@@ -60,6 +60,20 @@ class GitClient(Protocol):
         """The commit the working tree is on, or `None` when there is not one yet."""
         ...
 
+    def commits_since(self, checkout: Path, commit: str) -> int | None:
+        """How many commits `HEAD` has that `commit` did not, or `None` where it cannot say.
+
+        The question behind "is this atlas still about the code on disk". A timestamp cannot
+        answer it — an index built an hour ago against an untouched checkout is current, and
+        one built ten minutes ago with twelve commits landed since is not.
+
+        `None` for a directory outside git and for a commit this checkout has never heard
+        of, which is an ordinary outcome rather than a failure: a rewritten history or a
+        re-clone leaves an atlas naming a commit that is genuinely gone, and the honest
+        answer is that the distance is unknown rather than zero.
+        """
+        ...
+
     def remote_branches(self, url: str) -> list[str]:
         """Every branch `url` publishes, without cloning it.
 

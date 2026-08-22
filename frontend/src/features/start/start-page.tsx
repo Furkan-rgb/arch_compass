@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
-import { api, type RepositorySummary, type Review, type ReviewRun } from "../../api";
+import { api, type RepositorySummary, type ReviewRun, type ReviewSummary } from "../../api";
 import { cn } from "../../lib/cn";
 import { useRunsBecomeReviews } from "../../lib/runs";
 import { plural, repositoryName } from "../../lib/format";
@@ -67,13 +67,13 @@ const PHASE_LABEL: Record<Exclude<Phase, "idle">, string> = {
  */
 type CaseMatch =
   | { kind: "asking" }
-  | { kind: "continues"; prior: Review }
+  | { kind: "continues"; prior: ReviewSummary }
   | { kind: "new" }
   | { kind: "unknown" };
 
 function caseMatch(
   picked: RepositorySummary | undefined,
-  reviews: Review[] | undefined,
+  reviews: ReviewSummary[] | undefined,
   asking: boolean,
 ): CaseMatch {
   if (asking) return { kind: "asking" };
@@ -108,7 +108,7 @@ function lastReviewNote(match: CaseMatch): string | null {
   if (!Number.isFinite(minutes) || minutes < 0) return null;
   const took = minutes < 1 ? "under a minute" : plural(minutes, "minute");
   return `Review ${prior.sequence} of this branch judged ${plural(
-    prior.findings.length,
+    prior.finding_count,
     "candidate",
   )} and took ${took}.`;
 }
@@ -117,15 +117,18 @@ export function StartPage() {
   const navigate = useNavigate();
   const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
   /**
-   * The whole review list, deliberately, rather than `api.reviewSummaries()`.
+   * The listing, not the reviews. All this page reads off a prior review is a path, a
+   * branch, two numbers and two timestamps — and a stored review carries the repository's
+   * whole atlas, so the full list was megabytes a row to print one sentence.
    *
-   * The case sentence below prints how many answers the case it will continue already
-   * carries, and the summary projection does not carry them — it has `case_id` and
-   * `case_revision` and no answers at all. That sentence is the one thing on this page
-   * somebody takes a decision on, so it reads the record the count is on. An `answer_count`
-   * on the projection would move this to the cheaper call.
+   * It read the full list for one reason: the case sentence prints how many answers the case
+   * it will continue already carries, and the projection had `case_revision` and no answers.
+   * It has `answer_count` now, which is the whole of what was missing.
+   *
+   * Filed under `["reviews", …]` so that the invalidations already written across this
+   * application, which are keyed on the prefix, reach this list too.
    */
-  const reviews = useQuery({ queryKey: ["reviews"], queryFn: api.reviews });
+  const reviews = useQuery({ queryKey: ["reviews", "summary"], queryFn: api.reviewSummaries });
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   /**
    * What is already running, on the same query key the shell's run indicator uses so the two
@@ -150,9 +153,20 @@ export function StartPage() {
   // there, and re-picking it here would be the same click twice.
   const [params] = useSearchParams();
   const [root, setRoot] = useState(() => params.get("root") ?? "");
-  // Reset with the repository, because a folder chosen in one is meaningless in another —
-  // `src/vendor` exists in both and is not the same subtree.
-  const [excluded, setExcluded] = useState<string[]>([]);
+  /**
+   * The folders the arriving link named, and nothing where it named none.
+   *
+   * `?exclude=` is the other half of the same hand-off, and the run page is what sends it:
+   * "Start again" after a failed run used to carry the repository and drop the scope, so ten
+   * minutes of ticking folders was lost to a run that broke on its first stage. One parameter
+   * per folder rather than one delimited string, because a path may contain a comma and an
+   * escaping rule invented here would be a second way to spell one scope.
+   *
+   * Read once, at mount, and then owned by the picker. Reset with the repository, because a
+   * folder chosen in one is meaningless in another — `src/vendor` exists in both and is not
+   * the same subtree.
+   */
+  const [excluded, setExcluded] = useState<string[]>(() => params.getAll("exclude"));
   const [clean, setClean] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [failure, setFailure] = useState<unknown>(null);
@@ -458,14 +472,14 @@ function CaseNote({
       ) : match.kind === "continues" ? (
         <>
           Continues case revision{" "}
-          <span className="font-semibold text-ink">{match.prior.case.revision}</span>
+          <span className="font-semibold text-ink">{match.prior.case_revision}</span>
           {match.prior.repository.branch ? (
             <>
               {" "}
               on <Mono className="text-ink">{match.prior.repository.branch}</Mono>
             </>
           ) : null}{" "}
-          — {plural(match.prior.case.answers.length, "answer")}. {empty}.
+          — {plural(match.prior.answer_count, "answer")}. {empty}.
         </>
       ) : match.kind === "new" ? (
         <>

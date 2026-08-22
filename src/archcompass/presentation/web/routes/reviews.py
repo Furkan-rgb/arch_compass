@@ -71,6 +71,15 @@ class ReviewRunResponse(APIModel):
     #: run and a review it is looking at are the same line of work.
     repository_name: str = ""
     repository_root: str = ""
+    #: The folders this repository is reviewed without, so a client that has the run has the
+    #: whole of what it was started with. `root` alone was half an answer: "Start again"
+    #: after a failed run carried the repository and dropped the scope, so ten minutes of
+    #: ticking folders was lost to a run that broke on its first stage.
+    #:
+    #: Empty covers both of the ways nothing is left out — nobody has narrowed this
+    #: repository, and somebody chose to review the whole of it — because a caller listing
+    #: what a run skipped has the same thing to say about either.
+    excluded_paths: list[str] = Field(default_factory=list[str])
     branch_name: str = ""
     branch_id: str = ""
     case_id: str = ""
@@ -585,6 +594,11 @@ class ReviewSummaryResponse(APIModel):
     repository: RepositoryResponse
     case_id: str
     case_revision: int
+    #: How many questions the case this review ran against carries answers to. Here rather
+    #: than left to be counted off the review, because a screen deciding what a run will
+    #: continue prints it — and reading the whole review for one integer is the download this
+    #: projection exists to avoid.
+    answer_count: int
     started_at: str
     finished_at: str | None
     #: How many candidates this review judged, and how each verdict fell. `finding_count` is
@@ -616,6 +630,7 @@ class ReviewSummaryResponse(APIModel):
             repository=_repository(summary.repository),
             case_id=summary.case_id,
             case_revision=summary.case_revision,
+            answer_count=summary.answer_count,
             started_at=summary.started_at.isoformat(),
             finished_at=(
                 None if summary.finished_at is None else summary.finished_at.isoformat()
@@ -696,6 +711,10 @@ def routes() -> APIRouter:
             state,
             repository_name=Path(root).name if root else "this repository",
             repository_root=root,
+            # Read by the same path the line above answers with, so the two travel together:
+            # a client handed a root and somebody else's folder list would start the next run
+            # against a scope that was never chosen for it.
+            excluded_paths=list(runtime.repository_service.scope(root)) if root else [],
             branch_name=branch.branch_name if branch else "",
             branch_id=lineage.branch_id,
             case_id=lineage.case_id,

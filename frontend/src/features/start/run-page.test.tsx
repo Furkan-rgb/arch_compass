@@ -201,6 +201,33 @@ describe("a review being made", () => {
   });
 
   /**
+   * The other half of the same hand-off, which the wire could not carry until now.
+   *
+   * A rerun with a different scope is a review of a different question, so "Start again"
+   * offering the repository without the folders was offering to start something else. The
+   * run says what it left out; the link says it too, one parameter per folder so a path with
+   * a comma in it needs no escaping rule.
+   */
+  it("carries the folders the run left out into the form that starts the next one", async () => {
+    vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
+    vi.spyOn(api, "reviewRun").mockResolvedValue(
+      runFixture({
+        status: "failed",
+        failure: "The provider refused the batch",
+        review_id: null,
+        excluded_paths: ["docs", "tests"],
+      }),
+    );
+
+    render(wrap(<RunPage />));
+
+    expect(await screen.findByRole("link", { name: "Start again" })).toHaveAttribute(
+      "href",
+      "/start?root=%2Fwork%2Fpayments-platform&exclude=docs&exclude=tests",
+    );
+  });
+
+  /**
    * A failed poll is a fact about the connection, not about the run.
    *
    * The page gated on `run.error || !state`, and React Query keeps `data` and sets `error`

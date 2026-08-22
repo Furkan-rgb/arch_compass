@@ -932,6 +932,43 @@ describe("the review workbench", () => {
     );
   });
 
+  it("keeps the surface strip on screen while a long docket is read", async () => {
+    // jsdom does no layout, so this asserts the two properties that make it stick rather than
+    // the stuck position: the strip is pinned below the 48px rail, and a row walked to leaves
+    // room for both. The pair is the whole rule — pinning the strip without moving the row's
+    // scroll margin puts the row it just walked to underneath the thing that was pinned to
+    // help it, which is worse than not pinning at all.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    const strip = (await screen.findAllByRole("tablist"))[0].parentElement?.parentElement;
+    expect(strip?.className).toContain("sticky");
+    expect(strip?.className).toContain("top-12");
+
+    // `scroll-margin-top` applies to the element that is scrolled into view, so the margin
+    // and the `scrollIntoView` call have to land on the same element. They did not: the
+    // margin was on the article and the call was on the button inside it, which made the
+    // clearance inert from the day it was written and invisible to every test that only
+    // looked for the class. jsdom implements no `scrollIntoView`, so the receiver is the
+    // only thing there is to assert on — and it is the thing that was wrong.
+    const scrolled: Element[] = [];
+    Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
+      scrolled.push(this);
+    };
+
+    const listed = await docket();
+    for (const row of listed) {
+      expect(row.closest("article")?.className).toContain("scroll-mt-24");
+    }
+
+    fireEvent.click(listed[1]);
+    expect(scrolled.at(-1)?.tagName).toBe("ARTICLE");
+    expect((scrolled.at(-1) as HTMLElement).className).toContain("scroll-mt-24");
+  });
+
   it("walks the queue with the keyboard and opens what it lands on", async () => {
     // The most repeated action in the product, and it was pointer-only.
     const review = reviewFixture({ status: "completed", questions: [] });

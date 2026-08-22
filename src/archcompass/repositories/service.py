@@ -13,6 +13,7 @@ from archcompass.ports.persistence import (
     LineageRepository,
     ScopeSelectionRepository,
 )
+from archcompass.ports.vcs import GitClient
 from archcompass.repositories.lineage import (
     DEFAULT_BRANCH_NAME,
     BranchLineage,
@@ -33,11 +34,13 @@ class RepositoryIndexService:
         atlases: AtlasRepository,
         lineages: LineageRepository,
         scope_selections: ScopeSelectionRepository,
+        git: GitClient,
     ) -> None:
         self._analyzer = analyzer
         self._atlases = atlases
         self._lineages = lineages
         self._scope_selections = scope_selections
+        self._git = git
 
     def index(
         self,
@@ -157,7 +160,51 @@ class RepositoryIndexService:
         return self._lineages.set_base_branch(branch.branch_id, base_branch_id)
 
     def list(self, *, limit: int = 100) -> list[RepositorySummary]:
-        return self._atlases.list_versions(limit=limit)
+        """Each indexed repository once, with what is true of it right now beside it.
+
+        The stored row says what was analysed and when. Three things a reader needs are not
+        in it, because none of them is a fact about the atlas: where the checkout has got to
+        since, how far that is, and how much of the repository the analysis was told to
+        leave out. All three are read here rather than written into the row, because all
+        three change without anything re-indexing.
+        """
+
+        return [
+            self._against_the_checkout(summary)
+            for summary in self._atlases.list_repositories(limit=limit)
+        ]
+
+    def scope(self, root_path: str) -> tuple[str, ...]:
+        """The folders this repository is reviewed without, as anything reading it sees them.
+
+        The stored `None` — nobody has chosen — and the stored empty list — somebody chose
+        the whole repository — are one answer here, because a caller listing what was left
+        out has nothing to say about either. The two are still kept apart where the
+        difference is load-bearing, which is the next analysis of this repository.
+        """
+
+        return self._recorded_for(root_path)
+
+    def _against_the_checkout(self, summary: RepositorySummary) -> RepositorySummary:
+        root = Path(summary.root_path)
+        head = self._git.head_commit(root)
+        # Asked only where there is a distance that could be anything but zero. A commit that
+        # is already `HEAD` is nought commits behind by definition, and a listing of seven
+        # repositories should not spend seven subprocesses proving it.
+        behind: int | None = None
+        if head is not None and summary.git_commit_sha is not None:
+            behind = (
+                0
+                if head == summary.git_commit_sha
+                else self._git.commits_since(root, summary.git_commit_sha)
+            )
+        return summary.model_copy(
+            update={
+                "head_commit_sha": head,
+                "commits_behind": behind,
+                "excluded_path_count": len(self.scope(summary.root_path)),
+            }
+        )
 
     def branches(self) -> list[RepositoryBranch]:
         """Every branch lineage this workspace has seen, with the repository it is in.

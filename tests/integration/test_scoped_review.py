@@ -240,3 +240,55 @@ def test_the_review_reads_the_repository_under_the_scope_it_was_given(
 
     assert not any('"path":"tests/' in node for node in atlas.nodes)
     assert any('"path":"src/service.py"' in node for node in atlas.nodes)
+
+
+def test_the_listing_says_how_many_folders_a_repository_is_reviewed_without(
+    workspace: Runtime, repository: Path
+) -> None:
+    """The choice is preserved across every later index and was never stated anywhere.
+
+    Re-indexing deliberately keeps the scope a reader chose, which is right and invisible:
+    no screen said this repository was being analysed without two of its folders, so a
+    review that skipped half the code looked exactly like a review that had read all of it.
+    """
+
+    with TestClient(create_app(workspace)) as client:
+        client.post(
+            "/api/repositories/index",
+            json={"root_path": str(repository), "excluded_paths": ["tests", "docs"]},
+        )
+
+        listed = client.get("/api/repositories").json()
+
+        assert [item["excluded_path_count"] for item in listed] == [2]
+
+        # Undone, and the count follows it. An empty list is a choice rather than the
+        # absence of one, and it counts the same as never having narrowed anything.
+        client.post(
+            "/api/repositories/index",
+            json={"root_path": str(repository), "excluded_paths": []},
+        )
+        assert [item["excluded_path_count"] for item in client.get("/api/repositories").json()] == [
+            0
+        ]
+
+
+def test_the_listing_answers_with_repositories_rather_than_with_indexes(
+    workspace: Runtime, repository: Path
+) -> None:
+    """Over HTTP, because this is what the repositories page draws a card from.
+
+    The three indexes below are three rows in `atlas_versions` and one repository, and the
+    page had no way to tell: it drew three cards, identically titled and identically pathed,
+    and would have drawn a fourth for the next re-index.
+    """
+
+    with TestClient(create_app(workspace)) as client:
+        for _ in range(3):
+            client.post("/api/repositories/index", json={"root_path": str(repository)})
+
+        listed = client.get("/api/repositories").json()
+
+        assert len(listed) == 1
+        assert listed[0]["root_path"] == str(repository.resolve())
+        assert listed[0]["snapshot_count"] == 3

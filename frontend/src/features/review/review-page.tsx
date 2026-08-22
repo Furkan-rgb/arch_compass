@@ -570,7 +570,18 @@ export function ReviewPage() {
         failure={cancel.error}
       />
 
-      <div className="border-b border-rule bg-surface">
+      {/* Pinned under the topbar, because this strip is the only thing on the page that says
+          which of the five documents is on screen and the only way to reach the other four.
+          A real docket is dozens of rows long: scrolled to the fortieth, everything that
+          oriented you had scrolled off, and reaching the atlas meant scrolling back to the
+          top of a list you had just worked your way down. It is 44px under the 48px rail,
+          which is what `scroll-mt-24` on a row is measured against.
+
+          `z-20` sits under the rail's `z-30` so the two never fight over an overlap, and far
+          under the drawers, which have to cover both. The docket itself is untouched: it
+          still scrolls with the page rather than inside a box, which `overflow.test.tsx`
+          holds — a sticky sibling above it is not a scrollport around it. */}
+      <div className="sticky top-12 z-20 border-b border-rule bg-surface">
         <div className="mx-auto w-full max-w-[76rem] px-2 sm:px-4">
           <Tabs
             label="What to read about this review"

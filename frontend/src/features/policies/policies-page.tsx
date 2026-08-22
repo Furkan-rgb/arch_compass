@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 import { useDeferredValue, useId, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
@@ -10,7 +15,12 @@ import {
   type Review,
 } from "../../api";
 import { cn } from "../../lib/cn";
-import { humanise, relativeTime, repositoryName, strengthOf } from "../../lib/format";
+import {
+  humanise,
+  relativeTime,
+  repositoryName,
+  strengthOf,
+} from "../../lib/format";
 import { StrengthBadge, Tag } from "../../ui/badge";
 import { Button, ToggleButton } from "../../ui/button";
 import { Field, Input, SearchInput } from "../../ui/field";
@@ -19,12 +29,25 @@ import { Markdown } from "../../ui/markdown";
 import { MetaLine, Mono } from "../../ui/meta";
 import { PageHeader } from "../../ui/page";
 import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
-import { EmptyState, ErrorNotice, LoadingPanel, Notice, Spinner } from "../../ui/states";
+import {
+  EmptyState,
+  ErrorNotice,
+  LoadingPanel,
+  Notice,
+  Spinner,
+} from "../../ui/states";
 import { useToast } from "../../ui/toast";
 import { PolicyEditor } from "./policy-editor";
 
 const STRENGTHS = ["all", "required", "preferred", "guidance"] as const;
-const SCOPES = ["all", "general", "user", "organisation", "repository", "accepted_adr"] as const;
+const SCOPES = [
+  "all",
+  "general",
+  "user",
+  "organisation",
+  "repository",
+  "accepted_adr",
+] as const;
 
 /**
  * Which policy is open, in the address bar.
@@ -72,7 +95,10 @@ function scopeReach(
         : "repository";
   const pinned = context?.[field] ?? null;
   if (!policy.applies_to) {
-    return { reaches: false, sentence: `This policy names no ${field}, so nothing matches it.` };
+    return {
+      reaches: false,
+      sentence: `This policy names no ${field}, so nothing matches it.`,
+    };
   }
   if (!pinned) {
     return {
@@ -125,7 +151,9 @@ function PolicyCard({
     <article
       className={cn(
         "overflow-hidden rounded-lg border bg-surface transition",
-        expanded ? "border-rule-strong" : "border-rule hover:border-rule-strong",
+        expanded
+          ? "border-rule-strong"
+          : "border-rule hover:border-rule-strong",
       )}
     >
       {/* Only the title and what identifies it are inside the control. The disclosure used
@@ -150,17 +178,26 @@ function PolicyCard({
               {fromRepository ? <Tag>repository</Tag> : null}
             </span>
             <ChevronDown
-              className={cn("mt-1 size-4 shrink-0 text-ink-3 transition", expanded && "rotate-180")}
+              className={cn(
+                "mt-1 size-4 shrink-0 text-ink-3 transition",
+                expanded && "rotate-180",
+              )}
             />
           </button>
         </h3>
-        <p className="mt-1.5 text-sm leading-6 text-ink-2">{policy.description}</p>
+        <p className="mt-1.5 text-sm leading-6 text-ink-2">
+          {policy.description}
+        </p>
         <MetaLine
           className="mt-2"
           items={[
             humanise(policy.scope),
             policy.applies_to ? `applies to ${policy.applies_to}` : null,
-            reach ? (reach.reaches ? "in scope for this case" : "out of scope for this case") : null,
+            reach
+              ? reach.reaches
+                ? "in scope for this case"
+                : "out of scope for this case"
+              : null,
             policy.source.author,
             ...policy.tags.map((tag) => <Tag key={tag}>{tag}</Tag>),
           ]}
@@ -168,7 +205,10 @@ function PolicyCard({
       </div>
 
       {expanded ? (
-        <div id={bodyId} className="animate-expand border-t border-rule px-4 py-4 sm:px-5">
+        <div
+          id={bodyId}
+          className="animate-expand border-t border-rule px-4 py-4 sm:px-5"
+        >
           <Markdown>{policy.body}</Markdown>
 
           {reach ? (
@@ -206,7 +246,8 @@ function PolicyCard({
                       className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-rule bg-surface-2 px-3 py-2 transition hover:border-rule-strong"
                     >
                       <span className="text-sm font-semibold text-ink">
-                        {repositoryName(review.repository.path)} · review {review.sequence}
+                        {repositoryName(review.repository.path)} · review{" "}
+                        {review.sequence}
                       </span>
                       <MetaLine items={[relativeTime(review.started_at)]} />
                     </Link>
@@ -216,7 +257,9 @@ function PolicyCard({
             ) : (
               // An explicit unknown outranks an implied one: a blank here reads as a page
               // that failed to load rather than as a policy nothing has weighed yet.
-              <p className="mt-1.5 text-sm text-ink-3">No stored review has weighed this policy.</p>
+              <p className="mt-1.5 text-sm text-ink-3">
+                No stored review has weighed this policy.
+              </p>
             )}
           </div>
 
@@ -246,16 +289,31 @@ function PolicyCard({
                 </Button>
                 {confirming ? (
                   <>
-                    <span className="text-xs text-ink-3">Delete permanently?</span>
-                    <Button size="sm" variant="danger" disabled={deleting} onClick={onDelete}>
+                    <span className="text-xs text-ink-3">
+                      Delete permanently?
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={deleting}
+                      onClick={onDelete}
+                    >
                       Confirm
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setConfirming(false)}
+                    >
                       Keep
                     </Button>
                   </>
                 ) : (
-                  <Button size="sm" variant="ghost" onClick={() => setConfirming(true)}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setConfirming(true)}
+                  >
                     Delete
                   </Button>
                 )}
@@ -284,15 +342,22 @@ export function PoliciesPage() {
   // Identity and lineage, which is all the chooser and the case lookup need. Asking for the
   // reviews themselves to read a path and a case id would download most of a repository's
   // atlas per row.
-  const summaries = useQuery({ queryKey: ["review-summaries"], queryFn: api.reviewSummaries });
+  const summaries = useQuery({
+    queryKey: ["review-summaries"],
+    queryFn: api.reviewSummaries,
+  });
   const cases = useQuery({ queryKey: ["cases"], queryFn: api.cases });
-  const workspace = useQuery({ queryKey: ["workspace"], queryFn: api.workspace });
+  const workspace = useQuery({
+    queryKey: ["workspace"],
+    queryFn: api.workspace,
+  });
 
   /** Stored reviews, newest first, which is the order the chooser and the case default read. */
   const newestFirst = useMemo(
     () =>
       [...(summaries.data ?? [])].sort(
-        (left, right) => Date.parse(right.started_at) - Date.parse(left.started_at),
+        (left, right) =>
+          Date.parse(right.started_at) - Date.parse(left.started_at),
       ),
     [summaries.data],
   );
@@ -310,8 +375,11 @@ export function PoliciesPage() {
    * from the page called Policies. Defaulting to the newest review's repository makes the
    * first thing on screen the corpus that actually judged.
    */
-  const [chosenRoot, setChosenRoot] = useState<string | null | undefined>(undefined);
-  const root = chosenRoot === undefined ? (repositories[0] ?? null) : chosenRoot;
+  const [chosenRoot, setChosenRoot] = useState<string | null | undefined>(
+    undefined,
+  );
+  const root =
+    chosenRoot === undefined ? (repositories[0] ?? null) : chosenRoot;
 
   const policies = useQuery({
     queryKey: ["policies", root],
@@ -320,7 +388,10 @@ export function PoliciesPage() {
     // it is going to be read for rather than fetched twice and swapped underneath the reader.
     enabled: !summaries.isPending,
   });
-  const sources = useQuery({ queryKey: ["policy-sources"], queryFn: api.policySources });
+  const sources = useQuery({
+    queryKey: ["policy-sources"],
+    queryFn: api.policySources,
+  });
 
   const [query, setQuery] = useState("");
   const [strength, setStrength] = useState<(typeof STRENGTHS)[number]>("all");
@@ -328,7 +399,9 @@ export function PoliciesPage() {
   const [authoredHere, setAuthoredHere] = useState(false);
   const [open, setOpen] = useState<EditorTarget | null>(null);
   const [dirty, setDirty] = useState(false);
-  const [pending, setPending] = useState<{ next: EditorTarget | null } | null>(null);
+  const [pending, setPending] = useState<{ next: EditorTarget | null } | null>(
+    null,
+  );
 
   const remove = useMutation({
     meta: { handled: true },
@@ -369,7 +442,9 @@ export function PoliciesPage() {
     const map = new Map<string, Review[]>();
     for (const review of reviews.data ?? []) {
       const cited = new Set(
-        review.findings.flatMap((finding) => finding.policies.map((bearing) => bearing.policy_id)),
+        review.findings.flatMap((finding) =>
+          finding.policies.map((bearing) => bearing.policy_id),
+        ),
       );
       for (const id of cited) {
         const existing = map.get(id);
@@ -383,14 +458,20 @@ export function PoliciesPage() {
   /** The case a review of this repository would run under, and therefore what it can reach. */
   const context = useMemo(() => {
     const list = cases.data ?? [];
-    const active = list.find((item) => item.case_id === newestFirst[0]?.case_id) ?? list[0];
+    const active =
+      list.find((item) => item.case_id === newestFirst[0]?.case_id) ?? list[0];
     return active?.policy_context ?? null;
   }, [cases.data, newestFirst]);
 
-  const matches = (policy: PolicyDocument, axis: "strength" | "origin" | null = null) =>
+  const matches = (
+    policy: PolicyDocument,
+    axis: "strength" | "origin" | null = null,
+  ) =>
     (!needle || (haystacks.get(policy.id) ?? "").includes(needle)) &&
     (scope === "all" || policy.scope === scope) &&
-    (axis === "strength" || strength === "all" || policy.strength === strength) &&
+    (axis === "strength" ||
+      strength === "all" ||
+      policy.strength === strength) &&
     (axis === "origin" || !authoredHere || policy.origin === "workspace");
 
   const visible = all.filter((policy) => matches(policy));
@@ -400,9 +481,12 @@ export function PoliciesPage() {
   ).length;
   const strengthCounts = {
     all: byStrength.length,
-    required: byStrength.filter((policy) => policy.strength === "required").length,
-    preferred: byStrength.filter((policy) => policy.strength === "preferred").length,
-    guidance: byStrength.filter((policy) => policy.strength === "guidance").length,
+    required: byStrength.filter((policy) => policy.strength === "required")
+      .length,
+    preferred: byStrength.filter((policy) => policy.strength === "preferred")
+      .length,
+    guidance: byStrength.filter((policy) => policy.strength === "guidance")
+      .length,
   };
 
   const setExpanded = (id: string | null) =>
@@ -485,7 +569,11 @@ export function PoliciesPage() {
         <ErrorNotice
           error={policies.error}
           action={
-            <Button size="sm" variant="secondary" onClick={() => void policies.refetch()}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void policies.refetch()}
+            >
               Try again
             </Button>
           }
@@ -538,60 +626,81 @@ export function PoliciesPage() {
 
       <div className="mb-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start">
         <div>
-          <div className="mb-3 grid gap-2 rounded-lg border border-rule bg-surface p-2 lg:grid-cols-[minmax(0,1fr)_auto]">
-            <SearchInput
-              label="Search policies"
-              value={query}
-              onValueChange={setQuery}
-              placeholder="Search title, body or tag"
-            />
-            <div className="flex flex-wrap items-center gap-3">
-              {/* The counts used to be a four-row Corpus panel beside the list, and the
+          {/* Pinned, because this corpus is 54 policies and some 8,000 pixels long, and the
+              search box that makes it navigable was reachable only from the top of it. The
+              wrapper paints the canvas so the list scrolls behind the bar rather than through
+              the gap between it and the rail, and `-mx-2 px-2` gives the card its full width
+              back after that padding. */}
+          <div className="sticky top-12 z-10 -mx-2 mb-3 bg-canvas px-2 py-2">
+            <div className="grid gap-2 rounded-lg border border-rule bg-surface p-2 lg:grid-cols-[minmax(0,1fr)_auto]">
+              <SearchInput
+                label="Search policies"
+                value={query}
+                onValueChange={setQuery}
+                placeholder="Search title, body or tag"
+              />
+              <div className="flex flex-wrap items-center gap-3">
+                {/* The counts used to be a four-row Corpus panel beside the list, and the
                   content rule is that a count is a control or it is not on screen. Required
                   restated a number this row already owned as a button; Showing restated the
                   length of the list underneath it. */}
-              <div role="group" aria-label="Filter by strength" className="flex gap-1">
-                {STRENGTHS.map((item) => (
-                  <ToggleButton
-                    key={item}
-                    pressed={strength === item}
-                    disabled={strength !== item && !strengthCounts[item]}
-                    onClick={() => setStrength(item)}
-                    className="capitalize"
-                  >
-                    {item}
-                    <span className="tabular-nums text-ink-3">{strengthCounts[item]}</span>
-                  </ToggleButton>
-                ))}
-              </div>
-              <ToggleButton
-                pressed={authoredHere}
-                disabled={!authoredHere && !authoredCount}
-                onClick={() => setAuthoredHere(!authoredHere)}
-              >
-                Authored here
-                <span className="tabular-nums text-ink-3">{authoredCount}</span>
-              </ToggleButton>
-              <label className="flex items-center gap-1.5 text-xs text-ink-3">
-                Scope
-                <select
-                  aria-label="Filter by scope"
-                  value={scope}
-                  onChange={(event) => setScope(event.target.value as (typeof SCOPES)[number])}
-                  className="rounded-sm border border-rule bg-surface px-2 py-1 text-xs text-ink"
+                <div
+                  role="group"
+                  aria-label="Filter by strength"
+                  className="flex gap-1"
                 >
-                  {SCOPES.map((item) => (
-                    <option key={item} value={item}>
-                      {humanise(item)}
-                    </option>
+                  {STRENGTHS.map((item) => (
+                    <ToggleButton
+                      key={item}
+                      pressed={strength === item}
+                      disabled={strength !== item && !strengthCounts[item]}
+                      onClick={() => setStrength(item)}
+                      className="capitalize"
+                    >
+                      {item}
+                      <span className="tabular-nums text-ink-3">
+                        {strengthCounts[item]}
+                      </span>
+                    </ToggleButton>
                   ))}
-                </select>
-              </label>
+                </div>
+                <ToggleButton
+                  pressed={authoredHere}
+                  disabled={!authoredHere && !authoredCount}
+                  onClick={() => setAuthoredHere(!authoredHere)}
+                >
+                  Authored here
+                  <span className="tabular-nums text-ink-3">
+                    {authoredCount}
+                  </span>
+                </ToggleButton>
+                <label className="flex items-center gap-1.5 text-xs text-ink-3">
+                  Scope
+                  <select
+                    aria-label="Filter by scope"
+                    value={scope}
+                    onChange={(event) =>
+                      setScope(event.target.value as (typeof SCOPES)[number])
+                    }
+                    className="rounded-sm border border-rule bg-surface px-2 py-1 text-xs text-ink"
+                  >
+                    {SCOPES.map((item) => (
+                      <option key={item} value={item}>
+                        {humanise(item)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             </div>
           </div>
 
           {!visible.length ? (
-            <EmptyState title={all.length ? "No policy matches that" : "No policies loaded"}>
+            <EmptyState
+              title={
+                all.length ? "No policy matches that" : "No policies loaded"
+              }
+            >
               {all.length
                 ? "Clear the search, or widen the strength and scope filters."
                 : "Author a workspace policy, or register a folder of Markdown policies as a source."}
@@ -603,11 +712,15 @@ export function PoliciesPage() {
                   key={policy.id}
                   policy={policy}
                   expanded={expanded === policy.id}
-                  onToggle={() => setExpanded(expanded === policy.id ? null : policy.id)}
+                  onToggle={() =>
+                    setExpanded(expanded === policy.id ? null : policy.id)
+                  }
                   onEdit={() => requestEditor({ policy })}
                   onDelete={() => remove.mutate(policy.id)}
                   deleting={remove.isPending}
-                  fromRepository={Boolean(root) && policy.source_path.startsWith(`${root}/`)}
+                  fromRepository={
+                    Boolean(root) && policy.source_path.startsWith(`${root}/`)
+                  }
                   reach={scopeReach(policy, context)}
                   citations={{
                     pending: reviews.isPending,
@@ -692,18 +805,29 @@ function SourcesPanel({
           <ErrorNotice
             error={sources.error}
             action={
-              <Button size="sm" variant="secondary" onClick={() => void sources.refetch()}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void sources.refetch()}
+              >
                 Try again
               </Button>
             }
           />
         ) : !sources.data?.length ? (
-          <p className="text-sm text-ink-3">Only the bundled corpus and anything authored here.</p>
+          <p className="text-sm text-ink-3">
+            Only the bundled corpus and anything authored here.
+          </p>
         ) : (
           <ul className="grid gap-1.5">
             {sources.data.map((source) => (
-              <li key={source.canonical_path} className="flex items-center gap-2">
-                <Mono className="min-w-0 flex-1 truncate text-[11px]">{source.canonical_path}</Mono>
+              <li
+                key={source.canonical_path}
+                className="flex items-center gap-2"
+              >
+                <Mono className="min-w-0 flex-1 truncate text-[11px]">
+                  {source.canonical_path}
+                </Mono>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -719,8 +843,9 @@ function SourcesPanel({
 
         {hosted ? (
           <p className="text-sm leading-6 text-ink-3">
-            This is the hosted demo, so a folder on the server cannot be registered. Policies you
-            write here are kept in your own workspace and read by every review you run.
+            This is the hosted demo, so a folder on the server cannot be
+            registered. Policies you write here are kept in your own workspace
+            and read by every review you run.
           </p>
         ) : (
           <form

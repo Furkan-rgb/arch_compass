@@ -176,6 +176,7 @@ export function reviewSummaryFixture(overrides: Partial<ReviewSummary> = {}): Re
     repository,
     case_id: "case-1",
     case_revision: 1,
+    answer_count: 0,
     started_at: "2026-01-01T00:00:00Z",
     finished_at: null,
     finding_count: 3,

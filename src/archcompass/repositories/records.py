@@ -71,6 +71,18 @@ class CheckoutRefresh(BoundaryDTO):
 
 
 class RepositorySummary(BoundaryDTO):
+    """One indexed repository, described by the newest atlas built of it.
+
+    A repository and not an atlas version, which it used to be: every index inserts a row,
+    so the listing was the indexing history and a repository indexed twenty-five times
+    arrived twenty-five times. The version is still named, because everything on this record
+    is read off exactly that snapshot and a reader has to be able to say which one.
+
+    The three fields below `created_at` answer one question between them — *does this atlas
+    still describe what is on disk* — which is the question a wall-clock age was standing in
+    for and could not answer.
+    """
+
     version_id: str
     #: Where this checkout is. Kept as the location it has always been, beside the durable
     #: identity below rather than replaced by it.
@@ -82,6 +94,20 @@ class RepositorySummary(BoundaryDTO):
     repo_id: str | None = None
     branch_name: str | None = None
     created_at: datetime
+    #: How many atlases this workspace holds of this repository, the one above included.
+    #: Never zero: a repository is in this listing because an atlas of it was built.
+    snapshot_count: int = 1
+    #: What `HEAD` is now, and how many commits the atlas is behind it. `None` for both
+    #: where the root is not a git checkout, and for `commits_behind` where the commit this
+    #: atlas was built at is not one this checkout knows — a rewritten history, or a
+    #: repository re-cloned since. Zero means the atlas was built at the commit that is
+    #: checked out, which is the answer "still current" rather than a missing one.
+    head_commit_sha: str | None = None
+    commits_behind: int | None = None
+    #: How many folders this repository is reviewed without. Zero for a repository nobody
+    #: has narrowed and for one somebody chose to review whole — the difference matters to
+    #: the analysis and not to a reader counting what was left out.
+    excluded_path_count: int = 0
     node_count: int = 0
     edge_count: int = 0
     signal_count: int = 0

@@ -316,16 +316,23 @@ function DocketRow({
   const { namespace, leaf } = splitQualified(identity);
   const settled = !needsAttention(finding, decision);
   const panelId = `finding-panel-${finding.candidate.id}`;
-  const ref = useRef<HTMLButtonElement>(null);
+  const ref = useRef<HTMLElement>(null);
 
   // Opening a row that the keyboard walked to has to bring it into view, or `j` past the
   // fold silently expands something below the screen.
+  //
+  // The article rather than the button inside it, which is what this used to hold. Two things
+  // were wrong with the button: `scroll-margin-top` applies to the element being scrolled
+  // into view, so the margin below — the whole point of it — sat on an ancestor and never
+  // applied; and the button starts below the article's top edge, so even the correct margin
+  // would have left the verdict edge and the row's heading above the fold.
   useEffect(() => {
     if (open) ref.current?.scrollIntoView?.({ block: "nearest" });
   }, [open]);
 
   return (
     <article
+      ref={ref}
       aria-labelledby={`finding-${finding.candidate.id}`}
       className={cn(
         // The verdict as an edge. A docket is worked down a column, and the question asked
@@ -334,10 +341,13 @@ function DocketRow({
         // *at*. An edge is read without being looked at, costs no horizontal space, and is
         // a rule rather than a card, which is the structure this system already uses.
         "border-b border-l-[3px] border-rule last:border-b-0",
-        // The topbar is 48px of opaque chrome and the docket scrolls with the page, so a row
-        // walked *up* to with `k` was aligned flush with the viewport and landed underneath
-        // it — hiding the identifier and the verdict of the row just arrived at.
-        "scroll-mt-14",
+        // 48px of opaque topbar and 44px of pinned surface strip, and the docket scrolls with
+        // the page — so a row walked *up* to with `k` was aligned flush with the viewport and
+        // landed underneath both, hiding the identifier and the verdict of the row just
+        // arrived at. 96px clears the pair with four to spare. It was 56px when only the
+        // topbar was pinned; the strip was pinned afterwards and this is the measurement that
+        // had to move with it.
+        "scroll-mt-24",
         settled ? "border-l-transparent" : TONE_EDGE[descriptor.tone],
         open && "bg-surface",
         !open && settled && "bg-transparent",
@@ -377,7 +387,6 @@ function DocketRow({
         </label>
 
         <button
-          ref={ref}
           type="button"
           data-candidate={finding.candidate.id}
           aria-expanded={open}

@@ -128,12 +128,16 @@ export function RunPage() {
   const lineage = lineageOf(reviews.data ?? [], state.branch_id, state.case_id);
   const sequence = state.sequence ?? lineage.length + 1;
   const status = failed ? "did not finish" : stopped ? "stopped" : "in progress";
-  // The repository and the folders left out are on screen; sending somebody back to a blank
-  // form to find them again is this page discarding what it is already displaying. `?root=`
-  // is the same hand-off the repositories page makes. The folders cannot follow yet — a run
-  // does not carry the scope it was started under.
+  // The whole of what the run was started with, handed back rather than thrown away.
+  // `?root=` is the same hand-off the repositories page makes; the folders travel beside it
+  // as one `exclude` each, so a path with a comma in it needs no escaping rule of its own.
+  // Sending somebody back to a blank form to re-tick ten minutes of folder choices was this
+  // page discarding what it is printing twenty lines above.
   const again = state.repository_root
-    ? `/start?root=${encodeURIComponent(state.repository_root)}`
+    ? `/start?${new URLSearchParams([
+        ["root", state.repository_root],
+        ...(state.excluded_paths ?? []).map((path) => ["exclude", path]),
+      ]).toString()}`
     : "/start";
 
   return (

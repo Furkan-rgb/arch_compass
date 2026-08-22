@@ -43,6 +43,11 @@ class ReviewSummary:
     started_at: datetime
     finished_at: datetime | None = None
     previous_review_id: str | None = None
+    #: How many questions this review's case has answers on. A revision number says which
+    #: case a run will continue and not how much is in it, and "continues revision 4" with no
+    #: second number is the same sentence for a case somebody has filled in and one that was
+    #: opened and never answered.
+    answer_count: int = 0
     finding_count: int = 0
     material_count: int = 0
     held_count: int = 0
@@ -190,6 +195,7 @@ class SQLiteCoreReviewRepository:
         json_extract(snapshots.review_json, '$.started_at'),
         json_extract(snapshots.review_json, '$.finished_at'),
         json_extract(snapshots.review_json, '$.previous_review_id'),
+        json_array_length(snapshots.review_json, '$.case.answers'),
         json_array_length(snapshots.review_json, '$.findings'),
         (SELECT COUNT(*) FROM json_each(snapshots.review_json, '$.findings')
             WHERE json_extract(json_each.value, '$.verdict') = 'material'),
@@ -265,13 +271,14 @@ def _summary(row: tuple[object, ...]) -> ReviewSummary:
         started_at=started,
         finished_at=_moment(row[14]),
         previous_review_id=None if row[15] is None else str(row[15]),
-        finding_count=int(str(row[16])),
-        material_count=int(str(row[17])),
-        held_count=int(str(row[18])),
-        cleared_count=int(str(row[19])),
-        question_count=int(str(row[20])),
-        unchanged_count=int(str(row[21])),
-        changed_count=int(str(row[22])),
-        new_count=int(str(row[23])),
-        addressed_count=int(str(row[24])),
+        answer_count=int(str(row[16])),
+        finding_count=int(str(row[17])),
+        material_count=int(str(row[18])),
+        held_count=int(str(row[19])),
+        cleared_count=int(str(row[20])),
+        question_count=int(str(row[21])),
+        unchanged_count=int(str(row[22])),
+        changed_count=int(str(row[23])),
+        new_count=int(str(row[24])),
+        addressed_count=int(str(row[25])),
     )

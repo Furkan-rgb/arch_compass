@@ -53,12 +53,13 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("the repositories page", () => {
   /**
-   * The page is handed the index history, not a list of repositories.
+   * One card per repository, whatever the workspace has built of it.
    *
-   * `GET /api/repositories` is `list_versions` with no `GROUP BY`, and the store inserts a
-   * fresh version on every index — so one repository indexed three times arrives as three
-   * rows that differ only in when they were built. The real workspace had 65 of these for 7
-   * repositories, on a page 14,157px tall.
+   * The listing was `atlas_versions` with no `GROUP BY` and the store inserts a fresh row on
+   * every index, so a repository indexed three times arrived three times — 65 cards for 7
+   * repositories in the real workspace, on a page 14,157px tall, growing by one every time
+   * somebody pressed Re-index. It groups in SQL now: one row, the newest atlas on it, and
+   * the rest as a count.
    */
   it("draws one card per repository, however many atlases have been built of it", async () => {
     vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
@@ -68,14 +69,13 @@ describe("the repositories page", () => {
       node_summaries: [],
     });
     vi.spyOn(api, "repositories").mockResolvedValue([
-      version({ version_id: "v-old", created_at: "2026-01-01T00:00:00Z", node_count: 4 }),
       version({
         version_id: "v-new",
         created_at: new Date(Date.now() - 60_000).toISOString(),
         git_commit_sha: "aa11bb22cc33",
         node_count: 128,
+        snapshot_count: 3,
       }),
-      version({ version_id: "v-mid", created_at: "2026-02-01T00:00:00Z", node_count: 40 }),
       version({
         version_id: "other",
         root_path: "/work/billing-service",
@@ -90,7 +90,7 @@ describe("the repositories page", () => {
     expect(screen.getAllByRole("article")).toHaveLength(2);
     expect(screen.getAllByText("payments-platform")).toHaveLength(1);
 
-    // The newest version is the one the card describes, and the rest are a count.
+    // The row describes the newest atlas, and says how many are behind it.
     const card = screen.getByText("payments-platform").closest("article")!;
     expect(within(card).getByText("3 snapshots")).toBeInTheDocument();
     expect(within(card).getByText("aa11bb22")).toBeInTheDocument();
@@ -100,7 +100,8 @@ describe("the repositories page", () => {
   /**
    * The other half of the same defect: the cards were keyed on `version_id` while the
    * selection compared `root_path`, so every duplicate of a repository lit up as selected at
-   * once — and the atlas beside them resolved to the newest whichever card was pressed.
+   * once — and the atlas beside them resolved to the newest whichever card was pressed. The
+   * key is the path now, which is the only thing this page ever hands anywhere else.
    */
   it("selects one repository at a time, and says which in the URL", async () => {
     vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
@@ -110,8 +111,7 @@ describe("the repositories page", () => {
       node_summaries: [],
     });
     vi.spyOn(api, "repositories").mockResolvedValue([
-      version({ version_id: "v-1" }),
-      version({ version_id: "v-2", created_at: "2026-01-01T00:00:00Z" }),
+      version({ version_id: "v-1", snapshot_count: 2 }),
       version({
         version_id: "other",
         root_path: "/work/billing-service",
@@ -178,14 +178,14 @@ describe("the repositories page", () => {
       .spyOn(api, "repositories")
       .mockResolvedValue([version({ version_id: "v-1" })]);
     const index = vi.spyOn(api, "indexRepository").mockImplementation(async () => {
-      // The re-index adds a version rather than replacing one, which is the reason the page
-      // collapses at all — the card the reader pressed has to update, not multiply.
+      // The re-index adds a version rather than replacing one, which is why the card the
+      // reader pressed has to update rather than multiply: same row, newer atlas on it.
       repositories.mockResolvedValue([
-        version({ version_id: "v-1" }),
         version({
           version_id: "v-2",
           created_at: new Date().toISOString(),
           git_commit_sha: "cc44dd55ee66",
+          snapshot_count: 2,
         }),
       ]);
       return {
@@ -214,31 +214,84 @@ describe("the repositories page", () => {
    * `CheckoutRefresh.updated` has been on the wire the whole time and nothing read it, so a
    * fetch that pulled thirty commits said exactly as much as one that pulled none — and left
    * the card claiming an atlas that no longer matched the checkout.
+   *
+   * How far behind the atlas now is stopped being this component's guess when the listing
+   * started carrying it. The card held a boolean set from whatever the last fetch happened
+   * to return, which was blank on arrival and wrong for anybody who had committed since; the
+   * fetch moves the checkout, the listing is re-read, and the distance is measured.
    */
-  it("says what a fetch pulled, and that the atlas is now behind it", async () => {
+  it("says what a fetch pulled, and reads the new distance off the listing", async () => {
     vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
     vi.spyOn(api, "repositoryHotspots").mockResolvedValue({
       query: { kind: "hotspots", metric: "reverse_dependency_reach" },
       metric_values: [],
       node_summaries: [],
     });
-    vi.spyOn(api, "repositories").mockResolvedValue([version()]);
-    vi.spyOn(api, "refreshRepository").mockResolvedValue({
-      root_path: "/work/payments-platform",
-      managed: true,
-      updated: true,
-      branch_name: "main",
+    const repositories = vi
+      .spyOn(api, "repositories")
+      .mockResolvedValue([version({ commits_behind: 0, head_commit_sha: "8f31c2a91b4d" })]);
+    vi.spyOn(api, "refreshRepository").mockImplementation(async () => {
+      repositories.mockResolvedValue([
+        version({ commits_behind: 2, head_commit_sha: "dd66ee77ff88" }),
+      ]);
+      return {
+        root_path: "/work/payments-platform",
+        managed: true,
+        updated: true,
+        branch_name: "main",
+      };
     });
 
     render(wrap(<RepositoriesPage />));
 
-    fireEvent.click(await screen.findByRole("button", { name: /Fetch/ }));
+    // An atlas built at the commit that is checked out is current, whatever the clock says
+    // about when it was built — twenty minutes ago in this fixture.
+    expect(await screen.findByText("Atlas Current")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Fetch/ }));
 
     expect(await screen.findByText(/Fetched new commits on main/)).toBeInTheDocument();
     const card = screen.getByText("payments-platform").closest("article")!;
-    expect(within(card).getByText(/New commits landed since this atlas was built/)).toBeInTheDocument();
-    // The freshness badge stops being about the clock the moment there is a better answer.
-    expect(within(card).getByText("Atlas behind the checkout")).toBeInTheDocument();
+    expect(
+      await within(card).findByText(/2 commits landed since this atlas was built/),
+    ).toBeInTheDocument();
+    expect(within(card).getByText("Atlas 2 commits behind")).toBeInTheDocument();
+  });
+
+  /**
+   * A scope survives every later index, deliberately, and nothing said so.
+   *
+   * `api.indexRepository` omits `excluded_paths` on purpose — absent means "keep whatever
+   * this repository was last indexed under", so pressing Re-index cannot silently widen a
+   * review somebody narrowed. The cost of that is a repository being analysed without two of
+   * its folders with no sign of it anywhere, which makes a review that skipped half the code
+   * look exactly like one that read all of it.
+   */
+  it("says how many folders this repository is reviewed without", async () => {
+    vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
+    vi.spyOn(api, "repositoryHotspots").mockResolvedValue({
+      query: { kind: "hotspots", metric: "reverse_dependency_reach" },
+      metric_values: [],
+      node_summaries: [],
+    });
+    vi.spyOn(api, "repositories").mockResolvedValue([
+      version({ excluded_path_count: 2 }),
+      version({
+        version_id: "whole",
+        root_path: "/work/billing-service",
+        repository_identity: "identity-2",
+        created_at: "2026-03-01T00:00:00Z",
+      }),
+    ]);
+
+    render(wrap(<RepositoriesPage />));
+
+    const narrowed = (await screen.findByText("payments-platform")).closest("article")!;
+    expect(within(narrowed).getByText("2 folders left out")).toBeInTheDocument();
+    // And nothing at all on a repository nobody has narrowed: "0 folders left out" is a
+    // sentence about a choice that was never made.
+    const whole = screen.getByText("billing-service").closest("article")!;
+    expect(within(whole).queryByText(/left out/)).not.toBeInTheDocument();
   });
 
   /**

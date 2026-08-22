@@ -521,6 +521,10 @@ def test_workflow_service_resumes_idempotently_and_records_omissions_as_skips(
     assert summary.started_at == review.started_at
     assert summary.finished_at == review.finished_at
     assert summary.previous_review_id == review.previous_review_id
+    # The one thing a listing reads off the case besides its number. A skipped answer is an
+    # answer — it records that somebody was asked and declined — so this counts above zero
+    # here, which is what makes the assertion about the projection rather than about a blank.
+    assert summary.answer_count == len(review.case.answers) == 1
     assert summary.finding_count == len(review.findings)
     assert summary.question_count == len(review.questions)
     assert summary.material_count == sum(

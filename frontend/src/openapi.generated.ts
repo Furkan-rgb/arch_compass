@@ -473,6 +473,10 @@ export interface components {
     "repo_id"?: string | null;
     "branch_name"?: string | null;
     "created_at": string;
+    "snapshot_count"?: number;
+    "head_commit_sha"?: string | null;
+    "commits_behind"?: number | null;
+    "excluded_path_count"?: number;
     "node_count"?: number;
     "edge_count"?: number;
     "signal_count"?: number;
@@ -560,6 +564,7 @@ export interface components {
     "batch"?: string;
     "repository_name"?: string;
     "repository_root"?: string;
+    "excluded_paths"?: Array<string>;
     "branch_name"?: string;
     "branch_id"?: string;
     "case_id"?: string;
@@ -575,6 +580,7 @@ export interface components {
     "repository": components["schemas"]["RepositoryResponse"];
     "case_id": string;
     "case_revision": number;
+    "answer_count": number;
     "started_at": string;
     "finished_at": string | null;
     "finding_count": number;

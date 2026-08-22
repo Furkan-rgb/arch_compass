@@ -150,13 +150,31 @@ class SQLiteAtlasRepository:
             ).fetchone()
         return None if row is None else self.get(str(row["version_id"]))
 
-    def list_versions(self, *, limit: int = 100) -> list[RepositorySummary]:
+    def list_repositories(self, *, limit: int = 100) -> list[RepositorySummary]:
+        """One row per repository, described by the newest atlas built of it.
+
+        Grouped in SQL rather than by whoever draws it. Every index is an `INSERT` with a
+        fresh `version_id`, so this table is the indexing history — and answering with it row
+        for row answered a question nobody asks: a workspace holding twenty-five atlases of
+        one repository listed it twenty-five times, identically titled and identically
+        pathed, and grew by one every time somebody pressed Re-index. `limit` therefore
+        counts repositories now, which is what a caller asking for a hundred meant.
+
+        The kept row is the newest by exactly the ordering `latest_for_path` uses, because
+        the two have to agree: this row is what a card describes, and everything that card
+        opens — the hotspots beside it, the review it starts — resolves the atlas through
+        that method. Picking the newest a different way here would describe one snapshot and
+        open another.
+        """
+
         with self._database.connect() as connection:
             rows = connection.execute(
                 """
                 SELECT
                     v.*,
                     b.branch_name AS lineage_branch_name,
+                    (SELECT COUNT(*) FROM atlas_versions built
+                     WHERE built.root_path = v.root_path) AS snapshot_count,
                     (SELECT COUNT(*) FROM atlas_nodes n
                      WHERE n.version_id = v.version_id) AS node_count,
                     (SELECT COUNT(*) FROM atlas_edges e
@@ -165,6 +183,11 @@ class SQLiteAtlasRepository:
                      WHERE s.version_id = v.version_id) AS signal_count
                 FROM atlas_versions v
                 LEFT JOIN branch_lineages b ON b.branch_id = v.branch_id
+                WHERE v.version_id = (
+                    SELECT newest.version_id FROM atlas_versions newest
+                    WHERE newest.root_path = v.root_path
+                    ORDER BY newest.created_at DESC, newest.rowid DESC LIMIT 1
+                )
                 ORDER BY v.created_at DESC, v.rowid DESC
                 LIMIT ?
                 """,
@@ -194,6 +217,7 @@ class SQLiteAtlasRepository:
                     else None
                 ),
                 created_at=datetime.fromisoformat(str(row["created_at"])),
+                snapshot_count=int(row["snapshot_count"]),
                 node_count=int(row["node_count"]),
                 edge_count=int(row["edge_count"]),
                 signal_count=int(row["signal_count"]),

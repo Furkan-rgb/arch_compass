@@ -11,7 +11,6 @@ import {
   repositoryName,
   shortId,
   statusOf,
-  type MarkShape,
 } from "../../lib/format";
 import { Badge, Tag } from "../../ui/badge";
 import { Button, ButtonLink } from "../../ui/button";
@@ -22,59 +21,6 @@ import { PageHeader } from "../../ui/page";
 import { Label, Panel, PanelBody, PanelHeader } from "../../ui/panel";
 import { EmptyState, ErrorNotice, LoadingPanel, Notice, Spinner } from "../../ui/states";
 import { useToast } from "../../ui/toast";
-
-/**
- * One repository, and every atlas the workspace has built of it.
- *
- * `GET /api/repositories` is `list_versions` — every row in `atlas_versions`, with no
- * `GROUP BY` — and the store's `save()` is a plain `INSERT` with a fresh `version_id`. So
- * what arrives here is not a list of repositories at all; it is the indexing history, and a
- * repository indexed twenty-five times arrives as twenty-five rows differing only in when
- * they were built. Drawn row for row that was sixty-five cards for seven repositories on one
- * page, every card of a repository titled and pathed identically — and it grew by one every
- * time somebody pressed Re-index, which made the one control that replaces an atlas look
- * like the control that adds one.
- *
- * It was worse than long. The cards were keyed on `version_id` while the selection compares
- * `root_path`, so every duplicate of a repository lit up as selected at once and the atlas
- * panel beside them resolved to the newest whichever card had been pressed.
- *
- * So the collapse happens here, keyed on `root_path` — which is what the selection, the
- * atlas panel and the review lookup were all already comparing. It belongs on the server and
- * this is not that change; until the service groups, this is the page refusing to present
- * an index history as a list of repositories.
- */
-type IndexedRepository = {
-  /** The newest atlas built of this repository. Everything on the card is read off it. */
-  newest: RepositorySummary;
-  /** How many atlases the workspace holds of it, this one included. */
-  snapshots: number;
-};
-
-function builtAt(version: RepositorySummary): number {
-  const stamp = Date.parse(version.created_at ?? "");
-  return Number.isNaN(stamp) ? 0 : stamp;
-}
-
-function collapseVersions(versions: RepositorySummary[]): IndexedRepository[] {
-  const byRoot = new Map<string, IndexedRepository>();
-  for (const version of versions) {
-    const existing = byRoot.get(version.root_path);
-    if (!existing) {
-      byRoot.set(version.root_path, { newest: version, snapshots: 1 });
-      continue;
-    }
-    existing.snapshots += 1;
-    if (builtAt(version) >= builtAt(existing.newest)) existing.newest = version;
-  }
-  // Newest first, and ties broken on the path rather than left to whatever order the server
-  // returned: two atlases built inside the same second must not be able to reorder the page
-  // under somebody's cursor on the next poll.
-  return [...byRoot.values()].sort((left, right) => {
-    const age = builtAt(right.newest) - builtAt(left.newest);
-    return age !== 0 ? age : left.newest.root_path.localeCompare(right.newest.root_path);
-  });
-}
 
 function latestReviewFor(reviews: ReviewSummary[], root: string): ReviewSummary | undefined {
   return reviews
@@ -102,13 +48,11 @@ function reviewCost(review: ReviewSummary | undefined): string | null {
 
 function RepositoryCard({
   repository,
-  snapshots,
   latest,
   selected,
   onSelect,
 }: {
   repository: RepositorySummary;
-  snapshots: number;
   latest?: ReviewSummary;
   selected: boolean;
   onSelect: () => void;
@@ -116,26 +60,17 @@ function RepositoryCard({
   const client = useQueryClient();
   const navigate = useNavigate();
   const toast = useToast();
-  const age = atlasFreshness(repository.created_at);
-  /**
-   * What a fetch found, kept so the atlas can be described against the checkout rather than
-   * against the clock.
-   *
-   * Freshness here is wall-clock age and nothing else, so a repository indexed 61 minutes
-   * ago with nothing committed since reads "Ageing" and one indexed 50 minutes ago with
-   * twelve commits since reads "Fresh". The question a reviewer actually has is whether the
-   * atlas still matches what is on disk, and this is the only part of that answer the wire
-   * carries today: a fetch that pulled something is a fetch that moved the checkout past the
-   * commit this atlas was built at.
-   */
-  const [behind, setBehind] = useState(false);
-  const freshness = behind ? { label: "behind the checkout", step: "dashed" as MarkShape } : age;
+  const snapshots = repository.snapshot_count ?? 1;
+  // The distance from the checkout where the workspace can measure one, and the clock only
+  // where it cannot. Nothing here holds a second answer of its own any more: re-indexing and
+  // fetching both invalidate the listing, and the listing is where the distance comes from.
+  const behind = repository.commits_behind ?? 0;
+  const freshness = atlasFreshness(repository.created_at, repository.commits_behind);
   const cost = reviewCost(latest);
 
   const reindex = useMutation({
     mutationFn: () => api.indexRepository(repository.root_path),
     onSuccess: async (version) => {
-      setBehind(false);
       await client.invalidateQueries({ queryKey: ["repositories"] });
       // Said as what it found, not as "done". Re-indexing an unchanged checkout is the
       // ordinary case and it is worth knowing that it was a no-op, because the reason
@@ -160,7 +95,6 @@ function RepositoryCard({
         );
         return;
       }
-      setBehind(Boolean(result.updated));
       await client.invalidateQueries({ queryKey: ["repositories"] });
       toast.say(
         result.updated
@@ -220,6 +154,14 @@ function RepositoryCard({
           <Tag>{(repository.node_count ?? 0).toLocaleString()} nodes</Tag>
           <Tag>{(repository.edge_count ?? 0).toLocaleString()} edges</Tag>
           <Tag>{(repository.signal_count ?? 0).toLocaleString()} signals</Tag>
+          {/* Beside the counts because it belongs to the same claim: these are the
+              measurements of an analysis, and this says what that analysis was not shown.
+              A narrowed repository stays narrowed through every later index, deliberately
+              and until now silently — so a review that skipped half the code looked exactly
+              like one that had read all of it. */}
+          {repository.excluded_path_count ? (
+            <Tag>{plural(repository.excluded_path_count, "folder")} left out</Tag>
+          ) : null}
           {cost ? <Tag>Last review: {cost}</Tag> : null}
         </div>
       </button>
@@ -263,9 +205,9 @@ function RepositoryCard({
         </Button>
       </div>
 
-      {behind ? (
+      {behind > 0 ? (
         <Notice tone="working" className="mt-3">
-          New commits landed since this atlas was built at{" "}
+          {plural(behind, "commit")} landed since this atlas was built at{" "}
           <Mono className="text-[11px]">{shortId(repository.git_commit_sha ?? "", 8)}</Mono>. A
           review started now would read the old snapshot.
         </Notice>
@@ -402,21 +344,28 @@ export function RepositoriesPage() {
     },
   });
 
+  // One row per repository, newest atlas first, straight off the wire. This page used to
+  // collapse the indexing history itself, because the listing was that history: a repository
+  // indexed twenty-five times arrived twenty-five times, and drawn row for row that was
+  // sixty-five cards for seven repositories, growing by one on every Re-index. The service
+  // groups now, so the only thing left to key on is the path — which is what the selection,
+  // the atlas panel and the review lookup were all already comparing.
   const all = repositories.data;
-  const collapsed = useMemo(() => collapseVersions(all ?? []), [all]);
   const visible = useMemo(
     () =>
-      collapsed.filter((item) =>
-        `${item.newest.root_path} ${item.newest.branch_name ?? ""}`
+      (all ?? []).filter((repository) =>
+        `${repository.root_path} ${repository.branch_name ?? ""}`
           .toLowerCase()
           .includes(query.toLowerCase()),
       ),
-    [collapsed, query],
+    [all, query],
   );
   // An explicit `?root=` wins over the search, so arriving from the palette selects what the
   // palette named even where a stale search term would have hidden it.
   const selected =
-    collapsed.find((item) => item.newest.root_path === requestedRoot) ?? visible[0] ?? null;
+    (all ?? []).find((repository) => repository.root_path === requestedRoot) ??
+    visible[0] ??
+    null;
 
   return (
     <div>
@@ -482,7 +431,7 @@ export function RepositoriesPage() {
             </Button>
           }
         />
-      ) : !collapsed.length ? (
+      ) : !all.length ? (
         <EmptyState
           title="No repository has been indexed"
           action={<ButtonLink to="/start">Start the first review</ButtonLink>}
@@ -510,14 +459,13 @@ export function RepositoriesPage() {
           </div>
           <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
             <div className="grid gap-2.5">
-              {visible.map((item) => (
+              {visible.map((repository) => (
                 <RepositoryCard
-                  key={item.newest.root_path}
-                  repository={item.newest}
-                  snapshots={item.snapshots}
-                  latest={latestReviewFor(reviews.data ?? [], item.newest.root_path)}
-                  selected={selected?.newest.root_path === item.newest.root_path}
-                  onSelect={() => select(item.newest.root_path)}
+                  key={repository.root_path}
+                  repository={repository}
+                  latest={latestReviewFor(reviews.data ?? [], repository.root_path)}
+                  selected={selected?.root_path === repository.root_path}
+                  onSelect={() => select(repository.root_path)}
                 />
               ))}
               {!visible.length ? (
@@ -526,7 +474,7 @@ export function RepositoriesPage() {
                 </EmptyState>
               ) : null}
             </div>
-            {selected ? <AtlasPreview repository={selected.newest} /> : null}
+            {selected ? <AtlasPreview repository={selected} /> : null}
           </div>
         </>
       )}

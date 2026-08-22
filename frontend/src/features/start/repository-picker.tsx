@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { api, type RepositorySummary } from "../../api";
+import { api } from "../../api";
 import { cn } from "../../lib/cn";
 import { plural, relativeTime, repositoryName } from "../../lib/format";
 import { Tag } from "../../ui/badge";
@@ -31,29 +31,7 @@ export function RepositoryPicker({
   const repositories = useQuery({ queryKey: ["repositories"], queryFn: api.repositories });
   const examples = useQuery({ queryKey: ["examples"], queryFn: api.examples });
 
-  /**
-   * One entry per repository, not per time it was indexed.
-   *
-   * `/api/repositories` answers "which checkouts have been indexed", and every re-index adds
-   * a row — which is correct for a version listing and wrong for a chooser. Anyone testing
-   * against the same repository ends up picking it out of eight copies of itself, and the
-   * eight-item cap then means eight copies of one repository is the whole list.
-   *
-   * Keyed on `root_path` because that is the only thing this control actually hands back;
-   * two paths are two choices even when they are clones of the same repository. The rows
-   * arrive newest first, so the first one seen is the one to keep, and the count beside it
-   * says how many indexes are behind it rather than hiding them.
-   */
-  const indexed = useMemo(() => {
-    const seen = new Map<string, { repository: RepositorySummary; versions: number }>();
-    for (const repository of repositories.data ?? []) {
-      const existing = seen.get(repository.root_path);
-      if (existing) existing.versions += 1;
-      else seen.set(repository.root_path, { repository, versions: 1 });
-    }
-    return [...seen.values()];
-  }, [repositories.data]);
-
+  const indexed = repositories.data ?? [];
   const hasRecent = Boolean(indexed.length);
   const bundled = examples.data?.length ?? 0;
 
@@ -113,7 +91,7 @@ export function RepositoryPicker({
             </EmptyState>
           ) : (
             <ul className="grid gap-1.5 sm:grid-cols-2">
-              {indexed.slice(0, 8).map(({ repository, versions }) => (
+              {indexed.slice(0, 8).map((repository) => (
                 <li key={repository.root_path}>
                   <button
                     type="button"
@@ -143,9 +121,14 @@ export function RepositoryPicker({
                         </span>
                       ) : null}
                       <span>indexed {relativeTime(repository.created_at)}</span>
-                      {versions > 1 ? (
-                        <span title={`${versions} atlas versions of this checkout`}>
-                          · {versions} indexes
+                      {/* Said rather than hidden. A repository indexed eight times is one
+                          choice here — the listing groups it — and the count is the only
+                          thing left that says the workspace holds a history of it. */}
+                      {(repository.snapshot_count ?? 1) > 1 ? (
+                        <span
+                          title={`${repository.snapshot_count} atlas versions of this checkout`}
+                        >
+                          · {repository.snapshot_count} indexes
                         </span>
                       ) : null}
                     </div>

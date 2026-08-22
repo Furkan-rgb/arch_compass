@@ -121,6 +121,27 @@ class GitCommandLineClient:
 
         return self._ask(checkout, "rev-parse", "--verify", "--quiet", "HEAD") or None
 
+    def commits_since(self, checkout: Path, commit: str) -> int | None:
+        """How far `HEAD` has moved past `commit`, counted in commits.
+
+        `rev-list --count` and not a comparison of two shas, because "different" is not the
+        answer anybody wants: a reader deciding whether to re-index wants to know whether
+        that is one commit's worth of drift or two hundred.
+
+        `None` wherever git will not answer, which covers the two cases that are not
+        failures — a directory outside version control, and a commit that is no longer in
+        this history — as well as a machine with no git on it at all. Every one of them
+        means the same thing to a caller: the distance cannot be stated, so do not state it.
+        """
+
+        counted = self._ask(checkout, "rev-list", "--count", f"{commit}..HEAD")
+        if counted is None:
+            return None
+        try:
+            return int(counted)
+        except ValueError:  # pragma: no cover - `--count` answers with a number or fails
+            return None
+
     def remote_branches(self, url: str) -> list[str]:
         """Every branch `url` publishes, read straight off the remote.
 

@@ -303,3 +303,51 @@ def test_a_review_is_recorded_against_the_branch_it_ran_on(
     assert [(item.repository.id, item.repository.branch_id) for item in listed] == [
         (version.repo_id, version.branch_id)
     ]
+
+
+def test_the_listing_says_how_far_the_checkout_has_moved_past_the_atlas(
+    tmp_path: Path, workspace_runtime: Runtime
+) -> None:
+    """Freshness answered as a distance in commits, which is the question a reviewer has.
+
+    Wall-clock age was standing in for it and gets it wrong both ways round: an index built
+    an hour ago against a checkout nobody has touched is current, and one built ten minutes
+    ago with twelve commits landed since is not. Nothing on the wire could tell those apart.
+    """
+
+    repository = _committed_repository(tmp_path / "repository")
+    indexed = workspace_runtime.repository_service.index(repository)
+
+    current = workspace_runtime.repository_service.list()[0]
+    assert current.head_commit_sha == indexed.git_commit_sha
+    # Nought is an answer — the atlas was built at the commit that is checked out — and it
+    # is the one a reader gets for the ordinary case of having just indexed something.
+    assert current.commits_behind == 0
+
+    (repository / "store.py").write_text(f"{MODULE}\n# later\n", encoding="utf-8")
+    _git(repository, "add", ".")
+    _git(repository, "commit", "-m", "second")
+    _git(repository, "commit", "--allow-empty", "-m", "third")
+
+    behind = workspace_runtime.repository_service.list()[0]
+    assert behind.commits_behind == 2
+    assert behind.head_commit_sha == _git(repository, "rev-parse", "HEAD")
+    # The atlas is untouched by any of this: it still names the commit it was built at, and
+    # that is the whole point of saying how far the checkout has gone past it.
+    assert behind.git_commit_sha == indexed.git_commit_sha
+
+
+def test_a_folder_outside_git_is_neither_behind_nor_current(
+    tmp_path: Path, workspace_runtime: Runtime
+) -> None:
+    """`None` rather than nought, because "no commits behind" is a claim this cannot make."""
+
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / "store.py").write_text(MODULE, encoding="utf-8")
+    workspace_runtime.repository_service.index(repository)
+
+    listed = workspace_runtime.repository_service.list()[0]
+
+    assert listed.head_commit_sha is None
+    assert listed.commits_behind is None

@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../../api";
-import { reviewFixture, runFixture, workspaceFixture } from "../../test-fixtures";
+import { reviewSummaryFixture, runFixture, workspaceFixture } from "../../test-fixtures";
 import { StartPage } from "./start-page";
 
 /** Stands in for the run page, and reports the address the start page moved to. */
@@ -47,7 +47,7 @@ beforeEach(() => {
     },
   ]);
   vi.spyOn(api, "examples").mockResolvedValue([]);
-  vi.spyOn(api, "reviews").mockResolvedValue([]);
+  vi.spyOn(api, "reviewSummaries").mockResolvedValue([]);
   // Nothing else in this workspace is running, which is the ordinary case and the one the
   // rest of these tests are about.
   vi.spyOn(api, "reviewRuns").mockResolvedValue([]);
@@ -72,18 +72,21 @@ afterEach(() => vi.restoreAllMocks());
 
 /** The same checkout, indexed three times, which is what testing against one repository does. */
 function indexedThreeTimes() {
-  return [1, 2, 3].map((n) => ({
-    version_id: `version-${n}`,
-    repository_identity: "identity-1",
-    root_path: "/work/payments-platform",
-    git_commit_sha: "8f31c2a91b4d",
-    repo_id: "repo-1",
-    branch_name: "main",
-    created_at: `2026-01-0${4 - n}T00:00:00Z`,
-    node_count: 128,
-    edge_count: 214,
-    signal_count: 3,
-  }));
+  return [
+    {
+      version_id: "version-3",
+      repository_identity: "identity-1",
+      root_path: "/work/payments-platform",
+      git_commit_sha: "8f31c2a91b4d",
+      repo_id: "repo-1",
+      branch_name: "main",
+      created_at: "2026-01-03T00:00:00Z",
+      snapshot_count: 3,
+      node_count: 128,
+      edge_count: 214,
+      signal_count: 3,
+    },
+  ];
 }
 
 describe("choosing a repository", () => {
@@ -96,11 +99,12 @@ describe("choosing a repository", () => {
 
     render(wrap(<StartPage />));
 
-    // One entry, not three. `/api/repositories` answers "which checkouts have been indexed",
-    // and every re-index adds a row — right for a version listing, wrong for a chooser.
+    // One entry, not three. The listing groups now, so the three indexes arrive as one row
+    // — and this chooser holds an eight-item cap, which eight copies of one repository used
+    // to fill on their own.
     const chosen = await screen.findAllByText("payments-platform");
     expect(chosen).toHaveLength(1);
-    // And it says what it collapsed, rather than quietly dropping two records.
+    // And what the workspace holds behind that row is stated rather than dropped.
     expect(screen.getByText(/3 indexes/)).toBeInTheDocument();
   });
 
@@ -217,6 +221,45 @@ describe("starting a review", () => {
     expect(await screen.findByText("/work/payments-platform")).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Run review" })).not.toBeDisabled(),
+    );
+  });
+
+  /**
+   * A repository without its scope is half a hand-off.
+   *
+   * "Start again" on a failed run brought the path back and left the folders behind, so the
+   * reader re-ticked by hand a choice the run page was already displaying — and a rerun made
+   * with a different scope is a review of a different question, not a retry of the same one.
+   */
+  it("arrives with the folders the link named already left out", async () => {
+    vi.spyOn(api, "workspace").mockResolvedValue(workspaceFixture());
+    const started = vi.spyOn(api, "startRepository").mockResolvedValue({
+      case_id: "case-1",
+      revision: 1,
+    });
+    vi.spyOn(api, "startReviewRun").mockResolvedValue({
+      run_id: "thread-7",
+      status: "running",
+      review_id: null,
+      stage: "load_context",
+      stages: ["load_context"],
+      failure: "",
+    });
+
+    render(
+      wrap(<StartPage />, "/start?root=%2Fwork%2Fpayments-platform&exclude=tests"),
+    );
+
+    expect(await screen.findByRole("checkbox", { name: "Leave out tests" })).toBeChecked();
+    // And the count under the button is the count of what is actually going to be read.
+    expect(screen.getByText("96", { selector: "strong" })).toBeInTheDocument();
+
+    const run = screen.getByRole("button", { name: "Run review" });
+    await waitFor(() => expect(run).not.toBeDisabled());
+    fireEvent.click(run);
+
+    await waitFor(() =>
+      expect(started).toHaveBeenCalledWith("/work/payments-platform", false, ["tests"]),
     );
   });
 
@@ -351,44 +394,24 @@ describe("starting a review", () => {
  * "Start from an empty case instead" sitting directly under both.
  */
 describe("which case a run will continue", () => {
-  const priorOnMain = reviewFixture({
+  // The listing shape, because that is what this page reads now. Every fact the sentence
+  // states is a column of the projection — the revision, the branch, and the answer count
+  // that used to be the one reason the whole review had to travel.
+  const priorOnMain = reviewSummaryFixture({
     id: "review-9",
     sequence: 3,
     status: "completed",
-    questions: [],
-    case: {
-      id: "case-1",
-      revision: 2,
-      answers: [
-        {
-          // A review's case carries the whole question it was asked, not an id: the answer
-          // is a record of what was put to a person, and an id resolves against a review
-          // that may not be the one being read.
-          question: {
-            id: "question-1",
-            text: "Who owns persistence?",
-            facet: "decision",
-            candidate_ids: ["candidate-1"],
-            round: 1,
-            equivalence_key: "decision:candidate-1",
-            options: ["The domain owns it", "The persistence layer owns it"],
-          },
-          status: "answered",
-          value: "The domain owns it",
-          actor: "engineer",
-          answered_at: "2026-01-01T00:10:00Z",
-        },
-      ],
-      created_at: "2026-01-01T00:00:00Z",
-      updated_at: "2026-01-01T00:10:00Z",
-    },
+    case_id: "case-1",
+    case_revision: 2,
+    answer_count: 1,
+    question_count: 0,
     started_at: "2026-01-01T00:00:00Z",
     finished_at: "2026-01-01T00:07:00Z",
   });
 
   beforeEach(() => {
     vi.spyOn(api, "workspace").mockResolvedValue(workspaceFixture());
-    vi.spyOn(api, "reviews").mockResolvedValue([priorOnMain]);
+    vi.spyOn(api, "reviewSummaries").mockResolvedValue([priorOnMain]);
   });
 
   it("finds the case behind a path spelled with a trailing slash", async () => {

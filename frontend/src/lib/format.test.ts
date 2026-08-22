@@ -80,9 +80,29 @@ describe("time", () => {
   });
 
   it("states atlas freshness rather than making the reader subtract dates", () => {
-    expect(atlasFreshness("2026-01-01T11:30:00Z", now).label).toBe("Fresh");
-    expect(atlasFreshness("2025-12-30T12:00:00Z", now).label).toBe("Ageing");
-    expect(atlasFreshness("2025-01-01T12:00:00Z", now).label).toBe("Stale");
-    expect(atlasFreshness(null, now).label).toBe("Never indexed");
+    expect(atlasFreshness("2026-01-01T11:30:00Z", null, now).label).toBe("Fresh");
+    expect(atlasFreshness("2025-12-30T12:00:00Z", null, now).label).toBe("Ageing");
+    expect(atlasFreshness("2025-01-01T12:00:00Z", null, now).label).toBe("Stale");
+    expect(atlasFreshness(null, null, now).label).toBe("Never indexed");
+  });
+
+  /**
+   * The clock was answering a question it cannot answer, and getting it wrong both ways.
+   *
+   * "Is this atlas still about the code on disk" is settled by the distance in commits and
+   * by nothing else: an index built an hour ago against an untouched checkout is current,
+   * and one built ten minutes ago with two commits landed since is not. Both of those read
+   * the other way round when age was all there was.
+   */
+  it("answers with the distance from the checkout wherever there is one", () => {
+    expect(atlasFreshness("2025-01-01T12:00:00Z", 0, now)).toEqual({
+      label: "Current",
+      step: "solid",
+    });
+    expect(atlasFreshness("2026-01-01T11:59:00Z", 1, now).label).toBe("1 commit behind");
+    expect(atlasFreshness("2026-01-01T11:59:00Z", 12, now).label).toBe("12 commits behind");
+    // A verdict's hue is never spent on this, whichever answer it gives: the step set is
+    // solid, outline and dashed, and the word beside it is what carries the meaning.
+    expect(atlasFreshness("2026-01-01T11:59:00Z", 12, now).step).toBe("dashed");
   });
 });

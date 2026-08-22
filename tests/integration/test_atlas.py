@@ -89,6 +89,59 @@ def test_atlas_versions_are_immutable(runtime) -> None:
     assert runtime.atlas_repository.get(first.version.version_id) == first
 
 
+def test_a_repository_indexed_many_times_is_listed_once(runtime, tmp_path: Path) -> None:
+    """The listing answers with repositories; the table it reads is the indexing history.
+
+    Every index is an insert, so a workspace that has re-indexed one checkout twenty-five
+    times held twenty-five rows of it — and the page drawing them showed twenty-five cards
+    with the same title and the same path, one more of them after each Re-index.
+
+    The row kept is the newest, because that is the atlas everything else resolves for this
+    path: the counts on it must be the counts of the snapshot the hotspots panel beside it
+    is about.
+    """
+
+    other = tmp_path / "elsewhere"
+    (other / "package").mkdir(parents=True)
+    (other / "package" / "service.py").write_text("VALUE = 1\n", encoding="utf-8")
+    for _ in range(3):
+        runtime.repository_service.index(FIXTURE)
+    newest = runtime.repository_service.index(other)
+
+    listed = runtime.repository_service.list()
+
+    assert [item.root_path for item in listed] == [str(other), str(FIXTURE)]
+    indexed_thrice = listed[1]
+    assert indexed_thrice.snapshot_count == 3
+    assert indexed_thrice.version_id == (
+        runtime.atlas_repository.latest_for_path(FIXTURE).version.version_id
+    )
+    # And the one indexed once says so rather than leaving a reader to infer it from silence.
+    assert listed[0].snapshot_count == 1
+    assert listed[0].version_id == newest.version_id
+
+
+def test_the_listing_limit_counts_repositories_rather_than_indexes(
+    runtime, tmp_path: Path
+) -> None:
+    """A caller asking for one repository was handed one atlas of one repository.
+
+    The limit was applied to the history, so a workspace whose newest rows were all the same
+    checkout answered with that checkout repeated and mentioned nothing else it holds.
+    """
+
+    other = tmp_path / "elsewhere"
+    (other / "package").mkdir(parents=True)
+    (other / "package" / "service.py").write_text("VALUE = 1\n", encoding="utf-8")
+    runtime.repository_service.index(other)
+    for _ in range(3):
+        runtime.repository_service.index(FIXTURE)
+
+    listed = runtime.repository_service.list(limit=2)
+
+    assert {item.root_path for item in listed} == {str(FIXTURE), str(other)}
+
+
 def test_a_repository_that_is_its_own_workspace_keeps_its_files_and_drops_its_state(
     tmp_path: Path,
 ) -> None:
