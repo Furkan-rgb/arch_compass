@@ -406,7 +406,7 @@ class PythonAstRepositoryAnalyzer:
             parser_version=PARSER_VERSION,
             analysis_config_hash=self._config_hash(),
         )
-        root_node = self._node(
+        root_node = _node(
             path=".",
             name=canonical_root.name,
             qualified=canonical_root.name,
@@ -439,7 +439,7 @@ class PythonAstRepositoryAnalyzer:
 
         # Complete before the first parse, because it is a fact about which files exist
         # rather than about what any of them contain.
-        owned_names = self._owned_names([item.path for item in python_files])
+        owned_names = _owned_names([item.path for item in python_files])
         module_facts: list[ModuleFacts] = []
         syntactic_metrics: dict[str, _SyntacticMetrics] = {}
         references_by_path: dict[str, _ModuleReferences] = {}
@@ -460,7 +460,7 @@ class PythonAstRepositoryAnalyzer:
             # Recorded while this module's tree is the one in hand. Everything below this
             # line is about the repository rather than about a file, and none of it reads a
             # tree — which is what makes it possible to stop holding them.
-            module_facts.append(self._facts_for(parsed, owned_names))
+            module_facts.append(_facts_for(parsed, owned_names))
             references_by_path[parsed.relative_path] = self._module_references(
                 parsed, definitions
             )
@@ -478,9 +478,9 @@ class PythonAstRepositoryAnalyzer:
         for source_file in config_files:
             path = source_file.path
             relative = source_file.relative_path
-            parent = self._parent_for_path(path, canonical_root, package_nodes, root_node)
+            parent = _parent_for_path(path, canonical_root, package_nodes, root_node)
             source = source_file.text()
-            node = self._node(
+            node = _node(
                 path=relative,
                 name=path.name,
                 qualified=relative,
@@ -503,7 +503,7 @@ class PythonAstRepositoryAnalyzer:
         }
         # Built once for the whole repository, not once per module: it is a view of every
         # symbol there is, and rebuilding it per file would put back the cost it removes.
-        suffix_index = self._suffix_index(symbol_by_qualified)
+        suffix_index = _suffix_index(symbol_by_qualified)
         # The few readers that still want syntax after the parse loop get it from here,
         # which parses a file again rather than having kept it.
         trees = TreeSource(modules)
@@ -529,7 +529,7 @@ class PythonAstRepositoryAnalyzer:
                 self._edge_resolver, canonical_root, nodes, edges, unresolved
             )
         signals.extend(self._unresolved_call_signals(unresolved))
-        edges = self._deduplicate_edges(edges)
+        edges = _deduplicate_edges(edges)
         self._add_duplicate_constant_signals(module_facts, signals)
         signals.extend(
             broad_input_boundary_preparation_signals(
@@ -550,7 +550,7 @@ class PythonAstRepositoryAnalyzer:
         # them: concentration is a statement about a module's surface and its dependants,
         # both of which are already counted above.
         signals.extend(concentrated_scope_signals(nodes, metrics))
-        signals.extend(self._cycle_signals(nodes, edges, modules))
+        signals.extend(_cycle_signals(nodes, edges, modules))
         return Atlas(
             version=version,
             nodes=sorted(nodes.values(), key=lambda item: item.atlas_id),
@@ -583,7 +583,7 @@ class PythonAstRepositoryAnalyzer:
     def _snapshot(
         self, root: Path, excluded_paths: tuple[str, ...] = ()
     ) -> RepositorySnapshot:
-        canonical_root = self._validate_root(root)
+        canonical_root = _validate_root(root)
         python_paths, config_paths = self._discover_files(canonical_root, excluded_paths)
         self._refuse_if_too_large(python_paths)
         files = tuple(
@@ -601,7 +601,7 @@ class PythonAstRepositoryAnalyzer:
             root=canonical_root,
             python_files=python_files,
             configuration_files=configuration_files,
-            content_fingerprint=self._fingerprint(files),
+            content_fingerprint=_fingerprint(files),
             git_commit_sha=git.commit_sha,
             root_commit_sha=git.root_commit_sha,
             branch_name=git.branch_name,
@@ -647,52 +647,7 @@ class PythonAstRepositoryAnalyzer:
                 "locally to review a repository this size."
             )
 
-    @staticmethod
-    def _validate_root(root: Path) -> Path:
-        try:
-            canonical = root.expanduser().resolve(strict=True)
-        except OSError as error:
-            raise PathValidationError(f"Repository does not exist: {root}") from error
-        if not canonical.is_dir():
-            raise PathValidationError(f"Repository path is not a directory: {root}")
-        return canonical
 
-    @staticmethod
-    def _walk(root: Path, excluded_paths: tuple[str, ...]) -> Iterator[Path]:
-        """Every file under `root` that is not inside a directory nobody wants read.
-
-        Pruned rather than filtered, and that is the whole of it. `rglob("*")` enumerates
-        the tree and leaves the caller to discard what it should never have opened: on this
-        repository that is **258,613 entries to keep 1,964**, because `.git`, `.venv` and
-        `node_modules` are walked in full before being thrown away one path at a time — six
-        and a half seconds of a forty-seven second analysis, and worse the larger the
-        checkout. Deleting a name from `dirnames` in place is how `os.walk` is told not to
-        go in, so those subtrees are never enumerated at all.
-
-        The same two rules that used to filter now prune: a directory whose name is in
-        `IGNORED_DIRECTORIES`, and one the caller excluded. Pruning an exclusion is the
-        stronger reading of it and the intended one — a subtree somebody said not to review
-        is not a subtree to walk — and it is why the exclusion check moved here from the
-        loop below rather than being duplicated.
-
-        Sorted at every level, so the order is the same order `sorted(rglob(...))` produced
-        and `max_files` truncates the same set it always did. Symlinked directories are not
-        followed, which is what the file-level `is_symlink` check below has always been
-        asking for and could not enforce on its own.
-        """
-
-        for directory, names, files in os.walk(root, followlinks=False):
-            here = Path(directory)
-            base = here.relative_to(root).parts
-            names[:] = sorted(
-                name
-                for name in names
-                if name not in IGNORED_DIRECTORIES
-                and not excludes((*base, name), excluded_paths)
-                and not (here / name).is_symlink()
-            )
-            for name in sorted(files):
-                yield here / name
 
     def _discover_files(
         self, root: Path, excluded_paths: tuple[str, ...] = ()
@@ -707,7 +662,7 @@ class PythonAstRepositoryAnalyzer:
         config_files: list[Path] = []
         max_file_bytes = self._limits.max_file_bytes
         max_files = self._limits.max_files
-        for path in self._walk(root, excluded_paths):
+        for path in _walk(root, excluded_paths):
             if max_files is not None and len(python_files) + len(config_files) >= max_files:
                 break
             # Pruning the walk already dropped every file under an excluded *directory*,
@@ -736,22 +691,6 @@ class PythonAstRepositoryAnalyzer:
                 config_files.append(path)
         return sorted(python_files), sorted(config_files)
 
-    @staticmethod
-    def _fingerprint(files: tuple[SnapshotFile, ...]) -> str:
-        """One digest over every file, read one at a time and kept none.
-
-        The order is the caller's — Python and configuration files interleaved by path — and
-        it is load-bearing: this digest is what tells a stored atlas from a stale one, so a
-        change to the order would mark every atlas in every workspace stale at once.
-        """
-
-        digest = sha256()
-        for source_file in files:
-            digest.update(source_file.relative_path.encode("utf-8"))
-            digest.update(b"\0")
-            digest.update(source_file.path.read_bytes())
-            digest.update(b"\0")
-        return digest.hexdigest()
 
     @classmethod
     def _git_facts(cls, root: Path) -> GitFacts:
@@ -788,23 +727,10 @@ class PythonAstRepositoryAnalyzer:
             branch_name=cls._git_branch_name(top_level),
         )
 
-    @staticmethod
-    def _run_git(*arguments: str) -> str | None:
-        try:
-            result = subprocess.run(
-                ["git", *arguments],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return None
-        return result.stdout.strip()
 
     @classmethod
     def _git_top_level(cls, root: Path) -> Path | None:
-        output = cls._run_git("-C", str(root), "rev-parse", "--show-toplevel")
+        output = _run_git("-C", str(root), "rev-parse", "--show-toplevel")
         if not output:
             return None
         try:
@@ -815,16 +741,16 @@ class PythonAstRepositoryAnalyzer:
     @classmethod
     def _git_sha(cls, root: Path, top_level: Path) -> str | None:
         if top_level == root:
-            output = cls._run_git("-C", str(root), "rev-parse", "HEAD")
+            output = _run_git("-C", str(root), "rev-parse", "HEAD")
         else:
             try:
                 relative_root = root.relative_to(top_level).as_posix()
             except ValueError:
                 return None
-            output = cls._run_git(
+            output = _run_git(
                 "-C", str(top_level), "log", "-1", "--format=%H", "--", relative_root
             )
-        return cls._validated_sha(output)
+        return _validated_sha(output)
 
     @classmethod
     def _git_root_commit_sha(cls, top_level: Path) -> str | None:
@@ -836,10 +762,10 @@ class PythonAstRepositoryAnalyzer:
         own ordering here is by traversal rather than by anything stable.
         """
 
-        output = cls._run_git("-C", str(top_level), "rev-list", "--max-parents=0", "HEAD")
+        output = _run_git("-C", str(top_level), "rev-list", "--max-parents=0", "HEAD")
         if not output:
             return None
-        return cls._validated_sha(sorted(output.splitlines())[0].strip())
+        return _validated_sha(sorted(output.splitlines())[0].strip())
 
     @classmethod
     def _git_branch_name(cls, top_level: Path) -> str | None:
@@ -851,16 +777,11 @@ class PythonAstRepositoryAnalyzer:
         a branch called `HEAD`.
         """
 
-        output = cls._run_git("-C", str(top_level), "rev-parse", "--abbrev-ref", "HEAD")
+        output = _run_git("-C", str(top_level), "rev-parse", "--abbrev-ref", "HEAD")
         if not output or output == "HEAD":
             return None
         return output
 
-    @staticmethod
-    def _validated_sha(candidate: str | None) -> str | None:
-        if candidate is None or len(candidate) != 40:
-            return None
-        return candidate if all(char in "0123456789abcdef" for char in candidate) else None
 
     def _create_packages(
         self,
@@ -885,7 +806,7 @@ class PythonAstRepositoryAnalyzer:
             # `shop.billing` — and a container called `src.shop` holding a module called
             # `shop.orders` is one tree telling two stories about the same code.
             qualified = module_name(f"{relative}/__init__.py", roots)
-            package = self._node(
+            package = _node(
                 path=relative,
                 name=directory.name,
                 qualified=qualified,
@@ -923,36 +844,25 @@ class PythonAstRepositoryAnalyzer:
         """
 
         for base in statement.bases:
-            if self._resolved_name(module, self._dotted(base)) in self._ABSTRACTION_BASES:
+            if _resolved_name(module, _dotted(base)) in self._ABSTRACTION_BASES:
                 return True
         # `class Store(metaclass=ABCMeta)` is the third spelling of an abstract base, and
         # a metaclass is a keyword rather than a base, so it is read separately.
         for keyword in statement.keywords:
-            if keyword.arg == "metaclass" and self._resolved_name(
-                module, self._dotted(keyword.value)
+            if keyword.arg == "metaclass" and _resolved_name(
+                module, _dotted(keyword.value)
             ) in self._ABSTRACTION_METACLASSES:
                 return True
         return any(
             isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
             and any(
-                self._resolved_name(module, self._dotted(decorator)) == "abc.abstractmethod"
-                or self._dotted(decorator) == "abstractmethod"
+                _resolved_name(module, _dotted(decorator)) == "abc.abstractmethod"
+                or _dotted(decorator) == "abstractmethod"
                 for decorator in item.decorator_list
             )
             for item in statement.body
         )
 
-    @staticmethod
-    def _resolved_name(module: ParsedModule, dotted: str) -> str:
-        """A written name expanded through this module's imports, or itself if unknown."""
-
-        if not dotted:
-            return ""
-        head, _, rest = dotted.partition(".")
-        origin = module.import_aliases.get(head)
-        if origin is None:
-            return dotted
-        return f"{origin}.{rest}" if rest else origin
 
     def _record_import_aliases(self, module: ParsedModule) -> None:
         """Map every name this module imported to the dotted path it came from.
@@ -966,7 +876,7 @@ class PythonAstRepositoryAnalyzer:
                 for alias in statement.names:
                     module.import_aliases[alias.asname or alias.name.split(".")[0]] = alias.name
             elif isinstance(statement, ast.ImportFrom):
-                imported_module = self._resolve_from_name(module, statement)
+                imported_module = _resolve_from_name(module, statement)
                 for alias in statement.names:
                     module.import_aliases[alias.asname or alias.name] = (
                         f"{imported_module}.{alias.name}".strip(".")
@@ -992,12 +902,12 @@ class PythonAstRepositoryAnalyzer:
         # analysis of the repository around it, which is a denial of indexing that costs an
         # attacker one file. Reported as the same unreadable-module signal a syntax error is.
         except (SyntaxError, RecursionError, MemoryError) as error:
-            node = self._node(
+            node = _node(
                 path=relative,
                 name=path.stem,
                 qualified=module_name(relative, roots),
                 kind=NodeType.MODULE,
-                parent_id=self._parent_for_path(path, root, packages, root_node).atlas_id,
+                parent_id=_parent_for_path(path, root, packages, root_node).atlas_id,
                 start=1,
                 end=max(1, len(source.splitlines())),
                 public=not path.stem.startswith("_"),
@@ -1033,12 +943,12 @@ class PythonAstRepositoryAnalyzer:
             if is_config
             else NodeType.MODULE
         )
-        module_node = self._node(
+        module_node = _node(
             path=relative,
             name=path.stem,
             qualified=qualified,
             kind=kind,
-            parent_id=self._parent_for_path(path, root, packages, root_node).atlas_id,
+            parent_id=_parent_for_path(path, root, packages, root_node).atlas_id,
             start=1,
             end=max(1, len(source.splitlines())),
             public=not path.stem.startswith("_"),
@@ -1065,7 +975,7 @@ class PythonAstRepositoryAnalyzer:
             if isinstance(statement, ast.ClassDef):
                 interface = self._declares_an_abstraction(parsed, statement)
                 qualified = f"{parent.qualified_name}.{statement.name}"
-                node = self._node(
+                node = _node(
                     path=parsed.relative_path,
                     name=statement.name,
                     qualified=qualified,
@@ -1089,7 +999,7 @@ class PythonAstRepositoryAnalyzer:
                     statement.name.startswith("test_")
                     or parsed.node.node_type == NodeType.TEST_MODULE
                 )
-                node = self._node(
+                node = _node(
                     path=parsed.relative_path,
                     name=statement.name,
                     qualified=qualified,
@@ -1109,7 +1019,7 @@ class PythonAstRepositoryAnalyzer:
                 parsed.symbols[qualified] = node
                 if node.is_public and not node.has_docstring and not is_test:
                     signals.append(
-                        self._signal(
+                        _signal(
                             "public-function-without-docstring",
                             f"Public callable {qualified} has no docstring",
                             node,
@@ -1129,7 +1039,7 @@ class PythonAstRepositoryAnalyzer:
                 alias.name == "*" for alias in statement.names
             ):
                 signals.append(
-                    self._signal(
+                    _signal(
                         "wildcard-import",
                         "Wildcard import obscures the names introduced into the module",
                         parsed.node,
@@ -1140,7 +1050,7 @@ class PythonAstRepositoryAnalyzer:
                 value = statement.value
                 if isinstance(value, (ast.List, ast.Dict, ast.Set)):
                     signals.append(
-                        self._signal(
+                        _signal(
                             "module-mutable-state",
                             "Module-level mutable value",
                             parsed.node,
@@ -1148,12 +1058,12 @@ class PythonAstRepositoryAnalyzer:
                         )
                     )
         for item in ast.walk(parsed.syntax()):
-            if isinstance(item, ast.Call) and self._dotted(item.func) in {
+            if isinstance(item, ast.Call) and _dotted(item.func) in {
                 "__import__",
                 "importlib.import_module",
             }:
                 signals.append(
-                    self._signal(
+                    _signal(
                         "dynamic-import",
                         "Dynamic import cannot be resolved deterministically",
                         parsed.node,
@@ -1176,7 +1086,7 @@ class PythonAstRepositoryAnalyzer:
             if isinstance(statement, ast.Import):
                 imports.extend((alias.name, statement.lineno) for alias in statement.names)
             elif isinstance(statement, ast.ImportFrom):
-                imports.append((self._resolve_from_name(module, statement), statement.lineno))
+                imports.append((_resolve_from_name(module, statement), statement.lineno))
 
         references: list[_Reference] = []
         for source_node in (module.node, *module.symbols.values()):
@@ -1187,14 +1097,14 @@ class PythonAstRepositoryAnalyzer:
             # Three passes over the same scope, in this order, because that is the order the
             # edges were built in and the first edge between a pair of nodes is the one kept.
             references.extend(
-                _Reference(source_node, item.lineno, self._dotted(item.func), EdgeType.CALLS)
+                _Reference(source_node, item.lineno, _dotted(item.func), EdgeType.CALLS)
                 for item in scoped_nodes
                 if isinstance(item, ast.Call)
             )
             if isinstance(ast_node, ast.ClassDef):
                 references.extend(
                     _Reference(
-                        source_node, base.lineno, self._dotted(base), EdgeType.INHERITS
+                        source_node, base.lineno, _dotted(base), EdgeType.INHERITS
                     )
                     for base in ast_node.bases
                 )
@@ -1223,7 +1133,7 @@ class PythonAstRepositoryAnalyzer:
         """
 
         for imported_name, line in recorded.imports:
-            target = self._best_module(imported_name, module_by_name)
+            target = _best_module(imported_name, module_by_name)
             if not target:
                 continue
             import_edge = build_edge(
@@ -1260,7 +1170,7 @@ class PythonAstRepositoryAnalyzer:
 
         for reference in recorded.references:
             source_node = reference.source
-            target, confidence = self._resolve_symbol(
+            target, confidence = _resolve_symbol(
                 reference.expression, source_node, module, symbol_by_qualified, suffix_index
             )
             if reference.kind is EdgeType.CALLS:
@@ -1375,14 +1285,14 @@ class PythonAstRepositoryAnalyzer:
         for site in unresolved:
             sites[(site.module_path, site.line, site.expression)].append(site)
         request = EdgeResolutionRequest(
-            conformances=self._conformance_questions(nodes, edges),
+            conformances=_conformance_questions(nodes, edges),
             references=tuple(
                 ReferenceQuestion(path=path, line=line, expression=expression)
                 for path, line, expression in sorted(sites)
             ),
         )
         result = resolver.resolve(root, request)
-        by_qualified = self._nodes_by_qualified_name(nodes)
+        by_qualified = _nodes_by_qualified_name(nodes)
         for verdict in result.conformances:
             implementation = by_qualified.get(verdict.question.class_qualified_name)
             abstraction = by_qualified.get(verdict.question.abstraction_qualified_name)
@@ -1442,68 +1352,13 @@ class PythonAstRepositoryAnalyzer:
                     )
         return [site for site in unresolved if id(site) not in resolved_sites]
 
-    @staticmethod
-    def _conformance_questions(
-        nodes: dict[str, AtlasNode], edges: list[AtlasEdge]
-    ) -> tuple[ConformanceQuestion, ...]:
-        """Every (class, abstraction) pair worth judging, and no more.
 
-        The same population the untyped heuristic reads — abstractions declared here, and
-        classes outside `tests/` — so the two passes answer for the same repository and a
-        measurement of one is a measurement of the other. Pairs an inheritance already
-        established are left alone; the parse named them with certainty and a second edge at
-        the same site would only restate it.
-        """
-
-        stated = {
-            (edge.source_id, edge.target_id)
-            for edge in edges
-            if edge.edge_type == EdgeType.IMPLEMENTS
-        }
-        abstractions = sorted(
-            (node for node in nodes.values() if node.node_type == NodeType.INTERFACE),
-            key=lambda item: item.atlas_id,
-        )
-        classes = sorted(
-            (
-                node
-                for node in nodes.values()
-                if node.node_type == NodeType.CLASS and not node.path.startswith("tests/")
-            ),
-            key=lambda item: item.atlas_id,
-        )
-        return tuple(
-            ConformanceQuestion(
-                class_path=candidate.path,
-                class_qualified_name=candidate.qualified_name,
-                abstraction_path=abstraction.path,
-                abstraction_qualified_name=abstraction.qualified_name,
-            )
-            for abstraction in abstractions
-            for candidate in classes
-            if (candidate.atlas_id, abstraction.atlas_id) not in stated
-        )
-
-    @staticmethod
-    def _nodes_by_qualified_name(nodes: dict[str, AtlasNode]) -> dict[str, AtlasNode]:
-        """Qualified name back to the node that owns it.
-
-        Packages and the repository itself are excluded: a package directory and the
-        `__init__.py` inside it carry the same dotted name, and a resolver naming that name
-        means the module.
-        """
-
-        return {
-            node.qualified_name: node
-            for node in sorted(nodes.values(), key=lambda item: item.atlas_id)
-            if node.node_type not in {NodeType.REPOSITORY, NodeType.PACKAGE}
-        }
 
     def _unresolved_call_signals(
         self, unresolved: Iterable[UnresolvedSite]
     ) -> list[ObscuritySignal]:
         return [
-            self._signal(
+            _signal(
                 "unresolved-call",
                 f"Static call target could not be resolved: {site.expression}",
                 site.source,
@@ -1528,8 +1383,8 @@ class PythonAstRepositoryAnalyzer:
         for edge in edges:
             if edge.edge_type not in {EdgeType.IMPORTS, EdgeType.CALLS}:
                 continue
-            source = self._owning_module(nodes[edge.source_id], module_for_path)
-            target = self._owning_module(nodes[edge.target_id], module_for_path)
+            source = _owning_module(nodes[edge.source_id], module_for_path)
+            target = _owning_module(nodes[edge.target_id], module_for_path)
             if source and target and source != target:
                 impact_graph[source].add(target)
                 if edge.edge_type == EdgeType.IMPORTS:
@@ -1607,9 +1462,9 @@ class PythonAstRepositoryAnalyzer:
                         edge.target_id
                         for edge in edges
                         if edge.edge_type == EdgeType.CALLS
-                        and self._owning_module(nodes[edge.source_id], module_for_path)
+                        and _owning_module(nodes[edge.source_id], module_for_path)
                         in affected_modules
-                        and self._owning_module(nodes[edge.target_id], module_for_path)
+                        and _owning_module(nodes[edge.target_id], module_for_path)
                         in affected_modules
                         and nodes[edge.target_id].is_public
                         and nodes[edge.target_id].node_type
@@ -1625,7 +1480,7 @@ class PythonAstRepositoryAnalyzer:
             return computed
 
         for node in nodes.values():
-            owner = self._owning_module(node, module_for_path)
+            owner = _owning_module(node, module_for_path)
             shared = module_metrics(owner)
             direct_dependencies = shared.direct_dependencies
             direct_dependants = shared.direct_dependants
@@ -1634,7 +1489,7 @@ class PythonAstRepositoryAnalyzer:
             affected = shared.affected
             component = shared.component
             associated_tests: set[str | None] = {
-                self._owning_module(nodes[test_id], module_for_path)
+                _owning_module(nodes[test_id], module_for_path)
                 for test_id in test_targets.get(node.atlas_id, set())
             }
             reverse_tests = shared.reverse_tests
@@ -1656,7 +1511,7 @@ class PythonAstRepositoryAnalyzer:
                 outgoing_static_calls=len(call_outgoing[node.atlas_id]),
                 incoming_known_callers=len(call_incoming[node.atlas_id]),
             )
-            representative_path = self._representative_call_path(call_outgoing, node.atlas_id)
+            representative_path = _representative_call_path(call_outgoing, node.atlas_id)
             crossed_interfaces = shared.crossed_interfaces
             profiles.append(
                 MetricProfile(
@@ -1694,7 +1549,7 @@ class PythonAstRepositoryAnalyzer:
                     cognitive_scope=CognitiveScopeMetrics(
                         dependency_neighbourhood_modules=len(forward | backward),
                         bounded_resolved_call_chain_nodes=len(representative_path),
-                        abstraction_boundaries=self._abstraction_crossings(
+                        abstraction_boundaries=_abstraction_crossings(
                             representative_path, nodes
                         ),
                         related_configuration_locations=len(config_targets[node.atlas_id]),
@@ -1705,88 +1560,8 @@ class PythonAstRepositoryAnalyzer:
             )
         return profiles
 
-    @staticmethod
-    def _cycle_signals(
-        nodes: dict[str, AtlasNode],
-        edges: list[AtlasEdge],
-        modules: list[ParsedModule],
-    ) -> list[ObscuritySignal]:
-        module_ids = {module.node.atlas_id for module in modules}
-        graph = {node_id: set[str]() for node_id in module_ids}
-        import_edges: list[AtlasEdge] = []
-        for edge in edges:
-            if (
-                edge.edge_type == EdgeType.IMPORTS
-                and edge.source_id in module_ids
-                and edge.target_id in module_ids
-                and edge.source_id != edge.target_id
-            ):
-                graph[edge.source_id].add(edge.target_id)
-                import_edges.append(edge)
-        signals: list[ObscuritySignal] = []
-        for component in strongly_connected_components(graph):
-            if len(component) < 2:
-                continue
-            names = ", ".join(sorted(nodes[node_id].qualified_name for node_id in component))
-            component_ids = set(component)
-            for node_id in component:
-                location = next(
-                    (
-                        edge.location
-                        for edge in sorted(import_edges, key=lambda item: item.edge_id)
-                        if edge.source_id == node_id and edge.target_id in component_ids
-                    ),
-                    None,
-                )
-                signals.append(
-                    ObscuritySignal(
-                        code="cyclic-dependency",
-                        message=f"Module participates in an import cycle: {names}",
-                        node_id=node_id,
-                        location=location,
-                    )
-                )
-        return signals
 
-    @staticmethod
-    def _representative_call_path(
-        graph: dict[str, set[str]], start: str, *, limit: int = 20
-    ) -> list[str]:
-        paths: list[list[str]] = [[start]]
-        seen = {start}
-        best = [start]
-        while paths:
-            path = paths.pop(0)
-            if len(path) > len(best) or (len(path) == len(best) and tuple(path) < tuple(best)):
-                best = path
-            if len(path) >= limit:
-                continue
-            for target in sorted(graph.get(path[-1], set())):
-                if target in seen:
-                    continue
-                seen.add(target)
-                paths.append([*path, target])
-        return best
 
-    @staticmethod
-    def _abstraction_crossings(path: list[str], nodes: dict[str, AtlasNode]) -> int:
-        def interface_owner(node_id: str) -> str | None:
-            cursor = nodes.get(node_id)
-            while cursor is not None:
-                if cursor.node_type == NodeType.INTERFACE:
-                    return cursor.atlas_id
-                cursor = nodes.get(cursor.parent_id or "")
-            return None
-
-        crossings = 0
-        for source_id, target_id in pairwise(path):
-            source_owner = interface_owner(source_id)
-            target_owner = interface_owner(target_id)
-            if source_owner != target_owner and (
-                source_owner is not None or target_owner is not None
-            ):
-                crossings += 1
-        return crossings
 
     def _syntactic_metrics(
         self,
@@ -1848,212 +1623,24 @@ class PythonAstRepositoryAnalyzer:
             else 0,
             logical_statements=statements,
             branch_count=branches,
-            maximum_nesting_depth=self._nesting_depth(syntax),
+            maximum_nesting_depth=_nesting_depth(syntax),
             parameter_count=parameters,
             public_symbol_count=public_symbols,
             imported_module_count=len(imports),
         )
 
-    @staticmethod
-    def _nesting_depth(syntax: ast.AST) -> int:
-        control = (
-            ast.If,
-            ast.For,
-            ast.AsyncFor,
-            ast.While,
-            ast.Try,
-            ast.With,
-            ast.AsyncWith,
-            ast.Match,
-        )
 
-        scope_boundaries = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
-        def depth(node: ast.AST, current: int, *, root: bool = False) -> int:
-            if not root and isinstance(node, scope_boundaries):
-                return current
-            next_current = current + 1 if isinstance(node, control) else current
-            child_depths = (depth(child, next_current) for child in ast.iter_child_nodes(node))
-            return max([next_current, *child_depths])
 
-        return depth(syntax, 0, root=True)
 
-    @staticmethod
-    def _parent_for_path(
-        path: Path,
-        root: Path,
-        packages: dict[str, AtlasNode],
-        root_node: AtlasNode,
-    ) -> AtlasNode:
-        parent_relative = path.parent.relative_to(root).as_posix()
-        return packages.get(parent_relative, root_node)
 
-    @staticmethod
-    def _node(
-        *,
-        path: str,
-        name: str,
-        qualified: str,
-        kind: NodeType,
-        parent_id: str | None,
-        start: int | None,
-        end: int | None,
-        public: bool | None,
-        docstring: bool,
-        language: str = "python",
-    ) -> AtlasNode:
-        return AtlasNode(
-            atlas_id=stable_id("node", kind, path, qualified),
-            path=path,
-            symbol_name=name,
-            qualified_name=qualified,
-            node_type=kind,
-            start_line=start,
-            end_line=end,
-            parent_id=parent_id,
-            is_public=public,
-            has_docstring=docstring,
-            language=language,  # type: ignore[arg-type]
-            parser_version=PARSER_VERSION,
-        )
 
-    @staticmethod
-    def _signal(code: str, message: str, node: AtlasNode, line: int) -> ObscuritySignal:
-        return ObscuritySignal(
-            code=code,
-            message=message,
-            node_id=node.atlas_id,
-            location=SourceLocation(path=node.path, start_line=line, end_line=line),
-        )
 
-    @staticmethod
-    def _dotted(node: ast.AST) -> str:
-        if isinstance(node, ast.Name):
-            return node.id
-        if isinstance(node, ast.Attribute):
-            prefix = PythonAstRepositoryAnalyzer._dotted(node.value)
-            return f"{prefix}.{node.attr}".strip(".")
-        # A subscripted name is still that name: `Protocol[T]` is Protocol, and
-        # `Repository[Book]` inherits from Repository. Returning "" here made every generic
-        # base invisible, so `class Port(Protocol[T])` was classified an ordinary class and
-        # dropped out of detection entirely.
-        if isinstance(node, ast.Subscript):
-            return PythonAstRepositoryAnalyzer._dotted(node.value)
-        return ""
 
-    @staticmethod
-    def _best_module(name: str, modules: dict[str, ParsedModule]) -> ParsedModule | None:
-        if name in modules:
-            return modules[name]
-        candidates = [module for qname, module in modules.items() if qname.startswith(f"{name}.")]
-        return sorted(candidates, key=lambda item: item.qualified_name)[0] if candidates else None
 
-    @staticmethod
-    def _resolve_from_name(module: ParsedModule, statement: ast.ImportFrom) -> str:
-        if statement.level == 0:
-            return statement.module or ""
-        package = module.qualified_name.split(".")[:-1]
-        trim = max(0, statement.level - 1)
-        if trim:
-            package = package[:-trim]
-        if statement.module:
-            package.extend(statement.module.split("."))
-        return ".".join(package)
 
-    @staticmethod
-    def _suffix_index(symbols: dict[str, AtlasNode]) -> dict[str, list[AtlasNode]]:
-        """Every dotted tail a qualified name has, and what answers to it.
 
-        The last resort in `_resolve_symbol` is "one symbol in this repository ends with the
-        name that was written", and it used to be asked by scanning every symbol for every
-        reference. That is the size of the repository multiplied by the number of names in
-        it: on psf/black it was fifty-six million string comparisons and two thirds of the
-        whole analysis.
 
-        Asked instead of a table built once. A name has as many tails as it has segments —
-        `a.b.c` answers to `.b.c` and `.c` — so the table costs a few entries per symbol and
-        replaces the scan with a lookup. Only the tails matter, because the scan it replaces
-        matched on a leading dot: a reference never resolves against a partial segment.
-        """
-
-        index: dict[str, list[AtlasNode]] = {}
-        for qualified, node in symbols.items():
-            segments = qualified.split(".")
-            for start in range(1, len(segments)):
-                index.setdefault("." + ".".join(segments[start:]), []).append(node)
-        return index
-
-    @staticmethod
-    def _resolve_symbol(
-        dotted: str,
-        source: AtlasNode,
-        module: ParsedModule,
-        symbols: dict[str, AtlasNode],
-        suffixes: dict[str, list[AtlasNode]],
-    ) -> tuple[AtlasNode | None, float]:
-        if not dotted:
-            return None, 0
-        if dotted.startswith("self."):
-            class_qname = source.qualified_name.rsplit(".", maxsplit=1)[0]
-            candidate = f"{class_qname}.{dotted.removeprefix('self.')}"
-            if candidate in symbols:
-                return symbols[candidate], 1.0
-        first, *remaining = dotted.split(".")
-        if first in module.import_aliases:
-            candidate = ".".join([module.import_aliases[first], *remaining])
-            if candidate in symbols:
-                return symbols[candidate], 1.0
-        local = f"{module.qualified_name}.{dotted}"
-        if local in symbols:
-            return symbols[local], 1.0
-        # Unambiguous or nothing: a name that two symbols answer to is not evidence about
-        # either of them, which is why this asks for exactly one and is why the index can
-        # hold lists without needing them ordered.
-        matches = suffixes.get(f".{dotted}", ())
-        if len(matches) == 1:
-            return matches[0], 0.7
-        return None, 0
-
-    @staticmethod
-    def _deduplicate_edges(edges: list[AtlasEdge]) -> list[AtlasEdge]:
-        return list({edge.edge_id: edge for edge in edges}.values())
-
-    @staticmethod
-    def _owning_module(node: AtlasNode, modules: dict[str, str]) -> str | None:
-        return modules.get(node.path)
-
-    @staticmethod
-    def _owned_names(paths: list[Path]) -> set[str]:
-        """The module names this repository owns, known from the file list alone.
-
-        Bounded to names this repository owns. Recording every token a file contains would
-        make the atlas a copy of the source; recording only the names that could refer to
-        something here keeps it a set of relationships.
-
-        Derived from paths rather than from parsed modules so that it is complete before the
-        first file is parsed — which is what lets a module's facts be recorded while its tree
-        is in hand, instead of holding every tree until the last one has been read.
-        """
-
-        return {path.stem.casefold() for path in paths if not path.stem.startswith("_")}
-
-    @staticmethod
-    def _facts_for(module: ParsedModule, owned: set[str]) -> ModuleFacts:
-        """What one module states, and which of this repository's modules it names.
-
-        Both halves are facts about a file's whole text rather than about any symbol in it,
-        which is why they are recorded here and not on a node. Neither is a judgement: two
-        modules sharing a constant may be a coincidence, and naming another module is
-        ordinarily how code works. Deciding which of those matter is the detector's job.
-        """
-
-        return ModuleFacts(
-            node_id=module.node.atlas_id,
-            path=module.relative_path,
-            qualified_name=module.qualified_name,
-            constants=_declared_constants(module),
-            mentions=_owned_mentions(module, owned),
-        )
 
     def _add_duplicate_constant_signals(
         self, facts: list[ModuleFacts], signals: list[ObscuritySignal]
@@ -2090,6 +1677,449 @@ class PythonAstRepositoryAnalyzer:
                     )
                 )
 
+
+
+# The analyser's free functions, at module level because that is what they are: not one
+# of the twenty-four below reads `self`. They lived in the class as `@staticmethod`s,
+# which made a fifty-method class out of a twenty-six-method one and put a `self.` in
+# front of every call to something that has no instance to speak of.
+
+
+def _validate_root(root: Path) -> Path:
+    try:
+        canonical = root.expanduser().resolve(strict=True)
+    except OSError as error:
+        raise PathValidationError(f"Repository does not exist: {root}") from error
+    if not canonical.is_dir():
+        raise PathValidationError(f"Repository path is not a directory: {root}")
+    return canonical
+
+
+def _walk(root: Path, excluded_paths: tuple[str, ...]) -> Iterator[Path]:
+    """Every file under `root` that is not inside a directory nobody wants read.
+
+    Pruned rather than filtered, and that is the whole of it. `rglob("*")` enumerates
+    the tree and leaves the caller to discard what it should never have opened: on this
+    repository that is **258,613 entries to keep 1,964**, because `.git`, `.venv` and
+    `node_modules` are walked in full before being thrown away one path at a time — six
+    and a half seconds of a forty-seven second analysis, and worse the larger the
+    checkout. Deleting a name from `dirnames` in place is how `os.walk` is told not to
+    go in, so those subtrees are never enumerated at all.
+
+    The same two rules that used to filter now prune: a directory whose name is in
+    `IGNORED_DIRECTORIES`, and one the caller excluded. Pruning an exclusion is the
+    stronger reading of it and the intended one — a subtree somebody said not to review
+    is not a subtree to walk — and it is why the exclusion check moved here from the
+    loop below rather than being duplicated.
+
+    Sorted at every level, so the order is the same order `sorted(rglob(...))` produced
+    and `max_files` truncates the same set it always did. Symlinked directories are not
+    followed, which is what the file-level `is_symlink` check below has always been
+    asking for and could not enforce on its own.
+    """
+
+    for directory, names, files in os.walk(root, followlinks=False):
+        here = Path(directory)
+        base = here.relative_to(root).parts
+        names[:] = sorted(
+            name
+            for name in names
+            if name not in IGNORED_DIRECTORIES
+            and not excludes((*base, name), excluded_paths)
+            and not (here / name).is_symlink()
+        )
+        for name in sorted(files):
+            yield here / name
+
+
+def _fingerprint(files: tuple[SnapshotFile, ...]) -> str:
+    """One digest over every file, read one at a time and kept none.
+
+    The order is the caller's — Python and configuration files interleaved by path — and
+    it is load-bearing: this digest is what tells a stored atlas from a stale one, so a
+    change to the order would mark every atlas in every workspace stale at once.
+    """
+
+    digest = sha256()
+    for source_file in files:
+        digest.update(source_file.relative_path.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(source_file.path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _run_git(*arguments: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", *arguments],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip()
+
+
+def _validated_sha(candidate: str | None) -> str | None:
+    if candidate is None or len(candidate) != 40:
+        return None
+    return candidate if all(char in "0123456789abcdef" for char in candidate) else None
+
+
+def _resolved_name(module: ParsedModule, dotted: str) -> str:
+    """A written name expanded through this module's imports, or itself if unknown."""
+
+    if not dotted:
+        return ""
+    head, _, rest = dotted.partition(".")
+    origin = module.import_aliases.get(head)
+    if origin is None:
+        return dotted
+    return f"{origin}.{rest}" if rest else origin
+
+
+def _conformance_questions(
+    nodes: dict[str, AtlasNode], edges: list[AtlasEdge]
+) -> tuple[ConformanceQuestion, ...]:
+    """Every (class, abstraction) pair worth judging, and no more.
+
+    The same population the untyped heuristic reads — abstractions declared here, and
+    classes outside `tests/` — so the two passes answer for the same repository and a
+    measurement of one is a measurement of the other. Pairs an inheritance already
+    established are left alone; the parse named them with certainty and a second edge at
+    the same site would only restate it.
+    """
+
+    stated = {
+        (edge.source_id, edge.target_id)
+        for edge in edges
+        if edge.edge_type == EdgeType.IMPLEMENTS
+    }
+    abstractions = sorted(
+        (node for node in nodes.values() if node.node_type == NodeType.INTERFACE),
+        key=lambda item: item.atlas_id,
+    )
+    classes = sorted(
+        (
+            node
+            for node in nodes.values()
+            if node.node_type == NodeType.CLASS and not node.path.startswith("tests/")
+        ),
+        key=lambda item: item.atlas_id,
+    )
+    return tuple(
+        ConformanceQuestion(
+            class_path=candidate.path,
+            class_qualified_name=candidate.qualified_name,
+            abstraction_path=abstraction.path,
+            abstraction_qualified_name=abstraction.qualified_name,
+        )
+        for abstraction in abstractions
+        for candidate in classes
+        if (candidate.atlas_id, abstraction.atlas_id) not in stated
+    )
+
+
+def _nodes_by_qualified_name(nodes: dict[str, AtlasNode]) -> dict[str, AtlasNode]:
+    """Qualified name back to the node that owns it.
+
+    Packages and the repository itself are excluded: a package directory and the
+    `__init__.py` inside it carry the same dotted name, and a resolver naming that name
+    means the module.
+    """
+
+    return {
+        node.qualified_name: node
+        for node in sorted(nodes.values(), key=lambda item: item.atlas_id)
+        if node.node_type not in {NodeType.REPOSITORY, NodeType.PACKAGE}
+    }
+
+
+def _cycle_signals(
+    nodes: dict[str, AtlasNode],
+    edges: list[AtlasEdge],
+    modules: list[ParsedModule],
+) -> list[ObscuritySignal]:
+    module_ids = {module.node.atlas_id for module in modules}
+    graph = {node_id: set[str]() for node_id in module_ids}
+    import_edges: list[AtlasEdge] = []
+    for edge in edges:
+        if (
+            edge.edge_type == EdgeType.IMPORTS
+            and edge.source_id in module_ids
+            and edge.target_id in module_ids
+            and edge.source_id != edge.target_id
+        ):
+            graph[edge.source_id].add(edge.target_id)
+            import_edges.append(edge)
+    signals: list[ObscuritySignal] = []
+    for component in strongly_connected_components(graph):
+        if len(component) < 2:
+            continue
+        names = ", ".join(sorted(nodes[node_id].qualified_name for node_id in component))
+        component_ids = set(component)
+        for node_id in component:
+            location = next(
+                (
+                    edge.location
+                    for edge in sorted(import_edges, key=lambda item: item.edge_id)
+                    if edge.source_id == node_id and edge.target_id in component_ids
+                ),
+                None,
+            )
+            signals.append(
+                ObscuritySignal(
+                    code="cyclic-dependency",
+                    message=f"Module participates in an import cycle: {names}",
+                    node_id=node_id,
+                    location=location,
+                )
+            )
+    return signals
+
+
+def _representative_call_path(
+    graph: dict[str, set[str]], start: str, *, limit: int = 20
+) -> list[str]:
+    paths: list[list[str]] = [[start]]
+    seen = {start}
+    best = [start]
+    while paths:
+        path = paths.pop(0)
+        if len(path) > len(best) or (len(path) == len(best) and tuple(path) < tuple(best)):
+            best = path
+        if len(path) >= limit:
+            continue
+        for target in sorted(graph.get(path[-1], set())):
+            if target in seen:
+                continue
+            seen.add(target)
+            paths.append([*path, target])
+    return best
+
+
+def _abstraction_crossings(path: list[str], nodes: dict[str, AtlasNode]) -> int:
+    def interface_owner(node_id: str) -> str | None:
+        cursor = nodes.get(node_id)
+        while cursor is not None:
+            if cursor.node_type == NodeType.INTERFACE:
+                return cursor.atlas_id
+            cursor = nodes.get(cursor.parent_id or "")
+        return None
+
+    crossings = 0
+    for source_id, target_id in pairwise(path):
+        source_owner = interface_owner(source_id)
+        target_owner = interface_owner(target_id)
+        if source_owner != target_owner and (
+            source_owner is not None or target_owner is not None
+        ):
+            crossings += 1
+    return crossings
+
+
+def _nesting_depth(syntax: ast.AST) -> int:
+    control = (
+        ast.If,
+        ast.For,
+        ast.AsyncFor,
+        ast.While,
+        ast.Try,
+        ast.With,
+        ast.AsyncWith,
+        ast.Match,
+    )
+
+    scope_boundaries = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+
+    def depth(node: ast.AST, current: int, *, root: bool = False) -> int:
+        if not root and isinstance(node, scope_boundaries):
+            return current
+        next_current = current + 1 if isinstance(node, control) else current
+        child_depths = (depth(child, next_current) for child in ast.iter_child_nodes(node))
+        return max([next_current, *child_depths])
+
+    return depth(syntax, 0, root=True)
+
+
+def _parent_for_path(
+    path: Path,
+    root: Path,
+    packages: dict[str, AtlasNode],
+    root_node: AtlasNode,
+) -> AtlasNode:
+    parent_relative = path.parent.relative_to(root).as_posix()
+    return packages.get(parent_relative, root_node)
+
+
+def _node(
+    *,
+    path: str,
+    name: str,
+    qualified: str,
+    kind: NodeType,
+    parent_id: str | None,
+    start: int | None,
+    end: int | None,
+    public: bool | None,
+    docstring: bool,
+    language: str = "python",
+) -> AtlasNode:
+    return AtlasNode(
+        atlas_id=stable_id("node", kind, path, qualified),
+        path=path,
+        symbol_name=name,
+        qualified_name=qualified,
+        node_type=kind,
+        start_line=start,
+        end_line=end,
+        parent_id=parent_id,
+        is_public=public,
+        has_docstring=docstring,
+        language=language,  # type: ignore[arg-type]
+        parser_version=PARSER_VERSION,
+    )
+
+
+def _signal(code: str, message: str, node: AtlasNode, line: int) -> ObscuritySignal:
+    return ObscuritySignal(
+        code=code,
+        message=message,
+        node_id=node.atlas_id,
+        location=SourceLocation(path=node.path, start_line=line, end_line=line),
+    )
+
+
+def _dotted(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = _dotted(node.value)
+        return f"{prefix}.{node.attr}".strip(".")
+    # A subscripted name is still that name: `Protocol[T]` is Protocol, and
+    # `Repository[Book]` inherits from Repository. Returning "" here made every generic
+    # base invisible, so `class Port(Protocol[T])` was classified an ordinary class and
+    # dropped out of detection entirely.
+    if isinstance(node, ast.Subscript):
+        return _dotted(node.value)
+    return ""
+
+
+def _best_module(name: str, modules: dict[str, ParsedModule]) -> ParsedModule | None:
+    if name in modules:
+        return modules[name]
+    candidates = [module for qname, module in modules.items() if qname.startswith(f"{name}.")]
+    return sorted(candidates, key=lambda item: item.qualified_name)[0] if candidates else None
+
+
+def _resolve_from_name(module: ParsedModule, statement: ast.ImportFrom) -> str:
+    if statement.level == 0:
+        return statement.module or ""
+    package = module.qualified_name.split(".")[:-1]
+    trim = max(0, statement.level - 1)
+    if trim:
+        package = package[:-trim]
+    if statement.module:
+        package.extend(statement.module.split("."))
+    return ".".join(package)
+
+
+def _suffix_index(symbols: dict[str, AtlasNode]) -> dict[str, list[AtlasNode]]:
+    """Every dotted tail a qualified name has, and what answers to it.
+
+    The last resort in `_resolve_symbol` is "one symbol in this repository ends with the
+    name that was written", and it used to be asked by scanning every symbol for every
+    reference. That is the size of the repository multiplied by the number of names in
+    it: on psf/black it was fifty-six million string comparisons and two thirds of the
+    whole analysis.
+
+    Asked instead of a table built once. A name has as many tails as it has segments —
+    `a.b.c` answers to `.b.c` and `.c` — so the table costs a few entries per symbol and
+    replaces the scan with a lookup. Only the tails matter, because the scan it replaces
+    matched on a leading dot: a reference never resolves against a partial segment.
+    """
+
+    index: dict[str, list[AtlasNode]] = {}
+    for qualified, node in symbols.items():
+        segments = qualified.split(".")
+        for start in range(1, len(segments)):
+            index.setdefault("." + ".".join(segments[start:]), []).append(node)
+    return index
+
+
+def _resolve_symbol(
+    dotted: str,
+    source: AtlasNode,
+    module: ParsedModule,
+    symbols: dict[str, AtlasNode],
+    suffixes: dict[str, list[AtlasNode]],
+) -> tuple[AtlasNode | None, float]:
+    if not dotted:
+        return None, 0
+    if dotted.startswith("self."):
+        class_qname = source.qualified_name.rsplit(".", maxsplit=1)[0]
+        candidate = f"{class_qname}.{dotted.removeprefix('self.')}"
+        if candidate in symbols:
+            return symbols[candidate], 1.0
+    first, *remaining = dotted.split(".")
+    if first in module.import_aliases:
+        candidate = ".".join([module.import_aliases[first], *remaining])
+        if candidate in symbols:
+            return symbols[candidate], 1.0
+    local = f"{module.qualified_name}.{dotted}"
+    if local in symbols:
+        return symbols[local], 1.0
+    # Unambiguous or nothing: a name that two symbols answer to is not evidence about
+    # either of them, which is why this asks for exactly one and is why the index can
+    # hold lists without needing them ordered.
+    matches = suffixes.get(f".{dotted}", ())
+    if len(matches) == 1:
+        return matches[0], 0.7
+    return None, 0
+
+
+def _deduplicate_edges(edges: list[AtlasEdge]) -> list[AtlasEdge]:
+    return list({edge.edge_id: edge for edge in edges}.values())
+
+
+def _owning_module(node: AtlasNode, modules: dict[str, str]) -> str | None:
+    return modules.get(node.path)
+
+
+def _owned_names(paths: list[Path]) -> set[str]:
+    """The module names this repository owns, known from the file list alone.
+
+    Bounded to names this repository owns. Recording every token a file contains would
+    make the atlas a copy of the source; recording only the names that could refer to
+    something here keeps it a set of relationships.
+
+    Derived from paths rather than from parsed modules so that it is complete before the
+    first file is parsed — which is what lets a module's facts be recorded while its tree
+    is in hand, instead of holding every tree until the last one has been read.
+    """
+
+    return {path.stem.casefold() for path in paths if not path.stem.startswith("_")}
+
+
+def _facts_for(module: ParsedModule, owned: set[str]) -> ModuleFacts:
+    """What one module states, and which of this repository's modules it names.
+
+    Both halves are facts about a file's whole text rather than about any symbol in it,
+    which is why they are recorded here and not on a node. Neither is a judgement: two
+    modules sharing a constant may be a coincidence, and naming another module is
+    ordinarily how code works. Deciding which of those matter is the detector's job.
+    """
+
+    return ModuleFacts(
+        node_id=module.node.atlas_id,
+        path=module.relative_path,
+        qualified_name=module.qualified_name,
+        constants=_declared_constants(module),
+        mentions=_owned_mentions(module, owned),
+    )
 
 def _declared_constants(module: ParsedModule) -> list[DefinedConstant]:
     """Module-level SCREAMING_CASE assignments, with their value fingerprinted.
