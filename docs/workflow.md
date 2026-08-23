@@ -15,6 +15,7 @@ START
   -> investigate_hinges
   -> generate_questions
        | settled / CI / limit / early stop
+       |   -> seal_case
        |   -> write_final_synopsis -> compose_final_review -> record_review -> END
        |
        ` questions
@@ -23,6 +24,7 @@ START
            -> record_waiting_review
            -> await_answers (interrupt)
            -> revise_case
+           |    ` stop requested -> seal_case -> write_final_synopsis -> ... -> END
            -> select_candidates_for_rejudgement
            -> [retrieve_policy_set -> judge_candidate] x candidate
            -> investigate_hinges
@@ -82,5 +84,5 @@ read through branch and succession lineage without entering judgement.
 
 After a round of answers, `RejudgeAllCandidates` initially selects every extant candidate.
 It reads the answers rather than the revision number, which no longer moves between one
-review's rounds. A
-dependency-aware selector can later replace it without changing the graph or domain.
+review's rounds. A dependency-aware selector can later replace it without changing the graph
+or domain.

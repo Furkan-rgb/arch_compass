@@ -1,10 +1,20 @@
 """The turns a review may spend looking things up, and the record it leaves behind.
 
-One loop. A caller gives a model a toolbox and its own question, the model asks the
-repository, and this renders what was asked and what came back as one block of text for the
-structured call that follows. Two caps bound it — how many turns, and how many characters of
-findings — and both exist so an investigation terminates in front of a reader watching a
-review run.
+A caller gives a model a toolbox and its own question, the model asks the repository, and
+this renders what was asked and what came back as one block of text for the structured call
+that follows. Two caps bound it — how many turns, and how many characters of findings — and
+both exist so an investigation terminates in front of a reader watching a review run.
+
+The loop itself is `langchain.agents.create_agent`. It used to be written out here: sixty
+lines appending replies, pairing tool-call ids onto `ToolMessage`s and counting turns, which
+is the one part of this that is not about ArchCompass at all. What is about ArchCompass is
+everything wrapped around it, and that is what the middleware below holds — the opening turn
+being forced where a vendor has a mode for it, the ceiling on what one investigation may
+record, and a retry that wraps a *turn* rather than the loop.
+
+That last one is not a detail. `investigator.call` writes to a transcript as it goes, so
+retrying the loop would record every lookup twice; a rate limit on turn three has to cost a
+wait, not the two turns already spent.
 
 Failure here degrades rather than propagates. Investigating is an improvement to a question,
 and the worst outcome allowed is a review that asks the way it asked before: a provider
@@ -16,13 +26,29 @@ before one. It deliberately imports nothing from there — both of that module's
 callers import this, and a loop that reached back for a prompt would close the circle.
 """
 
+# `create_agent` is three overloads whose return type is generic in the response format,
+# and pyright cannot narrow the unparameterised call into any of them. It executes fine —
+# the agent is cast to the one shape this module uses, and the e2e suite drives it against
+# a live model. The same gap is suppressed the same way in `workflow/graph.py`.
+# pyright: reportUnknownVariableType=false
+
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, cast
 
+from langchain.agents import create_agent
+from langchain.agents.middleware import (
+    AgentMiddleware,
+    ModelCallLimitMiddleware,
+    ModelRequest,
+    ModelResponse,
+)
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.runnables import Runnable
+from langchain_core.tools import StructuredTool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
@@ -41,8 +67,7 @@ _log = logging.getLogger(__name__)
 #: what it has. Six is enough for a find, two relations and a read, which is the shape the
 #: worthwhile lookups take; past that the pass is browsing. The failure a cap prevents is
 #: not expense but an investigation that never terminates in front of a reader watching a
-#: review run. The last turn is spent without a further model call: a turn the loop would
-#: not act on is a request nobody reads.
+#: review run.
 MAX_INVESTIGATION_TURNS = 6
 
 #: The ceiling on what one whole investigation may record, across every result. The
@@ -72,25 +97,85 @@ def _forced_first_call(model: BaseChatModel) -> str | None:
     return None
 
 
-def _tool_definitions(specs: Sequence[ToolSpec]) -> list[dict[str, object]]:
-    """The toolbox in the one shape all three vendors accept.
+def _as_tool(investigator: SourceInvestigator, spec: ToolSpec) -> StructuredTool:
+    """One entry of the toolbox as the agent takes it, still answered by the investigator.
 
-    Every integration runs `convert_to_openai_tool` over whatever it is handed, so a plain
-    function dict passes through unchanged on all of them. That is why `ToolSpec.parameters`
-    is JSON Schema data rather than a Pydantic model: assembled once, translated never.
+    The call goes through `investigator.call` and nowhere else, which is what keeps the
+    transcript the single account of what was asked: the agent sees a tool, the review sees
+    a recorded lookup, and they are the same call.
+
+    `args_schema` is the spec's own JSON Schema rather than a generated model. It was
+    assembled once, in the toolbox, in the shape all three vendors accept, and translating
+    it into a Pydantic model here only to have it translated back is a round trip that can
+    disagree with itself.
     """
 
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": spec.name,
-                "description": spec.description,
-                "parameters": dict(spec.parameters),
-            },
-        }
-        for spec in specs
-    ]
+    def answer(**arguments: object) -> str:
+        return investigator.call(spec.name, arguments)
+
+    return StructuredTool.from_function(
+        func=answer,
+        name=spec.name,
+        description=spec.description,
+        args_schema=dict(spec.parameters),
+    )
+
+
+class _InvestigationBounds(AgentMiddleware[Any, Any]):
+    """The two rules the loop cannot express, and the retry that has to wrap one turn.
+
+    Middleware rather than a hand-written loop because each of these is a decision about one
+    model call, which is exactly the seam `wrap_model_call` is: what the opening turn is
+    allowed to do, whether a refused turn is retried, and whether there is any point asking
+    for another one.
+    """
+
+    def __init__(self, investigator: SourceInvestigator, *, forced: str | None, subject: str):
+        super().__init__()
+        self._investigator = investigator
+        self._forced = forced
+        self._subject = subject
+        self._turns = 0
+        self.abandoned = ""
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], ModelResponse[Any]],
+    ) -> ModelResponse[Any] | AIMessage:
+        self._turns += 1
+        # Only the opening turn is ever constrained, and only where the vendor has a mode
+        # for it. From the second turn on, stopping is a judgement the model must be free to
+        # make — a forced call on the last turn is a loop that cannot end.
+        if self._turns == 1 and self._forced:
+            request.tool_choice = self._forced
+        # Measured over the record rather than over the messages, because the record is what
+        # will be stored and shown, and it is the thing the ceiling exists to bound. Checked
+        # before asking rather than after answering: once the findings are this large there
+        # is nothing a further turn could add that would be kept.
+        if self._recorded() >= MAX_INVESTIGATION_CHARACTERS:
+            self.abandoned = (
+                "its findings reached the size ceiling, so nothing further was looked up"
+            )
+            return AIMessage("")
+        try:
+            # Wrapping the turn rather than the run is the whole point. The transcript is
+            # stateful and `investigator.call` has already written to it, so retrying the
+            # run would record every lookup twice — and a rate limit on turn three should
+            # cost a wait, not the two turns already spent.
+            return call_with_retry(
+                lambda: handler(request), subject=f"Investigating {self._subject}"
+            )
+        except ProviderError as error:
+            # Ended here rather than raised, because an investigation that stopped early is
+            # still an investigation: what it did look up stands, and the note says why
+            # there is no more of it. An empty answer carries no tool calls, which is how
+            # the agent is told there is nothing left to do.
+            self.abandoned = str(error)
+            return AIMessage("")
+
+    def _recorded(self) -> int:
+        return sum(len(item.result) for item in self._investigator.transcript)
 
 
 def investigate_with_tools(
@@ -112,77 +197,63 @@ def investigate_with_tools(
     interleaved, so it cannot be mistaken for a result.
     """
 
-    definitions = _tool_definitions(investigator.tools)
-    forced = _forced_first_call(model) if force_first else None
-    messages: list[BaseMessage] = [SystemMessage(system), HumanMessage(opening)]
-    closing = ""
-    abandoned = ""
-    for turn in range(MAX_INVESTIGATION_TURNS):
-        # Only the opening turn is ever constrained, and only where the vendor has a mode
-        # for it. From the second turn on, stopping is a judgement the model must be free
-        # to make — a forced call on the last turn is a loop that cannot end.
-        choice = forced if turn == 0 else None
-        try:
-            bound = (
-                model.bind_tools(definitions, tool_choice=choice)
-                if choice
-                else model.bind_tools(definitions)
-            )
-        except (NotImplementedError, TypeError) as error:
-            # This provider cannot be asked at all. Not recorded as an abandonment: nothing
-            # was ever going to look, which is a different fact and belongs to the caller.
-            _log.warning("%s cannot bind tools (%s); investigating was skipped", subject, error)
-            return ""
-        try:
-            # Wrapping the turn rather than the loop is the whole point. The transcript is
-            # stateful and `investigator.call` has already written to it, so retrying the
-            # loop would record every lookup twice — and a rate limit on turn three should
-            # cost a wait, not the two turns already spent.
-            reply = call_with_retry(
-                # Bound to this turn's runnable and this turn's history, both of which the
-                # next turn replaces. A late-binding closure here would retry whatever the
-                # loop had moved on to.
-                lambda turn_model=bound, history=list(messages): turn_model.invoke(history),
-                subject=f"Investigating {subject}",
-            )
-        except ProviderError as error:
-            abandoned = str(error)
-            break
-        if not reply.tool_calls:
-            # No calls is the terminating answer and the only one — the model saying it has
-            # seen enough. There is no separate "done" signal, because a model that has to
-            # remember to send one will eventually forget, and a turn with neither text nor
-            # calls would then hang the loop rather than end it.
-            closing = reply.text.strip()
-            break
-        # Appended as returned, never rebuilt. A vendor that receives tool results without
-        # the calls they answer cannot pair them, and Gemini attaches a thought signature to
-        # a function call that a reconstructed turn would strip off.
-        messages.append(reply)
-        # Every call is executed, including the ones after a failure, because a failure is a
-        # result here — `call` never raises — and a model that asked three things is owed
-        # three answers in the order it asked them.
-        messages.extend(
-            ToolMessage(
-                content=investigator.call(call["name"], call["args"]),
-                tool_call_id=call.get("id") or f"{turn}-{index}",
-                name=call["name"],
-            )
-            for index, call in enumerate(reply.tool_calls)
-        )
-        # Measured over the record rather than over the messages, because the record is what
-        # will be stored and shown, and it is the thing the ceiling exists to bound.
-        if (
-            sum(len(item.result) for item in investigator.transcript)
-            >= MAX_INVESTIGATION_CHARACTERS
-        ):
-            abandoned = "its findings reached the size ceiling, so nothing further was looked up"
-            break
-    # Told to the investigator on every way out of the loop, before anything is rendered.
-    # The rendering is spent on the next request; the investigator is what the caller still
-    # holds, so this is the only route these two sentences have to a stored record.
-    investigator.conclude(closing, abandoned)
-    return _rendered(investigator, closing, abandoned)
+    bounds = _InvestigationBounds(
+        investigator,
+        forced=_forced_first_call(model) if force_first else None,
+        subject=subject,
+    )
+    tools = [_as_tool(investigator, spec) for spec in investigator.tools]
+    try:
+        # Asked of the transport directly, before the agent is built, and this narrowness is
+        # deliberate. A provider that cannot be given tools raises here and nowhere else, so
+        # catching it here means a `TypeError` from inside a *tool* — a real defect — is not
+        # quietly reported as "this model cannot look things up".
+        model.bind_tools(tools)
+    except (NotImplementedError, TypeError) as error:
+        # This provider cannot be asked at all. Not recorded as an abandonment: nothing was
+        # ever going to look, which is a different fact and belongs to the caller.
+        _log.warning("%s cannot bind tools (%s); investigating was skipped", subject, error)
+        return ""
+
+    agent = cast(
+        "Runnable[dict[str, object], dict[str, object]]",
+        create_agent(
+            model,
+            tools,
+            system_prompt=system,
+            middleware=[
+                # Ends the run rather than raising, which is what the hand-written loop did
+                # when it ran out of turns: conclude with what you have.
+                ModelCallLimitMiddleware(
+                    run_limit=MAX_INVESTIGATION_TURNS, exit_behavior="end"
+                ),
+                bounds,
+            ],
+        ),
+    )
+    final = agent.invoke({"messages": [HumanMessage(opening)]})
+
+    closing = _closing_text(final)
+    # Told to the investigator before anything is rendered. The rendering is spent on the
+    # next request; the investigator is what the caller still holds, so this is the only
+    # route these two sentences have to a stored record.
+    investigator.conclude(closing, bounds.abandoned)
+    return _rendered(investigator, closing, bounds.abandoned)
+
+
+def _closing_text(final: Mapping[str, object]) -> str:
+    """What the model said when it stopped calling things, or nothing if it said nothing.
+
+    The last message, and only if it is the model's and carries no calls. A run that ended
+    on the turn cap or on a refusal ends on an empty message, and an empty closing is the
+    honest record of that: the transcript stands on its own.
+    """
+
+    messages = cast("Sequence[object]", final.get("messages") or ())
+    last = messages[-1] if messages else None
+    if not isinstance(last, AIMessage) or last.tool_calls:
+        return ""
+    return last.text.strip()
 
 
 def _rendered(investigator: SourceInvestigator, closing: str, abandoned: str) -> str:
@@ -238,5 +309,3 @@ def recorded_investigation(
         prompt_identity=INVESTIGATION_PROMPT_IDENTITY,
         model_identity=model_identity,
     )
-
-

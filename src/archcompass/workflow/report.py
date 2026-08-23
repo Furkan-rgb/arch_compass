@@ -198,7 +198,9 @@ def _measured(finding: Finding) -> str:
     return f"**Measured.** {'; '.join(parts)}."
 
 
-def _entry(finding: Finding, *, delta_state: str | None, measured: bool = True) -> str:
+def _entry(
+    finding: Finding, *, delta_state: str | None, measured: bool = True, waiting: bool
+) -> str:
     """One finding.
 
     The order is the order the three jobs happen in: what was counted, then what the model
@@ -229,10 +231,19 @@ def _entry(finding: Finding, *, delta_state: str | None, measured: bool = True) 
     lines.extend([f"**Judged {finding.verdict.value}.** {_sentence(finding.reasoning)}", ""])
 
     if finding.hinge:
+        # A held finding keeps its hinge on both paths, and the two paths owe the reader
+        # opposite sentences. A review that is waiting can be answered, and answering it
+        # records the answer on the revision this review opened. A concluded review takes no
+        # answers at all — telling its reader to answer one sends them looking for a control
+        # that is not there. This said the first sentence on both until the second was
+        # written down.
         lines.extend(
             [
-                f"**Waiting on a person.** {_sentence(finding.hinge)} Answering it completes "
-                "this review's case revision and re-judges what it touches.",
+                f"**Waiting on a person.** {_sentence(finding.hinge)} Answering it records "
+                "the answer on this review's case revision and re-judges what it touches."
+                if waiting
+                else f"**Unresolved.** {_sentence(finding.hinge)} This review concluded "
+                "without it; a later review can put the question again.",
                 "",
             ]
         )
@@ -351,8 +362,8 @@ def _questions(questions: Sequence[Question], *, waiting: bool) -> str:
         "not guessed at."
         if waiting
         else "This review was concluded with these still unanswered. They are recorded as "
-        "unresolved rather than guessed at; answering them later produces the next case "
-        "revision and re-judges what they touch."
+        "unresolved rather than guessed at. A concluded review takes no answers, so a "
+        "later review is what puts them again."
     )
     return "\n".join(lines) + "\n"
 
@@ -551,6 +562,7 @@ def compose_markdown_report(
                         finding,
                         delta_state=states.get(str(finding.candidate.id)),
                         measured=verdict is not Verdict.CLEARED,
+                        waiting=waiting,
                     ),
                     "",
                 ]

@@ -216,6 +216,14 @@ export const api = {
    *
    * The run id is the one the review has been on all along, so `/runs/{run_id}` is where
    * to navigate and the existing run page takes it from there.
+   *
+   * `NO_TIMEOUT`, like every other call that starts work. This looks like it should be
+   * quick — it validates the answers and hands back a run — but it decodes the whole review
+   * to do it, and on a large one that took longer than the thirty seconds it was inheriting.
+   * The abort put the button back with the answers still in it, a second identical POST
+   * went out, and by then the first had opened the next round: the retry then resumed a
+   * round it was not written for and destroyed the case. The server refuses that now, and
+   * this is the half that stops it being provoked in the first place.
    */
   answerRun: (
     reviewId: string,
@@ -225,6 +233,7 @@ export const api = {
     request<ReviewRun>(`/api/reviews/${encode(reviewId)}/answers/runs`, {
       method: "POST",
       body: JSON.stringify({ answers, stop }),
+      timeout: NO_TIMEOUT,
     }),
   cancel: (reviewId: string) =>
     request<Review>(`/api/reviews/${encode(reviewId)}/cancel`, { method: "POST" }),

@@ -49,7 +49,7 @@ dev = [
 ]
 # What `evaluation/retrieval-evaluation.ipynb` needs and nothing else does. Held apart from
 # `dev` because it is a notebook stack — Jupyter, pandas and matplotlib are around 300 MB —
-# and `make check` never opens a notebook. `make eval-rag` asks for the group by name.
+# and `make check` never opens a notebook. `make evaluation` asks for the group by name.
 evaluation = [
   "ipykernel>=7,<8",
   "jupyter>=1.1,<2",
@@ -69,10 +69,10 @@ module-root = "src"
 [tool.pytest.ini_options]
 addopts = '-q --strict-config --strict-markers -m "not ollama and not google and not browser"'
 testpaths = ["tests"]
-norecursedirs = ["tests/fixtures"]
+norecursedirs = ["tests/unit/fixtures"]
 markers = [
   "examples: offline checks that the shipped example repositories still present the shapes a review is demonstrated on",
-  "ollama: optional evaluation requiring a locally running Ollama service",
+  "ollama: end-to-end review judged and embedded entirely by models on this machine, needing a local Ollama holding the reasoning and embedding models the e2e conftest names",
   "google: end-to-end review against live services, needing a Google AI Studio key with free-tier quota and a local Ollama holding embeddinggemma for the retrieval side",
   "browser: drives the built workspace in a real browser; needs `make frontend-build` and Playwright",
 ]

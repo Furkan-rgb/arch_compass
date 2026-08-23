@@ -55,7 +55,6 @@ def reasoning_config(
             if _spends_little_on_thinking(thinking)
             else defaults.max_output_tokens_thinking
         ),
-        chars_per_token=defaults.chars_per_token,
         thinking=thinking,
         # The descriptor's number unless the environment says otherwise. Resolved here
         # because this is the one place both a pinned run and a stored selection pass

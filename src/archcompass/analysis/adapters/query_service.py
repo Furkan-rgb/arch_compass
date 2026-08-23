@@ -350,11 +350,34 @@ class DeterministicAtlasQueryService:
             )
         if isinstance(query, SearchNodesQuery):
             terms = [term.casefold() for term in query.terms]
+            # A module's constants are searchable through the module that defines them.
+            #
+            # A module-level constant is not an atlas node — nodes are modules, classes and
+            # functions — so searching node names alone could not find one at all. That was
+            # not a gap at the edge of the product: two of the three detectors are *about*
+            # constants, `duplicated_knowledge` and `scattered_concept`, and the hinge
+            # contract opens by telling the model to look up a qualified name from the
+            # candidate. For every candidate of those two patterns the first lookup the
+            # contract asks for came back "0 name/path matches", and the model then guessed
+            # at node ids until something answered.
+            #
+            # The module node is the right answer rather than a consolation: it is where the
+            # constant is defined, and it is the id every other lookup needs, since none of
+            # them can take anything finer than a node.
+            defined: dict[str, str] = {}
+            for facts in atlas.module_facts:
+                names = [constant.name for constant in facts.constants]
+                if names:
+                    defined[facts.node_id] = " ".join(names).casefold()
             matching = [
                 node
                 for node in atlas.nodes
                 if all(
-                    term in f"{node.symbol_name} {node.qualified_name} {node.path}".casefold()
+                    term
+                    in (
+                        f"{node.symbol_name} {node.qualified_name} {node.path} "
+                        f"{defined.get(node.atlas_id, '')}"
+                    ).casefold()
                     for term in terms
                 )
             ]
@@ -365,20 +388,36 @@ class DeterministicAtlasQueryService:
                 summary=f"{len(matching)} name/path matches before limiting",
                 node_summaries=self._summaries(matching[: query.limit]),
             )
-        if self._freshness_checker is not None:
-            self._freshness_checker.ensure_fresh(atlas)
         node = self._require_node(query.node_id, nodes)
         if node.start_line is None or node.end_line is None:
             raise AtlasQueryValidationError(f"Node {node.atlas_id} has no source span")
         start = max(1, node.start_line - query.context_lines)
         end = min(node.end_line + query.context_lines, start + query.max_lines - 1)
-        text = self._source_reader.excerpt(
+        # The revision the atlas was built from, asked for by name. These line numbers
+        # belong to that revision and to no other, so this is the reading that is *right*
+        # rather than the reading that is merely current — and it keeps answering after the
+        # checkout has moved on, which is what a recorded lookup has to do to be repeatable.
+        text = self._source_reader.at_revision(
             root=self._root(atlas),
             relative_path=node.path,
             start_line=start,
             end_line=end,
+            revision=atlas.version.git_commit_sha or "",
             max_lines=query.max_lines,
         )
+        if text is None:
+            # No revision to read: an unversioned directory, or a commit git no longer has.
+            # Then the working tree is the only source there is, and it may only be read
+            # while it still is what was judged — the freshness check is what says so.
+            if self._freshness_checker is not None:
+                self._freshness_checker.ensure_fresh(atlas)
+            text = self._source_reader.excerpt(
+                root=self._root(atlas),
+                relative_path=node.path,
+                start_line=start,
+                end_line=end,
+                max_lines=query.max_lines,
+            )
         excerpt = SourceExcerpt(
             node_id=node.atlas_id,
             location=SourceLocation(path=node.path, start_line=start, end_line=end),

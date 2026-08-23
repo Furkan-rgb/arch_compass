@@ -57,9 +57,15 @@ class ProviderDefaults:
     #: Names the environment variable holding this provider's API key - never the key.
     api_key_env: str | None = None
     timeout_seconds: float = 360.0
-    #: Deliberately well below what a vendor advertises. This number only feeds the
-    #: pre-flight budget check, where under-stating refuses an oversize request with an
-    #: explicit message and over-stating lets one through to be truncated.
+    #: How much the model is given to work in. On a hosted provider it is a sanity bound on
+    #: what this deployment will ask for; on a self-hosted one it is `num_ctx`, and the
+    #: runner allocates it before answering anything — see `OLLAMA_DESCRIPTOR`, which sets
+    #: its own from what this product actually sends.
+    #:
+    #: Deliberately well below what a vendor advertises. Nothing measures a prompt against
+    #: it: there was a pre-flight budget check that did, and the estimate it read, the error
+    #: it raised and the check itself were all removed together once it turned out that none
+    #: of the three had ever run.
     context_window_tokens: int = 131072
     #: Output budget for a non-thinking selection.
     max_output_tokens: int = 16384
@@ -67,7 +73,6 @@ class ProviderDefaults:
     #: from the same allowance on both providers, so a stage needs noticeably more headroom
     #: here than the response JSON alone would suggest.
     max_output_tokens_thinking: int = 32768
-    chars_per_token: float = 4.0
     #: How many judgements this provider will answer at once. A property of the provider and
     #: not of the review: a hosted API serves parallel requests from a fleet, while a local
     #: Ollama serves one model on one GPU, where parallel requests queue behind each other

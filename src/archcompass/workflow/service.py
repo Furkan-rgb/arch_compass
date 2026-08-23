@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+import sqlite3
 from collections.abc import Callable, Mapping, Sized
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, replace
 from typing import Protocol, cast
 
@@ -23,11 +26,17 @@ from archcompass.domain import (
     ReviewStatus,
 )
 from archcompass.domain._support import new_id, stable_id, utc_now
-from archcompass.domain.errors import ReviewNotCancellableError
+from archcompass.domain.errors import (
+    NothingToReviewError,
+    ReviewNotCancellableError,
+    ReviewSupersededError,
+)
 from archcompass.persistence.executions import ExecutionRecord
 from archcompass.persistence.reviews import ReviewSummary
 from archcompass.workflow.runs import ReviewRunner, RunState
 from archcompass.workflow.state import ReviewInput, ReviewState
+
+_log = logging.getLogger(__name__)
 
 
 class ReviewSnapshotStore(Protocol):
@@ -137,6 +146,10 @@ class _JudgingProgress:
         return True
 
 
+class CaseSnapshotStore(Protocol):
+    def record(self, case: ArchitectureCase) -> ArchitectureCase: ...
+
+
 class ReviewWorkflowService:
     """One invocation per attempt; graph checkpoints are never domain lineage."""
 
@@ -146,11 +159,16 @@ class ReviewWorkflowService:
         *,
         reviews: ReviewSnapshotStore,
         executions: ReviewExecutionStore,
+        cases: CaseSnapshotStore | None = None,
         runner: ReviewRunner | None = None,
     ) -> None:
         self._graph = graph
         self._reviews = reviews
         self._executions = executions
+        # Only the failure path writes through this, which is why it is optional: a graph
+        # that reaches its end seals its own case through `seal_case`, and a test driving
+        # one needs nothing here.
+        self._cases = cases
         self._runner = runner or ReviewRunner()
 
     def start(
@@ -177,7 +195,9 @@ class ReviewWorkflowService:
         except Exception as error:
             self._record_failure(thread_id, error)
             raise
-        return self._bind(thread_id, state["review"])
+        bound = self._bind(thread_id, state["review"])
+        self._release(thread_id)
+        return bound
 
     def start_background(
         self,
@@ -253,6 +273,7 @@ class ReviewWorkflowService:
 
         def work(report: Callable[[str], None]) -> None:
             judging = _JudgingProgress()
+            cancelled = False
             try:
                 for raw in self._graph.stream(
                     source,
@@ -283,16 +304,25 @@ class ReviewWorkflowService:
                         bound = self._bind(thread_id, review)
                         self._runner.bind_review(thread_id, bound.id)
                     # Between stages, never inside one: the node that just returned wrote a
-                    # checkpoint, and stopping here leaves the graph resumable from it
-                    # rather than half way through a step.
+                    # checkpoint, so the graph stops at a boundary rather than half way
+                    # through a step.
                     if self._runner.is_cancelled(thread_id):
-                        return
+                        cancelled = True
+                        break
             except Exception as error:
                 self._record_failure(thread_id, error)
                 raise
             current = self._executions.current_review_id(thread_id)
-            if current is not None:
+            if current is not None and not cancelled:
                 self._runner.bind_review(thread_id, current)
+            # After the loop and never inside it: the stream is reading from the checkpoints
+            # this deletes. A cancelled run reaches here too, because a cancelled run is
+            # over — `_resume_command` refuses any execution that is not awaiting answers,
+            # so nothing in this product can start one again, and the comment that used to
+            # say the graph was "left resumable from the last completed stage" was
+            # describing a resume that does not exist. Those are the largest checkpoints a
+            # workspace ever holds; leaving them was a leak rather than a decision.
+            self._release(thread_id)
 
         return work
 
@@ -334,12 +364,20 @@ class ReviewWorkflowService:
         thread_id, command = self._resume_command(review_id, submissions, stop=stop)
         if command is None:
             return self._recorded_for(thread_id, review_id)
+        # Marked in flight before the graph runs, exactly as `resume_background` does. This
+        # is minutes of judging, and while the row went on saying `awaiting_answers` a second
+        # post of the same answers passed the guard above and produced a *second* round-two
+        # snapshot under one sequence — with the caller of the first holding an id that reads
+        # fine and refuses every later answer.
+        self._executions.resume(thread_id)
         try:
             state = self._graph.invoke(command, self._config(thread_id))
         except Exception as error:
             self._record_failure(thread_id, error)
             raise
-        return self._bind(thread_id, state["review"])
+        bound = self._bind(thread_id, state["review"])
+        self._release(thread_id)
+        return bound
 
     def _recorded_for(self, thread_id: str, review_id: str) -> Review:
         current_id = self._executions.current_review_id(thread_id)
@@ -359,11 +397,32 @@ class ReviewWorkflowService:
         `None` where there is nothing left to resume. The same answers arriving twice — a
         retry, a second tab, a run that already took them — is a question about work that
         has been done rather than a conflict, so the caller is handed what was recorded.
+
+        That forgiveness has one edge, and it is sharp. A review that asks twice files two
+        waiting snapshots under one sequence, and a snapshot is immutable: round one's copy
+        says `awaiting_answers` for ever, and while round two is open so does the execution.
+        Both of the checks below therefore answered yes for a submission written against a
+        round that had already been taken — so round one's answers resumed round two's
+        interrupt, `with_answers` found five equivalence keys it already held and raised,
+        and the round failed against a case revision `seal_case` never got to write. The
+        answers a person typed survived nowhere but inside a review blob.
+
+        Which snapshot the execution currently stands on is the one fact that separates the
+        two, so it is asked here, and only while the review is still waiting: once it has
+        reached an end there is nothing to replay into and handing back what was recorded is
+        the right answer again.
         """
 
         thread_id = self._executions.thread_for_review(review_id)
         if self._executions.status(thread_id) != ReviewStatus.AWAITING_ANSWERS.value:
             return thread_id, None
+        current_id = self._executions.current_review_id(thread_id)
+        if current_id is not None and current_id != review_id:
+            raise ReviewSupersededError(
+                f"Review {review_id} has already been answered; this review is now waiting "
+                f"on {current_id}. Read it again before answering — the questions it is "
+                "waiting for are not the ones these answers were written against."
+            )
         waiting = self._reviews.get(review_id)
         if waiting.status is not ReviewStatus.AWAITING_ANSWERS:
             raise ValueError(f"Review {review_id} is not awaiting answers")
@@ -390,10 +449,28 @@ class ReviewWorkflowService:
         return thread_id, Command(resume={"answers": answers, "stop": stop})
 
     def cancel(self, review_id: str) -> Review:
+        """Stop a review that is waiting for an answer nobody is going to give.
+
+        Guarded the same way answering is, and for the same reason. A snapshot is immutable,
+        so round one's copy says `awaiting_answers` for ever — asking it, as this used to,
+        let a stale tab cancel a round that had already been answered and superseded. That
+        was merely confusing until a cancelled thread began releasing its checkpoints, at
+        which point it deleted the live interrupt round two was waiting on and there was no
+        way back.
+        """
+
         waiting = self._reviews.get(review_id)
         if waiting.status is not ReviewStatus.AWAITING_ANSWERS:
             raise ReviewNotCancellableError(
                 f"Review {review_id} is {waiting.status.value}, not awaiting answers"
+            )
+        thread_id = self._executions.thread_for_review(review_id)
+        current_id = self._executions.current_review_id(thread_id)
+        if current_id is not None and current_id != review_id:
+            raise ReviewSupersededError(
+                f"Review {review_id} has already been answered; this review is now waiting "
+                f"on {current_id}. Read it again — cancelling this snapshot would stop a "
+                "round that is not the one you are looking at."
             )
         # The same revision, cancelled — not the one after it. Cancelling is how this
         # review ended, and a review that ended does not become its own successor.
@@ -404,8 +481,8 @@ class ReviewWorkflowService:
             finished_at=utc_now(),
         )
         recorded = self._reviews.record(cancelled)
-        thread_id = self._executions.thread_for_review(review_id)
         self._executions.bind(thread_id, recorded)
+        self._release(thread_id)
         return recorded
 
     def cancel_run(self, run_id: str) -> RunState:
@@ -477,11 +554,131 @@ class ReviewWorkflowService:
         return self._executions.record(run_id)
 
     def abandon_running(self) -> None:
+        """Mark runs a departed process left behind as failed, and free what they held.
+
+        The thread ids are read before the row is rewritten, because afterwards nothing says
+        which runs were abandoned. They are the largest checkpoints a workspace ever holds —
+        a run that died mid-review died with the whole state checkpointed — and nothing else
+        will ever come back for them: an abandoned thread is `failed`, and a failed thread
+        cannot be resumed.
+        """
+
+        abandoned = [record.thread_id for record in self._executions.in_flight(limit=1000)]
         self._executions.abandon_running()
+        for thread_id in abandoned:
+            self._release(thread_id)
 
     def _bind(self, thread_id: str, review: Review) -> Review:
         self._executions.bind(thread_id, review)
         return review
+
+    def _seal_after_failure(
+        self, case: ArchitectureCase, *, opened: bool
+    ) -> ArchitectureCase:
+        """Write the case revision a failed round opened, or leave it exactly as it is.
+
+        `opened` is the graph's own `case_opened`, and it is the only honest question. The
+        guard was "does this case carry answers", which is true of every case any earlier
+        review ever answered — so a run that failed before asking anything re-recorded a
+        revision already on disk, on every failure, and would have swallowed a genuine
+        conflict the day those bytes differed.
+        """
+
+        if self._cases is None or not opened:
+            return case
+        try:
+            return self._cases.record(case)
+        except Exception:
+            _log.warning(
+                "Case %s revision %d could not be written after a failed round",
+                case.id,
+                case.revision,
+                exc_info=True,
+            )
+            return case
+
+    def _release(self, thread_id: str) -> None:
+        """Drop the execution checkpoints of a review that has reached an end.
+
+        A checkpoint exists to resume from, and a review that completed, failed or was
+        cancelled is never resumed: `_resume_command` answers with what was recorded, and
+        every surface that reads a finished review reads the immutable snapshot. So once a
+        thread reaches a terminal status its checkpoints are the working notes of work that
+        is over, and keeping them is not caution — it is a leak with a durable name.
+
+        And it is a large one. LangGraph writes the whole `ReviewState` at every superstep,
+        and that state carries the atlas, the policy corpus, the retrieved policy sets and
+        every finding so far. One review of a six-file example repository left a **131 MB**
+        checkpoint database beside a 948 KB workspace; a development machine reached 56 GB,
+        with individual writes of 8 to 78 MB, and those writes are what made a thirty-second
+        POST miss its deadline and get retried into the double-submission that destroyed a
+        case. The bound is not a nicety.
+
+        A review still `awaiting_answers` keeps everything, and it is the only status that
+        does: it is the one whose whole purpose is to be resumed from, possibly days later.
+        Everything else — completed, failed, cancelled — is over, and `_resume_command`
+        refuses all three.
+
+        The status is read off the execution row rather than passed in, because every caller
+        has already written it there and reading it back is a column. The alternative was
+        handing this the review, which meant decoding a stored document that can run to
+        megabytes in order to look at one word.
+
+        Nothing here may raise. A checkpointer that cannot delete, or a file somebody has
+        made read-only, is a disk that fills more slowly than it should — not a review that
+        fails after it has already been recorded.
+        """
+
+        try:
+            if self._executions.status(thread_id) == ReviewStatus.AWAITING_ANSWERS.value:
+                return
+            saver = cast("object", getattr(self._graph, "checkpointer", None))
+            delete = cast(
+                "Callable[[str], None] | None", getattr(saver, "delete_thread", None)
+            )
+            if delete is None:
+                return
+            delete(thread_id)
+            self._reclaim(saver)
+        except Exception:
+            _log.warning(
+                "The checkpoints for %s could not be released", thread_id, exc_info=True
+            )
+
+    @staticmethod
+    def _reclaim(saver: object) -> None:
+        """Hand the freed pages back to the filesystem, under the saver's own lock.
+
+        Two statements and both are needed: `incremental_vacuum` moves the freed pages off
+        the end of the database — a no-op unless it was opened with
+        `auto_vacuum = INCREMENTAL`, which `build_runtime` asks for — and the WAL checkpoint
+        is what lets the file on disk actually shrink, because until the write-ahead log is
+        folded back in, the smaller database exists only in the log. Without the second one
+        the first measures as having done nothing at all.
+
+        **The lock is not optional.** One SQLite connection serves every review in a
+        workspace, and `SqliteSaver` guards every one of its own uses of it. Running these
+        two statements beside that, unlocked, left a statement in progress across the
+        saver's next `commit()` and raised `OperationalError: cannot commit transaction`
+        *inside another thread's graph* — so a review finishing normally could fail an
+        unrelated review that happened to be running at the time, and this method's own
+        `except` could not see it. Taken after `delete_thread` rather than around it,
+        because that method takes the same non-reentrant lock itself.
+
+        A saver that exposes neither a lock nor a connection is left alone: the pages are
+        still reusable, and `_reclaim_checkpoint_space` returns them at the next open.
+        """
+
+        connection = cast("sqlite3.Connection | None", getattr(saver, "conn", None))
+        lock = cast("AbstractContextManager[object] | None", getattr(saver, "lock", None))
+        if connection is None or lock is None:
+            return
+        with lock:
+            connection.execute("PRAGMA incremental_vacuum").fetchall()
+            # Yields rather than waits where another review is mid-write: SQLite answers
+            # busy, the file keeps its high-water mark for now, and the next review to end
+            # alone reclaims it.
+            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
 
     def _begin(self, repository_id: str, branch_id: str, case_id: str) -> str:
         thread_id = new_id("thread")
@@ -494,25 +691,57 @@ class ReviewWorkflowService:
         return thread_id
 
     def _record_failure(self, thread_id: str, error: Exception) -> Review | None:
-        """Persist the richest immutable failure snapshot the completed stages permit."""
+        """Persist the richest immutable failure snapshot the completed stages permit.
+
+        With one exception, which is the whole of `NothingToReviewError`. That is not a
+        review that failed; it is the answer that there was no review to run, and its own
+        docstring says it is raised before anything is written. It was not: by the time
+        `select_initial_candidates` raises it the repository, atlas and case are all in
+        state, so this method built a snapshot from them and filed it — and a person who
+        pressed "Run review" on unchanged code, was correctly told nothing had changed, then
+        found a failed "Review 2" on the rail that they had not asked to keep and could not
+        get rid of. The run is still marked failed, so nothing dangles; nothing is recorded,
+        so the branch's line stays a history of what happened to the code.
+        """
 
         self._executions.fail(thread_id)
+        if isinstance(error, NothingToReviewError):
+            self._release(thread_id)
+            return None
         try:
             values = cast(
                 "Mapping[str, object]",
                 self._graph.get_state(self._config(thread_id)).values,
             )
         except Exception:
+            self._release(thread_id)
             return None
         repository = values.get("repository")
         atlas = values.get("atlas")
         case = values.get("case")
-        if not isinstance(repository, RepositoryRef):
+        # A run that failed before the context was loaded has no snapshot worth writing —
+        # but it still has checkpoints, and these three exits used to walk past them. A
+        # review that fails early is exactly the one somebody runs again immediately.
+        if (
+            not isinstance(repository, RepositoryRef)
+            or not isinstance(atlas, RepositoryAtlas)
+            or not isinstance(case, ArchitectureCase)
+        ):
+            self._release(thread_id)
             return None
-        if not isinstance(atlas, RepositoryAtlas):
-            return None
-        if not isinstance(case, ArchitectureCase):
-            return None
+        # The revision this round opened, written before a review is filed naming it.
+        #
+        # `seal_case` is the only node that writes one and a failed run never reaches it, so
+        # a failed snapshot used to point at a revision `core_case_snapshots` did not hold:
+        # the answers a person typed survived nowhere but inside a review blob, every later
+        # review was judged against the revision before them, and opening the one the
+        # interface named answered 404. Sealing here is the honest repair — the answers were
+        # given, and a round failing to rejudge on them is not a reason to lose them.
+        #
+        # Guarded, because it must not turn a failure into a different failure. A conflict
+        # here means somebody else took the number, which is worth knowing and is not worth
+        # replacing the exception the caller is already about to see.
+        case = self._seal_after_failure(case, opened=bool(values.get("case_opened")))
         previous_value = values.get("previous_review")
         previous = previous_value if isinstance(previous_value, Review) else None
         raw_findings = values.get("findings")
@@ -565,6 +794,7 @@ class ReviewWorkflowService:
         )
         recorded = self._reviews.record(failure)
         self._executions.bind(thread_id, recorded)
+        self._release(thread_id)
         return recorded
 
     @staticmethod

@@ -57,13 +57,14 @@ load context
   -> check what the repository settles
   -> generate questions
        | settled / CI / limit / early stop
+       |   -> seal the case revision
        |   -> compose and persist Review -> END
        |
        ` questions
            -> persist awaiting Review
            -> interrupt
            -> resume with answers/skips
-           -> create ArchitectureCase revision
+           -> record them on this review's case revision
            -> rejudge selected candidates
            -> generate questions again
 ```
@@ -97,7 +98,9 @@ The configured model:
 - explains the verdict and policy bearings;
 - identifies unresolved uncertainty;
 - puts bounded, recorded, read-only questions to the repository about a finding that would
-  otherwise stop the review, and about a reader's own question afterwards;
+  otherwise stop the review, and about a reader's own question afterwards — structure from
+  the atlas the review judged, and source from the commit it judged, never from whatever is
+  checked out now;
 - proposes clarification questions through a validated structured response.
 
 The model never chooses which candidates are reviewed and never owns identifiers,
@@ -152,8 +155,11 @@ case facet and sorted supporting candidate IDs, not from model wording. Submissi
 answer, explicitly skip, omit questions (recorded as skips), or conclude early.
 
 The waiting snapshot is persisted before LangGraph interrupts. Resumption uses the same
-execution thread, creates a new immutable `ArchitectureCase` revision, and continues through
-the visible graph.
+execution thread, records the round's answers on the `ArchitectureCase` revision this review
+opened, and continues through the visible graph. One review opens at most one revision,
+however many rounds it takes, and that revision is written once on the way out — so a review
+that asked three times leaves one revision behind rather than three, and keeps one sequence
+number for its whole life. `round` is what separates its snapshots.
 
 `Finding` and `StandingDecision` are intentionally independent:
 
@@ -208,6 +214,11 @@ renames one between releases.
 
 `ARCHCOMPASS_PROVIDERS` narrows which of them a deployment offers at all.
 
+`ARCHCOMPASS_HINGE_INVESTIGATION=0` turns off the pass that checks a hinge against the
+repository before it reaches a person. It is on by default and worth leaving on; turning it
+off is for a local run that would rather be asked the question than spend a tool loop per
+held finding first, which on one GPU is minutes before anybody is asked anything.
+
 Embedding adapters are configured independently:
 
 - Google: `GoogleGenerativeAIEmbeddings`, defaulting to `gemini-embedding-2` at 3,072
@@ -250,7 +261,7 @@ Run with an explicitly pinned provider/model:
 
 ```bash
 uv run archcompass --provider google --model gemini-3.5-flash-lite web
-uv run archcompass --provider ollama --model gemma4:26b web
+uv run archcompass --provider ollama --model qwen3.8:27b web
 ```
 
 Useful CLI commands:
@@ -280,12 +291,28 @@ make test-ollama
 make test-browser
 ```
 
-`make test-google` is the end-to-end one: it drives a whole review over the HTTP API against
-real services — a repository indexed, every candidate judged, a question answered, the review
-resumed on the same graph thread, a decision recorded and a grounded follow-up asked. Google
-does the judging and a local Ollama holding `embeddinggemma` does the embedding, which is also
-the sharpest demonstration that the two selections are independent. Anything missing skips with
-a message rather than failing.
+`make test-google` and `make test-ollama` are the end-to-end ones. Both drive a whole review
+over the HTTP API against real services — a repository indexed, every candidate judged, a
+question answered, the review resumed on the same graph thread, a decision recorded and a
+grounded follow-up asked — and both skip with a message rather than failing when the machine
+cannot serve them.
+
+They differ in what they prove. `make test-google` judges on Google and embeds on a local
+Ollama holding `embeddinggemma`, which is the sharpest demonstration that the two selections
+are independent: they are not even the same vendor. `make test-ollama` runs both halves on
+this machine — `qwen3.8:27b` judging, `embeddinggemma` embedding, `ARCHCOMPASS_PROVIDERS`
+narrowed so a key in `.env` cannot be reached — which is the deployment somebody evaluating
+ArchCompass on their own source actually gets. It goes two steps further than its sibling,
+because there is no metered quota to ration: it asks for a second review of the unchanged
+repository, which should be refused rather than charged for, and then changes the repository
+and asks again, which is the shape a second demonstration actually has.
+
+Both build a policy index for the local embedder first, because the index this package ships
+was built with Google's embedder at 3,072 dimensions and vectors from two models are not
+comparable. The local suite runs its lifecycle with `ARCHCOMPASS_HINGE_INVESTIGATION=0` so
+that the clarification round runs every time rather than whenever the lookups happen not to
+settle the hinge; the lookups themselves are driven directly, against the same live model, by
+a test of their own.
 
 ## Documentation
 

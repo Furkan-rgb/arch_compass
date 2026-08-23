@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import ast
+import os
 import re
 import subprocess
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from itertools import pairwise
@@ -17,10 +18,10 @@ from archcompass.analysis.adapters.ast_support import (
     DefinitionIndex,
     ParsedModule,
     TreeSource,
-    ast_for_node,
     build_edge,
     canonical_roots,
     excluded_within,
+    import_roots,
     lexical_nodes,
     lies_within,
     module_name,
@@ -283,13 +284,15 @@ class _SyntacticMetrics:
 class _ModuleMetrics:
     """What every node in one module shares, computed once for all of them.
 
-    Frozen, and holding frozensets rather than sets, because one instance is handed to every
-    node in its module: a caller that mutated what it was given would be editing the metrics
-    of every symbol in the file.
+    Frozen, and holding tuples and frozensets rather than lists and sets, because one
+    instance is handed to every node in its module: a caller that mutated what it was given
+    would be editing the metrics of every symbol in the file. Two of these were lists and
+    the docstring said otherwise, which is the kind of claim that is true right up until
+    somebody relies on it.
     """
 
-    direct_dependencies: list[str]
-    direct_dependants: list[str]
+    direct_dependencies: tuple[str, ...]
+    direct_dependants: tuple[str, ...]
     forward: frozenset[str]
     backward: frozenset[str]
     affected: frozenset[str]
@@ -417,9 +420,18 @@ class PythonAstRepositoryAnalyzer:
         nodes: dict[str, AtlasNode] = {root_node.atlas_id: root_node}
         edges: list[AtlasEdge] = []
         signals: list[ObscuritySignal] = []
+        # One per analysis, which is what its own docstring asks for. It was built inside
+        # the loop below, so each module paid to index itself and the function three lines
+        # above went on walking every tree per node — the exact cost this class exists to
+        # remove, in the one place that never got the fix.
+        definitions = DefinitionIndex()
 
+        # Where an import counts from, decided once for the whole snapshot. Every module
+        # name in the atlas is relative to these, so the type-aware resolver is handed the
+        # same set or the names it answers with will not line up with the atlas's own.
+        roots = import_roots([item.relative_path for item in python_files])
         package_nodes = self._create_packages(
-            canonical_root, [item.path for item in python_files], root_node
+            canonical_root, [item.path for item in python_files], root_node, roots
         )
         for package in package_nodes.values():
             nodes[package.atlas_id] = package
@@ -434,7 +446,7 @@ class PythonAstRepositoryAnalyzer:
         modules: list[ParsedModule] = []
         for source_file in python_files:
             parsed = self._parse_module(
-                canonical_root, source_file, package_nodes, root_node, signals
+                canonical_root, source_file, package_nodes, root_node, signals, roots
             )
             modules.append(parsed)
             nodes[parsed.node.atlas_id] = parsed.node
@@ -449,8 +461,9 @@ class PythonAstRepositoryAnalyzer:
             # line is about the repository rather than about a file, and none of it reads a
             # tree — which is what makes it possible to stop holding them.
             module_facts.append(self._facts_for(parsed, owned_names))
-            references_by_path[parsed.relative_path] = self._module_references(parsed)
-            definitions = DefinitionIndex()
+            references_by_path[parsed.relative_path] = self._module_references(
+                parsed, definitions
+            )
             for owned_node in (parsed.node, *parsed.symbols.values()):
                 syntactic_metrics[owned_node.atlas_id] = self._syntactic_metrics(
                     owned_node, definitions.get(parsed, owned_node)
@@ -644,6 +657,43 @@ class PythonAstRepositoryAnalyzer:
             raise PathValidationError(f"Repository path is not a directory: {root}")
         return canonical
 
+    @staticmethod
+    def _walk(root: Path, excluded_paths: tuple[str, ...]) -> Iterator[Path]:
+        """Every file under `root` that is not inside a directory nobody wants read.
+
+        Pruned rather than filtered, and that is the whole of it. `rglob("*")` enumerates
+        the tree and leaves the caller to discard what it should never have opened: on this
+        repository that is **258,613 entries to keep 1,964**, because `.git`, `.venv` and
+        `node_modules` are walked in full before being thrown away one path at a time — six
+        and a half seconds of a forty-seven second analysis, and worse the larger the
+        checkout. Deleting a name from `dirnames` in place is how `os.walk` is told not to
+        go in, so those subtrees are never enumerated at all.
+
+        The same two rules that used to filter now prune: a directory whose name is in
+        `IGNORED_DIRECTORIES`, and one the caller excluded. Pruning an exclusion is the
+        stronger reading of it and the intended one — a subtree somebody said not to review
+        is not a subtree to walk — and it is why the exclusion check moved here from the
+        loop below rather than being duplicated.
+
+        Sorted at every level, so the order is the same order `sorted(rglob(...))` produced
+        and `max_files` truncates the same set it always did. Symlinked directories are not
+        followed, which is what the file-level `is_symlink` check below has always been
+        asking for and could not enforce on its own.
+        """
+
+        for directory, names, files in os.walk(root, followlinks=False):
+            here = Path(directory)
+            base = here.relative_to(root).parts
+            names[:] = sorted(
+                name
+                for name in names
+                if name not in IGNORED_DIRECTORIES
+                and not excludes((*base, name), excluded_paths)
+                and not (here / name).is_symlink()
+            )
+            for name in sorted(files):
+                yield here / name
+
     def _discover_files(
         self, root: Path, excluded_paths: tuple[str, ...] = ()
     ) -> tuple[list[Path], list[Path]]:
@@ -657,16 +707,16 @@ class PythonAstRepositoryAnalyzer:
         config_files: list[Path] = []
         max_file_bytes = self._limits.max_file_bytes
         max_files = self._limits.max_files
-        for path in sorted(root.rglob("*")):
+        for path in self._walk(root, excluded_paths):
             if max_files is not None and len(python_files) + len(config_files) >= max_files:
                 break
-            relative_parts = path.relative_to(root).parts
-            if any(part in IGNORED_DIRECTORIES for part in relative_parts):
-                continue
-            # The caller's own exclusions, applied here and nowhere else, so that the
-            # fingerprint, the node set and the freshness check are all computed over one
-            # set of files by construction rather than by three call sites agreeing.
-            if excludes(relative_parts, excluded_paths):
+            # Pruning the walk already dropped every file under an excluded *directory*,
+            # which is what an exclusion is contracted to be. This is the same question
+            # asked of the file itself, kept because nothing rejects a caller who names one:
+            # `validate_excluded_paths` checks the spelling, not that the path is a folder,
+            # and a file exclusion that quietly stopped being honoured is the kind of change
+            # that shows up as a review of more code than somebody asked for.
+            if excludes(path.relative_to(root).parts, excluded_paths):
                 continue
             if path.is_symlink() or not path.is_file():
                 continue
@@ -813,7 +863,11 @@ class PythonAstRepositoryAnalyzer:
         return candidate if all(char in "0123456789abcdef" for char in candidate) else None
 
     def _create_packages(
-        self, root: Path, python_files: list[Path], root_node: AtlasNode
+        self,
+        root: Path,
+        python_files: list[Path],
+        root_node: AtlasNode,
+        roots: frozenset[str],
     ) -> dict[str, AtlasNode]:
         directories: set[Path] = set()
         for file_path in python_files:
@@ -826,7 +880,11 @@ class PythonAstRepositoryAnalyzer:
             relative = directory.relative_to(root).as_posix()
             parent_relative = directory.parent.relative_to(root).as_posix()
             parent = packages.get(parent_relative, root_node)
-            qualified = relative.replace("/", ".")
+            # Named the way the modules inside it are named. A `src/` directory is on the
+            # path rather than in the name, so its package nodes are `shop` and
+            # `shop.billing` — and a container called `src.shop` holding a module called
+            # `shop.orders` is one tree telling two stories about the same code.
+            qualified = module_name(f"{relative}/__init__.py", roots)
             package = self._node(
                 path=relative,
                 name=directory.name,
@@ -921,6 +979,7 @@ class PythonAstRepositoryAnalyzer:
         packages: dict[str, AtlasNode],
         root_node: AtlasNode,
         signals: list[ObscuritySignal],
+        roots: frozenset[str],
     ) -> ParsedModule:
         path = source_file.path
         relative = source_file.relative_path
@@ -936,7 +995,7 @@ class PythonAstRepositoryAnalyzer:
             node = self._node(
                 path=relative,
                 name=path.stem,
-                qualified=module_name(relative),
+                qualified=module_name(relative, roots),
                 kind=NodeType.MODULE,
                 parent_id=self._parent_for_path(path, root, packages, root_node).atlas_id,
                 start=1,
@@ -964,7 +1023,7 @@ class PythonAstRepositoryAnalyzer:
                 ast.Module(body=[], type_ignores=[]),
                 source,
             )
-        qualified = module_name(relative)
+        qualified = module_name(relative, roots)
         is_test = path.name.startswith("test_") or "tests" in Path(relative).parts
         is_config = path.stem in {"config", "settings", "configuration"}
         kind = (
@@ -990,7 +1049,7 @@ class PythonAstRepositoryAnalyzer:
         # to: `Protocol` imported under any name is still `typing.Protocol`, and reading it
         # off the written name instead is what made an aliased import invisible.
         self._record_import_aliases(parsed)
-        self._collect_symbols(parsed, tree.body, module_node, class_name=None, signals=signals)
+        self._collect_symbols(parsed, tree.body, module_node, signals=signals)
         self._collect_local_signals(parsed, signals)
         return parsed
 
@@ -1000,7 +1059,6 @@ class PythonAstRepositoryAnalyzer:
         statements: Iterable[ast.stmt],
         parent: AtlasNode,
         *,
-        class_name: str | None,
         signals: list[ObscuritySignal],
     ) -> None:
         for statement in statements:
@@ -1023,7 +1081,6 @@ class PythonAstRepositoryAnalyzer:
                     parsed,
                     statement.body,
                     node,
-                    class_name=statement.name,
                     signals=signals,
                 )
             elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -1063,13 +1120,12 @@ class PythonAstRepositoryAnalyzer:
                     parsed,
                     statement.body,
                     node,
-                    class_name=None,
                     signals=signals,
                 )
 
     def _collect_local_signals(self, parsed: ParsedModule, signals: list[ObscuritySignal]) -> None:
         for statement in parsed.syntax().body:
-            if isinstance(statement, (ast.ImportFrom,)) and any(
+            if isinstance(statement, ast.ImportFrom) and any(
                 alias.name == "*" for alias in statement.names
             ):
                 signals.append(
@@ -1105,7 +1161,9 @@ class PythonAstRepositoryAnalyzer:
                     )
                 )
 
-    def _module_references(self, module: ParsedModule) -> _ModuleReferences:
+    def _module_references(
+        self, module: ParsedModule, definitions: DefinitionIndex
+    ) -> _ModuleReferences:
         """Every name this module writes, read from its tree and nothing else.
 
         The counterpart of `_edges_from_references`, which turns these into edges without a
@@ -1122,7 +1180,7 @@ class PythonAstRepositoryAnalyzer:
 
         references: list[_Reference] = []
         for source_node in (module.node, *module.symbols.values()):
-            ast_node = ast_for_node(module, source_node)
+            ast_node = definitions.get(module, source_node)
             if ast_node is None:
                 continue
             scoped_nodes = list(lexical_nodes(ast_node))
@@ -1519,8 +1577,8 @@ class PythonAstRepositoryAnalyzer:
                 # every one of these is empty by construction. Short-circuited rather than
                 # computed, which also spares the guaranteed-empty scan over all edges.
                 computed = _ModuleMetrics(
-                    direct_dependencies=[],
-                    direct_dependants=[],
+                    direct_dependencies=(),
+                    direct_dependants=(),
                     forward=frozenset(),
                     backward=frozenset(),
                     affected=frozenset(),
@@ -1533,8 +1591,8 @@ class PythonAstRepositoryAnalyzer:
                 affected_here = reachable(impact_reverse, owner)
                 affected_modules = {*affected_here, owner}
                 computed = _ModuleMetrics(
-                    direct_dependencies=sorted(module_graph.get(owner, set())),
-                    direct_dependants=sorted(reverse.get(owner, set())),
+                    direct_dependencies=tuple(sorted(module_graph.get(owner, set()))),
+                    direct_dependants=tuple(sorted(reverse.get(owner, set()))),
                     forward=frozenset(reachable(module_graph, owner)),
                     backward=frozenset(reachable(reverse, owner)),
                     affected=frozenset(affected_here),
@@ -1607,8 +1665,11 @@ class PythonAstRepositoryAnalyzer:
                     dependency=DependencyMetrics(
                         fan_in=len(direct_dependants),
                         fan_out=len(direct_dependencies),
-                        direct_dependencies=direct_dependencies,
-                        direct_dependants=direct_dependants,
+                        # Copied into lists at the boundary, which is where the shape
+                        # changes and the only place it should. Pydantic would copy anyway;
+                        # doing it here is what lets the record above stay a tuple.
+                        direct_dependencies=list(direct_dependencies),
+                        direct_dependants=list(direct_dependants),
                         forward_dependency_reach=len(forward),
                         reverse_dependency_reach=len(backward),
                         dependency_depth=shared.depth,
@@ -2028,7 +2089,6 @@ class PythonAstRepositoryAnalyzer:
                         ),
                     )
                 )
-
 
 
 def _declared_constants(module: ParsedModule) -> list[DefinedConstant]:

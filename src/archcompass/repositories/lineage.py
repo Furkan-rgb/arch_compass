@@ -20,6 +20,7 @@ from datetime import datetime
 
 from pydantic import Field
 
+from archcompass.domain.repository import derive_branch_id
 from archcompass.records import BoundaryDTO, stable_id, utc_now
 
 #: The branch a run is attributed to when git will not name one. A detached HEAD is the
@@ -112,12 +113,6 @@ def derive_repo_id(root_commit_sha: str | None, canonical_root: str) -> str:
     if root_commit_sha:
         return stable_id("repoid", root_commit_sha)
     return stable_id("repoid", "path", canonical_root)
-
-
-def derive_branch_id(repo_id: str, branch_name: str) -> str:
-    """A branch lineage's identity: the repository it is in, and what it is called."""
-
-    return stable_id("branch", repo_id, branch_name)
 
 
 def resolve_repository_lineage(

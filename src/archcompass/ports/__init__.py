@@ -8,7 +8,7 @@ sequenced entirely out of.
 
 from archcompass.ports.atlas import (
     AtlasQueryService,
-    RepositoryAnalyzer,
+    AtlasSource,
     SourceReader,
 )
 from archcompass.ports.persistence import (
@@ -19,8 +19,8 @@ from archcompass.ports.policies import PolicySourceInspector, PolicySourceReposi
 __all__ = [
     "AtlasQueryService",
     "AtlasRepository",
+    "AtlasSource",
     "PolicySourceInspector",
     "PolicySourceRepository",
-    "RepositoryAnalyzer",
     "SourceReader",
 ]

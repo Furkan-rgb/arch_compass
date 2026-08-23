@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Sequence
-from typing import Literal, cast
+from typing import Final, Literal, cast
 
 from langchain_core.language_models import BaseChatModel
 from pydantic import BaseModel, Field, model_validator
@@ -202,6 +202,42 @@ def case_text(case: ArchitectureCase, *, judging: bool = True) -> str:
     )
 
 
+#: How much of a refused response is quoted back to the model that wrote it. Enough to
+#: recognise its own answer, not so much that the repair prompt is the answer again.
+_REPAIR_PREVIEW_CHARACTERS: Final = 2_000
+
+
+def _repair_prompt(
+    prompt: str, parsing_error: object, raw: object
+) -> str | None:
+    """The original request, the answer that was refused, and why — or nothing.
+
+    `None` when there is no parser complaint to quote, because then there is nothing to say
+    that the first prompt did not already say, and asking again would be the same request
+    twice.
+    """
+
+    if parsing_error is None:
+        return None
+    reason = " ".join(str(parsing_error).split())
+    content = " ".join(str(getattr(raw, "content", "") or "").split())
+    refused = (
+        f"\n\nYour previous answer was:\n{content[:_REPAIR_PREVIEW_CHARACTERS]}"
+        if content
+        else ""
+    )
+    return (
+        prompt
+        + refused
+        + "\n\nThat answer was refused: "
+        + reason[:1_000]
+        + "\n\nSome of the rules above are conditions between fields that the output "
+        "schema cannot state on its own, so honouring the schema is not enough — read the "
+        "instruction again and answer so that both hold. Return only the structured "
+        "response."
+    )
+
+
 def structured_output[Output: BaseModel](
     model: BaseChatModel,
     schema: type[Output],
@@ -222,8 +258,8 @@ def structured_output[Output: BaseModel](
 
     # Every model call in the application arrives here, which is why the retry sits here
     # too: one place to be sure a rate limit costs a wait rather than the whole review.
-    # It wraps the call and nothing else — a response that arrives and fails its schema is
-    # not a refusal, and asking again for it would only spend the quota faster.
+    # It wraps the call and nothing else — a rate limit is a reason to wait and ask again,
+    # and a response that arrives is not.
     structured = model.with_structured_output(schema, method="json_schema", include_raw=True)
     result = cast(
         dict[str, object],
@@ -233,6 +269,51 @@ def structured_output[Output: BaseModel](
     output = result.get("parsed")
     if parsing_error is None and isinstance(output, schema):
         return output
+
+    # One repair attempt, and only because it is not the same request twice.
+    #
+    # What fails here is almost never the JSON — the runtime constrains that — but a rule
+    # the JSON schema cannot carry: a hinge beside a recommendation, a resolution that
+    # settles nothing, four options where two were the floor. The model was not told what it
+    # broke, because nothing had gone wrong yet when the prompt was written. This tells it,
+    # quoting the parser, and asks once more.
+    #
+    # It is worth a call because of what the alternative costs. A judgement that fails its
+    # schema fails the whole review, after every other candidate has already been judged and
+    # paid for; a hinge resolution that fails is caught, logged and thrown away, so the
+    # question reaches a person unimproved and the manifest is silently empty. Both were
+    # observed on a local model, and both survived a single restatement of the rule.
+    #
+    # Once, not until it works. A model that cannot honour a contract having just been shown
+    # the contract and its own violation of it will not honour it on the fourth attempt
+    # either, and the message below is the one a reader needs in that case.
+    #
+    # Two costs to know about. A cross-field rule can usually be satisfied from either side,
+    # and the model chooses which: `FindingOutput` forbids a hinge beside a recommendation,
+    # and dropping the hinge satisfies that just as well as dropping the recommendation —
+    # which turns a finding that wanted to ask a person into a confident verdict. It is
+    # still the better trade against failing the whole review, and it is why the prompts
+    # state which side of each rule they mean rather than only that the two conflict.
+    # And a *systematic* violation doubles the call count for every candidate rather than
+    # for one, which on a metered tier is a review costing twice what it should. Neither is
+    # worth refusing the attempt over; both are worth knowing before raising the ceiling.
+    repair = _repair_prompt(prompt, parsing_error, result.get("raw"))
+    if repair is not None:
+        _log.warning(
+            "%s did not match the schema for %s; asking once more with the violation named",
+            model_identity or "The reasoning model",
+            subject,
+        )
+        result = cast(
+            dict[str, object],
+            call_with_retry(
+                lambda: structured.invoke(repair), subject=f"Producing {subject}"
+            ),
+        )
+        parsing_error = result.get("parsing_error")
+        output = result.get("parsed")
+        if parsing_error is None and isinstance(output, schema):
+            return output
 
     raw_content = getattr(result.get("raw"), "content", "")
     preview = " ".join(str(raw_content).split())
@@ -576,9 +657,11 @@ class LangChainQuestionGenerator:
         held = tuple(finding for finding in findings if finding.hinge)[:MAX_ASKED_HINGES]
         questions: list[Question] = []
         seen: set[str] = set()
+        lost = 0
         for finding in held:
             question = self._ask_about(finding, case, round=round)
             if question is None:
+                lost += 1
                 continue
             if (
                 question.equivalence_key in excluded_equivalence_keys
@@ -587,6 +670,21 @@ class LangChainQuestionGenerator:
                 continue
             seen.add(question.equivalence_key)
             questions.append(question)
+        if lost:
+            # Counted and said out loud, because the two ways to end this loop with nothing
+            # are opposite facts and used to look identical downstream. No held findings
+            # means the review settled everything and is finished; every held finding losing
+            # its question means the review has uncertainty it could not put into words, and
+            # `_after_questions` seals the case for both. A per-question warning could not
+            # say which had happened — only this can, and at ERROR because a review that
+            # asked nothing for this reason is a review that quietly stopped short.
+            log = _log.error if lost == len(held) else _log.warning
+            log(
+                "%d of %d held finding(s) reached no question this round; "
+                "the review will not ask about them",
+                lost,
+                len(held),
+            )
         return tuple(questions)
 
     def _ask_about(
@@ -667,19 +765,61 @@ CONVERSATION_LOOKUPS = (
 )
 
 
-def _conversation_policies(review: Review) -> tuple[Policy, ...]:
-    """Every policy this review's findings bear on, once each.
+#: How many of a review's policies the conversation is given, most-borne-on first.
+#:
+#: A bound rather than a preference. This used to be every policy every finding cited, at
+#: full length, and it is the one section of this prompt that grows with the size of the
+#: repository rather than with the question: fifty findings citing the whole corpus came to
+#: 350,000 characters, which is more than any context window this product configures. Ollama
+#: does not refuse an oversize prompt — it keeps the tail — so the section that would have
+#: been discarded first is the contract at the top, and the answer comes back fluent, and
+#: nothing says the rules were dropped.
+#:
+#: Twenty, because that is what retrieval hands a judgement, and a conversation that ranged
+#: over more rules than any single verdict rested on would be answering from a corpus rather
+#: than from this review.
+MAX_CONVERSATION_POLICIES: Final = 20
+
+#: The two sections of a policy that state the rule. The rest — signals, diagnostics,
+#: consequences, exceptions, both examples, the related list — is what makes a *judgement*
+#: rigorous, and a judgement reads one policy set for one candidate. A conversation reads
+#: twenty at once, and this is the same trade `_conversation_finding_text` already makes
+#: with the code behind a finding: breadth, and the depth is a click away.
+_CONVERSATION_POLICY_SECTIONS: Final = ("Intent", "Guidance")
+
+
+def _conversation_policies(review: Review) -> tuple[tuple[Policy, int], ...]:
+    """The policies this review's findings bear on, with how many bear on each.
 
     Gathered here rather than repeated under each finding because the rule a fix has to
     respect is the same rule however many findings bore on it, and its wording is what makes
     a proposed fix answerable against it.
+
+    Ordered by how many findings cite it, because the section is capped and a cap has to
+    drop something: the rule three findings turn on belongs in front of the one that came up
+    once. Ties break on the identifier so the prompt is the same prompt twice.
     """
 
     seen: dict[str, Policy] = {}
+    borne: dict[str, int] = {}
     for finding in review.findings:
         for bearing in finding.policies:
             seen.setdefault(bearing.policy.id, bearing.policy)
-    return tuple(seen.values())
+            borne[bearing.policy.id] = borne.get(bearing.policy.id, 0) + 1
+    ranked = sorted(seen, key=lambda policy_id: (-borne[policy_id], policy_id))
+    return tuple((seen[policy_id], borne[policy_id]) for policy_id in ranked)
+
+
+def _conversation_policy_text(policy: Policy) -> str:
+    """One policy as the rule it states, without the material that argues for it."""
+
+    kept = [
+        section
+        for section in policy.body.split("\n## ")
+        if section.removeprefix("## ").split("\n", 1)[0] in _CONVERSATION_POLICY_SECTIONS
+    ]
+    body = "\n## ".join(kept).strip() if kept else policy.body.strip()
+    return f"'{policy.title}' ({policy.strength.value})\n{body}"
 
 
 def _conversation_finding_text(finding: Finding) -> str:
@@ -783,12 +923,21 @@ def conversation_prompt(
         )
     policies = _conversation_policies(review)
     if policies:
+        shown = policies[:MAX_CONVERSATION_POLICIES]
+        # Said out loud when the cap bites, because a model that cannot see a rule must not
+        # answer as though the review rested on nothing else.
+        omitted = (
+            ""
+            if len(shown) == len(policies)
+            else (
+                f"\n\n{len(policies) - len(shown)} further policies this review cites are "
+                "not listed here; say so rather than assuming they say nothing."
+            )
+        )
         sections.append(
             "POLICIES THESE FINDINGS BEAR ON\n"
-            + "\n\n".join(
-                f"'{policy.title}' ({policy.strength.value})\n{policy.body}"
-                for policy in policies
-            )
+            + "\n\n".join(_conversation_policy_text(policy) for policy, _ in shown)
+            + omitted
         )
     sections.append(
         "FINDINGS\n"

@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # The four values live as repository variables rather than in this file, so a fork
-    # deploys nowhere and rotating the trust touches no commit. See docs/deploy.md for
+    # deploys nowhere and rotating the trust touches no commit. See docs/operations.md for
     # the one-time gcloud commands that create them.
     env:
       SERVICE: archcompass

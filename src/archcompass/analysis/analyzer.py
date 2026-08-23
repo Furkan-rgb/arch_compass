@@ -31,7 +31,7 @@ from archcompass.domain import (
     RepositoryRef,
     SourceLocation,
 )
-from archcompass.ports.atlas import RepositoryAnalyzer as AnalyzerRecordSource
+from archcompass.ports.atlas import AtlasSource
 from archcompass.ports.persistence import ScopeSelectionRepository
 
 
@@ -53,7 +53,7 @@ class DataclassRepositoryAnalyzer:
 
     def __init__(
         self,
-        analyzer: AnalyzerRecordSource,
+        analyzer: AtlasSource,
         scope_selections: ScopeSelectionRepository,
     ) -> None:
         self._analyzer = analyzer

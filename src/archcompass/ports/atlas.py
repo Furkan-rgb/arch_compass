@@ -15,7 +15,17 @@ from archcompass.analysis.atlas import (
 )
 
 
-class RepositoryAnalyzer(Protocol):
+class AtlasSource(Protocol):
+    """Whatever reads a directory of source and answers with an `Atlas` record.
+
+    Named for what it yields, because there is a second protocol one layer in that is also
+    an analysis of a repository — `ports.capabilities.RepositoryAnalyzer`, which takes a
+    `RepositoryRef` and answers with the *domain* `RepositoryAtlas`. Both were called
+    `RepositoryAnalyzer`, which is how the file that composes one out of the other came to
+    import this one under an alias to tell them apart. The two names now mirror the two
+    records: this one makes the `Atlas`, that one makes the `RepositoryAtlas`.
+    """
+
     def analyze(self, root: Path, *, excluded_paths: tuple[str, ...] = ()) -> Atlas:
         """The atlas of this repository, less the subtrees named in `excluded_paths`.
 
@@ -149,6 +159,35 @@ class SourceReader(Protocol):
         max_lines: int,
         numbered: bool = True,
     ) -> str: ...
+
+    def at_revision(
+        self,
+        root: Path,
+        relative_path: str,
+        start_line: int,
+        end_line: int,
+        *,
+        revision: str,
+        max_lines: int,
+        numbered: bool = True,
+    ) -> str | None:
+        """The same lines as they stood at `revision`, or `None` if it cannot be served.
+
+        The distinction that matters for a review. `excerpt` reads the working tree, which
+        is the right answer only while the tree still is what was judged — the atlas's line
+        spans belong to one revision, and pointed at any other they name different code.
+        That is why reading source has always been guarded by a freshness check, and why the
+        guard could only *refuse*: there was nothing else to read.
+
+        This is the something else. A review records the commit it judged, so the source it
+        judged can be asked for by name however far the checkout has moved on since — which
+        is what makes a recorded lookup reproducible rather than merely once-true.
+
+        `None` where there is no answer to give: no revision recorded, no git, a path that
+        did not exist then. The caller falls back to the tree, and to refusing when the tree
+        has moved.
+        """
+        ...
 
 
 class AtlasFreshnessChecker(Protocol):

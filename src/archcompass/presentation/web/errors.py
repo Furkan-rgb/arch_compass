@@ -1,9 +1,10 @@
 """How a raised error becomes a status code and a sentence somebody can act on.
 
 One classifier and three handlers. `classify_error` is the single table mapping the
-domain's exceptions onto HTTP, and it is used twice: by the handler that turns a raised
-error into a response, and by the streams, which are already a 200 by the time they fail
-and so have to write the same verdict into the body instead.
+domain's exceptions onto HTTP, read by the handler that turns a raised error into a
+response. It was read in a second place too, by a streaming route that was already a 200 by
+the time it could fail and so had to write the same verdict into the body; that route is
+gone, and the table did not need to change to lose it.
 """
 
 # Pyright cannot see FastAPI's decorator registration as a function reference.
@@ -43,6 +44,7 @@ from archcompass.domain.errors import (
     ReviewNotCancellableError,
     ReviewNotFoundError,
     ReviewStillRunningError,
+    ReviewSupersededError,
     StaleAtlasError,
 )
 from archcompass.presentation.web.restrictions import HostedRefusal
@@ -163,6 +165,7 @@ def classify_error(error: ArchCompassError) -> tuple[int, str, bool]:
             ReviewHasNoReportError,
             ReviewNotCancellableError,
             ReviewStillRunningError,
+            ReviewSupersededError,
             StaleAtlasError,
         ),
     ):

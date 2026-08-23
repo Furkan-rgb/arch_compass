@@ -50,9 +50,11 @@ from mypy.version import __version__ as MYPY_VERSION
 from archcompass.analysis.adapters.ast_support import (
     canonical_roots,
     excluded_within,
+    import_roots,
     lies_within,
     module_name,
 )
+from archcompass.analysis.scope import IGNORED_DIRECTORIES
 from archcompass.ports.atlas import (
     ConformanceQuestion,
     ConformanceVerdict,
@@ -70,22 +72,6 @@ CONFORMANCE_RULE_VERSION = "conformance-rule-v1"
 #: Directories that are never part of the repository under review. Mirrors the analyzer's
 #: own list; a resolver that fed mypy a vendored `.venv` would spend minutes on code the
 #: atlas has no nodes for.
-_IGNORED_DIRECTORIES = frozenset(
-    {
-        ".git",
-        ".hg",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".tox",
-        ".venv",
-        "__pycache__",
-        "build",
-        "dist",
-        "node_modules",
-        "site-packages",
-    }
-)
 
 #: Attributes that lead away from the expression tree rather than through it. `node` and
 #: `info` point at definitions the walk would otherwise re-enter through every reference,
@@ -165,14 +151,19 @@ class _RepositoryTypes:
     @classmethod
     def build(cls, root: Path, excluded_roots: tuple[Path, ...] = ()) -> _RepositoryTypes:
         excluded = excluded_within(root, excluded_roots)
-        modules = {
-            path.relative_to(root).as_posix(): module_name(path.relative_to(root).as_posix())
+        relative = [
+            path.relative_to(root).as_posix()
             for path in sorted(root.rglob("*.py"))
-            if not any(part in _IGNORED_DIRECTORIES for part in path.relative_to(root).parts)
+            if not any(part in IGNORED_DIRECTORIES for part in path.relative_to(root).parts)
             and not path.is_symlink()
             and path.is_file()
             and not lies_within(path, excluded)
-        }
+        ]
+        # The same import roots the analyzer derives, from the same rule. A resolver that
+        # named `src/archcompass/x.py` differently from the atlas would answer every
+        # question about a src-layout repository with names nothing could be matched to.
+        roots = import_roots(relative)
+        modules = {path: module_name(path, roots) for path in relative}
         sources = [
             # The dotted name is explicit because mypy otherwise infers it from the file
             # system and calls every root-level script `__main__`, which aborts the build

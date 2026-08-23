@@ -124,14 +124,6 @@ class ReviewNotFoundError(ArchCompassError):
     """No stored review under that identifier."""
 
 
-class ReviewCancelledError(ArchCompassError):
-    """The run was asked to stop, and did, between one model call and the next.
-
-    Not a failure: the record already says the review was cancelled, and the run raises
-    only to unwind the work it was in the middle of.
-    """
-
-
 class NothingToReviewError(ArchCompassError):
     """A revision was asked for and nothing has moved since the branch's last one.
 
@@ -153,6 +145,24 @@ class ReviewNotCancellableError(ArchCompassError):
     """The review is not running, so there is nothing to stop."""
 
 
+class ReviewSupersededError(ArchCompassError):
+    """Answers arrived for a snapshot the review has already moved past.
+
+    A review that asks twice is recorded twice, under one sequence, and both snapshots say
+    `awaiting_answers` for ever — a snapshot is immutable, so round one's copy goes on
+    saying it long after round two opened. Neither the snapshot nor the execution's status
+    can therefore tell a retry from a stale submission, and the difference is not academic:
+    replaying round one's answers into round two's interrupt hands the case a set of
+    equivalence keys it already holds, which raises inside the graph, fails the round, and
+    leaves the answers a person actually typed nowhere but in a review blob.
+
+    What tells them apart is which snapshot the execution currently stands on. This is
+    raised when that is not the one the answers were written against, and it is not
+    retryable: the questions on screen are not the questions the review is waiting for, and
+    the way forward is to read the review again, not to send this again.
+    """
+
+
 class ReviewStillRunningError(ArchCompassError):
     """The review is being produced right now, and the request needs it not to be."""
 
@@ -170,22 +180,7 @@ class ProviderError(ArchCompassError):
     pass
 
 
-class PromptBudgetExceededError(ArchCompassError):
-    """The serialized request cannot fit the model's context window.
-
-    Deliberately not a `ProviderError`: the provider is healthy and an identical
-    retry fails identically. Ollama would silently discard the front of an oversize
-    prompt - the system prompt first - so this refuses to send and names the sizes
-    instead of producing degraded output that fails validation with no attributable
-    cause.
-    """
-
-
 class ModelOutputValidationError(ArchCompassError):
-    pass
-
-
-class EvidenceReferenceError(ArchCompassError):
     pass
 
 

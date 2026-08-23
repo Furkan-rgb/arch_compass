@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
@@ -21,7 +20,7 @@ from archcompass.domain import (
     RepositoryRef,
     Review,
 )
-from archcompass.domain.errors import ReviewHasNoReportError, ReviewNotFoundError
+from archcompass.domain.errors import ReviewHasNoReportError
 from archcompass.persistence.reviews import ReviewSummary
 from archcompass.presentation.web.dependencies import RuntimeDep, SpendsModelBudget
 from archcompass.presentation.web.schemas import APIModel, problem_responses
@@ -40,9 +39,15 @@ class ReviewRunResponse(APIModel):
     """A review in flight, addressable as the revision it is going to be.
 
     Every identifier a review is filed under is known before the review exists: the
-    repository, the branch, the case, and — from the newest review on that branch — the
-    sequence this one will take. So a run is not an anonymous job with a thread id; it is
-    revision N of a lineage a reader can already see, and it is addressed as one.
+    repository, the branch, the case, and the sequence this one will take. So a run is not
+    an anonymous job with a thread id; it is revision N of a lineage a reader can already
+    see, and it is addressed as one.
+
+    The sequence comes from the snapshot the run has already filed wherever there is one,
+    and only otherwise from the newest review on the branch plus one. The distinction is
+    the whole of the one-review-one-number rule seen from here: a run that has asked a
+    question has filed a waiting snapshot, and asking `latest + 1` after that would answer
+    with the number *after* its own.
 
     What is genuinely absent is the composed review: its atlas, its findings, its delta. A
     client shows the run's progress in their place rather than a review with empty fields,
@@ -83,8 +88,10 @@ class ReviewRunResponse(APIModel):
     branch_name: str = ""
     branch_id: str = ""
     case_id: str = ""
-    #: Which revision this will be. Derived from the newest review on the branch, so it is
-    #: the number the composed review will carry rather than a placeholder.
+    #: Which revision this is. Taken from the snapshot this run has already filed, and
+    #: otherwise from the newest review on the branch plus one — so it is the number the
+    #: composed review will carry rather than a placeholder, and it does not move when the
+    #: run files a second snapshot for its next round.
     sequence: int = 1
     #: When this process started the run, so a page watching one can say how long it has
     #: been. `None` where the run was started by a process that has since gone: the start
@@ -702,8 +709,7 @@ def routes() -> APIRouter:
         # told what number it is going to take.
         sequence = None
         if state.review_id is not None:
-            with suppress(ReviewNotFoundError):
-                sequence = runtime.review_workflow_service.get(state.review_id).sequence
+            sequence = runtime.core_review_repository.sequence_of(state.review_id)
         if sequence is None:
             previous = runtime.review_workflow_service.latest_for_branch(lineage.branch_id)
             sequence = (previous.sequence + 1) if previous else 1

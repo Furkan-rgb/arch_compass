@@ -105,9 +105,13 @@ class SupportedOllamaModel:
 
 OLLAMA_MODELS: Final = (
     SupportedOllamaModel(
+        name="qwen3.8:27b",
+        label="Qwen 3.8 27B",
+        recommended=True,
+    ),
+    SupportedOllamaModel(
         name="gemma4:26b-mlx",
         label="Gemma 4 26B MLX",
-        recommended=True,
     ),
     SupportedOllamaModel(
         name="gemma4:12b-mlx",
@@ -247,5 +251,30 @@ OLLAMA_DESCRIPTOR = ProviderDescriptor(
     defaults=ProviderDefaults(
         base_url="http://127.0.0.1:11434",
         base_url_env="ARCHCOMPASS_OLLAMA_URL",
+        # Narrower than the shared default, because here the number is not a budget check —
+        # it is `num_ctx`, and a local runner allocates the window it is asked for before it
+        # starts. A hosted API is told how long an answer may be; Ollama is told how much
+        # memory to take. On a 24 GB card a 27B model at Q4 is about 16.5 GB, and asking for
+        # the shared 128k window pushed roughly 5 GB of it back onto the CPU: the judgement
+        # that answers in eleven seconds inside the card had not finished in five minutes
+        # outside it.
+        #
+        # 48k is chosen from what this product actually sends, not from what a model can
+        # take. A judgement prompt is the candidate plus twenty retrieved policies, and the
+        # policies are most of it — which is why it barely moves with the size of the
+        # repository: 19,200 tokens on the smallest bundled example, and 20,800 on the
+        # largest candidate of a real 16,000-line repository. 48k leaves room for that and
+        # for the 16k a thinking selection may spend answering, with a third of the window
+        # still spare. Below it a thinking run would overflow, and Ollama does not refuse an
+        # oversize prompt — it keeps the tail, so the first thing discarded is the contract
+        # at the top and the answer comes back fluent and unrecorded. Well above it the
+        # window stops fitting beside the weights.
+        context_window_tokens=49152,
+        # Both budgets come down with the window, because they are spent from it. A thinking
+        # selection asking for the shared 32k would leave 16k for a prompt that needs 19k,
+        # and the validator that forbids an output budget larger than the window would let
+        # that through — it compares the two numbers, not their sum.
+        max_output_tokens=8192,
+        max_output_tokens_thinking=16384,
     ),
 )

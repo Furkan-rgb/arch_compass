@@ -29,8 +29,12 @@ export const STAGE_LABELS: Record<string, string> = {
   compose_final_review: "Composing the review",
   record_waiting_review: "Recording the review",
   record_review: "Recording the review",
+  await_answers: "Waiting for your answers",
+  // LangGraph's own name for the pause, which arrives in the stage list beside ours.
+  __interrupt__: "Waiting for your answers",
   revise_case: "Recording your answers on the case",
   select_candidates_for_rejudgement: "Choosing what to judge again",
+  seal_case: "Writing this review's case revision",
 };
 
 export const stageLabel = (stage: string) => STAGE_LABELS[stage] ?? humanise(stage);

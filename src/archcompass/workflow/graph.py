@@ -117,8 +117,40 @@ def _dispatch_candidates(
         judge = capabilities.judge
         if isinstance(judge, BatchArchitectureJudge) and judge.supports_batch():
             return "review_candidates"
+        # Three keys, not the whole state, and the narrower payload is a correctness fix
+        # before it is anything else.
+        #
+        # `{**state, ...}` handed every branch the accumulated `findings`, and the branch
+        # handed them straight back: the subgraph's output schema projects its final merged
+        # state, so each branch returned every finding it had been given plus its own.
+        # `merge_mappings` applies those writes in task order, so in a clarification round —
+        # where `RejudgeAllCandidates` selects every candidate and `findings` already holds
+        # round one's verdicts for all of them — every branch but the last had its fresh
+        # verdict overwritten by a sibling's stale copy. Measured on `boundary-review` with
+        # the hinge lookups off: five of six answered candidates came back with their
+        # round-one verdict and the review asked again. The model calls were made and paid
+        # for and then thrown away.
+        #
+        # It stayed invisible because `investigate_hinges` runs next and re-judges exactly
+        # the findings that reverted, so with the pass on — the default — the round looked
+        # right. That is also why no test caught it: every graph test judges one candidate,
+        # and one candidate is the case this cannot happen in.
+        #
+        # What the subgraph reads is all that goes: `retrieve_policy_set` needs the
+        # candidate, the case and the corpus; `judge_candidate` needs the candidate and the
+        # retrieval its neighbour just wrote. Nothing in it reads the atlas or the findings.
+        # The size is the second reason and still worth having — a `Send` payload is
+        # checkpointed per branch, and one round of six candidates fell from 21 MB of
+        # `__pregel_tasks` to 1.3 MB.
         return [
-            Send("review_candidate", {**state, "candidate": candidate})
+            Send(
+                "review_candidate",
+                {
+                    "candidate": candidate,
+                    "case": state["case"],
+                    "corpus": state["corpus"],
+                },
+            )
             for candidate in state["selected_candidates"]
         ]
 

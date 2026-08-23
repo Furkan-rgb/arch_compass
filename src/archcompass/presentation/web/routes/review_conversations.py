@@ -4,11 +4,7 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Iterator
-
 from fastapi import APIRouter, Response
-from fastapi.responses import StreamingResponse
 from pydantic import Field
 
 from archcompass.ports.review_conversation import ReviewConversation
@@ -126,29 +122,5 @@ def routes() -> APIRouter:
         return ReviewConversationResponse.from_application(
             runtime.review_conversation_service.ask(conversation_id, request.question)
         )
-
-    @router.post(
-        "/api/review-conversations/{conversation_id}/messages/stream",
-        response_class=StreamingResponse,
-        dependencies=[SpendsModelBudget],
-    )
-    def stream_review_question(
-        runtime: RuntimeDep,
-        conversation_id: str,
-        request: ReviewQuestionRequest,
-    ) -> StreamingResponse:
-        def lines() -> Iterator[str]:
-            try:
-                conversation = runtime.review_conversation_service.ask(
-                    conversation_id, request.question
-                )
-                payload = ReviewConversationResponse.from_application(
-                    conversation
-                ).model_dump(mode="json")
-                yield json.dumps({"event": "answered", "conversation": payload}) + "\n"
-            except Exception as error:
-                yield json.dumps({"event": "failed", "message": str(error)}) + "\n"
-
-        return StreamingResponse(lines(), media_type="application/x-ndjson")
 
     return router

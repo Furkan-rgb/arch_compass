@@ -24,80 +24,25 @@ from __future__ import annotations
 
 import argparse
 import os
-import sqlite3
 import sys
 from pathlib import Path
-
-import sqlite_vec
 
 from archcompass.configuration import EmbeddingModelConfig
 from archcompass.policies.adapters.bundled import bundled_corpus
 from archcompass.policies.adapters.embeddings import embedding_config_from_environment
-from archcompass.policies.adapters.prebuilt import (
-    MANIFEST_SCHEMA,
-    MANIFEST_TABLE,
-    PREBUILT_INDEX,
-    coverage,
-)
-from archcompass.policies.adapters.sqlite_index import SQLitePolicyIndex, desired_chunks
-from archcompass.reasoning.adapters.factory import build_embeddings, embedding_identity
+from archcompass.policies.adapters.prebuilt import PREBUILT_INDEX, build, coverage
+from archcompass.reasoning.adapters.factory import embedding_identity
 
 ROOT = Path(__file__).resolve().parents[1]
 
-#: Read-only once written. Belt to the braces of never writing to the attached schema: an
-#: edit that forgot is refused by SQLite rather than quietly mutating a file that is supposed
-#: to be a build artefact, and the container's own user could not write it anyway.
-_READ_ONLY = 0o444
 
+def _describe(path: Path) -> str:
+    """The output path as a reader would name it: relative here, absolute anywhere else."""
 
-def build(path: Path, config: EmbeddingModelConfig) -> int:
-    """Embed the whole shipped corpus into a fresh file, and say what it is.
-
-    Written by the same `SQLitePolicyIndex` that reads it at run time rather than by SQL
-    written here, so there is exactly one account of what a stored chunk looks like. The
-    index is pointed at this file as its own workspace database and told there is no shipped
-    index to consult — which is true, since this is the one being made.
-    """
-
-    corpus = bundled_corpus()
-    identity = embedding_identity(config)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # From scratch every time. Refreshing in place would leave the chunks of a policy that
-    # has since been deleted sitting in the file, and `coverage` would rightly refuse it.
-    path.unlink(missing_ok=True)
-
-    def connect() -> sqlite3.Connection:
-        connection = sqlite3.connect(path)
-        # Rollback journalling rather than WAL, which is what the workspace database uses.
-        # A WAL database needs to write beside itself to be opened at all, and this one is
-        # opened from an installed package directory that nothing at run time may write to.
-        connection.execute("PRAGMA journal_mode = DELETE")
-        return connection
-
-    index = SQLitePolicyIndex(
-        connect,
-        build_embeddings(config),
-        embedding_identity=identity,
-        dimensions=config.dimensions,
-    )
-    index.synchronize(corpus)
-
-    chunks = len(desired_chunks(corpus, identity))
-    with sqlite3.connect(path) as connection:
-        connection.execute(MANIFEST_SCHEMA)
-        connection.execute(f"DELETE FROM {MANIFEST_TABLE}")
-        connection.execute(
-            f"INSERT INTO {MANIFEST_TABLE}(embedding_identity, dimensions, chunk_count) "
-            "VALUES (?, ?, ?)",
-            (identity, config.dimensions, chunks),
-        )
-    with sqlite3.connect(path) as connection:
-        connection.enable_load_extension(True)
-        sqlite_vec.load(connection)
-        connection.enable_load_extension(False)
-        connection.execute("VACUUM")
-    path.chmod(_READ_ONLY)
-    return chunks
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
 
 
 def check(path: Path, config: EmbeddingModelConfig) -> bool:
@@ -108,7 +53,7 @@ def check(path: Path, config: EmbeddingModelConfig) -> bool:
     if found.complete:
         assert found.manifest is not None
         print(
-            f"{path.relative_to(ROOT)} covers {len(corpus)} policies in "
+            f"{_describe(path)} covers {len(corpus)} policies in "
             f"{found.manifest.chunk_count} chunks for {found.manifest.embedding_identity}"
         )
         return True
@@ -135,15 +80,19 @@ def main() -> int:
     if arguments.check:
         return 0 if check(arguments.output, config) else 1
 
-    if not os.environ.get(config.api_key_env or "", "").strip():
+    # Only a provider that names a credential variable is asked for one. A self-hosted
+    # embedder names none, and reading `os.environ[""]` for it refused every local build
+    # with the sentence "which needs None set" — which is how the whole Ollama path came to
+    # have no way of producing the index the retriever then refuses to run without.
+    if config.api_key_env and not os.environ.get(config.api_key_env, "").strip():
         print(
             f"Building the index embeds the whole corpus, which needs {config.api_key_env} "
             "set. Checking an already-built one does not: pass --check.",
             file=sys.stderr,
         )
         return 1
-    chunks = build(arguments.output, config)
-    print(f"wrote {arguments.output.relative_to(ROOT)} — {chunks} chunks")
+    chunks = build(arguments.output, bundled_corpus(), config)
+    print(f"wrote {_describe(arguments.output)} — {chunks} chunks")
     return 0
 
 

@@ -39,7 +39,7 @@ Only the frontend reloads; a Python change needs `make dev` restarted.
 
 ```bash
 uv run archcompass --provider google --model gemini-3.5-flash-lite web
-uv run archcompass --provider ollama --model gemma4:26b web
+uv run archcompass --provider ollama --model qwen3.8:27b web
 ```
 
 Google requires `GOOGLE_API_KEY`. Its policy retriever uses Google's
@@ -54,6 +54,11 @@ combination that exercises the whole workflow without a paid tier. Neither meter
 separately either, so judging there is the concurrent loop rather than the batch path, sized
 by the provider's own `concurrent_requests` and overridable with
 `ARCHCOMPASS_MODEL_CONCURRENT_REQUESTS`.
+
+`ARCHCOMPASS_HINGE_INVESTIGATION=0` turns off the read-only lookups a hinged finding gets
+before its question is put to a person. Every held finding otherwise costs up to six tool
+turns and a structured call, which is a rounding error on a hosted tier and minutes on one
+local GPU. Off, the workspace asks its questions the way it did before the pass existed.
 
 Embedding selection remains independent from reasoning selection:
 `ARCHCOMPASS_EMBEDDING_PROVIDER`, `ARCHCOMPASS_EMBEDDING_MODEL`,

@@ -106,6 +106,23 @@ class SQLiteCoreReviewRepository:
         assert row is not None
         return self._codec.decode(str(row[0]), description=f"Review {review.id}")
 
+    def sequence_of(self, review_id: str) -> int | None:
+        """The number one review carries, without decoding the review to find it.
+
+        It is a column, and reading it as one matters more than it looks. The run endpoint
+        wants this integer and nothing else, and it was getting it by decoding the whole
+        stored document — which on a review of a real repository is megabytes of JSON, on
+        every poll of a run somebody is watching. That decode is most of what made the POST
+        that answers a clarification round miss a thirty-second deadline.
+        """
+
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT sequence FROM core_review_snapshots WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+        return None if row is None else int(row[0])
+
     def get(self, review_id: str) -> Review:
         with self._connect() as connection:
             row = connection.execute(

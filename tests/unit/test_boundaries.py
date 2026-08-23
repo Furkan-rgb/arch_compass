@@ -54,9 +54,16 @@ def test_the_layer_named_packages_are_gone() -> None:
     to "where does this live", which is the failure the tree was reorganised to remove.
     """
 
+    # Asked of Python source, not of the directory. A checkout that has ever run the old
+    # tree keeps `adapters/__pycache__/` and `application/__pycache__/` on disk for ever —
+    # `.pyc` files are gitignored, so nothing removes them and `git status` stays clean —
+    # and this test spent a while failing on every such machine over bytecode for modules
+    # that no longer exist. What the rule is about is where a module lives.
     for stale in ("adapters", "application", "boundary"):
-        assert not (SOURCE_ROOT / stale).exists(), (
-            f"{stale}/ is back; the tree is navigated by feature, not by layer"
+        revived = sorted((SOURCE_ROOT / stale).rglob("*.py"))
+        assert not revived, (
+            f"{stale}/ is back; the tree is navigated by feature, not by layer. "
+            f"Found {[str(path.relative_to(SOURCE_ROOT)) for path in revived]}"
         )
     for feature in FEATURES:
         assert (SOURCE_ROOT / feature).is_dir(), f"{feature}/ is gone"

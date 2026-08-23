@@ -114,10 +114,6 @@ class ReasoningModelConfig(BoundaryDTO):
     timeout_seconds: float = Field(gt=0)
     context_window_tokens: int = Field(default=32768, ge=512)
     max_output_tokens: int = Field(default=16384, ge=512, le=65536)
-    #: Characters per token used to estimate a request against the context window.
-    #: Deliberately generous: over-estimating refuses a borderline request explicitly,
-    #: while under-estimating lets the model silently truncate it.
-    chars_per_token: float = Field(default=4.0, gt=0)
     #: Whether the model reasons before answering: `true` to require it, `false` to
     #: forbid it, absent to leave the model to its own default. Every stage here asks for
     #: one judgement about supplied evidence, so this is a property of the chosen model

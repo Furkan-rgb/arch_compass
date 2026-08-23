@@ -4,70 +4,6 @@ Faults that are understood but not yet fixed, written down so the next person do
 to find them again. Each one names the evidence it rests on. A fault that has been fixed
 leaves this file; a fault that turns out not to exist leaves it too, with a note saying so.
 
-## An answer submitted twice destroys the case
-
-**Confirmed against a real workspace on 2026-08-22.** Reported as "answering the questions
-results in a conflicted version of the case", and blamed on a Gemini timeout. The shape of
-the report is right. The timeout is not the cause.
-
-### What it looks like on disk
-
-For case `case_be455c98…` in the development workspace, `core_review_snapshots` holds three
-rows at sequence 1:
-
-| review | round | status | points at case revision |
-| --- | --- | --- | --- |
-| `review_aadbede0` | 1 | `awaiting_answers` | 1 |
-| `review_d0464fe5` | 2 | `awaiting_answers` | 2 |
-| `review_f260108c` | 2 | `failed` | 2 |
-
-`core_case_snapshots` for that case holds **revision 1, with zero answers, and nothing else**.
-Two reviews point at a revision that was never written. The five answers a person typed
-survive only inside review blobs and the LangGraph checkpoint; the case, which is the durable
-record and the thing every later review is judged against, has none of them. Opening revision
-2 answers 404.
-
-### How it happens
-
-`api.answerRun` passes no timeout, so it inherits `READ_TIMEOUT_MS = 30_000` from
-`frontend/src/api.ts`. That POST is not cheap — `_resume_command` decodes the whole review
-and `_describe_run` decodes it a second time only to read `.sequence`, and the review blob in
-this workspace is 2.37 MB. The request aborted, `resume.isPending` went false, the button
-re-enabled with the answers still in component state, and a second identical POST went out
-sixteen seconds later. By then the first attempt had succeeded, opened round 2, and written
-its waiting snapshot.
-
-Nothing refused the second one. `_resume_command` in `workflow/service.py` asks two questions,
-and both of them answer yes for a superseded review:
-
-* the execution row says `awaiting_answers` — true, but it is round 2 that is waiting;
-* `self._reviews.get(review_id).status` says `awaiting_answers` — and always will, because a
-  review snapshot is immutable. Round 1's snapshot says it for ever.
-
-So round 1's answers resumed round 2's interrupt. `case.with_answers` found five equivalence
-keys it already held and raised, and `_record_failure` recorded a failed review naming case
-revision 2 — a revision `seal_case` never got to write.
-
-Then it goes quiet. The execution row now reads `failed`, so `_resume_command` returns `None`,
-`resume_background` hands back the old run state, and the route answers **202 with a failed
-run**. The Answer button can be pressed for ever. Nothing happens and nothing says so.
-
-### The repair
-
-The one guard that closes it: compare the posted `review_id` against
-`executions.current_review_id(thread_id)` and refuse with a 409 when they differ. A superseded
-review id is a conflict, not a repeat, and it is the only thing that distinguishes the two.
-
-Worth doing alongside, in this order:
-
-1. `_record_failure` files a review naming an unwritten case revision. This happens on *every*
-   failed round, not only this one. Seal the opened revision before recording the failure, or
-   record `previous_case` on the failed snapshot.
-2. A `failed` or `cancelled` execution must raise rather than return a stale run. "Not awaiting
-   answers" is currently read as "already done", which is what makes the dead button silent.
-3. Give `answerRun` `NO_TIMEOUT`, like the other calls that start work, and stop
-   `_describe_run` decoding a multi-megabyte review to read one integer.
-
 ## The one-review-one-sequence rule has no schema behind it
 
 Migration `003_one_revision_per_review.sql` rebuilt `core_review_snapshots` without the old
@@ -90,19 +26,30 @@ window both take the same number, and the loser dies with a genuine `CaseRevisio
 after a full round of judging has already been paid for. Reserve the row at `open`, or make
 `seal` retry with a fresh number.
 
-## A question-generation timeout ends the round silently
+`ArchitectureCaseService.rescope` (`workflow/cases.py`) takes `latest + 1` through
+`ArchitectureCase.revise()` — the same unreserved number `open` took — so re-scoping during a
+live review makes `seal_case` die the same way, with a wider window.
 
-`generate_questions_node` catches every exception and returns no questions. A model timeout
-there does not fail the run — it ends the clarification loop and seals the case, and the
-reader sees a review that simply stopped asking. Whatever the right behaviour is, it should be
-distinguishable from "there was nothing to ask".
+## A round that could not be put into words is still not distinguishable on screen
 
-## The checkpoint database grows without bound
+`generate_questions_node` catches every exception and returns no questions; so does the
+per-finding loop inside `LangChainQuestionGenerator.generate`. Degrading is right — every
+candidate has already been judged by then, and letting it propagate throws that away — but
+"the review settled everything" and "the review has uncertainty it could not phrase" both
+leave with no questions and both seal the case.
 
-`.archcompass/review-checkpoints.db` reached **56 GB**, with a 260 MB WAL, on a development
-machine. Individual checkpoint writes are 8–78 MB. This is its own problem and it feeds the
-one above: those writes are what made a 30-second POST miss its deadline. Nothing prunes
-checkpoints for reviews that have reached a terminal state.
+Half fixed: the two are now distinguishable **in the log**, at ERROR, naming how many held
+findings went unasked. Nothing says so on a surface a reader sees, and a review that quietly
+stopped short still reads as a review that finished.
+
+## A failed or cancelled execution reads as "already done"
+
+`_resume_command` returns `None` for any execution that is not `awaiting_answers`, and
+`resume_background` turns that into `202` with the existing run state. For a `failed` or
+`cancelled` execution that is a 202 describing a run that will never do anything: the Answer
+button can be pressed for ever, and only a client that reads `status` off the run body can
+tell. A submission against a superseded *round* is now refused properly
+(`ReviewSupersededError`, 409); a submission against a dead *run* is not.
 
 ## Indexing still happens inside the click
 
@@ -127,9 +74,48 @@ ids stay available at `_begin`, so the execution row, the run listing, the seque
 page are untouched; no migration is needed; parsing becomes the run's first visible,
 cancellable stage; and a whole parse is removed rather than relocated.
 
+## Nothing bounds a review's peak checkpoint size
+
+Checkpoints are released the moment a review reaches an end and the space is handed back, so
+the file no longer grows without bound. What is not bounded is the *peak*: LangGraph writes the
+whole `ReviewState` at every superstep, and that state carries the atlas, the policy corpus and
+every retrieved policy set. One review of a six-file example repository reaches about 86 MB
+mid-flight before it is released. A repository of real size scales that by its atlas.
+
 ## `Label` still has twenty-two hand-rolled copies
 
 The drift is fixed — the five different tracking values are gone — but roughly twenty-two
 mono-variant copies of the recipe remain in `features/atlas/**`, `components/ui/select.tsx`
-and `features/landing/specimen.tsx`. `ui/design-system.test.ts` carries this as an `it.todo`
+`features/landing/specimen.tsx`, `ui/brand.tsx`, `features/landing/exhibit.tsx` and
+`features/review/atlas-surface.tsx`. `ui/design-system.test.ts` carries this as an `it.todo`
 so it stays visible.
+
+## Dead surface that has not been removed yet
+
+Route-plus-generated-types with no live caller, verified by grep over `frontend/src`,
+`tests/`, `docs/` and the CLI. The last streaming endpoint has been removed; these remain,
+because unlike that one they are plausible REST surface somebody may have meant to keep:
+
+- `POST /api/cases/import-yaml`, `POST /api/cases`, `GET /api/cases/{case_id}`
+- `GET /api/branches`, `GET /api/policies/{policy_id}`
+- `GET /api/review-conversations/{id}` (and `reasoning/conversation.py:show` behind it)
+
+`safe_workspace_output_path` (`repositories/safety.py`) is called from nowhere. It is a
+symlink and path-traversal defence, so **confirm it was deliberately unwired rather than
+accidentally orphaned** before removing it; everything else the audit found dead has gone.
+
+`safe_workspace_output_path` is the last of the dead code; the duplicated helpers, the
+duplicated ignored-directory list and the two protocols sharing the name `RepositoryAnalyzer`
+have all been reduced to one definition each.
+
+## Documentation that contradicts the code
+
+- `PRODUCT.md` lists remote hosting and cloud deployment as V1 exclusions; the `Dockerfile`
+  sets `ARCHCOMPASS_HOSTED=1` and `deploy.yml` deploys to Cloud Run on push to `main`. It also
+  cites three deleted documents and a `BoundaryReview` type that does not exist.
+- `docs/experience.md` lists bulk decisions and decision history as never wired; both are.
+- `docs/design-system.md` names four files allowed to say `-accent`; the enforced allowlist is
+  three, and one of the four contains no `accent` at all. It also cites a `66ch` that appears
+  nowhere in the frontend.
+- `routes/reviews.py` justifies the synchronous review route by "the CLI and every non-browser
+  caller"; the CLI makes no HTTP calls at all — it goes through `Runtime`.

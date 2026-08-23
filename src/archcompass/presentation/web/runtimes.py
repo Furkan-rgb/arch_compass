@@ -47,11 +47,6 @@ _SCOPE_STATE_KEY = "archcompass_session_token"
 #: finds their cases, short enough that an abandoned workspace stops being addressable.
 _COOKIE_MAX_AGE = 60 * 60 * 24 * 30
 
-#: What a run left running by a process that is gone is told it was. A hosted instance is
-#: recycled between visits, so this is the ordinary end of any review that was mid-flight
-#: when an instance went away — not an exceptional case.
-_ABANDONED = "The workspace stopped while this review was running, so nothing was judged."
-
 
 class RuntimeProvider(Protocol):
     """Where a request's workspace comes from."""

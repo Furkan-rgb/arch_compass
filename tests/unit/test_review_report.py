@@ -267,11 +267,27 @@ def test_a_detector_id_does_not_leak_into_the_prose() -> None:
 
 
 def test_a_hinge_is_stated_and_does_not_run_into_the_next_sentence() -> None:
-    text = report()
+    """And says the right thing about it, which depends on whether anyone can still answer.
+
+    A held finding keeps its hinge on both paths, so this used to assert the waiting
+    sentence against a report composed with `waiting=False` — a concluded review, whose case
+    revision is already sealed, telling its reader to answer. Both paths are asserted here
+    because the defect was invisible while only one of them was.
+    """
+
+    concluded = report()
+
+    assert (
+        "**Unresolved.** The constraints this architecture has to respect. "
+        "This review concluded without it" in concluded
+    )
+    assert "Answering it records" not in concluded
+
+    asking = report(waiting=True)
 
     assert (
         "**Waiting on a person.** The constraints this architecture has to respect. "
-        "Answering it completes this review's case revision" in text
+        "Answering it records the answer on this review's case revision" in asking
     )
 
 

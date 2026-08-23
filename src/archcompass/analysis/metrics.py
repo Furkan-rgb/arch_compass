@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
 
 from archcompass.analysis.atlas import (
     AtlasMetricValue,
@@ -11,27 +10,6 @@ from archcompass.analysis.atlas import (
     MetricProfile,
     MetricScope,
 )
-
-#: How soon a signal warrants investigation, lowest first. Signals needing
-#: architectural interpretation outrank routine measurements, which are numerous and
-#: rarely the reason to look somewhere. Codes absent here take the default rank, so a
-#: new analyzer signal is ordinary until someone decides otherwise.
-#:
-#: This lives beside the other interpretation metadata rather than in the workflow that
-#: consumes it: the ranking is a judgement about what an Atlas signal *means*, and the
-#: consultation overview, evaluations and any later consumer must all agree on it.
-_DEFAULT_SIGNAL_RANK: Final = 2
-_SIGNAL_INVESTIGATION_RANK: Final[dict[str, int]] = {
-    "broad-input-boundary-preparation": 0,
-    "parallel-boundary-preparation": 1,
-    "cyclic-dependency": 2,
-}
-
-
-def signal_investigation_rank(code: str) -> int:
-    """Rank one obscurity-signal code for overview ordering."""
-
-    return _SIGNAL_INVESTIGATION_RANK.get(code, _DEFAULT_SIGNAL_RANK)
 
 
 @dataclass(frozen=True)
@@ -174,34 +152,6 @@ def profile_observations(profile: MetricProfile) -> list[AtlasMetricValue]:
             if observation is not None:
                 observations.append(observation)
     return observations
-
-
-def salient_profile_observations(
-    profile: MetricProfile,
-    *,
-    limit: int = 8,
-) -> list[AtlasMetricValue]:
-    """Return a stable architectural subset rather than an unlabelled metric dump."""
-    preferred = (
-        "dependency.reverse_dependency_reach",
-        "dependency.fan_in",
-        "dependency.fan_out",
-        "change_amplification.likely_affected_modules",
-        "change_amplification.public_call_targets_in_affected_modules",
-        "local.branch_count",
-        "dependency.cycle_size",
-        "cognitive_scope.bounded_resolved_call_chain_nodes",
-        "cognitive_scope.abstraction_boundaries",
-    )
-    result: list[AtlasMetricValue] = []
-    for name in preferred:
-        observation = metric_observation(profile, name)
-        if observation is None:
-            continue
-        result.append(observation)
-        if len(result) == limit:
-            break
-    return result
 
 
 def _nature_and_scope(

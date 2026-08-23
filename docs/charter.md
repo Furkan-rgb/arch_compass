@@ -125,9 +125,9 @@ identity and its retrieval provenance. Uncertainty is stated, not smoothed: a fi
 turns on something the repository cannot answer says so, in its hinge.
 
 **Ask rather than assume.** When a judgement depends on context that is not in the code,
-ArchCompass stops and asks a person. Answers become a new case revision and the affected
-candidates are judged again. This is a feature, not a failure — a confident wrong answer is
-worth less than an honest question.
+ArchCompass stops and asks a person. Answers are recorded on the case revision the
+asking review opened, and the affected candidates are judged again. This is a feature,
+not a failure — a confident wrong answer is worth less than an honest question.
 
 The corollary is that ArchCompass does not demand context up front. A case starts empty and
 fills in as reviews ask for what they actually need. Anything a form asks for before the

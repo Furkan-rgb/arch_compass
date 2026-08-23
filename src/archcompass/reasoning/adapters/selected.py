@@ -99,6 +99,29 @@ def _batching_enabled() -> bool:
     }
 
 
+def _investigation_enabled() -> bool:
+    """Hinge investigation is on by default and can be turned off without changing the model.
+
+    The graph already treats it as optional — `ReviewWorkflowCapabilities.investigator`
+    defaults to `NoHingeInvestigation`, and a workspace on a model that cannot call tools
+    asks its questions the way it always asked them — so this switch selects between two
+    configurations the product already supports rather than introducing a third.
+
+    It exists because the pass is not free and its value is not uniform. Up to eight held
+    findings, six tool turns each, and a structured call to close every one of them: on a
+    hosted tier that is a rounding error, and on one local GPU it is minutes added to a
+    review before anybody is asked anything. An operator who would rather be asked the
+    question than have it checked first can say so without moving off their model.
+    """
+
+    return os.environ.get("ARCHCOMPASS_HINGE_INVESTIGATION", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
 class SelectedLangChainJudge:
     def __init__(
         self,
@@ -427,6 +450,8 @@ class SelectedLangChainHingeInvestigator:
         transport.
         """
 
+        if not _investigation_enabled():
+            return False
         config = self._selected.configuration()
         if config is None:
             return False
@@ -456,7 +481,13 @@ class SelectedLangChainHingeInvestigator:
             _log.warning(
                 "The hinge on %s was not investigated: %s", finding.candidate.id, error
             )
-            self._tools_refused = isinstance(error, NotImplementedError)
+                # `or`, not `=`. Assigning cleared the latch the moment a *different* failure
+            # followed a refusal — a provider that had already said it cannot bind tools was
+            # asked again for the rest of the process, which is the opposite of what the
+            # class docstring promises.
+            self._tools_refused = self._tools_refused or isinstance(
+                error, NotImplementedError
+            )
             return InvestigatedFinding(finding)
 
     def _deterministic(

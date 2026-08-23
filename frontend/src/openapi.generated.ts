@@ -1485,21 +1485,6 @@ export interface operations {
       "503": components["schemas"]["ProblemDetail"];
     };
   };
-  "stream_review_question_api_review_conversations__conversation_id__messages_stream_post": {
-    parameters: {
-      query: never;
-      path: {
-      "conversation_id": string;
-      };
-      header: never;
-      cookie: never;
-    };
-    requestBody: components["schemas"]["ReviewQuestionRequest"];
-    responses: {
-      "200": unknown;
-      "422": components["schemas"]["ProblemDetail"];
-    };
-  };
   "update_policy_api_policies__policy_id__put": {
     parameters: {
       query: never;
@@ -1639,9 +1624,6 @@ export interface paths {
   };
   "/api/review-conversations/{conversation_id}/messages": {
     post: operations["ask_review_question_api_review_conversations__conversation_id__messages_post"];
-  };
-  "/api/review-conversations/{conversation_id}/messages/stream": {
-    post: operations["stream_review_question_api_review_conversations__conversation_id__messages_stream_post"];
   };
   "/api/reviews": {
     get: operations["list_reviews_api_reviews_get"];

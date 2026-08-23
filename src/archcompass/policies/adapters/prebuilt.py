@@ -20,11 +20,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+import sqlite_vec
+
 from archcompass.configuration import EmbeddingModelConfig
 from archcompass.domain import Policy
 from archcompass.domain.errors import ConfigurationError
-from archcompass.policies.adapters.sqlite_index import desired_chunks, namespace_for
-from archcompass.reasoning.adapters.factory import embedding_identity
+from archcompass.policies.adapters.sqlite_index import (
+    SQLitePolicyIndex,
+    desired_chunks,
+    namespace_for,
+)
+from archcompass.reasoning.adapters.factory import build_embeddings, embedding_identity
 
 #: Where the built index lives once `scripts/build_policy_index.py` has written it. Inside
 #: the package rather than beside it, so that it is installed with the code and found at the
@@ -66,15 +72,32 @@ class PrebuiltCoverage:
     Missing chunks mean the index is behind the corpus: rebuild it. Extra chunks mean it was
     built from a different corpus altogether, which is not a rebuild but a question about
     which policies this workspace is meant to be using.
+
+    There is a third failure and it is the one that bites, so it is carried here as a field
+    rather than inferred: the file can be a complete, self-consistent index *of another
+    embedding model*. `coverage` short-circuits on that — there is no point diffing chunk
+    ids across two namespaces — and returned empty lists, which `complete` then read as
+    nothing wrong. So `usable` handed a Google-embedded index to a workspace embedding with
+    EmbeddingGemma, and `verify`, whose entire job at hosted startup is to refuse exactly
+    that, said yes. `explain` had had the right sentence for it all along and nothing ever
+    reached it.
     """
 
     manifest: PrebuiltManifest | None
     missing: tuple[str, ...]
     extra: tuple[str, ...]
+    #: What this workspace embeds with. The manifest says what the file was built with, and
+    #: the two being equal is the first thing `complete` means.
+    expected_identity: str = ""
 
     @property
     def complete(self) -> bool:
-        return self.manifest is not None and not self.missing and not self.extra
+        return (
+            self.manifest is not None
+            and self.manifest.embedding_identity == self.expected_identity
+            and not self.missing
+            and not self.extra
+        )
 
     def explain(self, *, path: Path, identity: str) -> str:
         """Why this index cannot be used, phrased for whoever has to fix it."""
@@ -122,6 +145,66 @@ def read_manifest(path: Path) -> PrebuiltManifest | None:
     return PrebuiltManifest(str(row[0]), int(row[1]), int(row[2]))
 
 
+#: Read-only once written. Belt to the braces of never writing to the attached schema: an
+#: edit that forgot is refused by SQLite rather than quietly mutating a file that is supposed
+#: to be a build artefact, and the container's own user could not write it anyway.
+_READ_ONLY: Final = 0o444
+
+
+def build(path: Path, corpus: tuple[Policy, ...], config: EmbeddingModelConfig) -> int:
+    """Embed a whole corpus into a fresh file, and say what it is.
+
+    Written by the same `SQLitePolicyIndex` that reads it at run time rather than by SQL
+    written here, so there is exactly one account of what a stored chunk looks like. The
+    index is pointed at this file as its own workspace database and told there is no shipped
+    index to consult — which is true, since this is the one being made.
+
+    Here rather than in `scripts/build_policy_index.py`, where it began, because the script
+    is not the only caller any more: an end-to-end run on a local embedder needs an index
+    for that embedder before it can review anything, and reaching into a script to get one
+    is how a second account of a stored chunk starts.
+    """
+
+    identity = embedding_identity(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # From scratch every time. Refreshing in place would leave the chunks of a policy that
+    # has since been deleted sitting in the file, and `coverage` would rightly refuse it.
+    path.unlink(missing_ok=True)
+
+    def connect() -> sqlite3.Connection:
+        connection = sqlite3.connect(path)
+        # Rollback journalling rather than WAL, which is what the workspace database uses.
+        # A WAL database needs to write beside itself to be opened at all, and this one is
+        # opened from an installed package directory that nothing at run time may write to.
+        connection.execute("PRAGMA journal_mode = DELETE")
+        return connection
+
+    index = SQLitePolicyIndex(
+        connect,
+        build_embeddings(config),
+        embedding_identity=identity,
+        dimensions=config.dimensions,
+    )
+    index.synchronize(corpus)
+
+    chunks = len(desired_chunks(corpus, identity))
+    with sqlite3.connect(path) as connection:
+        connection.execute(MANIFEST_SCHEMA)
+        connection.execute(f"DELETE FROM {MANIFEST_TABLE}")
+        connection.execute(
+            f"INSERT INTO {MANIFEST_TABLE}(embedding_identity, dimensions, chunk_count) "
+            "VALUES (?, ?, ?)",
+            (identity, config.dimensions, chunks),
+        )
+    with sqlite3.connect(path) as connection:
+        connection.enable_load_extension(True)
+        sqlite_vec.load(connection)
+        connection.enable_load_extension(False)
+        connection.execute("VACUUM")
+    path.chmod(_READ_ONLY)
+    return chunks
+
+
 def coverage(
     path: Path, corpus: tuple[Policy, ...], config: EmbeddingModelConfig
 ) -> PrebuiltCoverage:
@@ -136,14 +219,14 @@ def coverage(
     manifest = read_manifest(path)
     identity = embedding_identity(config)
     if manifest is None or manifest.embedding_identity != identity:
-        return PrebuiltCoverage(manifest, (), ())
+        return PrebuiltCoverage(manifest, (), (), identity)
     desired = desired_chunks(corpus, identity)
     stored = _stored_digests(path, namespace_for(identity))
     missing = tuple(
         sorted(chunk_id for chunk_id, entry in desired.items() if stored.get(chunk_id) != entry[1])
     )
     extra = tuple(sorted(set(stored) - set(desired)))
-    return PrebuiltCoverage(manifest, missing, extra)
+    return PrebuiltCoverage(manifest, missing, extra, identity)
 
 
 def verify(path: Path, corpus: tuple[Policy, ...], config: EmbeddingModelConfig) -> None:

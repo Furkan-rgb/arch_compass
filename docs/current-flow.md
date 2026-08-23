@@ -85,7 +85,8 @@ available records the richest possible immutable failed snapshot. A waiting revi
 cancelled explicitly, producing a new cancelled snapshot; cancellation does not mutate the
 waiting record.
 
-The web streaming endpoint emits graph-stage updates and the resulting snapshot. LangGraph
+A run reports its graph stage and its judged count as it goes, read back through
+`GET /api/reviews/runs/{run_id}`. LangGraph
 checkpoint state lives in `review-checkpoints.db`; review history, execution aliases, cases,
 atlases, findings, decisions, and retrieval manifests live in `workspace.sqlite3`.
 
@@ -112,10 +113,17 @@ structure and placement with a citation rather than a patch — the lookups answ
 depends on what, and `read_code` serves a bounded span at a named node, neither of which is
 a diff.
 
-The atlas a conversation asks is the one its review judged, carried on the review itself.
-Structural questions therefore keep answering however far the repository has moved on;
-reading source is the one lookup that touches disk, so a repository that has changed since
-the review ran refuses that alone, in a sentence naming the way back.
+The atlas a conversation asks is the one its review judged, carried on the review itself,
+so structural questions keep answering however far the repository has moved on. Reading
+source is the one lookup that leaves the atlas, and it leaves it for the same revision: a
+review records the commit it judged, and `read_code` asks git for the file as it stood at
+that commit. The line spans in the atlas belong to that revision and to no other, which is
+what makes this the correct reading rather than merely the current one.
+
+Only where there is no revision to ask for — an unversioned directory, or a commit git no
+longer holds — does the working tree become the only source there is, and then it may be
+read only while it still is what was judged. That is the freshness check, and it refuses in
+a sentence naming the way back.
 
 Source/report/repository/case/revision endpoints project the same stored domain records
 through boundary Pydantic DTOs.

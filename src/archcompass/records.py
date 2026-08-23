@@ -3,19 +3,25 @@
 Top level rather than inside a feature because five of them need it, and because it is
 the counterpart to `domain/_support.py`: that one is what a frozen domain dataclass is
 made of, this one is what a record crossing a boundary — an analyser's output, a policy
-document, a model catalogue — is made of. Neither imports the other, and `domain/` may
-not import this.
+document, a model catalogue — is made of.
+
+The dependency runs one way, and only one way is possible: `domain/` may not import this,
+which a boundary test enforces. So the three primitives both halves need — the clock and
+the two id mints — are defined there and re-exported here. They used to be written out
+twice, once on each side, and the codebase imported them from whichever module the author
+happened to be looking at: `utc_now` twelve times from one and five from the other. Two
+identical functions is not two implementations, it is one implementation and one place a
+reader can be wrong about which they are reading.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from hashlib import sha256
 from typing import Any, Literal
-from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 from pydantic_core import to_jsonable_python
+
+from archcompass.domain._support import new_id, stable_id, utc_now
 
 #: The named depths a provider offers, where it offers a depth rather than a switch.
 #:
@@ -43,17 +49,9 @@ class BoundaryDTO(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-def utc_now() -> datetime:
-    return datetime.now(UTC)
-
-
-def new_id(prefix: str) -> str:
-    return f"{prefix}_{uuid4().hex}"
-
-
-def stable_id(prefix: str, *parts: str, length: int = 24) -> str:
-    payload = "\0".join(parts).encode("utf-8")
-    return f"{prefix}_{sha256(payload).hexdigest()[:length]}"
+#: Re-exported, not redefined. Importing them from here goes on working, which is most of
+#: the codebase, and there is now one body to read.
+__all__ = ["BoundaryDTO", "canonical_json", "new_id", "stable_id", "utc_now"]
 
 
 def canonical_json(model: BaseModel | dict[str, Any]) -> str:

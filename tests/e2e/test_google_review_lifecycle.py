@@ -133,15 +133,22 @@ def test_answering_resumes_the_same_review_rather_than_starting_another(
     # Either outcome is correct. Answering does not oblige the model to conclude: it may
     # judge on what it now knows, or find that the answers moved the question rather than
     # settling it and ask again, which the graph allows up to three rounds. What is asserted
-    # is that the review the answers produced is the next one in the same lineage — and,
-    # below, that the lineage did reach an end.
+    # is that the review the answers produced is the same review, one round on — and, below,
+    # that the rounds did reach an end.
     assert resumed["status"] in {"completed", "awaiting_answers"}
     assert lifecycle.final["status"] == "completed", (
         "the clarification rounds never concluded; the fixture answers until they do"
     )
-    # Carried forward on the same LangGraph thread rather than begun beside it.
-    assert resumed["previous_review_id"] == first["id"]
-    assert resumed["sequence"] == first["sequence"] + 1
+    # One review, one number, however many rounds it took. This file used to assert the
+    # opposite — that answering produced the next sequence, pointing back at the snapshot
+    # that asked — which is what a clarification round used to do and what put one review
+    # under two numbers on the rail. `round` is now the only thing separating two snapshots
+    # of one review, and the lineage pointer belongs to the review rather than the round, so
+    # both snapshots carry the same one.
+    assert resumed["id"] != first["id"], "the round overwrote the snapshot that asked"
+    assert resumed["sequence"] == first["sequence"]
+    assert resumed["round"] == first["round"] + 1
+    assert resumed["previous_review_id"] == first["previous_review_id"]
     assert resumed["case"]["id"] == first["case"]["id"]
     assert resumed["case"]["revision"] > first["case"]["revision"]
 

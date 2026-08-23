@@ -58,14 +58,72 @@ class ParsedModule:
         return self.tree
 
 
-def module_name(relative_path: str) -> str:
+def import_roots(relative_paths: Iterable[str]) -> frozenset[str]:
+    """The directories that would be on `sys.path`, derived the way Python derives them.
+
+    A file's package is the run of directories above it that each hold an `__init__.py`;
+    the directory above *that* run is what an import statement counts from. So a `src`
+    layout yields `{"src"}`, a flat repository yields `{""}`, and a repository that is
+    itself a package yields `{""}` too, because its own root has no parent inside the
+    snapshot.
+
+    This exists because leaving it out silently gutted every src-layout repository — which
+    is the modern default, and this project's own shape. `src/archcompass/analysis/atlas.py`
+    was named `src.archcompass.analysis.atlas`, no import statement anywhere says that, so
+    every import edge failed to resolve: analysed from its own root this repository showed
+    **95 import edges instead of 454**, and with them went every cyclic-dependency and
+    concentrated-scope signal and the whole dependency and change-amplification metric
+    families. The atlas looked complete and was not.
+
+    No configuration is read. A `pyproject.toml` can say where the packages are, but the
+    directories themselves already say it, and a rule that reads the repository's own
+    configuration is a rule that behaves differently for repositories that have none.
+    """
+
+    paths = tuple(relative_paths)
+    packages = {
+        path.rsplit("/", 1)[0] if "/" in path else ""
+        for path in paths
+        if path.endswith("/__init__.py") or path == "__init__.py"
+    }
+    holds_a_package = {
+        package.rsplit("/", 1)[0] for package in packages if "/" in package
+    } | {"" for package in packages if "/" not in package}
+    roots: set[str] = set()
+    for path in paths:
+        directory = path.rsplit("/", 1)[0] if "/" in path else ""
+        # Climb while each directory is a package. The first one that is not is where an
+        # import would count from — but only if it holds a package at all.
+        #
+        # That last clause is the difference between `src` and `tests`. A `src` directory
+        # exists to put packages on the path, so it is an import root. A `tests` directory
+        # with no `__init__.py` holds loose modules, and calling it a root would rename
+        # `tests.test_scheduler` to `test_scheduler` — losing where the module lives, and
+        # with it the identity of every candidate that names it. Python itself would import
+        # it that way under a rootdir insertion; an atlas of a repository should not.
+        while directory and directory in packages:
+            directory = directory.rsplit("/", 1)[0] if "/" in directory else ""
+        roots.add(directory if directory in holds_a_package else "")
+    return frozenset(roots)
+
+
+def module_name(relative_path: str, roots: frozenset[str] = frozenset()) -> str:
     """The dotted name a repository-relative source path is imported under.
 
     Shared with the type-aware resolver, which has to hand the same names to its backend or
     the qualified names it answers with will not line up with the atlas's own.
+
+    `roots` comes from `import_roots`. Empty — the default — names the path from the
+    repository root, which is right for a flat layout and is what every caller did before
+    `src` layouts were handled.
     """
 
-    parts = relative_path.removesuffix(".py").split("/")
+    trimmed = relative_path
+    for root in sorted(roots, key=len, reverse=True):
+        if root and relative_path.startswith(f"{root}/"):
+            trimmed = relative_path[len(root) + 1 :]
+            break
+    parts = trimmed.removesuffix(".py").split("/")
     if parts[-1] == "__init__":
         parts = parts[:-1]
     return ".".join(parts) or "__root__"

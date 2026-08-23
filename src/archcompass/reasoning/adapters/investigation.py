@@ -45,41 +45,111 @@ HINGE_CONTRACT = (
     "repository is silent on this' is as useful an answer as one that resolves, and a "
     "confident wrong answer is worth less than an honest question. If the lookups changed "
     "what is actually unknown, say so as a narrower question rather than the original one."
+    "\n\n"
+    # Stated out loud because `HingeResolutionOutput` enforces it and a JSON schema cannot
+    # express it. Left unsaid, a model that had settled the question answered `resolved`
+    # with what it had found and nothing else — well-formed JSON, refused by the validator,
+    # and the whole investigation thrown away by the node that catches everything. The
+    # judgement contract has always spelled its own cross-field rules out for the same
+    # reason; this one had not.
+    "Say what the lookups established either way. Settling the hinge means giving the "
+    "verdict yourself: say whether the finding is material and why, and recommend a "
+    "response only if it is material. If the lookups settled nothing, say so by leaving the "
+    "verdict null and the reasoning empty, and give the narrower question instead. Give a "
+    "verdict or a narrower question, never both: a question means it is not settled, and it "
+    "is the question that will be put to a person."
 )
 
 
+# Why there is no `resolved` flag, kept out of the docstring on purpose.
+#
+# Pydantic puts a class docstring into `model_json_schema()["description"]`, and the Google
+# adapter forwards that to the model as documentation for the schema it must honour. So
+# every sentence here would be sent, on every hinge call, as guidance — and a paragraph
+# describing a field the model must not emit is the last thing to hand it.
+#
+# There was a `resolved: bool`. A model answering under a constrained grammar would set it
+# true and then simply stop after `findings`: every field a resolution needs was optional,
+# so omitting them satisfied the JSON schema and failed the cross-field rule underneath it,
+# and the whole investigation was thrown away. Stating the rule in the contract did not fix
+# it and neither did quoting the violation back; what fixed it was not offering the shape.
+#
+# So resolving is not a claim made beside the verdict, it *is* the verdict. `material` and
+# `reasoning` are required fields with no default, which is what makes a grammar-constrained
+# model emit them and decide rather than fall off the end of the object.
 class HingeResolutionOutput(BaseModel):
-    """What the lookups established, and whether they settled the question.
+    """What the lookups established, and the verdict they support if they support one.
 
-    The verdict and the policy bearings are deliberately absent. This pass is never shown
-    the policies at all, so there is no identifier it could cite and nothing to validate — a
-    bearing cannot be added, moved or invented because there is nothing to move. What it may
-    settle is one thing: whether the question was worth a person's interruption.
+    The policy bearings are deliberately absent. This pass is never shown the policies at
+    all, so there is no identifier it could cite and nothing to validate — a bearing cannot
+    be added, moved or invented because there is nothing to move. What it may settle is one
+    thing: whether the question was worth a person's interruption.
+
+    A hinge is settled when `material` and `reasoning` say what it settled to. `null` and an
+    empty reasoning are the honest way to say the repository was silent, and a narrower
+    question belongs in `hinge` instead of a verdict.
     """
 
-    resolved: bool
     #: What the lookups established, required either way. "Checked, and the repository is
     #: silent" is as much a finding as an answer, and the two are opposite facts about the
     #: question underneath.
     findings: str = Field(min_length=1)
-    material: bool | None = None
-    reasoning: str | None = None
+    #: The verdict the lookups support, or `null` where they support none. Required rather
+    #: than defaulted: a model that may omit this omits it.
+    material: bool | None
+    #: Why, and empty exactly when there is no verdict to explain.
+    reasoning: str | None
     recommended_response: str | None = None
     #: A narrower hinge, where the lookups changed what is actually unknown. Empty leaves
     #: the original standing.
     hinge: str | None = None
 
+    @property
+    def resolved(self) -> bool:
+        """Settled, meaning there is a verdict, a reason for it, and no question left.
+
+        A narrower question outranks a verdict offered beside it, and deliberately so. The
+        contract asks for one or the other; a model that sends both has said it is still
+        uncertain, and reading that as settled would drop the better question and put a
+        confident verdict in its place — the exact trade the charter refuses.
+        """
+
+        return (
+            self.material is not None
+            and bool((self.reasoning or "").strip())
+            and not (self.hinge or "").strip()
+        )
+
     @model_validator(mode="after")
     def a_resolution_settles_the_verdict(self) -> HingeResolutionOutput:
-        if self.resolved:
-            if self.material is None or not (self.reasoning or "").strip():
-                raise ValueError("a resolved hinge must state a verdict and its reasoning")
-            if self.hinge:
-                raise ValueError("a resolved hinge is not still hinged")
-        elif self.material is not None or self.recommended_response:
-            raise ValueError("an unresolved hinge settles nothing and recommends nothing")
-        if self.recommended_response and not self.material:
-            raise ValueError("only a material finding may recommend a response")
+        """Make the answer coherent rather than refuse it.
+
+        This raised, and raising was the wrong instrument for what it was checking. These
+        are conditions *between* fields, which a JSON schema cannot express and a grammar
+        therefore cannot enforce — so the only thing holding them was a sentence in the
+        prompt, and a model that missed the sentence lost its whole investigation. Three
+        schemas in, a 27B local model had found a new way past each version: `resolved`
+        without a verdict, a verdict without reasoning, a recommendation on a question it
+        had not answered. Every one of those cost a hinge that had been checked.
+
+        And refusing bought nothing, because there is nothing to protect. `_apply` already
+        ignores a recommendation on the unresolved path and already ignores one on a
+        finding that is not material, so the shapes this used to reject were shapes the
+        application discarded anyway. Normalising says the same thing sooner, in one place,
+        where a reader of `HingeResolutionOutput` can see what an incoherent answer becomes.
+
+        What is not normalised away is uncertainty. Nothing here invents a verdict or drops
+        a question; every rule below moves in the direction of asking a person.
+        """
+
+        # A verdict with nothing behind it is not a verdict. `_apply` would fall back to the
+        # judgement's own reasoning, which reads as though the lookups had confirmed it.
+        if self.material is not None and not (self.reasoning or "").strip():
+            object.__setattr__(self, "material", None)
+        # Only a settled, material finding recommends anything. Both halves are already
+        # enforced downstream; stating them here means one account rather than two.
+        if self.recommended_response and not (self.resolved and self.material):
+            object.__setattr__(self, "recommended_response", None)
         return self
 
 

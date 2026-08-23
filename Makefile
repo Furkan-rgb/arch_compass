@@ -39,6 +39,15 @@ frontend-check: api-types-check
 frontend-build:
 	cd frontend && pnpm run build
 
+# The end-to-end review with nothing hosted in it: a local Ollama judges and a local Ollama
+# embeds, which is the deployment somebody evaluating this on their own source actually
+# gets. Needs `qwen3.8:27b` and `embeddinggemma` pulled; anything missing skips with the
+# `ollama pull` that would fix it rather than failing.
+# It builds a policy index for the local embedder first, because the one this package ships
+# was built with Google's embedder at 3,072 dimensions and vectors from two models are not
+# comparable. That costs about forty seconds, once, and the whole suite is around four
+# minutes on a 24 GB card.
+# Outside `check` for the same reason `test-google` is: it depends on a live service.
 test-ollama:
 	uv run pytest -m "ollama"
 
@@ -89,7 +98,7 @@ run: frontend-build
 web: run
 
 web-google: frontend-build
-	uv run archcompass --provider google --model gemini-3.6-flash web
+	uv run archcompass --provider google --model gemini-3.5-flash-lite web
 
 # The same two halves that `run` welds into one process, kept apart on purpose. `run` builds
 # the bundle and lets the API process serve it, which is what a reader or a demonstration

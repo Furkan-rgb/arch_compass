@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 from dataclasses import dataclass
@@ -63,7 +64,7 @@ from archcompass.policies.adapters.embeddings import (
 from archcompass.policies.corpus import DataclassPolicyCorpus
 from archcompass.policies.retrieval import RejudgeAllCandidates, corpus_fingerprint
 from archcompass.policies.service import PolicyService
-from archcompass.ports.atlas import AtlasQueryService, EdgeResolver, RepositoryAnalyzer
+from archcompass.ports.atlas import AtlasQueryService, AtlasSource, EdgeResolver
 from archcompass.ports.model_catalog import ProviderDescriptor
 from archcompass.ports.persistence import (
     AtlasRepository,
@@ -130,6 +131,8 @@ EMBEDDING_PIN_VARIABLES: Final = (
     "ARCHCOMPASS_EMBEDDING_BASE_URL",
     "ARCHCOMPASS_EMBEDDING_API_KEY_ENV",
 )
+
+_log = logging.getLogger(__name__)
 
 
 def embedding_is_pinned() -> bool:
@@ -255,7 +258,7 @@ class Runtime:
     lineage_repository: LineageRepository
     review_conversation_service: CoreReviewConversationService
     bundled_example_service: BundledExampleService
-    analyzer: RepositoryAnalyzer
+    analyzer: AtlasSource
     query_service: AtlasQueryService
     policy_sources: tuple[Path, ...]
     case_service: ArchitectureCaseService
@@ -275,6 +278,48 @@ class Runtime:
     checkpoint_connection: sqlite3.Connection
     core_ci_service: CleanBreakCiRunService
     standing_decision_service: StandingDecisionService
+
+
+#: How much reusable space in the checkpoint database is worth a rewrite to hand back.
+#:
+#: A review's checkpoints are released the moment it reaches an end, which bounds the file
+#: at one review's high-water mark — but a released page is reusable, not returned, so a
+#: workspace that once ran a large review keeps that mark on disk for ever. One development
+#: machine reached 56 GB this way. Above this, the file is rewritten once, at open, where
+#: no run is in flight.
+_CHECKPOINT_RECLAIM_BYTES: Final = 64 * 1024 * 1024
+
+
+def _reclaim_checkpoint_space(connection: sqlite3.Connection) -> None:
+    """Return the disk a finished review's checkpoints were holding, when it is worth it.
+
+    At open, so that nothing is mid-flight, and never fatal: a database somebody has made
+    read-only, or one another process holds, is a workspace that starts anyway with more
+    disk in use than it needs.
+
+    Two reasons to rewrite, and the first is the one that is easy to miss. SQLite honours
+    `PRAGMA auto_vacuum` only on a database that has no tables yet — so on every workspace
+    that existed before this code did, the pragma the caller just issued is a no-op, and
+    `ReviewWorkflowService._reclaim` will go on returning nothing to the filesystem for
+    ever. A `VACUUM` is what converts the mode, so a legacy file is rewritten once
+    regardless of how little it would save, and is incremental from then on. A file already
+    in incremental mode is rewritten only when it is holding back enough to be worth the
+    rewrite.
+    """
+
+    try:
+        page_size = int(connection.execute("PRAGMA page_size").fetchone()[0])
+        free_pages = int(connection.execute("PRAGMA freelist_count").fetchone()[0])
+        mode = int(connection.execute("PRAGMA auto_vacuum").fetchone()[0])
+    except sqlite3.DatabaseError:
+        return
+    converting = mode == 0
+    if not converting and free_pages * page_size < _CHECKPOINT_RECLAIM_BYTES:
+        return
+    try:
+        connection.execute("VACUUM")
+    except sqlite3.DatabaseError:
+        _log.warning("The checkpoint database could not be compacted", exc_info=True)
 
 
 def build_runtime(
@@ -412,6 +457,12 @@ def build_runtime(
         canonical_workspace / WORKSPACE_STATE_DIRECTORY / "review-checkpoints.db",
         check_same_thread=False,
     )
+    # Asked before the saver creates its tables, because SQLite only honours it on a
+    # database that has none yet. It is what lets `ReviewWorkflowService._release` hand
+    # space back rather than only mark it reusable — and on a workspace that already has
+    # tables it does nothing at all, which is what the `VACUUM` below is for.
+    checkpoint_connection.execute("PRAGMA auto_vacuum = INCREMENTAL")
+    _reclaim_checkpoint_space(checkpoint_connection)
     checkpointer = SqliteSaver(
         checkpoint_connection,
         serde=JsonPlusSerializer(allowed_msgpack_modules=list(CHECKPOINT_RECORD_TYPES)),
@@ -487,6 +538,7 @@ def build_runtime(
         graph,
         reviews=core_reviews,
         executions=executions,
+        cases=core_cases,
     )
     standing_decision_service = StandingDecisionService(
         decisions=core_decisions, reviews=core_reviews

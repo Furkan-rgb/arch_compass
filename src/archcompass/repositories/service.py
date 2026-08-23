@@ -7,7 +7,7 @@ from pathlib import Path
 
 from archcompass.analysis.atlas import AtlasVersion
 from archcompass.analysis.scope import validate_excluded_paths
-from archcompass.ports.atlas import RepositoryAnalyzer
+from archcompass.ports.atlas import AtlasSource
 from archcompass.ports.persistence import (
     AtlasRepository,
     LineageRepository,
@@ -30,7 +30,7 @@ class RepositoryIndexService:
     def __init__(
         self,
         *,
-        analyzer: RepositoryAnalyzer,
+        analyzer: AtlasSource,
         atlases: AtlasRepository,
         lineages: LineageRepository,
         scope_selections: ScopeSelectionRepository,

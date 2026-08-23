@@ -278,7 +278,22 @@ def generate_questions_node(generator: QuestionGenerator) -> Node:
                 excluded_equivalence_keys=state["excluded_equivalence_keys"],
             )
         except Exception:
-            _log.warning("This review asked nothing this round", exc_info=True)
+            # ERROR rather than WARNING, and naming what was held. Degrading here is right —
+            # every candidate has already been judged and letting this propagate throws that
+            # away — but "the review settled everything" and "the review could not put its
+            # uncertainty into words" both leave with no questions, and only one of them is
+            # a review finishing properly.
+            # Counted as findings held, not as questions lost. How many of them the
+            # generator would have asked about is the generator's own cap and not this
+            # node's to know — naming a number here would be this layer guessing at
+            # another's, and the fact that matters is the same either way: this review has
+            # uncertainty it is about to seal the case over.
+            _log.error(
+                "This review asked nothing this round, and %d finding(s) are held with an "
+                "open hinge",
+                sum(1 for finding in ordered if finding.hinge),
+                exc_info=True,
+            )
             return {"questions": ()}
         return {"questions": questions}
 
@@ -405,9 +420,13 @@ def revise_case_node(reviser: CaseReviser) -> Node:
     def revise_case(state: ReviewState) -> dict[str, object]:
         case = state["case"]
         opened = state["case_opened"]
-        # A round that recorded nothing opens nothing. Every question a waiting review asked
-        # comes back answered or explicitly skipped, so this is the reader who stopped the
-        # review rather than answered it, and stopping is not human context.
+        # A round that recorded nothing opens nothing.
+        #
+        # Not reachable through the product's own resume path, and kept anyway. `resume`
+        # builds one `Answer` per pending question — filling every omission with an explicit
+        # skip — so a submission that answers nothing still arrives as a full set of skips
+        # and does open a revision. This is the guard for a caller driving the graph
+        # directly, and for a waiting review that somehow asked nothing.
         if not state["pending_answers"]:
             return {"previous_case": case, "round": state["round"] + 1}
         if not opened:
@@ -431,9 +450,14 @@ def revise_case_node(reviser: CaseReviser) -> Node:
 def seal_case_node(reviser: CaseReviser) -> Node:
     """Write the revision this review opened, once, on the way out.
 
-    A review that asked nothing, or that nobody answered, opened no revision and writes
-    none: there is no new human context to file, and a revision holding none would be a
-    number a later review had to read past.
+    A review that asked nothing opened no revision and writes none: there is no new human
+    context to file, and a revision holding none would be a number a later review had to
+    read past.
+
+    A review that asked and was skipped through does write one. A skip is an answer — it
+    records that a person was shown the question and declined it, which is exactly what a
+    later review needs to know in order not to ask it again — so the revision it opens holds
+    skips and is worth its number.
     """
 
     def seal_case(state: ReviewState) -> dict[str, object]:
