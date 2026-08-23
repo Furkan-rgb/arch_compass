@@ -169,15 +169,6 @@ class QuestionGenerator(Protocol):
     ) -> tuple[Question, ...]: ...
 
 
-class RejudgementSelector(Protocol):
-    def select(
-        self,
-        candidates: tuple[Candidate, ...],
-        previous_case: ArchitectureCase,
-        revised_case: ArchitectureCase,
-    ) -> tuple[Candidate, ...]: ...
-
-
 class CaseReviser(Protocol):
     """The case a review is judged against, over the life of that one review.
 

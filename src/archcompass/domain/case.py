@@ -201,6 +201,29 @@ class ArchitectureCase:
             updated_at=utc_now(),
         )
 
+    def validate_continuation_of(self, previous: ArchitectureCase) -> None:
+        """Refuse to be treated as a later round of `previous` unless it actually is.
+
+        Rejudging means judging the same candidates against a case that now says more, so
+        three things have to hold and each fails differently: it is the same case, the
+        answers already recorded are still recorded unchanged, and a round has actually
+        happened. A single boolean would collapse "you passed a different case" and "you
+        rejudged without anything new to judge on" into one unhelpful `False`.
+
+        Answers rather than the revision number, because one review keeps one revision
+        however many rounds it asks. What says a round happened is that the case records
+        answers the round before it did not — and they are appended in order, which makes
+        the earlier ones a prefix of the later ones and the check exact rather than a count.
+        """
+
+        if self.id != previous.id:
+            raise ValueError("rejudgement requires the same case")
+        earlier = previous.answers
+        if self.answers[: len(earlier)] != earlier:
+            raise ValueError("rejudgement requires the answers already recorded")
+        if len(self.answers) == len(earlier):
+            raise ValueError("rejudgement requires answers the previous round did not record")
+
     def revise(self, *, policy_context: PolicyContext) -> ArchitectureCase:
         """Re-scope which policies are retrievable, as the next revision.
 

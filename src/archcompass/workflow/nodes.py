@@ -24,7 +24,6 @@ from archcompass.ports.capabilities import (
     PolicyCorpus,
     PolicyRetriever,
     QuestionGenerator,
-    RejudgementSelector,
     RepositoryAnalyzer,
     ReviewComposer,
     ReviewDraft,
@@ -533,12 +532,22 @@ def seal_case_node(reviser: CaseReviser) -> Node:
     return seal_case
 
 
-def select_rejudgements_node(selector: RejudgementSelector) -> Node:
+def select_rejudgements_node() -> Node:
+    """Everything is judged again once a round has been answered.
+
+    Behind a selector protocol and a one-line implementation in
+    `policies/retrieval.py` until now — four hops from the graph to find `return candidates`,
+    in a module about embedding and retrieving policies, describing a pluggability nothing
+    ever plugged into. What that class actually held was the continuation rule, which is a
+    fact about a case and now lives on one.
+
+    Judging all of them is the honest strategy rather than a placeholder for a cleverer one:
+    an answer is about intent, and intent bears on every candidate rather than on the ones
+    whose question mentioned it.
+    """
+
     def select_rejudgements(state: ReviewState) -> dict[str, object]:
-        return {
-            "selected_candidates": selector.select(
-                state["candidates"], state["previous_case"], state["case"]
-            )
-        }
+        state["case"].validate_continuation_of(state["previous_case"])
+        return {"selected_candidates": state["candidates"]}
 
     return select_rejudgements

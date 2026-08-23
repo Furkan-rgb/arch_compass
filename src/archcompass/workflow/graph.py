@@ -31,7 +31,6 @@ from archcompass.ports.capabilities import (
     PolicyCorpus,
     PolicyRetriever,
     QuestionGenerator,
-    RejudgementSelector,
     RepositoryAnalyzer,
     ReviewComposer,
     ReviewRecorder,
@@ -74,7 +73,6 @@ class ReviewWorkflowCapabilities:
     retriever: PolicyRetriever
     judge: ArchitectureJudge
     questions: QuestionGenerator
-    rejudgements: RejudgementSelector
     cases: CaseReviser
     composer: ReviewComposer
     recorder: ReviewRecorder
@@ -125,7 +123,7 @@ def _dispatch_candidates(
         # handed them straight back: the subgraph's output schema projects its final merged
         # state, so each branch returned every finding it had been given plus its own.
         # `merge_mappings` applies those writes in task order, so in a clarification round —
-        # where `RejudgeAllCandidates` selects every candidate and `findings` already holds
+        # where the round selects every candidate again and `findings` already holds
         # round one's verdicts for all of them — every branch but the last had its fresh
         # verdict overwritten by a sibling's stale copy. Measured on `boundary-review` with
         # the hinge lookups off: five of six answered candidates came back with their
@@ -225,7 +223,7 @@ def build_review_graph(
     graph.add_node("seal_case", seal_case_node(capabilities.cases))
     graph.add_node(
         "select_candidates_for_rejudgement",
-        select_rejudgements_node(capabilities.rejudgements),
+        select_rejudgements_node(),
     )
     graph.add_node(
         "write_final_synopsis",

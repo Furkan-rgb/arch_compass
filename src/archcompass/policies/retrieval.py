@@ -3,7 +3,6 @@
 `retrieval_query` is the text a candidate and its case are embedded as — the one place that
 decides what retrieval is actually asked. `DensePolicyRetriever` is the shipped strategy:
 mandatory and applicable policies by scope, plus a dense top-K, merged deterministically.
-`RejudgeAllCandidates` is the selector a clarification round uses.
 
 The result type and the contract it satisfies are in `ports.py`, so a strategy can be
 replaced without anything above it noticing.
@@ -162,26 +161,3 @@ class DensePolicyRetriever:
                 ),
             ),
         )
-
-
-class RejudgeAllCandidates:
-    """Initial correctness strategy, replaceable without changing the graph."""
-
-    def select(
-        self,
-        candidates: tuple[Candidate, ...],
-        previous_case: ArchitectureCase,
-        revised_case: ArchitectureCase,
-    ) -> tuple[Candidate, ...]:
-        if revised_case.id != previous_case.id:
-            raise ValueError("rejudgement requires the same case")
-        # Answers, not the revision number: one review keeps one revision however many
-        # rounds it asks, so what says a round happened is that the case records answers
-        # the round before it did not. They are appended in order, which makes the earlier
-        # answers a prefix of the later ones and the check exact.
-        earlier = previous_case.answers
-        if revised_case.answers[: len(earlier)] != earlier:
-            raise ValueError("rejudgement requires the answers already recorded")
-        if len(revised_case.answers) == len(earlier):
-            raise ValueError("rejudgement requires answers the previous round did not record")
-        return candidates

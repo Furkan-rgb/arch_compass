@@ -35,7 +35,7 @@ from archcompass.domain.errors import ProviderError
 from archcompass.persistence.executions import SQLiteReviewExecutionRepository
 from archcompass.persistence.reviews import SQLiteCoreReviewRepository
 from archcompass.policies.ports import DensePolicyMatch
-from archcompass.policies.retrieval import DensePolicyRetriever, RejudgeAllCandidates
+from archcompass.policies.retrieval import DensePolicyRetriever
 from archcompass.ports.capabilities import (
     CandidateSelection,
     HingeInvestigator,
@@ -266,7 +266,6 @@ def test_graph_interrupts_and_resumes_through_explicit_nodes(tmp_path: Path) -> 
             retriever=DensePolicyRetriever(Index(), top_k=8),
             judge=Judge(),
             questions=Questions(),
-            rejudgements=RejudgeAllCandidates(),
             cases=Cases(),
             composer=Composer(),
             recorder=recorder,
@@ -342,7 +341,6 @@ def test_a_review_that_asks_twice_stays_one_revision(tmp_path: Path) -> None:
             retriever=DensePolicyRetriever(Index(), top_k=8),
             judge=Judge(),
             questions=TwoRoundQuestions(),
-            rejudgements=RejudgeAllCandidates(),
             cases=Cases(),
             composer=Composer(),
             recorder=recorder,
@@ -425,7 +423,6 @@ def test_a_review_that_asks_nothing_writes_no_case_revision(tmp_path: Path) -> N
             retriever=DensePolicyRetriever(Index(), top_k=8),
             judge=Judge(),
             questions=NoQuestions(),
-            rejudgements=RejudgeAllCandidates(),
             cases=cases,
             composer=Composer(),
             recorder=Recorder(),
@@ -460,11 +457,15 @@ def test_rejudgement_asks_for_answers_rather_than_a_higher_number() -> None:
     answered = opened.with_answer(
         Answer(question, AnswerStatus.ANSWERED, "Platform", "reader", utc_now())
     )
-    selector = RejudgeAllCandidates()
+    # The rule is the case's own now: a revision either continues an earlier one or it does
+    # not, and each way of failing says which. It used to sit behind a selector protocol in
+    # `policies/retrieval.py`, which is a module about retrieving policies.
+    answered.validate_continuation_of(opened)
 
-    assert selector.select((Detector.candidate,), opened, answered) == (Detector.candidate,)
     with pytest.raises(ValueError, match="answers the previous round did not record"):
-        selector.select((Detector.candidate,), answered, answered)
+        answered.validate_continuation_of(answered)
+    with pytest.raises(ValueError, match="the same case"):
+        answered.validate_continuation_of(ArchitectureCase.create())
 
 
 def test_graph_exposes_capability_sequence_and_candidate_fanout(tmp_path: Path) -> None:
@@ -481,7 +482,6 @@ def test_graph_exposes_capability_sequence_and_candidate_fanout(tmp_path: Path) 
             retriever=DensePolicyRetriever(Index(), top_k=8),
             judge=Judge(),
             questions=Questions(),
-            rejudgements=RejudgeAllCandidates(),
             cases=Cases(),
             composer=Composer(),
             recorder=Recorder(),
@@ -522,7 +522,6 @@ def test_workflow_service_resumes_idempotently_and_records_omissions_as_skips(
             retriever=DensePolicyRetriever(Index(), top_k=8),
             judge=Judge(),
             questions=Questions(),
-            rejudgements=RejudgeAllCandidates(),
             cases=Cases(),
             composer=Composer(),
             recorder=reviews,
@@ -608,7 +607,6 @@ def test_workflow_records_a_failed_snapshot_after_context_exists(tmp_path: Path)
             retriever=DensePolicyRetriever(Index(), top_k=8),
             judge=FailingJudge(),
             questions=Questions(),
-            rejudgements=RejudgeAllCandidates(),
             cases=Cases(),
             composer=Composer(),
             recorder=reviews,
@@ -677,7 +675,6 @@ def test_the_summary_is_written_once_per_review_and_kept_on_it(tmp_path: Path) -
             retriever=DensePolicyRetriever(Index(), top_k=8),
             judge=Judge(),
             questions=Questions(),
-            rejudgements=RejudgeAllCandidates(),
             cases=Cases(),
             composer=DeterministicReviewComposer(),
             recorder=recorder,
@@ -727,7 +724,6 @@ def test_a_workspace_with_no_summariser_composes_the_same_review(tmp_path: Path)
             retriever=DensePolicyRetriever(Index(), top_k=8),
             judge=Judge(),
             questions=Questions(),
-            rejudgements=RejudgeAllCandidates(),
             cases=Cases(),
             composer=DeterministicReviewComposer(),
             recorder=Recorder(),
@@ -911,7 +907,6 @@ def _investigating(
         retriever=DensePolicyRetriever(Index(), top_k=8),
         judge=judge or Judge(),
         questions=HingeSensitiveQuestions(),
-        rejudgements=RejudgeAllCandidates(),
         cases=Cases(),
         # The real composer, not the stub above: these tests are about what the review
         # keeps, and the stub keeps none of the manifests.

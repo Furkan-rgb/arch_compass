@@ -67,7 +67,7 @@ from archcompass.policies.adapters.embeddings import (
     embedding_config_from_environment,
 )
 from archcompass.policies.corpus import DataclassPolicyCorpus
-from archcompass.policies.retrieval import RejudgeAllCandidates, corpus_fingerprint
+from archcompass.policies.retrieval import corpus_fingerprint
 from archcompass.policies.service import PolicyService
 from archcompass.reasoning.adapters.deterministic import DETERMINISTIC_MODEL_IDENTITY
 from archcompass.reasoning.adapters.embedding_catalog import ProviderEmbeddingModelDiscovery
@@ -529,7 +529,6 @@ def build_runtime(
             investigator=SelectedLangChainHingeInvestigator(
                 selected_chat, AtlasInvestigatorSource(queries)
             ),
-            rejudgements=RejudgeAllCandidates(),
             cases=PersistentCaseReviser(core_cases),
             synopsist=SelectedLangChainReviewSynopsist(selected_chat),
             composer=DeterministicReviewComposer(),
