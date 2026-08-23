@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import Callable, Generator
+from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
 from importlib.resources import files
 from pathlib import Path
 
 from archcompass.domain.errors import PersistenceError
+
+#: What a repository is handed: something that opens a transaction, not a connection.
+#:
+#: `SQLiteDatabase.transaction` is the only implementation, and the alias exists so that a
+#: repository's constructor says what it expects rather than repeating the signature eight
+#: times — and so that a test double is obviously the same shape.
+type Transaction = Callable[[], AbstractContextManager[sqlite3.Connection]]
 
 
 class SQLiteDatabase:
@@ -187,6 +194,31 @@ class SQLiteDatabase:
         finally:
             if connection is not None:
                 connection.close()
+
+    @contextmanager
+    def transaction(self) -> Generator[sqlite3.Connection]:
+        """One statement or several, committed together, closed after, errors translated.
+
+        What `with connection:` on a raw connection already did — commit on success, roll
+        back on an exception — plus the two things it did not. It never closed, so every
+        repository call leaked its connection object until a garbage collector noticed. And
+        it let `sqlite3.Error` out untranslated, so a locked database raised an
+        `OperationalError` from eight repositories and a `PersistenceError` from five, and
+        a caller that wrote `except PersistenceError` was right about some of them.
+
+        Named for what it is rather than for what it returns. A repository asking for a
+        transaction reads as a repository that knows it is writing; one asking for a
+        connection reads as one that is about to do something else with it.
+        """
+
+        connection = self.raw_connect()
+        try:
+            with connection:
+                yield connection
+        except sqlite3.Error as error:
+            raise PersistenceError(f"SQLite operation failed: {error}") from error
+        finally:
+            connection.close()
 
     def raw_connect(self, *, check_same_thread: bool = True) -> sqlite3.Connection:
         """A configured connection for adapters whose library owns its lifecycle."""

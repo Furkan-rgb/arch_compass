@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import sqlite3
-from collections.abc import Callable
-
+from archcompass.persistence.sqlite.database import Transaction
 from archcompass.ports.batch_refusals import fingerprint_key
 from archcompass.reasoning.records import (
     EmbeddingModelSelection,
@@ -38,9 +36,9 @@ def _thinking(stored: object) -> ThinkingMode:
 
 
 class SQLiteCoreModelSelectionRepository:
-    def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
-        self._connect = connect
-        with self._connect() as connection:
+    def __init__(self, transaction: Transaction) -> None:
+        self._transaction = transaction
+        with self._transaction() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS core_reasoning_model_choice (
@@ -64,7 +62,7 @@ class SQLiteCoreModelSelectionRepository:
             )
 
     def get(self) -> ReasoningModelSelection | None:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             row = connection.execute(
                 "SELECT provider, model, thinking, selected_at, failed_at, "
                 "failure_detail, input_token_limit, output_token_limit "
@@ -77,7 +75,7 @@ class SQLiteCoreModelSelectionRepository:
         return ReasoningModelSelection.model_validate(stored)
 
     def set(self, selection: ReasoningModelSelection) -> ReasoningModelSelection:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 """
                 INSERT INTO core_reasoning_model_choice(
@@ -110,11 +108,11 @@ class SQLiteCoreModelSelectionRepository:
         return stored
 
     def clear(self) -> None:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute("DELETE FROM core_reasoning_model_choice WHERE id = 1")
 
     def record_failure(self, detail: str) -> None:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 "UPDATE core_reasoning_model_choice SET failed_at = ?, "
                 "failure_detail = ? WHERE id = 1",
@@ -122,7 +120,7 @@ class SQLiteCoreModelSelectionRepository:
             )
 
     def clear_failure(self) -> None:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 "UPDATE core_reasoning_model_choice SET failed_at = NULL, "
                 "failure_detail = '' WHERE id = 1"
@@ -132,9 +130,9 @@ class SQLiteCoreModelSelectionRepository:
 class SQLiteEmbeddingModelSelectionRepository:
     """The independently selected policy-embedding model."""
 
-    def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
-        self._connect = connect
-        with self._connect() as connection:
+    def __init__(self, transaction: Transaction) -> None:
+        self._transaction = transaction
+        with self._transaction() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS embedding_model_choice (
@@ -148,7 +146,7 @@ class SQLiteEmbeddingModelSelectionRepository:
             )
 
     def get(self) -> EmbeddingModelSelection | None:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             row = connection.execute(
                 "SELECT provider, model, dimensions, selected_at "
                 "FROM embedding_model_choice WHERE id = 1"
@@ -156,7 +154,7 @@ class SQLiteEmbeddingModelSelectionRepository:
         return None if row is None else EmbeddingModelSelection.model_validate(dict(row))
 
     def set(self, selection: EmbeddingModelSelection) -> EmbeddingModelSelection:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 """
                 INSERT INTO embedding_model_choice(
@@ -180,7 +178,7 @@ class SQLiteEmbeddingModelSelectionRepository:
         return stored
 
     def clear(self) -> None:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute("DELETE FROM embedding_model_choice WHERE id = 1")
 
 
@@ -197,9 +195,9 @@ class SQLiteBatchRefusalRepository:
     refused", and nothing here has any business being able to reproduce a credential.
     """
 
-    def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
-        self._connect = connect
-        with self._connect() as connection:
+    def __init__(self, transaction: Transaction) -> None:
+        self._transaction = transaction
+        with self._transaction() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS batch_refusal (
@@ -210,7 +208,7 @@ class SQLiteBatchRefusalRepository:
             )
 
     def refused(self, api_key: str) -> bool:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             row = connection.execute(
                 "SELECT 1 FROM batch_refusal WHERE key_fingerprint = ?",
                 (fingerprint_key(api_key),),
@@ -218,7 +216,7 @@ class SQLiteBatchRefusalRepository:
         return row is not None
 
     def record(self, api_key: str) -> None:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 "INSERT OR REPLACE INTO batch_refusal(key_fingerprint, refused_at) "
                 "VALUES (?, ?)",
@@ -228,7 +226,7 @@ class SQLiteBatchRefusalRepository:
     def forget(self, api_key: str) -> None:
         """Give a key another chance — for a project that has since enabled billing."""
 
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 "DELETE FROM batch_refusal WHERE key_fingerprint = ?",
                 (fingerprint_key(api_key),),

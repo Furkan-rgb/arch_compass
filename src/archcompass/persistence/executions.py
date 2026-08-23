@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import sqlite3
-from collections.abc import Callable
 from dataclasses import dataclass
 
 from archcompass.domain import Review
 from archcompass.domain.errors import ReviewNotFoundError
+from archcompass.persistence.sqlite.database import Transaction
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,9 +27,9 @@ class ExecutionRecord:
 class SQLiteReviewExecutionRepository:
     """Execution identity and lifecycle, deliberately separate from review lineage."""
 
-    def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
-        self._connect = connect
-        with self._connect() as connection:
+    def __init__(self, transaction: Transaction) -> None:
+        self._transaction = transaction
+        with self._transaction() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS review_executions (
@@ -61,7 +60,7 @@ class SQLiteReviewExecutionRepository:
         branch_id: str,
         case_id: str,
     ) -> None:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 "INSERT INTO review_executions(thread_id, repository_id, branch_id, "
                 "case_id, status) VALUES (?, ?, ?, ?, 'running')",
@@ -69,7 +68,7 @@ class SQLiteReviewExecutionRepository:
             )
 
     def bind(self, thread_id: str, review: Review) -> None:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 "UPDATE review_executions SET current_review_id = ?, status = ? "
                 "WHERE thread_id = ?",
@@ -82,7 +81,7 @@ class SQLiteReviewExecutionRepository:
             )
 
     def thread_for_review(self, review_id: str) -> str:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             row = connection.execute(
                 "SELECT thread_id FROM review_execution_aliases WHERE review_id = ?",
                 (review_id,),
@@ -92,7 +91,7 @@ class SQLiteReviewExecutionRepository:
         return str(row[0])
 
     def current_review_id(self, thread_id: str) -> str | None:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             row = connection.execute(
                 "SELECT current_review_id FROM review_executions WHERE thread_id = ?",
                 (thread_id,),
@@ -104,7 +103,7 @@ class SQLiteReviewExecutionRepository:
     def record(self, thread_id: str) -> ExecutionRecord | None:
         """The lineage this run belongs to, or `None` where no such run was started."""
 
-        with self._connect() as connection:
+        with self._transaction() as connection:
             row = connection.execute(
                 "SELECT thread_id, repository_id, branch_id, case_id FROM review_executions "
                 "WHERE thread_id = ?",
@@ -139,7 +138,7 @@ class SQLiteReviewExecutionRepository:
         No timestamp is stored, so the order is insertion order, which is start order.
         """
 
-        with self._connect() as connection:
+        with self._transaction() as connection:
             rows = connection.execute(
                 "SELECT thread_id, repository_id, branch_id, case_id FROM review_executions "
                 "WHERE status = 'running' ORDER BY rowid DESC LIMIT ?",
@@ -148,7 +147,7 @@ class SQLiteReviewExecutionRepository:
         return tuple(_record(row) for row in rows)
 
     def status(self, thread_id: str) -> str:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             row = connection.execute(
                 "SELECT status FROM review_executions WHERE thread_id = ?", (thread_id,)
             ).fetchone()
@@ -165,14 +164,14 @@ class SQLiteReviewExecutionRepository:
         keep that work out of every listing that asks what is running.
         """
 
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 "UPDATE review_executions SET status = 'running' WHERE thread_id = ?",
                 (thread_id,),
             )
 
     def fail(self, thread_id: str) -> None:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 "UPDATE review_executions SET status = 'failed' WHERE thread_id = ?",
                 (thread_id,),
@@ -188,14 +187,14 @@ class SQLiteReviewExecutionRepository:
         still answers with what became of the work.
         """
 
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 "UPDATE review_executions SET status = 'cancelled' WHERE thread_id = ?",
                 (thread_id,),
             )
 
     def abandon_running(self) -> None:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 "UPDATE review_executions SET status = 'failed' WHERE status = 'running'"
             )

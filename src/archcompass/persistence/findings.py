@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import sqlite3
-from collections.abc import Callable
 from dataclasses import replace
 from hashlib import sha256
 
 from archcompass.domain import Finding, Review
 from archcompass.persistence.sqlite.codecs import DataclassRecordCodec
+from archcompass.persistence.sqlite.database import Transaction
 
 
 def _finding_identity(finding: Finding) -> str:
@@ -39,10 +38,10 @@ def _finding_identity(finding: Finding) -> str:
 
 
 class SQLiteCoreFindingCache:
-    def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
-        self._connect = connect
+    def __init__(self, transaction: Transaction) -> None:
+        self._transaction = transaction
         self._codec = DataclassRecordCodec(Finding)
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS core_finding_cache (
@@ -72,7 +71,7 @@ class SQLiteCoreFindingCache:
                 )
 
     def get(self, key: str) -> Finding | None:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             row = connection.execute(
                 "SELECT finding_json, source_review_id FROM core_finding_cache "
                 "WHERE cache_key = ?",
@@ -86,7 +85,7 @@ class SQLiteCoreFindingCache:
 
     def put(self, key: str, finding: Finding) -> Finding:
         document = self._codec.encode(finding)
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 "INSERT INTO core_finding_cache(cache_key, finding_json, finding_identity) "
                 "VALUES (?, ?, ?) ON CONFLICT(cache_key) DO NOTHING",
@@ -107,7 +106,7 @@ class SQLiteCoreFindingCache:
         review that made it durable is the one being recorded now.
         """
 
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.executemany(
                 "UPDATE core_finding_cache SET source_review_id = ? "
                 "WHERE finding_identity = ? AND source_review_id IS NULL",

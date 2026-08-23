@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import sqlite3
-from collections.abc import Callable
-
 from archcompass.domain import ArchitectureCase
 from archcompass.domain.errors import CaseNotFoundError, CaseRevisionConflictError
 from archcompass.persistence.sqlite.codecs import DataclassRecordCodec
+from archcompass.persistence.sqlite.database import Transaction
 
 
 class SQLiteCoreCaseRepository:
-    def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
-        self._connect = connect
+    def __init__(self, transaction: Transaction) -> None:
+        self._transaction = transaction
         self._codec = DataclassRecordCodec(ArchitectureCase)
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS core_case_snapshots (
@@ -40,7 +38,7 @@ class SQLiteCoreCaseRepository:
         """
 
         document = self._codec.encode(case)
-        with self._connect() as connection:
+        with self._transaction() as connection:
             stored = connection.execute(
                 "SELECT case_json FROM core_case_snapshots "
                 "WHERE case_id = ? AND revision = ?",
@@ -68,7 +66,7 @@ class SQLiteCoreCaseRepository:
         over the revision that took it.
         """
 
-        with self._connect() as connection:
+        with self._transaction() as connection:
             row = connection.execute(
                 "SELECT MAX(revision) FROM core_case_snapshots WHERE case_id = ?",
                 (case_id,),
@@ -85,14 +83,14 @@ class SQLiteCoreCaseRepository:
         else:
             query += " AND revision = ?"
             parameters = (case_id, revision)
-        with self._connect() as connection:
+        with self._transaction() as connection:
             row = connection.execute(query, parameters).fetchone()
         if row is None:
             raise CaseNotFoundError(f"Architecture case {case_id} was not found")
         return self._codec.decode(str(row[0]), description=f"Case {case_id}")
 
     def history(self, case_id: str) -> tuple[ArchitectureCase, ...]:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             rows = connection.execute(
                 "SELECT case_json FROM core_case_snapshots WHERE case_id = ? "
                 "ORDER BY revision",
@@ -106,7 +104,7 @@ class SQLiteCoreCaseRepository:
         )
 
     def list(self, *, limit: int = 100) -> tuple[ArchitectureCase, ...]:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             rows = connection.execute(
                 "SELECT snapshots.case_json FROM core_case_snapshots AS snapshots "
                 "JOIN (SELECT case_id, MAX(revision) AS revision "

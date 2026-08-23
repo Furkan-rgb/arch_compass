@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-import sqlite3
-from collections.abc import Callable
-
 from archcompass.domain import CandidateId, StandingDecision
 from archcompass.persistence.sqlite.codecs import DataclassRecordCodec
+from archcompass.persistence.sqlite.database import Transaction
 
 
 class SQLiteCoreStandingDecisionRepository:
     """Append-only human decisions keyed by branch and stable candidate identity."""
 
-    def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
-        self._connect = connect
+    def __init__(self, transaction: Transaction) -> None:
+        self._transaction = transaction
         self._codec = DataclassRecordCodec(StandingDecision)
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS core_standing_decisions (
@@ -40,7 +38,7 @@ class SQLiteCoreStandingDecisionRepository:
     def record_many(
         self, decisions: tuple[StandingDecision, ...]
     ) -> tuple[StandingDecision, ...]:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.executemany(
                 "INSERT INTO core_standing_decisions(decision_id, branch_id, "
                 "candidate_id, decided_at, review_id, decision_json) "
@@ -60,7 +58,7 @@ class SQLiteCoreStandingDecisionRepository:
         return decisions
 
     def latest_for_branch(self, branch_id: str) -> tuple[StandingDecision, ...]:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             rows = connection.execute(
                 "SELECT decision_json FROM core_standing_decisions AS decisions "
                 "WHERE branch_id = ? AND decided_at = ("
@@ -78,7 +76,7 @@ class SQLiteCoreStandingDecisionRepository:
     def history(
         self, branch_id: str, candidate_id: CandidateId
     ) -> tuple[StandingDecision, ...]:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             rows = connection.execute(
                 "SELECT decision_json FROM core_standing_decisions "
                 "WHERE branch_id = ? AND candidate_id = ? "

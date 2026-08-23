@@ -354,14 +354,14 @@ def build_runtime(
     provider_registry = enabled_providers()
     model_catalog_service = ModelCatalogService(
         registry=provider_registry,
-        selections=SQLiteCoreModelSelectionRepository(core_database.raw_connect),
+        selections=SQLiteCoreModelSelectionRepository(core_database.transaction),
         pin=pin,
     )
     explicit_embedding = embedding_is_pinned()
     embedding_model_service = EmbeddingModelService(
         providers=tuple(provider_registry.values()),
         discovery=ProviderEmbeddingModelDiscovery(),
-        selections=SQLiteEmbeddingModelSelectionRepository(core_database.raw_connect),
+        selections=SQLiteEmbeddingModelSelectionRepository(core_database.transaction),
         default=EmbeddingModelSelection(
             provider="google",
             model=DEFAULT_GOOGLE_EMBEDDING_MODEL,
@@ -373,8 +373,8 @@ def build_runtime(
     # runs, and a workspace that has not made one yet still has to start.
     atlases = SQLiteAtlasRepository(database)
     lineages = SQLiteLineageRepository(database)
-    core_cases = SQLiteCoreCaseRepository(core_database.raw_connect)
-    core_reviews = SQLiteCoreReviewRepository(core_database.raw_connect)
+    core_cases = SQLiteCoreCaseRepository(core_database.transaction)
+    core_reviews = SQLiteCoreReviewRepository(core_database.transaction)
     # Which folders a repository is reviewed without. Read by indexing and by the freshness
     # check, which is the whole reason it is stored rather than passed: the check recomputes
     # the fingerprint and has to leave out what the analysis left out.
@@ -438,14 +438,14 @@ def build_runtime(
     bundled_example_service = BundledExampleService(
         repositories=repository_service,
     )
-    executions = SQLiteReviewExecutionRepository(core_database.raw_connect)
-    core_decisions = SQLiteCoreStandingDecisionRepository(core_database.raw_connect)
-    core_finding_cache = SQLiteCoreFindingCache(core_database.raw_connect)
+    executions = SQLiteReviewExecutionRepository(core_database.transaction)
+    core_decisions = SQLiteCoreStandingDecisionRepository(core_database.transaction)
+    core_finding_cache = SQLiteCoreFindingCache(core_database.transaction)
     # A project that the Batch API refuses is refused again after a restart, so the answer
     # is written down. Without this every session paid one rejected submission, and showed
     # that review's reader a run claiming a queued batch that had never been accepted.
-    batch_refusals = SQLiteBatchRefusalRepository(core_database.raw_connect)
-    core_conversations = SQLiteCoreConversationRepository(core_database.raw_connect)
+    batch_refusals = SQLiteBatchRefusalRepository(core_database.transaction)
+    core_conversations = SQLiteCoreConversationRepository(core_database.transaction)
     selected_chat = SelectedLangChainChatModel(model_catalog_service)
     review_conversation_service = CoreReviewConversationService(
         reviews=core_reviews,
@@ -499,7 +499,7 @@ def build_runtime(
     graph = build_review_graph(
         ReviewWorkflowCapabilities(
             context=SQLiteContextLoader(
-                database.raw_connect, core_cases, core_reviews
+                database.transaction, core_cases, core_reviews
             ),
             analyzer=DataclassRepositoryAnalyzer(analyzer, scope_selections),
             detector=DataclassCandidateDetector(),

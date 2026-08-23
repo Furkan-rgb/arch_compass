@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +9,7 @@ from pathlib import Path
 from archcompass.domain import RepositoryRef, Review
 from archcompass.domain.errors import ReviewNotFoundError
 from archcompass.persistence.sqlite.codecs import DataclassRecordCodec
+from archcompass.persistence.sqlite.database import Transaction
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,10 +59,10 @@ class ReviewSummary:
 
 
 class SQLiteCoreReviewRepository:
-    def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
-        self._connect = connect
+    def __init__(self, transaction: Transaction) -> None:
+        self._transaction = transaction
         self._codec = DataclassRecordCodec(Review)
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS core_review_snapshots (
@@ -80,7 +79,7 @@ class SQLiteCoreReviewRepository:
 
     def record(self, review: Review) -> Review:
         document = self._codec.encode(review)
-        with self._connect() as connection:
+        with self._transaction() as connection:
             connection.execute(
                 """
                 INSERT INTO core_review_snapshots(
@@ -116,7 +115,7 @@ class SQLiteCoreReviewRepository:
         that answers a clarification round miss a thirty-second deadline.
         """
 
-        with self._connect() as connection:
+        with self._transaction() as connection:
             row = connection.execute(
                 "SELECT sequence FROM core_review_snapshots WHERE review_id = ?",
                 (review_id,),
@@ -124,7 +123,7 @@ class SQLiteCoreReviewRepository:
         return None if row is None else int(row[0])
 
     def get(self, review_id: str) -> Review:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             row = connection.execute(
                 "SELECT review_json FROM core_review_snapshots WHERE review_id = ?",
                 (review_id,),
@@ -151,7 +150,7 @@ class SQLiteCoreReviewRepository:
     )
 
     def latest_for_branch(self, branch_id: str) -> Review | None:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             row = connection.execute(
                 "SELECT review_json FROM core_review_snapshots "
                 "WHERE branch_id = ? ORDER BY sequence DESC, rowid DESC LIMIT 1",
@@ -164,7 +163,7 @@ class SQLiteCoreReviewRepository:
         )
 
     def history_for_branch(self, branch_id: str) -> tuple[Review, ...]:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             rows = connection.execute(
                 "SELECT snapshots.review_json FROM core_review_snapshots AS snapshots "
                 f"WHERE snapshots.branch_id = ? AND {self._NEWEST_PER_REVISION} "
@@ -177,7 +176,7 @@ class SQLiteCoreReviewRepository:
         )
 
     def list(self, *, limit: int = 100) -> tuple[Review, ...]:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             rows = connection.execute(
                 "SELECT snapshots.review_json FROM core_review_snapshots AS snapshots "
                 f"WHERE {self._NEWEST_PER_REVISION} "
@@ -234,7 +233,7 @@ class SQLiteCoreReviewRepository:
         the listing changing under it.
         """
 
-        with self._connect() as connection:
+        with self._transaction() as connection:
             rows = connection.execute(
                 f"SELECT {self._SUMMARY_COLUMNS} "
                 "FROM core_review_snapshots AS snapshots "
@@ -247,7 +246,7 @@ class SQLiteCoreReviewRepository:
     def delete(self, review_id: str) -> None:
         # Review deletion is an explicit user operation. Provenance and checkpoints are
         # otherwise append-only and are never cleaned up as a side effect of startup.
-        with self._connect() as connection:
+        with self._transaction() as connection:
             cursor = connection.execute(
                 "DELETE FROM core_review_snapshots WHERE review_id = ?", (review_id,)
             )

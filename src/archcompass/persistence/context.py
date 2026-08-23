@@ -7,12 +7,11 @@ case and the branch's review history are read beside it in the same call.
 
 from __future__ import annotations
 
-import sqlite3
-from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
 from archcompass.domain import ArchitectureCase, RepositoryRef, Review
+from archcompass.persistence.sqlite.database import Transaction
 from archcompass.ports.capabilities import LoadedReviewContext
 
 
@@ -31,11 +30,11 @@ class CoreCaseSnapshots(Protocol):
 class SQLiteContextLoader:
     def __init__(
         self,
-        connect: Callable[[], sqlite3.Connection],
+        transaction: Transaction,
         core_cases: CoreCaseSnapshots,
         reviews: CoreReviewHistory,
     ) -> None:
-        self._connect = connect
+        self._transaction = transaction
         self._core_cases = core_cases
         self._reviews = reviews
 
@@ -46,7 +45,7 @@ class SQLiteContextLoader:
         case_id: str,
         case_revision: int | None,
     ) -> LoadedReviewContext:
-        with self._connect() as connection:
+        with self._transaction() as connection:
             row = connection.execute(
                 "SELECT root_path, git_commit_sha, branch_name, content_fingerprint "
                 "FROM atlas_versions WHERE repo_id = ? AND branch_id = ? "
