@@ -92,6 +92,20 @@ class DataclassRepositoryAnalyzer:
         )
 
 
+#: The last atlases parsed back out of their stored strings, newest last.
+#:
+#: Keyed on `RepositoryAtlas.id`, which is derived from the repository's content — so two
+#: entries under one key are the same atlas and the cache can never answer with another
+#: repository's structure.
+#:
+#: It exists because the round trip is not once. `analyze_repository` serialises the atlas
+#: and the very next node deserialises it; `AtlasInvestigatorSource.for_review` does it
+#: again for every hinge investigated, up to eight, and once more for every question asked
+#: of the finished review. Nine full parses of the largest object in the system, per review,
+#: for a representation `domain/atlas.py` calls an intentional migration boundary.
+_PARSED: dict[str, Atlas] = {}
+
+
 def analysis_atlas(atlas: RepositoryAtlas) -> Atlas:
     """The domain atlas read back as the analysis records it was assembled from.
 
@@ -106,6 +120,21 @@ def analysis_atlas(atlas: RepositoryAtlas) -> Atlas:
     the one judged.
     """
 
+    cached = _PARSED.get(atlas.id)
+    if cached is not None:
+        return cached
+    parsed = _parse_atlas(atlas)
+    # Two entries, and the number is the point rather than a round figure. One review holds
+    # one atlas, and the only reason to hold a second is a conversation about an earlier
+    # review answered while a new one runs. A larger cache would be the checkpoint memory
+    # problem with a sibling: this object is the largest in the system.
+    while len(_PARSED) >= 2:
+        _PARSED.pop(next(iter(_PARSED)))
+    _PARSED[atlas.id] = parsed
+    return parsed
+
+
+def _parse_atlas(atlas: RepositoryAtlas) -> Atlas:
     return Atlas(
         version=AtlasVersion(
             version_id=atlas.id,
