@@ -12,6 +12,7 @@ from archcompass.domain import (
 )
 from archcompass.domain._support import new_id, utc_now
 from archcompass.domain.errors import ReviewNotFoundError
+from archcompass.ports.persistence import ReviewSnapshots
 
 
 class StandingDecisionStore(Protocol):
@@ -28,13 +29,9 @@ class StandingDecisionStore(Protocol):
     ) -> tuple[StandingDecision, ...]: ...
 
 
-class DecisionReviewStore(Protocol):
-    def get(self, review_id: str) -> Review: ...
-
-
 class StandingDecisionService:
     def __init__(
-        self, *, decisions: StandingDecisionStore, reviews: DecisionReviewStore
+        self, *, decisions: StandingDecisionStore, reviews: ReviewSnapshots
     ) -> None:
         self._decisions = decisions
         self._reviews = reviews

@@ -33,6 +33,7 @@ from archcompass.domain.errors import (
 )
 from archcompass.persistence.executions import ExecutionRecord
 from archcompass.persistence.reviews import ReviewSummary
+from archcompass.ports.persistence import CaseSnapshots
 from archcompass.workflow.runs import ReviewRunner, RunState
 from archcompass.workflow.state import ReviewInput, ReviewState
 
@@ -148,10 +149,6 @@ class _JudgingProgress:
         return True
 
 
-class CaseSnapshotStore(Protocol):
-    def record(self, case: ArchitectureCase) -> ArchitectureCase: ...
-
-
 class ReviewWorkflowService:
     """One invocation per attempt; graph checkpoints are never domain lineage."""
 
@@ -161,7 +158,7 @@ class ReviewWorkflowService:
         *,
         reviews: ReviewSnapshotStore,
         executions: ReviewExecutionStore,
-        cases: CaseSnapshotStore | None = None,
+        cases: CaseSnapshots | None = None,
         runner: ReviewRunner | None = None,
     ) -> None:
         self._graph = graph

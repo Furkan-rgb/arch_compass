@@ -8,31 +8,19 @@ case and the branch's review history are read beside it in the same call.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
 
-from archcompass.domain import ArchitectureCase, RepositoryRef, Review
+from archcompass.domain import RepositoryRef
 from archcompass.persistence.sqlite.database import Transaction
 from archcompass.ports.capabilities import LoadedReviewContext
-
-
-class CoreReviewHistory(Protocol):
-    def latest_for_branch(self, branch_id: str) -> Review | None: ...
-
-    def history_for_branch(self, branch_id: str) -> tuple[Review, ...]: ...
-
-
-class CoreCaseSnapshots(Protocol):
-    def get(self, case_id: str, revision: int | None = None) -> ArchitectureCase: ...
-
-    def record(self, case: ArchitectureCase) -> ArchitectureCase: ...
+from archcompass.ports.persistence import CaseSnapshots, ReviewSnapshots
 
 
 class SQLiteContextLoader:
     def __init__(
         self,
         transaction: Transaction,
-        core_cases: CoreCaseSnapshots,
-        reviews: CoreReviewHistory,
+        core_cases: CaseSnapshots,
+        reviews: ReviewSnapshots,
     ) -> None:
         self._transaction = transaction
         self._core_cases = core_cases

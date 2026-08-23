@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import replace
 
 from archcompass.domain._support import new_id, utc_now
+from archcompass.ports.persistence import ReviewSnapshots
 from archcompass.ports.review_conversation import (
     ConversationMessage,
-    ConversationReviewStore,
     ConversationStore,
     ReviewAnswerer,
     ReviewConversation,
@@ -18,7 +18,7 @@ class CoreReviewConversationService:
     def __init__(
         self,
         *,
-        reviews: ConversationReviewStore,
+        reviews: ReviewSnapshots,
         conversations: ConversationStore,
         answerer: ReviewAnswerer,
     ) -> None:

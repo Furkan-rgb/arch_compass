@@ -12,6 +12,7 @@ from archcompass.ports.capabilities import (
     BatchArchitectureJudge,
     BatchOutcome,
     JudgementRequest,
+    ReviewRecorder,
 )
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 
@@ -24,14 +25,10 @@ class FindingCache(Protocol):
     def record_sources(self, review: Review) -> None: ...
 
 
-class ReviewStore(Protocol):
-    def record(self, review: Review) -> Review: ...
-
-
 class CachingReviewRecorder:
     """Record the review, then make it the provenance source for fresh cache entries."""
 
-    def __init__(self, reviews: ReviewStore, cache: FindingCache) -> None:
+    def __init__(self, reviews: ReviewRecorder, cache: FindingCache) -> None:
         self._reviews = reviews
         self._cache = cache
 

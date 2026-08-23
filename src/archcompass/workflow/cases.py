@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
 
 from archcompass.domain import (
     ArchitectureCase,
     PolicyContext,
-    Review,
 )
 from archcompass.domain.errors import CaseNotFoundError
-from archcompass.ports.persistence import LineageRepository
+from archcompass.ports.persistence import (
+    CaseSnapshots,
+    LineageRepository,
+    ReviewSnapshots,
+)
 
 MAX_BASE_DEPTH = 8
 
@@ -33,25 +35,11 @@ def _branch_chain(lineages: LineageRepository, branch_id: str | None) -> tuple[s
     return tuple(chain)
 
 
-class CaseSnapshots(Protocol):
-    def record(self, case: ArchitectureCase) -> ArchitectureCase: ...
-
-    def get(self, case_id: str, revision: int | None = None) -> ArchitectureCase: ...
-
-    def history(self, case_id: str) -> tuple[ArchitectureCase, ...]: ...
-
-    def list(self, *, limit: int = 100) -> tuple[ArchitectureCase, ...]: ...
-
-
-class ReviewHistory(Protocol):
-    def latest_for_branch(self, branch_id: str) -> Review | None: ...
-
-
 class ArchitectureCaseService:
     def __init__(
         self,
         cases: CaseSnapshots,
-        reviews: ReviewHistory,
+        reviews: ReviewSnapshots,
         lineages: LineageRepository,
     ) -> None:
         self._cases = cases

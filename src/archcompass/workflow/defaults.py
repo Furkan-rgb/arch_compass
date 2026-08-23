@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Protocol
 
 from archcompass.domain import (
     Answer,
@@ -25,6 +24,7 @@ from archcompass.ports.capabilities import (
     ReviewDraft,
     ReviewSynopsis,
 )
+from archcompass.ports.persistence import CaseSnapshots
 from archcompass.workflow.report import compose_markdown_report
 
 
@@ -74,12 +74,6 @@ class NoHingeInvestigation:
         return InvestigatedFinding(finding)
 
 
-class CaseSnapshotRecorder(Protocol):
-    def record(self, case: ArchitectureCase) -> ArchitectureCase: ...
-
-    def next_revision(self, case_id: str) -> int: ...
-
-
 class PersistentCaseReviser:
     """The same revision, written once, at the end.
 
@@ -90,7 +84,7 @@ class PersistentCaseReviser:
     that opened it finishes. A review nobody answered writes nothing.
     """
 
-    def __init__(self, cases: CaseSnapshotRecorder) -> None:
+    def __init__(self, cases: CaseSnapshots) -> None:
         self._cases = cases
 
     def open(self, case: ArchitectureCase) -> ArchitectureCase:

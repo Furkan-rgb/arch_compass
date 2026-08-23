@@ -7,11 +7,57 @@ from pathlib import Path
 from typing import Protocol
 
 from archcompass.analysis.atlas import Atlas
+from archcompass.domain import ArchitectureCase, Review
 from archcompass.repositories.lineage import BranchLineage, RepositoryLineage
 from archcompass.repositories.records import (
     RepositorySummary,
     SourceOrigin,
 )
+
+
+class ReviewSnapshots(Protocol):
+    """Reading the immutable reviews a branch has accumulated.
+
+    One protocol where there were five. `StandingDecisionService` and the conversation
+    service wanted `get`, `ArchitectureCaseService` wanted `latest_for_branch`, and
+    `SQLiteContextLoader` wanted two — so one SQLite class was described by five partial
+    protocols in four modules, three of them a single method named `get`. A one-method
+    protocol called `get` is not a boundary; it is a type alias with a ceremony, and a
+    reader asking what a review store can do got five partial answers and no whole one.
+
+    Writing is not here. `ReviewRecorder` in `capabilities.py` is the graph's seam for
+    that, and it is a real one — `CachingReviewRecorder` wraps it.
+    """
+
+    def get(self, review_id: str) -> Review: ...
+
+    def latest_for_branch(self, branch_id: str) -> Review | None: ...
+
+    def history_for_branch(self, branch_id: str) -> tuple[Review, ...]: ...
+
+
+class CaseSnapshots(Protocol):
+    """Reading and writing the revisions of one architecture case.
+
+    One protocol where there were four — `CaseSnapshots`, `CoreCaseSnapshots`,
+    `CaseSnapshotStore` and `CaseSnapshotRecorder`, in four modules, describing one SQLite
+    class between them. Two of them were a single `record`.
+
+    `next_revision` belongs with the rest because opening a revision and writing it are the
+    same store's business: `PersistentCaseReviser` asks for a free number when a review
+    opens one and writes the snapshot when that review finishes, and a protocol carrying
+    only half of that would describe half a reviser.
+    """
+
+    def get(self, case_id: str, revision: int | None = None) -> ArchitectureCase: ...
+
+    def record(self, case: ArchitectureCase) -> ArchitectureCase: ...
+
+    def history(self, case_id: str) -> tuple[ArchitectureCase, ...]: ...
+
+    def list(self, *, limit: int = 100) -> tuple[ArchitectureCase, ...]: ...
+
+    def next_revision(self, case_id: str) -> int: ...
 
 
 class LineageRepository(Protocol):

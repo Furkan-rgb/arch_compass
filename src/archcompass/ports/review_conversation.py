@@ -44,10 +44,6 @@ class ConversationStore(Protocol):
     def delete(self, conversation_id: str) -> None: ...
 
 
-class ConversationReviewStore(Protocol):
-    def get(self, review_id: str) -> Review: ...
-
-
 class ReviewAnswerer(Protocol):
     def answer(
         self,
