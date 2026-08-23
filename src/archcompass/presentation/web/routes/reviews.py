@@ -783,9 +783,12 @@ def routes() -> APIRouter:
     ) -> ReviewResponse:
         """Answer a clarification round and wait for the rejudgement in this request.
 
-        Kept beside the run below because the CLI and every non-browser caller reads a
-        review out of one call and has nowhere to come back to. A browser should use the
-        run: this holds a connection open for the length of a full rejudgement.
+        Kept beside the run below for a caller that reads a review out of one call and has
+        nowhere to come back to — a script, or a CI step driving the API. A browser should
+        use the run: this holds a connection open for the length of a full rejudgement.
+
+        Not for the CLI, which this used to name: it makes no HTTP calls at all and drives
+        `Runtime` directly.
         """
 
         review = runtime.review_workflow_service.resume(

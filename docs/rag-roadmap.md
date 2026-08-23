@@ -1,10 +1,13 @@
 # ArchCompass RAG Roadmap
 
+> **A plan, not a description.** Nothing below Phase 1 is implemented. What retrieval
+> actually does today is [policy-retrieval.md](policy-retrieval.md), which is canonical; this
+> document is the direction and the acceptance criteria a future retriever would have to
+> meet. Phase numbering is intent, not a schedule.
+
 ## Purpose
 
 This document defines the roadmap for ArchCompass policy retrieval.
-
-The current implementation is intentionally conservative: it retrieves applicable mandatory/scoped policies plus a dense top-K semantic result, then gives the full selected `Policy` objects to `ArchitectureJudge`.
 
 The long-term goal is a stronger hybrid retriever that improves policy recall and ranking quality **without changing the surrounding domain or workflow architecture**.
 
@@ -28,48 +31,6 @@ ArchitectureJudge
 ```
 
 The graph, `Candidate`, `Finding`, `ArchitectureCase`, and `ArchitectureJudge` must not depend on the internal retrieval strategy.
-
----
-
-## Current Baseline
-
-The current production retriever is `dense-scoped`.
-
-For each candidate it:
-
-1. Builds a deterministic retrieval query from:
-   - candidate pattern
-   - candidate summary
-   - participants
-   - measurements
-   - detection limitations
-   - architecture goal
-   - architecture constraints
-
-2. Always includes applicable:
-   - repository policies
-   - organisation policies
-   - user policies
-   - accepted ADR policies
-   - required general policies
-
-3. Chunks policy Markdown by `##` headings.
-
-4. Embeds policy chunks using the selected embedding model.
-
-5. Stores content-addressed vectors in SQLite using `sqlite-vec`.
-
-6. Performs dense cosine similarity search.
-
-7. Scores each policy by its best-matching chunk.
-
-8. Selects dense top-K policies, currently K=20.
-
-9. Deterministically merges dense results with mandatory/scoped policies.
-
-10. Persists generic retrieval provenance with the review.
-
-This baseline is deliberately high-recall and simple enough to reason about.
 
 ---
 

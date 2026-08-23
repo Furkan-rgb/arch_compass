@@ -1,10 +1,15 @@
 # Known defects
 
 Faults that are understood but not yet fixed, written down so the next person does not have
-to find them again. Each one names the evidence it rests on. A fault that has been fixed
-leaves this file; a fault that turns out not to exist leaves it too, with a note saying so.
+to find them again. Each one names the evidence it rests on and carries a status:
 
-## The one-review-one-sequence rule has no schema behind it
+- **OPEN** — reproduced, still present in the code on this branch.
+- **PARTLY FIXED** — the sharp edge is gone, something named below is not.
+
+A fault that is fully fixed leaves this file, and so does one that turns out not to exist.
+Everything here was re-verified against the code on 2026-08-22.
+
+## OPEN — the one-review-one-sequence rule has no schema behind it
 
 Migration `003_one_revision_per_review.sql` rebuilt `core_review_snapshots` without the old
 `UNIQUE(repository_id, branch_id, sequence)` and put nothing in its place. The table's only
@@ -19,7 +24,7 @@ already holds, which raises an uncaught `IntegrityError` against
 
 Nothing anywhere checks that a review's `case.revision` exists in `core_case_snapshots`.
 
-## `next_revision()` reserves nothing
+## OPEN — `next_revision()` reserves nothing
 
 Minutes pass between `reviser.open` and `seal_case`. Two reviews of one case inside that
 window both take the same number, and the loser dies with a genuine `CaseRevisionConflictError`
@@ -30,7 +35,7 @@ after a full round of judging has already been paid for. Reserve the row at `ope
 `ArchitectureCase.revise()` — the same unreserved number `open` took — so re-scoping during a
 live review makes `seal_case` die the same way, with a wider window.
 
-## A round that could not be put into words is still not distinguishable on screen
+## PARTLY FIXED — a round that could not be put into words is not distinguishable on screen
 
 `generate_questions_node` catches every exception and returns no questions; so does the
 per-finding loop inside `LangChainQuestionGenerator.generate`. Degrading is right — every
@@ -42,7 +47,7 @@ Half fixed: the two are now distinguishable **in the log**, at ERROR, naming how
 findings went unasked. Nothing says so on a surface a reader sees, and a review that quietly
 stopped short still reads as a review that finished.
 
-## A failed or cancelled execution reads as "already done"
+## OPEN — a failed or cancelled execution reads as "already done"
 
 `_resume_command` returns `None` for any execution that is not `awaiting_answers`, and
 `resume_background` turns that into `202` with the existing run state. For a `failed` or
@@ -51,7 +56,7 @@ button can be pressed for ever, and only a client that reads `status` off the ru
 tell. A submission against a superseded *round* is now refused properly
 (`ReviewSupersededError`, 409); a submission against a dead *run* is not.
 
-## Indexing still happens inside the click
+## OPEN — indexing still happens inside the click, and the repository is parsed twice
 
 `POST /api/repositories/start` calls `repository_service.index(...)` before it answers, so the
 longest wait in the product has no stage, no progress and no cancel. `start-page.tsx` labels
@@ -74,7 +79,7 @@ ids stay available at `_begin`, so the execution row, the run listing, the seque
 page are untouched; no migration is needed; parsing becomes the run's first visible,
 cancellable stage; and a whole parse is removed rather than relocated.
 
-## Nothing bounds a review's peak checkpoint size
+## OPEN — nothing bounds a review's peak checkpoint size
 
 Checkpoints are released the moment a review reaches an end and the space is handed back, so
 the file no longer grows without bound. What is not bounded is the *peak*: LangGraph writes the
@@ -82,15 +87,15 @@ whole `ReviewState` at every superstep, and that state carries the atlas, the po
 every retrieved policy set. One review of a six-file example repository reaches about 86 MB
 mid-flight before it is released. A repository of real size scales that by its atlas.
 
-## `Label` still has twenty-two hand-rolled copies
+## PARTLY FIXED — `Label` still has two dozen hand-rolled copies
 
-The drift is fixed — the five different tracking values are gone — but roughly twenty-two
-mono-variant copies of the recipe remain in `features/atlas/**`, `components/ui/select.tsx`
+The drift is fixed — the five different tracking values are gone — but twenty-four
+mono-variant copies of the recipe remain in `features/atlas/**`, `components/ui/select.tsx`,
 `features/landing/specimen.tsx`, `ui/brand.tsx`, `features/landing/exhibit.tsx` and
 `features/review/atlas-surface.tsx`. `ui/design-system.test.ts` carries this as an `it.todo`
 so it stays visible.
 
-## Dead surface that has not been removed yet
+## OPEN — dead surface that has not been removed yet
 
 Route-plus-generated-types with no live caller, verified by grep over `frontend/src`,
 `tests/`, `docs/` and the CLI. The last streaming endpoint has been removed; these remain,
@@ -107,15 +112,3 @@ accidentally orphaned** before removing it; everything else the audit found dead
 `safe_workspace_output_path` is the last of the dead code; the duplicated helpers, the
 duplicated ignored-directory list and the two protocols sharing the name `RepositoryAnalyzer`
 have all been reduced to one definition each.
-
-## Documentation that contradicts the code
-
-- `PRODUCT.md` lists remote hosting and cloud deployment as V1 exclusions; the `Dockerfile`
-  sets `ARCHCOMPASS_HOSTED=1` and `deploy.yml` deploys to Cloud Run on push to `main`. It also
-  cites three deleted documents and a `BoundaryReview` type that does not exist.
-- `docs/experience.md` lists bulk decisions and decision history as never wired; both are.
-- `docs/design-system.md` names four files allowed to say `-accent`; the enforced allowlist is
-  three, and one of the four contains no `accent` at all. It also cites a `66ch` that appears
-  nowhere in the frontend.
-- `routes/reviews.py` justifies the synchronous review route by "the CLI and every non-browser
-  caller"; the CLI makes no HTTP calls at all — it goes through `Runtime`.

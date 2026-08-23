@@ -1,8 +1,9 @@
 # The ArchCompass charter
 
 What ArchCompass is for, what it refuses to be, and the rules that settle an argument about
-what to build next. Everything else in `docs/` describes how the thing works; this one says
-why it works that way, so that a decision taken today still makes sense in six months.
+what to build next. [architecture.md](architecture.md) and [workflow.md](workflow.md) describe how the thing
+works; this one says why it works that way, so that a decision taken today still makes sense
+in six months.
 
 If a proposal cannot be argued for from this page, it is probably not an ArchCompass
 feature — however good an idea it is.
@@ -165,17 +166,17 @@ Three worked examples, so the rules read as something that was actually used:
 | Evidence surface listed every excerpt flat | "Say where it came from" — an excerpt only means something next to the claim it supports | Grouped under the candidate it was pinned for, and labelled by which step pinned it |
 | The delta was four panels of full sentences | "Scanning beats reading", "the second visit is the important one" | One list keyed on the identifier, filtered by change state, each row opening the finding |
 | Clarification questions were a blank box | "Ask rather than assume", "never make someone type what they could pick" | The model proposes likely answers; writing your own and skipping are always offered |
-| The architecture case carried a free-text goal | "Ask rather than assume", "nothing is inferred on a person's behalf" | Removed. One prose sentence was a poor stand-in for intent: it was demanded before anyone had seen a finding, so it was almost always blank, and where it was written it restated the policies in a form nothing could retrieve against |
-| The case still carried hand-authored constraints and decisions | "Ask rather than assume", "the queue is the product" | Removed for the same reason, one step later. No surface ever offered writing one and no review ever produced one, so the only way to fill them was hand-authored YAML — a form asking for intent before a finding existed, wearing a different shape. Intent now enters two ways only: the policies that bear on a candidate, and the answers a clarification round records. Both are specific, attributable, and asked for only when something turns on them |
-| A review asked a person what the code already said | "Ask rather than assume", "evidence before opinion" | A hinge now gets a bounded, recorded pass of read-only atlas lookups before it becomes a question. The pass establishes facts and decides nothing: what it looked up goes back to the same judge, with the same candidate, case and policies, and that judge alone reaches the verdict. Two components deciding under two contracts is what this replaced — the weaker one, which sees policy titles rather than their guidance, could overwrite the stronger, and did: four investigations in twelve returned a verdict their own reasoning argued against |
-| A real model almost never asked anything | "Ask rather than assume", "a confident wrong answer is worth less than an honest question" | The judgement prompt permitted a hinge and gave it no standing, and handed the model an empty case as three empty arrays beside a full policy corpus — so it judged on the policy every time. The contract now says an empty case out loud, gives asking first-class standing, and says when *not* to ask; and a question must propose two to four answers, because the interface offers writing your own and skipping under every one of them |
+| The architecture case carried a free-text goal, then hand-authored constraints and decisions | "Ask rather than assume", "nothing is inferred on a person's behalf" | Both removed. A form asking for intent before a finding exists is asked of someone with no reason yet to answer it. Intent now enters two ways only: the policies that bear on a candidate, and the answers a clarification round records |
+| A review asked a person what the code already said | "Ask rather than assume", "evidence before opinion" | A hinge gets a bounded, recorded pass of read-only lookups before it becomes a question — establishing facts and deciding nothing. See [workflow.md](workflow.md#the-hinge-investigation) |
+| A real model almost never asked anything | "a confident wrong answer is worth less than an honest question" | The prompt permitted a hinge and gave it no standing. It now says an empty case out loud, gives asking first-class standing, says when *not* to ask, and requires two to four proposed answers |
 
 ## Where this is still open
 
 Written down so that nobody mistakes an unsettled question for a settled one.
 
-- **Rejudgement scope.** Every extant candidate is rejudged after a case revision. That is a
-  correctness-first starting point and a replaceable `RejudgementSelector`, not a rule.
+- **Rejudgement scope.** Every extant candidate is rejudged after a case revision, because
+  an answer is about intent and intent bears on all of them. That is a correctness-first
+  starting point, not a proven rule, and it is the expensive choice.
 - **Retrieval strategy.** Dense top-K plus scoped and required policies is the current
   default. The provenance record is deliberately generic so a hybrid or graph retriever can
   replace it without touching the domain.

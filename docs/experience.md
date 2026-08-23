@@ -3,12 +3,13 @@
 What a person does in ArchCompass, in what order, and what each surface owes them at that
 moment.
 
-Four documents describe the interface and they do not overlap.
+Five documents describe the interface and they do not overlap.
 [The charter](charter.md) says what the product is for and which rules settle an argument
 about it. [The design system](design-system.md) says what it looks like and why — the
 tokens, the three typographic voices, the two structural devices.
 [Frontend regions](frontend-regions.md) is the vocabulary, so a sentence like "the queue
-footer overlaps the last row" means one thing.
+footer overlaps the last row" means one thing. [The landing page](landing-page.md) is the
+one surface with an argument to make rather than work to do.
 
 This one is about *the work*. The design system asked whose voice is speaking; this asks
 what the reader is trying to do and whether the screen in front of them is helping. It is

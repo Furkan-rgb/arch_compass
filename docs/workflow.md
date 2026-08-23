@@ -1,7 +1,8 @@
 # Review workflow
 
-[`workflow/graph.py`](../src/archcompass/workflow/graph.py) is the canonical description of
-review execution.
+The canonical description of how a review executes. `workflow/graph.py` is the source of
+truth; this document is what it means. For the concepts behind it read
+[architecture.md](architecture.md); for the knobs around it, [operations.md](operations.md).
 
 ```text
 START
@@ -11,93 +12,163 @@ START
   -> calculate_delta
   -> select_initial_candidates
   -> load_policy_corpus
-  -> [retrieve_policy_set -> judge_candidate] x candidate   (or review_candidates, batched)
-  -> investigate_hinges
-  -> rejudge_investigated
+  |
+  `- dispatch ------------------------------------------------.
+       |  nothing selected            -> generate_questions    |
+       |  batch judge available       -> review_candidates     |
+       |  otherwise, one Send each    -> review_candidate      |
+       |                                                       |
+       |   review_candidate (subgraph, once per candidate)      |
+       |     START -> retrieve_policy_set -> judge_candidate -> END
+       |                                                       |
+       `- review_candidate / review_candidates ----------------'
+                                |
+  -> investigate_hinges         (look up what the repository says about anything held)
+  -> rejudge_investigated       (put what was found back to the same judge)
   -> generate_questions
-       | settled / CI / limit / early stop
-       |   -> seal_case
-       |   -> write_final_synopsis -> compose_final_review -> record_review -> END
        |
-       ` questions
-           -> write_waiting_synopsis
-           -> compose_waiting_review
-           -> record_waiting_review
-           -> await_answers (interrupt)
-           -> revise_case
-           |    ` stop requested -> seal_case -> write_final_synopsis -> ... -> END
-           -> select_candidates_for_rejudgement
-           -> [retrieve_policy_set -> judge_candidate] x candidate
-           -> investigate_hinges
-           -> rejudge_investigated
-           -> generate_questions
+       `- settled / CI / round >= 3 / stop requested
+       |    -> seal_case
+       |    -> write_final_synopsis -> compose_final_review -> record_review -> END
+       |
+       `- questions to ask
+            -> write_waiting_synopsis
+            -> compose_waiting_review
+            -> record_waiting_review
+            -> await_answers                       (interrupt)
+            -> revise_case
+            |    `- stop requested -> seal_case -> ... -> END
+            -> select_candidates_for_rejudgement
+            `- dispatch (the same closure) -> review_candidate / review_candidates
+                 -> investigate_hinges -> rejudge_investigated -> generate_questions
 ```
 
-Candidate work is exposed to LangGraph through `Send`; a node does not hide a thread pool
-or private orchestration loop. Retrieval and judgement are separate nodes in a visible
-candidate subgraph.
+Candidate work is exposed to LangGraph through `Send`; no node hides a thread pool or a
+private orchestration loop. Retrieval and judgement are separate nodes in a visible
+candidate subgraph, so a reader can see that a candidate is judged against policies chosen
+for it rather than against the whole corpus.
 
-`investigate_hinges` is unconditional and guards itself. Both judgement paths reach it and
-both leave it for `rejudge_investigated`, so the edge carries no decision — and a conditional
-edge out of a `Send`-fanned node would evaluate its predicate once per branch against that
-branch's state, which is the wrong place to decide something about the whole set of
-findings. Where no model can call tools, or nothing hinged, the node returns before it reads
-a finding.
+## Judging a candidate
 
-`rejudge_investigated` is the second judgement, and the reason the pair is two nodes rather
-than one: `investigate_hinges` establishes facts and `ArchitectureJudge` alone decides what
-they mean. It re-judges only the candidates this round investigated *and* whose lookups
-answered something, with the same case and the same retrieved policies as the first
-judgement — nothing about the question changed, so nothing is retrieved again. Answering a
-clarification is the other case, and it revises the case, so it keeps its own path through
-`select_candidates_for_rejudgement`.
+`retrieve_policy_set` selects policies for one candidate — see
+[policy-retrieval.md](policy-retrieval.md) — and `judge_candidate` puts the candidate, the
+case and those policies to `ArchitectureJudge`.
 
-It is deliberately not routed through that selector. The edge out of `review_candidate`
-leads back to `investigate_hinges`, so re-entering the fan-out would investigate what was
-just investigated; a dedicated node needs no loop guard and puts "judged, looked, judged
-again" in the graph where it can be read.
+The judge returns one verdict by name: **`material`**, **`cleared`** or **`held`**. It is
+chosen, not inferred: the model emits the word, the application does not read it out of the
+reasoning. `held` carries a *hinge* — the single fact the verdict turns on — and `material`
+and `cleared` may not carry one, because they are answers rather than questions.
 
-`write_synopsis` is the one node that asks the model about the review rather than about a
-candidate: it writes the paragraph the report opens on, from verdicts that are already
-final. It is a node rather than something the composer does because the composer is a pure
-function of its draft, and because a graph whose nodes are its capabilities is how a model
-call stays visible. Both compose paths have one — a waiting review is a document somebody
-may hand over part-way through a clarification round. `ReviewSynopsisWriter` is the only
-capability with a default (`NoReviewSynopsis`): a workspace with no model available still
-composes its review, and the report opens on its counts.
+`ArchitectureJudge` is the only component in the system that produces a verdict.
 
-## State and snapshots
+## The hinge investigation
 
-`ReviewState` is a `TypedDict` used only while the graph runs. It holds domain snapshots,
-candidate partitions, retrieval results, findings, questions, submitted answers, round
-state, and control flags. It is neither persisted as the audit model nor exposed as the
-public API.
+A hinge stops the review to ask a person, and many hinges are questions the repository can
+answer for itself. So before anybody is interrupted, `investigate_hinges` gives each held
+finding a bounded, recorded pass of read-only lookups over the atlas the review analysed and
+the source at the revision that produced it.
 
-Each review attempt gets a fresh LangGraph thread ID. Review lineage instead uses stable
-repository and branch identity, review sequence, and `previous_review_id`.
+**It establishes facts and decides nothing.** It returns a `RecordedInvestigation` — every
+lookup, its arguments and the exact answer — and writes no findings at all. It is shown
+which policies the judgement said the candidate bears on, by title and strength, so it knows
+what the question is about; it is never shown the policy list, so there is no identifier it
+could cite and nothing to validate.
 
-The graph records immutable snapshots at awaiting, completed, failed, and cancelled
-boundaries. The waiting snapshot is persisted before `await_answers`; the interrupt node is
-write-free because LangGraph restarts interrupted nodes on resume.
+`rejudge_investigated` then puts that record back to the **same judge**, with the same
+candidate, the same case and the same retrieved policies. Nothing about the question changed,
+so nothing is retrieved again. Only candidates this round investigated *and* whose lookups
+answered something are re-judged: an investigation that could not begin leaves the judge with
+exactly the inputs it had the first time.
 
-## Clarification
+The judge sees three named blocks and they are three kinds of thing:
 
-The workflow permits at most three rounds. Partial submissions are completed with explicit
-skips, early conclusion is supported, and answered/skipped equivalent questions are not
-asked again. At the limit, remaining uncertainty is represented by held findings instead of
-an unbounded loop.
+| block | whose choice | becomes |
+|---|---|---|
+| `CASE` | a person's | architectural intent |
+| `CANDIDATE` | the detector's | `Finding.evidence` |
+| `OBSERVATIONS` | the model's | `RecordedInvestigation`, never evidence |
 
-CI runs the same graph with interruption disabled. Unresolved questions produce held,
-non-blocking findings.
+The observations block is rendered by the application from `(tool, arguments, result)` — not
+from the investigating model's prose, which would put an interpretation between the
+repository and the verdict. It says out loud that a model chose these and that they are not
+evidence, and it says when an investigation was cut short, because "the repository is silent"
+and "we stopped asking" are opposite facts about a hinge.
 
-## Delta and rejudgement
+A hinge nothing could settle reaches `generate_questions` unchanged and is put to a person.
+That is a correct outcome, not a failure: the goal is to avoid *unnecessary* questions.
 
-Unchanged findings can carry forward when every judgement input is unchanged. Changed and
-new candidates are judged; disappeared candidates become addressed after conservative
-succession matching. Historical candidates can be marked resurfaced. Standing decisions
-read through branch and succession lineage without entering judgement.
+### The toolbox
 
-After a round of answers, `RejudgeAllCandidates` initially selects every extant candidate.
-It reads the answers rather than the revision number, which no longer moves between one
-review's rounds. A dependency-aware selector can later replace it without changing the graph
-or domain.
+Five lookups, over the pinned atlas and the reviewed revision:
+
+| tool | takes |
+|---|---|
+| `search_code` | `name` — free text, for when the exact name is not known |
+| `describe_code` | `qualified_name` |
+| `related_code` | `qualified_name`, `relation` ∈ direct_dependencies · direct_dependants · known_callers · implementations · related_tests |
+| `read_code` | `qualified_name` |
+| `flagged_signals` | `codes` (optional) |
+
+Names are resolved by the application against that atlas and no other: exact, unique, or
+refused. Never a close match, never the first of several, never a node from a rebuilt atlas.
+An ambiguous name is reported with its choices and settled by an optional `kind`. The model
+never sees an atlas node id.
+
+### Guards
+
+Four bounds, each with one job, and the reason an investigation stopped is recorded on it:
+
+| guard | value | bounds |
+|---|---|---|
+| `MAX_INVESTIGATION_LOOKUPS` | 12 | what may be explored — the primary budget |
+| `MAX_INVESTIGATION_TURNS` | 12 | a loop that will not terminate |
+| `MAX_INVESTIGATION_CHARACTERS` | 12,000 | an abnormal run, not a long one |
+| wall clock | the transport's | the outer operational guard |
+
+`MAX_INVESTIGATED_FINDINGS` (8) caps how many hinges one round investigates.
+
+`Termination` records which fired: `NATURAL_END`, `MODEL_CALL_LIMIT`, `LOOKUP_LIMIT`,
+`INVESTIGATION_SIZE_LIMIT`, `PROVIDER_ERROR`. `NATURAL_END` says the model stopped asking —
+it claims nothing about whether the search was sufficient. `None` means only that the reason
+was not recorded, which is true of reviews stored before the field existed and of nothing
+else; it is never read as a natural end.
+
+## Clarification and rejudgement
+
+When a round has questions, an immutable `awaiting_answers` review is composed and recorded
+**before** the graph interrupts, so the snapshot a reader is holding exists whether or not
+anybody answers. `await_answers` then interrupts; the client resumes the same LangGraph
+thread with the answers.
+
+`revise_case` records them on the case and opens a revision if this review has not opened one
+yet. One review keeps **one** case revision however many rounds it asks — the revision moves
+when a review opens it, not when a round happens — and `seal_case` is the only thing that
+writes it, at the end, so a review that asked and was never answered leaves no revision
+behind.
+
+`select_candidates_for_rejudgement` validates that the case genuinely continues the previous
+one — same case, earlier answers unchanged, at least one new answer — and selects every
+candidate. An answer is about intent, and intent bears on all of them rather than only on the
+ones whose question mentioned it.
+
+At most **two** interrupts: `round >= 3` seals. A round asks at most 8 questions, and a
+question already asked is not asked again — questions carry an equivalence key over their
+facet and candidates.
+
+## Checkpoints and reviews
+
+Two stores, and they are never the same record.
+
+**LangGraph checkpoints** are execution durability: the thread, its state, and the interrupt
+it is parked on, in `review-checkpoints.db`. They exist so a resume continues the same
+attempt rather than starting a new one, and they are released when a review reaches an end.
+
+**Reviews** are product history: immutable snapshots in the workspace database, sequenced per
+branch and case, each naming the one before it. A checkpoint id is never a review id; the
+execution store maps between them.
+
+A run's *stage* is held in memory and is worth nothing after the process that ran it. The
+durable status — running, awaiting answers, completed, failed, cancelled — is the execution
+store's, and it survives a restart. A watcher asking about a run this process did not start
+is told the honest status with no stage list, rather than a progress bar that claims to be
+live and is not.

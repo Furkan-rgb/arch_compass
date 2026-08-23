@@ -2,14 +2,15 @@
 
 What ArchCompass looks like, and why it looks like that.
 
-Four documents describe the interface and they do not overlap. [The charter](charter.md)
+Five documents describe the interface and they do not overlap. [The charter](charter.md)
 says what the product is for and which rules settle an argument about it.
 [The experience](experience.md) says what a person is trying to do and whether the screen in
 front of them is helping. [Frontend regions](frontend-regions.md) is the vocabulary — what
 each area on screen is called, so a sentence like "the docket row clips its own claim" means
-one thing.
+one thing. [The landing page](landing-page.md) is the one surface with an argument to make
+rather than work to do.
 
-This one is the contract underneath all three: the tokens, the type roles and the structural
+This one is the contract underneath all four: the tokens, the type roles and the structural
 devices that the components are built from. If a component invents a colour, a face or a
 radius that is not here, that is the bug — not a local decision.
 
@@ -115,7 +116,7 @@ browser's synthetic slant is doing something honest — leaning a line that is a
 | 16 | Sans, 400, `1.65` | **The model's reasoning.** Its own size, used nowhere else |
 | 34–62 | Sans, 600, `-0.035em` | Landing display only, `clamp()`ed |
 
-Measure: the model's prose caps at `62ch`, everything else at `66ch`. Digits that line up in
+Measure: the model's prose caps at `62ch`, and everything else between `60ch` and `64ch`. Digits that line up in
 a column take `tabular-nums`. A qualified name is one token to the line breaker, so anything
 that can hold one takes `wrap-anywhere` — this is the single most common overflow bug in the
 product and `features/review/overflow.test.tsx` exists for it.
@@ -139,8 +140,8 @@ logo, and white on `#971b1a` clears 8.4:1 either way — while `--accent` itself
 `#f27166` in dark, where the deep red drops to 2.3:1 and stops being text at all.
 
 This is the second accent this system has had, and the first one reached 29 of 40 components.
-So it comes back on a budget: `ui/design-system.test.ts` names the four files allowed to say
-`-accent` (`ui/brand.tsx`, `ui/button.tsx`, `ui/tabs.tsx`, `ui/shortcuts.tsx`), and the fifth place — a material
+So it comes back on a budget: `ui/design-system.test.ts` names the three files allowed to say
+`-accent` (`ui/brand.tsx`, `ui/button.tsx`, `ui/tabs.tsx`), and the fourth place — a material
 verdict — is painted from a tone in `lib/format` and guarded by `verdict-hues.test.ts`. A
 focus ring is deliberately *not* on that list: it answers "where is the keyboard", which is a
 question about the reader rather than about the content, and a red ring makes every tab press
