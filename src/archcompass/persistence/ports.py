@@ -71,17 +71,22 @@ class ReviewSummary:
 
 
 class ReviewSnapshots(Protocol):
-    """Reading the immutable reviews a branch has accumulated.
+    """The immutable reviews a branch has accumulated: reading them, and removing one.
 
-    One protocol where there were five. `StandingDecisionService` and the conversation
+    One protocol where there were six. `StandingDecisionService` and the conversation
     service wanted `get`, `ArchitectureCaseService` wanted `latest_for_branch`, and
     `SQLiteContextLoader` wanted two — so one SQLite class was described by five partial
     protocols in four modules, three of them a single method named `get`. A one-method
     protocol called `get` is not a boundary; it is a type alias with a ceremony, and a
     reader asking what a review store can do got five partial answers and no whole one.
+    Those five became this. The sixth was `ReviewSnapshotStore` in `workflow/service.py`,
+    declared over the same class, and it is what the rest of this now absorbs.
 
-    Writing is not here. `ReviewRecorder` in `capabilities.py` is the graph's seam for
-    that, and it is a real one — `CachingReviewRecorder` wraps it.
+    `delete` is here and `record` is not, which is a distinction rather than an oversight.
+    Removing a snapshot is an operation on this collection, asked for by a person through
+    the API and doing exactly one thing. Recording is the *graph's* seam: `ReviewRecorder`
+    in `capabilities.py`, one method, wrapped by `CachingReviewRecorder` — a different act
+    with a different caller and a decorator that depends on it staying its own protocol.
     """
 
     def get(self, review_id: str) -> Review: ...
@@ -89,6 +94,14 @@ class ReviewSnapshots(Protocol):
     def latest_for_branch(self, branch_id: str) -> Review | None: ...
 
     def history_for_branch(self, branch_id: str) -> tuple[Review, ...]: ...
+
+    def sequence_of(self, review_id: str) -> int | None: ...
+
+    def list(self, *, limit: int = 100) -> tuple[Review, ...]: ...
+
+    def list_summaries(self, *, limit: int = 100) -> tuple[ReviewSummary, ...]: ...
+
+    def delete(self, review_id: str) -> None: ...
 
 
 class CaseSnapshots(Protocol):

@@ -539,6 +539,7 @@ def build_runtime(
     review_workflow_service = ReviewWorkflowService(
         graph,
         reviews=core_reviews,
+        recorder=core_reviews,
         executions=executions,
         cases=core_cases,
     )

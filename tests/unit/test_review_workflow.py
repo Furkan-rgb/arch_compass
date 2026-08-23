@@ -528,7 +528,9 @@ def test_workflow_service_resumes_idempotently_and_records_omissions_as_skips(
         ),
         checkpointer=InMemorySaver(),
     )
-    service = ReviewWorkflowService(graph, reviews=reviews, executions=executions)
+    service = ReviewWorkflowService(
+        graph, reviews=reviews, recorder=reviews, executions=executions
+    )
 
     waiting = service.start(
         repository_id=repository.id,
@@ -613,7 +615,9 @@ def test_workflow_records_a_failed_snapshot_after_context_exists(tmp_path: Path)
         ),
         checkpointer=InMemorySaver(),
     )
-    service = ReviewWorkflowService(graph, reviews=reviews, executions=executions)
+    service = ReviewWorkflowService(
+        graph, reviews=reviews, recorder=reviews, executions=executions
+    )
 
     with pytest.raises(RuntimeError, match="provider stopped"):
         service.start(

@@ -32,27 +32,12 @@ from archcompass.domain.errors import (
     ReviewSupersededError,
 )
 from archcompass.persistence.executions import ExecutionRecord
-from archcompass.persistence.ports import CaseSnapshots, ReviewSummary
+from archcompass.persistence.ports import CaseSnapshots, ReviewSnapshots, ReviewSummary
+from archcompass.ports.capabilities import ReviewRecorder
 from archcompass.workflow.runs import ReviewRunner, RunState
 from archcompass.workflow.state import ReviewInput, ReviewState
 
 _log = logging.getLogger(__name__)
-
-
-class ReviewSnapshotStore(Protocol):
-    def record(self, review: Review) -> Review: ...
-
-    def sequence_of(self, review_id: str) -> int | None: ...
-
-    def get(self, review_id: str) -> Review: ...
-
-    def list(self, *, limit: int = 100) -> tuple[Review, ...]: ...
-
-    def list_summaries(self, *, limit: int = 100) -> tuple[ReviewSummary, ...]: ...
-
-    def delete(self, review_id: str) -> None: ...
-
-    def latest_for_branch(self, branch_id: str) -> Review | None: ...
 
 
 class ReviewExecutionStore(Protocol):
@@ -155,13 +140,21 @@ class ReviewWorkflowService:
         self,
         graph: CompiledStateGraph[ReviewState, None, ReviewInput, ReviewState],
         *,
-        reviews: ReviewSnapshotStore,
+        reviews: ReviewSnapshots,
+        recorder: ReviewRecorder,
         executions: ReviewExecutionStore,
         cases: CaseSnapshots | None = None,
         runner: ReviewRunner | None = None,
     ) -> None:
         self._graph = graph
         self._reviews = reviews
+        # Named apart from `reviews` although one class answers both. A run that ends
+        # without the graph reaching `record_review` — cancelled, or failed — still owes a
+        # reader a terminal snapshot, and writing one is recording rather than an operation
+        # on the stored collection. `ReviewRecorder` is that seam; keeping the two names
+        # apart is what stops `ReviewSnapshots` drifting into meaning "anything that
+        # touches a review".
+        self._recorder = recorder
         self._executions = executions
         # Only the failure path writes through this, which is why it is optional: a graph
         # that reaches its end seals its own case through `seal_case`, and a test driving
@@ -478,7 +471,7 @@ class ReviewWorkflowService:
             status=ReviewStatus.CANCELLED,
             finished_at=utc_now(),
         )
-        recorded = self._reviews.record(cancelled)
+        recorded = self._recorder.record(cancelled)
         self._executions.bind(thread_id, recorded)
         self._release(thread_id)
         return recorded
@@ -801,7 +794,7 @@ class ReviewWorkflowService:
             ),
             failure=f"{type(error).__name__}: {error}",
         )
-        recorded = self._reviews.record(failure)
+        recorded = self._recorder.record(failure)
         self._executions.bind(thread_id, recorded)
         self._release(thread_id)
         return recorded
