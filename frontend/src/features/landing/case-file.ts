@@ -324,7 +324,7 @@ const INVESTIGATION: Investigation[] = [
     lookups: [
       {
         tool: "related_code",
-        arguments: { node_id: "node_store", kind: "dependants" },
+        arguments: { node_id: "node_store", kind: "direct_dependants" },
         result: `domain.orders          imports  adapters.db.Store
 reporting.exports      imports  adapters.db.Store
 platform.migrations    imports  adapters.db.Store

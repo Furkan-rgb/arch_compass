@@ -533,7 +533,8 @@ export function AtlasSurface({
       // mesh of hairlines is why "Surface cycles" read as a button that did nothing. Whichever
       // of the two was asked for last is the one on the map.
       const { operation } = requests[index];
-      if (operation === "shortest_dependency_path" || operation === "cyclic_components") return explorations[index]?.data;
+      if (operation === "shortest_dependency_path" || operation === "cyclic_components")
+        return explorations[index]?.data;
     }
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
