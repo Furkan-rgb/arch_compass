@@ -155,6 +155,11 @@ class ReviewRunner:
             # raised, the run is not terminal as far as this process knows, and evicting it
             # would delete the state a watcher is about to ask for.
             self._retire(run_id)
+        except Exception:
+            # Logged rather than raised, for the reason the whole module gives: a thread
+            # that dies with an exception nobody catches reports it to nothing. The run
+            # keeps whatever state it reached, and the durable store is still the answer.
+            _log.exception("review run %s could not record how it ended", run_id)
         finally:
             # Unconditional, and the one thing that is: a thread that has left `_run` is
             # never coming back, whatever happened inside it. `is_running` reads this map and

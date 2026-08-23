@@ -547,3 +547,100 @@ def test_a_workspace_that_has_been_refused_never_routes_to_a_batch_again(
         ).supports_batch()
         is True
     )
+
+
+def test_a_refusal_stops_holding_once_it_is_old_enough(tmp_path) -> None:
+    """A stale refusal stops matching on its own, which is the whole recovery path.
+
+    Eligibility is a property of the project and a project can gain it — somebody enables
+    billing — and no event carrying that reaches this process. The row used to be read as
+    permanent, `refused_at` written and never looked at, so the workspace judged every
+    review interactively for ever and the only way back was SQL by hand.
+
+    The interval is an operational choice and not the point; that a refusal expires at all
+    is the point. Asserted by writing the timestamp rather than by waiting a week.
+    """
+
+    import sqlite3
+    from datetime import timedelta
+
+    from archcompass.persistence.model_selection import (
+        _REFUSAL_HOLDS_FOR,
+        SQLiteBatchRefusalRepository,
+    )
+    from archcompass.records import utc_now
+
+    database = tmp_path / "workspace.db"
+
+    def connect() -> sqlite3.Connection:
+        connection = sqlite3.connect(database)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    def age(key_fingerprint_of: str, *, by: timedelta) -> None:
+        from archcompass.reasoning.refusals import fingerprint_key
+
+        with connect() as connection:
+            connection.execute(
+                "UPDATE batch_refusal SET refused_at = ? WHERE key_fingerprint = ?",
+                ((utc_now() - by).isoformat(), fingerprint_key(key_fingerprint_of)),
+            )
+
+    refusals = SQLiteBatchRefusalRepository(connect)
+    refusals.record("a-key")
+    assert refusals.refused("a-key") is True
+
+    age("a-key", by=_REFUSAL_HOLDS_FOR + timedelta(hours=1))
+    assert refusals.refused("a-key") is False, "a stale refusal is still being obeyed"
+
+    # Refused again today, and the observation is today's rather than the first one's.
+    refusals.record("a-key")
+    assert refusals.refused("a-key") is True
+
+    # One row per credential: the refresh replaced it rather than adding to it.
+    with connect() as connection:
+        rows = connection.execute("SELECT COUNT(*) FROM batch_refusal").fetchone()[0]
+    assert rows == 1
+
+
+def test_one_key_expiring_says_nothing_about_another(tmp_path) -> None:
+    """Two credentials are two projects, and one recovering does not speak for the other."""
+
+    import sqlite3
+    from datetime import timedelta
+
+    from archcompass.persistence.model_selection import (
+        _REFUSAL_HOLDS_FOR,
+        SQLiteBatchRefusalRepository,
+    )
+    from archcompass.reasoning.refusals import fingerprint_key
+    from archcompass.records import utc_now
+
+    database = tmp_path / "workspace.db"
+
+    def connect() -> sqlite3.Connection:
+        connection = sqlite3.connect(database)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    refusals = SQLiteBatchRefusalRepository(connect)
+    refusals.record("stale-key")
+    refusals.record("fresh-key")
+    with connect() as connection:
+        connection.execute(
+            "UPDATE batch_refusal SET refused_at = ? WHERE key_fingerprint = ?",
+            (
+                (utc_now() - _REFUSAL_HOLDS_FOR - timedelta(hours=1)).isoformat(),
+                fingerprint_key("stale-key"),
+            ),
+        )
+
+    assert refusals.refused("stale-key") is False
+    assert refusals.refused("fresh-key") is True
+    # Neither credential is recoverable from what was written down.
+    with connect() as connection:
+        stored = [
+            row[0] for row in connection.execute("SELECT key_fingerprint FROM batch_refusal")
+        ]
+    assert len(stored) == 2
+    assert not any(key in stored for key in ("stale-key", "fresh-key"))
