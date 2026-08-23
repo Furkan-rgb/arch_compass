@@ -468,12 +468,6 @@ AtlasQuery = Annotated[
 ]
 
 
-class AtlasQueryPlan(BoundaryDTO):
-    iteration: int = Field(ge=1, le=10)
-    rationale: str
-    queries: list[AtlasQuery] = Field(max_length=20)
-
-
 class SourceExcerpt(BoundaryDTO):
     node_id: str
     location: SourceLocation
@@ -498,72 +492,6 @@ class AtlasMetricValue(BoundaryDTO):
     scope: MetricScope = MetricScope.LEXICAL_NODE
     definition: str = ""
     limitations: str = ""
-
-
-class AtlasSelectionReasonKind(StrEnum):
-    OVERVIEW = "overview"
-    METRIC_RANK = "metric_rank"
-    NAME_MATCH = "name_match"
-    RELATION = "relation"
-    NEIGHBOURHOOD = "neighbourhood"
-    PATH = "path"
-    CYCLE = "cycle"
-    SIGNAL = "signal"
-    EXCERPT = "excerpt"
-    EXPLICIT_DETAILS = "explicit_details"
-
-
-class AtlasSelectionReason(BoundaryDTO):
-    kind: AtlasSelectionReasonKind
-    explanation: str = Field(min_length=1)
-    metric: str | None = None
-    related_node_id: str | None = None
-
-
-class AtlasNodeEvidence(BoundaryDTO):
-    """A self-describing, bounded view of one surfaced atlas node."""
-
-    node: AtlasNodeSummary
-    reasons: list[AtlasSelectionReason] = Field(default_factory=list[AtlasSelectionReason])
-    metrics: list[AtlasMetricValue] = Field(default_factory=list[AtlasMetricValue])
-    signals: list[ObscuritySignal] = Field(default_factory=list[ObscuritySignal])
-
-
-class AtlasRelationshipEvidence(BoundaryDTO):
-    """An atlas relationship with resolved endpoint identities."""
-
-    edge_id: str
-    edge_type: EdgeType
-    source: AtlasNodeSummary
-    target: AtlasNodeSummary
-    confidence: float = Field(ge=0, le=1)
-    location: SourceLocation | None = None
-
-
-class AtlasOverview(BoundaryDTO):
-    """Small deterministic repository map supplied before focused investigation."""
-
-    atlas_version_id: str
-    repository_identity: str
-    node_count: int = Field(ge=0)
-    edge_count: int = Field(ge=0)
-    signal_count: int = Field(ge=0)
-    node_type_counts: dict[str, int] = Field(default_factory=dict[str, int])
-    edge_type_counts: dict[str, int] = Field(default_factory=dict[str, int])
-    signal_code_counts: dict[str, int] = Field(default_factory=dict[str, int])
-    signals: list[ObscuritySignal] = Field(
-        default_factory=list[ObscuritySignal],
-        max_length=20,
-    )
-    top_level_nodes: list[AtlasNodeSummary] = Field(
-        default_factory=list[AtlasNodeSummary],
-        max_length=20,
-    )
-    hotspots: list[AtlasNodeEvidence] = Field(
-        default_factory=list[AtlasNodeEvidence],
-        max_length=12,
-    )
-    limitations: list[str] = Field(default_factory=list[str])
 
 
 class AtlasQueryResult(BoundaryDTO):
