@@ -122,7 +122,9 @@ def test_ports_are_stated_in_domain_terms_alone() -> None:
     )
     root = SOURCE_ROOT / "ports"
     assert root.is_dir(), "ports/ is gone; this guard now sweeps nothing"
-    assert {path.name for path in _python_files(root)} == {
+    # Relative path rather than name: `{path.name for ...}` over an `rglob` is dodged by a
+    # subpackage, because `ports/extra/capabilities.py` contributes a name already in the set.
+    assert {path.relative_to(root).as_posix() for path in _python_files(root)} == {
         "__init__.py",
         "capabilities.py",
         "policy_retrieval.py",
@@ -137,6 +139,65 @@ def test_ports_are_stated_in_domain_terms_alone() -> None:
             f"{path.relative_to(SOURCE_ROOT)} imports {offending[0]}; a graph seam is "
             "stated in domain terms, and a contract that needs a feature's own records "
             f"belongs in that feature's ports.py"
+        )
+
+
+#: What a module may import and still be somewhere a contract can be stated in: the standard
+#: library, Pydantic, and the three shared vocabularies. Anything else makes it behaviour.
+_RECORD_VOCABULARY = (
+    "archcompass.records",
+    "archcompass.domain",
+    "archcompass.configuration",
+)
+
+
+def _is_record_module(module: str) -> bool:
+    """Whether `module` is a file of frozen records rather than something that does work.
+
+    Asked structurally rather than answered by a list. `_FEATURE_RECORD_MODULES` used to name
+    the five that `ports/` was allowed to reach for, which meant the rule was maintained by
+    hand and said nothing about the sixth. This asks the modules themselves: a record module
+    imports the standard library, Pydantic and the shared vocabularies, and nothing that
+    could hold behaviour.
+    """
+
+    path = SOURCE_ROOT.parent / (module.replace(".", "/") + ".py")
+    if not path.is_file():
+        return False
+    return all(
+        not _crosses(imported, "archcompass")
+        or any(_crosses(imported, allowed) for allowed in _RECORD_VOCABULARY)
+        for imported in _imports(path)
+    )
+
+
+def test_a_features_ports_name_records_and_never_behaviour() -> None:
+    """A contract may be stated in another feature's record types. Not in its work.
+
+    When these lived in `ports/`, an allowlist of five module names is what let them name
+    `analysis.atlas` and `repositories.lineage`; moving them beside their features took the
+    allowlist away and, on its own, would have taken the rule with it — `persistence/ports.py`
+    naming `archcompass.reasoning.conversation` would then have been nobody's business.
+
+    The rule is asked of the imported module instead of of a list: it has to be a file of
+    records itself. That is stricter than the allowlist was, because the allowlist could not
+    notice one of its five growing a service, and it needs no maintenance.
+    """
+
+    for feature in FEATURES:
+        path = SOURCE_ROOT / feature / "ports.py"
+        if not path.is_file():
+            continue
+        offending = [
+            imported
+            for imported in _imports(path)
+            if _crosses(imported, "archcompass")
+            and not any(_crosses(imported, allowed) for allowed in _RECORD_VOCABULARY)
+            and not _is_record_module(imported)
+        ]
+        assert not offending, (
+            f"{path.relative_to(SOURCE_ROOT)} imports {offending[0]}, which holds behaviour "
+            "rather than records; a contract cannot be stated in terms of what answers it"
         )
 
 
