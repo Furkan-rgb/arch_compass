@@ -16,7 +16,7 @@ import pandas as pd
 
 from archcompass.domain import Policy
 from archcompass.policies.evaluation import RetrievalEvaluation
-from archcompass.ports.dense_policy_index import DensePolicyIndex
+from archcompass.policies.ports import DensePolicyIndex
 from evaluation.harness.dataset import EvalCase
 from evaluation.harness.metrics import CaseScores, Summary, score_case, summarize
 from evaluation.harness.runner import run_index

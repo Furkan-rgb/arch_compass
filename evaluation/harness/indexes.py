@@ -24,7 +24,7 @@ from archcompass.domain import Policy
 # The production chunker, imported rather than reimplemented. A copy here would let the
 # evaluation keep scoring a chunking the product had stopped using.
 from archcompass.policies.adapters.sqlite_index import _chunks as heading_chunks
-from archcompass.ports.dense_policy_index import DensePolicyMatch
+from archcompass.policies.ports import DensePolicyMatch
 from archcompass.reasoning.adapters.factory import (
     TaskPromptedEmbeddings,
     build_embeddings,

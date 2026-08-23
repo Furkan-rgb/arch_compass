@@ -15,8 +15,8 @@ from dataclasses import dataclass
 
 from archcompass.domain import ArchitectureCase, Policy, PolicyScope, PolicyStrength
 from archcompass.policies.evaluation import RetrievalExample
+from archcompass.policies.ports import DensePolicyIndex
 from archcompass.policies.retrieval import DensePolicyRetriever
-from archcompass.ports.dense_policy_index import DensePolicyIndex
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 from evaluation.harness.dataset import EvalCase
 

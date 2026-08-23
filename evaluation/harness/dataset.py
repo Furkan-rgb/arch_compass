@@ -10,6 +10,7 @@ change is a loud failure here rather than a test set that silently got smaller.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 
@@ -19,13 +20,15 @@ from archcompass.analysis.adapters.ast_analyzer import PythonAstRepositoryAnalyz
 from archcompass.analysis.analyzer import DataclassCandidateDetector
 from archcompass.analysis.detectors import detect_finding_candidates
 from archcompass.domain import (
+    Answer,
+    AnswerStatus,
     ArchitectureCase,
     Candidate,
-    CaseConstraint,
-    CaseDecision,
+    CaseFacet,
     Participant,
     Policy,
     PolicyContext,
+    Question,
 )
 from archcompass.policies.retrieval import retrieval_query
 
@@ -133,19 +136,73 @@ def detected_candidates(root: Path) -> tuple[tuple[str, Candidate], ...]:
     return tuple(found)
 
 
-def _authored_case(document: dict[str, object]) -> ArchitectureCase:
+#: The stem each authored facet is put to the case as, because a case now carries intent as
+#: answered questions and nothing else. `retrieval_query` embeds `f"{question.text} {value}"`,
+#: so what reaches the retriever is the dataset's own sentence with this in front of it —
+#: which is what a review's own clarification round produces, rather than a second shape for
+#: intent that only the evaluation knows about.
+_FACET_STEMS = (
+    (CaseFacet.CONSTRAINT, "constraints", "What constrains this architecture?"),
+    (CaseFacet.DECISION, "decisions", "What has already been decided here?"),
+)
+
+
+def _authored_intent(document: dict[str, object]) -> tuple[tuple[CaseFacet, str, str], ...]:
+    """The facet, its stem, and every sentence the dataset authored under it, joined.
+
+    One entry per facet rather than one per sentence: `with_answers` refuses two answers
+    with the same equivalence key, and the key is the facet plus the candidates the question
+    was asked about — which for one candidate is the facet alone.
+    """
+
+    found = []
+    for facet, key, stem in _FACET_STEMS:
+        said = " ".join(
+            str(dict(item)["text"]).strip()  # type: ignore[arg-type]
+            for item in list(document.get(key) or [])
+        ).strip()
+        if said:
+            found.append((facet, stem, said))
+    return tuple(found)
+
+
+def _authored_case(
+    document: dict[str, object],
+    *,
+    candidate_id: str,
+    with_intent: bool,
+) -> ArchitectureCase:
+    """The case a review of this candidate is judged against, as a review would hold it.
+
+    Built per candidate rather than per repository because a `Question` names the candidates
+    it was asked about, and a case's intent is now the answers to those questions. The
+    dataset still authors intent per repository — it is a fact about the codebase, not about
+    one finding — and it is put to every candidate of that repository, which is what a
+    reviewer answering once for the whole repository produces.
+    """
+
     context = dict(document.get("policy_context") or {})
-    constraints = tuple(
-        CaseConstraint(text=str(item["text"]))
-        for item in list(document.get("constraints") or [])
-    )
-    decisions = tuple(
-        CaseDecision(text=str(item["text"])) for item in list(document.get("decisions") or [])
-    )
-    base = ArchitectureCase.create()
-    return base.revise(
-        constraints=constraints,
-        decisions=decisions,
+    case = ArchitectureCase.create()
+    intent = _authored_intent(document) if with_intent else ()
+    if intent:
+        case = case.open_revision().with_answers(
+            tuple(
+                Answer(
+                    question=Question.create(
+                        text=stem,
+                        facet=facet,
+                        candidate_ids=(candidate_id,),
+                        round=1,
+                    ),
+                    status=AnswerStatus.ANSWERED,
+                    value=said,
+                    actor="evaluation-dataset",
+                    answered_at=datetime.now(UTC),
+                )
+                for facet, stem, said in intent
+            )
+        )
+    return case.revise(
         policy_context=PolicyContext(
             user=context.get("user"),
             organisation=context.get("organisation"),
@@ -162,9 +219,7 @@ def candidate_cases(root: Path, *, with_constraints: bool = True) -> tuple[EvalC
     """The labelled detector output, as queries built the way a review builds them."""
 
     document = yaml.safe_load((root / CANDIDATE_LABELS).read_text(encoding="utf-8"))
-    repositories = {
-        name: _authored_case(value) for name, value in document["repositories"].items()
-    }
+    repositories = dict(document["repositories"])
     available = {
         (repository, _slug(candidate.participants)): candidate
         for repository, candidate in detected_candidates(root)
@@ -183,9 +238,11 @@ def candidate_cases(root: Path, *, with_constraints: bool = True) -> tuple[EvalC
         if key in claimed:
             raise ValueError(f"Two labels claim the same candidate: {key}")
         claimed.add(key)
-        case = repositories[repository]
-        if not with_constraints:
-            case = case.revise(constraints=(), decisions=())
+        case = _authored_case(
+            repositories[repository],
+            candidate_id=str(candidate.id),
+            with_intent=with_constraints,
+        )
         labels = LabelledCase(
             id=f"{repository}/{candidate.pattern}/{_short(candidate)}",
             kind="candidate",
