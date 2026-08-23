@@ -76,9 +76,10 @@ could cite and nothing to validate.
 
 `rejudge_investigated` then puts that record back to the **same judge**, with the same
 candidate, the same case and the same retrieved policies. Nothing about the question changed,
-so nothing is retrieved again. Only candidates this round investigated *and* whose lookups
-answered something are re-judged: an investigation that could not begin leaves the judge with
-exactly the inputs it had the first time.
+so nothing is retrieved again. A candidate is re-judged only if it has a record, that record
+has at least one lookup, and this round retrieved for it — so an investigation that was
+withheld, or that could not ask anything, leaves the judge with exactly the inputs it had the
+first time, and the finding it already reached stands.
 
 The judge sees three named blocks and they are three kinds of thing:
 
@@ -127,6 +128,10 @@ Four bounds, each with one job, and the reason an investigation stopped is recor
 
 `MAX_INVESTIGATED_FINDINGS` (8) caps how many hinges one round investigates.
 
+One answer is bounded too, before the budget ever sees it: 25 rows a result, 2,500 characters
+a result, 80 lines from `read_code`, 10 signal codes a request. So the character budget above
+is a guard against an abnormal run rather than the thing that trims a normal one.
+
 `Termination` records which fired: `NATURAL_END`, `MODEL_CALL_LIMIT`, `LOOKUP_LIMIT`,
 `INVESTIGATION_SIZE_LIMIT`, `PROVIDER_ERROR`. `NATURAL_END` says the model stopped asking —
 it claims nothing about whether the search was sufficient. `None` means only that the reason
@@ -151,9 +156,12 @@ one — same case, earlier answers unchanged, at least one new answer — and se
 candidate. An answer is about intent, and intent bears on all of them rather than only on the
 ones whose question mentioned it.
 
-At most **two** interrupts: `round >= 3` seals. A round asks at most 8 questions, and a
-question already asked is not asked again — questions carry an equivalence key over their
-facet and candidates.
+At most **two** interrupts: `round >= 3` seals. `MAX_ASKED_HINGES` (8) caps how many held
+findings a round asks about, which is a different number from the eight it investigates and
+is there for a different reason: nine questions in a form is a form nobody finishes. Hinges
+past the cap are not lost — they stay held and the next round asks them. A question already
+asked is not asked again, on an equivalence key over its facet and candidates, and a hinge
+the model could not phrase is counted and logged rather than silently dropped.
 
 ## Checkpoints and reviews
 

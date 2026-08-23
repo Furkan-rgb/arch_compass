@@ -518,8 +518,8 @@ The domain, the API and the persistence model are untouched. Every behaviour her
 fields that already cross the boundary — `delta`, `previous_review_id`,
 `DecisionResponse.finding_verdict` — and no endpoint is added.
 
-The design system's rules are untouched — no accent, verdict chroma only, a hue never
-carrying meaning alone — though the devices that used to carry the three voices are not the
+The design system's rules are untouched — a hue never carrying meaning alone, and one
+accent that always means *look here* — though the devices that used to carry the three voices are not the
 ones that carry them now. The attribution gutter and the queue spine are gone; what keeps the
 machine, the model and the person apart is placement and a line naming the author, which
 `review-workbench.test.tsx` holds in exactly the way it used to hold the gutter.
@@ -535,14 +535,11 @@ only the shape it is worked in — one question at a time became the stack descr
   ordering and the filter are all a first-time reader gets. If this needs solving it is
   probably by grouping on something the machine already measured — pattern, or subtree —
   and that is a detection question as much as an interface one.
-- **Bulk decisions.** `/api/decisions/bulk` and `decide_many` exist in the workspace and have
-  never been called by the interface. Twelve cleared candidates decided one at a time is
-  twelve times the same three clicks. What stopped this landing here is that a bulk waiver
-  needs one reasoning string for twelve different candidates, and a reason that fits twelve
-  findings is usually not a reason.
-- **Decision history.** `api.decisionHistory` is written, typed, and called from nowhere.
-  Now that a stale decision is visible, the natural next question is "what did we decide the
-  last four times", and there is no surface for it.
+- **A bulk waiver still needs one reason for many findings.** `BulkBar` ships and calls
+  `/api/decisions/bulk`, so twelve cleared candidates are no longer twelve times the same
+  three clicks. What it does not solve is the reason: a waiver wants a reasoning string, and
+  one that fits twelve different findings is usually not a reason. Bulk accept is the safe
+  case; bulk waive is the open one.
 - **The Structure tab.** Scoping the atlas search to the candidate is better than not
   scoping it, but it is still a search box. Whether a reviewer judging a coupling finding
   wants a search or wants the resolved neighbourhood drawn for them is not answered here.

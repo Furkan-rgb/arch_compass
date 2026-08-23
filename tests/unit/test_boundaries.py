@@ -394,10 +394,10 @@ def test_web_routes_use_application_services_only() -> None:
 def test_reasoning_adapters_do_not_import_the_services_above_them() -> None:
     """Adapters own transport and schema constraint, never application policy.
 
-    `docs/architecture.md` states that model adapters "do not choose evidence, history,
-    citation, or truncation rules". This pins the import direction that makes the statement
-    enforceable rather than aspirational: an adapter may know its port and the domain, and
-    may not know the service that calls it.
+    `docs/architecture.md` puts provider SDKs in two adapter packages and has every feature
+    reach the outside world through its own `ports.py`. This pins the import direction that
+    makes that enforceable rather than aspirational: an adapter may know its port and the
+    domain, and may not know the service that calls it.
     """
 
     root = SOURCE_ROOT / "reasoning" / "adapters"

@@ -62,9 +62,16 @@ smallest configuration satisfying all gates:
 
 Full-corpus judgement is an evaluation oracle, never a production graph branch.
 
-This is a release gate, not workspace configuration. Maintainers run `archcompass retrieval
-evaluate --from evaluation.yaml` before changing the release-owned K/version constants.
-End users do not approve a shipped retriever in each workspace.
+This is a release gate, not workspace configuration. A maintainer runs `archcompass
+retrieval evaluate --from <recorded-results>.yaml` over a reference run before changing the
+release-owned K/version constants. No such file is committed, so the command does not run
+from a fresh checkout. End users do not approve a shipped retriever in each workspace.
+
+This is not the only measurement of the retriever, and the two are unrelated.
+[evaluation/README.md](../evaluation/README.md) is the other: a notebook harness over
+labelled cases reporting recall, precision, MRR, MAP and nDCG against `embeddinggemma`,
+run with `make evaluation`. The gate above decides a shipped constant; the notebook decides
+whether a strategy is worth shipping at all.
 
 ## Upgrade path
 

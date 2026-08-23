@@ -69,8 +69,11 @@ and CI always win.
 
 Groq and Cerebras are reached the same way as each other, over OpenAI's chat API, and
 neither serves embeddings: a run judging through one retrieves through Google or a local
-Ollama. Neither meters a batch separately either, so judging there is the concurrent loop
-sized by the provider's `concurrent_requests`.
+Ollama.
+
+Only Google is asked for every candidate at once. Every other provider — Ollama, Groq,
+Cerebras — takes the graph's per-candidate `Send` fan-out, and how many of those run
+together is LangGraph's business, not a setting here.
 
 Embedding selection is independent of reasoning selection, and changing the embedding model
 creates a different content-addressed index namespace. Existing review provenance is
@@ -99,7 +102,7 @@ Each is named by its provider descriptor's `api_key_env`, never hardcoded at the
 | `ARCHCOMPASS_OLLAMA_URL` | `http://127.0.0.1:11434` | moves the local Ollama server |
 | `ARCHCOMPASS_GROQ_MODELS` | the descriptor's | comma-separated model ids to offer |
 | `ARCHCOMPASS_CEREBRAS_MODELS` | the descriptor's | comma-separated model ids to offer |
-| `ARCHCOMPASS_MODEL_CONCURRENT_REQUESTS` | the descriptor's | how many judgements run at once on the concurrent path |
+| `ARCHCOMPASS_MODEL_CONCURRENT_REQUESTS` | the descriptor's (1 for Google) | see below — narrower than it looks |
 | `ARCHCOMPASS_GOOGLE_BATCH` | `1` | `0` judges Google one candidate at a time |
 | `ARCHCOMPASS_HINGE_INVESTIGATION` | `1` | `0` skips the lookups a hinge gets before a person is asked |
 | `ARCHCOMPASS_EMBEDDING_PROVIDER` | selected model's | pins the embedding provider |
@@ -116,6 +119,12 @@ Booleans accept `0`, `false`, `no` and `off` for the off state; anything else is
 `ARCHCOMPASS_GOOGLE_BATCH=0` is what to reach for when batches are refused often enough to
 be the slower route — a batch is metered once rather than per candidate, at the cost of
 taking as long as its slowest verdict.
+
+`ARCHCOMPASS_MODEL_CONCURRENT_REQUESTS` reaches exactly one path: the loop
+`SelectedLangChainJudge` falls back to when a Google batch is refused. Nothing else reads it.
+The graph routes to the batch node only when the selected provider is Google, so every other
+provider is already fanned out by LangGraph and never touches this number. Groq's and
+Cerebras's own `concurrent_requests = 4` is unreachable for the same reason.
 
 `ARCHCOMPASS_HINGE_INVESTIGATION=0` turns off the read-only lookups a hinged finding gets
 before its question is put to a person. Each held finding otherwise costs up to twelve
@@ -181,11 +190,14 @@ These are **not** in `make check` and will not tell you they are broken:
 
 `make full` is `check`, `test-ollama` and `build`.
 
-The retrieval gate consumes recorded reference results:
+The retrieval gate reads a recorded reference run and picks the smallest K that passes:
 
 ```bash
-uv run archcompass retrieval evaluate --from evaluation.yaml
+uv run archcompass retrieval evaluate --from <recorded-results>.yaml
 ```
 
-It tries K=8, 12, 16 and 20 and reports the smallest passing configuration, for a maintainer
-to record in the retriever's release version. See [policy-retrieval.md](policy-retrieval.md).
+**No such file is in the repository**, and `--from` requires one to exist, so this command
+cannot be run from a fresh checkout. It is a maintainer's step over results they produced;
+the measurement apparatus that produces them is `make evaluation` and
+[evaluation/README.md](../evaluation/README.md). See
+[policy-retrieval.md](policy-retrieval.md) for the gate's thresholds.

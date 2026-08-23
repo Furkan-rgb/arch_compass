@@ -383,9 +383,9 @@ reason.
   height of whichever specimen wraps worst. It also lengthens the showcase's one pass, which
   is `BEARINGS.length` steps — six seconds is short enough to be a demonstration and eight
   may not be. Nothing enforces the count.
-- **The comment block at the head of `frontend/src/styles.css` predates the palette that
-  file now declares.** It says the model's voice is a serif and that there is no accent hue —
-  both were true of the previous system and neither is true a hundred lines below it in the
-  same file. Read the token declarations and
-  [the design system](design-system.md#colour), not that header, and fix the header when
-  somebody is next in there.
+- **Nothing keeps the comment block at the head of `frontend/src/styles.css` honest.** It
+  is correct today — one typeface, one accent, four things wearing it — and it was wrong for
+  a while before somebody noticed, because it is prose beside tokens that a test checks and
+  it is not itself checked. Read the token declarations and
+  [the design system](design-system.md#colour) first; the header is a summary of them, not a
+  source.

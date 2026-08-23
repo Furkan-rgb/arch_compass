@@ -19,6 +19,14 @@ fatal, and an in-range but wrong one resolves to the wrong thing and is recorded
 a correct citation. A name has neither reading. It matches, or it visibly matches nothing,
 and what matches nothing is refused or dropped.
 
+`test_no_model_output_schema_asks_for_a_place_in_one_of_our_lists` is the guard: it sweeps
+every Pydantic model under `reasoning/` and fails on a field named or suffixed `position`,
+`index`, `indices` or `ordinal`. The two halves of "refused or dropped" are both real and
+they are different acts — an unresolvable name in an investigation lookup comes back to the
+model as a refusal naming the recovery step, while a policy the judge cites but was never
+shown is logged and dropped, because a citation is a record of why and losing one weakens
+that record where raising would destroy a review already paid for.
+
 ## The concepts
 
 ```text
@@ -134,12 +142,20 @@ recorded with their arguments and exact answers, and they are *never* promoted i
 `Finding.evidence`. Evidence is detector-selected. Observations are model-selected. Both may
 bear on a verdict; neither may be mistaken for the other.
 
-**The verdict is chosen, not inferred.** `FindingOutput.verdict` is a literal the decoder's
-grammar constrains, so a supported provider cannot emit a fourth word. It used to be a
-boolean plus an optional hinge, from which the application reconstructed the category — so
-the model never actually chose, `material` with a hinge was silently downgraded, and `held`
-was the only outcome that required volunteering a field. Over thirty-five judgements on fixed
-inputs the boolean chose `held` not once; the word chose it fifteen times.
+**The verdict is chosen, not inferred.** `FindingOutput.verdict` is
+`Literal["material", "cleared", "held"]`, constrained by the structured-output runtime, and
+`Verdict(output.verdict)` takes it as given. It used to be a boolean plus an optional hinge,
+from which the application reconstructed the category — so the model never actually chose,
+`material` with a hinge was silently downgraded, and `held` was the only outcome that
+required volunteering a field. Over thirty-five judgements on fixed inputs the boolean chose
+`held` not once; the word chose it fifteen times.
+
+What the schema cannot carry is a cross-field rule, and the three there are — a `held` with
+nothing to ask, a hinge on a verdict that has answered, a recommendation on a verdict that
+may not make one — are all anchored on `verdict` rather than stated as "these two conflict".
+A conflict rule can be satisfied from either side and the model picks which, which is how a
+question the review needed got dropped instead of the verdict that was wrong. A schema
+violation buys exactly one repair call quoting what broke, never a retry loop.
 
 **Persistence is two protocols, not one.** `ReviewSnapshots` is the stored collection — read
 it, remove one from it. `ReviewRecorder` is the graph's recording seam, one method, wrapped
@@ -173,6 +189,15 @@ workspace.sqlite3            repositories and atlases, case revisions, immutable
 A checkpoint id is never a review id. Domain lineage is repository and branch identity, a
 sequence number, and `previous_review_id`. Checkpoints are released when a review ends;
 reviews are immutable and kept.
+
+Two details of that boundary are easy to break silently. **Every dataclass a checkpoint can
+hold must be in `CHECKPOINT_RECORD_TYPES`** — anything unlisted comes back from
+`JsonPlusSerializer` as a raw dict, and no workflow test would notice because they all use
+`InMemorySaver`, which never consults the list; a guard walks `ReviewState`'s type hints and
+fails on drift in either direction. And **a review listing never decodes a stored review**:
+`ReviewSummary` is read out with `json_extract`, because the document behind it runs to
+megabytes. It lives in `persistence/` rather than `domain/` for that reason — it is a shape
+the store returns, not a concept the product has.
 
 An immutable record is also a compatibility obligation: a review written months ago must
 still open. That is why the frontend still reads tool arguments written under an older

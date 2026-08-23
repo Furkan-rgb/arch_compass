@@ -260,8 +260,10 @@ plainly rather than showing a spinner that never stops.
 ## 15. Rate limits, before batching helps
 
 `archcompass.retrying` retries a call the provider itself describes as temporary — 429 and
-the 5xx family — up to three times at 4s, 12s and 36s, honouring Google's own `retryDelay`
-when it names one. A 400, 401, 403, 404 or a timeout raises immediately. Exhausted retries
+the 5xx family — honouring Google's own `retryDelay` when it names one. The schedule has
+since grown: `RetryPolicy` now defaults to **5 retries** from 4s, doubling, capped at 60s a
+wait — about two minutes in total, so a per-minute quota window has fully closed before it
+gives up. `retrying.py` is the number; this paragraph is not. A 400, 401, 403, 404 or a timeout raises immediately. Exhausted retries
 raise `ProviderError`, which the API already reports as 503 and retryable. Applied at the two
 choke points every provider call passes through: the structured reasoning call and both
 embedding calls.

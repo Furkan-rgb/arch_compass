@@ -87,6 +87,11 @@ whole `ReviewState` at every superstep, and that state carries the atlas, the po
 every retrieved policy set. One review of a six-file example repository reaches about 86 MB
 mid-flight before it is released. A repository of real size scales that by its atlas.
 
+The peak is lower than when this was written and the entry's number predates the change: a
+`Send` payload now carries three keys instead of the whole state, which took one round of six
+candidates from 21 MB of `__pregel_tasks` to 1.3 MB (`workflow/graph.py:199`). That bounds the
+fan-out, not the state each superstep writes, which is what this entry is about.
+
 ## PARTLY FIXED — `Label` still has two dozen hand-rolled copies
 
 The drift is fixed — the five different tracking values are gone — but twenty-four
@@ -112,3 +117,33 @@ accidentally orphaned** before removing it; everything else the audit found dead
 `safe_workspace_output_path` is the last of the dead code; the duplicated helpers, the
 duplicated ignored-directory list and the two protocols sharing the name `RepositoryAnalyzer`
 have all been reduced to one definition each.
+
+## OPEN — the concurrency setting reaches one path, and two providers' copies of it reach none
+
+`ARCHCOMPASS_MODEL_CONCURRENT_REQUESTS` and `ProviderDefaults.concurrent_requests` read as
+"how parallel this provider's judging is". They are not that.
+
+`concurrent_requests` has exactly one reader — `SelectedLangChainJudge._judge_each`
+(`reasoning/adapters/selected.py:255`) — reachable only from `judge_all` (`:206`), whose only
+caller is the `review_candidates` node (`workflow/nodes.py:229`), which the graph enters only
+when `judge.supports_batch()` (`workflow/graph.py:173`). `supports_batch` is false for every
+provider but Google (`selected.py:185`). So for Ollama, Groq and Cerebras the graph takes the
+per-candidate `Send` fan-out instead and this number is never consulted.
+
+`OpenAICompatibleProvider.concurrent_requests = 4` (`reasoning/adapters/openai_compatible.py:79`)
+is therefore dead for both vendors that use it. The variable itself is live, but only in the
+Google-batch-refused fallback, where the descriptor's value is 1
+(`reasoning/adapters/providers.py:244`) — so raising it is the only thing it can do.
+
+Nothing is broken by this; a reader is. Either the name should say what it bounds, or the
+concurrent path should be the one those providers actually take.
+
+## OPEN — the documented retrieval gate cannot be run from a checkout
+
+`archcompass retrieval evaluate --from <file>` (`presentation/cli/app.py:100`) declares
+`exists=True` on its argument, and no reference-results file is committed anywhere in the
+repository. The command is a maintainer's step over results they hold privately, which is a
+legitimate design, but there is no fixture, no example and no schema doc — so the only way to
+learn the file's shape is to read `RetrievalEvaluationFile` (`app.py:84`).
+
+Unrelated to `make evaluation`, which is the notebook harness and does run.
