@@ -57,6 +57,10 @@ from archcompass.reasoning.adapters.langchain import (
     LangChainReviewAnswerer,
     LangChainReviewSynopsist,
 )
+from archcompass.reasoning.records import (
+    DETERMINISTIC_JUDGE_PROMPT_IDENTITY,
+    model_identity,
+)
 
 
 class SelectedLangChainChatModel:
@@ -74,7 +78,7 @@ class SelectedLangChainChatModel:
             raise NoReasoningModelSelectedError(
                 "This workspace has not selected a reasoning model."
             )
-        identity = f"{config.provider}:{config.model}:thinking={config.thinking}"
+        identity = model_identity(config)
         if config.provider == "fake":
             raise ValueError(
                 "the deterministic provider has no LangChain chat transport"
@@ -163,7 +167,7 @@ class SelectedLangChainJudge:
                 candidate.evidence,
                 hinge=hinge,
                 model_identity=f"fake:{config.model}",
-                prompt_identity="judge:deterministic-v1",
+                prompt_identity=DETERMINISTIC_JUDGE_PROMPT_IDENTITY,
                 retrieval_identity=policies.provenance.identity,
             )
         model, identity = self._selected.current()

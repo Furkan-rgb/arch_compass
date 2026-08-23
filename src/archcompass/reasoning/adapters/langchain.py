@@ -36,6 +36,7 @@ from archcompass.reasoning.adapters.tool_loop import (
     investigate_with_tools,
     recorded_investigation,
 )
+from archcompass.reasoning.records import JUDGE_PROMPT_IDENTITY
 from archcompass.retrying import call_with_retry
 
 _log = logging.getLogger(__name__)
@@ -541,7 +542,7 @@ class LangChainArchitectureJudge:
         model: BaseChatModel,
         *,
         model_identity: str,
-        prompt_identity: str = "judge:v2",
+        prompt_identity: str = JUDGE_PROMPT_IDENTITY,
     ) -> None:
         self._model = model
         self._model_identity = model_identity

@@ -16,11 +16,35 @@ which is why a candidate is the product of the two.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Final
 
 from pydantic import Field
 
+from archcompass.configuration import ReasoningModelConfig
 from archcompass.records import BoundaryDTO, ThinkingMode, utc_now
 
+#: What a judgement was produced by, and what it was produced from. Both are compared
+#: against themselves — `CachingArchitectureJudge` keys a cached finding on them, and
+#: `DeterministicRevisionCalculator` asks whether the stamp on a stored finding still matches
+#: what this process would produce. So they must be one value each, computed in one place.
+#:
+#: They were three literals and two f-strings across four modules. Nothing made the two sides
+#: agree, and `analysis/delta.py` records what happens when they stop: every candidate of
+#: every review reports `ChangeCause.PROMPT` for ever, and the comment there says the corpus
+#: fingerprint had already done exactly that once.
+JUDGE_PROMPT_IDENTITY: Final = "judge:v2"
+DETERMINISTIC_JUDGE_PROMPT_IDENTITY: Final = "judge:deterministic-v1"
+
+
+def model_identity(config: ReasoningModelConfig) -> str:
+    """Which model produced a judgement, including how hard it was asked to think.
+
+    Thinking is part of the identity because it changes the answer: a finding judged with it
+    on is not the finding the same model gives with it off, and a cache that ignored the
+    difference would hand back the wrong one.
+    """
+
+    return f"{config.provider}:{config.model}:thinking={config.thinking}"
 
 class AvailableModel(BoundaryDTO):
     """One model a provider says it has, as the provider names it."""

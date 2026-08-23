@@ -39,6 +39,7 @@ from archcompass.reasoning.adapters.langchain import (
     judgement_prompt,
 )
 from archcompass.reasoning.adapters.providers import google_thinking_level
+from archcompass.reasoning.records import JUDGE_PROMPT_IDENTITY
 from archcompass.records import ThinkingMode
 from archcompass.retrying import call_with_retry
 
@@ -150,7 +151,7 @@ class GoogleBatchJudge:
         api_key: str,
         model: str,
         thinking: ThinkingMode = None,
-        prompt_identity: str = "judge:v2",
+        prompt_identity: str = JUDGE_PROMPT_IDENTITY,
         polling: BatchPolling = DEFAULT_POLLING,
         sleep: Callable[[float], None] = time.sleep,
         client: genai.Client | None = None,

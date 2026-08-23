@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain import (
     Answer,
     AnswerStatus,
@@ -44,6 +45,7 @@ from archcompass.reasoning.adapters.langchain import (
     judgement_prompt,
     question_prompt,
 )
+from archcompass.reasoning.records import JUDGE_PROMPT_IDENTITY, model_identity
 
 
 class StructuredReply:
@@ -79,6 +81,16 @@ class StructuredModel:
         assert method == "json_schema"
         assert include_raw, "the adapter needs the raw response to explain a refusal"
         return StructuredReply(schema, self._document)
+
+
+#: A selection to take an identity from. Any provider would do; this is the one the local
+#: end-to-end suite runs on.
+_CONFIG = ReasoningModelConfig(
+    provider="ollama",
+    model="qwen3.8:27b",
+    timeout_seconds=1.0,
+    thinking=False,
+)
 
 
 def _input() -> tuple[Candidate, ArchitectureCase, RetrievedPolicySet]:
@@ -521,4 +533,39 @@ def test_a_refused_question_costs_the_round_that_question_and_no_more() -> None:
             case, (uncertain,), round=1, excluded_equivalence_keys=frozenset()
         )
         == ()
+    )
+
+
+def test_a_judgement_is_stamped_with_the_identity_the_delta_will_compare_it_against() -> None:
+    """The two halves of one comparison, asserted to be one value.
+
+    `DeterministicRevisionCalculator` asks whether the stamp on a stored finding still
+    matches what this process would produce, and reports `ChangeCause.PROMPT` when it does
+    not. So the string the adapters write and the string `bootstrap` computes have to be
+    the same string — and for a while they were three literals and two f-strings across
+    four modules, agreeing by coincidence.
+
+    `analysis/delta.py` records what the disagreement costs: every candidate of every
+    review reports a changed prompt for ever, and the comment there says the corpus
+    fingerprint had already done exactly that once.
+    """
+
+    candidate, case, policies = _input()
+    judge = LangChainArchitectureJudge(
+        StructuredModel(
+            {"material": False, "reasoning": "The boundary earns its keep."}
+        ),  # type: ignore[arg-type]
+        model_identity=model_identity(_CONFIG),
+    )
+
+    finding = judge.judge(candidate, case, policies)
+
+    # What the adapter stamped, against what the revision calculator will compare it to.
+    assert finding.prompt_identity == JUDGE_PROMPT_IDENTITY
+    assert finding.model_identity == model_identity(_CONFIG)
+    assert finding.model_identity == "ollama:qwen3.8:27b:thinking=False"
+    # Thinking belongs in the identity: the same model asked to think is not the same judge,
+    # and a cache that ignored it would hand back the other one's answer.
+    assert model_identity(_CONFIG) != model_identity(
+        _CONFIG.model_copy(update={"thinking": True})
     )

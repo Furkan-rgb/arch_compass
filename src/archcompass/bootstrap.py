@@ -94,7 +94,12 @@ from archcompass.reasoning.cache import (
 from archcompass.reasoning.conversation import CoreReviewConversationService
 from archcompass.reasoning.embedding_models import EmbeddingModelService
 from archcompass.reasoning.model_catalog import ModelCatalogService, reasoning_config
-from archcompass.reasoning.records import EmbeddingModelSelection
+from archcompass.reasoning.records import (
+    DETERMINISTIC_JUDGE_PROMPT_IDENTITY,
+    JUDGE_PROMPT_IDENTITY,
+    EmbeddingModelSelection,
+    model_identity,
+)
 from archcompass.records import ThinkingMode
 from archcompass.repositories.adapters import GitCommandLineClient, HttpsTarballFetcher
 from archcompass.repositories.checkout import RepositoryCheckoutService
@@ -472,14 +477,14 @@ def build_runtime(
             return ""
         if selected.provider == "fake":
             return f"fake:{selected.model}"
-        return f"{selected.provider}:{selected.model}:thinking={selected.thinking}"
+        return model_identity(selected)
 
     def selected_prompt_identity() -> str:
         selected = model_catalog_service.current()
         return (
-            "judge:deterministic-v1"
+            DETERMINISTIC_JUDGE_PROMPT_IDENTITY
             if selected is not None and selected.provider == "fake"
-            else "judge:v2"
+            else JUDGE_PROMPT_IDENTITY
         )
 
     def deterministic_retrieval_mode() -> bool:
