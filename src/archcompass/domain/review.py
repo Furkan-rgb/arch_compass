@@ -118,6 +118,31 @@ class InvestigationLookup:
         freeze_pairs(self, "arguments")
 
 
+class Termination(StrEnum):
+    """Why one investigation's execution stopped. Not whether it found anything.
+
+    A state per way the loop can actually end, and no more: an enum with a case nothing
+    reaches is a case nobody maintains. `NATURAL_END` is deliberately not called `completed`
+    — it says the model stopped asking, which is a fact about the loop and carries no claim
+    that the search was sufficient, exhaustive, or that the hinge is settled. Whether the
+    observations are enough is the judge's to decide, and this enum must never become the
+    place that quietly answers it.
+    """
+
+    #: The model stopped calling tools of its own accord.
+    NATURAL_END = "natural_end"
+    #: The per-run model-call ceiling was reached.
+    MODEL_CALL_LIMIT = "model_call_limit"
+    #: The per-run lookup ceiling was reached.
+    LOOKUP_LIMIT = "lookup_limit"
+    #: Everything looked up so far came to more than one investigation may carry.
+    INVESTIGATION_SIZE_LIMIT = "investigation_size_limit"
+    #: The wall-clock deadline for one investigation passed.
+    TIMEOUT = "timeout"
+    #: The provider stopped answering, after the retries it is given.
+    PROVIDER_ERROR = "provider_error"
+
+
 @dataclass(frozen=True, slots=True)
 class RecordedInvestigation:
     """What a review checked before it asked a person, kept with the review.
@@ -141,11 +166,11 @@ class RecordedInvestigation:
     #: Why no lookup was possible at all — no atlas to ask, a model that cannot call
     #: tools. Distinct from `abandoned`, which is a looking that began and stopped short.
     withheld: str = ""
-    #: Why the looking stopped short, or "" where it ran to its own end.
-    abandoned: str = ""
-    #: Whether the hinge was settled. Derivable from the finding, and kept here anyway so
-    #: a reader of the manifest need not join back to learn what the looking was for.
-    resolved: bool = False
+    #: Why execution stopped. `None` means only that it was not recorded, which is true of
+    #: every investigation stored before this field existed — never that the looking ended
+    #: naturally, and never that it did not start. Anything that actually runs sets it, even
+    #: a run whose every lookup was refused; `withheld` is how "it never started" is said.
+    termination: Termination | None = None
     #: The content fingerprint of the repository these answers came from. A hinge settled
     #: by a lookup rests on code the candidate's own spans do not cover, so the record has
     #: to say which snapshot answered — without it nothing can tell a settled hinge from a
@@ -156,6 +181,13 @@ class RecordedInvestigation:
 
     def __post_init__(self) -> None:
         freeze_sequences(self, "lookups")
+        # The two are opposite accounts of the same investigation — one says the looking
+        # never began, the other says how it ended — so a record carrying both describes
+        # something that cannot have happened. One line here rather than a lifecycle type.
+        if self.withheld and self.termination is not None:
+            raise ValueError(
+                "a withheld investigation never ran, so nothing can have terminated it"
+            )
 
     @property
     def identity(self) -> str:
@@ -164,7 +196,9 @@ class RecordedInvestigation:
             self.atlas_fingerprint,
             self.prompt_identity,
             self.model_identity,
-            "resolved" if self.resolved else "held",
+            # Was "resolved"/"held" — a verdict this record no longer reaches. What is
+            # hashed now is why the looking stopped, which is a fact about this run.
+            self.termination or "unrecorded",
             *(
                 f"{item.tool}("
                 + ";".join(f"{key}={value}" for key, value in item.arguments)
@@ -173,7 +207,6 @@ class RecordedInvestigation:
             ),
             self.closing,
             self.withheld,
-            self.abandoned,
         )
         return sha256("\0".join(material).encode()).hexdigest()
 

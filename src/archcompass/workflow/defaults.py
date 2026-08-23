@@ -10,6 +10,7 @@ from archcompass.domain import (
     Candidate,
     Finding,
     Question,
+    RecordedInvestigation,
     RepositoryAtlas,
     RepositoryRef,
     Review,
@@ -21,7 +22,6 @@ from archcompass.domain.errors import NothingToReviewError
 from archcompass.persistence.ports import CaseSnapshots
 from archcompass.ports.capabilities import (
     CandidateSelection,
-    InvestigatedFinding,
     ReviewDraft,
     ReviewSynopsis,
 )
@@ -69,9 +69,9 @@ class NoHingeInvestigation:
         *,
         repository: RepositoryRef,
         atlas: RepositoryAtlas,
-    ) -> InvestigatedFinding:
-        del case, repository, atlas
-        return InvestigatedFinding(finding)
+    ) -> RecordedInvestigation | None:
+        del finding, case, repository, atlas
+        return None
 
 
 class PersistentCaseReviser:

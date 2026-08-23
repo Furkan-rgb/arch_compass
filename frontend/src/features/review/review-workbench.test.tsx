@@ -1363,11 +1363,11 @@ describe("the review workbench", () => {
     // Closed by default: the answer is what the reader came for.
     expect(await within(panel).findByText("2 lookups")).toBeInTheDocument();
     expect(
-      within(panel).getByText(/asked what implementations node_a1/),
+      within(panel).getByText(/asked what implementations billing.gateway.PersistenceGateway/),
     ).not.toBeVisible();
     fireEvent.click(within(panel).getByText("Looked up"));
     expect(
-      within(panel).getByText(/asked what implementations node_a1/),
+      within(panel).getByText(/asked what implementations billing.gateway.PersistenceGateway/),
     ).toBeVisible();
   });
 
@@ -1487,16 +1487,18 @@ describe("the review workbench", () => {
     fireEvent.click(within(article).getByRole("button", { expanded: false }));
     // The closed state names the count and what came of it, because a fold that says only
     // "Looked up" makes a reader open it to find out whether it was worth opening.
+    // The closed state says how much looking there was and how it ended — not whether the
+    // hinge was settled, which is the finding's business and not the transcript's.
     expect(
-      within(article).getByText("2 lookups · settled the hinge"),
+      within(article).getByText("2 lookups · the pass stopped looking"),
     ).toBeInTheDocument();
     // The transcript is in the DOM and folded, like the provenance beside it.
     expect(
-      within(article).getByText(/asked what implementations node_a1/),
+      within(article).getByText(/asked what implementations billing.gateway.PersistenceGateway/),
     ).not.toBeVisible();
     fireEvent.click(within(article).getByText("Looked up"));
     expect(
-      within(article).getByText(/asked what implementations node_a1/),
+      within(article).getByText(/asked what implementations billing.gateway.PersistenceGateway/),
     ).toBeVisible();
     expect(
       within(article).getByText("One implementation, and no test reaches it."),
@@ -1510,7 +1512,7 @@ describe("the review workbench", () => {
         candidate_id: "candidate-1",
         lookups: [],
         closing: "",
-        resolved: false,
+        termination: null,
         withheld:
           "This repository has changed since the review ran; index it again.",
       }),

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from typing import cast
 
 from langgraph.config import get_stream_writer
@@ -227,11 +228,10 @@ def investigate_hinges_node(investigator: HingeInvestigator) -> Node:
         ][:MAX_INVESTIGATED_FINDINGS]
         if not held:
             return {}
-        findings: dict[str, Finding] = {}
         investigations: dict[str, RecordedInvestigation] = {}
         for candidate_id, finding in held:
             try:
-                investigated = investigator.investigate(
+                record = investigator.investigate(
                     finding,
                     state["case"],
                     repository=state["repository"],
@@ -245,12 +245,61 @@ def investigate_hinges_node(investigator: HingeInvestigator) -> Node:
                     "The hinge on %s was not investigated", candidate_id, exc_info=True
                 )
                 continue
-            findings[candidate_id] = investigated.finding
-            if investigated.investigation is not None:
-                investigations[candidate_id] = investigated.investigation
-        return {"findings": findings, "investigations": investigations}
+            if record is not None:
+                investigations[candidate_id] = record
+        # No findings written. This node used to return them changed, because the
+        # investigator returned a verdict; it establishes facts now, and `rejudge_investigated`
+        # is what turns those facts into a verdict.
+        return {"investigations": investigations}
 
     return investigate_hinges
+
+
+def rejudge_investigated_node(judge: ArchitectureJudge) -> Node:
+    """The second judgement, on the candidates whose hinge was investigated.
+
+    The step that makes `ArchitectureJudge` the only thing in the system that can say what a
+    candidate means. Judging produced the hinge; the investigation answered what it could of
+    it; this asks the same judge again, with the same candidate, the same case and the same
+    retrieved policies, plus what was looked up.
+
+    The policies are reused rather than retrieved again, and that is the point of doing this
+    here rather than through the general rejudgement path: nothing about the *question* has
+    changed. Answering a clarification is different — it revises the case, which is new
+    intent, and that path retrieves afresh.
+
+    A candidate is re-judged only where lookups actually happened. An investigation that was
+    withheld before it began, or that failed before its first lookup, leaves the judge with
+    exactly the inputs it had the first time, and asking it again would spend a model call to
+    be told the same thing. Derived from the record rather than flagged on it.
+    """
+
+    def rejudge_investigated(state: ReviewState) -> dict[str, object]:
+        findings: dict[str, Finding] = {}
+        for candidate in state["candidates"]:
+            candidate_id = str(candidate.id)
+            record = state["investigations"].get(candidate_id)
+            retrieval = state["retrievals"].get(candidate_id)
+            if record is None or not record.lookups or retrieval is None:
+                continue
+            try:
+                finding = judge.judge(candidate, state["case"], retrieval, record)
+            except Exception:
+                # Same bargain as the investigation itself: a second judgement that could
+                # not be made leaves the first one standing, hinge and all, and the review
+                # goes on to ask the person it was always going to ask.
+                _log.warning(
+                    "The investigated hinge on %s was not re-judged",
+                    candidate_id,
+                    exc_info=True,
+                )
+                continue
+            findings[candidate_id] = replace(
+                finding, investigation_identity=record.identity
+            )
+        return {"findings": findings}
+
+    return rejudge_investigated
 
 
 def generate_questions_node(generator: QuestionGenerator) -> Node:

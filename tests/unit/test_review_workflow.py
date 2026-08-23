@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -28,6 +27,7 @@ from archcompass.domain import (
     Review,
     ReviewDelta,
     ReviewStatus,
+    Termination,
     Verdict,
 )
 from archcompass.domain._support import new_id, utc_now
@@ -39,7 +39,6 @@ from archcompass.policies.retrieval import DensePolicyRetriever, RejudgeAllCandi
 from archcompass.ports.capabilities import (
     CandidateSelection,
     HingeInvestigator,
-    InvestigatedFinding,
     LoadedReviewContext,
     ReviewDraft,
     ReviewSynopsis,
@@ -135,7 +134,35 @@ class Index:
 
 
 class Judge:
-    def judge(self, candidate: Candidate, case: ArchitectureCase, policies: object) -> Finding:
+    """Holds on intent, and settles once the lookups have been put in front of it.
+
+    `settles_on_observations` is what makes this the *second* judgement rather than a repeat
+    of the first: the same candidate, the same case, the same policies, plus a record — and
+    a different verdict. That is the whole shape the investigation pass now has, and a stub
+    that ignored its fourth argument could not tell a working rejudgement from a skipped one.
+    """
+
+    def __init__(self, *, settles_on_observations: bool = False) -> None:
+        self.investigated: list[str] = []
+        self._settles = settles_on_observations
+
+    def judge(
+        self,
+        candidate: Candidate,
+        case: ArchitectureCase,
+        policies: object,
+        investigation: RecordedInvestigation | None = None,
+    ) -> Finding:
+        if investigation is not None:
+            self.investigated.append(str(candidate.id))
+        if investigation is not None and investigation.lookups and self._settles:
+            return Finding(
+                candidate,
+                Verdict.CLEARED,
+                "The repository settles this.",
+                (),
+                candidate.evidence,
+            )
         return Finding(
             candidate,
             Verdict.HELD,
@@ -147,7 +174,13 @@ class Judge:
 
 
 class FailingJudge:
-    def judge(self, candidate: Candidate, case: ArchitectureCase, policies: object) -> Finding:
+    def judge(
+        self,
+        candidate: Candidate,
+        case: ArchitectureCase,
+        policies: object,
+        investigation: RecordedInvestigation | None = None,
+    ) -> Finding:
         raise RuntimeError("provider stopped")
 
 
@@ -788,10 +821,10 @@ class Investigator:
     one most workspaces will never have.
     """
 
-    def __init__(self, *, resolve: bool = False, fail: bool = False) -> None:
+    def __init__(self, *, fail: bool = False, looked: bool = True) -> None:
         self.seen: list[str] = []
-        self._resolve = resolve
         self._fail = fail
+        self._looked = looked
 
     def supports_tools(self) -> bool:
         return True
@@ -803,30 +836,20 @@ class Investigator:
         *,
         repository: RepositoryRef,
         atlas: RepositoryAtlas,
-    ) -> InvestigatedFinding:
+    ) -> RecordedInvestigation | None:
         del case, atlas
         self.seen.append(str(finding.candidate.id))
         if self._fail:
             raise ProviderError("the provider stopped mid-investigation")
-        record = RecordedInvestigation(
+        return RecordedInvestigation(
             candidate_id=finding.candidate.id,
-            lookups=(InvestigationLookup("find_code", (("name", "Port"),), "one row"),),
-            resolved=self._resolve,
-            atlas_fingerprint=repository.content_id,
-        )
-        if not self._resolve:
-            return InvestigatedFinding(
-                replace(finding, investigation_identity=record.identity), record
-            )
-        return InvestigatedFinding(
-            replace(
-                finding,
-                verdict=Verdict.CLEARED,
-                reasoning="The repository settles this.",
-                hinge=None,
-                investigation_identity=record.identity,
+            lookups=(
+                (InvestigationLookup("related_code", (("qualified_name", "Port"),), "one row"),)
+                if self._looked
+                else ()
             ),
-            record,
+            termination=Termination.NATURAL_END,
+            atlas_fingerprint=repository.content_id,
         )
 
 
@@ -864,6 +887,7 @@ def _investigating(
     repository: RepositoryRef,
     case: ArchitectureCase,
     investigator: HingeInvestigator | None = None,
+    judge: Judge | None = None,
 ) -> ReviewWorkflowCapabilities:
     """The capability set the investigation tests share.
 
@@ -880,7 +904,7 @@ def _investigating(
         initial_candidates=Initial(),
         corpus=Corpus(),
         retriever=DensePolicyRetriever(Index(), top_k=8),
-        judge=Judge(),
+        judge=judge or Judge(),
         questions=HingeSensitiveQuestions(),
         rejudgements=RejudgeAllCandidates(),
         cases=Cases(),
@@ -917,15 +941,20 @@ def test_a_hinge_the_repository_settles_never_reaches_the_question_generator(
 
     repository = RepositoryRef("repo-1", tmp_path.resolve(), "branch-1", "content-1")
     case = ArchitectureCase.create()
-    investigator = Investigator(resolve=True)
+    investigator = Investigator()
+    judge = Judge(settles_on_observations=True)
 
     state = _run(
-        _investigating(repository, case, investigator),
+        _investigating(repository, case, investigator, judge),
         repository,
         case,
     )
 
     assert investigator.seen
+    # The verdict moved, and it moved in the judge. The investigator was asked, recorded what
+    # it found, and changed nothing — `judge.investigated` is the proof the second judgement
+    # actually happened rather than the first one being read twice.
+    assert judge.investigated == investigator.seen
     assert state["questions"] == ()
     assert [item.verdict for item in state["review"].findings] == [Verdict.CLEARED]
 
@@ -939,7 +968,7 @@ def test_a_hinge_nothing_could_settle_reaches_the_question_generator_unchanged(
     case = ArchitectureCase.create()
 
     state = _run(
-        _investigating(repository, case, Investigator(resolve=False)),
+        _investigating(repository, case, Investigator()),
         repository,
         case,
     )
@@ -960,6 +989,31 @@ def test_a_review_composes_the_same_way_when_nothing_can_look_anything_up(
 
     assert state["questions"]
     assert state["review"].investigation_manifest == ()
+
+
+def test_an_investigation_that_looked_at_nothing_does_not_pay_for_a_second_judgement(
+    tmp_path: Path,
+) -> None:
+    """No lookups means no new facts, and a judge asked again would answer the same thing.
+
+    Derived from the record rather than flagged on it: a `RecordedInvestigation` with an
+    empty `lookups` is the whole of what "there is nothing to re-judge on" means, and a
+    second field saying so could disagree with it.
+    """
+
+    repository = RepositoryRef("repo-6", tmp_path.resolve(), "branch-1", "content-1")
+    case = ArchitectureCase.create()
+    judge = Judge(settles_on_observations=True)
+
+    state = _run(
+        _investigating(repository, case, Investigator(looked=False), judge),
+        repository,
+        case,
+    )
+
+    assert judge.investigated == []
+    assert state["questions"]
+    assert [item.hinge for item in state["review"].findings] == ["future variation"]
 
 
 def test_an_investigation_that_fails_does_not_fail_the_review(tmp_path: Path) -> None:
@@ -985,11 +1039,13 @@ def test_the_review_keeps_what_each_hinge_checked(tmp_path: Path) -> None:
     case = ArchitectureCase.create()
 
     state = _run(
-        _investigating(repository, case, Investigator(resolve=True)),
+        _investigating(
+            repository, case, Investigator(), Judge(settles_on_observations=True)
+        ),
         repository,
         case,
     )
 
     manifest = state["review"].investigation_manifest
-    assert [item.tool for item in manifest[0].lookups] == ["find_code"]
+    assert [item.tool for item in manifest[0].lookups] == ["related_code"]
     assert manifest[0].identity == state["review"].findings[0].investigation_identity

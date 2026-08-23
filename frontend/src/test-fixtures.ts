@@ -314,20 +314,22 @@ export function investigationFixture(
     candidate_id: "candidate-1",
     lookups: [
       {
-        tool: "find_code",
+        tool: "search_code",
         arguments: { name: "PersistenceGateway" },
-        result: "node_a1  billing.gateway.PersistenceGateway  [interface]  billing/gateway.py:4-18",
+        result: "billing.gateway.PersistenceGateway  [interface]  billing/gateway.py:4-18",
       },
       {
         tool: "related_code",
-        arguments: { node_id: "node_a1", kind: "implementations" },
-        result: "1 implementation\n  node_b2  billing.sql.SqlGateway  [class]  billing/sql.py:9-40",
+        arguments: {
+          qualified_name: "billing.gateway.PersistenceGateway",
+          relation: "implementations",
+        },
+        result: "1 implementation\n  billing.sql.SqlGateway  [class]  billing/sql.py:9-40",
       },
     ],
     closing: "One implementation, and no test reaches it.",
     withheld: "",
-    abandoned: "",
-    resolved: true,
+    termination: "natural_end" as const,
     atlas_fingerprint: "content-fingerprint",
     prompt_identity: "investigate-hinge:v1",
     model_identity: "fake:deterministic",

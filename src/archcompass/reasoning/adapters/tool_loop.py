@@ -56,6 +56,7 @@ from archcompass.domain import (
     CandidateId,
     InvestigationLookup,
     RecordedInvestigation,
+    Termination,
 )
 from archcompass.domain.errors import ProviderError
 from archcompass.reasoning.ports import SourceInvestigator, ToolSpec
@@ -136,7 +137,11 @@ class _InvestigationBounds(AgentMiddleware[Any, Any]):
         self._forced = forced
         self._subject = subject
         self._turns = 0
-        self.abandoned = ""
+        #: Why the loop stopped. Set on every path that ends it early; left None while the
+        #: run is still going, and read as `NATURAL_END` by the caller only when the agent
+        #: returns without one of these having fired.
+        self.termination: Termination | None = None
+        self.detail = ""
 
     def wrap_model_call(
         self,
@@ -154,9 +159,7 @@ class _InvestigationBounds(AgentMiddleware[Any, Any]):
         # before asking rather than after answering: once the findings are this large there
         # is nothing a further turn could add that would be kept.
         if self._recorded() >= MAX_INVESTIGATION_CHARACTERS:
-            self.abandoned = (
-                "its findings reached the size ceiling, so nothing further was looked up"
-            )
+            self.termination = Termination.INVESTIGATION_SIZE_LIMIT
             return AIMessage("")
         try:
             # Wrapping the turn rather than the run is the whole point. The transcript is
@@ -168,14 +171,26 @@ class _InvestigationBounds(AgentMiddleware[Any, Any]):
             )
         except ProviderError as error:
             # Ended here rather than raised, because an investigation that stopped early is
-            # still an investigation: what it did look up stands, and the note says why
-            # there is no more of it. An empty answer carries no tool calls, which is how
-            # the agent is told there is nothing left to do.
-            self.abandoned = str(error)
+            # still an investigation: what it did look up stands, and the termination says
+            # why there is no more of it. An empty answer carries no tool calls, which is
+            # how the agent is told there is nothing left to do.
+            self.termination = Termination.PROVIDER_ERROR
+            self.detail = str(error)
             return AIMessage("")
 
     def _recorded(self) -> int:
         return sum(len(item.result) for item in self._investigator.transcript)
+
+    def reached_the_call_limit(self) -> bool:
+        """Whether the run used every model call it was allowed.
+
+        `ModelCallLimitMiddleware` ends the run rather than raising, and says so nowhere a
+        caller can read — so turn exhaustion looked exactly like a model that had finished.
+        Counted here because this middleware is already counting turns for the forced first
+        call, and one comparison is cheaper than a second middleware.
+        """
+
+        return self._turns >= MAX_INVESTIGATION_TURNS
 
 
 def investigate_with_tools(
@@ -234,11 +249,20 @@ def investigate_with_tools(
     final = agent.invoke({"messages": [HumanMessage(opening)]})
 
     closing = _closing_text(final)
+    # `ModelCallLimitMiddleware` ends the run rather than raising and reports it nowhere a
+    # caller can read, so exhausting the turns used to be indistinguishable from a model
+    # that had finished — the same empty closing, the same empty note. Asked of the turn
+    # count here, and only where nothing else already ended the run.
+    termination = bounds.termination or (
+        Termination.MODEL_CALL_LIMIT
+        if bounds.reached_the_call_limit()
+        else Termination.NATURAL_END
+    )
     # Told to the investigator before anything is rendered. The rendering is spent on the
     # next request; the investigator is what the caller still holds, so this is the only
-    # route these two sentences have to a stored record.
-    investigator.conclude(closing, bounds.abandoned)
-    return _rendered(investigator, closing, bounds.abandoned)
+    # route these two facts have to a stored record.
+    investigator.conclude(closing, termination, bounds.detail)
+    return _rendered(investigator, closing, termination, bounds.detail)
 
 
 def _closing_text(final: Mapping[str, object]) -> str:
@@ -256,7 +280,12 @@ def _closing_text(final: Mapping[str, object]) -> str:
     return last.text.strip()
 
 
-def _rendered(investigator: SourceInvestigator, closing: str, abandoned: str) -> str:
+def _rendered(
+    investigator: SourceInvestigator,
+    closing: str,
+    termination: Termination,
+    detail: str,
+) -> str:
     blocks = [
         f"{item.tool}({', '.join(f'{key}={value!r}' for key, value in item.arguments.items())})"
         f"\n{item.result}"
@@ -264,10 +293,13 @@ def _rendered(investigator: SourceInvestigator, closing: str, abandoned: str) ->
     ]
     if closing:
         blocks.append(closing)
-    if abandoned:
+    if termination is not Termination.NATURAL_END:
         # Named where the findings are, not logged away from them. A caller shown two
         # results and no note would take them for the whole of what could be found.
-        blocks.append(f"investigation abandoned: {abandoned}")
+        blocks.append(
+            f"investigation stopped early: {termination.value}"
+            + (f" ({detail})" if detail else "")
+        )
     return "\n\n".join(blocks)
 
 
@@ -276,7 +308,6 @@ def recorded_investigation(
     *,
     candidate_id: str,
     withheld: str = "",
-    resolved: bool = False,
     atlas_fingerprint: str = "",
     model_identity: str = "",
 ) -> RecordedInvestigation | None:
@@ -295,16 +326,18 @@ def recorded_investigation(
         )
     )
     closing = "" if investigator is None else investigator.closing
-    abandoned = "" if investigator is None else investigator.abandoned
-    if not lookups and not withheld and not abandoned:
+    # `None` only where nothing ran. Anything that started records why it stopped, including
+    # a run whose every lookup was refused — an unset termination must never come to mean
+    # "ended naturally", because that is a claim about sufficiency this cannot make.
+    termination = None if investigator is None else investigator.termination
+    if not lookups and not withheld and termination is None:
         return None
     return RecordedInvestigation(
         candidate_id=CandidateId(candidate_id),
         lookups=lookups,
         closing=closing,
         withheld=withheld,
-        abandoned=abandoned,
-        resolved=resolved,
+        termination=termination,
         atlas_fingerprint=atlas_fingerprint,
         prompt_identity=INVESTIGATION_PROMPT_IDENTITY,
         model_identity=model_identity,

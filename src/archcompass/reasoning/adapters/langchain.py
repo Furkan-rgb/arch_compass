@@ -20,8 +20,10 @@ from archcompass.domain import (
     Policy,
     PolicyBearing,
     Question,
+    RecordedInvestigation,
     Review,
     ReviewDelta,
+    Termination,
     Verdict,
 )
 from archcompass.domain.errors import ModelOutputValidationError
@@ -380,16 +382,73 @@ JUDGEMENT_INSTRUCTION = (
 )
 
 
+#: What a hinge investigation established, rendered by the application from its own record.
+#:
+#: Deliberately not the investigating model's prose. That model wrote a paragraph about what
+#: it had looked up; handing *that* to the judge would put an interpretation between the
+#: repository and the verdict, and the judge would be reasoning over a summary rather than
+#: over what the repository actually said. So this is built from `(tool, arguments, result)`
+#: — the exact answers, in the order they were asked for.
+#:
+#: The heading says whose choice these were. Evidence under CANDIDATE was selected by a
+#: detector; this was selected by a model, from the same pinned atlas and the same reviewed
+#: revision. Both may be weighed. Neither may be mistaken for the other, and nothing here is
+#: ever written into `Finding.evidence`.
+OBSERVATIONS_INSTRUCTION: Final = (
+    "OBSERVATIONS\n"
+    "Lookups a previous pass made into this repository because your verdict turned on "
+    "something the evidence above does not carry. They are exact answers from the reviewed "
+    "revision, chosen by a model rather than by the detector, and they are not evidence: "
+    "weigh them, do not cite them as though the detector had pinned them."
+)
+
+
+def observations_text(investigation: RecordedInvestigation) -> str:
+    """One investigation as the judge reads it: what was asked, and what came back.
+
+    A truncated investigation says so, because the difference between "the repository is
+    silent" and "we stopped asking" is the difference between a verdict and a question, and
+    a judge shown only the first three of six intended lookups would otherwise read them as
+    the whole of what could be found. `None` is rendered as unrecorded rather than as a
+    natural end: an investigation stored before terminations were recorded is one whose
+    completeness is simply unknown.
+    """
+
+    if investigation.withheld:
+        return f"{OBSERVATIONS_INSTRUCTION}\n\nNothing could be looked up: {investigation.withheld}"
+    asked = "\n\n".join(
+        f"{item.tool}({', '.join(f'{key}={value}' for key, value in item.arguments)})"
+        f"\n{item.result}"
+        for item in investigation.lookups
+    )
+    if investigation.termination is None:
+        note = "It is not recorded why this investigation stopped, so it may be incomplete."
+    elif investigation.termination is Termination.NATURAL_END:
+        note = "The pass stopped looking of its own accord."
+    else:
+        note = (
+            f"This investigation was cut short ({investigation.termination.value}), so it "
+            "may be incomplete: treat silence here as unexplored rather than as absence."
+        )
+    return f"{OBSERVATIONS_INSTRUCTION}\n\n{asked or '(no lookup answered)'}\n\n{note}"
+
+
 def judgement_prompt(
     candidate: Candidate,
     case: ArchitectureCase,
     policies: RetrievedPolicySet,
+    investigation: RecordedInvestigation | None = None,
 ) -> str:
     """The one prompt every transport sends.
 
     Shared rather than duplicated because a batched judgement and an interactive one have
     to be the same judgement — a review that was submitted as a batch is not allowed to
     have been asked a different question.
+
+    The three inputs are kept in three named blocks because they are three kinds of thing:
+    CASE is what a person said, CANDIDATE carries evidence the detector chose, and
+    OBSERVATIONS carries lookups a model chose. The last is absent on a first judgement and
+    present on the second, which is the only difference between them.
     """
 
     return "\n\n".join(
@@ -402,6 +461,7 @@ def judgement_prompt(
                 f"[{policy.id}] {policy.title}\n{policy.body}"
                 for policy in policies.policies
             ),
+            *((observations_text(investigation),) if investigation else ()),
         )
     )
 
@@ -553,11 +613,12 @@ class LangChainArchitectureJudge:
         candidate: Candidate,
         case: ArchitectureCase,
         policies: RetrievedPolicySet,
+        investigation: RecordedInvestigation | None = None,
     ) -> Finding:
         output = structured_output(
             self._model,
             FindingOutput,
-            judgement_prompt(candidate, case, policies),
+            judgement_prompt(candidate, case, policies, investigation),
             subject="a review finding",
             model_identity=self._model_identity,
         )

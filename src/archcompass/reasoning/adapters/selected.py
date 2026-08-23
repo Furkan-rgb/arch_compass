@@ -16,6 +16,7 @@ from archcompass.domain import (
     Candidate,
     Finding,
     Question,
+    RecordedInvestigation,
     RepositoryAtlas,
     RepositoryRef,
     Review,
@@ -24,7 +25,6 @@ from archcompass.domain import (
 from archcompass.domain.errors import NoReasoningModelSelectedError, ProviderError
 from archcompass.ports.capabilities import (
     BatchOutcome,
-    InvestigatedFinding,
     JudgementRequest,
     ReviewSynopsis,
 )
@@ -164,12 +164,13 @@ class SelectedLangChainJudge:
         candidate: Candidate,
         case: ArchitectureCase,
         policies: RetrievedPolicySet,
+        investigation: RecordedInvestigation | None = None,
     ) -> Finding:
         if _is_deterministic(self._selected):
-            return DeterministicJudge().judge(candidate, case, policies)
+            return DeterministicJudge().judge(candidate, case, policies, investigation)
         model, identity = self._selected.current()
         return LangChainArchitectureJudge(model, model_identity=identity).judge(
-            candidate, case, policies
+            candidate, case, policies, investigation
         )
 
     def supports_batch(self) -> bool:
@@ -402,7 +403,7 @@ class SelectedLangChainHingeInvestigator:
         *,
         repository: RepositoryRef,
         atlas: RepositoryAtlas,
-    ) -> InvestigatedFinding:
+    ) -> RecordedInvestigation | None:
         if _is_deterministic(self._selected):
             return DeterministicHingeInvestigator(self._investigators).investigate(
                 finding, case, repository=repository, atlas=atlas
@@ -425,5 +426,7 @@ class SelectedLangChainHingeInvestigator:
             self._tools_refused = self._tools_refused or isinstance(
                 error, NotImplementedError
             )
-            return InvestigatedFinding(finding)
+            # No record: nothing was looked up and nothing could be. The hinge stands, and
+            # the judge is not called again for a candidate whose facts have not moved.
+            return None
 

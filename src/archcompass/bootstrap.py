@@ -206,6 +206,7 @@ CHECKPOINT_RECORD_TYPES: Final[tuple[tuple[str, str], ...]] = (
             "RetrievalProvenance",
             "InvestigationLookup",
             "RecordedInvestigation",
+            "Termination",
             "Review",
         )
     ],

@@ -400,8 +400,7 @@ export interface components {
     "lookups": Array<components["schemas"]["InvestigationLookupResponse"]>;
     "closing": string;
     "withheld": string;
-    "abandoned": string;
-    "resolved": boolean;
+    "termination": components["schemas"]["Termination"] | null;
     "atlas_fingerprint": string;
     "prompt_identity": string;
     "model_identity": string;
@@ -649,6 +648,7 @@ export interface components {
     "node_id": string;
     "limit"?: number;
   };
+    "Termination": "natural_end" | "model_call_limit" | "lookup_limit" | "investigation_size_limit" | "timeout" | "provider_error";
     "WorkspaceModels": {
     "reasoning"?: components["schemas"]["ModelIdentity"] | null;
     "embedding"?: components["schemas"]["EmbeddingIdentity"] | null;

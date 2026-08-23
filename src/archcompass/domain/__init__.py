@@ -24,6 +24,7 @@ from archcompass.domain.review import (
     Review,
     ReviewDelta,
     ReviewStatus,
+    Termination,
 )
 from archcompass.domain.values import (
     Evidence,
@@ -66,5 +67,6 @@ __all__ = [
     "ReviewStatus",
     "SourceLocation",
     "StandingDecision",
+    "Termination",
     "Verdict",
 ]

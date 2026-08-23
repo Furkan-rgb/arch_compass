@@ -50,7 +50,7 @@ from archcompass.analysis.atlas import (
     SourceExcerptQuery,
 )
 from archcompass.analysis.ports import AtlasQueryService
-from archcompass.domain import RepositoryAtlas, RepositoryRef
+from archcompass.domain import RepositoryAtlas, RepositoryRef, Termination
 from archcompass.domain.errors import ArchCompassError
 from archcompass.reasoning.ports import (
     OfferedInvestigator,
@@ -210,7 +210,8 @@ class AtlasInvestigator:
         self._repository = repository
         self._transcript: list[RecordedLookup] = []
         self._closing = ""
-        self._abandoned = ""
+        self._termination: Termination | None = None
+        self._detail = ""
         self._by_name: defaultdict[str, list[AtlasNode]] = defaultdict(list)
         for node in atlas.nodes:
             self._by_name[node.qualified_name].append(node)
@@ -492,17 +493,25 @@ class AtlasInvestigator:
     def transcript(self) -> Sequence[RecordedLookup]:
         return tuple(self._transcript)
 
-    def conclude(self, closing: str, abandoned: str) -> None:
+    def conclude(self, closing: str, termination: Termination, detail: str = "") -> None:
         self._closing = closing
-        self._abandoned = abandoned
+        self._termination = termination
+        # The provider's own words about why it stopped answering, kept beside the state
+        # rather than folded into it: `PROVIDER_ERROR` is what a reader needs to know, and
+        # which error it was is what somebody debugging it needs.
+        self._detail = detail
 
     @property
     def closing(self) -> str:
         return self._closing
 
     @property
-    def abandoned(self) -> str:
-        return self._abandoned
+    def termination(self) -> Termination | None:
+        return self._termination
+
+    @property
+    def detail(self) -> str:
+        return self._detail
 
 
 class AtlasInvestigatorSource:

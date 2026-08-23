@@ -19,6 +19,7 @@ from archcompass.domain import (
     RecordedInvestigation,
     RepositoryRef,
     Review,
+    Termination,
 )
 from archcompass.domain.errors import ReviewHasNoReportError
 from archcompass.persistence.reviews import ReviewSummary
@@ -374,8 +375,10 @@ class RecordedInvestigationResponse(APIModel):
     lookups: list[InvestigationLookupResponse]
     closing: str
     withheld: str
-    abandoned: str
-    resolved: bool
+    #: Why the looking stopped. `null` says only that it was not recorded — true of every
+    #: investigation stored before this field existed — and never that it ended naturally.
+    #: A reader must render it as unknown rather than as completion.
+    termination: Termination | None
     atlas_fingerprint: str
     prompt_identity: str
     model_identity: str
@@ -400,8 +403,7 @@ def investigation_response(
         ],
         closing=value.closing,
         withheld=value.withheld,
-        abandoned=value.abandoned,
-        resolved=value.resolved,
+        termination=value.termination,
         atlas_fingerprint=value.atlas_fingerprint,
         prompt_identity=value.prompt_identity,
         model_identity=value.model_identity,

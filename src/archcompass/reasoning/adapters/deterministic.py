@@ -21,21 +21,21 @@ and that `selected.py` is now about one thing.
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from archcompass.domain import (
     ArchitectureCase,
     Candidate,
     CaseFacet,
     Finding,
     Question,
+    RecordedInvestigation,
     RepositoryAtlas,
     RepositoryRef,
     Review,
     ReviewDelta,
+    Termination,
     Verdict,
 )
-from archcompass.ports.capabilities import InvestigatedFinding, ReviewSynopsis
+from archcompass.ports.capabilities import ReviewSynopsis
 from archcompass.ports.policy_retrieval import (
     RetrievedPolicySet,
 )
@@ -69,7 +69,13 @@ class DeterministicJudge:
         candidate: Candidate,
         case: ArchitectureCase,
         policies: RetrievedPolicySet,
+        investigation: RecordedInvestigation | None = None,
     ) -> Finding:
+        # Taken and ignored, deliberately. This chain's rule is about what a person has
+        # answered, and lookups are not answers — so the second judgement of an investigated
+        # candidate reaches the same verdict as the first, the hinge survives, and the
+        # clarification round every offline suite depends on still runs.
+        del investigation
         hinge = (
             None
             if case.answers
@@ -202,7 +208,9 @@ class DeterministicAnswerer:
         investigator = None if offered is None else offered.investigator
         if investigator is not None:
             investigator.call("flagged_signals", {})
-            investigator.conclude("The stored review already answers this.", "")
+            investigator.conclude(
+                "The stored review already answers this.", Termination.NATURAL_END
+            )
         return ConversationAnswer(
             "The stored review is the source of this deterministic answer.",
             supporting,
@@ -239,7 +247,16 @@ class DeterministicHingeInvestigator:
         *,
         repository: RepositoryRef,
         atlas: RepositoryAtlas,
-    ) -> InvestigatedFinding:
+    ) -> RecordedInvestigation | None:
+        """Real lookups, no verdict — the same division the live chain now keeps.
+
+        `case` is unused and stays in the signature because the protocol has it: what a
+        person has answered bears on the *judgement* that follows this, and the deterministic
+        judge already reads it there. A stand-in that settled the hinge itself would be
+        modelling the shape this change removed.
+        """
+
+        del case
         offered = self._investigators.for_review(repository, atlas)
         investigator = offered.investigator
         if investigator is not None:
@@ -247,32 +264,15 @@ class DeterministicHingeInvestigator:
             if names:
                 investigator.call("describe_code", {"qualified_name": names[0]})
             investigator.conclude(
-                "The deterministic provider looked, and reports what it was shown.", ""
+                "The deterministic provider looked, and reports what it was shown.",
+                Termination.NATURAL_END,
             )
-        resolved = bool(case.answers)
-        record = recorded_investigation(
+        return recorded_investigation(
             investigator,
             candidate_id=str(finding.candidate.id),
             withheld=offered.withheld,
-            resolved=resolved,
             atlas_fingerprint=repository.content_id,
             model_identity=DETERMINISTIC_MODEL_IDENTITY,
         )
-        identity = "" if record is None else record.identity
-        if not resolved:
-            return InvestigatedFinding(
-                replace(finding, investigation_identity=identity), record
-            )
-        return InvestigatedFinding(
-            replace(
-                finding,
-                verdict=Verdict.CLEARED,
-                reasoning=(
-                    "The deterministic provider checked the repository and found nothing "
-                    "the case does not already settle."
-                ),
-                hinge=None,
-                investigation_identity=identity,
-            ),
-            record,
-        )
+
+

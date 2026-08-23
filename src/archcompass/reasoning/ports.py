@@ -38,7 +38,13 @@ from datetime import datetime
 from typing import Final, Protocol
 
 from archcompass.configuration import ReasoningModelConfig
-from archcompass.domain import RecordedInvestigation, RepositoryAtlas, RepositoryRef, Review
+from archcompass.domain import (
+    RecordedInvestigation,
+    RepositoryAtlas,
+    RepositoryRef,
+    Review,
+    Termination,
+)
 from archcompass.domain.errors import ConfigurationError
 from archcompass.reasoning.records import (
     EmbeddingModelCatalog,
@@ -287,15 +293,18 @@ class SourceInvestigator(Protocol):
         """Every call made through this investigator, in the order they were made."""
         ...
 
-    def conclude(self, closing: str, abandoned: str) -> None:
-        """Close the record: what the pass made of its lookups, and why the looking ended.
+    def conclude(self, closing: str, termination: Termination, detail: str = "") -> None:
+        """Close the record: what the pass said, and why its execution ended.
 
-        Called once, by the loop that drove the investigation, on every way out of it. The
-        two halves have different authors and neither can be recovered from the transcript:
-        `closing` is the model's own prose about which findings mattered, and `abandoned` is
-        the loop's account of why it stopped short — a failed turn, a size ceiling reached.
-        Either may be empty, and both being empty is the ordinary end of an investigation
-        that simply had nothing left to check.
+        Called once, by the loop that drove the investigation, on every way out of it.
+        Neither half can be recovered from the transcript: `closing` is the model's own
+        prose, which carries no authority over a verdict and is kept for a human reader,
+        and `termination` is the loop's account of why it stopped.
+
+        `termination` is not optional, because every way out is a reason. It used to be a
+        sentence that two of the four exits wrote and the other two left blank — so a run
+        that exhausted its turns was stored identically to one that had finished asking, and
+        nothing downstream could tell a partial investigation from a complete one.
 
         Here rather than returned to the caller because the transcript is here. A record
         assembled from a return value and a property read separately is one a later exit
@@ -310,8 +319,8 @@ class SourceInvestigator(Protocol):
         ...
 
     @property
-    def abandoned(self) -> str:
-        """Why the looking stopped short, or "" where it ran to its own end."""
+    def termination(self) -> Termination | None:
+        """Why execution ended, or None until it has ended."""
         ...
 
 

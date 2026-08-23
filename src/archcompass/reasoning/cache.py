@@ -6,7 +6,13 @@ from collections.abc import Callable, Sequence
 from hashlib import sha256
 from typing import Protocol
 
-from archcompass.domain import ArchitectureCase, Candidate, Finding, Review
+from archcompass.domain import (
+    ArchitectureCase,
+    Candidate,
+    Finding,
+    RecordedInvestigation,
+    Review,
+)
 from archcompass.ports.capabilities import (
     ArchitectureJudge,
     BatchArchitectureJudge,
@@ -57,12 +63,15 @@ class CachingArchitectureJudge:
         candidate: Candidate,
         case: ArchitectureCase,
         policies: RetrievedPolicySet,
+        investigation: RecordedInvestigation | None = None,
     ) -> Finding:
-        key = self.key(candidate, case, policies)
+        key = self.key(candidate, case, policies, investigation)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        return self._cache.put(key, self._judge.judge(candidate, case, policies))
+        return self._cache.put(
+            key, self._judge.judge(candidate, case, policies, investigation)
+        )
 
     def supports_batch(self) -> bool:
         return isinstance(self._judge, BatchArchitectureJudge) and (
@@ -114,12 +123,21 @@ class CachingArchitectureJudge:
         candidate: Candidate,
         case: ArchitectureCase,
         policies: RetrievedPolicySet,
+        investigation: RecordedInvestigation | None = None,
     ) -> str:
+        # The investigation is in the key, and it has to be. A candidate is judged twice —
+        # once on its evidence, once again on what a hinge investigation established — with
+        # the same candidate, the same case and the same retrieval both times. Without this
+        # the second call is a cache hit on the first, and the whole second judgement
+        # silently returns the verdict that was reached before anything was looked up.
+        # `identity` rather than the record: it is a content hash of every lookup, its
+        # arguments and its answer, so two different investigations cannot share a key.
         material = repr(
             (
                 candidate,
                 case,
                 policies.provenance.identity,
+                investigation.identity if investigation else "",
                 self._model_identity(),
                 self._prompt_identity(),
             )

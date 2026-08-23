@@ -51,6 +51,7 @@ from archcompass.workflow.nodes import (
     load_context_node,
     load_policy_corpus_node,
     record_review_node,
+    rejudge_investigated_node,
     retrieve_policy_set_node,
     review_candidates_node,
     revise_case_node,
@@ -199,6 +200,9 @@ def build_review_graph(
     graph.add_node(
         "investigate_hinges", investigate_hinges_node(capabilities.investigator)
     )
+    graph.add_node(
+        "rejudge_investigated", rejudge_investigated_node(capabilities.judge)
+    )
     graph.add_node("generate_questions", generate_questions_node(capabilities.questions))
     graph.add_node(
         "write_waiting_synopsis",
@@ -251,7 +255,13 @@ def build_review_graph(
     # `generate_questions` anyway, so the two-way routing bought nothing.
     graph.add_edge("review_candidate", "investigate_hinges")
     graph.add_edge("review_candidates", "investigate_hinges")
-    graph.add_edge("investigate_hinges", "generate_questions")
+    # The second judgement, and the reason it is here rather than through
+    # `select_candidates_for_rejudgement`: that path re-enters `review_candidate`, whose own
+    # edge leads back to `investigate_hinges`, so a review would investigate what it had just
+    # investigated. A dedicated edge needs no loop guard and puts "judged, looked, judged
+    # again" in the graph where it can be read.
+    graph.add_edge("investigate_hinges", "rejudge_investigated")
+    graph.add_edge("rejudge_investigated", "generate_questions")
     graph.add_conditional_edges("generate_questions", _after_questions)
     # Every way out of the loop passes through here, which is why the revision this review
     # opened is written in one place rather than at each exit.

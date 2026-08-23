@@ -55,11 +55,21 @@ class PolicyRetriever(Protocol):
 
 
 class ArchitectureJudge(Protocol):
+    """The one component allowed to say what a candidate means.
+
+    `investigation` is what a hinged finding's lookups established, and it is passed on the
+    second judgement of the same candidate rather than the first. It is kept apart from the
+    candidate's own evidence on purpose: evidence is application-selected, and observations
+    are what a model asked to see. A judge may weigh both; nothing may promote one into the
+    other.
+    """
+
     def judge(
         self,
         candidate: Candidate,
         case: ArchitectureCase,
         policies: RetrievedPolicySet,
+        investigation: RecordedInvestigation | None = None,
     ) -> Finding: ...
 
 
@@ -108,20 +118,6 @@ class BatchArchitectureJudge(Protocol):
     ) -> tuple[Finding, ...]: ...
 
 
-@dataclass(frozen=True, slots=True)
-class InvestigatedFinding:
-    """One hinged finding after the lookups, and the record of what was looked up.
-
-    `investigation is None` says nothing was recorded, which is the ordinary answer where
-    no model could look. A record holding no lookups and a `withheld` sentence is the
-    opposite of that: it says the repository could not be reached, and that is a fact about
-    the question underneath it rather than an absence of one.
-    """
-
-    finding: Finding
-    investigation: RecordedInvestigation | None = None
-
-
 class HingeInvestigator(Protocol):
     """A second, bounded pass over the findings that stopped to ask a person.
 
@@ -131,11 +127,17 @@ class HingeInvestigator(Protocol):
     person something the repository could have answered is the worst outcome the charter
     names.
 
-    So this pass gets read-only lookups and one job: decide whether the question is worth a
-    person's interruption. It may settle a held verdict or narrow the hinge. It may not
-    touch a policy bearing, an excerpt, or a verdict that was never held — investigating
-    informs *whether to ask*, never what a verdict rests on, and that is the whole of why
-    it is allowed at all.
+    So this pass gets read-only lookups and one job: establish what the repository says
+    about the hinge. It returns the record of that and nothing else — no verdict, no
+    reasoning, no recommendation, not even a narrowed question. All of those are readings
+    of the facts rather than facts, and `ArchitectureJudge` is the one component allowed to
+    make them.
+
+    It used to return the finding, changed. That made two components able to mint an
+    architecture verdict under two different contracts, and the weaker of the two — this
+    one, which sees policy titles rather than their guidance — could overwrite the stronger.
+    Measured on a local model, four investigations in twelve returned a verdict that their
+    own reasoning argued against.
 
     Whether the selected model can call tools is asked per dispatch rather than answered at
     startup, for the same reason `BatchArchitectureJudge.supports_batch` is: the model is
@@ -151,7 +153,9 @@ class HingeInvestigator(Protocol):
         *,
         repository: RepositoryRef,
         atlas: RepositoryAtlas,
-    ) -> InvestigatedFinding: ...
+    ) -> RecordedInvestigation | None:
+        """What was looked up, or `None` where there was nothing to record at all."""
+        ...
 
 
 class QuestionGenerator(Protocol):
