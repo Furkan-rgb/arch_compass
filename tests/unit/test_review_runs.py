@@ -7,7 +7,7 @@ import threading
 import pytest
 
 from archcompass.domain.errors import ReviewStillRunningError
-from archcompass.workflow.runs import ReviewRunner
+from archcompass.workflow.runs import _TERMINAL_HISTORY, ReviewRunner
 from archcompass.workflow.service import _JudgingProgress
 
 
@@ -295,3 +295,186 @@ def test_the_newest_run_is_listed_first(tmp_path) -> None:
         "thread-1",
         "thread-0",
     ]
+
+
+def _finished(runner: ReviewRunner, run_id: str, stages: tuple[str, ...] = ("done",)) -> None:
+    """Start a run, let it report its stages, and wait for it to leave `_run`."""
+
+    done = threading.Event()
+
+    def work(report):
+        for stage in stages:
+            report(stage)
+        done.set()
+
+    runner.start(run_id=run_id, work=work)
+    assert done.wait(timeout=5), f"{run_id} never ran"
+    _settle(runner, run_id)
+
+
+def test_a_finished_run_releases_its_thread() -> None:
+    """The map is what `is_running` reads, and a thread that has ended is not running.
+
+    Entries used to be created and never removed, so a process accumulated one dead
+    `Thread` and one `RunState` per review it had ever run — measured at 2.4 KiB each.
+    """
+
+    runner = ReviewRunner()
+
+    _finished(runner, "thread-1")
+
+    assert "thread-1" not in runner._threads
+    assert not runner.is_running("thread-1")
+    # The state survives its thread: a watcher polling a second later still gets the stages.
+    assert runner.state("thread-1") is not None
+
+
+def test_a_running_run_keeps_everything_it_has() -> None:
+    """Eviction is for finished work. Nothing may take state from a run still doing it."""
+
+    release = threading.Event()
+    runner = ReviewRunner()
+
+    def work(report):
+        report("analyze_repository")
+        release.wait(timeout=5)
+
+    runner.start(run_id="live", work=work)
+    # Enough finished runs to overflow the tail several times over while `live` is mid-work.
+    for index in range(_TERMINAL_HISTORY * 2):
+        _finished(runner, f"done-{index}")
+
+    assert runner.is_running("live")
+    assert runner.state("live") is not None
+    assert "live" in runner._threads
+    release.set()
+    _settle(runner, "live")
+
+
+def test_only_the_last_few_finished_runs_are_kept() -> None:
+    """A bound, and the newest are the ones worth keeping.
+
+    Thirty-two is a convenience rather than an invariant: it is enough for every run a
+    person could be watching at once, and the durable answer for anything older is the
+    execution store's.
+    """
+
+    runner = ReviewRunner()
+
+    for index in range(_TERMINAL_HISTORY + 10):
+        _finished(runner, f"run-{index:03d}")
+
+    assert len(runner._runs) == _TERMINAL_HISTORY
+    assert runner.state("run-000") is None, "the oldest finished run was kept"
+    assert runner.state(f"run-{_TERMINAL_HISTORY + 9:03d}") is not None
+
+
+def test_a_run_that_starts_again_is_not_evicted_as_history() -> None:
+    """The id is reused: the next round of the same review runs under it.
+
+    An id in the terminal tail that has started again is live state, and dropping its entry
+    because an older run of the same name fell off the end would blank a watcher's screen
+    mid-round.
+    """
+
+    release = threading.Event()
+    runner = ReviewRunner()
+    _finished(runner, "shared")
+
+    def work(report):
+        report("rejudging")
+        release.wait(timeout=5)
+
+    runner.start(run_id="shared", work=work)
+    for index in range(_TERMINAL_HISTORY + 5):
+        _finished(runner, f"filler-{index}")
+
+    assert runner.is_running("shared")
+    assert runner.state("shared").stages == ("rejudging",)
+    release.set()
+    _settle(runner, "shared")
+
+
+def test_an_evicted_run_still_answers_from_the_execution_store(tmp_path) -> None:
+    """Eviction produces exactly the shape a restart produces, which is the point.
+
+    `run_state` has always had to answer for a run this process did not start — that is what
+    a restart leaves — and it does it by taking the status and the review id from the
+    durable store and leaving the stages empty. A watcher is told something honest rather
+    than a progress list that claims to be live and is not.
+
+    So dropping a finished run from memory needs no new fallback. This asserts that the
+    existing one is what an evicted run lands on, because it is the whole reason the bound
+    is safe to add.
+    """
+
+    import sqlite3
+
+    from archcompass.persistence.executions import SQLiteReviewExecutionRepository
+    from archcompass.workflow.service import ReviewWorkflowService
+
+    path = tmp_path / "executions.sqlite3"
+    executions = SQLiteReviewExecutionRepository(lambda: sqlite3.connect(path))
+    executions.begin(
+        thread_id="thread-1",
+        repository_id="repo-1",
+        branch_id="branch-1",
+        case_id="case-1",
+    )
+    executions.cancel("thread-1")
+
+    runner = ReviewRunner()
+    _finished(runner, "thread-1", stages=("analyze_repository", "record_review"))
+    # Push it off the end of the tail.
+    for index in range(_TERMINAL_HISTORY + 1):
+        _finished(runner, f"filler-{index}")
+    assert runner.state("thread-1") is None
+
+    service = ReviewWorkflowService.__new__(ReviewWorkflowService)
+    service._runner = runner  # type: ignore[attr-defined]
+    service._executions = executions  # type: ignore[attr-defined]
+
+    state = service.run_state("thread-1")
+
+    assert state.run_id == "thread-1"
+    assert state.status == executions.status("thread-1")
+    assert state.stages == (), "an evicted run reported stages it can no longer know"
+
+
+def test_a_run_whose_terminal_state_could_not_be_recorded_is_not_evicted() -> None:
+    """Eviction follows the terminal status, and never precedes it.
+
+    If recording that a run finished raises, this process does not know the run is over —
+    and dropping its entry on the way out would delete the state a watcher is about to ask
+    for, while the durable store still says the run is going. The thread is released either
+    way, because a thread that has left `_run` is gone whatever happened inside it.
+    """
+
+    runner = ReviewRunner()
+    done = threading.Event()
+    original = runner._update
+
+    def refuse_terminal(run_id: str, **changes: object) -> None:
+        if changes.get("status") in {"finished", "cancelled", "failed"}:
+            raise RuntimeError("the execution store went away")
+        original(run_id, **changes)
+
+    runner._update = refuse_terminal  # type: ignore[method-assign]
+
+    def work(report):
+        report("analyze_repository")
+        done.set()
+
+    runner.start(run_id="unrecorded", work=work)
+    assert done.wait(timeout=5)
+    for _ in range(500):
+        if not runner.is_running("unrecorded"):
+            break
+        threading.Event().wait(0.01)
+
+    runner._update = original  # type: ignore[method-assign]
+    # Released, because it has ended.
+    assert "unrecorded" not in runner._threads
+    # Kept, because nothing recorded that it ended.
+    assert runner.state("unrecorded") is not None
+    assert "unrecorded" not in runner._terminal

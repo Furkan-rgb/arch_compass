@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -28,6 +29,18 @@ from archcompass.domain._support import utc_now
 from archcompass.domain.errors import ReviewStillRunningError
 
 _log = logging.getLogger("archcompass.runs")
+
+#: How many finished runs keep their stage list in memory.
+#:
+#: A convenience for the process, not an invariant of anything. A watcher polls a run it has
+#: just started and wants the stages it has been through; nothing needs that a minute later,
+#: and the durable answer — running, awaiting answers, completed, failed — is the execution
+#: store's and survives a restart. Thirty-two is enough for every run a person is plausibly
+#: watching at once and small enough that the number never has to be thought about again.
+#:
+#: Without a bound the map grew for the life of the process: measured at 2.4 KiB per finished
+#: run, which a local run never notices and a long-lived deployment accumulates for ever.
+_TERMINAL_HISTORY = 32
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +95,9 @@ class ReviewRunner:
         self._runs: dict[str, RunState] = {}
         self._threads: dict[str, threading.Thread] = {}
         self._cancelled: set[str] = set()
+        #: Finished run ids, oldest first, each appearing once. The eviction order for
+        #: `_runs`; an id that starts again is moved to the back rather than counted twice.
+        self._terminal: deque[str] = deque()
 
     def start(
         self,
@@ -123,17 +139,51 @@ class ReviewRunner:
             self._update(run_id, stage=stage)
 
         try:
-            work(report)
-        except Exception as error:  # A failed run is a state to read, not a lost thread.
-            _log.exception("review run %s failed", run_id)
-            self._update(run_id, status="failed", failure=str(error))
-        else:
-            # `cancelled` rather than `finished` where somebody asked it to stop, because the
-            # work stopped short and a reader is owed that. The durable answer is the
-            # execution store's; this is the in-memory half, and the two have to agree.
-            self._update(
-                run_id, status="cancelled" if self.is_cancelled(run_id) else "finished"
-            )
+            try:
+                work(report)
+            except Exception as error:  # A failed run is a state to read, not a lost thread.
+                _log.exception("review run %s failed", run_id)
+                self._update(run_id, status="failed", failure=str(error))
+            else:
+                # `cancelled` rather than `finished` where somebody asked it to stop, because
+                # the work stopped short and a reader is owed that. The durable answer is the
+                # execution store's; this is the in-memory half, and the two have to agree.
+                self._update(
+                    run_id, status="cancelled" if self.is_cancelled(run_id) else "finished"
+                )
+            # Reached only where a terminal status was actually recorded. If recording it
+            # raised, the run is not terminal as far as this process knows, and evicting it
+            # would delete the state a watcher is about to ask for.
+            self._retire(run_id)
+        finally:
+            # Unconditional, and the one thing that is: a thread that has left `_run` is
+            # never coming back, whatever happened inside it. `is_running` reads this map and
+            # answers `False` for a missing entry, which is already the right answer.
+            self._release(run_id, threading.current_thread())
+
+    def _release(self, run_id: str, thread: threading.Thread) -> None:
+        with self._lock:
+            # Identity-checked because the id is reused: the next round of the same review
+            # runs under it, and a late release must not drop the thread that replaced this
+            # one. `start` refuses while the previous thread is alive, so this cannot happen
+            # today — it is one comparison against it ever starting to.
+            if self._threads.get(run_id) is thread:
+                del self._threads[run_id]
+
+    def _retire(self, run_id: str) -> None:
+        """Add a finished run to the terminal tail, and drop whatever falls off the front."""
+
+        with self._lock:
+            if run_id in self._terminal:
+                self._terminal.remove(run_id)
+            self._terminal.append(run_id)
+            while len(self._terminal) > _TERMINAL_HISTORY:
+                oldest = self._terminal.popleft()
+                thread = self._threads.get(oldest)
+                # An id that has started again is live state, not history. It leaves the tail
+                # and keeps its entry; finishing again puts it back on the end.
+                if thread is None or not thread.is_alive():
+                    self._runs.pop(oldest, None)
 
     def _update(self, run_id: str, **changes: object) -> None:
         with self._lock:
@@ -193,9 +243,3 @@ class ReviewRunner:
         with self._lock:
             thread = self._threads.get(run_id)
         return thread is not None and thread.is_alive()
-
-    def forget(self, run_id: str) -> None:
-        with self._lock:
-            self._runs.pop(run_id, None)
-            self._threads.pop(run_id, None)
-            self._cancelled.discard(run_id)
