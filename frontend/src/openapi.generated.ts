@@ -32,7 +32,7 @@ export interface components {
   };
     "AtlasExploreRequest": {
     "root_path": string;
-    "operation": "children" | "dependencies" | "dependants" | "callers" | "implementations" | "tests" | "forward_neighbourhood" | "reverse_neighbourhood" | "search" | "shortest_path" | "cycles" | "signals";
+    "operation": "subsystem_summary" | "direct_dependencies" | "direct_dependants" | "known_callers" | "implementations" | "related_tests" | "forward_neighbourhood" | "reverse_neighbourhood" | "search_nodes" | "shortest_dependency_path" | "cyclic_components" | "signals";
     "node_id"?: string | null;
     "target_id"?: string | null;
     "terms"?: Array<string>;

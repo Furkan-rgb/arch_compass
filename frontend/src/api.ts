@@ -321,7 +321,7 @@ export const api = {
       abort,
     }),
   searchAtlas: (root: string, terms: string[], abort?: Abortable) =>
-    api.exploreRepository(root, { operation: "search", terms }, abort),
+    api.exploreRepository(root, { operation: "search_nodes", terms }, abort),
   startRepository: (root: string, startClean = false, excludedPaths?: string[]) =>
     request<Schema["StartedCaseResponse"]>("/api/repositories/start", {
       method: "POST",

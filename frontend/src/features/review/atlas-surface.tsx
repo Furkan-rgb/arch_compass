@@ -10,7 +10,12 @@ import { Mark } from "../../ui/mark";
 import { TONE_TEXT } from "../../ui/meta";
 import { ErrorNotice } from "../../ui/states";
 import { AtlasExplorer } from "../atlas/explorer";
-import type { AtlasEdgeView, AtlasMetricView, AtlasNodeView } from "../atlas/graph";
+import type {
+  AtlasEdgeView,
+  AtlasMetricView,
+  AtlasNodeView,
+  AtlasOperation,
+} from "../atlas/graph";
 
 type ExploreRequest = components["schemas"]["AtlasExploreRequest"];
 type Signal = components["schemas"]["ObscuritySignal"];
@@ -249,24 +254,29 @@ export function reviewAtlasEdges(
  *
  * `asking` completes "Asking the atlas for …"; `empty` is the whole sentence for an answer of
  * nothing; `noun` is what the exploration is called once it is on the map.
+ *
+ * Keyed by the operation rather than by `string`: it held a *third* spelling of the twelve
+ * names — `search` where the atlas says `search_nodes` — and a `Record<string, …>` with a
+ * fallback is a lookup that cannot miss, so the drift showed up as a generic noun on the map
+ * instead of as a build error.
  */
-const OPERATIONS: Record<string, { asking: string; empty: string; noun: string }> = {
-  children: {
+const OPERATIONS: Record<AtlasOperation, { asking: string; empty: string; noun: string }> = {
+  subsystem_summary: {
     asking: "what this contains",
     empty: "The atlas records nothing inside this element.",
     noun: "Children",
   },
-  dependencies: {
+  direct_dependencies: {
     asking: "what this depends on",
     empty: "This element depends on nothing the atlas recorded.",
     noun: "Dependencies",
   },
-  dependants: {
+  direct_dependants: {
     asking: "what depends on this",
     empty: "Nothing in this atlas depends on this element.",
     noun: "Dependants",
   },
-  callers: {
+  known_callers: {
     asking: "what calls this",
     empty: "Nothing in this atlas calls this element.",
     noun: "Callers",
@@ -276,7 +286,7 @@ const OPERATIONS: Record<string, { asking: string; empty: string; noun: string }
     empty: "Nothing in this atlas implements this element.",
     noun: "Implementations",
   },
-  tests: {
+  related_tests: {
     asking: "the tests that reach this",
     empty: "No test in this atlas reaches this element.",
     noun: "Tests",
@@ -291,12 +301,12 @@ const OPERATIONS: Record<string, { asking: string; empty: string; noun: string }
     empty: "Nothing within two hops of this atlas reaches this element.",
     noun: "Two hops back",
   },
-  search: {
+  search_nodes: {
     asking: "elements matching that term",
     empty: "Nothing in this atlas matches that term.",
     noun: "Search",
   },
-  cycles: {
+  cyclic_components: {
     asking: "the dependency cycles it recorded",
     empty: "This atlas records no dependency cycle.",
     noun: "Cycles",
@@ -306,21 +316,15 @@ const OPERATIONS: Record<string, { asking: string; empty: string; noun: string }
     empty: "This atlas raised no structural signal.",
     noun: "Signals",
   },
-  shortest_path: {
+  shortest_dependency_path: {
     asking: "a path",
     empty: "No dependency path joins those two in this atlas.",
     noun: "Path",
   },
 };
 
-function operationOf(operation: string) {
-  return (
-    OPERATIONS[operation] ?? {
-      asking: "that",
-      empty: "The atlas has nothing to answer that with.",
-      noun: humanise(operation),
-    }
-  );
+function operationOf(operation: AtlasOperation) {
+  return OPERATIONS[operation];
 }
 
 /**
@@ -501,7 +505,7 @@ export function AtlasSurface({
           ? nodes.find((node) => node.id === request.node_id)?.label
           : undefined;
         const label =
-          request.operation === "search"
+          request.operation === "search_nodes"
             ? `Search for ${(request.terms ?? []).join(" ")}`
             : on
               ? `${noun} of ${on}`
@@ -529,7 +533,7 @@ export function AtlasSurface({
       // mesh of hairlines is why "Surface cycles" read as a button that did nothing. Whichever
       // of the two was asked for last is the one on the map.
       const { operation } = requests[index];
-      if (operation === "shortest_path" || operation === "cycles") return explorations[index]?.data;
+      if (operation === "shortest_dependency_path" || operation === "cyclic_components") return explorations[index]?.data;
     }
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -555,7 +559,7 @@ export function AtlasSurface({
   const lastExploration = useMemo(() => {
     const requests = explored.data;
     for (let index = requests.length - 1; index >= 0; index -= 1) {
-      if (requests[index].operation === "shortest_path") continue;
+      if (requests[index].operation === "shortest_dependency_path") continue;
       const before = new Set(
         [
           ...(context.data?.node_summaries ?? []),
@@ -590,7 +594,7 @@ export function AtlasSurface({
       : added.length === found.length
         ? `${plural(added.length, "element")}, added.`
         : `${plural(found.length, "element")}, ${added.length} of them new to the map.`;
-    if (request.operation !== "cycles") return counted;
+    if (request.operation !== "cyclic_components") return counted;
     // A cycle whose relationships are not pointed at is a handful of extra cards in a mesh.
     // The route returns the edges that make it one, and they are drawn the way a traced path
     // is — so the note says which line on the map is the answer.
@@ -612,7 +616,7 @@ export function AtlasSurface({
   const revealedNodeIds = useMemo(() => {
     const revealed = new Set<string>();
     explored.data.forEach((request, index) => {
-      if (request.operation === "shortest_path") return;
+      if (request.operation === "shortest_dependency_path") return;
       for (const node of explorations[index]?.data?.node_summaries ?? []) {
         revealed.add(node.node_id);
       }
@@ -624,12 +628,12 @@ export function AtlasSurface({
   const traceNote = useMemo(() => {
     const requests = explored.data;
     for (let index = requests.length - 1; index >= 0; index -= 1) {
-      if (requests[index].operation !== "shortest_path") continue;
+      if (requests[index].operation !== "shortest_dependency_path") continue;
       const query = explorations[index];
       if (query?.isLoading) return "Looking for a path…";
       if (query?.error) return "The atlas did not answer the request for a path.";
       const steps = query?.data?.node_ids?.length ?? 0;
-      if (!steps) return operationOf("shortest_path").empty;
+      if (!steps) return operationOf("shortest_dependency_path").empty;
       return `A path of ${plural(steps, "element")}, drawn on the map.`;
     }
     return undefined;
@@ -707,7 +711,7 @@ export function AtlasSurface({
         onSearch={(term) =>
           explore({
             root_path: root,
-            operation: "search",
+            operation: "search_nodes",
             terms: term.trim().split(/\s+/).slice(0, 10),
             limit: 30,
           })
@@ -718,7 +722,7 @@ export function AtlasSurface({
           if (!pathStartNodeId) return;
           explore({
             root_path: root,
-            operation: "shortest_path",
+            operation: "shortest_dependency_path",
             node_id: pathStartNodeId,
             target_id: targetNodeId,
             limit: 60,

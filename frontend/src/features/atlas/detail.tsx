@@ -22,12 +22,12 @@ import type { AtlasEdgeView, AtlasExplorerProps, AtlasNodeView, ExploreOperation
  */
 
 const EXPLORATIONS: { operation: ExploreOperation; label: string; depth?: number }[] = [
-  { operation: "children", label: "Children" },
-  { operation: "dependencies", label: "Dependencies" },
-  { operation: "dependants", label: "Dependants" },
-  { operation: "callers", label: "Callers" },
+  { operation: "subsystem_summary", label: "Children" },
+  { operation: "direct_dependencies", label: "Dependencies" },
+  { operation: "direct_dependants", label: "Dependants" },
+  { operation: "known_callers", label: "Callers" },
   { operation: "implementations", label: "Implementations" },
-  { operation: "tests", label: "Tests" },
+  { operation: "related_tests", label: "Tests" },
   { operation: "forward_neighbourhood", label: "Two hops out", depth: 2 },
 ];
 

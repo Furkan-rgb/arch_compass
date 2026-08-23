@@ -227,7 +227,7 @@ export function LensControls({
                 variant="ghost"
                 size="sm"
                 disabled={loading}
-                onClick={() => onExploreAtlas("cycles")}
+                onClick={() => onExploreAtlas("cyclic_components")}
               >
                 Surface cycles
               </Button>

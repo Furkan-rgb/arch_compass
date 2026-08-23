@@ -13,7 +13,7 @@ module of their own because every one of them is a question about a repository, 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import Field, model_validator
@@ -91,18 +91,28 @@ class StartedCaseResponse(APIModel):
 
 class AtlasExploreRequest(APIModel):
     root_path: str = Field(min_length=1)
+    #: The query records' own `kind`, rather than a third spelling of it.
+    #:
+    #: There were three vocabularies for one set of questions: the `kind` literals on the
+    #: query records, twelve named methods on `AtlasService`, and this — which called
+    #: `direct_dependants` "dependants" and `cyclic_components` "cycles" and then needed a
+    #: dictionary inside the route to translate itself back. The model-facing toolbox never
+    #: invented a third; only HTTP did.
+    #:
+    #: Using the record's own name means a rename on either side is a build error in the
+    #: generated client rather than a 422 at run time.
     operation: Literal[
-        "children",
-        "dependencies",
-        "dependants",
-        "callers",
+        "subsystem_summary",
+        "direct_dependencies",
+        "direct_dependants",
+        "known_callers",
         "implementations",
-        "tests",
+        "related_tests",
         "forward_neighbourhood",
         "reverse_neighbourhood",
-        "search",
-        "shortest_path",
-        "cycles",
+        "search_nodes",
+        "shortest_dependency_path",
+        "cyclic_components",
         "signals",
     ]
     node_id: str | None = None
@@ -114,12 +124,13 @@ class AtlasExploreRequest(APIModel):
 
     @model_validator(mode="after")
     def validate_operation_fields(self) -> AtlasExploreRequest:
-        if self.operation == "search" and not self.terms:
-            raise ValueError("search requires at least one term")
-        if self.operation not in {"search", "cycles", "signals"} and self.node_id is None:
+        if self.operation == "search_nodes" and not self.terms:
+            raise ValueError("search_nodes requires at least one term")
+        whole_atlas = {"search_nodes", "cyclic_components", "signals"}
+        if self.operation not in whole_atlas and self.node_id is None:
             raise ValueError(f"{self.operation} requires node_id")
-        if self.operation == "shortest_path" and self.target_id is None:
-            raise ValueError("shortest_path requires target_id")
+        if self.operation == "shortest_dependency_path" and self.target_id is None:
+            raise ValueError("shortest_dependency_path requires target_id")
         return self
 
 
@@ -386,11 +397,11 @@ def routes() -> APIRouter:
     @router.post("/api/repositories/explore")
     def repository_explore(runtime: RuntimeDep, request: AtlasExploreRequest) -> AtlasQueryResult:
         repository = Path(request.root_path)
-        if request.operation == "search":
+        if request.operation == "search_nodes":
             return runtime.atlas_service.search(
                 repository, request.terms, limit=request.limit
             )
-        if request.operation == "cycles":
+        if request.operation == "cyclic_components":
             return runtime.atlas_service.cycles(repository, limit=request.limit)
         if request.operation == "signals":
             return runtime.atlas_service.signals(
@@ -399,46 +410,28 @@ def routes() -> APIRouter:
                 limit=request.limit,
             )
         assert request.node_id is not None
-        if request.operation == "children":
+        if request.operation == "subsystem_summary":
             return runtime.atlas_service.children(
                 repository, request.node_id, limit=request.limit
             )
-        if request.operation == "shortest_path":
+        if request.operation == "shortest_dependency_path":
             assert request.target_id is not None
             return runtime.atlas_service.shortest_path(
                 repository, request.node_id, request.target_id
             )
-        if request.operation in {"forward_neighbourhood", "reverse_neighbourhood"}:
+        if request.operation in ("forward_neighbourhood", "reverse_neighbourhood"):
             return runtime.atlas_service.neighbourhood(
                 repository,
                 request.node_id,
-                direction=cast(
-                    Literal["forward_neighbourhood", "reverse_neighbourhood"],
-                    request.operation,
-                ),
+                direction=request.operation,
                 depth=request.depth,
                 limit=request.limit,
             )
-        relation_kinds = {
-            "dependencies": "direct_dependencies",
-            "dependants": "direct_dependants",
-            "callers": "known_callers",
-            "implementations": "implementations",
-            "tests": "related_tests",
-        }
+        # No translation left to do: what arrived is what the query record is called.
         return runtime.atlas_service.relationships(
             repository,
             request.node_id,
-            kind=cast(
-                Literal[
-                    "direct_dependencies",
-                    "direct_dependants",
-                    "known_callers",
-                    "implementations",
-                    "related_tests",
-                ],
-                relation_kinds[request.operation],
-            ),
+            kind=request.operation,
             limit=request.limit,
         )
 

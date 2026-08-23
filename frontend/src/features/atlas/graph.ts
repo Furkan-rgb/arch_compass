@@ -1,4 +1,5 @@
 import type { AtlasEdge, ObscuritySignal } from "../../api";
+import type { components } from "../../openapi.generated";
 import type { Tone } from "../../lib/format";
 
 /**
@@ -83,16 +84,21 @@ export const LENSES: { value: AtlasLens; label: string; hint: string }[] = [
   { value: "judged", label: "Judged", hint: "What a finding was made about" },
 ];
 
-/** The atlas operations a reader can ask for from a node on the map. */
-export type ExploreOperation =
-  | "children"
-  | "dependencies"
-  | "dependants"
-  | "callers"
-  | "implementations"
-  | "tests"
-  | "forward_neighbourhood"
-  | "reverse_neighbourhood";
+/**
+ * Everything a reader can ask the atlas for.
+ *
+ * Taken from the generated client rather than written out, so a rename on the backend is a
+ * build error here instead of a 422 at run time. The frontend kept a union of eight of the
+ * backend's twelve, in a *third* spelling of those names — the route carried a dictionary
+ * translating one to the other — and nothing connected the two lists.
+ */
+export type AtlasOperation = components["schemas"]["AtlasExploreRequest"]["operation"];
+
+/** The subset that starts from an element: the buttons on a node's detail panel. */
+export type ExploreOperation = Exclude<
+  AtlasOperation,
+  "search_nodes" | "shortest_dependency_path" | "cyclic_components" | "signals"
+>;
 
 /**
  * Something the reader added to the map, and the way to take it back off again.
@@ -135,7 +141,7 @@ export type AtlasExplorerProps = {
   /** Where the finding about a node is written, for the nodes a verdict was written about. */
   onOpenFinding?: (candidateId: string) => void;
   onExploreNode?: (nodeId: string, operation: ExploreOperation, depth?: number) => void;
-  onExploreAtlas?: (operation: "cycles" | "signals") => void;
+  onExploreAtlas?: (operation: "cyclic_components" | "signals") => void;
   onSearch?: (term: string) => void;
   pathStartNodeId?: string | null;
   onSetPathStart?: (nodeId: string) => void;
