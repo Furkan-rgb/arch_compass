@@ -40,6 +40,11 @@ export function useRunsBecomeReviews(runs: ReviewRun[] | undefined) {
     const gone = seen.current.some((id) => !current.includes(id));
     seen.current = current;
     if (!gone) return;
+    // By prefix, which is why every review query key begins with one of these two words.
+    // The summary listing was fetched under `["review-summaries"]` at four call sites, which
+    // no prefix here reaches — so a finished background run refreshed the pages keyed
+    // `["reviews", "summary"]` and left the review page's own revision rail stale, which is
+    // the exact thing this hook exists to prevent.
     void client.invalidateQueries({ queryKey: ["reviews"] });
     void client.invalidateQueries({ queryKey: ["review"] });
   }, [listed, client]);

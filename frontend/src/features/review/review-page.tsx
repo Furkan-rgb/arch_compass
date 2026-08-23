@@ -344,7 +344,7 @@ export function ReviewPage() {
    * number, a state and a date off each entry — so the summary listing is exactly what it
    * needs, and asking for the whole thing was megabytes a row to draw a line of text.
    */
-  const summaries = useQuery({ queryKey: ["review-summaries"], queryFn: api.reviewSummaries });
+  const summaries = useQuery({ queryKey: ["reviews", "summary"], queryFn: api.reviewSummaries });
   const runs = useQuery({
     queryKey: ["review-runs"],
     queryFn: api.reviewRuns,
@@ -357,7 +357,6 @@ export function ReviewPage() {
     mutationFn: () => api.cancel(reviewId),
     onSuccess: async (next) => {
       await Promise.all([
-        client.invalidateQueries({ queryKey: ["review-summaries"] }),
         client.invalidateQueries({ queryKey: ["reviews"] }),
       ]);
       navigate(`/reviews/${next.id}`);

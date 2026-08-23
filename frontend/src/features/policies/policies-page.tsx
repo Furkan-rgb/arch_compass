@@ -343,7 +343,7 @@ export function PoliciesPage() {
   // reviews themselves to read a path and a case id would download most of a repository's
   // atlas per row.
   const summaries = useQuery({
-    queryKey: ["review-summaries"],
+    queryKey: ["reviews", "summary"],
     queryFn: api.reviewSummaries,
   });
   const cases = useQuery({ queryKey: ["cases"], queryFn: api.cases });

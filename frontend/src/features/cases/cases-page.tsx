@@ -26,7 +26,7 @@ export function CasesPage() {
   // Identity, lineage and counts, which is everything this page reads off a review. Asking
   // for the reviews themselves downloaded most of a repository's atlas per row to print a
   // number.
-  const reviews = useQuery({ queryKey: ["review-summaries"], queryFn: api.reviewSummaries });
+  const reviews = useQuery({ queryKey: ["reviews", "summary"], queryFn: api.reviewSummaries });
   const [selected, setSelected] = useState<string | null>(null);
 
   const selectedId = selected ?? cases.data?.[0]?.case_id ?? null;

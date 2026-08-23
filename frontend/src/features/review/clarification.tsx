@@ -302,7 +302,6 @@ export function ClarificationRound({
       // that draw a lineage have a new entry to draw.
       await Promise.all([
         client.invalidateQueries({ queryKey: ["review-runs"] }),
-        client.invalidateQueries({ queryKey: ["review-summaries"] }),
         client.invalidateQueries({ queryKey: ["reviews"] }),
       ]);
       navigate(`/runs/${run.run_id}`);

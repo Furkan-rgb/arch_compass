@@ -54,7 +54,7 @@ export function RunPage() {
   // The lineage needs a number, a status and a date off each revision and nothing else, so it
   // reads the projection rather than pulling every stored review's whole atlas across to draw
   // a rail of six lines.
-  const reviews = useQuery({ queryKey: ["review-summaries"], queryFn: api.reviewSummaries });
+  const reviews = useQuery({ queryKey: ["reviews", "summary"], queryFn: api.reviewSummaries });
 
   const state = run.data;
   const reviewId = state?.review_id ?? null;
