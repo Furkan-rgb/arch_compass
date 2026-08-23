@@ -4,41 +4,12 @@ One repository per aggregate, each implementing a port and owning its own SQL: c
 reviews and the decisions taken on them, the atlas an analysis produced, the lineage that
 says which repository and branch it belongs to, the caches that stop a judgement being paid
 for twice. Read `sqlite/database.py` first — it is the connection policy every one of them
-shares — then `sqlite/migrations/`, which is the schema's history.
+shares — then `sqlite/migrations/`, which is the schema's history. `ports.py` is what the
+rest of the application sees; nothing above `bootstrap.py` names a class from here.
+
+Deliberately without re-exports. It used to import all fifteen repositories eagerly, which
+made `import archcompass.persistence.ports` — a file of protocols, imported by `analysis/`,
+`repositories/` and `workflow/`, none of which may touch storage — drag `sqlite3` and every
+SQL module in this package along with it. Two modules ever used the front door. They import
+what they need directly now, and the port costs what a port should.
 """
-
-from archcompass.persistence.atlases import SQLiteAtlasRepository
-from archcompass.persistence.cases import SQLiteCoreCaseRepository
-from archcompass.persistence.conversations import SQLiteCoreConversationRepository
-from archcompass.persistence.decisions import SQLiteCoreStandingDecisionRepository
-from archcompass.persistence.executions import SQLiteReviewExecutionRepository
-from archcompass.persistence.findings import SQLiteCoreFindingCache
-from archcompass.persistence.lineage import SQLiteLineageRepository
-from archcompass.persistence.model_selection import (
-    SQLiteBatchRefusalRepository,
-    SQLiteCoreModelSelectionRepository,
-    SQLiteEmbeddingModelSelectionRepository,
-)
-from archcompass.persistence.origins import SQLiteSourceOriginRepository
-from archcompass.persistence.policy_sources import SQLitePolicySourceRepository
-from archcompass.persistence.reviews import SQLiteCoreReviewRepository
-from archcompass.persistence.scopes import SQLiteScopeSelectionRepository
-from archcompass.persistence.sqlite.database import SQLiteDatabase
-
-__all__ = [
-    "SQLiteAtlasRepository",
-    "SQLiteBatchRefusalRepository",
-    "SQLiteCoreCaseRepository",
-    "SQLiteCoreConversationRepository",
-    "SQLiteCoreFindingCache",
-    "SQLiteCoreModelSelectionRepository",
-    "SQLiteCoreReviewRepository",
-    "SQLiteCoreStandingDecisionRepository",
-    "SQLiteDatabase",
-    "SQLiteEmbeddingModelSelectionRepository",
-    "SQLiteLineageRepository",
-    "SQLitePolicySourceRepository",
-    "SQLiteReviewExecutionRepository",
-    "SQLiteScopeSelectionRepository",
-    "SQLiteSourceOriginRepository",
-]

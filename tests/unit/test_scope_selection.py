@@ -16,10 +16,8 @@ from archcompass.analysis.adapters.ast_analyzer import PythonAstRepositoryAnalyz
 from archcompass.analysis.atlas import Atlas
 from archcompass.analysis.scope import validate_excluded_paths
 from archcompass.domain.errors import ScopeValidationError
-from archcompass.persistence import (
-    SQLiteDatabase,
-    SQLiteScopeSelectionRepository,
-)
+from archcompass.persistence.scopes import SQLiteScopeSelectionRepository
+from archcompass.persistence.sqlite.database import SQLiteDatabase
 
 _REPOSITORY = {
     "src/service.py": "def serve():\n    return 1\n",

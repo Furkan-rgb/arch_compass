@@ -33,28 +33,28 @@ from archcompass.configuration import (
     load_provider_environment,
 )
 from archcompass.domain.errors import ConfigurationError, NoReasoningModelSelectedError
-from archcompass.persistence import (
-    SQLiteAtlasRepository,
-    SQLiteBatchRefusalRepository,
-    SQLiteCoreCaseRepository,
-    SQLiteCoreConversationRepository,
-    SQLiteCoreFindingCache,
-    SQLiteCoreModelSelectionRepository,
-    SQLiteCoreReviewRepository,
-    SQLiteCoreStandingDecisionRepository,
-    SQLiteDatabase,
-    SQLiteEmbeddingModelSelectionRepository,
-    SQLiteLineageRepository,
-    SQLitePolicySourceRepository,
-    SQLiteReviewExecutionRepository,
-    SQLiteScopeSelectionRepository,
-    SQLiteSourceOriginRepository,
-)
+from archcompass.persistence.atlases import SQLiteAtlasRepository
+from archcompass.persistence.cases import SQLiteCoreCaseRepository
 from archcompass.persistence.context import SQLiteContextLoader
+from archcompass.persistence.conversations import SQLiteCoreConversationRepository
+from archcompass.persistence.decisions import SQLiteCoreStandingDecisionRepository
+from archcompass.persistence.executions import SQLiteReviewExecutionRepository
+from archcompass.persistence.findings import SQLiteCoreFindingCache
+from archcompass.persistence.lineage import SQLiteLineageRepository
+from archcompass.persistence.model_selection import (
+    SQLiteBatchRefusalRepository,
+    SQLiteCoreModelSelectionRepository,
+    SQLiteEmbeddingModelSelectionRepository,
+)
+from archcompass.persistence.origins import SQLiteSourceOriginRepository
+from archcompass.persistence.policy_sources import SQLitePolicySourceRepository
 from archcompass.persistence.ports import (
     AtlasRepository,
     LineageRepository,
 )
+from archcompass.persistence.reviews import SQLiteCoreReviewRepository
+from archcompass.persistence.scopes import SQLiteScopeSelectionRepository
+from archcompass.persistence.sqlite.database import SQLiteDatabase
 from archcompass.policies.adapters import (
     MarkdownPolicySourceInspector,
     MarkdownPolicyStore,
