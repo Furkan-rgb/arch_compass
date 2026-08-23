@@ -640,3 +640,30 @@ def test_the_verdict_is_taken_from_the_model_rather_than_inferred() -> None:
             output, candidate, policies, model_identity="m", prompt_identity="p"
         )
         assert finding.verdict is expected
+
+
+def test_a_verdict_outside_the_three_is_refused_rather_than_guessed_at() -> None:
+    """The path that cannot normally happen, guarded for when it does.
+
+    `with_structured_output(..., method="json_schema")` puts the `Literal` into the decoder's
+    grammar, so a supported provider cannot emit a fourth word — asked three times, in so
+    many words, for a verdict of `catastrophic`, a local model answered `cleared` every time.
+    This covers what is left: a provider whose constraint does not hold, a proxy that rewrites
+    the response, a future transport that sends the schema as documentation rather than as a
+    grammar.
+
+    What must not happen is a guess. There is no default verdict and no nearest-match: an
+    unrecognised word is a model that did not answer the question, and a review that invented
+    `cleared` for it would be recording a judgement nobody made.
+    """
+
+    candidate, case, policies = _input()
+    judge = LangChainArchitectureJudge(
+        StructuredModel(
+            {"verdict": "catastrophic", "reasoning": "The port hides no variation."}
+        ),  # type: ignore[arg-type]
+        model_identity="test:model",
+    )
+
+    with pytest.raises(ModelOutputValidationError, match="did not match the required"):
+        judge.judge(candidate, case, policies)

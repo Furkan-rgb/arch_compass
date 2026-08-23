@@ -123,8 +123,8 @@ class Termination(StrEnum):
 
     A state per way the loop can actually end, and no more: an enum with a case nothing
     reaches is a case nobody maintains, and one that names a limit the code does not enforce
-    reads as a promise. A lookup ceiling and a wall-clock deadline are both wanted and
-    neither is written yet; they belong here on the commit that enforces them.
+    reads as a promise — a wall-clock guard is wanted and is not written yet, so it is not
+    named here.
 
     `NATURAL_END` is deliberately not called `completed`: it says the model stopped asking,
     which is a fact about the loop, and carries no claim that the search was sufficient,
@@ -137,6 +137,8 @@ class Termination(StrEnum):
     NATURAL_END = "natural_end"
     #: The per-run model-call ceiling was reached.
     MODEL_CALL_LIMIT = "model_call_limit"
+    #: The exploration budget was spent.
+    LOOKUP_LIMIT = "lookup_limit"
     #: Everything looked up so far came to more than one investigation may carry.
     INVESTIGATION_SIZE_LIMIT = "investigation_size_limit"
     #: The provider stopped answering, after the retries it is given.

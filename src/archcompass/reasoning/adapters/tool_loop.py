@@ -64,19 +64,53 @@ from archcompass.retrying import call_with_retry
 
 _log = logging.getLogger(__name__)
 
-#: How many rounds of tool calling one investigation may take before it has to conclude with
-#: what it has. Six is enough for a find, two relations and a read, which is the shape the
-#: worthwhile lookups take; past that the pass is browsing. The failure a cap prevents is
-#: not expense but an investigation that never terminates in front of a reader watching a
-#: review run.
-MAX_INVESTIGATION_TURNS = 6
+#: How many lookups one investigation may make. The budget that bounds *exploration*, and
+#: the first of the four guards to fire in ordinary operation.
+#:
+#: A model turn may carry several tool calls, so this and the turn cap bound different
+#: things: how much of the repository was read, against how many times the model was asked.
+#: Exploration is what an investigation spends, which is why this is the primary bound.
+#:
+#: Twelve, measured rather than guessed. Six held candidates were each investigated at
+#: ceilings of 8, 10, 12 and 14 against one pinned atlas and one set of policies. Eight and
+#: ten measurably lose investigation — three and four of six hinges resolved against four at
+#: twelve, and two candidates that finish on their own at twelve are still mid-question at
+#: ten. Fourteen buys nothing: its one extra resolution is a candidate that alternates
+#: verdict at every ceiling, and two of six runs hit the size guard instead, so fourteen is
+#: not really fourteen. Twelve is the first ceiling at which any investigation ends because
+#: it has run out of questions rather than out of budget.
+#:
+#: Approximate by one turn. It is checked between turns, because that is where a run can be
+#: ended without discarding a call already paid for — so a turn that issues several calls at
+#: once may finish above the ceiling rather than at it.
+MAX_INVESTIGATION_LOOKUPS = 12
 
-#: The ceiling on what one whole investigation may record, across every result. The
-#: per-result clamp bounds one answer and the turn cap bounds the conversation's length, but
-#: neither bounds their product: a model may put several calls in one turn. Lower than the
-#: per-result clamp times the turn cap on purpose — this record is stored on every review
-#: and projected on every listing of them.
-MAX_INVESTIGATION_CHARACTERS = 10_000
+#: How many times the model may be asked. A runaway guard rather than a budget.
+#:
+#: Six was the budget, and the reason it stopped being one is measured: with no conclusion to
+#: write, an investigation has no reason of its own to stop, and every one of six consecutive
+#: investigations ended here rather than at a natural end. A limit that always fires is not
+#: bounding a decision, it is making one. What it is for is a loop that will not terminate in
+#: front of a reader watching a review run, and for that it must sit clear of the exploration
+#: budget rather than under it.
+#:
+#: Twelve against an observed maximum of nine calls at the chosen lookup budget. The margin
+#: is the point: a guard one call above the working range is a co-binding limit wearing a
+#: guard's name.
+MAX_INVESTIGATION_TURNS = 12
+
+#: The ceiling on what one whole investigation may record, across every result. A guard
+#: against an abnormal run rather than a budget: it bounds the product the other two do not,
+#: since a model may put several calls in one turn and any one answer may be long.
+#:
+#: Twelve thousand, raised from ten. At the chosen lookup budget a real investigation reached
+#: 9,508 characters — close enough that ordinary variation in source text or tool formatting
+#: would have made this the normal limiter, which would quietly demote the lookup budget from
+#: primary to nominal. It was already firing first in two of six runs one ceiling higher.
+#:
+#: Still bounded, and deliberately: this record is stored on every review and projected on
+#: every listing of them.
+MAX_INVESTIGATION_CHARACTERS = 12_000
 
 INVESTIGATION_PROMPT_IDENTITY = "investigate-hinge:v1"
 
@@ -166,6 +200,9 @@ class _InvestigationBounds(AgentMiddleware[Any, Any]):
         # will be stored and shown, and it is the thing the ceiling exists to bound. Checked
         # before asking rather than after answering: once the findings are this large there
         # is nothing a further turn could add that would be kept.
+        if len(self._investigator.transcript) >= MAX_INVESTIGATION_LOOKUPS:
+            self.termination = Termination.LOOKUP_LIMIT
+            return AIMessage("")
         if self._recorded() >= MAX_INVESTIGATION_CHARACTERS:
             self.termination = Termination.INVESTIGATION_SIZE_LIMIT
             return AIMessage("")

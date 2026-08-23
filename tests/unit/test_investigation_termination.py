@@ -12,6 +12,7 @@ a natural end, and no path that actually runs may produce it.
 from __future__ import annotations
 
 import ast
+import itertools
 from pathlib import Path
 
 import pytest
@@ -295,11 +296,24 @@ def _drive(turns: list[AIMessage]) -> tuple[str, Termination]:
     return investigator.closing, investigator.termination
 
 
+#: Counts every scripted turn, so each carries a tool call id of its own.
+#:
+#: They shared one id at first, and the agent then ran the tool once for the whole script —
+#: so a test that meant "ten turns each spending a lookup" was really one lookup and nine
+#: turns, and any assertion about the lookup budget passed or failed for the wrong reason.
+_ISSUED = itertools.count()
+
+
 def _lookup_turn() -> AIMessage:
     return AIMessage(
         content="",
         tool_calls=[
-            {"name": "flagged_signals", "args": {}, "id": "call_1", "type": "tool_call"}
+            {
+                "name": "flagged_signals",
+                "args": {},
+                "id": f"call_{next(_ISSUED)}",
+                "type": "tool_call",
+            }
         ],
     )
 
@@ -314,11 +328,24 @@ def test_a_model_that_stops_asking_ends_naturally() -> None:
 
 
 def test_a_model_still_looking_when_the_budget_runs_out_is_cut_short() -> None:
-    """Every allowed call spent on a lookup: the run was stopped, it did not stop."""
+    """Every allowed call spent on a lookup: the run was stopped, it did not stop.
 
+    The lookup ceiling is lifted for the duration, so that what ends this run is the turn cap
+    and not the exploration budget — the two are separate bounds and this is the turn cap's
+    test.
+    """
+
+    from archcompass.reasoning.adapters import tool_loop
     from archcompass.reasoning.adapters.tool_loop import MAX_INVESTIGATION_TURNS
 
-    closing, termination = _drive([_lookup_turn()] * (MAX_INVESTIGATION_TURNS + 2))
+    original = tool_loop.MAX_INVESTIGATION_LOOKUPS
+    tool_loop.MAX_INVESTIGATION_LOOKUPS = 1_000
+    try:
+        closing, termination = _drive(
+            [_lookup_turn() for _ in range(MAX_INVESTIGATION_TURNS + 2)]
+        )
+    finally:
+        tool_loop.MAX_INVESTIGATION_LOOKUPS = original
 
     assert termination is Termination.MODEL_CALL_LIMIT
     # And the library's own "Model call limits exceeded" message is not kept as the model's
@@ -337,7 +364,7 @@ def test_a_model_concluding_on_its_last_allowed_call_is_not_a_truncation() -> No
 
     from archcompass.reasoning.adapters.tool_loop import MAX_INVESTIGATION_TURNS
 
-    turns = [_lookup_turn()] * (MAX_INVESTIGATION_TURNS - 1)
+    turns = [_lookup_turn() for _ in range(MAX_INVESTIGATION_TURNS - 1)]
     closing, termination = _drive([*turns, AIMessage(content="Enough.")])
 
     assert termination is Termination.NATURAL_END
@@ -447,3 +474,142 @@ def test_the_judgement_prompt_carries_the_observations_it_was_given() -> None:
     # The exact answer, not a summary of it.
     assert "adapters.SqlPort" in with_observations
     assert "related_code" in with_observations
+
+
+def test_the_exploration_budget_ends_a_run_and_says_so() -> None:
+    """The lookup ceiling, which is what bounds how much of a repository was read.
+
+    Distinct from the turn cap because one model turn may carry several tool calls: the two
+    bound different things, and only this one bounds exploration. Checked between turns, so a
+    turn issuing several calls at once may finish above the ceiling rather than exactly at it
+    — the assertion allows for that rather than pretending otherwise.
+    """
+
+    from archcompass.reasoning.adapters import tool_loop
+
+    ceiling = 3
+    original = tool_loop.MAX_INVESTIGATION_LOOKUPS
+    tool_loop.MAX_INVESTIGATION_LOOKUPS = ceiling
+    try:
+        investigator = AtlasInvestigator(_NoQueries(), _EMPTY_ATLAS, _REPOSITORY)
+        tool_loop.investigate_with_tools(
+            _Scripted(messages=iter([_lookup_turn() for _ in range(10)])),
+            investigator,
+            system="look things up",
+            opening="a finding",
+            subject="a test",
+            force_first=False,
+        )
+    finally:
+        tool_loop.MAX_INVESTIGATION_LOOKUPS = original
+
+    assert investigator.termination is Termination.LOOKUP_LIMIT
+    assert len(investigator.transcript) >= ceiling
+    # And not the runaway guard: with one call per turn the budget is reached first, which is
+    # the whole point of it being the primary bound.
+    assert len(investigator.transcript) < tool_loop.MAX_INVESTIGATION_TURNS
+
+
+class _Verbose:
+    """A query service whose answers are long, for reaching the size guard on purpose."""
+
+    def __init__(self, characters: int) -> None:
+        self._characters = characters
+
+    def execute(self, atlas: object, query: object) -> object:
+        from archcompass.analysis.atlas import AtlasQueryResult
+
+        del atlas
+        return AtlasQueryResult(query=query, summary="y" * self._characters)  # type: ignore[arg-type]
+
+
+def _drive_against(
+    queries: object, turns: list[AIMessage]
+) -> tuple[AtlasInvestigator, Termination]:
+    from archcompass.reasoning.adapters.tool_loop import investigate_with_tools
+
+    investigator = AtlasInvestigator(queries, _EMPTY_ATLAS, _REPOSITORY)  # type: ignore[arg-type]
+    investigate_with_tools(
+        _Scripted(messages=iter(turns)),
+        investigator,
+        system="look things up",
+        opening="a finding",
+        subject="a test",
+        force_first=False,
+    )
+    assert investigator.termination is not None
+    return investigator, investigator.termination
+
+
+def test_which_bound_wins_is_decided_and_not_incidental() -> None:
+    """Four guards, one job each, and an order between them that must not drift.
+
+        lookup budget          what an investigation is allowed to explore
+        model-call limit       a loop that will not terminate
+        investigation size     an abnormal run, not a long one
+        wall clock             the outer operational guard, outside this loop
+
+    Each is asserted by making it the one that can fire, because a constant that quietly
+    changes role is the failure here — the turn cap was the exploration budget for a while,
+    and nothing said so. The size guard is checked last on purpose: it must not fire in the
+    ordinary range, and the value that makes that true is the one measured against a real
+    investigation that reached 9,508 characters.
+    """
+
+    from archcompass.reasoning.adapters import tool_loop
+
+    was = (
+        tool_loop.MAX_INVESTIGATION_LOOKUPS,
+        tool_loop.MAX_INVESTIGATION_TURNS,
+        tool_loop.MAX_INVESTIGATION_CHARACTERS,
+    )
+    try:
+        # The lookup budget binds first when every guard is otherwise out of reach.
+        tool_loop.MAX_INVESTIGATION_LOOKUPS = 3
+        tool_loop.MAX_INVESTIGATION_TURNS = 50
+        tool_loop.MAX_INVESTIGATION_CHARACTERS = 1_000_000
+        _, termination = _drive_against(_NoQueries(), [_lookup_turn() for _ in range(30)])
+        assert termination is Termination.LOOKUP_LIMIT
+
+        # The runaway guard binds only when the exploration budget cannot.
+        tool_loop.MAX_INVESTIGATION_LOOKUPS = 1_000
+        tool_loop.MAX_INVESTIGATION_TURNS = 4
+        _, termination = _drive_against(_NoQueries(), [_lookup_turn() for _ in range(30)])
+        assert termination is Termination.MODEL_CALL_LIMIT
+
+        # The size guard binds on volume rather than on count: three short lookups are within
+        # every other bound, and one long one is not.
+        tool_loop.MAX_INVESTIGATION_LOOKUPS = 1_000
+        tool_loop.MAX_INVESTIGATION_TURNS = 50
+        tool_loop.MAX_INVESTIGATION_CHARACTERS = 500
+        _, termination = _drive_against(_Verbose(400), [_lookup_turn() for _ in range(30)])
+        assert termination is Termination.INVESTIGATION_SIZE_LIMIT
+    finally:
+        (
+            tool_loop.MAX_INVESTIGATION_LOOKUPS,
+            tool_loop.MAX_INVESTIGATION_TURNS,
+            tool_loop.MAX_INVESTIGATION_CHARACTERS,
+        ) = was
+
+
+def test_the_exploration_budget_is_the_one_that_fires_in_the_ordinary_range() -> None:
+    """The shipped values, asserted as an ordering rather than as three numbers.
+
+    Any of these can be tuned; what may not change silently is which of them is the normal
+    reason an investigation stops. The turn cap was the budget once — six calls, every one of
+    six consecutive investigations ending there — and the only thing that made it visible was
+    measuring. This is cheaper than measuring again.
+    """
+
+    from archcompass.reasoning.adapters import tool_loop
+
+    # A runaway guard one call above the working range is a co-binding limit with a guard's
+    # name. Nine calls was the observed maximum at a budget of twelve lookups.
+    assert tool_loop.MAX_INVESTIGATION_TURNS >= tool_loop.MAX_INVESTIGATION_LOOKUPS, (
+        "the model-call limit can bind before the lookup budget is spent"
+    )
+    # And the size guard must have room above what a full investigation actually records: a
+    # real one reached 9,508 characters at this budget.
+    assert tool_loop.MAX_INVESTIGATION_CHARACTERS >= 12_000, (
+        "the size guard sits inside the range an ordinary investigation reaches"
+    )

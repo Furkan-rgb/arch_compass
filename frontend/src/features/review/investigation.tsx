@@ -44,6 +44,7 @@ function resultExtent(result: string): string {
 const ENDINGS: Record<string, string> = {
   natural_end: "the pass stopped looking",
   model_call_limit: "cut short: no turns left",
+  lookup_limit: "cut short: no lookups left",
   investigation_size_limit: "cut short: too much gathered",
   provider_error: "cut short: the model stopped answering",
 };
