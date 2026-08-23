@@ -5,7 +5,7 @@ from __future__ import annotations
 from archcompass.domain.errors import ConversationNotFoundError
 from archcompass.persistence.sqlite.codecs import DataclassRecordCodec
 from archcompass.persistence.sqlite.database import Transaction
-from archcompass.ports.review_conversation import ReviewConversation
+from archcompass.reasoning.ports import ReviewConversation
 
 
 class SQLiteCoreConversationRepository:

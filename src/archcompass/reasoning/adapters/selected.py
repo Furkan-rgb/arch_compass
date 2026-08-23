@@ -22,23 +22,13 @@ from archcompass.domain import (
     ReviewDelta,
 )
 from archcompass.domain.errors import NoReasoningModelSelectedError, ProviderError
-from archcompass.ports.batch_refusals import (
-    BatchRefusalStore,
-    InMemoryBatchRefusals,
-)
 from archcompass.ports.capabilities import (
     BatchOutcome,
     InvestigatedFinding,
     JudgementRequest,
     ReviewSynopsis,
 )
-from archcompass.ports.investigation import InvestigatorSource
-from archcompass.ports.model_catalog import SelectedReasoningModel
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
-from archcompass.ports.review_conversation import (
-    ConversationAnswer,
-    ConversationMessage,
-)
 from archcompass.reasoning.adapters.deterministic import (
     DeterministicAnswerer,
     DeterministicHingeInvestigator,
@@ -60,8 +50,18 @@ from archcompass.reasoning.adapters.langchain import (
     LangChainReviewAnswerer,
     LangChainReviewSynopsist,
 )
+from archcompass.reasoning.ports import (
+    ConversationAnswer,
+    ConversationMessage,
+    InvestigatorSource,
+    SelectedReasoningModel,
+)
 from archcompass.reasoning.records import (
     model_identity,
+)
+from archcompass.reasoning.refusals import (
+    BatchRefusalStore,
+    InMemoryBatchRefusals,
 )
 
 

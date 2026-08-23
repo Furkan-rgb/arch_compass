@@ -100,27 +100,15 @@ def test_domain_imports_only_the_standard_library_and_itself() -> None:
         ), f"{path.relative_to(SOURCE_ROOT)} crosses the domain boundary"
 
 
-#: The only modules inside a feature that a port may name. Each is a file of frozen Pydantic
-#: records and nothing else — no I/O, no vendor, no service — so a contract stated in their
-#: terms still points inward. Anything else in a feature is behaviour, and a port that
-#: imported it would be the arrow the ports exist to reverse.
-_FEATURE_RECORD_MODULES = frozenset(
-    {
-        "archcompass.analysis.atlas",
-        "archcompass.policies.records",
-        "archcompass.reasoning.records",
-        "archcompass.repositories.lineage",
-        "archcompass.repositories.records",
-    }
-)
+def test_ports_are_stated_in_domain_terms_alone() -> None:
+    """What is left at top level is the seams the review graph is sequenced out of.
 
-
-def test_ports_declare_contracts_without_reaching_for_implementations() -> None:
-    """A port names what is asked for. It may not know who answers.
-
-    `ports/` may reference `domain/`, `records.py`, and the record modules named above,
-    because a contract is stated in those terms. Importing a feature's service or adapter
-    would invert the arrow the ports exist to create.
+    `ports/` used to hold thirteen modules, six of which named a feature's own record types
+    — an interface hoisted one directory up, kept legal by an allowlist. Those moved beside
+    what they belong to (`analysis/ports.py`, `policies/ports.py`, `reasoning/ports.py`,
+    `repositories/ports.py`, `persistence/ports.py`), so the allowlist is gone and this
+    guard is the stronger one it could not be before: nothing here may name a feature at
+    all, records included.
     """
 
     forbidden = (
@@ -134,16 +122,21 @@ def test_ports_declare_contracts_without_reaching_for_implementations() -> None:
     )
     root = SOURCE_ROOT / "ports"
     assert root.is_dir(), "ports/ is gone; this guard now sweeps nothing"
+    assert {path.name for path in _python_files(root)} == {
+        "__init__.py",
+        "capabilities.py",
+        "policy_retrieval.py",
+    }, "a module has appeared in ports/; is it a graph seam, or a feature's own contract?"
     for path in _python_files(root):
         offending = [
             imported
             for imported in _imports(path)
-            if imported not in _FEATURE_RECORD_MODULES
-            and any(_crosses(imported, prefix) for prefix in forbidden)
+            if any(_crosses(imported, prefix) for prefix in forbidden)
         ]
         assert not offending, (
-            f"{path.relative_to(SOURCE_ROOT)} imports {offending[0]}, which is behaviour "
-            "rather than a record its contract can be stated in"
+            f"{path.relative_to(SOURCE_ROOT)} imports {offending[0]}; a graph seam is "
+            "stated in domain terms, and a contract that needs a feature's own records "
+            f"belongs in that feature's ports.py"
         )
 
 

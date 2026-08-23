@@ -21,7 +21,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from archcompass.domain.errors import PathValidationError, RepositoryCheckoutError
-from archcompass.ports.vcs import GitClient
+from archcompass.repositories.ports import GitClient
 from archcompass.repositories.records import CheckoutRefresh, RepositoryCheckout
 
 #: The transports a clone may be asked for. Anything else is refused by name rather than

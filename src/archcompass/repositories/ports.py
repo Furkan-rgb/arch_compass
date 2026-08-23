@@ -1,11 +1,20 @@
-"""What a version control system is asked, so that an application can be pointed at one.
+"""What getting a repository onto disk asks the outside world for.
 
-Narrow on purpose: a handful of questions, each of which git answers with one command. The
-decisions
-— where a managed checkout lives, when a directory is reused rather than cloned again, what a
-local path is allowed to be — are the application's, and stay out of here. This port only
-knows how to make a remote's history appear on disk and how to say what is already there.
-"""
+Two ways in, rather than one with a mode. `GitClient` makes a remote's *history* appear and
+keeps it current; `SourceArchiveFetcher` makes a remote's *files* appear, once, and has no
+notion of a remote afterwards. Folding them together would mean a `GitClient` whose `fetch`,
+`remote_url`, `head_commit`, `default_branch` and `force_checkout` all answered "not
+applicable".
+
+The reason to want the second is that the first drags git in with it: hooks, submodules,
+`.gitattributes` filters, credential helpers, the `file://` and `ssh://` transports, and a
+redirect policy of git's own. A public deployment reviewing a stranger's repository wants
+none of that, and none of it can be present in a directory that was written by extracting a
+tarball.
+
+Both are narrow on purpose. The decisions — where a managed checkout lives, when a directory
+is reused rather than cloned again, what a local path is allowed to be — are the
+application's, and stay in `service.py`."""
 
 from __future__ import annotations
 
@@ -91,4 +100,32 @@ class GitClient(Protocol):
 
     def force_checkout(self, checkout: Path, branch: str) -> None:
         """Make the working tree be the remote's tip of `branch`, discarding what differs."""
+        ...
+
+
+@dataclass(frozen=True)
+class FetchedSource:
+    """Where a fetched repository landed, and what it was fetched from.
+
+    `revision` is whatever the host called the thing it served — a commit sha when the host
+    says one, otherwise the ref that was asked for. It is recorded rather than trusted: no
+    freshness decision rests on it, because the content fingerprint the analyser computes
+    from the files themselves is what every downstream comparison actually uses.
+    """
+
+    root_path: Path
+    url: str
+    revision: str | None
+
+
+class SourceArchiveFetcher(Protocol):
+    """Fetching a repository's files, for a deployment that will not run git."""
+
+    def fetch(self, url: str, *, branch: str | None, destination: Path) -> FetchedSource:
+        """Put the repository's files at `destination`, or leave nothing behind.
+
+        `destination` is a directory that does not exist yet. An implementation that fails
+        part way is required to remove it: a half-extracted tree that a later call mistakes
+        for a complete one is a much worse failure than fetching twice.
+        """
         ...

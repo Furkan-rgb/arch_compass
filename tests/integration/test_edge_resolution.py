@@ -16,12 +16,12 @@ import pytest
 from archcompass.analysis.adapters.ast_analyzer import PythonAstRepositoryAnalyzer
 from archcompass.analysis.atlas import Atlas, EdgeType, NodeType
 from archcompass.analysis.detectors import detect_finding_candidates
-from archcompass.bootstrap import build_edge_resolver
-from archcompass.ports.atlas import (
+from archcompass.analysis.ports import (
     EdgeResolutionRequest,
     EdgeResolutionResult,
     EdgeResolver,
 )
+from archcompass.bootstrap import build_edge_resolver
 
 AUDIOBOOK = Path(__file__).resolve().parents[2] / "examples" / "cases" / "audiobook-studio"
 

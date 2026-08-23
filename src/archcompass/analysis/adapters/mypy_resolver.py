@@ -54,8 +54,7 @@ from archcompass.analysis.adapters.ast_support import (
     lies_within,
     module_name,
 )
-from archcompass.analysis.scope import IGNORED_DIRECTORIES
-from archcompass.ports.atlas import (
+from archcompass.analysis.ports import (
     ConformanceQuestion,
     ConformanceVerdict,
     EdgeResolutionRequest,
@@ -63,6 +62,7 @@ from archcompass.ports.atlas import (
     ReferenceQuestion,
     ResolvedReference,
 )
+from archcompass.analysis.scope import IGNORED_DIRECTORIES
 
 #: Bumped whenever the relaxed rule below decides differently. It is folded into the
 #: analysis config hash beside mypy's own version, because a change to either changes the

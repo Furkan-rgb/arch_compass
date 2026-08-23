@@ -59,14 +59,14 @@ from archcompass.analysis.atlas import (
     RepositoryContentIdentity,
     SourceLocation,
 )
-from archcompass.analysis.scope import CONFIG_SUFFIXES, IGNORED_DIRECTORIES, excludes
-from archcompass.domain.errors import PathValidationError
-from archcompass.ports.atlas import (
+from archcompass.analysis.ports import (
     ConformanceQuestion,
     EdgeResolutionRequest,
     EdgeResolver,
     ReferenceQuestion,
 )
+from archcompass.analysis.scope import CONFIG_SUFFIXES, IGNORED_DIRECTORIES, excludes
+from archcompass.domain.errors import PathValidationError
 from archcompass.records import canonical_json, stable_id
 
 # v4 records per-module facts (constants stated, repository modules named). An atlas built

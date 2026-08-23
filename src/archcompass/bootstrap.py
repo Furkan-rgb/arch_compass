@@ -26,6 +26,7 @@ from archcompass.analysis.analyzer import (
 from archcompass.analysis.delta import DeterministicRevisionCalculator
 from archcompass.analysis.freshness import AtlasFreshnessService
 from archcompass.analysis.investigation import AtlasInvestigatorSource
+from archcompass.analysis.ports import AtlasQueryService, AtlasSource, EdgeResolver
 from archcompass.analysis.queries import AtlasService
 from archcompass.configuration import (
     ReasoningModelConfig,
@@ -50,6 +51,10 @@ from archcompass.persistence import (
     SQLiteSourceOriginRepository,
 )
 from archcompass.persistence.context import SQLiteContextLoader
+from archcompass.persistence.ports import (
+    AtlasRepository,
+    LineageRepository,
+)
 from archcompass.policies.adapters import (
     MarkdownPolicySourceInspector,
     MarkdownPolicyStore,
@@ -64,12 +69,6 @@ from archcompass.policies.adapters.embeddings import (
 from archcompass.policies.corpus import DataclassPolicyCorpus
 from archcompass.policies.retrieval import RejudgeAllCandidates, corpus_fingerprint
 from archcompass.policies.service import PolicyService
-from archcompass.ports.atlas import AtlasQueryService, AtlasSource, EdgeResolver
-from archcompass.ports.model_catalog import ProviderDescriptor
-from archcompass.ports.persistence import (
-    AtlasRepository,
-    LineageRepository,
-)
 from archcompass.reasoning.adapters.deterministic import DETERMINISTIC_MODEL_IDENTITY
 from archcompass.reasoning.adapters.embedding_catalog import ProviderEmbeddingModelDiscovery
 from archcompass.reasoning.adapters.openai_compatible import (
@@ -95,6 +94,7 @@ from archcompass.reasoning.cache import (
 from archcompass.reasoning.conversation import CoreReviewConversationService
 from archcompass.reasoning.embedding_models import EmbeddingModelService
 from archcompass.reasoning.model_catalog import ModelCatalogService, reasoning_config
+from archcompass.reasoning.ports import ProviderDescriptor
 from archcompass.reasoning.records import (
     DETERMINISTIC_JUDGE_PROMPT_IDENTITY,
     JUDGE_PROMPT_IDENTITY,

@@ -47,10 +47,10 @@ from archcompass.analysis.atlas import (
     SourceExcerpt,
     SourceExcerptQuery,
 )
+from archcompass.analysis.ports import AtlasQueryService
 from archcompass.domain import RepositoryAtlas, RepositoryRef
 from archcompass.domain.errors import ArchCompassError
-from archcompass.ports.atlas import AtlasQueryService
-from archcompass.ports.investigation import (
+from archcompass.reasoning.ports import (
     OfferedInvestigator,
     RecordedLookup,
     ToolSpec,

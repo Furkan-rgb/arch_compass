@@ -33,7 +33,7 @@ import httpx
 
 from archcompass.configuration import resolve_api_key
 from archcompass.domain.errors import ConfigurationError
-from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
+from archcompass.reasoning.ports import ProviderDefaults, ProviderDescriptor
 from archcompass.reasoning.records import AvailableModel, ProbeResult
 
 #: How long a listing may take before the chooser gives up on it. The same two seconds the

@@ -14,7 +14,7 @@ from contextlib import suppress
 
 from archcompass.configuration import ReasoningModelConfig
 from archcompass.domain.errors import ConfigurationError, PersistenceError
-from archcompass.ports.model_catalog import (
+from archcompass.reasoning.ports import (
     ProviderDescriptor,
     ReasoningModelSelectionRepository,
 )

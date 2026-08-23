@@ -506,8 +506,8 @@ def test_a_workspace_that_has_been_refused_never_routes_to_a_batch_again(
     """
 
     from archcompass.configuration import ReasoningModelConfig
-    from archcompass.ports.batch_refusals import InMemoryBatchRefusals
     from archcompass.reasoning.adapters import selected as selected_module
+    from archcompass.reasoning.refusals import InMemoryBatchRefusals
 
     monkeypatch.setenv("GOOGLE_API_KEY", "a-refused-key")
 

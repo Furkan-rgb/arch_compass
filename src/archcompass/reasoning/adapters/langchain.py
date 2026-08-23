@@ -26,15 +26,15 @@ from archcompass.domain import (
 )
 from archcompass.domain.errors import ModelOutputValidationError
 from archcompass.ports.capabilities import ReviewSynopsis
-from archcompass.ports.investigation import InvestigatorSource
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
-from archcompass.ports.review_conversation import (
-    ConversationAnswer,
-    ConversationMessage,
-)
 from archcompass.reasoning.adapters.tool_loop import (
     investigate_with_tools,
     recorded_investigation,
+)
+from archcompass.reasoning.ports import (
+    ConversationAnswer,
+    ConversationMessage,
+    InvestigatorSource,
 )
 from archcompass.reasoning.records import JUDGE_PROMPT_IDENTITY
 from archcompass.retrying import call_with_retry

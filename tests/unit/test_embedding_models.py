@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
 from archcompass.reasoning.embedding_models import EmbeddingModelService
+from archcompass.reasoning.ports import ProviderDefaults, ProviderDescriptor
 from archcompass.reasoning.records import (
     EmbeddingModelCandidate,
     EmbeddingModelCatalog,

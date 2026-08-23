@@ -16,8 +16,8 @@ from archcompass.analysis.investigation import (
     AtlasInvestigator,
     AtlasInvestigatorSource,
 )
+from archcompass.analysis.ports import AtlasSource
 from archcompass.domain import RepositoryAtlas, RepositoryRef
-from archcompass.ports.atlas import AtlasSource
 
 
 class _NoScopes:

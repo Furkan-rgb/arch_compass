@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from archcompass.analysis.atlas import Atlas
+from archcompass.analysis.ports import RepositoryIdentityReader
 from archcompass.domain.errors import PathValidationError, StaleAtlasError
-from archcompass.ports.atlas import RepositoryIdentityReader
-from archcompass.ports.persistence import ScopeSelectionRepository
+from archcompass.persistence.ports import ScopeSelectionRepository
 
 
 class AtlasFreshnessService:

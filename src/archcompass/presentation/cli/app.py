@@ -31,7 +31,7 @@ from archcompass.policies.evaluation import (
     RetrievalExample,
     choose_smallest_passing_k,
 )
-from archcompass.ports.review_conversation import ReviewConversation
+from archcompass.reasoning.ports import ReviewConversation
 from archcompass.records import THINKING_LEVELS, ThinkingMode
 from archcompass.repositories.safety import (
     validate_repository_directory,

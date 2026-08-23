@@ -37,8 +37,8 @@ from archcompass.analysis.metrics import (
     metric_observation,
     profile_observations,
 )
+from archcompass.analysis.ports import AtlasFreshnessChecker, SourceReader
 from archcompass.domain.errors import AtlasQueryValidationError
-from archcompass.ports.atlas import AtlasFreshnessChecker, SourceReader
 
 
 class DeterministicAtlasQueryService:

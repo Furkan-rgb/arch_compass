@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from archcompass.ports.model_catalog import ProviderDefaults, ProviderDescriptor
 from archcompass.reasoning.adapters import embedding_catalog
 from archcompass.reasoning.adapters.embedding_catalog import ProviderEmbeddingModelDiscovery
+from archcompass.reasoning.ports import ProviderDefaults, ProviderDescriptor
 from archcompass.reasoning.records import ProbeResult
 
 

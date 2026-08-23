@@ -6,14 +6,13 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from archcompass.analysis.atlas import AtlasVersion
+from archcompass.analysis.ports import AtlasSource
 from archcompass.analysis.scope import validate_excluded_paths
-from archcompass.ports.atlas import AtlasSource
-from archcompass.ports.persistence import (
+from archcompass.persistence.ports import (
     AtlasRepository,
     LineageRepository,
     ScopeSelectionRepository,
 )
-from archcompass.ports.vcs import GitClient
 from archcompass.repositories.lineage import (
     DEFAULT_BRANCH_NAME,
     BranchLineage,
@@ -23,6 +22,7 @@ from archcompass.repositories.lineage import (
     resolve_branch_lineage,
     resolve_repository_lineage,
 )
+from archcompass.repositories.ports import GitClient
 from archcompass.repositories.records import RepositorySummary
 
 

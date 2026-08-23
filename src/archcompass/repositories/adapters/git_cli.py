@@ -16,7 +16,7 @@ import subprocess
 from pathlib import Path
 
 from archcompass.domain.errors import RepositoryCheckoutError
-from archcompass.ports.vcs import LocalRepository
+from archcompass.repositories.ports import LocalRepository
 
 #: How long a command that only reads this disk may take. Generous for a question answered
 #: from `.git`, and short enough that a wedged binary is a failure rather than a hang.

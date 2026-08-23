@@ -20,9 +20,9 @@ from archcompass.analysis.atlas import (
     SignalsQuery,
     SubsystemSummaryQuery,
 )
+from archcompass.analysis.ports import AtlasFreshnessChecker, AtlasQueryService
 from archcompass.domain.errors import AtlasNotFoundError
-from archcompass.ports.atlas import AtlasFreshnessChecker, AtlasQueryService
-from archcompass.ports.persistence import AtlasRepository
+from archcompass.persistence.ports import AtlasRepository
 
 
 class AtlasService:

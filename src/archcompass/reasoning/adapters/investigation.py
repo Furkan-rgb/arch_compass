@@ -21,7 +21,6 @@ from archcompass.domain import (
     Verdict,
 )
 from archcompass.ports.capabilities import InvestigatedFinding
-from archcompass.ports.investigation import InvestigatorSource, SourceInvestigator
 from archcompass.reasoning.adapters.langchain import (
     candidate_text,
     case_text,
@@ -31,6 +30,7 @@ from archcompass.reasoning.adapters.tool_loop import (
     investigate_with_tools,
     recorded_investigation,
 )
+from archcompass.reasoning.ports import InvestigatorSource, SourceInvestigator
 
 HINGE_CONTRACT = (
     "You judged this candidate and stopped, because your verdict turned on something the "

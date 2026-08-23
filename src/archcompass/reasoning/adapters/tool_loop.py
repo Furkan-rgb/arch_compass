@@ -58,7 +58,7 @@ from archcompass.domain import (
     RecordedInvestigation,
 )
 from archcompass.domain.errors import ProviderError
-from archcompass.ports.investigation import SourceInvestigator, ToolSpec
+from archcompass.reasoning.ports import SourceInvestigator, ToolSpec
 from archcompass.retrying import call_with_retry
 
 _log = logging.getLogger(__name__)

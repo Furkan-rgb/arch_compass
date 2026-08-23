@@ -38,14 +38,13 @@ from archcompass.domain import (
     Verdict,
 )
 from archcompass.ports.capabilities import InvestigatedFinding, ReviewSynopsis
-from archcompass.ports.investigation import InvestigatorSource
 from archcompass.ports.policy_retrieval import (
     PolicySelection,
     RetrievalProvenance,
     RetrievedPolicySet,
 )
-from archcompass.ports.review_conversation import ConversationAnswer, ConversationMessage
 from archcompass.reasoning.adapters.tool_loop import recorded_investigation
+from archcompass.reasoning.ports import ConversationAnswer, ConversationMessage, InvestigatorSource
 from archcompass.reasoning.records import DETERMINISTIC_JUDGE_PROMPT_IDENTITY
 
 #: The model name this chain reports itself as. One string, because it reaches a `Finding`,

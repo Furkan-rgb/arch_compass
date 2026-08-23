@@ -10,9 +10,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from archcompass.domain import RepositoryRef
+from archcompass.persistence.ports import CaseSnapshots, ReviewSnapshots
 from archcompass.persistence.sqlite.database import Transaction
 from archcompass.ports.capabilities import LoadedReviewContext
-from archcompass.ports.persistence import CaseSnapshots, ReviewSnapshots
 
 
 class SQLiteContextLoader:

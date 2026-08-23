@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from archcompass.persistence.sqlite.database import Transaction
-from archcompass.ports.batch_refusals import fingerprint_key
 from archcompass.reasoning.records import (
     EmbeddingModelSelection,
     ReasoningModelSelection,
 )
+from archcompass.reasoning.refusals import fingerprint_key
 from archcompass.records import THINKING_LEVELS, ThinkingMode, utc_now
 
 

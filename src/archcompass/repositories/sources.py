@@ -20,9 +20,9 @@ from contextlib import suppress
 from pathlib import Path
 
 from archcompass.domain.errors import PathValidationError
-from archcompass.ports.persistence import SourceOriginRepository
-from archcompass.ports.source_archive import SourceArchiveFetcher
+from archcompass.persistence.ports import SourceOriginRepository
 from archcompass.repositories.checkout import directory_name
+from archcompass.repositories.ports import SourceArchiveFetcher
 from archcompass.repositories.records import RepositoryCheckout, SourceOrigin
 from archcompass.repositories.storage import SourceStorage
 

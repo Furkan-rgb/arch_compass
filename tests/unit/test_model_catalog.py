@@ -5,14 +5,14 @@ from __future__ import annotations
 import pytest
 
 from archcompass.domain.errors import ConfigurationError
-from archcompass.ports.model_catalog import (
+from archcompass.reasoning.model_catalog import ModelCatalogService, reasoning_config
+from archcompass.reasoning.ports import (
     CONCURRENT_REQUESTS_VARIABLE,
     MAX_CONCURRENT_REQUESTS,
     ProviderDefaults,
     ProviderDescriptor,
     ReasoningModelProbe,
 )
-from archcompass.reasoning.model_catalog import ModelCatalogService, reasoning_config
 from archcompass.reasoning.records import (
     AvailableModel,
     ProbeResult,

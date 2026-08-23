@@ -14,7 +14,7 @@ from archcompass.domain import (
     PolicyStrength,
     RetrievalProvenance,
 )
-from archcompass.ports.dense_policy_index import DensePolicyIndex
+from archcompass.policies.ports import DensePolicyIndex
 from archcompass.ports.policy_retrieval import PolicySelection, RetrievedPolicySet
 
 DENSE_RETRIEVER_RELEASE_TOP_K = 20

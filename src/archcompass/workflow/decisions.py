@@ -12,7 +12,7 @@ from archcompass.domain import (
 )
 from archcompass.domain._support import new_id, utc_now
 from archcompass.domain.errors import ReviewNotFoundError
-from archcompass.ports.persistence import ReviewSnapshots
+from archcompass.persistence.ports import ReviewSnapshots
 
 
 class StandingDecisionStore(Protocol):

@@ -18,13 +18,13 @@ from archcompass.domain import (
 )
 from archcompass.domain._support import stable_id, utc_now
 from archcompass.domain.errors import NothingToReviewError
+from archcompass.persistence.ports import CaseSnapshots
 from archcompass.ports.capabilities import (
     CandidateSelection,
     InvestigatedFinding,
     ReviewDraft,
     ReviewSynopsis,
 )
-from archcompass.ports.persistence import CaseSnapshots
 from archcompass.workflow.report import compose_markdown_report
 
 

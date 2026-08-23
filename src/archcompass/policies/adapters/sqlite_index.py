@@ -15,7 +15,7 @@ from langchain_core.embeddings import Embeddings
 
 from archcompass.domain import Policy
 from archcompass.domain.errors import PolicyEmbeddingsMissingError
-from archcompass.ports.dense_policy_index import (
+from archcompass.policies.ports import (
     BatchDocumentEmbeddings,
     DensePolicyMatch,
 )

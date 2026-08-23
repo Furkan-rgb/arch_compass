@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from archcompass.configuration import EmbeddingModelConfig
 from archcompass.domain.errors import ConfigurationError
-from archcompass.ports.model_catalog import (
+from archcompass.reasoning.ports import (
     EmbeddingModelDiscovery,
     EmbeddingModelSelectionRepository,
     ProviderDescriptor,

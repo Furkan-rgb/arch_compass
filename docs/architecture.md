@@ -29,10 +29,13 @@ The tree is organised by product concept, not by technical layer. Opening
 | `persistence/` | durable workspace state, in SQLite |
 | `repositories/` | getting a repository onto the machine and indexing it |
 | `presentation/` | the HTTP API and the CLI |
-| `ports/` | the narrow protocols that keep the arrows pointing inward |
+| `ports/` | the two seams the review graph itself is sequenced out of |
 
 Each feature keeps its concrete infrastructure in its own `adapters/` subpackage, and
-nothing above that subpackage imports it.
+nothing above that subpackage imports it. What a feature asks the outside world for is
+its own `ports.py`, beside the code that asks — `analysis/ports.py`, `policies/ports.py`,
+`reasoning/ports.py`, `repositories/ports.py`, `persistence/ports.py`. Top-level `ports/`
+holds only what the graph is built from, and is typed in domain terms alone.
 
 The governing rule is:
 

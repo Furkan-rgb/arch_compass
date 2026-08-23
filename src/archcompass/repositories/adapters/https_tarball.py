@@ -32,7 +32,7 @@ from pathlib import Path
 import httpx
 
 from archcompass.domain.errors import RepositoryCheckoutError
-from archcompass.ports.source_archive import FetchedSource
+from archcompass.repositories.ports import FetchedSource
 
 #: How each host is asked for a tarball of one ref. Hosts are values in a table rather than a
 #: pattern with a wildcard, and this is load-bearing: the moment a suffix match like

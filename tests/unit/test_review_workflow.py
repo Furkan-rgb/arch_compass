@@ -34,6 +34,7 @@ from archcompass.domain._support import new_id, utc_now
 from archcompass.domain.errors import ProviderError
 from archcompass.persistence.executions import SQLiteReviewExecutionRepository
 from archcompass.persistence.reviews import SQLiteCoreReviewRepository
+from archcompass.policies.ports import DensePolicyMatch
 from archcompass.policies.retrieval import DensePolicyRetriever, RejudgeAllCandidates
 from archcompass.ports.capabilities import (
     CandidateSelection,
@@ -43,7 +44,6 @@ from archcompass.ports.capabilities import (
     ReviewDraft,
     ReviewSynopsis,
 )
-from archcompass.ports.dense_policy_index import DensePolicyMatch
 from archcompass.workflow import ReviewWorkflowCapabilities, build_review_graph
 from archcompass.workflow.defaults import DeterministicReviewComposer, NoHingeInvestigation
 from archcompass.workflow.service import ReviewWorkflowService

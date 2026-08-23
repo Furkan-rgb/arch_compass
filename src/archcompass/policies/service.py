@@ -15,6 +15,11 @@ from archcompass.domain.errors import (
     PolicyFormatError,
     PolicyNotFoundError,
 )
+from archcompass.policies.ports import (
+    PolicySourceInspector,
+    PolicySourceRepository,
+    PolicyStore,
+)
 from archcompass.policies.records import (
     PolicyDocument,
     PolicyDraft,
@@ -22,11 +27,6 @@ from archcompass.policies.records import (
     PolicyScope,
     PolicySourceRegistration,
     policy_slug,
-)
-from archcompass.ports.policies import (
-    PolicySourceInspector,
-    PolicySourceRepository,
-    PolicyStore,
 )
 
 

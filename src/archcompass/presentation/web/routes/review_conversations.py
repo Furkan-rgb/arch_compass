@@ -7,13 +7,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Response
 from pydantic import Field
 
-from archcompass.ports.review_conversation import ReviewConversation
 from archcompass.presentation.web.dependencies import RuntimeDep, SpendsModelBudget
 from archcompass.presentation.web.routes.reviews import (
     RecordedInvestigationResponse,
     investigation_response,
 )
 from archcompass.presentation.web.schemas import APIModel, problem_responses
+from archcompass.reasoning.ports import ReviewConversation
 
 
 class ReviewConversationCreateRequest(APIModel):

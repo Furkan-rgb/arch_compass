@@ -20,6 +20,7 @@ from archcompass.analysis.atlas import (
     ObscuritySignal,
 )
 from archcompass.analysis.detectors import detect_finding_candidates
+from archcompass.analysis.ports import AtlasSource
 from archcompass.domain import (
     Candidate,
     Evidence,
@@ -31,8 +32,7 @@ from archcompass.domain import (
     RepositoryRef,
     SourceLocation,
 )
-from archcompass.ports.atlas import AtlasSource
-from archcompass.ports.persistence import ScopeSelectionRepository
+from archcompass.persistence.ports import ScopeSelectionRepository
 
 
 def _documents(values: Sequence[BaseModel]) -> tuple[str, ...]:

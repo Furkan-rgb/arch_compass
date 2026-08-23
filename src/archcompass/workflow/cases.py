@@ -9,7 +9,7 @@ from archcompass.domain import (
     PolicyContext,
 )
 from archcompass.domain.errors import CaseNotFoundError
-from archcompass.ports.persistence import (
+from archcompass.persistence.ports import (
     CaseSnapshots,
     LineageRepository,
     ReviewSnapshots,

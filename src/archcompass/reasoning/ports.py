@@ -1,19 +1,44 @@
-"""The boundaries around choosing a reasoning model: probing, storing, resolving.
+"""What reasoning asks the outside world for: a model, a repository, a reader.
 
-None of these are `runtime_checkable`, and none of them carry the `_conforms` line the
-streaming protocols do. That idiom exists for protocols reached by `isinstance`, which
-compares method names alone. Everything here is passed by name into a typed parameter, so
-the signature is already checked at each call site.
-"""
+Three boundaries, in the order a review meets them.
+
+**Choosing a model** — `ProviderDescriptor` and the selection repositories. What a provider
+offers, what it defaults to, and which one this workspace picked. None of these are
+`runtime_checkable` and none carry the `_conforms` line the streaming protocols do: that
+idiom is for protocols reached by `isinstance`, which compares method names alone, and
+everything here is passed by name into a typed parameter.
+
+**Looking things up** — `SourceInvestigator` and `InvestigatorSource`. The one boundary in
+the codebase where the model chooses what to look at, and it exists because of a failure
+that has no other cure. A judgement sees pinned excerpts and nothing else, so when its
+verdict turns on a fact those excerpts do not carry it emits a hinge — and a hinge stops the
+review to ask a person. Many of them are questions for the repository: how a symbol is used,
+whether anything implements a port, whether a seam has tests. The judgement contract already
+forbids asking a person one of those, while giving the judgement no way to find out.
+
+The split that lookup lives under is deliberate and narrow. Verdict evidence stays
+application-chosen: the detector picks the spans, the application reads them, and nothing a
+model asks for is pinned as evidence. What is allowed is *investigation* — finding out,
+before interrupting somebody, whether the interruption is warranted — and it is allowed only
+because every lookup is recorded. A finding nobody can trace back to a call is the
+unverifiable evidence the charter refuses; a transcript of exactly what was asked and
+exactly what came back is not. It is surface-agnostic on purpose: a hinge investigation and
+a reader asking "where else is this used?" have the same problem, and a second toolbox for
+the second one would have been a second set of bounds to get wrong.
+
+**Answering a reader** — `ReviewConversation` and the store behind it, for the chat held
+against a review that has already been written."""
 
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Final, Protocol
 
 from archcompass.configuration import ReasoningModelConfig
+from archcompass.domain import RecordedInvestigation, RepositoryAtlas, RepositoryRef, Review
 from archcompass.domain.errors import ConfigurationError
 from archcompass.reasoning.records import (
     EmbeddingModelCatalog,
@@ -204,3 +229,162 @@ class SelectedReasoningModel(Protocol):
     def record_failure(self, detail: str) -> None:
         """Note that a call against the current selection failed, and why."""
         ...
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    """One tool as a model is offered it: what it is called, what it does, what it takes.
+
+    `parameters` is JSON Schema for the arguments object, and it is carried as plain data
+    rather than as a Pydantic model for the same reason a response schema is: a transport
+    hands it to a vendor that wants JSON Schema, and a shape assembled above the transport
+    boundary must not need translating on the way down.
+    """
+
+    name: str
+    description: str
+    parameters: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class RecordedLookup:
+    """One call and its answer, kept whether or not the answer was any use.
+
+    The failures matter most. A pass that asked four times and was refused four times kept
+    its hinge from nothing, and without the refused calls the record would show an
+    investigation that never happened as one that found nothing to say.
+    """
+
+    tool: str
+    arguments: Mapping[str, object]
+    result: str
+
+
+class SourceInvestigator(Protocol):
+    """A repository, as a small set of read-only questions a pass may put to it."""
+
+    @property
+    def tools(self) -> Sequence[ToolSpec]:
+        """Everything this investigator can be asked, in the order a model is shown them."""
+        ...
+
+    def call(self, name: str, arguments: Mapping[str, object]) -> str:
+        """Run one lookup and return what it found, as text the model reads.
+
+        **This never raises.** An unknown tool, an argument of the wrong type, a node id
+        that does not exist, a repository that has moved — each comes back as a sentence
+        saying so. That is not leniency: the alternative is a review that fails because a
+        model guessed at an identifier, and a hinge that had to be kept is a far better
+        outcome than a run that produced nothing at all.
+
+        Every call is appended to `transcript` before this returns, including the ones that
+        answered nothing.
+        """
+        ...
+
+    @property
+    def transcript(self) -> Sequence[RecordedLookup]:
+        """Every call made through this investigator, in the order they were made."""
+        ...
+
+    def conclude(self, closing: str, abandoned: str) -> None:
+        """Close the record: what the pass made of its lookups, and why the looking ended.
+
+        Called once, by the loop that drove the investigation, on every way out of it. The
+        two halves have different authors and neither can be recovered from the transcript:
+        `closing` is the model's own prose about which findings mattered, and `abandoned` is
+        the loop's account of why it stopped short — a failed turn, a size ceiling reached.
+        Either may be empty, and both being empty is the ordinary end of an investigation
+        that simply had nothing left to check.
+
+        Here rather than returned to the caller because the transcript is here. A record
+        assembled from a return value and a property read separately is one a later exit
+        path can leave half-written, and the half that would go missing is the reason the
+        looking ended.
+        """
+        ...
+
+    @property
+    def closing(self) -> str:
+        """What the pass said it made of its findings, or "" until it has said anything."""
+        ...
+
+    @property
+    def abandoned(self) -> str:
+        """Why the looking stopped short, or "" where it ran to its own end."""
+        ...
+
+
+@dataclass(frozen=True)
+class OfferedInvestigator:
+    """A toolbox, or the application's own sentence about why there is none.
+
+    One value rather than two reads, because the two facts are produced together and must
+    not be readable apart: a caller that found `investigator is None` and never looked for
+    the reason would report an investigation that found nothing, when what happened is that
+    nothing could look. That sentence is shown to a reader verbatim, so it names the way
+    back — re-index this repository — rather than describing a fault.
+    """
+
+    investigator: SourceInvestigator | None = None
+    withheld: str = ""
+
+
+class InvestigatorSource(Protocol):
+    """Where a toolbox over one review's own atlas comes from."""
+
+    def for_review(
+        self, repository: RepositoryRef, atlas: RepositoryAtlas
+    ) -> OfferedInvestigator:
+        """A toolbox answering about exactly the atlas this review judged.
+
+        The atlas is passed in rather than looked up. A review analyses a repository into an
+        atlas it never persists, so a toolbox that fetched the latest *indexed* atlas would
+        answer about a different snapshot than the verdicts were reached against — which is
+        the one failure the recording exists to make impossible.
+        """
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationAnswer:
+    text: str
+    supporting_candidate_ids: tuple[str, ...] = ()
+    #: What the answer looked up in the repository before it was written, where anything
+    #: was. Carried inline rather than by identity, unlike a finding's: a conversation
+    #: holds a handful of messages that are read together, not a docket of forty rows
+    #: that are scanned.
+    investigation: RecordedInvestigation | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationMessage:
+    question: str
+    answer: ConversationAnswer
+    asked_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewConversation:
+    id: str
+    review_id: str
+    messages: tuple[ConversationMessage, ...] = ()
+
+
+class ConversationStore(Protocol):
+    def record(self, conversation: ReviewConversation) -> ReviewConversation: ...
+
+    def get(self, conversation_id: str) -> ReviewConversation: ...
+
+    def list_for_review(self, review_id: str) -> tuple[ReviewConversation, ...]: ...
+
+    def delete(self, conversation_id: str) -> None: ...
+
+
+class ReviewAnswerer(Protocol):
+    def answer(
+        self,
+        review: Review,
+        history: tuple[ConversationMessage, ...],
+        question: str,
+    ) -> ConversationAnswer: ...
