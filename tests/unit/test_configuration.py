@@ -139,29 +139,6 @@ def test_api_key_resolution_names_the_variable_and_the_file(
         resolve_api_key(None, provider="google")
 
 
-def test_provider_environment_is_found_from_the_working_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A workspace is often not the directory the command was run from.
-
-    `--workspace` points elsewhere, and under test it is a temporary directory, so
-    reading only the workspace left a correctly configured project unable to find its
-    own key.
-    """
-
-    monkeypatch.delenv("ARCHCOMPASS_TEST_CWD_KEY", raising=False)
-    project = tmp_path / "project"
-    project.mkdir()
-    (project / ".env").write_text("ARCHCOMPASS_TEST_CWD_KEY=from-cwd\n", encoding="utf-8")
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    monkeypatch.chdir(project)
-
-    load_provider_environment(workspace)
-
-    assert os.environ["ARCHCOMPASS_TEST_CWD_KEY"] == "from-cwd"
-
-
 def test_the_workspace_environment_file_wins_over_the_working_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -186,6 +163,9 @@ def test_a_working_directory_env_file_supplies_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A key travels with whoever runs the command, so the file beside them is read too.
+
+    `--workspace` points elsewhere, and under test it is a temporary directory, so reading
+    only the workspace left a correctly configured project unable to find its own key.
 
     Nothing else travels that way any more. The variable a working directory was once
     forbidden to supply named which model configuration to run against, and a repository

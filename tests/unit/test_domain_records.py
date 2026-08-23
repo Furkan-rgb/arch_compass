@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import pytest
@@ -122,24 +121,6 @@ def test_skipped_answer_carries_no_invented_value() -> None:
     assert skipped.value is None
     with pytest.raises(ValueError, match="cannot have a value"):
         Answer(question, AnswerStatus.SKIPPED, "unknown", "reader", utc_now())
-
-
-def test_domain_has_no_infrastructure_imports() -> None:
-    root = Path(__file__).parents[2] / "src" / "archcompass" / "domain"
-    forbidden = {"pydantic", "langchain", "langgraph", "fastapi", "google", "ollama"}
-    for source in root.glob("*.py"):
-        tree = ast.parse(source.read_text(encoding="utf-8"))
-        imported = {
-            node.module.split(".", 1)[0]
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom) and node.module
-        } | {
-            alias.name.split(".", 1)[0]
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Import)
-            for alias in node.names
-        }
-        assert imported.isdisjoint(forbidden), source
 
 
 def test_finding_with_hinge_cannot_recommend_a_response() -> None:

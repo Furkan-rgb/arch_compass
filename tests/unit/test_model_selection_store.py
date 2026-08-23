@@ -58,10 +58,16 @@ def test_every_thinking_mode_survives_the_round_trip(
 def test_a_switch_written_by_an_older_build_still_reads_as_a_switch(
     connect: Callable[[], sqlite3.Connection],
 ) -> None:
-    """The column holds 1 and 0 from every workspace that predates thinking levels."""
+    """The column holds 1 and 0 from every workspace that predates thinking levels.
+
+    Written as a level first, then overwritten with the integer an older build stored. It
+    used to write `True` and then update the column to 1, which is what `True` already
+    serialises to — so the line standing in for the older workspace changed nothing, and the
+    test passed on a build that could not read the old shape at all.
+    """
 
     repository = SQLiteCoreModelSelectionRepository(connect)
-    repository.set(_selection(True))
+    repository.set(_selection("high"))
     with connect() as connection:
         connection.execute("UPDATE core_reasoning_model_choice SET thinking = 1")
 

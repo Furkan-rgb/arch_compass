@@ -83,6 +83,8 @@ def test_domain_imports_only_the_standard_library_and_itself() -> None:
         "langchain",
         "langgraph",
         "fastapi",
+        "google",
+        "ollama",
         "sqlite3",
         "httpx",
         "typer",
