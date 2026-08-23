@@ -83,6 +83,12 @@ export function PathRef({
           // phone, and a reference that widens its own column is worse than an elided one.
           "block min-w-0 max-w-full truncate text-left font-mono text-[11px] font-medium text-ink",
           "underline decoration-rule-strong underline-offset-2 transition hover:decoration-ink",
+          // 11px type on a 16px line is a 16px-tall thing to hit with a thumb, and this is a
+          // real control — it copies. The padding makes the touch box 44px; the matching
+          // negative margin takes those 28px straight back out of the layout, so nothing on
+          // the page moves. Every row this sits in aligns on the baseline, which padding
+          // does not shift, so the visual result is identical to the 16px version.
+          "-my-3.5 py-3.5",
         )}
       >
         {path}

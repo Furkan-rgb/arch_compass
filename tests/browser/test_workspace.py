@@ -182,6 +182,31 @@ def test_answering_a_clarification_completes_the_revision(page, review_url: str)
     assert page.get_by_text("One immutable revision").count() == 1
 
 
+#: The nine `##` sections the workspace parser requires, in the editor's own order, each
+#: with prose of its own rather than the prompt the form prints beside it. Bold and a bullet
+#: sit under Guidance so the preview has real Markdown to render.
+_POLICY_SECTIONS = (
+    ("Intent", "Keep the decision about *what to do* out of the code that talks to a vendor."),
+    (
+        "Guidance",
+        "An adapter **translates** between a vendor's shape and ours, and nothing more.\n\n"
+        "- No branching in an adapter on anything the domain could decide\n"
+        "- No default that is really a policy",
+    ),
+    ("Signals", "A vendor client with an `if` on a domain enum in it."),
+    ("Diagnostic questions", "Would this branch survive swapping the vendor out?"),
+    ("Likely consequences", "The rule is discovered twice and the two copies disagree."),
+    ("Exceptions", "A retry policy the vendor's own SDK owns is theirs, not ours."),
+    ("Positive example", "`git_cli.py` shells out and returns records; `service.py` decides."),
+    ("Counterexample", "An HTTP client that decides which repositories are allowed."),
+    ("Related policies", "The one about ports being stated in domain terms."),
+)
+
+
+def _authored_policy_body() -> str:
+    return "\n\n".join(f"## {name}\n\n{prose}" for name, prose in _POLICY_SECTIONS) + "\n"
+
+
 def test_policies_render_as_markdown_and_navigation_survives_a_phone(  # type: ignore[no-untyped-def]
     page, workspace_url: str
 ) -> None:
@@ -191,20 +216,24 @@ def test_policies_render_as_markdown_and_navigation_survives_a_phone(  # type: i
     page.get_by_label("Title").fill("Adapters translate, they do not decide")
     page.get_by_label("Description").fill("Keep decisions in the domain.")
 
-    # The form opens on the scaffold the workspace parser requires, so a policy authored here
-    # is one the next review can actually read. Appending a section keeps that true.
+    # The form opens on the scaffold the workspace parser requires — nine empty `##` headings
+    # — and will not save until each one has prose that is not the prompt beside it. This
+    # test used to append a tenth section and press the button, which stopped working the
+    # day the scaffold stopped writing its own prompts into the draft (`sections.ts:64-79`),
+    # and had been reported as a click on a disabled control ever since. Writing all nine is
+    # what an author does, so it is what this does.
     body = page.get_by_label("Policy body")
-    body.fill(f"{body.input_value()}\n## Rule\n\nAdapters **translate**.\n\n- No branching\n")
+    body.fill(_authored_policy_body())
     page.get_by_role("tab", name="Preview").click()
-    assert _visible(page.get_by_role("heading", name="Rule"))
-    assert _visible(page.get_by_text("No branching"))
+    assert _visible(page.get_by_role("heading", name="Guidance"))
+    assert _visible(page.get_by_text("No branching in an adapter"))
     page.get_by_role("button", name="Create policy").click()
 
     # It is a real policy the next review reads, and its body renders as a document.
     card = page.get_by_role("button", name="Adapters translate, they do not decide")
     card.first.wait_for(timeout=30_000)
     card.first.click()
-    assert _visible(page.get_by_role("heading", name="Rule"))
+    assert _visible(page.get_by_role("heading", name="Guidance"))
 
     page.set_viewport_size({"width": 390, "height": 844})
     page.get_by_role("button", name="Open navigation").click()
