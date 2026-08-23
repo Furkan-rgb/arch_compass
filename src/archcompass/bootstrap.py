@@ -70,6 +70,7 @@ from archcompass.ports.persistence import (
     AtlasRepository,
     LineageRepository,
 )
+from archcompass.reasoning.adapters.deterministic import DETERMINISTIC_MODEL_IDENTITY
 from archcompass.reasoning.adapters.embedding_catalog import ProviderEmbeddingModelDiscovery
 from archcompass.reasoning.adapters.openai_compatible import (
     descriptors as openai_compatible_descriptors,
@@ -476,7 +477,7 @@ def build_runtime(
         if selected is None:
             return ""
         if selected.provider == "fake":
-            return f"fake:{selected.model}"
+            return DETERMINISTIC_MODEL_IDENTITY
         return model_identity(selected)
 
     def selected_prompt_identity() -> str:
