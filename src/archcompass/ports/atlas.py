@@ -29,7 +29,7 @@ class AtlasSource(Protocol):
     def analyze(self, root: Path, *, excluded_paths: tuple[str, ...] = ()) -> Atlas:
         """The atlas of this repository, less the subtrees named in `excluded_paths`.
 
-        Relative POSIX directory paths, already validated by `domain.scope`: an analyzer
+        Relative POSIX directory paths, already validated by `analysis.scope`: an analyzer
         applies a scope and does not decide what a legal one is. Empty — the default — is
         the whole repository, and analyses exactly what it did before scopes existed.
         """

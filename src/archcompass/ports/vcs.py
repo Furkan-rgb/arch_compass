@@ -27,7 +27,7 @@ class LocalRepository:
     top_level: Path | None
     bare: bool
     #: The branch the working tree is on, or `None` for a detached HEAD or a bare repository
-    #: — the same absence `domain.lineage` already knows how to attribute a run despite.
+    #: — the same absence `repositories.lineage` already knows how to attribute a run despite.
     branch_name: str | None
 
 

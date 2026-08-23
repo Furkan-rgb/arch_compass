@@ -1,3 +1,8 @@
+> **Half superseded.** Sections 1–12 describe a two-pane sidebar interface that was
+> replaced; they are kept for the reasoning, not as a plan. Sections 13 onward describe
+> current backend behaviour and are still read. Where this file and the code disagree, the
+> code is right — the retry schedule quoted here is one place they do.
+
 # Frontend rebuild plan
 
 Derived from `docs/todo-frontend.md` (the master brief) and `docs/frontend-mockup.md` (UX

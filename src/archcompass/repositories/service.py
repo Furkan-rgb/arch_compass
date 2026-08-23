@@ -54,7 +54,7 @@ class RepositoryIndexService:
         `branch_name` names the branch this checkout is on where the checkout cannot say so
         itself, which is the ordinary CI case: a detached HEAD knows its commit and not the
         branch it was reached from. Left out, the working tree is believed, and a tree with
-        no opinion falls back to the default branch name — see `domain.lineage`.
+        no opinion falls back to the default branch name — see `repositories.lineage`.
 
         `excluded_paths` names the folders this analysis is to leave out, relative to the
         root. Left out entirely — which is what every caller that has never heard of scopes

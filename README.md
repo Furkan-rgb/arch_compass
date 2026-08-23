@@ -73,6 +73,12 @@ Each graph node invokes one application capability. Sequencing, branching, fan-o
 interruption, and termination remain visible in the graph. Candidate retrieval and
 judgement fan out through LangGraph rather than through a hidden application thread pool.
 
+Where a provider will answer for every candidate in one submission, they do not fan out at
+all: `review_candidates` submits the whole selection together, and the choice between the
+two is made at dispatch because which model is selected can change while the workspace is
+running. Google is the provider that can, `ARCHCOMPASS_GOOGLE_BATCH=0` turns it off, and a
+hosted deployment runs it on.
+
 The initial correctness strategy rejudges every extant candidate after a case revision. It
 is a replaceable `RejudgementSelector`, not a permanent domain rule.
 
@@ -283,7 +289,9 @@ make check
 ```
 
 This checks generated API types, builds and type-checks the frontend, runs Ruff and Pyright,
-and executes the offline pytest suite. Live provider and browser checks are separate:
+executes the offline pytest suite, and verifies the shipped policy index still covers the
+corpus beside it — the one failure that is invisible until somebody times a review on a
+deployment that depends on it. Live provider and browser checks are separate:
 
 ```bash
 make test-google
@@ -317,6 +325,7 @@ a test of their own.
 ## Documentation
 
 - [Charter](docs/charter.md) — what ArchCompass is for, and the rules that settle a design argument
+- [Known defects](docs/known-defects.md) — what is understood to be broken, and the evidence for it
 - [Current review flow](docs/current-flow.md)
 - [Architecture](docs/architecture.md)
 - [Domain model](docs/domain-model.md)

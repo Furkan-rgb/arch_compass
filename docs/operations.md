@@ -55,6 +55,12 @@ separately either, so judging there is the concurrent loop rather than the batch
 by the provider's own `concurrent_requests` and overridable with
 `ARCHCOMPASS_MODEL_CONCURRENT_REQUESTS`.
 
+`ARCHCOMPASS_GOOGLE_BATCH=0` stops Google being asked for every candidate in one
+submission and judges them one at a time instead. On by default, and it is the path a
+hosted deployment takes: a batch is metered once rather than per candidate, at the cost of
+taking as long as its slowest verdict. Turning it off is what to reach for when a batch is
+refused often enough to be the slower route.
+
 `ARCHCOMPASS_HINGE_INVESTIGATION=0` turns off the read-only lookups a hinged finding gets
 before its question is put to a person. Every held finding otherwise costs up to six tool
 turns and a structured call, which is a rounding error on a hosted tier and minutes on one
@@ -88,6 +94,12 @@ Use `uv run archcompass --help` for the authoritative command surface.
 ```bash
 make check
 ```
+
+Generated API types, the frontend build and its checks, Ruff, Pyright, the offline pytest
+suite, and `policy-index-check` — which verifies the shipped policy index still covers the
+corpus beside it. That last one is offline and cheap, and it is in `check` because a stale
+index announces itself nowhere until somebody times a review on the deployment that depends
+on it.
 
 This builds the frontend, checks generated OpenAPI types, runs Ruff and Pyright, executes the
 offline pytest suite, and checks the frontend. Optional live-provider and browser suites are

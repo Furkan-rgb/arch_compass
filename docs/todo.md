@@ -1,3 +1,9 @@
+> **Superseded.** This is the brief for the clean-break refactor, kept as a record of what
+> was decided and why. It is not a plan: the work is done, several files it proposes were
+> never created, and the `adapters/`, `application/` and `boundary/` packages it names are
+> now ones `tests/unit/test_boundaries.py` fails the build over. Read
+> [architecture.md](architecture.md) for the tree as it is.
+
 Refactor the ArchCompass package structure to be feature-oriented / package-by-feature while preserving the current clean dependency boundaries and behavior.
 
 Goal:

@@ -1,3 +1,8 @@
+> **Superseded.** A completed design brief, written in the imperative and kept for its
+> reasoning rather than its instructions. The workbench it describes has shipped; read
+> [experience.md](experience.md) and [frontend-regions.md](frontend-regions.md) for what
+> is actually on screen.
+
 Refactor the ArchCompass frontend into a premium, modern, product-led experience for software engineers and architecture teams, with the goal of making the product feel trustworthy, technically serious, easy to understand, and pleasant to use during repository architecture reviews.
 
 Do not begin from the existing UI or supplied mockup as a visual template. Begin from the product's user journeys and information hierarchy, then design the interface that best supports them.

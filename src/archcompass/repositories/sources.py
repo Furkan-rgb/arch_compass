@@ -7,7 +7,7 @@ same repository reviewed on two machines groups together. This one gives that up
 It is for a deployment where the identity was never going to survive anyway — an ephemeral
 per-visitor workspace that is gone when the container is — and where what a clone drags in
 with it is the problem rather than the price. What is left without git is a directory of
-files, which is all the atlas was ever built from, and `domain.lineage` already treats a
+files, which is all the atlas was ever built from, and `repositories.lineage` already treats a
 repository outside version control as an ordinary thing to be asked about rather than a
 degraded one.
 """

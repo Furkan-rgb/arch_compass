@@ -1,3 +1,7 @@
+> **Superseded.** An early mockup, including an indigo palette that was rejected. The
+> shipped system is [design-system.md](design-system.md); this is kept only for the
+> alternatives it rules out.
+
 REFERENCE MOCKUP
 
 An HTML mockup is attached as optional UX inspiration.

@@ -11,7 +11,7 @@ START
   -> calculate_delta
   -> select_initial_candidates
   -> load_policy_corpus
-  -> [retrieve_policy_set -> judge_candidate] x candidate
+  -> [retrieve_policy_set -> judge_candidate] x candidate   (or review_candidates, batched)
   -> investigate_hinges
   -> generate_questions
        | settled / CI / limit / early stop

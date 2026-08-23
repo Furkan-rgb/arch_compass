@@ -381,7 +381,7 @@ class PythonAstRepositoryAnalyzer:
     def analyze(self, root: Path, *, excluded_paths: tuple[str, ...] = ()) -> Atlas:
         """The atlas of this repository, less whatever subtrees the caller asked to leave out.
 
-        `excluded_paths` arrives already validated (see `domain.scope`) and relative to the
+        `excluded_paths` arrives already validated (see `analysis.scope`) and relative to the
         root. It is deliberately not part of the analysis configuration hash: the files it
         leaves out never reach the digest, so the content fingerprint already says that this
         is an atlas of a different set of files. Hashing it as well would say the same thing
@@ -768,7 +768,7 @@ class PythonAstRepositoryAnalyzer:
         inherit that repository's identity: reported, the enclosing root commit would make
         every project under one checkout the same repository, so their reviews would group
         together and one project's baseline would stand over another's boundaries (see
-        `domain.lineage.derive_repo_id`). Such a root is treated exactly like a folder outside
+        `repositories.lineage.derive_repo_id`). Such a root is treated exactly like a folder outside
         git, which is what it is as far as identity goes.
 
         `commit_sha` is the exception and stays what it always was, including the `git log -1`

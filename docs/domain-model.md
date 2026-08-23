@@ -16,13 +16,18 @@ Policy -----------------------+
                               v
                            Finding
                               |
-                       StandingDecision
-                              |
                               v
-                            Review
-                              |
-                         ReviewDelta
+                            Review                  StandingDecision
+                              |                            ^
+                         ReviewDelta                       |
+                                                    (branch + candidate)
 ```
+
+`StandingDecision` hangs off to the side on purpose. It is not a stage a finding passes
+through: a review carries findings and has no decisions field at all, and a decision is
+filed under the branch and the candidate rather than under the review that happened to
+raise it. That is what lets a decision outlive the finding it answered — and what stops
+a team's disposition from becoming an input to the next judgement.
 
 ## Primary concepts
 
@@ -57,7 +62,8 @@ Policy -----------------------+
   editing, and an identity that moved with them could not anchor a standing decision or a
   line across revisions.
 - `Finding` contains the verdict, reasoning, pinned evidence, policy bearings, uncertainty,
-  recommendation, reuse provenance, and model/prompt/retrieval identities.
+  recommendation, reuse provenance, model/prompt/retrieval identities, and the identity of
+  the investigation that checked its hinge against the repository, where one ran.
 - `StandingDecision` records accept, waive, or park independently from the finding. Waivers
   require reasoning and every decision pins the finding context it answered.
 - `Review` is an immutable snapshot linking repository, atlas, case, findings, questions,

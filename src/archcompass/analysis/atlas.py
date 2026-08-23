@@ -303,7 +303,7 @@ class FindingCandidate(BoundaryDTO):
 class AtlasVersion(BoundaryDTO):
     schema_version: int = Field(default=2, ge=1, le=2)
     version_id: str = Field(default_factory=lambda: new_id("atlas"))
-    #: Where this checkout is, hashed. A location, not an identity: see `domain.lineage`.
+    #: Where this checkout is, hashed. A location, not an identity: see `repositories.lineage`.
     repository_identity: str
     root_path: str
     git_commit_sha: str | None = None

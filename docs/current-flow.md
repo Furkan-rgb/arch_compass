@@ -19,8 +19,17 @@ detectors; `calculate_delta` partitions candidates against history; and
 
 ## Retrieve, judge, and clarify
 
-`load_policy_corpus` obtains applicable authored policies. LangGraph fans out one visible
-candidate subgraph per selected candidate:
+`load_policy_corpus` obtains applicable authored policies. What happens next is one of two
+paths, chosen at dispatch rather than when the graph was built, because which model is
+selected can change while the workspace is running.
+
+Where the provider can be asked for every verdict in one submission — today that is Google,
+with `ARCHCOMPASS_GOOGLE_BATCH` on by default, which is what a hosted deployment runs —
+`review_candidates` retrieves for every selected candidate and submits them together. A
+fan-out cannot batch: every branch would have to wait for every other, which is a deadlock
+wearing a barrier's clothes.
+
+Otherwise LangGraph fans out one visible candidate subgraph per selected candidate:
 
 ```text
 retrieve_policy_set -> judge_candidate

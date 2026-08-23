@@ -13,7 +13,7 @@ none of that, and none of it can be present in a directory that was written by e
 archive.
 
 What is lost is the history, and with it the first commit a durable `repo_id` is derived
-from. `domain.lineage` already treats that as an ordinary absence and falls back to the
+from. `repositories.lineage` already treats that as an ordinary absence and falls back to the
 path, which is what every bundled example does today.
 """
 
