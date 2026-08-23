@@ -20,7 +20,7 @@ from datetime import datetime
 
 from pydantic import Field
 
-from archcompass.domain.repository import derive_branch_id
+from archcompass.domain.repository import DEFAULT_BRANCH_NAME, derive_branch_id
 from archcompass.records import BoundaryDTO, stable_id, utc_now
 
 #: The branch a run is attributed to when git will not name one. A detached HEAD is the
@@ -29,7 +29,6 @@ from archcompass.records import BoundaryDTO, stable_id, utc_now
 #: share nothing with the workspace runs of the same repository. `main` is a guess, and it is
 #: a guess the caller can always override by naming the branch explicitly — which is what CI
 #: does, since the branch is in the environment even when it is not in the working tree.
-DEFAULT_BRANCH_NAME = "main"
 
 
 class RepositoryLineage(BoundaryDTO):

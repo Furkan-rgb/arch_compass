@@ -260,7 +260,6 @@ class Runtime:
     bundled_example_service: BundledExampleService
     analyzer: AtlasSource
     query_service: AtlasQueryService
-    policy_sources: tuple[Path, ...]
     case_service: ArchitectureCaseService
     policy_service: PolicyService
     repository_service: RepositoryIndexService
@@ -269,13 +268,10 @@ class Runtime:
     #: Present only where a deployment named hosts to fetch from. `None` means this
     #: workspace puts repositories on disk with git, which is every local run.
     source_service: SourceArchiveService | None
-    freshness_service: AtlasFreshnessService
     model_catalog_service: ModelCatalogService
     embedding_model_service: EmbeddingModelService
-    core_case_repository: SQLiteCoreCaseRepository
     core_review_repository: SQLiteCoreReviewRepository
     review_workflow_service: ReviewWorkflowService
-    checkpoint_connection: sqlite3.Connection
     core_ci_service: CleanBreakCiRunService
     standing_decision_service: StandingDecisionService
 
@@ -580,20 +576,16 @@ def build_runtime(
         bundled_example_service=bundled_example_service,
         analyzer=analyzer,
         query_service=queries,
-        policy_sources=configured_policy_sources,
         case_service=case_service,
         policy_service=policy_service,
         repository_service=repository_service,
         atlas_service=atlas_service,
         checkout_service=checkout_service,
         source_service=source_service,
-        freshness_service=freshness,
         model_catalog_service=model_catalog_service,
         embedding_model_service=embedding_model_service,
-        core_case_repository=core_cases,
         core_review_repository=core_reviews,
         review_workflow_service=review_workflow_service,
-        checkpoint_connection=checkpoint_connection,
         core_ci_service=core_ci_service,
         standing_decision_service=standing_decision_service,
     )

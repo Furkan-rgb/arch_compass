@@ -160,12 +160,6 @@ class ReasoningModelStatus(BoundaryDTO):
     #: mean nothing — `make demo` would run whichever model was last clicked.
     pinned: bool = False
 
-    @property
-    def identity(self) -> str:
-        """`provider:model`, or empty where nothing is selected."""
-
-        return f"{self.provider}:{self.model}" if self.provider and self.model else ""
-
 
 class EmbeddingModelSelection(BoundaryDTO):
     """The embedding model chosen for this workspace's policy index."""
@@ -174,10 +168,6 @@ class EmbeddingModelSelection(BoundaryDTO):
     model: str
     dimensions: int = Field(ge=1)
     selected_at: datetime = Field(default_factory=utc_now)
-
-    @property
-    def identity(self) -> str:
-        return f"{self.provider}:{self.model}:{self.dimensions}"
 
 
 class EmbeddingModelCandidate(BoundaryDTO):

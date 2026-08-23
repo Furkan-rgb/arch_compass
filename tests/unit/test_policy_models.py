@@ -1,18 +1,32 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from pydantic import ValidationError
 
-from archcompass.policies.records import (
-    PolicyApplicabilityContext,
-    PolicyDocument,
-    PolicyScope,
-    PolicySource,
-    PolicyStrength,
-)
+from archcompass.domain.policy import Policy, PolicyScope, PolicyStrength
+from archcompass.policies.records import PolicyDocument, PolicySource
 
 # Retrieval-specific records are tested at the application/adapter boundary. This module
-# checks only policy authoring and applicability DTO behavior.
+# checks policy authoring on the transport record, and applicability on the domain record
+# that production actually asks. The two used to be one file's worth of near-identical code
+# — `PolicyDocument` carried its own `applies_in` and its own copies of both enums — and
+# the applicability tests were written against the copy nothing called.
+
+
+def _domain(document: PolicyDocument) -> Policy:
+    """The same policy as the domain holds it, which is what retrieval asks."""
+
+    return Policy(
+        id=document.id,
+        title=document.title,
+        body=document.body,
+        scope=document.scope,
+        strength=document.strength,
+        content_hash=document.content_hash,
+        applies_to=document.applies_to,
+    )
 
 
 def _policy(description: str | None = None) -> PolicyDocument:
@@ -48,7 +62,9 @@ def test_scoped_policy_without_a_subject_never_applies_implicitly() -> None:
     )
 
     assert policy.applies_to is None
-    assert not policy.applies_in(PolicyApplicabilityContext(organisation="example-organisation"))
+    assert not _domain(policy).applies_in(
+        user=None, organisation="example-organisation", repository=None
+    )
 
 
 def test_policy_description_is_optional_and_stripped_when_present() -> None:
@@ -65,17 +81,15 @@ def test_blank_policy_description_is_rejected(description: str) -> None:
 
 
 def test_policy_applicability_matches_only_its_scoped_subject() -> None:
-    organisation_policy = _policy()
+    organisation = _domain(_policy())
 
-    assert organisation_policy.applies_in(
-        PolicyApplicabilityContext(organisation="example-organisation")
+    assert organisation.applies_in(
+        user=None, organisation="example-organisation", repository=None
     )
-    assert not organisation_policy.applies_in(
-        PolicyApplicabilityContext(organisation="another-organisation")
+    assert not organisation.applies_in(
+        user=None, organisation="another-organisation", repository=None
     )
-    assert not organisation_policy.applies_in()
+    assert not organisation.applies_in(user=None, organisation=None, repository=None)
 
-    general_policy = organisation_policy.model_copy(
-        update={"scope": PolicyScope.GENERAL, "applies_to": None}
-    )
-    assert general_policy.applies_in()
+    general = replace(organisation, scope=PolicyScope.GENERAL, applies_to=None)
+    assert general.applies_in(user=None, organisation=None, repository=None)

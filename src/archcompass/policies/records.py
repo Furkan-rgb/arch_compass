@@ -9,21 +9,8 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
+from archcompass.domain.policy import PolicyScope, PolicyStrength
 from archcompass.records import BoundaryDTO, utc_now
-
-
-class PolicyScope(StrEnum):
-    GENERAL = "general"
-    USER = "user"
-    ORGANISATION = "organisation"
-    REPOSITORY = "repository"
-    ACCEPTED_ADR = "accepted_adr"
-
-
-class PolicyStrength(StrEnum):
-    GUIDANCE = "guidance"
-    PREFERRED = "preferred"
-    REQUIRED = "required"
 
 
 class PolicyOrigin(StrEnum):
@@ -97,20 +84,6 @@ class PolicyDocument(BoundaryDTO):
         if not normalized:
             raise ValueError("Policy applicability subjects must be nonempty")
         return normalized
-
-    def applies_in(self, context: PolicyApplicabilityContext | None = None) -> bool:
-        """Return whether this policy is applicable without widening missing identity."""
-
-        if self.scope is PolicyScope.GENERAL:
-            return True
-        if self.applies_to is None or context is None:
-            return False
-        if self.scope is PolicyScope.USER:
-            return self.applies_to == context.user
-        if self.scope is PolicyScope.ORGANISATION:
-            return self.applies_to == context.organisation
-        return self.applies_to == context.repository
-
 
 class PolicySourceRegistration(BoundaryDTO):
     canonical_path: str = Field(min_length=1)

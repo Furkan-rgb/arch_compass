@@ -74,28 +74,13 @@ class NoHingeInvestigation:
         return InvestigatedFinding(finding)
 
 
-class AppendAnswersCaseReviser:
-    """The revision a review opens, in memory, with nowhere to write it."""
-
-    def open(self, case: ArchitectureCase) -> ArchitectureCase:
-        return case.open_revision()
-
-    def revise(
-        self, case: ArchitectureCase, answers: Sequence[Answer]
-    ) -> ArchitectureCase:
-        return case.with_answers(tuple(answers))
-
-    def seal(self, case: ArchitectureCase) -> ArchitectureCase:
-        return case
-
-
 class CaseSnapshotRecorder(Protocol):
     def record(self, case: ArchitectureCase) -> ArchitectureCase: ...
 
     def next_revision(self, case_id: str) -> int: ...
 
 
-class PersistentCaseReviser(AppendAnswersCaseReviser):
+class PersistentCaseReviser:
     """The same revision, written once, at the end.
 
     It used to write on every round, which is what made a review that asked twice leave
@@ -110,6 +95,11 @@ class PersistentCaseReviser(AppendAnswersCaseReviser):
 
     def open(self, case: ArchitectureCase) -> ArchitectureCase:
         return case.open_revision(self._cases.next_revision(case.id))
+
+    def revise(
+        self, case: ArchitectureCase, answers: Sequence[Answer]
+    ) -> ArchitectureCase:
+        return case.with_answers(tuple(answers))
 
     def seal(self, case: ArchitectureCase) -> ArchitectureCase:
         return self._cases.record(case)
@@ -260,7 +250,6 @@ class DeterministicReviewComposer:
 
 
 __all__ = [
-    "AppendAnswersCaseReviser",
     "ChangedAndNewCandidateSelector",
     "DeterministicReviewComposer",
     "NoHingeInvestigation",

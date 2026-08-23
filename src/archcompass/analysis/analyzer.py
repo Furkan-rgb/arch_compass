@@ -244,7 +244,16 @@ def _evidence(participant: FindingParticipant, root: Path) -> Evidence:
 def _source_excerpt(
     root: Path, relative: str, start: int, end: int
 ) -> tuple[str, int, int] | None:
-    """The code at one recorded span, with the span the excerpt ended up covering."""
+    """The code at one recorded span, with the span the excerpt ended up covering.
+
+    Not a second copy of `SafeSourceReader.excerpt`, though the containment check is the
+    same three lines and an audit has already mistaken it for one. That reader is told which
+    lines to return; this one *decides*, because evidence widens upward over a definition's
+    leading comment and the caller has to be told how far it went in order to caption a
+    truncation. A file that cannot be read is absent evidence rather than an error, which is
+    the other difference: the reader raises, and a candidate with an unreadable participant
+    still has to be reportable.
+    """
 
     candidate = (root / relative).resolve(strict=False)
     try:
