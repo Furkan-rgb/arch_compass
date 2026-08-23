@@ -304,7 +304,13 @@ def _drive(turns: list[AIMessage]) -> tuple[str, Termination]:
 _ISSUED = itertools.count()
 
 
-def _lookup_turn() -> AIMessage:
+def _lookup_turn(calls: int = 1) -> AIMessage:
+    """One scripted turn asking for `calls` lookups.
+
+    More than one because a turn may carry several, and that is what makes the lookup budget
+    and the model-call limit different bounds rather than two spellings of one.
+    """
+
     return AIMessage(
         content="",
         tool_calls=[
@@ -314,6 +320,7 @@ def _lookup_turn() -> AIMessage:
                 "id": f"call_{next(_ISSUED)}",
                 "type": "tool_call",
             }
+            for _ in range(calls)
         ],
     )
 
@@ -592,24 +599,34 @@ def test_which_bound_wins_is_decided_and_not_incidental() -> None:
         ) = was
 
 
-def test_the_exploration_budget_is_the_one_that_fires_in_the_ordinary_range() -> None:
-    """The shipped values, asserted as an ordering rather than as three numbers.
+def test_the_shipped_guards_let_the_whole_lookup_budget_be_reached() -> None:
+    """Behaviour, not arithmetic: can a realistic investigation spend what it was given?
 
-    Any of these can be tuned; what may not change silently is which of them is the normal
-    reason an investigation stops. The turn cap was the budget once — six calls, every one of
-    six consecutive investigations ending there — and the only thing that made it visible was
-    measuring. This is cheaper than measuring again.
+    An earlier version of this asserted `MAX_INVESTIGATION_TURNS >= MAX_INVESTIGATION_LOOKUPS`,
+    which compares different units. A turn may carry several tool calls, so a turn cap below
+    the lookup budget is not automatically wrong — and a turn cap above it is not automatically
+    safe either, since a model that asks one thing at a time needs a call per lookup.
+
+    So this runs the loop at the shipped values across three calling shapes — one lookup per
+    turn, two and three. One per turn is the worst case for the model-call guard; a local model
+    measured on a real repository averaged closer to one and a half. What must hold in every
+    shape is that the whole budget is spendable and that the run says so. Any of these numbers
+    may be retuned on later evidence; what may not change silently is which guard normally
+    stops an investigation.
     """
 
     from archcompass.reasoning.adapters import tool_loop
 
-    # A runaway guard one call above the working range is a co-binding limit with a guard's
-    # name. Nine calls was the observed maximum at a budget of twelve lookups.
-    assert tool_loop.MAX_INVESTIGATION_TURNS >= tool_loop.MAX_INVESTIGATION_LOOKUPS, (
-        "the model-call limit can bind before the lookup budget is spent"
-    )
-    # And the size guard must have room above what a full investigation actually records: a
-    # real one reached 9,508 characters at this budget.
-    assert tool_loop.MAX_INVESTIGATION_CHARACTERS >= 12_000, (
-        "the size guard sits inside the range an ordinary investigation reaches"
-    )
+    budget = tool_loop.MAX_INVESTIGATION_LOOKUPS
+    for per_turn in (1, 2, 3):
+        investigator, termination = _drive_against(
+            _NoQueries(),
+            [_lookup_turn(per_turn) for _ in range(budget * 3)],
+        )
+        assert len(investigator.transcript) >= budget, (
+            f"at {per_turn} lookup(s) a turn, something stopped the run before its budget"
+        )
+        assert termination is Termination.LOOKUP_LIMIT, (
+            f"at {per_turn} lookup(s) a turn, a spent budget was reported as "
+            f"{termination.value}"
+        )

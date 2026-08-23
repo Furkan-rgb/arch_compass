@@ -118,10 +118,16 @@ export function InvestigationTranscript({ investigation }: { investigation: Inve
           {investigation.withheld}
         </p>
       ) : null}
-      {investigation.termination && investigation.termination !== "natural_end" ? (
+      {investigation.lookups.length && investigation.termination !== "natural_end" ? (
         /* Said whether or not it was recorded, and said differently. A reader weighing a
            verdict needs to know the difference between "the repository is silent" and "we
-           stopped asking" — and, for a review from before this was kept, that nobody knows. */
+           stopped asking" — and, for a review stored before terminations were kept, that
+           nobody knows which of the two it was.
+
+           The guard is on `lookups`, not on `termination`. Guarding on `termination` made
+           the second branch unreachable: a stored review from before the field existed has
+           `termination: null`, which is exactly the case the sentence is for, and it was
+           the one case that silently rendered nothing. */
         <p className="mt-3 max-w-[62ch] text-[12px] leading-5 text-ink-3 [overflow-wrap:anywhere]">
           {investigation.termination
             ? `The lookups stopped early — ${ending(investigation.termination)}. What the review

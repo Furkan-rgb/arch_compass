@@ -293,7 +293,7 @@ class SourceInvestigator(Protocol):
         """Every call made through this investigator, in the order they were made."""
         ...
 
-    def conclude(self, closing: str, termination: Termination, detail: str = "") -> None:
+    def conclude(self, closing: str, termination: Termination) -> None:
         """Close the record: what the pass said, and why its execution ended.
 
         Called once, by the loop that drove the investigation, on every way out of it.

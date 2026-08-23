@@ -7,5 +7,3 @@
 # every `pnpm run build` stops with it.
 allowBuilds:
   esbuild: true
-minimumReleaseAgeExclude:
-  - '@shadcn/react@0.3.0'

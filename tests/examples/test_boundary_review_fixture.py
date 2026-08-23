@@ -1,8 +1,8 @@
 """The standing example repository, checked without a model.
 
-`make demo` runs the review path against this repository, and the workspace offers it as
-the first thing a visitor can click. Both rest on it still presenting what it was written
-to present, so these run offline and fail when it stops.
+The workspace offers this repository as the first thing a visitor can click, which rests on
+it still presenting what it was written to present — so these run offline and fail when it
+stops.
 
 The fixture's whole point is that the detector cannot separate the six boundaries — every
 one is an abstraction with a single implementation. Only circumstances can, and this

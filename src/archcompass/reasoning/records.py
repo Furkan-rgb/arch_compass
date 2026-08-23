@@ -181,7 +181,8 @@ class ReasoningModelStatus(BoundaryDTO):
     #: True where this process was told which model to use, by `--provider` and `--model`.
     #: Then the choice is not the workspace's to make: the command said which provider this
     #: run costs against, and a stored selection quietly overriding it would make the flags
-    #: mean nothing — `make demo` would run whichever model was last clicked.
+    #: mean nothing, and `--provider ollama --model qwen3.8:27b web` would judge on
+    #: whichever model was last clicked.
     pinned: bool = False
 
 

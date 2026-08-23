@@ -308,7 +308,13 @@ def investigate_with_tools(
     )
     final = agent.invoke({"messages": [HumanMessage(opening)]})
 
-    cut_off = bounds.was_cut_off()
+    # A run that spent its whole exploration budget spent it, whichever guard noticed. A
+    # model that asks one thing per turn reaches the last lookup on its last allowed call, so
+    # the call cap fires on the turn the budget would have been noticed — and reporting that
+    # as a truncation tells the judge to treat a fully-spent budget as unexplored. Measured:
+    # one lookup per call, two, and three all reach twelve; only the report differed.
+    spent = len(investigator.transcript) >= MAX_INVESTIGATION_LOOKUPS
+    cut_off = bounds.was_cut_off() and not spent
     # Dropped where the run was cut off, because the last message is then not the model's.
     # `ModelCallLimitMiddleware` ends a run by appending an `AIMessage` of its own —
     # "Model call limits exceeded: run limit (6/6)" — and `_closing_text` cannot tell that
@@ -316,12 +322,16 @@ def investigate_with_tools(
     # reader as the model's own account of what it found.
     closing = "" if cut_off or bounds.termination else _closing_text(final)
     termination = bounds.termination or (
-        Termination.MODEL_CALL_LIMIT if cut_off else Termination.NATURAL_END
+        Termination.MODEL_CALL_LIMIT
+        if cut_off
+        else Termination.LOOKUP_LIMIT
+        if spent
+        else Termination.NATURAL_END
     )
     # Told to the investigator before anything is rendered. The rendering is spent on the
     # next request; the investigator is what the caller still holds, so this is the only
     # route these two facts have to a stored record.
-    investigator.conclude(closing, termination, bounds.detail)
+    investigator.conclude(closing, termination)
     return _rendered(investigator, closing, termination, bounds.detail)
 
 
