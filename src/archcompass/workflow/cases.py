@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from archcompass.domain import (
+    Answer,
     ArchitectureCase,
     PolicyContext,
 )
@@ -100,3 +103,28 @@ class ArchitectureCaseService:
 
     def list(self, *, limit: int = 100) -> tuple[ArchitectureCase, ...]:
         return self._cases.list(limit=limit)
+
+
+class PersistentCaseReviser:
+    """The same revision, written once, at the end.
+
+    It used to write on every round, which is what made a review that asked twice leave
+    three revisions behind. Now the store is asked for a free number when the revision
+    opens — so a review started from an older revision takes the next number rather than
+    colliding with one that is already there — and the snapshot is written when the review
+    that opened it finishes. A review nobody answered writes nothing.
+    """
+
+    def __init__(self, cases: CaseSnapshots) -> None:
+        self._cases = cases
+
+    def open(self, case: ArchitectureCase) -> ArchitectureCase:
+        return case.open_revision(self._cases.next_revision(case.id))
+
+    def revise(
+        self, case: ArchitectureCase, answers: Sequence[Answer]
+    ) -> ArchitectureCase:
+        return case.with_answers(tuple(answers))
+
+    def seal(self, case: ArchitectureCase) -> ArchitectureCase:
+        return self._cases.record(case)

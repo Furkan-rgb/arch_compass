@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -45,11 +46,11 @@ from archcompass.ports.capabilities import (
 )
 from archcompass.ports.policy_retrieval import RetrievedPolicySet
 from archcompass.workflow import ReviewWorkflowCapabilities, build_review_graph
-from archcompass.workflow.defaults import DeterministicReviewComposer, NoHingeInvestigation
 from archcompass.workflow.nodes import (
     investigate_hinges_node,
     rejudge_investigated_node,
 )
+from archcompass.workflow.report import DeterministicReviewComposer
 from archcompass.workflow.service import ReviewWorkflowService
 
 
@@ -901,7 +902,7 @@ def _investigating(
     real composer is what actually keeps a manifest.
     """
 
-    return ReviewWorkflowCapabilities(
+    capabilities = ReviewWorkflowCapabilities(
         context=Context(repository, case),
         analyzer=Analyzer(),
         detector=Detector(),
@@ -916,7 +917,12 @@ def _investigating(
         # keeps, and the stub keeps none of the manifests.
         composer=DeterministicReviewComposer(),
         recorder=Recorder(),
-        investigator=investigator or NoHingeInvestigation(),
+    )
+    # Left to the capability's own default when a test does not supply one, rather than
+    # naming the null object: "no investigator" is what the default already means, and the
+    # graph owns which class fills that seam.
+    return capabilities if investigator is None else replace(
+        capabilities, investigator=investigator
     )
 
 

@@ -48,11 +48,13 @@ from archcompass.domain import (
     RepositoryRef,
     Review,
     ReviewDelta,
+    ReviewStatus,
     Verdict,
 )
+from archcompass.domain._support import stable_id, utc_now
 from archcompass.domain.case import Question
 from archcompass.domain.values import Measurement, MetricNature
-from archcompass.ports.capabilities import ReviewSynopsis
+from archcompass.ports.capabilities import ReviewDraft, ReviewSynopsis
 
 #: The order a reader should meet verdicts in — what needs a human first. The same order the
 #: attention queue uses, for the same reason.
@@ -620,3 +622,111 @@ def compose_markdown_report(
 
 
 __all__ = ["compose_markdown_report"]
+
+
+class DeterministicReviewComposer:
+    """Compose record identity and provenance; prose generation is a separate capability."""
+
+    def compose(self, draft: ReviewDraft, *, waiting: bool) -> Review:
+        status = ReviewStatus.AWAITING_ANSWERS if waiting else ReviewStatus.COMPLETED
+        sequence = 1 if draft.previous is None else draft.previous.sequence + 1
+        # The round is part of the identity, and has to be: a review asks under one case
+        # revision now and keeps that revision however many rounds it takes, so two waiting
+        # snapshots of one review would otherwise be filed under one id and the second
+        # would be dropped as a duplicate of the first.
+        review_id = stable_id(
+            "review",
+            draft.repository.branch_id,
+            draft.atlas.id,
+            draft.case.id,
+            str(draft.case.revision),
+            str(draft.round),
+            status.value,
+        )
+        current_manifest = tuple(item.provenance for item in draft.retrievals)
+        current_candidates = {str(item.candidate_id) for item in current_manifest}
+        # The manifest audits *this* review's findings, so it carries provenance only for
+        # candidates this review still holds one for. Carrying every entry the previous
+        # review had kept the provenance of boundaries that no longer exist — and, because
+        # the delta reads the corpus fingerprint out of this manifest, one addressed
+        # candidate retrieved under an older corpus made every later review report that the
+        # corpus had moved, on a repository nobody had touched, for as long as the branch
+        # lived.
+        judged_candidates = {str(item.candidate.id) for item in draft.findings}
+        carried_manifest = (
+            ()
+            if draft.previous is None
+            else tuple(
+                item
+                for item in draft.previous.retrieval_manifest
+                if str(item.candidate_id) not in current_candidates
+                and str(item.candidate_id) in judged_candidates
+            )
+        )
+        retrieval_manifest = (*carried_manifest, *current_manifest)
+        # The same rule, for the same reason: an investigation audits a finding this
+        # review holds, and one carried from the previous review belongs here only
+        # where this review did not check that candidate again.
+        investigated_candidates = {str(item.candidate_id) for item in draft.investigations}
+        carried_investigations = (
+            ()
+            if draft.previous is None
+            else tuple(
+                item
+                for item in draft.previous.investigation_manifest
+                if str(item.candidate_id) not in investigated_candidates
+                and str(item.candidate_id) in judged_candidates
+            )
+        )
+        model_identities = sorted(
+            {item.model_identity for item in draft.findings if item.model_identity}
+        )
+        prompt_identities = sorted(
+            {item.prompt_identity for item in draft.findings if item.prompt_identity}
+        )
+        now = utc_now()
+        # The document the review becomes when it leaves the product — attached to a pull
+        # request, printed by the CLI, downloaded. `report.py` owns it, because a readable
+        # record is a body of formatting decisions and this class composes identity.
+        report = compose_markdown_report(
+            repository=draft.repository,
+            atlas=draft.atlas,
+            case=draft.case,
+            findings=draft.findings,
+            questions=draft.questions,
+            delta=draft.delta,
+            previous=draft.previous,
+            retrievers=sorted(
+                {
+                    f"{item.retriever}/{item.version}"
+                    for item in retrieval_manifest
+                    if item.retriever
+                }
+            ),
+            sequence=sequence,
+            waiting=waiting,
+            synopsis=draft.synopsis,
+            round=draft.round,
+        )
+        return Review(
+            id=review_id,
+            sequence=sequence,
+            round=draft.round,
+            repository=draft.repository,
+            atlas=draft.atlas,
+            case=draft.case,
+            findings=draft.findings,
+            questions=draft.questions,
+            status=status,
+            delta=draft.delta,
+            started_at=now,
+            finished_at=None if waiting else now,
+            previous_review_id=None if draft.previous is None else draft.previous.id,
+            markdown_report=report,
+            synopsis=None if draft.synopsis is None else draft.synopsis.text,
+            synopsis_identity="" if draft.synopsis is None else draft.synopsis.model_identity,
+            retrieval_manifest=retrieval_manifest,
+            investigation_manifest=(*carried_investigations, *draft.investigations),
+            model_identity=",".join(model_identities),
+            prompt_identity=",".join(prompt_identities),
+        )

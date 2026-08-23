@@ -112,14 +112,11 @@ from archcompass.repositories.service import RepositoryIndexService
 from archcompass.repositories.sources import SourceArchiveService
 from archcompass.repositories.storage import SourceStorage
 from archcompass.workflow import ReviewWorkflowCapabilities, build_review_graph
-from archcompass.workflow.cases import ArchitectureCaseService
+from archcompass.workflow.cases import ArchitectureCaseService, PersistentCaseReviser
 from archcompass.workflow.ci import CleanBreakCiRunService
 from archcompass.workflow.decisions import StandingDecisionService
-from archcompass.workflow.defaults import (
-    ChangedAndNewCandidateSelector,
-    DeterministicReviewComposer,
-    PersistentCaseReviser,
-)
+from archcompass.workflow.nodes import ChangedAndNewCandidateSelector
+from archcompass.workflow.report import DeterministicReviewComposer
 from archcompass.workflow.service import ReviewWorkflowService
 
 #: The variables that pin embedding configuration. Any one of them set means the deployment

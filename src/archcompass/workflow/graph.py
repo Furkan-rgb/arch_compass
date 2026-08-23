@@ -20,6 +20,16 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send
 
+from archcompass.domain import (
+    ArchitectureCase,
+    Finding,
+    Question,
+    RecordedInvestigation,
+    RepositoryAtlas,
+    RepositoryRef,
+    Review,
+    ReviewDelta,
+)
 from archcompass.ports.capabilities import (
     ArchitectureJudge,
     BatchArchitectureJudge,
@@ -34,10 +44,10 @@ from archcompass.ports.capabilities import (
     RepositoryAnalyzer,
     ReviewComposer,
     ReviewRecorder,
+    ReviewSynopsis,
     ReviewSynopsisWriter,
     RevisionCalculator,
 )
-from archcompass.workflow.defaults import NoHingeInvestigation, NoReviewSynopsis
 from archcompass.workflow.nodes import (
     analyze_repository_node,
     await_answers_node,
@@ -62,6 +72,52 @@ from archcompass.workflow.nodes import (
 from archcompass.workflow.state import CandidateReviewOutput, ReviewInput, ReviewState
 
 
+class _NoReviewSynopsis:
+    """The seam filled when nothing is going to write a summary.
+
+    A workspace can compose a review without a reasoning model available — a rerun from the
+    CLI against cached findings, a test harness, a deployment that has not selected one — and
+    a report that fails to compose because its opening paragraph could not be written would
+    be the tail wagging the dog. The report simply opens on its counts, as it did before.
+    """
+
+    def write(
+        self,
+        case: ArchitectureCase,
+        findings: tuple[Finding, ...],
+        *,
+        questions: tuple[Question, ...],
+        delta: ReviewDelta,
+        previous: Review | None,
+        waiting: bool,
+    ) -> ReviewSynopsis | None:
+        return None
+
+
+class _NoHingeInvestigation:
+    """The seam filled when nothing is going to look anything up.
+
+    Not every model can call tools and a workspace may have selected one that cannot, so
+    the absence answer here is not a failure — it is the finding, unchanged, and a hinge
+    that goes to a person the way every hinge did before this existed. `supports_tools`
+    answering False is what keeps the node cheap: it returns before it reads a finding.
+    """
+
+    def supports_tools(self) -> bool:
+        return False
+
+    def investigate(
+        self,
+        finding: Finding,
+        case: ArchitectureCase,
+        *,
+        repository: RepositoryRef,
+        atlas: RepositoryAtlas,
+    ) -> RecordedInvestigation | None:
+        del finding, case, repository, atlas
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class ReviewWorkflowCapabilities:
     context: ContextLoader
@@ -80,12 +136,12 @@ class ReviewWorkflowCapabilities:
     # review cannot be produced without, and this one writes the paragraph the report opens
     # on. A workspace or a test with no use for it composes the same review with a report
     # that opens on its counts, which is what the report did before this existed.
-    synopsist: ReviewSynopsisWriter = field(default_factory=NoReviewSynopsis)
+    synopsist: ReviewSynopsisWriter = field(default_factory=_NoReviewSynopsis)
     # Defaulted for the same reason its neighbour is, and for one more: a review whose
     # hinges were never checked is exactly the review this product produced yesterday.
     # A workspace on a model that cannot call tools asks its questions the way it
     # always asked them.
-    investigator: HingeInvestigator = field(default_factory=NoHingeInvestigation)
+    investigator: HingeInvestigator = field(default_factory=_NoHingeInvestigation)
 
 
 def _candidate_graph(

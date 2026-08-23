@@ -10,12 +10,21 @@ from typing import cast
 from langgraph.config import get_stream_writer
 from langgraph.types import interrupt
 
-from archcompass.domain import Answer, Finding, RecordedInvestigation
+from archcompass.domain import (
+    Answer,
+    Candidate,
+    Finding,
+    RecordedInvestigation,
+    Review,
+    ReviewDelta,
+)
+from archcompass.domain.errors import NothingToReviewError
 from archcompass.ports.capabilities import (
     ArchitectureJudge,
     BatchArchitectureJudge,
     BatchOutcome,
     CandidateDetector,
+    CandidateSelection,
     CaseReviser,
     ContextLoader,
     HingeInvestigator,
@@ -100,6 +109,42 @@ def calculate_delta_node(calculator: RevisionCalculator) -> Node:
         }
 
     return calculate_delta
+
+
+class ChangedAndNewCandidateSelector:
+    def select(
+        self,
+        candidates: tuple[Candidate, ...],
+        delta: ReviewDelta,
+        previous: Review | None,
+        ci: bool,
+    ) -> CandidateSelection:
+        if (
+            previous is not None
+            and not ci
+            and not delta.changed
+            and not delta.new
+            and not delta.addressed
+        ):
+            raise NothingToReviewError(
+                "Nothing has changed since the branch's previous review.",
+                current_against=previous.id,
+            )
+        selected = {str(item.candidate.id) for item in delta.changed} | {
+            str(item.id) for item in delta.new
+        }
+        chosen = tuple(item for item in candidates if str(item.id) in selected)
+        unchanged = {str(item.id) for item in delta.unchanged}
+        carried = (
+            ()
+            if previous is None
+            else tuple(
+                finding
+                for finding in previous.findings
+                if str(finding.candidate.id) in unchanged
+            )
+        )
+        return CandidateSelection(chosen, carried)
 
 
 def select_initial_candidates_node(selector: InitialCandidateSelector) -> Node:
