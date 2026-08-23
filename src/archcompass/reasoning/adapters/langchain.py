@@ -54,21 +54,44 @@ class PolicyBearingOutput(BaseModel):
 
 
 class FindingOutput(BaseModel):
-    material: bool
+    """One judgement, with the verdict said rather than inferred.
+
+    `verdict` was `material: bool`, and the three-way outcome was reconstructed by the
+    application: held if a hinge came back, otherwise material or cleared off the bit. So the
+    model never actually chose a verdict — it set a flag and, separately, either wrote a hinge
+    or did not. Two things followed.
+
+    A boolean carries less than a word during constrained generation, and it showed. Replaying
+    one investigation's exact lookups through both shapes, five times each: the boolean
+    answered `material` every time under reasoning that argued the policy's exception was
+    satisfied; the word answered `cleared` every time, from the same argument. The verdict and
+    the paragraph beside it are two fields no schema can reconcile, and the representation is
+    what decided whether they agreed.
+
+    And `held` was the hardest outcome to reach, being the only one that required volunteering
+    a field. Over thirty-five judgements the boolean chose it not once; the word chose it
+    fifteen times, each on reasoning that said in so many words that a policy's exception
+    might apply and the evidence could not say whether it did. Asking is a first-class outcome
+    of this product, and the old shape was quietly pricing it out.
+    """
+
+    verdict: Literal["material", "cleared", "held"]
     reasoning: str = Field(min_length=1)
     policy_bearings: list[PolicyBearingOutput] = Field(
         default_factory=list[PolicyBearingOutput]
     )
+    #: The single fact a held verdict turns on. Required by `held` and forbidden to the other
+    #: two, so the verdict and the question cannot disagree about whether one was asked.
     hinge: str | None = None
     recommended_response: str | None = None
 
     @model_validator(mode="after")
-    def response_only_for_material_finding(self) -> FindingOutput:
-        if self.hinge and self.recommended_response:
-            raise ValueError(
-                "a finding with an uncertainty hinge cannot recommend a response"
-            )
-        if not self.material and self.recommended_response:
+    def the_verdict_carries_what_it_is_allowed_to(self) -> FindingOutput:
+        if self.verdict == "held" and not (self.hinge or "").strip():
+            raise ValueError("a held finding must name the fact its verdict turns on")
+        if self.verdict != "held" and (self.hinge or "").strip():
+            raise ValueError("a finding that reached a verdict has nothing left to ask")
+        if self.verdict != "material" and self.recommended_response:
             raise ValueError("only a material finding may recommend a response")
         return self
 
@@ -276,10 +299,10 @@ def structured_output[Output: BaseModel](
     # One repair attempt, and only because it is not the same request twice.
     #
     # What fails here is almost never the JSON — the runtime constrains that — but a rule
-    # the JSON schema cannot carry: a hinge beside a recommendation, a resolution that
-    # settles nothing, four options where two were the floor. The model was not told what it
-    # broke, because nothing had gone wrong yet when the prompt was written. This tells it,
-    # quoting the parser, and asks once more.
+    # the JSON schema cannot carry: a held verdict with nothing to ask, a recommendation on a
+    # verdict that may not carry one, four options where two were the floor. The model was not
+    # told what it broke, because nothing had gone wrong yet when the prompt was written. This
+    # tells it, quoting the parser, and asks once more.
     #
     # It is worth a call because of what the alternative costs. A judgement that fails its
     # schema fails the whole review, after every other candidate has already been judged and
@@ -291,12 +314,12 @@ def structured_output[Output: BaseModel](
     # the contract and its own violation of it will not honour it on the fourth attempt
     # either, and the message below is the one a reader needs in that case.
     #
-    # Two costs to know about. A cross-field rule can usually be satisfied from either side,
-    # and the model chooses which: `FindingOutput` forbids a hinge beside a recommendation,
-    # and dropping the hinge satisfies that just as well as dropping the recommendation —
-    # which turns a finding that wanted to ask a person into a confident verdict. It is
-    # still the better trade against failing the whole review, and it is why the prompts
-    # state which side of each rule they mean rather than only that the two conflict.
+    # One cost to know about. A cross-field rule can usually be satisfied from either side,
+    # and the model chooses which — so a rule stated only as "these two conflict" can be
+    # honoured by dropping the half that mattered. `FindingOutput`'s rules are all anchored on
+    # the verdict now, which is the field the model chose deliberately, so there is one way to
+    # satisfy each; the prompts still say which side they mean rather than only that two
+    # things conflict.
     # And a *systematic* violation doubles the call count for every candidate rather than
     # for one, which on a metered tier is a review costing twice what it should. Neither is
     # worth refusing the attempt over; both are worth knowing before raising the ceiling.
@@ -368,15 +391,20 @@ JUDGEMENT_INSTRUCTION = (
     "Use only the supplied evidence and case. Each policy is listed under an identifier "
     "in brackets; cite one by copying that identifier exactly, and never by where it "
     "sits in the list.\n\n"
+    "Choose exactly one verdict, and choose the one your reasoning argues for. 'material' "
+    "means this structure costs more than it earns. 'cleared' means it does not. 'held' means "
+    "your verdict turns on a fact the supplied evidence does not carry.\n\n"
     "Asking is a first-class outcome here, not a failure to decide. A policy tells you what "
     "is usually true of architectures; it cannot tell you what this team decided, what they "
     "are about to change, or what they already accepted and why. Where your verdict would "
-    "turn on one of those, state one concise hinge naming the single fact you would need, "
-    "and leave the recommended response empty: a judgement waiting on an answer does not "
-    "yet recommend anything. A hinge stops the review and puts your question to a person, "
-    "so it is worth their interruption — do not hinge on something the supplied evidence "
-    "already settles, and do not hinge merely to avoid committing.\n\n"
-    "Only a material finding with no hinge may recommend a response. "
+    "turn on one of those, answer 'held' and state one concise hinge naming the single fact "
+    "you would need. A hinge stops the review and puts your question to a person, so it is "
+    "worth their interruption — do not hinge on something the supplied evidence already "
+    "settles, and do not hinge merely to avoid committing.\n\n"
+    "A held verdict carries a hinge and nothing else: no recommendation, because a judgement "
+    "waiting on an answer does not yet recommend anything. 'material' and 'cleared' carry no "
+    "hinge, because they are answers rather than questions. Only a material finding may "
+    "recommend a response. "
     "Return only the structured response required by the supplied output schema. "
     "Do not return Markdown or explanatory prose outside the structured response."
 )
@@ -575,11 +603,10 @@ def finding_from_output(
             continue
         seen.add(policy.id)
         bearings.append(PolicyBearing(policy, bearing.reasoning))
-    verdict = (
-        Verdict.HELD
-        if output.hinge
-        else Verdict.MATERIAL if output.material else Verdict.CLEARED
-    )
+    # Taken, not inferred. This read the hinge first and the boolean second, so a model that
+    # asserted materiality *and* asked a question had its assertion silently discarded — the
+    # two fields could disagree and nothing said so.
+    verdict = Verdict(output.verdict)
     return Finding(
         candidate=candidate,
         verdict=verdict,

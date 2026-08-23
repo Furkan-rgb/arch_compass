@@ -32,7 +32,7 @@ from archcompass.records import BoundaryDTO, ThinkingMode, utc_now
 #: agree, and `analysis/delta.py` records what happens when they stop: every candidate of
 #: every review reports `ChangeCause.PROMPT` for ever, and the comment there says the corpus
 #: fingerprint had already done exactly that once.
-JUDGE_PROMPT_IDENTITY: Final = "judge:v2"
+JUDGE_PROMPT_IDENTITY: Final = "judge:v3"
 DETERMINISTIC_JUDGE_PROMPT_IDENTITY: Final = "judge:deterministic-v1"
 
 

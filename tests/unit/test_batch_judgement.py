@@ -98,10 +98,10 @@ def test_every_candidate_is_submitted_once_and_answered_in_order() -> None:
     requests = (_request("ports.Clock", case), _request("ports.Store", case))
     batches = FakeBatches(
         responses=[
-            _answer({"material": False, "reasoning": "The port is fine.", "hinge": None}),
+            _answer({"verdict": "cleared", "reasoning": "The port is fine.", "hinge": None}),
             _answer(
                 {
-                    "material": True,
+                    "verdict": "material",
                     "reasoning": "The store is shared across boundaries.",
                     "policy_bearings": [{"policy_id": "policy-1", "reasoning": "Shared mapper."}],
                     "recommended_response": "Split the mapper.",
@@ -129,7 +129,7 @@ def test_a_short_batch_is_refused_rather_than_composed() -> None:
     case = ArchitectureCase.create()
     requests = (_request("ports.Clock", case), _request("ports.Store", case))
     batches = FakeBatches(
-        responses=[_answer({"material": False, "reasoning": "Only one answer."})]
+        responses=[_answer({"verdict": "cleared", "reasoning": "Only one answer."})]
     )
     with pytest.raises(ProviderError, match="1 of 2"):
         _judge(batches).judge_all(requests, model_identity="google:flash-lite")
@@ -148,7 +148,7 @@ def test_a_refused_judgement_fails_the_batch() -> None:
 def test_output_that_does_not_match_the_schema_is_named_as_such() -> None:
     case = ArchitectureCase.create()
     requests = (_request("ports.Clock", case),)
-    batches = FakeBatches(responses=[_answer({"material": "yes"})])
+    batches = FakeBatches(responses=[_answer({"verdict": "probably"})])
     with pytest.raises(ModelOutputValidationError, match="did not match the required"):
         _judge(batches).judge_all(requests, model_identity="google:flash-lite")
 
@@ -382,7 +382,7 @@ def test_a_batched_judgement_thinks_as_hard_as_an_interactive_one() -> None:
     case = ArchitectureCase.create()
     requests = (_request("ports.Clock", case),)
     batches = FakeBatches(
-        responses=[_answer({"material": False, "reasoning": "The port is fine."})]
+        responses=[_answer({"verdict": "cleared", "reasoning": "The port is fine."})]
     )
     judge = GoogleBatchJudge(
         api_key="not-used",
@@ -405,7 +405,7 @@ def test_a_batch_that_was_told_no_depth_asks_for_none() -> None:
 
     case = ArchitectureCase.create()
     batches = FakeBatches(
-        responses=[_answer({"material": False, "reasoning": "The port is fine."})]
+        responses=[_answer({"verdict": "cleared", "reasoning": "The port is fine."})]
     )
     _judge(batches).judge_all(
         (_request("ports.Clock", case),), model_identity="google:flash-lite"
@@ -432,7 +432,7 @@ def test_nothing_is_told_a_batch_is_queued_until_the_provider_has_taken_one() ->
     case = ArchitectureCase.create()
     requests = (_request("ports.Clock", case), _request("ports.Store", case))
     batches = FakeBatches(
-        [_answer({"material": False, "reasoning": "fine", "policy_bearings": []})] * 2
+        [_answer({"verdict": "cleared", "reasoning": "fine", "policy_bearings": []})] * 2
     )
     order: list[str] = []
     original_create = batches.create

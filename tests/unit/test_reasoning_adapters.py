@@ -124,7 +124,7 @@ def test_model_policy_citations_are_resolved_before_finding_construction() -> No
     judge = LangChainArchitectureJudge(
         StructuredModel(
             {
-                "material": True,
+                "verdict": "material",
                 "reasoning": "The port hides no expected variation.",
                 "policy_bearings": [
                     {"policy_id": "policy-a", "reasoning": "This policy bears directly."}
@@ -154,7 +154,7 @@ def test_a_policy_citation_naming_nothing_is_dropped_rather_than_fatal() -> None
     judge = LangChainArchitectureJudge(
         StructuredModel(
             {
-                "material": False,
+                "verdict": "cleared",
                 "reasoning": "No conflict.",
                 "policy_bearings": [
                     {"policy_id": "policy-invented", "reasoning": "Unknown policy."}
@@ -184,7 +184,7 @@ def test_hinge_and_recommendation_are_rejected_at_structured_boundary() -> None:
     judge = LangChainArchitectureJudge(
         StructuredModel(
             {
-                "material": True,
+                "verdict": "material",
                 "reasoning": "Ownership could change the verdict.",
                 "hinge": "the owning team",
                 "recommended_response": "Move the module.",
@@ -553,7 +553,7 @@ def test_a_judgement_is_stamped_with_the_identity_the_delta_will_compare_it_agai
     candidate, case, policies = _input()
     judge = LangChainArchitectureJudge(
         StructuredModel(
-            {"material": False, "reasoning": "The boundary earns its keep."}
+            {"verdict": "cleared", "reasoning": "The boundary earns its keep."}
         ),  # type: ignore[arg-type]
         model_identity=model_identity(_CONFIG),
     )
@@ -569,3 +569,74 @@ def test_a_judgement_is_stamped_with_the_identity_the_delta_will_compare_it_agai
     assert model_identity(_CONFIG) != model_identity(
         _CONFIG.model_copy(update={"thinking": True})
     )
+
+
+def test_a_held_verdict_must_name_the_fact_it_turns_on() -> None:
+    """`held` is a question, and a question with nothing in it is a verdict in disguise.
+
+    It used to be unrepresentable the other way round: the verdict was inferred *from* the
+    hinge, so held-without-a-hinge could not be expressed and material-with-a-hinge silently
+    became held with the materiality discarded. Now the verdict is chosen and the hinge is
+    what it is allowed to carry, so both halves are checked in the same place.
+    """
+
+    from archcompass.reasoning.adapters.langchain import FindingOutput
+
+    with pytest.raises(ValidationError, match="must name the fact"):
+        FindingOutput(verdict="held", reasoning="I cannot tell.")
+
+    settled = FindingOutput(
+        verdict="held", reasoning="I cannot tell.", hinge="Is a second one planned?"
+    )
+    assert settled.hinge
+
+
+@pytest.mark.parametrize("verdict", ["material", "cleared"])
+def test_a_verdict_that_answered_has_nothing_left_to_ask(verdict: str) -> None:
+    """A finding cannot both decide and ask. The old shape could say both and lost one."""
+
+    from archcompass.reasoning.adapters.langchain import FindingOutput
+
+    with pytest.raises(ValidationError, match="nothing left to ask"):
+        FindingOutput(
+            verdict=verdict,  # type: ignore[arg-type]
+            reasoning="Decided.",
+            hinge="but also, is a second one planned?",
+        )
+
+
+@pytest.mark.parametrize("verdict", ["cleared", "held"])
+def test_only_a_material_finding_recommends_a_response(verdict: str) -> None:
+    """Unchanged in substance, anchored on the verdict rather than on the boolean."""
+
+    from archcompass.reasoning.adapters.langchain import FindingOutput
+
+    with pytest.raises(ValidationError, match="only a material finding"):
+        FindingOutput(
+            verdict=verdict,  # type: ignore[arg-type]
+            reasoning="Decided.",
+            hinge="Is a second one planned?" if verdict == "held" else None,
+            recommended_response="Collapse the port.",
+        )
+
+
+def test_the_verdict_is_taken_from_the_model_rather_than_inferred() -> None:
+    """Each of the three arrives as itself, and none is reconstructed from another field."""
+
+    from archcompass.reasoning.adapters.langchain import FindingOutput, finding_from_output
+
+    candidate, _case, policies = _input()
+    for chosen, expected in (
+        ("material", Verdict.MATERIAL),
+        ("cleared", Verdict.CLEARED),
+        ("held", Verdict.HELD),
+    ):
+        output = FindingOutput(
+            verdict=chosen,  # type: ignore[arg-type]
+            reasoning="Because.",
+            hinge="Is a second one planned?" if chosen == "held" else None,
+        )
+        finding = finding_from_output(
+            output, candidate, policies, model_identity="m", prompt_identity="p"
+        )
+        assert finding.verdict is expected
