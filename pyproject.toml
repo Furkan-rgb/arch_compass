@@ -107,6 +107,24 @@ venv = ".venv"
 reportMissingTypeStubs = false
 reportUnknownMemberType = false
 
+# `src` only, and this is a decision rather than an omission.
+#
+# The cost is real and worth naming: sixteen thousand lines of tests and sixty hand-rolled
+# doubles sit outside the type checker, and a hand-rolled double is exactly the thing that
+# drifts from the protocol it stands in for without anyone noticing.
+#
+# Adding `tests` was tried. This configuration is `strict`, and a test that builds a
+# deliberately partial stub and hands it in cannot satisfy it: the run produced four
+# hundred errors, almost all of them demanding annotations on fixtures that exist to be
+# small. Suppressing them one by one would leave the suite harder to read in exchange for
+# a guarantee it would no longer really be making. Narrowing the mode for `tests` alone
+# does not work either — `executionEnvironments` did not override the global mode here.
+#
+# So the drift is guarded a different way: `tests/unit/test_boundaries.py` walks the real
+# types rather than trusting a double, and a double that stops matching its protocol fails
+# the test that uses it. If that stops being enough, the answer is a `basic` run over
+# `tests` in its own command, not a strict one with four hundred holes in it.
+
 [tool.coverage.run]
 branch = true
 source = ["archcompass"]

@@ -42,6 +42,8 @@ _log = logging.getLogger(__name__)
 class ReviewSnapshotStore(Protocol):
     def record(self, review: Review) -> Review: ...
 
+    def sequence_of(self, review_id: str) -> int | None: ...
+
     def get(self, review_id: str) -> Review: ...
 
     def list(self, *, limit: int = 100) -> tuple[Review, ...]: ...
@@ -509,6 +511,17 @@ class ReviewWorkflowService:
 
     def get(self, review_id: str) -> Review:
         return self._reviews.get(review_id)
+
+    def sequence_of(self, review_id: str) -> int | None:
+        """Which review this is, without decoding the review to find out.
+
+        Here rather than on the store because a route asking the store directly is a route
+        that has reached past every seam this service exists to be — and the run endpoint,
+        which is the only caller, is already asking this service for everything else it
+        knows about a review.
+        """
+
+        return self._reviews.sequence_of(review_id)
 
     def list(
         self, *, case_id: str | None = None, limit: int = 100

@@ -12,8 +12,10 @@ from archcompass.domain import (
     ArchitectureCase,
     Candidate,
     CandidateChange,
+    CandidateId,
     CaseFacet,
     ChangeCause,
+    DecisionDisposition,
     Finding,
     Participant,
     Question,
@@ -23,6 +25,7 @@ from archcompass.domain import (
     Review,
     ReviewDelta,
     ReviewStatus,
+    StandingDecision,
     Verdict,
 )
 from archcompass.domain._support import utc_now
@@ -378,3 +381,72 @@ def test_proposed_answers_do_not_change_what_counts_as_the_same_question() -> No
     )
 
     assert first.equivalence_key == second.equivalence_key
+
+
+def _decision(
+    *,
+    disposition: DecisionDisposition = DecisionDisposition.ACCEPT,
+    author: str = "architect",
+    reasoning: str | None = None,
+) -> StandingDecision:
+    return StandingDecision(
+        id="decision-1",
+        branch_id="branch-1",
+        candidate_id=CandidateId("candidate-1"),
+        disposition=disposition,
+        author=author,
+        reasoning=reasoning,
+        decided_at=utc_now(),
+        review_id="review-1",
+        finding_verdict=Verdict.MATERIAL,
+    )
+
+def test_a_standing_decision_names_who_made_it() -> None:
+    """A decision is a person's, and an unattributed one is not a decision.
+
+    `StandingDecision` had no test at all — nor did `DecisionDisposition` — despite carrying
+    two invariants that exist to keep the record answerable months later.
+    """
+
+    with pytest.raises(ValueError, match="decision author"):
+        _decision(author="   ")
+
+
+def test_a_waiver_says_why_and_the_other_dispositions_need_not() -> None:
+    """The asymmetry is the point.
+
+    Accepting or parking a finding is a judgement the verdict beside it already explains.
+    Waiving one is a claim that a policy does not apply here, and the reason is the whole of
+    what a later reader — or a later review carrying the decision through succession — has
+    to go on.
+    """
+
+    with pytest.raises(ValueError, match="waiver must include reasoning"):
+        _decision(disposition=DecisionDisposition.WAIVE, reasoning=None)
+    with pytest.raises(ValueError, match="waiver must include reasoning"):
+        _decision(disposition=DecisionDisposition.WAIVE, reasoning="  \n ")
+
+    waived = _decision(
+        disposition=DecisionDisposition.WAIVE, reasoning="This boundary is contractual."
+    )
+    assert waived.reasoning == "This boundary is contractual."
+    # The other two are complete without one.
+    assert _decision(disposition=DecisionDisposition.ACCEPT, reasoning=None).reasoning is None
+    assert _decision(disposition=DecisionDisposition.PARK, reasoning=None).reasoning is None
+
+
+def test_a_decision_keys_off_the_candidate_and_not_off_a_finding() -> None:
+    """What keeps `Finding` and `StandingDecision` separable.
+
+    A decision is about a shape in the repository, on a branch — not about one review's
+    verdict on it. That is why it carries `branch_id` and `candidate_id` as its subject and
+    the finding's identities only as provenance, and why a review has no decisions field.
+    """
+
+    decision = _decision()
+
+    assert decision.branch_id and decision.candidate_id
+    assert not hasattr(Review, "decisions")
+    # The verdict it was made against is kept, so a later reader can see what the person was
+    # looking at — but it is not what the decision is filed under.
+    assert decision.finding_verdict is Verdict.MATERIAL

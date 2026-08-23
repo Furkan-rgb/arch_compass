@@ -295,21 +295,38 @@ def test_web_routes_use_application_services_only() -> None:
             _crosses(imported, prefix) for imported in _imports(path) for prefix in forbidden
         ), f"{path.relative_to(SOURCE_ROOT)} imports an adapter"
 
+    # The other half of the rule: a route may ask a *service* for something and may not
+    # reach the store behind it. Written as names, and the names rotted — four of the eight
+    # this list used to hold (`case_repository`, `job_repository`, `report_writer`,
+    # `run_repository`) had not been `Runtime` fields for some time, while
+    # `core_review_repository`, which a route does reach, was never on it. A guard that is
+    # half ghosts reads as protection and provides none.
+    #
+    # So every name is now checked against `Runtime` itself before it is enforced. A field
+    # that is renamed or removed fails this test rather than quietly stopping being guarded.
+    from archcompass.bootstrap import Runtime
+
+    runtime_fields = {field.name for field in dataclasses.fields(Runtime)}
     forbidden_runtime_attributes = {
         "analyzer",
         "atlas_repository",
-        "case_repository",
+        "core_review_repository",
         "database",
-        "job_repository",
         "query_service",
-        "report_writer",
-        "run_repository",
     }
+    unknown = forbidden_runtime_attributes - runtime_fields
+    assert not unknown, (
+        f"this guard names {sorted(unknown)}, which are not Runtime fields; either the "
+        "field was renamed and the guard did not follow, or the entry is a ghost"
+    )
     used_attributes: set[str] = set()
     for path in _python_files(routes_root):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         used_attributes |= {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
-    assert used_attributes.isdisjoint(forbidden_runtime_attributes)
+    reached = used_attributes & forbidden_runtime_attributes
+    assert not reached, (
+        f"a route reaches {sorted(reached)} directly; ask the service that owns it"
+    )
     assert {
         "atlas_service",
         "case_service",

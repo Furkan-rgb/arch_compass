@@ -709,7 +709,7 @@ def routes() -> APIRouter:
         # told what number it is going to take.
         sequence = None
         if state.review_id is not None:
-            sequence = runtime.core_review_repository.sequence_of(state.review_id)
+            sequence = runtime.review_workflow_service.sequence_of(state.review_id)
         if sequence is None:
             previous = runtime.review_workflow_service.latest_for_branch(lineage.branch_id)
             sequence = (previous.sequence + 1) if previous else 1
