@@ -26,6 +26,7 @@ different snapshot than the verdicts were reached against.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from typing import cast
 
@@ -36,6 +37,7 @@ from archcompass.analysis.atlas import (
     Atlas,
     AtlasEdge,
     AtlasMetricValue,
+    AtlasNode,
     AtlasNodeSummary,
     AtlasQuery,
     AtlasQueryResult,
@@ -71,7 +73,7 @@ MAX_RESULT_CHARACTERS = 2_500
 #: asked for as one span would crowd out the judgement this lookup exists to improve.
 MAX_READ_LINES = 80
 
-_FIND_CODE = "find_code"
+_SEARCH_CODE = "search_code"
 _DESCRIBE_CODE = "describe_code"
 _RELATED_CODE = "related_code"
 _READ_CODE = "read_code"
@@ -105,10 +107,16 @@ def _text_argument(arguments: Mapping[str, object], name: str) -> str:
 
 
 def _node_summary_text(node: AtlasNodeSummary) -> str:
+    """One node, named the way the tools take it and with no internal handle in sight.
+
+    The id used to lead this line, because it was what the next call needed. Nothing the
+    model can call takes one now, so printing it would only teach the shape it no longer has.
+    """
+
     where = node.path
     if node.location is not None:
         where += f":{node.location.start_line}-{node.location.end_line}"
-    return f"  {node.node_id}  {node.qualified_name}  [{node.node_type.value}]  {where}"
+    return f"  {node.qualified_name}  [{node.node_type.value}]  {where}"
 
 
 def _edge_text(edge: AtlasEdge, names: Mapping[str, str]) -> str:
@@ -153,7 +161,7 @@ def _rows(lines: list[str]) -> list[str]:
     return [*lines[:MAX_ROWS], f"  ... and {len(lines) - MAX_ROWS} more."]
 
 
-def _result_text(result: AtlasQueryResult) -> str:
+def _result_text(result: AtlasQueryResult, names: Mapping[str, str]) -> str:
     """One query's answer as text the model reads, rather than as a serialised record.
 
     A Pydantic dump of `AtlasQueryResult` is mostly nulls — every query fills a few of its
@@ -162,7 +170,6 @@ def _result_text(result: AtlasQueryResult) -> str:
     rows that sentence is about.
     """
 
-    names = {node.node_id: node.qualified_name for node in result.node_summaries}
     blocks = [
         *([result.summary] if result.summary else []),
         *_rows([_node_summary_text(node) for node in result.node_summaries]),
@@ -182,6 +189,14 @@ class AtlasInvestigator:
     answered from records in memory, and the records are the ones the verdicts were reached
     against. Only `read_code` touches the disk, and the query service asks about freshness
     on that branch itself.
+
+    The model never sees an atlas node id. It names things the way the review already names
+    them — `ports.TaskStore` — and `_resolve` turns that into the id, against this atlas and
+    no other. Node ids used to be the model's to carry: `find_code` handed them out and every
+    other tool demanded one back, so an investigation could not begin without spending a turn
+    converting a name it already had into a handle. Measured on a live run, a model spent six
+    of its six turns discovering that convention, having reasonably tried the only ids it had
+    been shown. The handle is internal now, which is what it always was.
     """
 
     def __init__(
@@ -196,28 +211,69 @@ class AtlasInvestigator:
         self._transcript: list[RecordedLookup] = []
         self._closing = ""
         self._abandoned = ""
+        self._by_name: defaultdict[str, list[AtlasNode]] = defaultdict(list)
+        for node in atlas.nodes:
+            self._by_name[node.qualified_name].append(node)
+        # Every node, not only the ones an answer lists: an edge's far end is usually not in
+        # the rows above it, and rendering that end as an id was the last place an internal
+        # handle reached the model.
+        self._names = {node.atlas_id: node.qualified_name for node in atlas.nodes}
+
+    def _resolve(self, arguments: Mapping[str, object]) -> str:
+        """One qualified name, against this atlas, to exactly one node or to a refusal.
+
+        Exact, unique, pinned — or fail. Never a close match, never the first of several,
+        never a node from a rebuilt atlas: a name that resolves to the wrong thing is
+        recorded for ever as a correct lookup, which is the failure the whole identifier
+        rule exists to prevent. Ambiguity is reported with the choices, because a model
+        cannot pick between candidates it has not been shown.
+        """
+
+        name = _text_argument(arguments, "qualified_name")
+        found = self._by_name.get(name, [])
+        kind = arguments.get("kind")
+        if isinstance(kind, str) and kind.strip():
+            found = [node for node in found if node.node_type.value == kind.strip()]
+        if not found:
+            raise _Refused(
+                f"Nothing in this repository is called {name!r}. Names are exact and "
+                f"qualified, like 'ports.TaskStore' or 'adapters.SqliteTaskStore.save'. "
+                f"If you do not know the exact name, use {_SEARCH_CODE} to find it."
+            )
+        if len(found) > 1:
+            choices = ", ".join(
+                sorted(f"kind={node.node_type.value!r}" for node in found)
+            )
+            raise _Refused(
+                f"{name!r} is the name of more than one thing here. Ask again with one of: "
+                f"{choices}."
+            )
+        return found[0].atlas_id
 
     @property
     def tools(self) -> Sequence[ToolSpec]:
         """The five, described for the model that has to choose between them.
 
-        The descriptions say when *not* to call as well as what the call does, and every one
-        that takes a `node_id` says where a node id comes from. A tool described only by its
-        mechanism gets called speculatively, and every speculative call is a turn spent and a
-        result the next request has to carry.
+        The descriptions say when *not* to call as well as what the call does. A tool
+        described only by its mechanism gets called speculatively, and every speculative call
+        is a turn spent and a result the next request has to carry.
+
+        Four of the five take a qualified name, which is what the finding under investigation
+        already calls things. `search_code` is the fallback for when the exact name is not
+        known — search when you do not know, inspect when you do — rather than the mandatory
+        first step it was when the others wanted an internal handle.
         """
 
         return (
             ToolSpec(
-                name=_FIND_CODE,
+                name=_SEARCH_CODE,
                 description=(
-                    "Find the parts of this repository whose name or path matches a piece of "
-                    "text — a class, a function, a module. Every result is given as an id "
-                    "followed by its qualified name, and that id is the only way to use any "
-                    "of the other tools. Call this first, with a qualified name taken from "
-                    "the candidate you are judging. Do not call it with a phrase or a "
-                    f"sentence; a bare identifier matches more. At most {MAX_ROWS} rows are "
-                    "reported."
+                    "Search this repository for parts whose name or path matches a piece of "
+                    "text — a class, a function, a module. Use it only when you do not "
+                    "already know the exact qualified name: the other tools take the name "
+                    "directly, so there is nothing to look up first. Do not call it with a "
+                    "phrase or a sentence; a bare identifier matches more. At most "
+                    f"{MAX_ROWS} rows are reported."
                 ),
                 parameters={
                     "type": "object",
@@ -240,12 +296,28 @@ class AtlasInvestigator:
                     "Describe one part of this repository: what kind of thing it is, where "
                     "it is written, what was measured about it and what the analysis flagged "
                     "on it. Use it when you need to know what something is before deciding "
-                    "what its relationships mean. The node_id must have come from find_code."
+                    "what its relationships mean."
                 ),
                 parameters={
                     "type": "object",
-                    "properties": {"node_id": {"type": "string"}},
-                    "required": ["node_id"],
+                    "properties": {
+                        "qualified_name": {
+                            "type": "string",
+                            "description": (
+                                "The exact qualified name, as the candidate under "
+                                "investigation writes it: 'ports.TaskStore', "
+                                "'adapters.SqliteTaskStore.save'. Not a search term."
+                            ),
+                        },
+                        "kind": {
+                            "type": "string",
+                            "description": (
+                                "Only needed when a name turns out to mean more than one "
+                                "thing; the refusal says so and names the kinds."
+                            ),
+                        },
+                    },
+                    "required": ["qualified_name"],
                     "additionalProperties": False,
                 },
             ),
@@ -257,15 +329,28 @@ class AtlasInvestigator:
                     "or several; 'direct_dependants' and 'known_callers' answer whether "
                     "anything actually uses it; 'related_tests' answers whether it is tested; "
                     "'direct_dependencies' answers what it reaches for. This is the tool that "
-                    "settles most hinges. The node_id must have come from find_code."
+                    "settles most hinges."
                 ),
                 parameters={
                     "type": "object",
                     "properties": {
-                        "node_id": {"type": "string"},
-                        "kind": {"type": "string", "enum": list(_RELATION_KINDS)},
+                        "qualified_name": {
+                            "type": "string",
+                            "description": (
+                                "The exact qualified name, as the candidate under "
+                                "investigation writes it: 'ports.TaskStore'."
+                            ),
+                        },
+                        "relation": {"type": "string", "enum": list(_RELATION_KINDS)},
+                        "kind": {
+                            "type": "string",
+                            "description": (
+                                "Only needed when a name turns out to mean more than one "
+                                "thing; the refusal says so and names the kinds."
+                            ),
+                        },
                     },
-                    "required": ["node_id", "kind"],
+                    "required": ["qualified_name", "relation"],
                     "additionalProperties": False,
                 },
             ),
@@ -275,13 +360,28 @@ class AtlasInvestigator:
                     "Read the source of one part of this repository. Use it only when the "
                     "structure does not settle your question and what the code actually does "
                     "would — not to confirm something a relationship already told you. At "
-                    f"most {MAX_READ_LINES} lines are served. The node_id must have come from "
-                    "find_code."
+                    f"most {MAX_READ_LINES} lines are served."
                 ),
                 parameters={
                     "type": "object",
-                    "properties": {"node_id": {"type": "string"}},
-                    "required": ["node_id"],
+                    "properties": {
+                        "qualified_name": {
+                            "type": "string",
+                            "description": (
+                                "The exact qualified name, as the candidate under "
+                                "investigation writes it: 'ports.TaskStore', "
+                                "'adapters.SqliteTaskStore.save'. Not a search term."
+                            ),
+                        },
+                        "kind": {
+                            "type": "string",
+                            "description": (
+                                "Only needed when a name turns out to mean more than one "
+                                "thing; the refusal says so and names the kinds."
+                            ),
+                        },
+                    },
+                    "required": ["qualified_name"],
                     "additionalProperties": False,
                 },
             ),
@@ -291,7 +391,7 @@ class AtlasInvestigator:
                     "List what the deterministic analysis already flagged across this "
                     "repository, optionally narrowed to particular codes. Use it to find out "
                     "whether the thing you are judging is one instance of something wider. "
-                    "Takes no node id."
+                    "Takes no name."
                 ),
                 parameters={
                     "type": "object",
@@ -333,7 +433,7 @@ class AtlasInvestigator:
         return result
 
     def _answer(self, name: str, arguments: Mapping[str, object]) -> str:
-        if name == _FIND_CODE:
+        if name == _SEARCH_CODE:
             return self._execute(
                 SearchNodesQuery(
                     kind="search_nodes",
@@ -343,21 +443,19 @@ class AtlasInvestigator:
             )
         if name == _DESCRIBE_CODE:
             return self._execute(
-                NodeDetailsQuery(
-                    kind="node_details", node_id=_text_argument(arguments, "node_id")
-                )
+                NodeDetailsQuery(kind="node_details", node_id=self._resolve(arguments))
             )
         if name == _RELATED_CODE:
-            kind = _text_argument(arguments, "kind")
-            if kind not in _RELATION_KINDS:
+            relation = _text_argument(arguments, "relation")
+            if relation not in _RELATION_KINDS:
                 raise _Refused(
-                    f"There is no relationship called {kind!r}. The relationships this "
+                    f"There is no relationship called {relation!r}. The relationships this "
                     f"repository can be asked about are {', '.join(_RELATION_KINDS)}."
                 )
             return self._execute(
                 RelationQuery(
-                    kind=kind,  # pyright: ignore[reportArgumentType]
-                    node_id=_text_argument(arguments, "node_id"),
+                    kind=relation,  # pyright: ignore[reportArgumentType]
+                    node_id=self._resolve(arguments),
                     limit=MAX_ROWS,
                 )
             )
@@ -365,7 +463,7 @@ class AtlasInvestigator:
             return self._execute(
                 SourceExcerptQuery(
                     kind="source_excerpt",
-                    node_id=_text_argument(arguments, "node_id"),
+                    node_id=self._resolve(arguments),
                     max_lines=MAX_READ_LINES,
                 )
             )
@@ -388,7 +486,7 @@ class AtlasInvestigator:
         raise _Refused(f"There is no tool called {name!r}. The tools available are {offered}.")
 
     def _execute(self, query: AtlasQuery) -> str:
-        return _result_text(self._queries.execute(self._atlas, query))
+        return _result_text(self._queries.execute(self._atlas, query), self._names)
 
     @property
     def transcript(self) -> Sequence[RecordedLookup]:

@@ -65,25 +65,6 @@ def _repository(tmp_path: Path) -> Path:
     return root
 
 
-def _node_id(investigator: AtlasInvestigator, qualified_name: str) -> str:
-    """The id `find_code` answers with, which is the only way one ever enters a turn.
-
-    Matched on the whole qualified name rather than the first id in the answer, because a
-    search for `FileSink` finds the class and its methods and the tests that call it, and a
-    relation asked of the wrong one of those answers with nothing and looks like a bug in
-    the relation.
-    """
-
-    answer = investigator.call("find_code", {"name": qualified_name.rsplit(".", 1)[-1]})
-    for line in answer.splitlines():
-        if qualified_name not in line:
-            continue
-        for word in line.replace("(", " ").replace(")", " ").split():
-            if word.startswith("node_"):
-                return word
-    raise AssertionError(f"find_code found no id for {qualified_name!r}:\n{answer}")
-
-
 def _investigator(tmp_path: Path) -> AtlasInvestigator:
     from archcompass.analysis.adapters.ast_analyzer import PythonAstRepositoryAnalyzer
 
@@ -95,21 +76,63 @@ def _investigator(tmp_path: Path) -> AtlasInvestigator:
     return AtlasInvestigator(queries, analysis_atlas(atlas), reference)
 
 
-def test_finding_code_by_name_is_how_a_node_id_enters_the_conversation(
-    tmp_path: Path,
-) -> None:
-    """Every other tool needs an id, and a candidate only ever carries qualified names.
+def test_a_lookup_takes_the_name_the_candidate_already_carries(tmp_path: Path) -> None:
+    """No conversion step. A candidate names `app.ports.Sink`; the tools take that.
 
-    If this stopped matching, nothing else in the toolbox would be reachable — the model
-    would be holding names the atlas does not answer to.
+    This is the whole of the identifier change. Every tool but the search used to want an
+    atlas node id, which only `find_code` handed out — so an investigation could not start
+    without spending a turn turning a name it already had into a handle. Measured on a live
+    run, a model spent its entire six-turn budget discovering that, having reasonably tried
+    the only ids it had been shown.
     """
 
     investigator = _investigator(tmp_path)
 
-    answer = investigator.call("find_code", {"name": "Sink"})
+    described = investigator.call("describe_code", {"qualified_name": "app.ports.Sink"})
+    related = investigator.call(
+        "related_code",
+        {"qualified_name": "app.ports.Sink", "relation": "implementations"},
+    )
 
-    assert "app.ports.Sink" in answer
-    assert any(line.strip().startswith("node_") for line in answer.splitlines())
+    assert "app.ports.Sink" in described
+    assert "app.sinks.FileSink" in related
+
+
+def test_no_lookup_ever_shows_the_model_an_atlas_id(tmp_path: Path) -> None:
+    """The handle is internal, and a result that printed one would teach the old shape."""
+
+    investigator = _investigator(tmp_path)
+
+    answers = [
+        investigator.call("search_code", {"name": "Sink"}),
+        investigator.call("describe_code", {"qualified_name": "app.ports.Sink"}),
+        investigator.call(
+            "related_code",
+            {"qualified_name": "app.ports.Sink", "relation": "implementations"},
+        ),
+    ]
+
+    assert not any("node_" in answer for answer in answers), answers
+
+
+def test_a_name_that_means_two_things_is_refused_with_the_choices(tmp_path: Path) -> None:
+    """A package and its own `__init__.py` are the one real collision, and it is visible.
+
+    Never resolved by picking one: a name that quietly resolves to the wrong node is
+    recorded for ever as a correct lookup, which is exactly what the identifier rule is for.
+    """
+
+    investigator = _investigator(tmp_path)
+
+    answer = investigator.call("describe_code", {"qualified_name": "app"})
+
+    assert "more than one thing" in answer
+    assert "kind=" in answer
+    # And the disambiguator the refusal named actually works.
+    resolved = investigator.call(
+        "describe_code", {"qualified_name": "app", "kind": "package"}
+    )
+    assert "more than one thing" not in resolved
 
 
 def test_a_module_constant_is_findable_through_the_module_that_defines_it(
@@ -120,22 +143,22 @@ def test_a_module_constant_is_findable_through_the_module_that_defines_it(
     Atlas nodes are modules, classes and functions — a module-level constant is none of
     those, so searching node names could not reach one. That is not an edge: a
     `duplicated_knowledge` or `scattered_concept` candidate *is* a constant, and
-    `HINGE_CONTRACT` opens by telling the model to start with `find_code` on a name from
-    the candidate. For every candidate of those two patterns the first lookup the contract
-    asks for answered "0 name/path matches", and the model went on to guess node ids.
-
-    The module is the right answer rather than a near-miss: it is where the constant is
-    defined, and its id is what every other lookup in the toolbox takes.
+    so a candidate of either pattern names something the atlas holds no node for. That is
+    what `search_code` is for, and why the refusal for an unresolvable name points at it:
+    the module is where the constant is defined, and the module *is* a node.
     """
 
     investigator = _investigator(tmp_path)
 
-    answer = investigator.call("find_code", {"name": "BATCH_SIZE"})
+    # The name the candidate carries resolves to nothing, and says what to do about it.
+    refused = investigator.call("describe_code", {"qualified_name": "app.sinks.BATCH_SIZE"})
+    assert "search_code" in refused, refused
+
+    answer = investigator.call("search_code", {"name": "BATCH_SIZE"})
 
     assert "app.sinks" in answer, answer
-    assert any(line.strip().startswith("node_") for line in answer.splitlines())
     # Still a search and not a catch-all: a name nothing defines finds nothing.
-    assert "0 name/path matches" in investigator.call("find_code", {"name": "PAGE_SIZE"})
+    assert "0 name/path matches" in investigator.call("search_code", {"name": "PAGE_SIZE"})
 
 
 def test_a_lookup_is_recorded_whether_or_not_it_answered_anything(tmp_path: Path) -> None:
@@ -147,9 +170,9 @@ def test_a_lookup_is_recorded_whether_or_not_it_answered_anything(tmp_path: Path
 
     investigator = _investigator(tmp_path)
 
-    investigator.call("find_code", {"name": "NothingIsCalledThis"})
+    investigator.call("search_code", {"name": "NothingIsCalledThis"})
 
-    assert [item.tool for item in investigator.transcript] == ["find_code"]
+    assert [item.tool for item in investigator.transcript] == ["search_code"]
     assert investigator.transcript[0].result
 
 
@@ -161,7 +184,7 @@ def test_an_unknown_tool_comes_back_as_a_sentence_naming_the_ones_that_exist(
     answer = investigator.call("grep", {"query": "Sink"})
 
     assert "There is no tool called 'grep'" in answer
-    assert "find_code" in answer
+    assert "search_code" in answer
     assert len(investigator.transcript) == 1
 
 
@@ -170,9 +193,9 @@ def test_an_argument_of_the_wrong_type_is_declined_rather_than_raised(
 ) -> None:
     investigator = _investigator(tmp_path)
 
-    answer = investigator.call("describe_code", {"node_id": None})
+    answer = investigator.call("describe_code", {"qualified_name": None})
 
-    assert "needs a non-empty string 'node_id'" in answer
+    assert "needs a non-empty string 'qualified_name'" in answer
 
 
 def test_an_unknown_relationship_names_the_ones_this_repository_answers_to(
@@ -180,22 +203,30 @@ def test_an_unknown_relationship_names_the_ones_this_repository_answers_to(
 ) -> None:
     investigator = _investigator(tmp_path)
 
-    answer = investigator.call("related_code", {"node_id": "x", "kind": "inherits"})
+    answer = investigator.call(
+        "related_code", {"qualified_name": "app.ports.Sink", "relation": "inherits"}
+    )
 
     assert "There is no relationship called 'inherits'" in answer
     assert "implementations" in answer
 
 
-def test_a_node_id_that_does_not_exist_is_answered_rather_than_raised(
+def test_a_name_that_does_not_exist_is_answered_rather_than_raised(
     tmp_path: Path,
 ) -> None:
-    """A model guessing at an identifier must not be able to fail a review."""
+    """A model guessing at an identifier must not be able to fail a review.
+
+    And the refusal has to say how to recover, not only that it failed. The old one read
+    `Unknown atlas node ID: candidate_b5e4…` — accurate, and useless to the only reader it
+    has. With an agent, the quality of a refusal is a reasoning budget.
+    """
 
     investigator = _investigator(tmp_path)
 
-    answer = investigator.call("describe_code", {"node_id": "node_invented"})
+    answer = investigator.call("describe_code", {"qualified_name": "app.NothingHere"})
 
-    assert answer
+    assert "Nothing in this repository is called 'app.NothingHere'" in answer
+    assert "search_code" in answer
     assert len(investigator.transcript) == 1
 
 
@@ -229,7 +260,7 @@ def test_a_result_larger_than_the_ceiling_says_that_it_was_cut(tmp_path: Path) -
         reference,
     )
 
-    clamped = investigator.call("find_code", {"name": "Sink"})
+    clamped = investigator.call("search_code", {"name": "Sink"})
 
     assert len(clamped) <= MAX_RESULT_CHARACTERS
     assert clamped.endswith(f"cut at {MAX_RESULT_CHARACTERS} characters.")
@@ -244,7 +275,7 @@ def test_the_toolbox_offers_no_way_to_browse_the_whole_repository(
     investigator = _investigator(tmp_path)
 
     assert {spec.name for spec in investigator.tools} == {
-        "find_code",
+        "search_code",
         "describe_code",
         "related_code",
         "read_code",
@@ -282,7 +313,7 @@ def test_the_toolbox_answers_from_the_atlas_it_was_handed(tmp_path: Path) -> Non
 
     offered = AtlasInvestigatorSource(queries).for_review(reference, first)
     assert offered.investigator is not None
-    answer = offered.investigator.call("find_code", {"name": "later"})
+    answer = offered.investigator.call("search_code", {"name": "later"})
 
     assert first.id != second.id
     assert "app.later" not in answer
@@ -294,7 +325,7 @@ def test_the_toolbox_answers_from_the_atlas_it_was_handed(tmp_path: Path) -> Non
 # invented id, a relation that does not exist — because those are the paths that shaped the
 # error messages. The consequence was that three of the five tools had no test that ever saw
 # a real answer, and `related_code`, which `HINGE_CONTRACT` calls the tool that settles most
-# hinges, had none for any of its five kinds. `find_code` then shipped unable to find a
+# hinges, had none for any of its five kinds. The search then shipped unable to find a
 # module constant, which is what two of the three detectors are about, and nothing said so.
 #
 # A tool that returns the wrong thing is worse than one that raises: the model reads it,
@@ -305,9 +336,7 @@ def test_the_toolbox_answers_from_the_atlas_it_was_handed(tmp_path: Path) -> Non
 def test_describing_a_node_answers_with_what_it_is(tmp_path: Path) -> None:
     investigator = _investigator(tmp_path)
 
-    answer = investigator.call(
-        "describe_code", {"node_id": _node_id(investigator, "app.sinks.FileSink")}
-    )
+    answer = investigator.call("describe_code", {"qualified_name": "app.sinks.FileSink"})
 
     assert "app.sinks.FileSink" in answer, answer
 
@@ -320,28 +349,27 @@ def test_related_code_answers_every_relation_it_offers(tmp_path: Path) -> None:
     """
 
     investigator = _investigator(tmp_path)
-    module = _node_id(investigator, "app.sinks")
-    sink = _node_id(investigator, "app.sinks.FileSink")
-    port = _node_id(investigator, "app.ports.Sink")
 
-    def related(node_id: str, kind: str) -> str:
-        return investigator.call("related_code", {"node_id": node_id, "kind": kind})
+    def related(qualified_name: str, relation: str) -> str:
+        return investigator.call(
+            "related_code", {"qualified_name": qualified_name, "relation": relation}
+        )
 
     # Which node answers which relation is not arbitrary and is worth writing down, because
     # nothing in the tool's description says it: an import is a fact about a *module*, so
     # dependencies are asked of the module, while a call is a fact about a *symbol*, so
     # callers are asked of the class. A model that asks the wrong one gets an empty answer
     # that reads exactly like "nothing depends on this".
-    assert "app.ports" in related(module, "direct_dependencies")
-    assert "app.service" in related(module, "direct_dependants")
+    assert "app.ports" in related("app.sinks", "direct_dependencies")
+    assert "app.service" in related("app.sinks", "direct_dependants")
     # Who calls it — the question a sole-implementation hinge usually turns on: whether
     # anything actually uses the thing behind the abstraction.
-    assert "app.service.run" in related(sink, "known_callers")
+    assert "app.service.run" in related("app.sinks.FileSink", "known_callers")
     # What implements the port. The other half of the same hinge: one implementation or
     # several, which is a fact the repository has and a person need not be asked.
-    assert "app.sinks.FileSink" in related(port, "implementations")
+    assert "app.sinks.FileSink" in related("app.ports.Sink", "implementations")
     # Whether it is tested, which is what "is this deliberate" often comes down to.
-    assert "tests.test_sinks" in related(module, "related_tests")
+    assert "tests.test_sinks" in related("app.sinks", "related_tests")
 
 
 def test_reading_code_answers_with_the_source_at_that_node(tmp_path: Path) -> None:
@@ -349,9 +377,7 @@ def test_reading_code_answers_with_the_source_at_that_node(tmp_path: Path) -> No
 
     investigator = _investigator(tmp_path)
 
-    answer = investigator.call(
-        "read_code", {"node_id": _node_id(investigator, "app.sinks.FileSink")}
-    )
+    answer = investigator.call("read_code", {"qualified_name": "app.sinks.FileSink"})
 
     assert "class FileSink" in answer, answer
     assert "def write" in answer, answer
@@ -382,7 +408,7 @@ def test_every_tool_the_toolbox_advertises_is_one_it_can_answer(tmp_path: Path) 
     advertised = {spec.name for spec in investigator.tools}
 
     assert advertised == {
-        "find_code",
+        "search_code",
         "describe_code",
         "related_code",
         "read_code",

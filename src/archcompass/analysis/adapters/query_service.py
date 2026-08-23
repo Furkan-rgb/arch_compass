@@ -114,9 +114,16 @@ class DeterministicAtlasQueryService:
             return AtlasQueryResult(
                 query=query,
                 node_ids=[node.atlas_id],
+                # A sentence, not a serialised profile. This used to append
+                # `profile.model_dump_json()` — every measurement as raw JSON, including the
+                # atlas ids of the node and each of its dependants. Three things wrong with
+                # that at once: it was the last place an internal handle reached a model that
+                # has no tool taking one, it duplicated `metric_values` below in a shape
+                # nothing renders, and on one lookup it was most of a thousand tokens of a
+                # budget that has a size ceiling.
                 summary=(
-                    f"{node.node_type} {node.qualified_name} at {node.path}; "
-                    f"metrics={profile.model_dump_json() if profile else 'unavailable'}"
+                    f"{node.node_type} {node.qualified_name} at {node.path}"
+                    + ("" if profile else "; no measurements were recorded for it")
                 ),
                 node_summaries=self._summaries([node]),
                 metric_values=self._profile_values(profile) if profile else [],

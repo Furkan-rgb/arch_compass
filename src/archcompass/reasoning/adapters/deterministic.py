@@ -245,7 +245,7 @@ class DeterministicHingeInvestigator:
         if investigator is not None:
             names = [item.qualified_name for item in finding.candidate.participants]
             if names:
-                investigator.call("find_code", {"name": names[0].rsplit(".", 1)[-1]})
+                investigator.call("describe_code", {"qualified_name": names[0]})
             investigator.conclude(
                 "The deterministic provider looked, and reports what it was shown.", ""
             )

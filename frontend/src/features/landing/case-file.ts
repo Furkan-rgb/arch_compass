@@ -324,7 +324,7 @@ const INVESTIGATION: Investigation[] = [
     lookups: [
       {
         tool: "related_code",
-        arguments: { node_id: "node_store", kind: "direct_dependants" },
+        arguments: { qualified_name: "adapters.db.Store", relation: "direct_dependants" },
         result: `domain.orders          imports  adapters.db.Store
 reporting.exports      imports  adapters.db.Store
 platform.migrations    imports  adapters.db.Store
@@ -332,9 +332,9 @@ billing.reconcile      imports  adapters.db.Store
 ops.backfill           imports  adapters.db.Store`,
       },
       {
-        tool: "find_code",
+        tool: "search_code",
         arguments: { name: "CODEOWNERS" },
-        result: "no node in the atlas matches that name",
+        result: "0 name/path matches before limiting",
       },
     ],
     closing:
