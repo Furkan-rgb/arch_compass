@@ -54,7 +54,8 @@ load context
   -> detect candidates
   -> calculate delta
   -> retrieve policies and judge each candidate
-  -> check what the repository settles
+  -> look up what the repository says about anything held
+  -> judge those candidates again, with what was found
   -> generate questions
        | settled / CI / limit / early stop
        |   -> seal the case revision

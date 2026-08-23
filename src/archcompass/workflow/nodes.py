@@ -209,9 +209,9 @@ def investigate_hinges_node(investigator: HingeInvestigator) -> Node:
     judgement produces, and before `generate_questions` because a hinge the repository
     settled is not a question worth anybody's interruption.
 
-    It writes back into `findings` under the same keys, so a hinge nothing could settle
-    reaches the generator exactly as it did before this existed — which is why the
-    unresolved path needed no new code anywhere downstream.
+    It writes investigations and nothing else. Findings are `rejudge_investigated`'s to
+    write, which is the whole of why this node is allowed to exist: it establishes facts and
+    has no opinion about them.
     """
 
     def investigate_hinges(state: ReviewState) -> dict[str, object]:

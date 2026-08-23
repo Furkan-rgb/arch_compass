@@ -1,6 +1,6 @@
 """What every route is handed before it runs: a workspace, a deployment's rules, a budget.
 
-Four dependencies and the annotations the routers spell them as. They are module-level
+Five dependencies and the annotations the routers spell them as. They are module-level
 functions on purpose — a dependency named in an annotation is resolved against module
 globals, so one defined inside `create_app` could not be referred to from a route's
 signature at all, and everything they need is read off `app.state` instead.

@@ -58,12 +58,16 @@ a note saying so. The upward widening exists because a constant's recorded span 
 that assigns it while the sentence explaining it sits directly above, and a judge shown the
 assignment alone was deciding with that sentence out of frame.
 
-Findings that came back with a hinge then reach `investigate_hinges`, which gives each one
-a bounded pass of read-only atlas lookups — at most six turns, ten thousand characters of
-findings and eight findings per round — and either settles the verdict, narrows the question,
-or leaves it exactly as it was. Every lookup is recorded on `Review.investigation_manifest`
-and named on the finding by content hash. A hinge nothing settled reaches question generation
-unchanged, which is why that path needed no new code.
+Findings that came back with a hinge then reach `investigate_hinges`, which gives each one a
+bounded pass of read-only atlas lookups — at most twelve lookups, twelve model calls, twelve
+thousand characters of findings, and eight findings per round. It records what it asked and
+what came back, and decides nothing.
+
+`rejudge_investigated` then puts that record back to the same judge, with the same candidate,
+case and retrieved policies, and the judge reaches the verdict. A candidate is only re-judged
+where lookups actually happened; a hinge nothing could look into reaches question generation
+unchanged. Every lookup is recorded on `Review.investigation_manifest` and named on the
+finding by content hash.
 
 `generate_questions` then either settles the review or returns application-identified
 clarifications. When clarification is needed, ArchCompass composes and records an immutable

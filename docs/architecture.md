@@ -76,11 +76,13 @@ lookups first, because many of those questions are ones the repository answers. 
 keep it inside the boundary rather than beside it:
 
 - every lookup is recorded on the review, so nothing a model found is unverifiable;
-- the pass is never shown the policies at all, so a policy bearing cannot be added, moved
-  or invented — there is nothing to cite;
-- the revised finding is built with `dataclasses.replace`, so every field not named is
-  carried untouched: the verdict may only leave `held`, and evidence and policies may not
-  move at all.
+- the pass is shown which policies the judgement said the candidate bears on, by title and
+  strength, but never the policy list itself — so a bearing cannot be added, moved or
+  invented, because there is no identifier to cite;
+- the pass returns a record and nothing else. It reaches no verdict, writes no reasoning and
+  narrows no question. `rejudge_investigated` puts the record back to the same judge, with
+  the same candidate, case and policies, and that judge is the only thing in the system
+  allowed to say what a candidate means.
 
 The candidate set stays entirely deterministic. The detector chooses the work; the
 application chooses which findings get a second look; the model chooses only which questions

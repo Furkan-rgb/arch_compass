@@ -228,10 +228,12 @@ class DeterministicHingeInvestigator:
     """Real lookups, a fixed conclusion.
 
     The lookups are genuine — the same toolbox over the same atlas — because a transcript
-    nothing renders is a transcript nothing checks, and this is the chain every offline
-    test, browser run and local `make web` uses. What is stood in for is only the judgement
-    about them, which follows the deterministic judge's own rule: held while the case says
-    nothing, settled once somebody has answered.
+    nothing renders is a transcript nothing checks, and this is the chain every offline test,
+    browser run and local `make web` uses. What is stood in for is the model driving them:
+    the tools are called from a fixed script rather than chosen.
+
+    Nothing here reaches a verdict, because nothing in this pass does. `DeterministicJudge`
+    decides, once, when the record is put back to it.
     """
 
     def __init__(self, investigators: InvestigatorSource) -> None:

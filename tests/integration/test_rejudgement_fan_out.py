@@ -11,8 +11,9 @@ finding it had been given, plus its own. `merge_mappings` applies those returns 
 order, and every branch but the last therefore had its fresh verdict overwritten by a
 sibling's copy of the stale one.
 
-Two things hid it. `investigate_hinges` runs immediately afterwards and re-judges exactly
-the findings that reverted, so with the lookups on — the default — the round came out right.
+Two things hid it. The hinge pass runs immediately afterwards and re-judges exactly the
+findings that reverted, so with the lookups on — the default — the round came out right.
+(`rejudge_investigated` is what re-judges now; `investigate_hinges` only records lookups.)
 And every graph test in the suite judges a single candidate, which is the one case where a
 branch has no sibling to be overwritten by.
 

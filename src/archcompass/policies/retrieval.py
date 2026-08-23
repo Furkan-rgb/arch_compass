@@ -1,4 +1,13 @@
-"""Stable policy-retrieval result and the minimum production strategy."""
+"""Choosing which policies a candidate is judged against.
+
+`retrieval_query` is the text a candidate and its case are embedded as — the one place that
+decides what retrieval is actually asked. `DensePolicyRetriever` is the shipped strategy:
+mandatory and applicable policies by scope, plus a dense top-K, merged deterministically.
+`RejudgeAllCandidates` is the selector a clarification round uses.
+
+The result type and the contract it satisfies are in `ports.py`, so a strategy can be
+replaced without anything above it noticing.
+"""
 
 from __future__ import annotations
 

@@ -135,10 +135,11 @@ def _investigation_enabled() -> bool:
     configurations the product already supports rather than introducing a third.
 
     It exists because the pass is not free and its value is not uniform. Up to eight held
-    findings, six tool turns each, and a structured call to close every one of them: on a
-    hosted tier that is a rounding error, and on one local GPU it is minutes added to a
-    review before anybody is asked anything. An operator who would rather be asked the
-    question than have it checked first can say so without moving off their model.
+    findings, up to twelve lookups over twelve model calls each, and one further judgement
+    per finding that found something: on a hosted tier that is a rounding error, and on one
+    local GPU it is minutes added to a review before anybody is asked anything. An operator
+    who would rather be asked the question than have it checked first can say so without
+    moving off their model.
     """
 
     return os.environ.get("ARCHCOMPASS_HINGE_INVESTIGATION", "1").strip().lower() not in {

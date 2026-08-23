@@ -132,10 +132,11 @@ def _dispatch_candidates(
         # round-one verdict and the review asked again. The model calls were made and paid
         # for and then thrown away.
         #
-        # It stayed invisible because `investigate_hinges` runs next and re-judges exactly
-        # the findings that reverted, so with the pass on — the default — the round looked
-        # right. That is also why no test caught it: every graph test judges one candidate,
-        # and one candidate is the case this cannot happen in.
+        # It stayed invisible because the hinge pass that runs next re-judged exactly the
+        # findings that reverted, so with the pass on — the default — the round looked right.
+        # (That re-judgement is `rejudge_investigated` now; `investigate_hinges` establishes
+        # facts and writes no findings at all.) It is also why no test caught it: every graph
+        # test judges one candidate, and one candidate is the case this cannot happen in.
         #
         # What the subgraph reads is all that goes: `retrieve_policy_set` needs the
         # candidate, the case and the corpus; `judge_candidate` needs the candidate and the

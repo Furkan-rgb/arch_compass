@@ -155,9 +155,9 @@ class RecordedInvestigation:
     worth answering.
 
     No lookups beside a `withheld` sentence is a real state: nothing could look, and the
-    reader is told why. No lookups beside an `abandoned` sentence is the other one: the
-    looking started and stopped, so the hinge stands unchecked. Empty on every count is
-    never stored.
+    reader is told why. No lookups beside a `termination` is the other one: the looking began
+    and stopped before it asked anything, so the hinge stands unchecked. Empty on every count
+    is never stored.
     """
 
     candidate_id: CandidateId
@@ -166,7 +166,8 @@ class RecordedInvestigation:
     #: cannot hold, which is why it sits beside them rather than among them.
     closing: str = ""
     #: Why no lookup was possible at all — no atlas to ask, a model that cannot call
-    #: tools. Distinct from `abandoned`, which is a looking that began and stopped short.
+    #: tools. The other axis from `termination`, which says how a looking that *began*
+    #: ended; `__post_init__` refuses a record claiming both.
     withheld: str = ""
     #: Why execution stopped. `None` means only that it was not recorded, which is true of
     #: every investigation stored before this field existed — never that the looking ended

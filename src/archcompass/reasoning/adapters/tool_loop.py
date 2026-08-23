@@ -1,16 +1,18 @@
 """The turns a review may spend looking things up, and the record it leaves behind.
 
 A caller gives a model a toolbox and its own question, the model asks the repository, and
-this renders what was asked and what came back as one block of text for the structured call
-that follows. Two caps bound it — how many turns, and how many characters of findings — and
-both exist so an investigation terminates in front of a reader watching a review run.
+what it asked and what came back is recorded as it goes. Four guards bound it, each with one
+job: a lookup budget for how much may be explored, a model-call limit for a loop that will
+not terminate, a size ceiling for an abnormal run, and the transport's own wall clock. Which
+one ended a run is recorded, because "the repository is silent" and "we stopped asking" are
+opposite facts about a hinge.
 
 The loop itself is `langchain.agents.create_agent`. It used to be written out here: sixty
 lines appending replies, pairing tool-call ids onto `ToolMessage`s and counting turns, which
 is the one part of this that is not about ArchCompass at all. What is about ArchCompass is
 everything wrapped around it, and that is what the middleware below holds — the opening turn
-being forced where a vendor has a mode for it, the ceiling on what one investigation may
-record, and a retry that wraps a *turn* rather than the loop.
+being forced where a vendor has a mode for it, the lookup budget and the size ceiling, the
+account of why a run ended, and a retry that wraps a *turn* rather than the loop.
 
 That last one is not a detail. `investigator.call` writes to a transcript as it goes, so
 retrying the loop would record every lookup twice; a rate limit on turn three has to cost a
@@ -157,12 +159,17 @@ def _as_tool(investigator: SourceInvestigator, spec: ToolSpec) -> StructuredTool
 
 
 class _InvestigationBounds(AgentMiddleware[Any, Any]):
-    """The two rules the loop cannot express, and the retry that has to wrap one turn.
+    """The rules the loop cannot express, and the retry that has to wrap one turn.
 
     Middleware rather than a hand-written loop because each of these is a decision about one
     model call, which is exactly the seam `wrap_model_call` is: what the opening turn is
-    allowed to do, whether a refused turn is retried, and whether there is any point asking
-    for another one.
+    allowed to do, whether there is any point asking for another one, and whether a refused
+    turn is retried.
+
+    It also keeps the one thing `ModelCallLimitMiddleware` does not report — why the run
+    ended. That middleware ends a run by appending a message of its own and says so nowhere a
+    caller can read, so exhausting the budget was indistinguishable from a model that had
+    finished asking.
     """
 
     def __init__(self, investigator: SourceInvestigator, *, forced: str | None, subject: str):
@@ -196,13 +203,15 @@ class _InvestigationBounds(AgentMiddleware[Any, Any]):
         # make — a forced call on the last turn is a loop that cannot end.
         if self._turns == 1 and self._forced:
             request.tool_choice = self._forced
-        # Measured over the record rather than over the messages, because the record is what
-        # will be stored and shown, and it is the thing the ceiling exists to bound. Checked
-        # before asking rather than after answering: once the findings are this large there
-        # is nothing a further turn could add that would be kept.
+        # The exploration budget first, because it is the primary bound: a run that has spent
+        # it should say so, not report whichever guard happened to be checked first.
         if len(self._investigator.transcript) >= MAX_INVESTIGATION_LOOKUPS:
             self.termination = Termination.LOOKUP_LIMIT
             return AIMessage("")
+        # Measured over the record rather than over the messages, because the record is what
+        # will be stored and shown, and it is the thing the ceiling exists to bound. Both are
+        # checked before asking rather than after answering: once a run is over either line,
+        # there is nothing a further turn could add that would be kept.
         if self._recorded() >= MAX_INVESTIGATION_CHARACTERS:
             self.termination = Termination.INVESTIGATION_SIZE_LIMIT
             return AIMessage("")

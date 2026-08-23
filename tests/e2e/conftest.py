@@ -73,10 +73,10 @@ SUBJECT_REPOSITORY = Path("examples/cases/speech-vendor/repository")
 #:
 #: Not the same choice as above, and the reason is worth writing down because it is not the
 #: obvious one. What a clarification round needs is a hinge the repository cannot settle —
-#: and `investigate_hinges` is good at settling them. Measured on this model: `speech-vendor`
-#: hinged twice and the lookups resolved both, `warehouse-sync` hinged once and the lookups
-#: resolved it, and both reviews completed in one pass with nothing to answer. That is the
-#: product working, and it leaves the resume path unrun.
+#: and the lookups are good at settling them. Measured on this model: `speech-vendor` hinged
+#: twice and the second judgement cleared both, `warehouse-sync` hinged once and it cleared
+#: that, and both reviews completed in one pass with nothing to answer. That is the product
+#: working, and it leaves the resume path unrun.
 #:
 #: `boundary-review` is six boundaries with one implementation each, and the question it
 #: raises is whether that is deliberate. Intent is not in the source, so the lookups come

@@ -194,9 +194,10 @@ class AtlasInvestigator:
     them — `ports.TaskStore` — and `_resolve` turns that into the id, against this atlas and
     no other. Node ids used to be the model's to carry: `find_code` handed them out and every
     other tool demanded one back, so an investigation could not begin without spending a turn
-    converting a name it already had into a handle. Measured on a live run, a model spent six
-    of its six turns discovering that convention, having reasonably tried the only ids it had
-    been shown. The handle is internal now, which is what it always was.
+    converting a name it already had into a handle. Measured on a live run, a model spent its
+    whole budget of the time — six calls, six spent — discovering that convention, having
+    reasonably tried the only ids it had been shown. The handle is internal now, which is what
+    it always was.
     """
 
     def __init__(

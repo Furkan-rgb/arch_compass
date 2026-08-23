@@ -1,5 +1,15 @@
 # Three design questions — ArchCompass hinge investigation
 
+> **Superseded. All three questions were answered and shipped.** Q1 in `096e52f` (the tools
+> take qualified names; `find_code` is `search_code` and is a fallback), Q3 in `eba7668` (the
+> investigator establishes facts and `ArchitectureJudge` alone decides), Q2 in `8615f48` (a
+> lookup budget of twelve as the primary bound, with the model-call limit above it).
+>
+> Kept for the measurements it carries and the reasoning behind those decisions, **not as a
+> description of the system**. Everything below describes the code as it stood before those
+> commits: `HingeResolutionOutput`, `find_code`, `node_id` arguments and a six-turn cap are
+> all gone. For the current flow read `docs/workflow.md` and `docs/architecture.md`.
+
 Self-contained brief for a second opinion. You do not need the codebase.
 
 ## What the system is

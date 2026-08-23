@@ -1,4 +1,4 @@
-"""Validated analysis-scope boundary records.
+"""Validated analysis-scope boundary records: what the analyser skips, and what a caller
 asked it to skip this time.
 
 Two different kinds of omission live here on purpose. `IGNORED_DIRECTORIES` is a property of

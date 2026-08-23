@@ -85,9 +85,9 @@ describe("the landing page", () => {
   });
 
   /**
-   * `Verdict` has three values and `FindingOutput.material` is a bool, so there is no
-   * magnitude in the domain. Anything on this page that looked like a score would be
-   * asserting a measurement nothing took.
+   * `Verdict` has three values and the judge chooses one of them by name, so there is no
+   * magnitude anywhere in the domain. Anything on this page that looked like a score would
+   * be asserting a measurement nothing took.
    */
   it("shows a verdict as one of three states and never as a score", () => {
     renderLanding();

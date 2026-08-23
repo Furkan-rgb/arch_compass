@@ -13,6 +13,7 @@ START
   -> load_policy_corpus
   -> [retrieve_policy_set -> judge_candidate] x candidate   (or review_candidates, batched)
   -> investigate_hinges
+  -> rejudge_investigated
   -> generate_questions
        | settled / CI / limit / early stop
        |   -> seal_case
@@ -28,6 +29,7 @@ START
            -> select_candidates_for_rejudgement
            -> [retrieve_policy_set -> judge_candidate] x candidate
            -> investigate_hinges
+           -> rejudge_investigated
            -> generate_questions
 ```
 
@@ -36,11 +38,24 @@ or private orchestration loop. Retrieval and judgement are separate nodes in a v
 candidate subgraph.
 
 `investigate_hinges` is unconditional and guards itself. Both judgement paths reach it and
-both leave it for `generate_questions`, so the edge carries no decision — and a conditional
+both leave it for `rejudge_investigated`, so the edge carries no decision — and a conditional
 edge out of a `Send`-fanned node would evaluate its predicate once per branch against that
 branch's state, which is the wrong place to decide something about the whole set of
 findings. Where no model can call tools, or nothing hinged, the node returns before it reads
 a finding.
+
+`rejudge_investigated` is the second judgement, and the reason the pair is two nodes rather
+than one: `investigate_hinges` establishes facts and `ArchitectureJudge` alone decides what
+they mean. It re-judges only the candidates this round investigated *and* whose lookups
+answered something, with the same case and the same retrieved policies as the first
+judgement — nothing about the question changed, so nothing is retrieved again. Answering a
+clarification is the other case, and it revises the case, so it keeps its own path through
+`select_candidates_for_rejudgement`.
+
+It is deliberately not routed through that selector. The edge out of `review_candidate`
+leads back to `investigate_hinges`, so re-entering the fan-out would investigate what was
+just investigated; a dedicated node needs no loop guard and puts "judged, looked, judged
+again" in the graph where it can be read.
 
 `write_synopsis` is the one node that asks the model about the review rather than about a
 candidate: it writes the paragraph the report opens on, from verdicts that are already

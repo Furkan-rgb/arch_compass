@@ -23,7 +23,7 @@ make run
 
 The command builds the frontend, starts the FastAPI application on loopback, and opens the
 browser. `make web` is an equivalent alias. Provider/model selection is stored per
-workspace. A run can be pinned explicitly:
+workspace; a run can be pinned explicitly, which is under **Pinning a model** below.
 
 ## Frontend development loop
 
@@ -36,6 +36,8 @@ application on 8765, and the Vite dev server on 5173 with `/api` proxied to it. 
 component reaches the browser without `pnpm run build`. Open <http://localhost:5173> — 8765
 still answers, with whatever bundle was last built, which in a working tree is stale.
 Only the frontend reloads; a Python change needs `make dev` restarted.
+
+## Pinning a model
 
 ```bash
 uv run archcompass --provider google --model gemini-3.5-flash-lite web
@@ -62,9 +64,10 @@ taking as long as its slowest verdict. Turning it off is what to reach for when 
 refused often enough to be the slower route.
 
 `ARCHCOMPASS_HINGE_INVESTIGATION=0` turns off the read-only lookups a hinged finding gets
-before its question is put to a person. Every held finding otherwise costs up to six tool
-turns and a structured call, which is a rounding error on a hosted tier and minutes on one
-local GPU. Off, the workspace asks its questions the way it did before the pass existed.
+before its question is put to a person. Every held finding otherwise costs up to twelve
+lookups over up to twelve model calls, and one further judgement to weigh what they found —
+a rounding error on a hosted tier and minutes on one local GPU. Off, the workspace asks its
+questions the way it did before the pass existed.
 
 Embedding selection remains independent from reasoning selection:
 `ARCHCOMPASS_EMBEDDING_PROVIDER`, `ARCHCOMPASS_EMBEDDING_MODEL`,
