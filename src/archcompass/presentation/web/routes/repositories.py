@@ -350,17 +350,17 @@ def routes() -> APIRouter:
             root, excluded_paths=request.excluded_paths
         )
         if request.start_clean:
-            case = runtime.case_service.start_from_repository(root)
+            case = runtime.case_service.create()
         elif version.branch_id is not None:
             latest = runtime.review_workflow_service.latest_for_branch(version.branch_id)
             if latest is not None:
                 case = runtime.case_service.show(latest.case.id)
             else:
                 case = runtime.case_service.continue_from_repository(
-                    root, branch_id=version.branch_id
+                    branch_id=version.branch_id
                 )
         else:
-            case = runtime.case_service.continue_from_repository(root, branch_id=None)
+            case = runtime.case_service.continue_from_repository(branch_id=None)
         return StartedCaseResponse(case_id=case.id, revision=case.revision)
 
     @router.get("/api/repositories/hotspots")

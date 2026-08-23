@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from archcompass.domain import (
     ArchitectureCase,
     PolicyContext,
@@ -59,15 +57,19 @@ class ArchitectureCaseService:
             )
         return self._cases.record(case)
 
-    def start_from_repository(self, root: Path) -> ArchitectureCase:
-        # An empty case is the honest starting point. Repository identity is carried
-        # separately, and everything a review needs to know about intent is asked for when
-        # a judgement turns on it rather than demanded up front.
-        return self.create()
+    def continue_from_repository(self, *, branch_id: str | None) -> ArchitectureCase:
+        """The case this branch continues, or a new empty one where it continues nothing.
 
-    def continue_from_repository(
-        self, root: Path, *, branch_id: str | None
-    ) -> ArchitectureCase:
+        The chain rather than the branch alone: a feature branch inherits the case of the
+        branch it came from, so a review of it is judged against what has already been
+        answered rather than starting over.
+
+        An empty case is the honest fallback. Repository identity is carried separately, and
+        everything a review needs to know about intent is asked for when a judgement turns
+        on it rather than demanded up front — which is why this took a repository root for a
+        while and never read it.
+        """
+
         for candidate_branch in _branch_chain(self._lineages, branch_id):
             review = self._reviews.latest_for_branch(candidate_branch)
             if review is None:
@@ -76,7 +78,7 @@ class ArchitectureCaseService:
                 return self._cases.get(review.case.id)
             except CaseNotFoundError:
                 continue
-        return self.start_from_repository(root)
+        return self.create()
 
     def show(self, case_id: str, revision: int | None = None) -> ArchitectureCase:
         return self._cases.get(case_id, revision)
