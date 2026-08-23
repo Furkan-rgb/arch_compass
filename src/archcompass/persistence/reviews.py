@@ -2,60 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from archcompass.domain import RepositoryRef, Review
 from archcompass.domain.errors import ReviewNotFoundError
+from archcompass.persistence.ports import ReviewSummary
 from archcompass.persistence.sqlite.codecs import DataclassRecordCodec
 from archcompass.persistence.sqlite.database import Transaction
-
-
-@dataclass(frozen=True, slots=True)
-class ReviewSummary:
-    """One review as a listing reads it, assembled without opening the review.
-
-    A listing shows a handful of facts about a review, and a stored review is most of a
-    repository's atlas — several megabytes of it. Listing a hundred used to decode a
-    hundred of those documents into a full object graph so that five integers could be
-    counted off it, which is the same work as opening every review at once and then
-    throwing all of them away.
-
-    So this is read out of the stored document by SQLite: the columns where there is a
-    column, `json_extract` and `json_each` where there is not, and the blob never enters
-    Python at all. `repository` is the real domain record because every field of it is one
-    `json_extract` away and a listing already knows how to render one.
-
-    Deliberately not a `Review` with the expensive fields left empty. A record that says it
-    is a review and has no findings would eventually be handed to something that needs
-    them, and would answer that there are none.
-    """
-
-    id: str
-    sequence: int
-    round: int
-    status: str
-    repository: RepositoryRef
-    case_id: str
-    case_revision: int
-    started_at: datetime
-    finished_at: datetime | None = None
-    previous_review_id: str | None = None
-    #: How many questions this review's case has answers on. A revision number says which
-    #: case a run will continue and not how much is in it, and "continues revision 4" with no
-    #: second number is the same sentence for a case somebody has filled in and one that was
-    #: opened and never answered.
-    answer_count: int = 0
-    finding_count: int = 0
-    material_count: int = 0
-    held_count: int = 0
-    cleared_count: int = 0
-    question_count: int = 0
-    unchanged_count: int = 0
-    changed_count: int = 0
-    new_count: int = 0
-    addressed_count: int = 0
 
 
 class SQLiteCoreReviewRepository:

@@ -22,7 +22,7 @@ from archcompass.domain import (
     Termination,
 )
 from archcompass.domain.errors import ReviewHasNoReportError
-from archcompass.persistence.reviews import ReviewSummary
+from archcompass.persistence.ports import ReviewSummary
 from archcompass.presentation.web.dependencies import RuntimeDep, SpendsModelBudget
 from archcompass.presentation.web.schemas import APIModel, problem_responses
 from archcompass.workflow.runs import RunState

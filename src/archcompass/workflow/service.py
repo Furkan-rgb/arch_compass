@@ -32,8 +32,7 @@ from archcompass.domain.errors import (
     ReviewSupersededError,
 )
 from archcompass.persistence.executions import ExecutionRecord
-from archcompass.persistence.ports import CaseSnapshots
-from archcompass.persistence.reviews import ReviewSummary
+from archcompass.persistence.ports import CaseSnapshots, ReviewSummary
 from archcompass.workflow.runs import ReviewRunner, RunState
 from archcompass.workflow.state import ReviewInput, ReviewState
 
