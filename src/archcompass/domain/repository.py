@@ -5,6 +5,12 @@ from pathlib import Path
 
 from archcompass.domain._support import require_text, stable_id
 
+#: The branch a run is attributed to when git will not name one. A detached HEAD is the
+#: ordinary shape of a CI checkout, and a non-git directory has no branches at all; neither
+#: is a reason to leave a run unattached, because then the first CI run of a repository would
+#: share nothing with the workspace runs of the same repository. `main` is a guess, and it is
+#: a guess the caller can always override by naming the branch explicitly — which is what CI
+#: does, since the branch is in the environment even when it is not in the working tree.
 DEFAULT_BRANCH_NAME = "main"
 
 

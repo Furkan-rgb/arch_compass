@@ -22,14 +22,12 @@ and that `selected.py` is now about one thing.
 from __future__ import annotations
 
 from dataclasses import replace
-from hashlib import sha256
 
 from archcompass.domain import (
     ArchitectureCase,
     Candidate,
     CaseFacet,
     Finding,
-    Policy,
     Question,
     RepositoryAtlas,
     RepositoryRef,
@@ -39,10 +37,9 @@ from archcompass.domain import (
 )
 from archcompass.ports.capabilities import InvestigatedFinding, ReviewSynopsis
 from archcompass.ports.policy_retrieval import (
-    PolicySelection,
-    RetrievalProvenance,
     RetrievedPolicySet,
 )
+from archcompass.reasoning.adapters.providers import DETERMINISTIC_MODEL
 from archcompass.reasoning.adapters.tool_loop import recorded_investigation
 from archcompass.reasoning.ports import ConversationAnswer, ConversationMessage, InvestigatorSource
 from archcompass.reasoning.records import DETERMINISTIC_JUDGE_PROMPT_IDENTITY
@@ -50,11 +47,12 @@ from archcompass.reasoning.records import DETERMINISTIC_JUDGE_PROMPT_IDENTITY
 #: The model name this chain reports itself as. One string, because it reaches a `Finding`,
 #: a `ReviewSynopsis`, a `ConversationAnswer` and an investigation record, and those four
 #: are compared against each other by the delta calculator.
-DETERMINISTIC_MODEL_IDENTITY = "fake:deterministic-architecture-v4"
-
-#: What retrieval answers with here, named so a reader of a stored review can tell at a
-#: glance that no index was consulted.
-FULL_CORPUS_RETRIEVER = "full-corpus-test-oracle"
+#:
+#: Derived rather than written out. The branches this replaced each said `f"fake:{config.model}"`,
+#: and spelling the model here instead would agree with `DETERMINISTIC_MODEL` only for as long
+#: as nobody bumps it — after which every stamp says the old name and the delta calculator
+#: reports a moved model for every candidate of every review.
+DETERMINISTIC_MODEL_IDENTITY = f"fake:{DETERMINISTIC_MODEL}"
 
 
 class DeterministicJudge:
@@ -277,39 +275,4 @@ class DeterministicHingeInvestigator:
                 investigation_identity=identity,
             ),
             record,
-        )
-
-
-class FullCorpusRetriever:
-    """Every policy, in a stable order, with provenance that says so.
-
-    An oracle rather than a retriever: it embeds nothing and consults no index, which is
-    what lets `make check` run without a model or a key. Its provenance names itself so a
-    stored review cannot be mistaken for one that actually retrieved — and so the
-    end-to-end suites, which assert that retrieval *selected* from the corpus rather than
-    handing all of it over, fail rather than pass if they are ever pointed at this.
-    """
-
-    def retrieve(
-        self,
-        candidate: Candidate,
-        case: ArchitectureCase,
-        corpus: tuple[Policy, ...],
-    ) -> RetrievedPolicySet:
-        del case
-        chosen = tuple(sorted(corpus, key=lambda policy: policy.id))
-        fingerprint = sha256(
-            "\0".join(policy.content_hash for policy in chosen).encode()
-        ).hexdigest()[:24]
-        return RetrievedPolicySet(
-            candidate_id=str(candidate.id),
-            selections=tuple(PolicySelection(policy) for policy in chosen),
-            provenance=RetrievalProvenance(
-                candidate_id=candidate.id,
-                retriever=FULL_CORPUS_RETRIEVER,
-                version="1",
-                corpus_fingerprint=fingerprint,
-                selected_policy_ids=tuple(policy.id for policy in chosen),
-                query_fingerprint=sha256(str(candidate.id).encode()).hexdigest()[:24],
-            ),
         )

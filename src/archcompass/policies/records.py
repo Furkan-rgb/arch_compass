@@ -32,24 +32,6 @@ class PolicySource(BoundaryDTO):
     inspiration: list[str] = Field(default_factory=list[str])
 
 
-class PolicyApplicabilityContext(BoundaryDTO):
-    """Subjects in whose context scoped policies may be retrieved."""
-
-    user: str | None = None
-    organisation: str | None = None
-    repository: str | None = None
-
-    @field_validator("user", "organisation", "repository")
-    @classmethod
-    def normalize_subject(cls, subject: str | None) -> str | None:
-        if subject is None:
-            return None
-        normalized = subject.strip()
-        if not normalized:
-            raise ValueError("Policy applicability subjects must be nonempty")
-        return normalized
-
-
 class PolicyDocument(BoundaryDTO):
     schema_version: Literal[2] = 2
     id: str

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
 from pathlib import Path
+from threading import Lock
 
 from pydantic import BaseModel
 
@@ -94,9 +95,14 @@ class DataclassRepositoryAnalyzer:
 
 #: The last atlases parsed back out of their stored strings, newest last.
 #:
-#: Keyed on `RepositoryAtlas.id`, which is derived from the repository's content — so two
-#: entries under one key are the same atlas and the cache can never answer with another
-#: repository's structure.
+#: Keyed on `RepositoryAtlas.id`, which is the `AtlasVersion.version_id` a fresh analysis
+#: mints — a new id per analysis, never derived from content. That is what makes the key
+#: safe: two entries under one key are the same analysis of the same checkout, so the cache
+#: cannot answer with another repository's structure. Deriving the key from content instead
+#: would *break* that, because `_parse_atlas` reads `root_path`, `branch_id` and
+#: `git_commit_sha` off `atlas.repository` and none of them is in the key — two checkouts of
+#: one commit at two paths would share an entry and the second caller would be handed the
+#: first one's paths.
 #:
 #: It exists because the round trip is not once. `analyze_repository` serialises the atlas
 #: and the very next node deserialises it; `AtlasInvestigatorSource.for_review` does it
@@ -104,6 +110,14 @@ class DataclassRepositoryAnalyzer:
 #: of the finished review. Nine full parses of the largest object in the system, per review,
 #: for a representation `domain/atlas.py` calls an intentional migration boundary.
 _PARSED: dict[str, Atlas] = {}
+
+#: Held for every read and every write of `_PARSED`, because it is one dict for the process
+#: and the process runs reviews on their own threads (`workflow/runs.py`) while serving
+#: conversations on request threads. Evicting under `while len(_PARSED) >= 2: pop(next(iter(
+#: _PARSED)))` from two threads at once raises `dictionary changed size during iteration` out
+#: of an analysis node, which `ReviewRunner` reports as a failed review — a cache turning a
+#: working review into a failed one, which is the one thing a cache must never do.
+_PARSED_LOCK = Lock()
 
 
 def analysis_atlas(atlas: RepositoryAtlas) -> Atlas:
@@ -120,17 +134,22 @@ def analysis_atlas(atlas: RepositoryAtlas) -> Atlas:
     the one judged.
     """
 
-    cached = _PARSED.get(atlas.id)
+    with _PARSED_LOCK:
+        cached = _PARSED.get(atlas.id)
     if cached is not None:
         return cached
+    # Parsed outside the lock: it is the expensive part, and two threads parsing the same
+    # atlas once each is cheaper than every other thread waiting on the first. Whichever
+    # finishes second overwrites an equal value.
     parsed = _parse_atlas(atlas)
-    # Two entries, and the number is the point rather than a round figure. One review holds
-    # one atlas, and the only reason to hold a second is a conversation about an earlier
-    # review answered while a new one runs. A larger cache would be the checkpoint memory
-    # problem with a sibling: this object is the largest in the system.
-    while len(_PARSED) >= 2:
-        _PARSED.pop(next(iter(_PARSED)))
-    _PARSED[atlas.id] = parsed
+    with _PARSED_LOCK:
+        # Two entries, and the number is the point rather than a round figure. One review
+        # holds one atlas, and the only reason to hold a second is a conversation about an
+        # earlier review answered while a new one runs. A larger cache would be the
+        # checkpoint memory problem with a sibling: this object is the largest in the system.
+        while len(_PARSED) >= 2:
+            _PARSED.pop(next(iter(_PARSED)))
+        _PARSED[atlas.id] = parsed
     return parsed
 
 
