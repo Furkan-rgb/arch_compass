@@ -37,12 +37,17 @@ PolicyRetriever -> selected Policies -+
                      Question -> Answer       no
                               |                |
                     ArchitectureCase           v
-                       revision             Review
+                       revision             Review ------> next ReviewDelta
                                                |
-                                        StandingDecision
-                                               |
-                                        next ReviewDelta
+                                               v
+                                       StandingDecision
+                                     (filed under branch
+                                       and candidate)
 ```
+
+`StandingDecision` hangs off to the side deliberately. The delta never reads one — a team's
+disposition is not an input to the next judgement — and it is filed under branch and
+candidate so it outlives the finding that raised it.
 
 LangGraph owns workflow orchestration. LangChain supplies model and retrieval infrastructure.
 ArchCompass owns the domain — stdlib dataclasses, no vendor types, no persistence records.
@@ -60,16 +65,21 @@ cd frontend && pnpm install --frozen-lockfile && cd ..
 make run
 ```
 
-`make run` builds the frontend, serves it on loopback and opens a browser. Pick a provider
-and model on the Models screen, or pin one for a single run:
+`make run` builds the frontend, serves it on loopback and opens a browser. The Models screen
+asks for **two** independent choices — which model judges and which model embeds — and a
+review needs a policy index built for the embedding one. The index that ships was built with
+Google's `gemini-embedding-2` at 3,072 dimensions; any other embedder needs
+`scripts/build_policy_index.py` run for it first.
+
+Pin a reasoning model for a single run instead:
 
 ```bash
 uv run archcompass --provider google --model gemini-3.5-flash-lite web
 uv run archcompass --provider ollama --model qwen3.8:27b web
 ```
 
-Google, Ollama, Groq and Cerebras are supported for judging; Google and Ollama also serve
-embeddings, and the two selections are independent. Everything about running it — the CLI,
+Google, Ollama, Groq and Cerebras are supported for judging; only Google and Ollama serve
+embeddings, so a run judging on Groq or Cerebras still embeds through one of those two. Everything about running it — the CLI,
 the frontend loop, every environment variable, every limit — is in
 **[docs/operations.md](docs/operations.md)**.
 
@@ -83,15 +93,20 @@ which policies are put to a model. Provenance and immutable snapshots.
 
 ## What the model does
 
-Judges one application-selected candidate against one application-selected policy set, and
-says which of `material`, `cleared` and `held` it is — a word it chooses, never one the
+Judges one application-selected candidate against one application-selected policy set — and
+after the first review, only the changed and the new candidates are put to it at all; a
+finding for an unchanged candidate is carried out of the previous review.
+
+It says which of `material`, `cleared` and `held` it is — a word it chooses, never one the
 application reads out of its prose. Explains the verdict and which policies it bears on.
 Proposes clarification questions through a validated structured response.
 
 And, for a finding whose verdict turns on a fact — a *hinge* — it may put bounded, recorded,
 read-only questions to the repository before anyone is interrupted: structure from the atlas
-the review judged and source from the commit it judged, never from whatever is checked out
-now. That pass establishes facts and reaches no verdict. What it found goes back to the same
+the review judged, and source read out of the commit that atlas recorded rather than out of
+whatever is checked out now. (Where there is no revision to read, it falls back to the
+working tree, and only after a check that the tree still is what was judged.) That pass
+establishes facts and reaches no verdict. What it found goes back to the same
 judge, and every lookup it made is kept on the review and shown beneath the finding.
 
 The model never chooses which candidates are reviewed, and never owns an identifier, a

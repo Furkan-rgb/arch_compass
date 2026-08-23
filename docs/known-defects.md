@@ -7,7 +7,7 @@ to find them again. Each one names the evidence it rests on and carries a status
 - **PARTLY FIXED** — the sharp edge is gone, something named below is not.
 
 A fault that is fully fixed leaves this file, and so does one that turns out not to exist.
-Everything here was re-verified against the code on 2026-08-22.
+Everything here was re-verified against the code on 2026-08-24, claim by claim.
 
 ## OPEN — the one-review-one-sequence rule has no schema behind it
 
@@ -16,11 +16,17 @@ Migration `003_one_revision_per_review.sql` rebuilt `core_review_snapshots` with
 constraint is `review_id PRIMARY KEY`, and `SQLiteCoreReviewRepository.record` defeats even
 that with `ON CONFLICT(review_id) DO NOTHING` followed by a read of whatever row is there.
 
-Review ids are `stable_id` over branch, atlas, case, revision, round and status, so two
-reviews of an unchanged repository compose the *same* id — and the second silently receives
-the first one's findings. `executions.bind` then sets `current_review_id` to an id another row
-already holds, which raises an uncaught `IntegrityError` against
-`UNIQUE(current_review_id)`.
+Review ids are `stable_id` over branch, **atlas**, case, revision, round and status. The
+atlas component is `AtlasVersion.version_id`, a fresh `new_id("atlas")` uuid minted by every
+analysis and never derived from content — so two reviews of an unchanged repository do *not*
+compose the same id, and the collision this entry was first written about is not reachable by
+that route. What remains is that nothing in the schema says it could not happen: if two
+reviews ever do compose one id, `ON CONFLICT(review_id) DO NOTHING` followed by a read of
+whatever row is there means the second silently receives the first one's findings, and
+`executions.bind` then writes a `current_review_id` another row already holds. That surfaces
+as a `PersistenceError` wrapping `UNIQUE constraint failed: review_executions.current_review_id`,
+not as an uncaught `IntegrityError` — the database layer wraps every `sqlite3.Error` — but it
+is still unguarded and still lands mid-review.
 
 Nothing anywhere checks that a review's `case.revision` exists in `core_case_snapshots`.
 
@@ -73,8 +79,8 @@ There is a better version of it next door. **The repository is parsed twice per 
 `/start` builds and persists an atlas, and then the graph's `analyze_repository` node parses
 the same root under the same scope again and keeps the result only in graph state. Resolve the
 lineage from git alone — `resolve_repository_lineage` needs only the root commit and the
-canonical root, `resolve_branch_lineage` only the branch name, and `GitCommandLineClient`
-already reads both — and move the *atlas build* into the graph as a new first node. All three
+canonical root, and `resolve_branch_lineage` needs that lineage plus a branch name, which
+`GitCommandLineClient.describe` already reads — and move the *atlas build* into the graph as a new first node. All three
 ids stay available at `_begin`, so the execution row, the run listing, the sequence and the run
 page are untouched; no migration is needed; parsing becomes the run's first visible,
 cancellable stage; and a whole parse is removed rather than relocated.
@@ -92,13 +98,14 @@ The peak is lower than when this was written and the entry's number predates the
 candidates from 21 MB of `__pregel_tasks` to 1.3 MB (`workflow/graph.py:199`). That bounds the
 fan-out, not the state each superstep writes, which is what this entry is about.
 
-## PARTLY FIXED — `Label` still has two dozen hand-rolled copies
+## PARTLY FIXED — `Label` still has twenty-two hand-rolled copies
 
-The drift is fixed — the five different tracking values are gone — but twenty-four
+The drift is fixed — the five different tracking values are gone — but twenty-two
 mono-variant copies of the recipe remain in `features/atlas/**`, `components/ui/select.tsx`,
 `features/landing/specimen.tsx`, `ui/brand.tsx`, `features/landing/exhibit.tsx` and
 `features/review/atlas-surface.tsx`. `ui/design-system.test.ts` carries this as an `it.todo`
-so it stays visible.
+so it stays visible — though that test's own comment is staler than this entry: it says
+"twenty-one times across fourteen files" and names ten files that now carry none.
 
 ## OPEN — dead surface that has not been removed yet
 
@@ -138,12 +145,47 @@ Google-batch-refused fallback, where the descriptor's value is 1
 Nothing is broken by this; a reader is. Either the name should say what it bounds, or the
 concurrent path should be the one those providers actually take.
 
-## OPEN — the documented retrieval gate cannot be run from a checkout
+## OPEN — the batch path joins verdicts to candidates by list position
 
-`archcompass retrieval evaluate --from <file>` (`presentation/cli/app.py:100`) declares
-`exists=True` on its argument, and no reference-results file is committed anywhere in the
-repository. The command is a maintainer's step over results they hold privately, which is a
-legitimate design, but there is no fixture, no example and no schema doc — so the only way to
-learn the file's shape is to read `RetrievalEvaluationFile` (`app.py:84`).
+`GoogleBatchJudge` submits one inlined request per candidate carrying
+`metadata={"key": "candidate-{index}"}` (`reasoning/adapters/google_batch.py:234`), and the
+comment at `:48-51` calls it "the key a response is correlated back to its candidate by".
 
-Unrelated to `make evaluation`, which is the notebook harness and does run.
+Nothing reads it back. `_responses` (`:252-268`) length-checks the array and returns it;
+`judge_all` (`:193-196`) then pairs `responses[index]` with `requests[index]`; and
+`workflow/nodes.py:240` carries that pairing forward with `zip(requests, findings,
+strict=True)`. The correlation key is written and never fastened.
+
+This rests entirely on the Gemini Batch API returning inline responses in submission order.
+It may well do — the comment says "the position is what the inline API preserves anyway" — and
+no misordering has been observed. But it is the exact failure the product's own rule exists to
+prevent, one layer below the model: an in-range but wrong position resolves to the wrong
+candidate and is recorded, immutably, as a correct verdict. There is a submitted key that
+would settle it and no code that looks at it.
+
+## OPEN — evicting a session runtime can fail a review that is still running
+
+In hosted mode `SessionRuntimeProvider.acquire` evicts the least recently used runtime with
+`popitem(last=False)` once `ARCHCOMPASS_SESSION_CACHE` is exceeded
+(`presentation/web/runtimes.py:118-124`). The comment says it loses nothing, because the
+workspace stays on disk and only a handle is dropped.
+
+A handle is not all that can be in flight. A background review runs on a thread inside that
+runtime's `ReviewWorkflowService`; dropping the dictionary entry does not stop the thread.
+When that session's next request rebuilds the runtime, `_open` calls
+`_abandon_interrupted_reviews` (`:136, :228-237`), which marks every row still `running` as
+failed and releases its checkpoints — against a review that is at that moment still
+executing.
+
+Reaching it needs more than 32 concurrent sessions with one of the evicted ones mid-review,
+so it is unlikely on the current deployment. The eviction comment asserting that nothing is
+lost is what makes it worth writing down.
+
+## OPEN — `SourceArchiveService.validated_address` has no callers
+
+`repositories/sources.py:158`. Its docstring says it is "asked before anything is written to
+disk". Nothing asks it — zero call sites in `src/`, `tests/` or `frontend/`.
+
+Same character as `safe_workspace_output_path` above, and the same question applies: an
+unwired input check that a reader will assume is guarding the fetch path is worse than no
+check at all. Confirm it was deliberately unwired before removing it.

@@ -18,6 +18,11 @@ For type-aware edge resolution, add the optional pinned mypy adapter:
 uv sync --locked --extra resolution
 ```
 
+This is not cosmetic. It resolves `implements` edges by type rather than by name, and the
+sole-implementation detector keys on exactly those — so installing it changes which
+candidates a repository has, and therefore which findings a review produces. Whether it is
+installed is decided by whether the import succeeds; there is no flag.
+
 ## Running it
 
 ```bash
@@ -75,9 +80,14 @@ Only Google is asked for every candidate at once. Every other provider — Ollam
 Cerebras — takes the graph's per-candidate `Send` fan-out, and how many of those run
 together is LangGraph's business, not a setting here.
 
-Embedding selection is independent of reasoning selection, and changing the embedding model
-creates a different content-addressed index namespace. Existing review provenance is
-unchanged by it.
+Embedding selection is independent of reasoning selection: two choices, both required, and
+the Models screen offers them separately. Changing the embedding model creates a different
+content-addressed index namespace, and existing review provenance is unchanged by it.
+
+The index that ships was built for Google's `gemini-embedding-2` at 3,072 dimensions. Any
+other embedder needs its own index built first — `scripts/build_policy_index.py`, which
+`make policy-index` runs — and a review is refused before it spends anything on reasoning
+when the selected embedder has no index that applies.
 
 ## Environment variables
 
@@ -116,9 +126,11 @@ one and the workspace stops choosing an embedding model for itself.
 
 Booleans accept `0`, `false`, `no` and `off` for the off state; anything else is on.
 
-`ARCHCOMPASS_GOOGLE_BATCH=0` is what to reach for when batches are refused often enough to
-be the slower route — a batch is metered once rather than per candidate, at the cost of
-taking as long as its slowest verdict.
+`ARCHCOMPASS_GOOGLE_BATCH=0` stops the workspace trying a batch on Google at all. A batch is
+metered against its own quota rather than per candidate, at the cost of taking as long as its
+slowest verdict, so it is the right default. Turn it off for a key that will never be
+eligible: a refusal is remembered for seven days and then costs another rejected submission
+when it ages out.
 
 `ARCHCOMPASS_MODEL_CONCURRENT_REQUESTS` reaches exactly one path: the loop
 `SelectedLangChainJudge` falls back to when a Google batch is refused. Nothing else reads it.
@@ -156,15 +168,29 @@ none of these can affect one.
 | `ARCHCOMPASS_MAX_PYTHON_MB` | `12` | most Python one repository may bring — the binding limit |
 | `ARCHCOMPASS_MAX_NODES` | `8000` | most atlas nodes, at roughly 40 KB each |
 
-`ARCHCOMPASS_SOURCE_HOSTS` can only narrow the hosts the fetcher was built for. A new host
-needs a URL shape written into the adapter, so it is a code change and not a variable.
+`create_hosted_app` refuses to start on three things, not one, and all three are deliberate —
+a misconfiguration that waits to be discovered is discovered by visitors, one bad review at a
+time:
+
+1. `ARCHCOMPASS_HOSTED` unset or `0`.
+2. No embedding pin, or a prebuilt index that does not match the pin. The hosted demo must
+   serve every visitor the same index, so `ARCHCOMPASS_EMBEDDING_*` is required there and
+   `verify(PREBUILT_INDEX, ...)` is run before the app exists.
+3. Any enabled provider whose `api_key_env` is empty — by descriptor, not by naming Google.
+   Narrow `ARCHCOMPASS_PROVIDERS` instead of leaving a key unset.
+
+`ARCHCOMPASS_SOURCE_HOSTS` can only narrow the hosts the fetcher was built for; an unknown
+name is refused at startup too. A new host needs a URL shape written into the adapter, so it
+is a code change and not a variable.
 
 The size limits are sized against a 1 GiB container together: 250 MB of source plus an
 analysis peaking near 400 MB at the node cap. Raise them with the container's memory, not on
 their own.
 
-`Dockerfile` sets `ARCHCOMPASS_HOSTED=1`, and `.github/workflows/deploy.yml` sets the rest
-for the Cloud Run deployment.
+`Dockerfile` sets `ARCHCOMPASS_HOSTED=1`. `.github/workflows/deploy.yml` sets nine of these
+for the Cloud Run deployment — the two run caps, the two fetch caps, `SOURCE_HOSTS`,
+`PROVIDERS` and the three embedding pins — and leaves the six size limits on their code
+defaults.
 
 ## Verification
 
@@ -185,19 +211,26 @@ These are **not** in `make check` and will not tell you they are broken:
 | `make test-ollama` | a running Ollama with the models installed |
 | `make test-google` | `GOOGLE_API_KEY` |
 | `make test-browser` | Playwright browsers |
-| `make examples` | nothing, but it is slow |
 | `make evaluation` | the `evaluation` dependency group; executes the notebook in place |
 
 `make full` is `check`, `test-ollama` and `build`.
 
+`make examples` is **not** a gated suite despite looking like one. `pytest`'s default marker
+filter deselects `ollama`, `google` and `browser` and nothing else, so the `examples` tests
+already run inside `make check`; the target is a way of running only those, not a way of
+running ones `check` skipped.
+
+`make evaluation` is the exception that is genuinely outside: it needs the `evaluation`
+dependency group and a local Ollama with `embeddinggemma`, and it executes the notebook in
+place.
+
 The retrieval gate reads a recorded reference run and picks the smallest K that passes:
 
 ```bash
-uv run archcompass retrieval evaluate --from <recorded-results>.yaml
+make evaluation      # writes evaluation/results/evaluation.yaml, among other things
+uv run archcompass retrieval evaluate --from evaluation/results/evaluation.yaml
 ```
 
-**No such file is in the repository**, and `--from` requires one to exist, so this command
-cannot be run from a fresh checkout. It is a maintainer's step over results they produced;
-the measurement apparatus that produces them is `make evaluation` and
-[evaluation/README.md](../evaluation/README.md). See
-[policy-retrieval.md](policy-retrieval.md) for the gate's thresholds.
+`--from` requires the file to exist and `evaluation/results/` is not committed, so the run
+comes first. See [policy-retrieval.md](policy-retrieval.md) for the gate's thresholds and
+[evaluation/README.md](../evaluation/README.md) for the harness.

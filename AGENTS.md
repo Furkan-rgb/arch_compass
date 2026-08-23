@@ -16,8 +16,8 @@ decides nothing in either direction.
 ## Structure
 
 - Follow feature ownership: `domain`, `analysis`, `policies`, `reasoning`, `workflow`,
-  `persistence`, `repositories`, `presentation`, `ports`. A feature's vendor code lives in
-  its own `adapters/`.
+  `persistence`, `repositories`, `presentation`, `ports`. Where a feature has vendor code it
+  lives in that feature's own `adapters/` — four of them do; the rest reach nothing vendored.
 - **Never create a generic bucket** — no `common.py`, `helpers.py`, `utils.py`, `misc.py`,
   `implementations.py`, `defaults.py`. If a symbol has no obvious owner, that is information
   about the symbol. Only the top-level `adapters/`, `application/` and `boundary/` names are
@@ -33,6 +33,9 @@ decides nothing in either direction.
 ## The model
 
 - **The application decides what to examine. The model decides what it means.**
+- Two surfaces let a model choose what it looks at — the hinge investigation and a review
+  conversation — and both are bounded, read-only and fully recorded. A third would need the
+  same bargain.
 - A model may *name* something the application holds. It may never index into a list the
   application built: an out-of-range ordinal is fatal and an in-range wrong one is recorded
   for ever as correct. Unrecognised names are visibly refused or dropped.
@@ -74,8 +77,11 @@ decides nothing in either direction.
 frontend suite. Green before every commit.
 
 Gated suites are not in `make check` and will not tell you they are broken:
-`make test-ollama`, `make test-google`, `make test-browser`, `make examples`. Run the
+`make test-ollama`, `make test-google`, `make test-browser`, `make evaluation`. Run the
 relevant one when you touch what it covers.
+
+`make examples` is not one of them — those tests already run inside `make check`, because
+pytest's default filter deselects only `ollama`, `google` and `browser`.
 
 A test that cannot fail is worse than no test. If you are unsure yours can, break the code
 deliberately and watch it fail.

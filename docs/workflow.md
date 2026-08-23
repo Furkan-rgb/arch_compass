@@ -43,6 +43,11 @@ START
                  -> investigate_hinges -> rejudge_investigated -> generate_questions
 ```
 
+After the first review, `select_initial_candidates` sends only the changed and the new to a
+model; a finding for an unchanged candidate is carried out of the previous review untouched,
+and a review of a branch where nothing moved raises `NothingToReviewError` instead of being
+charged for.
+
 Candidate work is exposed to LangGraph through `Send`; no node hides a thread pool or a
 private orchestration loop. Retrieval and judgement are separate nodes in a visible
 candidate subgraph, so a reader can see that a candidate is judged against policies chosen
@@ -64,9 +69,18 @@ and `cleared` may not carry one, because they are answers rather than questions.
 ## The hinge investigation
 
 A hinge stops the review to ask a person, and many hinges are questions the repository can
-answer for itself. So before anybody is interrupted, `investigate_hinges` gives each held
-finding a bounded, recorded pass of read-only lookups over the atlas the review analysed and
-the source at the revision that produced it.
+answer for itself. So `investigate_hinges` gives each held finding a bounded, recorded pass
+of read-only lookups over the atlas the review analysed and the source at the revision that
+produced it.
+
+The edge is unconditional, so the pass also runs where nobody will be asked anything — a CI
+run, and the third round, which seals. There it is not saving an interruption; it is
+improving the verdict a review ends on, which is the other half of what it is for.
+
+"The source at the revision" has one fallback. `read_code` asks git for the file at the
+atlas's commit; where there is no revision to read — an unversioned directory, or a commit
+git no longer holds — it reads the working tree instead, and only after a freshness check
+confirms the tree still is what was judged.
 
 **It establishes facts and decides nothing.** It returns a `RecordedInvestigation` — every
 lookup, its arguments and the exact answer — and writes no findings at all. It is shown
@@ -77,9 +91,15 @@ could cite and nothing to validate.
 `rejudge_investigated` then puts that record back to the **same judge**, with the same
 candidate, the same case and the same retrieved policies. Nothing about the question changed,
 so nothing is retrieved again. A candidate is re-judged only if it has a record, that record
-has at least one lookup, and this round retrieved for it — so an investigation that was
+has at least one lookup, and **this round** retrieved for it — so an investigation that was
 withheld, or that could not ask anything, leaves the judge with exactly the inputs it had the
 first time, and the finding it already reached stands.
+
+The round condition is the load-bearing one. `investigations` is a merged mapping that
+accumulates across rounds and is never cleared, so reading all of it re-judged candidates the
+current round had already settled, against a record from before the answers arrived, and
+stamped the result with that older record's identity. Scoping to `selected_candidates` and to
+this round's retrievals is what stops that.
 
 The judge sees three named blocks and they are three kinds of thing:
 
@@ -171,9 +191,11 @@ Two stores, and they are never the same record.
 it is parked on, in `review-checkpoints.db`. They exist so a resume continues the same
 attempt rather than starting a new one, and they are released when a review reaches an end.
 
-**Reviews** are product history: immutable snapshots in the workspace database, sequenced per
-branch and case, each naming the one before it. A checkpoint id is never a review id; the
-execution store maps between them.
+**Reviews** are product history: immutable snapshots in the workspace database, sequenced
+**per branch** — a review of a different case continues the branch's number line rather than
+starting one — each naming the one before it. Every snapshot of a single review shares its
+number, and `round` separates them. A checkpoint id is never a review id; the execution store
+maps between them.
 
 A run's *stage* is held in memory and is worth nothing after the process that ran it. The
 durable status — running, awaiting answers, completed, failed, cancelled — is the execution

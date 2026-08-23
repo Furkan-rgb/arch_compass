@@ -21,11 +21,16 @@ and what matches nothing is refused or dropped.
 
 `test_no_model_output_schema_asks_for_a_place_in_one_of_our_lists` is the guard: it sweeps
 every Pydantic model under `reasoning/` and fails on a field named or suffixed `position`,
-`index`, `indices` or `ordinal`. The two halves of "refused or dropped" are both real and
+`positions`, `index`, `indexes`, `indices` or `ordinal`. The two halves of "refused or dropped" are both real and
 they are different acts — an unresolvable name in an investigation lookup comes back to the
 model as a refusal naming the recovery step, while a policy the judge cites but was never
 shown is logged and dropped, because a citation is a record of why and losing one weakens
 that record where raising would destroy a review already paid for.
+
+One join in the system is *not* made by matching a name, and it is worth knowing about
+because it is the same failure one layer down: the Google batch path pairs
+`responses[index]` with `requests[index]` positionally. It submits a correlation key with
+each request and never reads it back. See [known-defects.md](known-defects.md).
 
 ## The concepts
 
@@ -48,16 +53,31 @@ Policy -----------------------+
                                                     (branch + candidate)
 ```
 
-**`RepositoryAtlas`** is objective structure — modules, classes, functions, and the imports,
-calls and implements edges between them — derived deterministically at one revision. It is
-never a model's opinion.
+**`RepositoryAtlas`** is structure derived deterministically at one revision, never a
+model's opinion: ten node kinds from repository down to test function, and eight edge kinds —
+`contains`, `imports`, `calls`, `inherits`, `implements`, `references`, `tests`, `configures`
+— alongside metrics, module facts and signals. In the domain it is five tuples of
+canonical-JSON strings rather than typed records, a migration boundary its own comment names;
+anything that wants to *query* it validates them first.
+
+"Objective" has one qualification the code makes itself: a metric declares its own
+`MetricNature`, `MEASUREMENT` or `STRUCTURAL_PROXY`, because some of them stand in for
+structure rather than measuring it.
 
 **`Candidate`** is a structural pattern a detector found and thinks is worth judging. Three
 detectors cover both directions a boundary can be wrong: an indirection hiding nothing,
 knowledge with no owner, a concept escaped its package.
 
-**`ArchitectureCase`** carries human intent, and only that: the answers a person gave to
-questions a review asked. It once carried a free-text goal, then hand-authored constraints
+Detection runs over the whole repository every review; *judgement* does not. After the first
+review only the changed and the new reach a model, and a finding for an unchanged candidate
+is carried verbatim out of the previous review. A second review of a repository where
+nothing moved is refused outright rather than charged for.
+
+**`ArchitectureCase`** carries the answers a person gave to questions a review asked, and
+one other thing: `policy_context`, which scopes *which policies are retrievable* for a user,
+an organisation or a repository. That is not intent — it is the one field on the case a
+person still sets directly, and it gates the scoped and required retrieval lanes. Intent
+itself is answers. It once carried a free-text goal, then hand-authored constraints
 and decisions; both were removed for the same reason. They were demanded before anyone had
 seen a finding, so they were almost always blank, and where they were written they restated
 the policies in a form nothing could retrieve against. Intent now enters when something
@@ -110,19 +130,32 @@ Pydantic, LangChain, LangGraph, FastAPI, SQLite, a provider SDK, or any other fe
 The heaviest edges are all inward:
 
 ```text
-reasoning    -> domain  20     reasoning -> ports        9
-workflow     -> domain  20     workflow  -> ports        6
-persistence  -> domain  17     workflow  -> persistence  4
-policies     -> domain  13     policies  -> reasoning    3   (embeddings are a model concern)
-analysis     -> domain  11     analysis  -> reasoning    1   (the investigation contract)
-presentation -> domain  11     ports     -> domain       3
+reasoning    -> domain  15     reasoning -> ports        5
+persistence  -> domain  14     workflow  -> ports        5
+policies     -> domain  10     persistence -> repositories 4
+analysis     -> domain  10     workflow  -> persistence  3
+workflow     -> domain   9     analysis  -> persistence  3
+presentation -> domain   7     policies  -> reasoning    3   (embeddings are a model concern)
+repositories -> domain   7     analysis  -> reasoning    1   (the investigation contract)
 ```
 
-Measured by AST over `src/archcompass`, counting modules rather than import statements.
+Measured by AST over `src/archcompass`: how many modules in the left package import from the
+right one. `bootstrap.py` is included, and it is the one module allowed to reach anywhere.
 
-`presentation/` reaches features through their services and never through their `adapters/`.
-`bootstrap.py` is the one module whose job is choosing implementations, and it is exempt from
-that rule because that is what a composition root is.
+Inward is not the same as acyclic, and this graph is not a layer cake. `analysis` and
+`persistence` import each other — persistence stores atlases and so is typed in analysis's
+records, while analysis reads them back. That is a cycle between two packages and it is
+deliberate; what the tree buys is that a *feature* is one place, not that the arrows form a
+tree.
+
+Routes reach features through their services and never through their `adapters/` — a guard
+sweeps all of `presentation/web/` for it. Three modules are exempt and all three build a
+runtime out of adapters, which is the job: `bootstrap.py`, the composition root; and
+`presentation/web/{runtimes,hosted}.py`, which are composition roots for a session and for
+the hosted app. Everything else under `presentation/` may see a service and nothing lower.
+
+Only four features have an `adapters/` at all — `analysis`, `policies`, `reasoning`,
+`repositories`. The rest reach nothing vendored.
 
 ## Boundaries that are there for a reason
 
@@ -190,6 +223,11 @@ A checkpoint id is never a review id. Domain lineage is repository and branch id
 sequence number, and `previous_review_id`. Checkpoints are released when a review ends;
 reviews are immutable and kept.
 
+The sequence is **per branch**, not per branch and case: it is `previous.sequence + 1` off
+the branch's latest review, so a review of a different case continues the branch's number
+line rather than starting one. Every snapshot of one review shares that number — each round
+it waited in, and the record it finished as — and `round` is what separates them.
+
 Two details of that boundary are easy to break silently. **Every dataclass a checkpoint can
 hold must be in `CHECKPOINT_RECORD_TYPES`** — anything unlisted comes back from
 `JsonPlusSerializer` as a raw dict, and no workflow test would notice because they all use
@@ -218,9 +256,11 @@ model is chosen while the process is running: the same graph judges through a ba
 afternoon and through Ollama this evening.
 
 **The finding cache keys on identities that must agree.** Model identity, prompt identity,
-retrieval identity and — since the second judgement exists — the investigation's identity. If
-the two sides of any of those ever disagree, every candidate of every review reports
-`ChangeCause.PROMPT` for ever. They are each computed in exactly one place for that reason.
+retrieval identity and — since the second judgement exists — the investigation's identity.
+Each is compared against what the previous review recorded, and a disagreement is permanent
+rather than transient: model identity makes every candidate report `ChangeCause.MODEL` for
+ever, prompt identity `ChangeCause.PROMPT`, retrieval `ChangeCause.POLICIES` per candidate.
+They are each computed in exactly one place for that reason.
 
 **`InvestigationLookup` is deliberately not the port's `RecordedLookup`.** One is a domain
 record on an immutable review; the other is the live transcript a loop is writing.

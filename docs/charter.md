@@ -53,10 +53,18 @@ candidate carries pinned source excerpts, measurements that state their own natu
 limits, and a detection rationale. The model is given evidence and asked what it means. It
 is never asked what a verdict should rest on.
 
-The one exception proves the rule rather than bending it. A judgement about to stop the
-review and ask a person may first put read-only questions to the repository, because a
-question the code already answers is not worth an interruption — and it is permitted only
-because every lookup is recorded and shown. It changes whether to ask, never what was found.
+There are two places a model is allowed to choose what it looks at, and both are the same
+bargain. A judgement that would stop the review and ask a person may first put read-only
+questions to the repository, because a question the code already answers is not worth an
+interruption; and a reader asking a follow-up about a finished review is answered through the
+same toolbox. Both are permitted only because every lookup is recorded with its arguments and
+its answer, and shown.
+
+What that pass may do is bounded precisely. It changes whether a question is asked, and it
+may change the verdict — but only by handing what it found back to the same judge, which
+decides again with the policies in front of it. It never writes a lookup into the evidence a
+finding rests on. Evidence is the detector's; observations are the model's; they are recorded
+apart and a reader can see which is which.
 
 **2. The machine assembles, the model judges, the person decides.** These are three
 different jobs and ArchCompass keeps them visibly apart. Deterministic code owns identity,
@@ -80,8 +88,8 @@ in prose and raised on the rest destroyed reviews that had already judged every 
 `tests/unit/test_boundaries.py` sweeps the model schemas and fails on a field that asks for a
 place in a list.
 
-**3. A review is a record, not a message.** Reviews are immutable and sequenced per branch
-and case. That is what makes the second review meaningful: it can be compared with the
+**3. A review is a record, not a message.** Reviews are immutable and sequenced per branch —
+one number line a branch keeps whatever case is being reviewed against. That is what makes the second review meaningful: it can be compared with the
 first, candidates can be tracked through succession, and "we already decided this" survives
 a rerun. A tool whose output is disposable cannot accumulate trust.
 
@@ -127,7 +135,8 @@ turns on something the repository cannot answer says so, in its hinge.
 
 **Ask rather than assume.** When a judgement depends on context that is not in the code,
 ArchCompass stops and asks a person. Answers are recorded on the case revision the
-asking review opened, and the affected candidates are judged again. This is a feature,
+asking review opened, and every candidate is judged again — unless the answers were submitted
+with "stop", which records them and finishes the review without another round. This is a feature,
 not a failure — a confident wrong answer is worth less than an honest question.
 
 The corollary is that ArchCompass does not demand context up front. A case starts empty and
@@ -140,8 +149,10 @@ on the menu.** The model proposes the answers it thinks likely, and the interfac
 offers writing your own and skipping the question outright. A proposed answer is a shortcut,
 never a closed set.
 
-**A colour never carries meaning alone.** Every verdict has a glyph, a word and a hue. The
-hue is the last of the three, not the first.
+**A colour never carries meaning alone.** Every verdict has a glyph and a word. Only one of
+the three still has a hue: `material` is the accent red, and `held` and `cleared` gave theirs
+up for weight, because three colours competing on one screen taught a reader to read the
+colour first.
 
 **Nothing is inferred on a person's behalf.** A skipped question is recorded as skipped. An
 unanswered one is not guessed at. Explicit unknowns are more useful than implied knowledge.
@@ -176,7 +187,9 @@ Written down so that nobody mistakes an unsettled question for a settled one.
 
 - **Rejudgement scope.** Every extant candidate is rejudged after a case revision, because
   an answer is about intent and intent bears on all of them. That is a correctness-first
-  starting point, not a proven rule, and it is the expensive choice.
+  starting point, not a proven rule, and it is the expensive choice — note that it is the
+  *opposite* of what a first-round review does, where only changed and new candidates reach
+  a model at all.
 - **Retrieval strategy.** Dense top-K plus scoped and required policies is the current
   default. The provenance record is deliberately generic so a hybrid or graph retriever can
   replace it without touching the domain.
