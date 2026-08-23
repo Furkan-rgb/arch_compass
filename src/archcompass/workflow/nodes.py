@@ -220,10 +220,19 @@ def investigate_hinges_node(investigator: HingeInvestigator) -> Node:
         # Ordered by the candidate list rather than by the findings mapping, like every
         # other node that reads it: two runs over one review must investigate the same
         # findings in the same order, and a dict's order is whichever branch finished first.
+        #
+        # Narrowed to what this round judged. `candidates` includes findings carried
+        # unchanged from the previous review (`delta.unchanged`), and a carried finding's
+        # hinge passes this filter while nothing in this round retrieved policies for it —
+        # so it was investigated, could not then be re-judged, and its record reached the
+        # reader attached to a verdict it had never been weighed against. Investigating
+        # exactly what can be re-judged keeps the two passes over one set.
+        judged_here = {str(candidate.id) for candidate in state["selected_candidates"]}
         held = [
             (str(candidate.id), state["findings"][str(candidate.id)])
             for candidate in state["candidates"]
-            if str(candidate.id) in state["findings"]
+            if str(candidate.id) in judged_here
+            and str(candidate.id) in state["findings"]
             and state["findings"][str(candidate.id)].hinge
         ][:MAX_INVESTIGATED_FINDINGS]
         if not held:
@@ -272,11 +281,18 @@ def rejudge_investigated_node(judge: ArchitectureJudge) -> Node:
     withheld before it began, or that failed before its first lookup, leaves the judge with
     exactly the inputs it had the first time, and asking it again would spend a model call to
     be told the same thing. Derived from the record rather than flagged on it.
+
+    And only for candidates this round judged. Both mappings read here outlive a round, so
+    reading either one whole reaches back into an earlier one.
     """
 
     def rejudge_investigated(state: ReviewState) -> dict[str, object]:
         findings: dict[str, Finding] = {}
-        for candidate in state["candidates"]:
+        # This round's work only. `investigations` accumulates across rounds — it is a merged
+        # mapping seeded once and never cleared — so reading all of it re-judged candidates
+        # the current round had already settled, against a record from before the answers
+        # arrived, and stamped the result with that older record's identity.
+        for candidate in state["selected_candidates"]:
             candidate_id = str(candidate.id)
             record = state["investigations"].get(candidate_id)
             retrieval = state["retrievals"].get(candidate_id)

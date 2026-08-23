@@ -25,7 +25,7 @@ import pytest
 from archcompass.analysis.investigation import AtlasInvestigatorSource
 from archcompass.bootstrap import Runtime
 from archcompass.configuration import EmbeddingModelConfig
-from archcompass.domain import Verdict
+from archcompass.domain import Termination, Verdict
 from archcompass.reasoning.adapters.factory import embedding_identity
 from archcompass.reasoning.adapters.selected import (
     SelectedLangChainChatModel,
@@ -214,8 +214,12 @@ def test_a_hinge_is_checked_against_this_repository_by_this_model(
 
     Everything offline drives this through a stub or the deterministic provider, so nothing
     else establishes that a model on this machine chooses lookups the toolbox accepts, that
-    what it chose survives onto the record, or that its closing answer fits
-    `HingeResolutionOutput` — which is three cross-field rules no JSON schema can carry.
+    what it chose survives onto the record, and that the record says why the looking ended.
+
+    What it no longer establishes is a verdict, because this pass does not reach one. It
+    collects facts; `rejudge_investigated` puts them to the judge. So the assertions here are
+    about the record, and the finding handed in is returned untouched by construction — there
+    is nothing to return it through.
 
     The hinge is put onto a finding the review actually produced rather than invented
     alongside one. A hinge is this capability's input by definition: what is under test is
@@ -241,11 +245,10 @@ def test_a_hinge_is_checked_against_this_repository_by_this_model(
     # that is a run where the model could not honour the contract finishing green with an
     # empty manifest. This is the one place that price is not paid: a model on this machine
     # has no quota to blame, so anything it raises is the defect.
-    investigated = investigator.investigate(
+    record = investigator.investigate(
         held, review.case, repository=review.repository, atlas=review.atlas
     )
 
-    record = investigated.investigation
     assert record is not None, "a live model with a real toolbox recorded nothing"
     assert record.candidate_id == str(held.candidate.id)
     # `withheld` is the sentence the toolbox returns when there was nothing to look at — an
@@ -254,17 +257,19 @@ def test_a_hinge_is_checked_against_this_repository_by_this_model(
     # a single tool, and every assertion below is then satisfied by a record that describes
     # nothing happening. This test exists to prove a live model chose lookups.
     assert not record.withheld, f"nothing was looked at: {record.withheld}"
-    assert not record.abandoned, f"the loop gave up: {record.abandoned}"
     assert record.lookups, "a live model with a real toolbox made no lookup"
-    # `closing` is deliberately not asserted. It is filled only when the model stops with a
-    # turn that has no tool calls; a model that spends all six turns looking things up ends
-    # the loop on the ceiling instead, which is a legitimate investigation with an empty
-    # closing. What has to be there is the lookups and the resolution that follows them.
+    # Why the looking ended, always, and never left to be guessed at. A run that spent its
+    # last allowed call on one more lookup and a run that spent it writing a conclusion both
+    # end with the budget at zero, and only the first was cut short.
+    assert record.termination is not None, "a live investigation recorded no termination"
+    assert record.termination is not Termination.PROVIDER_ERROR, (
+        f"the provider stopped answering: {record.closing}"
+    )
     # A lookup nobody can repeat is the unverifiable evidence the charter refuses, so every
     # call keeps the arguments it was made with alongside what came back — and names a tool
     # the toolbox actually offers rather than one the model imagined.
     offered = {
-        "find_code",
+        "search_code",
         "describe_code",
         "related_code",
         "read_code",
@@ -273,34 +278,15 @@ def test_a_hinge_is_checked_against_this_repository_by_this_model(
     for lookup in record.lookups:
         assert lookup.tool in offered, f"a recorded lookup named {lookup.tool!r}"
         assert lookup.result, "a recorded lookup kept no answer"
+    # The handle stays the application's. Every tool takes a qualified name now, and a result
+    # that printed an atlas id would be teaching a shape nothing accepts.
+    for lookup in record.lookups:
+        assert "node_" not in lookup.result, f"an atlas id reached the model: {lookup.tool}"
     assert record.atlas_fingerprint == review.repository.content_id
     assert record.model_identity.startswith("ollama:")
-
-    # Whichever way it went, the finding that comes back is a coherent one. Settling is not
-    # the goal — "I checked and the repository is silent" is as good an answer — so what is
-    # asserted is that the two outcomes are the two the domain allows, and that the finding
-    # names the record a reader can open.
-    result = investigated.finding
-    assert result.investigation_identity == record.identity
-    # The record and the finding are shown side by side in the workbench, so they have to
-    # agree about what happened: a record that says it settled the hinge beside a finding
-    # that is still hinged is two accounts of one investigation.
-    assert record.resolved == (result.hinge is None)
-    if record.resolved:
-        assert result.hinge is None, "a resolved hinge is still hinged"
-        assert result.verdict in {Verdict.MATERIAL, Verdict.CLEARED}
-        assert result.reasoning.strip()
-        assert result.reasoning != held.reasoning, (
-            "the verdict moved but the reasoning behind it is the one from before the "
-            "lookups, so nothing the investigation found reached the finding"
-        )
-    else:
-        # Deliberately not the post-conditions `_apply` sets by construction — those cannot
-        # fail. What is asserted is that the record and the finding agree about what
-        # happened, and that the reader is left with a question rather than a hole.
-        assert result.verdict is Verdict.HELD
-        assert result.hinge, "an unresolved hinge lost the question it was standing in for"
-        assert not result.recommended_response
+    # The library's own "limits exceeded" message is not the model's prose, and a reader is
+    # shown `closing` as the model's account of what it found.
+    assert "limits exceeded" not in record.closing
 
 
 def test_questions_ground_in_candidates_the_application_identified(

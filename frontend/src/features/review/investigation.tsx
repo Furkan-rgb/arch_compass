@@ -44,9 +44,7 @@ function resultExtent(result: string): string {
 const ENDINGS: Record<string, string> = {
   natural_end: "the pass stopped looking",
   model_call_limit: "cut short: no turns left",
-  lookup_limit: "cut short: no lookups left",
   investigation_size_limit: "cut short: too much gathered",
-  timeout: "cut short: out of time",
   provider_error: "cut short: the model stopped answering",
 };
 
@@ -68,7 +66,12 @@ function ending(termination: string | null | undefined): string {
  */
 export function investigationSummary(investigation: Investigation): string {
   if (!investigation.lookups.length) {
-    return investigation.withheld ? "nothing could be looked up" : "no lookup was made";
+    if (investigation.withheld) return "nothing could be looked up";
+    // Cut short before it asked anything, which is not the same as having asked and found
+    // nothing — and the old wording ("no lookup was made") read like a choice.
+    return investigation.termination && investigation.termination !== "natural_end"
+      ? ending(investigation.termination)
+      : "no lookup was made";
   }
   const counted = plural(investigation.lookups.length, "lookup");
   if (!investigation.candidate_id) return counted;
@@ -114,7 +117,7 @@ export function InvestigationTranscript({ investigation }: { investigation: Inve
           {investigation.withheld}
         </p>
       ) : null}
-      {investigation.lookups.length && investigation.termination !== "natural_end" ? (
+      {investigation.termination && investigation.termination !== "natural_end" ? (
         /* Said whether or not it was recorded, and said differently. A reader weighing a
            verdict needs to know the difference between "the repository is silent" and "we
            stopped asking" — and, for a review from before this was kept, that nobody knows. */

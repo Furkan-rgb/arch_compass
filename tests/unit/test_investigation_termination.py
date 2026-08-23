@@ -15,7 +15,10 @@ import ast
 from pathlib import Path
 
 import pytest
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage
 
+from archcompass.analysis.investigation import AtlasInvestigator
 from archcompass.domain import (
     CandidateId,
     InvestigationLookup,
@@ -24,6 +27,38 @@ from archcompass.domain import (
 )
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2] / "src" / "archcompass"
+
+
+class _NoQueries:
+    """A query service that answers every lookup the same way, so the record is the subject."""
+
+    def execute(self, atlas: object, query: object) -> object:
+        from archcompass.analysis.atlas import AtlasQueryResult
+
+        del atlas
+        return AtlasQueryResult(query=query, summary="nothing")  # type: ignore[arg-type]
+
+
+class _Nothing:
+    """A `SourceInvestigator` with an empty transcript, for the bounds tests."""
+
+    @property
+    def transcript(self) -> tuple[object, ...]:
+        return ()
+
+
+_NOTHING = _Nothing()
+
+
+def _atlas_and_repository():  # type: ignore[no-untyped-def]
+    from archcompass.analysis.analyzer import analysis_atlas
+    from archcompass.domain import RepositoryAtlas, RepositoryRef
+
+    repository = RepositoryRef("repo", Path("/tmp/repo").resolve(), "branch", "content")
+    return analysis_atlas(RepositoryAtlas("atlas_1", repository)), repository
+
+
+_EMPTY_ATLAS, _REPOSITORY = _atlas_and_repository()
 
 
 def _conclude_calls() -> list[tuple[Path, ast.Call]]:
@@ -45,13 +80,65 @@ def _conclude_calls() -> list[tuple[Path, ast.Call]]:
     return found
 
 
-def test_every_way_an_investigation_ends_names_a_termination() -> None:
-    """A future refactor cannot start writing records with no reason for stopping.
+def test_a_concluded_investigation_carries_its_termination_onto_the_record() -> None:
+    """The whole path from the setter to the stored record, in one assertion.
 
-    Asserted over the source rather than by running each path, because the paths that matter
-    are the ones that are hard to reach on purpose — a provider that stops answering, a size
-    ceiling, an exhausted turn budget. A test that only covered the reachable ones would pass
-    while the interesting exits went back to being indistinguishable.
+    This is the test the AST sweep below cannot be. That sweep audits *callers*; deleting
+    `self._termination = termination` from the one implementation, or dropping the
+    derivation in `investigate_with_tools`, leaves every caller looking correct and every
+    live investigation recording `None` — and both mutations pass a full suite and pyright.
+    What catches them is asking the thing that stores the record what it stored.
+    """
+
+    from archcompass.reasoning.adapters.tool_loop import recorded_investigation
+
+    investigator = AtlasInvestigator(_NoQueries(), _EMPTY_ATLAS, _REPOSITORY)
+    investigator.call("flagged_signals", {})
+    investigator.conclude("what I found", Termination.MODEL_CALL_LIMIT)
+
+    record = recorded_investigation(investigator, candidate_id="candidate_1")
+
+    assert record is not None
+    assert record.termination is Termination.MODEL_CALL_LIMIT
+
+
+def test_a_run_the_budget_cut_short_is_told_apart_from_one_that_finished() -> None:
+    """Six calls spent on lookups and six spent reaching a conclusion are different runs.
+
+    `ModelCallLimitMiddleware` refuses in `before_model`, so the turn it cuts off never
+    reaches this middleware — the counter reads the same either way. Counting alone reported
+    a model that used its last allowed call to write a conclusion as truncated, which tells
+    the judge to treat a complete search as partial.
+    """
+
+    from archcompass.reasoning.adapters.tool_loop import (
+        MAX_INVESTIGATION_TURNS,
+        _InvestigationBounds,
+    )
+
+    bounds = _InvestigationBounds(_NOTHING, forced=None, subject="a test")
+    bounds._turns = MAX_INVESTIGATION_TURNS
+
+    bounds.asked_for_more = True
+    assert bounds.was_cut_off(), "a run stopped mid-lookup is a truncation"
+
+    bounds.asked_for_more = False
+    assert not bounds.was_cut_off(), (
+        "a model that spent its last call concluding reached its own end"
+    )
+
+    bounds._turns = MAX_INVESTIGATION_TURNS - 1
+    bounds.asked_for_more = True
+    assert not bounds.was_cut_off(), "budget left means nothing cut it off"
+
+
+def test_every_way_an_investigation_ends_names_a_termination() -> None:
+    """A second, cheaper net: no call site may pass a constant where a state belongs.
+
+    Weaker than the test above and kept for what it covers that no single run can — every
+    call site at once, including the ones that are hard to reach on purpose. It is not a
+    substitute: a caller passing a computed name satisfies it, so the behavioural test above
+    is what actually holds the path together.
     """
 
     calls = _conclude_calls()
@@ -60,11 +147,9 @@ def test_every_way_an_investigation_ends_names_a_termination() -> None:
     terminations = {member.name for member in Termination}
     for path, call in calls:
         where = f"{path.relative_to(SOURCE_ROOT)}:{call.lineno}"
-        assert len(call.args) >= 2, f"{where} concludes without saying why it stopped"
-        reason = call.args[1]
-        # Either a `Termination.X` literal, or a name the enclosing function computed — both
-        # are typed, and the type is what forbids `None`. What is refused is a literal `None`
-        # or an empty string, which is what the field held before it was a state.
+        keyword = next((k.value for k in call.keywords if k.arg == "termination"), None)
+        reason = keyword or (call.args[1] if len(call.args) >= 2 else None)
+        assert reason is not None, f"{where} concludes without saying why it stopped"
         if isinstance(reason, ast.Constant):
             raise AssertionError(f"{where} concludes with the constant {reason.value!r}")
         if isinstance(reason, ast.Attribute):
@@ -177,3 +262,188 @@ def test_the_investigating_models_own_prose_never_reaches_the_judge() -> None:
 
     assert "deliberate" not in rendered
     assert "not material" not in rendered
+
+
+class _Scripted(GenericFakeChatModel):
+    """A model that answers a fixed script, so a whole tool loop can be driven offline.
+
+    `GenericFakeChatModel` is LangChain's own, and `bind_tools` on it is a no-op that keeps
+    the agent buildable — which is all this needs. What is under test is the loop's account
+    of why it stopped, not the model.
+    """
+
+    def bind_tools(self, tools, **kwargs):  # type: ignore[no-untyped-def, override]
+        del tools, kwargs
+        return self
+
+
+def _drive(turns: list[AIMessage]) -> tuple[str, Termination]:
+    """Run one real `investigate_with_tools` over a scripted model, and read the record."""
+
+    from archcompass.reasoning.adapters.tool_loop import investigate_with_tools
+
+    investigator = AtlasInvestigator(_NoQueries(), _EMPTY_ATLAS, _REPOSITORY)
+    investigate_with_tools(
+        _Scripted(messages=iter(turns)),
+        investigator,
+        system="look things up",
+        opening="a finding",
+        subject="a test",
+        force_first=False,
+    )
+    assert investigator.termination is not None
+    return investigator.closing, investigator.termination
+
+
+def _lookup_turn() -> AIMessage:
+    return AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "flagged_signals", "args": {}, "id": "call_1", "type": "tool_call"}
+        ],
+    )
+
+
+def test_a_model_that_stops_asking_ends_naturally() -> None:
+    """The ordinary end, and the one no counter can recognise on its own."""
+
+    closing, termination = _drive([_lookup_turn(), AIMessage(content="I have what I need.")])
+
+    assert termination is Termination.NATURAL_END
+    assert closing == "I have what I need."
+
+
+def test_a_model_still_looking_when_the_budget_runs_out_is_cut_short() -> None:
+    """Every allowed call spent on a lookup: the run was stopped, it did not stop."""
+
+    from archcompass.reasoning.adapters.tool_loop import MAX_INVESTIGATION_TURNS
+
+    closing, termination = _drive([_lookup_turn()] * (MAX_INVESTIGATION_TURNS + 2))
+
+    assert termination is Termination.MODEL_CALL_LIMIT
+    # And the library's own "Model call limits exceeded" message is not kept as the model's
+    # prose. `closing` is shown to a reader as what the pass made of its findings, and
+    # `_closing_text` cannot tell a middleware's synthetic message from a conclusion.
+    assert closing == "", f"a library message was stored as the model's own: {closing!r}"
+
+
+def test_a_model_concluding_on_its_last_allowed_call_is_not_a_truncation() -> None:
+    """The case the turn counter alone gets wrong, and the reason it is not the counter.
+
+    Six calls where the last is a conclusion, and six where the last is a lookup, leave the
+    counter reading exactly the same. Reporting the first as truncated tells the judge to
+    treat a search that finished as partial.
+    """
+
+    from archcompass.reasoning.adapters.tool_loop import MAX_INVESTIGATION_TURNS
+
+    turns = [_lookup_turn()] * (MAX_INVESTIGATION_TURNS - 1)
+    closing, termination = _drive([*turns, AIMessage(content="Enough.")])
+
+    assert termination is Termination.NATURAL_END
+    assert closing == "Enough."
+
+
+def test_the_second_judgement_is_not_a_cache_hit_on_the_first() -> None:
+    """The one way this whole refactor could have been a silent no-op.
+
+    A candidate is judged twice: once on its evidence, and again on what its hinge
+    investigation established. Both calls carry the same candidate, the same case and the
+    same retrieval — so a key built from those three is identical, the second call is a hit
+    on the first, and the judge that was supposed to weigh the observations is never asked.
+    The verdict returned would be the one reached before anything was looked up.
+
+    Two different investigations must part too, or one candidate's second judgement is
+    served another's.
+    """
+
+    from archcompass.domain import ArchitectureCase, Candidate, Participant
+    from archcompass.ports.policy_retrieval import RetrievalProvenance, RetrievedPolicySet
+    from archcompass.reasoning.cache import CachingArchitectureJudge
+
+    candidate = Candidate.identified(
+        pattern="sole_implementation",
+        summary="Port has one implementation",
+        participants=(Participant("Port", "interface"),),
+    )
+    case = ArchitectureCase.create()
+    policies = RetrievedPolicySet(
+        candidate_id=str(candidate.id),
+        selections=(),
+        provenance=RetrievalProvenance(
+            candidate_id=candidate.id,
+            retriever="r",
+            version="1",
+            corpus_fingerprint="f",
+            selected_policy_ids=(),
+            query_fingerprint="q",
+        ),
+    )
+    judge = CachingArchitectureJudge(
+        _NOTHING,  # type: ignore[arg-type]
+        _NOTHING,  # type: ignore[arg-type]
+        model_identity=lambda: "m",
+        prompt_identity=lambda: "p",
+    )
+
+    def record(result: str) -> RecordedInvestigation:
+        return RecordedInvestigation(
+            candidate_id=CandidateId(str(candidate.id)),
+            lookups=(InvestigationLookup("read_code", (("qualified_name", "x"),), result),),
+            termination=Termination.NATURAL_END,
+        )
+
+    first = judge.key(candidate, case, policies)
+    second = judge.key(candidate, case, policies, record("AAA"))
+    other = judge.key(candidate, case, policies, record("BBB"))
+
+    assert first != second, "the post-investigation judgement collides with the first"
+    assert second != other, "two different investigations share one cache entry"
+
+
+def test_the_judgement_prompt_carries_the_observations_it_was_given() -> None:
+    """Without this the second judgement is the first one again, at the price of a call.
+
+    The whole of what makes it a *second* judgement is the observations block. A prompt that
+    dropped it would still typecheck, still cost a model call, and still return a verdict —
+    reached from exactly the inputs that produced the hinge.
+    """
+
+    from archcompass.domain import ArchitectureCase, Candidate, Participant
+    from archcompass.ports.policy_retrieval import RetrievalProvenance, RetrievedPolicySet
+    from archcompass.reasoning.adapters.langchain import judgement_prompt
+
+    candidate = Candidate.identified(
+        pattern="sole_implementation",
+        summary="Port has one implementation",
+        participants=(Participant("Port", "interface"),),
+    )
+    case = ArchitectureCase.create()
+    policies = RetrievedPolicySet(
+        candidate_id=str(candidate.id),
+        selections=(),
+        provenance=RetrievalProvenance(
+            candidate_id=candidate.id, retriever="r", version="1",
+            corpus_fingerprint="f", selected_policy_ids=(), query_fingerprint="q",
+        ),
+    )
+    record = RecordedInvestigation(
+        candidate_id=CandidateId(str(candidate.id)),
+        lookups=(
+            InvestigationLookup(
+                "related_code",
+                (("qualified_name", "Port"), ("relation", "implementations")),
+                "1 implementation  adapters.SqlPort",
+            ),
+        ),
+        termination=Termination.NATURAL_END,
+    )
+
+    without = judgement_prompt(candidate, case, policies)
+    with_observations = judgement_prompt(candidate, case, policies, record)
+
+    assert "OBSERVATIONS" not in without, "a first judgement was shown lookups"
+    assert "OBSERVATIONS" in with_observations
+    # The exact answer, not a summary of it.
+    assert "adapters.SqlPort" in with_observations
+    assert "related_code" in with_observations

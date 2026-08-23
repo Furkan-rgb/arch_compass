@@ -56,18 +56,15 @@ HINGE_CONTRACT = (
 )
 
 
-def resolution_prompt(
-    finding: Finding, case: ArchitectureCase, transcript: str = ""
-) -> str:
-    """The finding put back to the model that reached it, with whatever it has looked up.
+def investigation_prompt(finding: Finding, case: ArchitectureCase) -> str:
+    """The finding put to the model that reached it, so it can choose what to look up.
 
-    The same text opens the investigation and closes it. Opening with it means the model
-    chooses lookups against exactly the finding it will afterwards be asked to settle;
-    closing with it means what it answers from is the record a reader will be shown.
+    It opened the investigation and closed it, once — the same text was sent again with the
+    transcript appended, to ask for a verdict. There is no second call now, so there is no
+    second use, and the `transcript` parameter that served it has gone with it.
 
-    It carries no contract of its own. The loop sends `HINGE_CONTRACT` as a system message
-    and the structured call prepends it, so putting it here too would state the rules twice
-    on the opening turn.
+    It carries no contract of its own. The loop sends `HINGE_CONTRACT` as a system message,
+    so putting the rules here too would state them twice on the one turn that matters.
     """
 
     bearings = "\n".join(
@@ -81,9 +78,6 @@ def resolution_prompt(
             f"YOUR REASONING\n{finding.reasoning}",
             f"WHAT YOUR VERDICT TURNS ON\n{finding.hinge}",
             *(("POLICIES YOU FOUND IT BEARS ON\n" + bearings,) if bearings else ()),
-            # Omitted rather than empty on the opening turn: telling a model it looked
-            # nothing up before it has had the chance reads as an instruction not to.
-            *((f"WHAT YOU LOOKED UP\n{transcript}",) if transcript else ()),
         )
     )
 
@@ -139,11 +133,14 @@ class LangChainHingeInvestigator:
                 atlas_fingerprint=repository.content_id,
                 model_identity=self._model_identity,
             )
+        # The rendering is discarded: what a later judgement reads is the *record*, built
+        # from the same transcript by `recorded_investigation` below. The conversation path
+        # still uses the return value, which is why the function still builds one.
         investigate_with_tools(
             self._model,
             offered.investigator,
             system=HINGE_CONTRACT,
-            opening=resolution_prompt(finding, case),
+            opening=investigation_prompt(finding, case),
             subject=f"the hinge on {finding.candidate.summary}",
         )
         return recorded_investigation(

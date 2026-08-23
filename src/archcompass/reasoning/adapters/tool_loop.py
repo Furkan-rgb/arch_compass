@@ -142,6 +142,14 @@ class _InvestigationBounds(AgentMiddleware[Any, Any]):
         #: returns without one of these having fired.
         self.termination: Termination | None = None
         self.detail = ""
+        #: Whether the last turn this middleware saw asked for more tools.
+        #:
+        #: The discriminator between "the model stopped" and "the model was stopped", and it
+        #: has to be this rather than the turn count. `ModelCallLimitMiddleware` refuses in
+        #: `before_model`, so the turn it cuts off never reaches here — a model that used its
+        #: last allowed call to write a conclusion and a model that used it on one more
+        #: lookup both leave the counter at the limit, and only the second was cut short.
+        self.asked_for_more = False
 
     def wrap_model_call(
         self,
@@ -166,9 +174,13 @@ class _InvestigationBounds(AgentMiddleware[Any, Any]):
             # stateful and `investigator.call` has already written to it, so retrying the
             # run would record every lookup twice — and a rate limit on turn three should
             # cost a wait, not the two turns already spent.
-            return call_with_retry(
+            response = call_with_retry(
                 lambda: handler(request), subject=f"Investigating {self._subject}"
             )
+            self.asked_for_more = any(
+                bool(getattr(message, "tool_calls", None)) for message in response.result
+            )
+            return response
         except ProviderError as error:
             # Ended here rather than raised, because an investigation that stopped early is
             # still an investigation: what it did look up stands, and the termination says
@@ -181,16 +193,18 @@ class _InvestigationBounds(AgentMiddleware[Any, Any]):
     def _recorded(self) -> int:
         return sum(len(item.result) for item in self._investigator.transcript)
 
-    def reached_the_call_limit(self) -> bool:
-        """Whether the run used every model call it was allowed.
+    def was_cut_off(self) -> bool:
+        """Whether the run ended because it ran out of calls rather than out of questions.
 
-        `ModelCallLimitMiddleware` ends the run rather than raising, and says so nowhere a
-        caller can read — so turn exhaustion looked exactly like a model that had finished.
-        Counted here because this middleware is already counting turns for the forced first
-        call, and one comparison is cheaper than a second middleware.
+        `ModelCallLimitMiddleware` ends the run rather than raising and says so nowhere a
+        caller can read, so exhausting the budget looked exactly like a model that had
+        finished. Both halves are needed: the count says the budget is spent, and
+        `asked_for_more` says the model was mid-sentence when it was. A model that spent its
+        last allowed call writing a conclusion reached its own end, and recording that as a
+        truncation would tell the judge to treat a complete search as partial.
         """
 
-        return self._turns >= MAX_INVESTIGATION_TURNS
+        return self._turns >= MAX_INVESTIGATION_TURNS and self.asked_for_more
 
 
 def investigate_with_tools(
@@ -248,15 +262,15 @@ def investigate_with_tools(
     )
     final = agent.invoke({"messages": [HumanMessage(opening)]})
 
-    closing = _closing_text(final)
-    # `ModelCallLimitMiddleware` ends the run rather than raising and reports it nowhere a
-    # caller can read, so exhausting the turns used to be indistinguishable from a model
-    # that had finished — the same empty closing, the same empty note. Asked of the turn
-    # count here, and only where nothing else already ended the run.
+    cut_off = bounds.was_cut_off()
+    # Dropped where the run was cut off, because the last message is then not the model's.
+    # `ModelCallLimitMiddleware` ends a run by appending an `AIMessage` of its own —
+    # "Model call limits exceeded: run limit (6/6)" — and `_closing_text` cannot tell that
+    # from a conclusion. It was stored as `RecordedInvestigation.closing` and shown to a
+    # reader as the model's own account of what it found.
+    closing = "" if cut_off or bounds.termination else _closing_text(final)
     termination = bounds.termination or (
-        Termination.MODEL_CALL_LIMIT
-        if bounds.reached_the_call_limit()
-        else Termination.NATURAL_END
+        Termination.MODEL_CALL_LIMIT if cut_off else Termination.NATURAL_END
     )
     # Told to the investigator before anything is rendered. The rendering is spent on the
     # next request; the investigator is what the caller still holds, so this is the only

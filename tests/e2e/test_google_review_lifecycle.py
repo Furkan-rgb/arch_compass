@@ -301,7 +301,11 @@ def test_a_hinge_is_checked_against_the_repository_before_it_reaches_a_person(
             assert lookup["tool"], "a recorded lookup named no tool"
             assert lookup["result"], "a recorded lookup kept no answer"
         # Nothing empty is ever stored: a record exists because something happened.
-        assert record["lookups"] or record["withheld"] or record["abandoned"]
+        assert record["lookups"] or record["withheld"]
+        # And a record of looking says why the looking ended, so a reader — and the second
+        # judgement — can tell "the repository is silent" from "we stopped asking".
+        if record["lookups"]:
+            assert record["termination"], "an investigation that ran recorded no termination"
 
     investigated = {record["candidate_id"] for record in manifest}
     for finding in lifecycle.final["findings"]:
@@ -312,22 +316,22 @@ def test_a_hinge_is_checked_against_the_repository_before_it_reaches_a_person(
         assert finding["investigation_identity"], "an investigated finding named no record"
 
 
-def test_a_live_model_resolves_its_hinges_in_the_shape_the_schema_requires(
+def test_a_live_models_hinge_investigations_are_not_thrown_away(
     lifecycle: Lifecycle,
 ) -> None:
     """The test above cannot fail, and this is the one that can.
 
     `investigate_hinges` catches every exception on purpose: losing an investigation must
     never cost the review the question it belongs to. The consequence is that a run where
-    the model answered in a shape `HingeResolutionOutput` rejects finishes green — the
-    manifest comes back empty, and the assertions on it skip themselves saying no hinge was
-    reached, which is a different fact and the opposite one.
+    the tool loop failed finishes green — the manifest comes back empty, and the assertions
+    on it skip themselves saying no hinge was reached, which is a different fact and the
+    opposite one.
 
-    This reads the losses instead. A hinge resolution is a tool loop and a structured call
-    in one breath, and the cross-field rules — a resolved hinge is not still hinged, an
-    unresolved one settles nothing — are rules no JSON schema can carry, so they hold only
-    if the prompt states them and the model honours them. Nothing offline proves that: every
-    other test drives this through a stub that answers in the right shape by construction.
+    This reads the losses instead. There is no structured call to fail any more: the pass
+    runs tools and records what they answered, so what can still be lost is a transport that
+    will not bind tools, a provider that stops answering, or a model that cannot drive the
+    loop at all. Nothing offline proves those, because every other test drives this through a
+    stub that answers in the right shape by construction.
 
     An exhausted free tier is not a defect and skips, exactly as the fixture treats it
     everywhere else. Every other loss fails, and the exception it fails with is the one the
@@ -348,6 +352,7 @@ def test_a_live_model_resolves_its_hinges_in_the_shape_the_schema_requires(
     )
     raise AssertionError(
         f"{len(other)} of {len(losses)} hinge investigations were thrown away by "
-        f"{REASONING_MODEL}, so the review asked its unimproved question instead:\n\n"
+        f"{REASONING_MODEL}, so nothing was established and the review asked its "
+        f"unimproved question instead:\n\n"
         f"{reported}"
     )

@@ -43,8 +43,13 @@ from archcompass.ports.capabilities import (
     ReviewDraft,
     ReviewSynopsis,
 )
+from archcompass.ports.policy_retrieval import RetrievedPolicySet
 from archcompass.workflow import ReviewWorkflowCapabilities, build_review_graph
 from archcompass.workflow.defaults import DeterministicReviewComposer, NoHingeInvestigation
+from archcompass.workflow.nodes import (
+    investigate_hinges_node,
+    rejudge_investigated_node,
+)
 from archcompass.workflow.service import ReviewWorkflowService
 
 
@@ -989,6 +994,111 @@ def test_a_review_composes_the_same_way_when_nothing_can_look_anything_up(
 
     assert state["questions"]
     assert state["review"].investigation_manifest == ()
+
+
+def _round_state(
+    repository: RepositoryRef, case: ArchitectureCase
+) -> tuple[dict[str, object], Candidate, Candidate]:
+    """One round holding two hinged findings, of which it judged only the first.
+
+    The shape a second review has: `candidates` is everything the detector found, and
+    `selected_candidates` is the subset whose evidence moved. The other is carried unchanged
+    from the previous review — its finding is in `findings`, and nothing this round
+    retrieved policies for it.
+    """
+
+    changed = Candidate.identified(
+        pattern="sole_implementation",
+        summary="Port has one implementation",
+        participants=(Participant("Port", "interface"),),
+    )
+    carried = Candidate.identified(
+        pattern="sole_implementation",
+        summary="Sink has one implementation",
+        participants=(Participant("Sink", "interface"),),
+    )
+    hinged = {
+        str(item.id): Finding(
+            item, Verdict.HELD, "Intent is not stated.", (), item.evidence,
+            hinge="future variation",
+        )
+        for item in (changed, carried)
+    }
+    provenance = RetrievalProvenance(
+        candidate_id=changed.id, retriever="r", version="1",
+        corpus_fingerprint="f", selected_policy_ids=(), query_fingerprint="q",
+    )
+    state: dict[str, object] = {
+        "candidates": (changed, carried),
+        "selected_candidates": (changed,),
+        "findings": hinged,
+        "case": case,
+        "repository": repository,
+        "atlas": RepositoryAtlas("atlas_1", repository),
+        # Both, because a round that re-judges re-retrieves for everything it selected —
+        # the distinction under test is `selected_candidates`, and a missing retrieval would
+        # skip the carried one for the wrong reason.
+        "retrievals": {
+            str(item.id): RetrievedPolicySet(
+                candidate_id=str(item.id), selections=(), provenance=provenance
+            )
+            for item in (changed, carried)
+        },
+        "investigations": {},
+    }
+    return state, changed, carried
+
+
+def test_a_finding_carried_from_a_previous_review_is_not_investigated(
+    tmp_path: Path,
+) -> None:
+    """It cannot be re-judged afterwards, so investigating it spends a call for nothing.
+
+    A carried finding keeps the verdict the previous review reached, and this round retrieved
+    no policies for it. It used to pass the hinge filter anyway — so the lookups ran, the
+    second judgement then skipped it for want of a retrieval, and the record reached the
+    reader joined to a finding it had never been weighed against.
+    """
+
+    repository = RepositoryRef("repo-7", tmp_path.resolve(), "branch-1", "content-1")
+    state, changed, carried = _round_state(repository, ArchitectureCase.create())
+    investigator = Investigator()
+
+    written = investigate_hinges_node(investigator)(state)  # type: ignore[arg-type]
+
+    assert investigator.seen == [str(changed.id)], (
+        "a candidate this round cannot re-judge was investigated anyway"
+    )
+    assert str(carried.id) not in written["investigations"]  # type: ignore[index]
+
+
+def test_an_investigation_from_an_earlier_round_does_not_buy_a_second_judgement(
+    tmp_path: Path,
+) -> None:
+    """`investigations` outlives a round, and reading all of it reaches into the last one.
+
+    It is a merged mapping, seeded once and never cleared, so a record from round one was
+    still there in round two — where the candidate had already been judged afresh against
+    the answers. The judge was asked again, off the older record, and the finding came back
+    stamped with that record's identity.
+    """
+
+    repository = RepositoryRef("repo-8", tmp_path.resolve(), "branch-1", "content-1")
+    state, _changed, carried = _round_state(repository, ArchitectureCase.create())
+    # Round one investigated the candidate this round is not looking at again.
+    state["investigations"] = {
+        str(carried.id): RecordedInvestigation(
+            candidate_id=carried.id,
+            lookups=(InvestigationLookup("related_code", (("qualified_name", "S"),), "row"),),
+            termination=Termination.NATURAL_END,
+        )
+    }
+    judge = Judge(settles_on_observations=True)
+
+    written = rejudge_investigated_node(judge)(state)  # type: ignore[arg-type]
+
+    assert judge.investigated == [], "an earlier round's record bought a judgement"
+    assert written["findings"] == {}  # type: ignore[index]
 
 
 def test_an_investigation_that_looked_at_nothing_does_not_pay_for_a_second_judgement(
