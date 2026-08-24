@@ -213,7 +213,8 @@ These are **not** in `make check` and will not tell you they are broken:
 | `make test-ollama` | a running Ollama with the models installed |
 | `make test-google` | `GOOGLE_API_KEY` |
 | `make test-browser` | Playwright browsers |
-| `make evaluation` | the `evaluation` dependency group; executes the notebook in place |
+| `make evaluation` | the `evaluation` dependency group and a local Ollama; executes the notebook in place |
+| `make docker-build` | Docker; builds the image and smokes it the way `deploy.yml` starts it |
 
 `make full` is `check`, `test-ollama` and `build`.
 

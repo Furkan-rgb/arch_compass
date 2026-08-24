@@ -405,7 +405,7 @@ function Selection({
  * A section per provider, because a provider is what a reader is actually deciding between.
  * The models used to be one flat grid with the provider printed inside each tile, which read
  * as one list of fifteen unrelated things — and put the reason a provider had nothing to
- * offer ("GROQ_API_KEY is unset") in a separate availability panel, several rows away from
+ * offer ("OPENROUTER_API_KEY is unset") in a separate availability panel, several rows away from
  * the empty space it explained. Grouping puts the cure beside the absence. Providers with
  * nothing to offer are kept and shown last: they are the rows that say what to fix, and
  * dropping them would answer "why is Groq not here" with silence.

@@ -130,10 +130,22 @@ test-browser: frontend-build
 # container that builds and then cannot answer `/api/workspace` is the failure worth catching
 # here, and the session cookie in that answer is what says hosted mode is actually wired up.
 # The deterministic provider is used so the smoke test reaches no network and needs no key.
+# The image, started the way `deploy.yml` starts it. The embedding pin is not decoration:
+# `create_hosted_app` refuses to boot without one, because the shipped index has to apply to
+# every visitor — so a smoke that omitted it was testing that the container exits. It did,
+# for as long as that check has existed, and nothing said so because this target is outside
+# `make check`. `fake` for the reasoning provider keeps the smoke offline; the embedding pin
+# needs no key to verify, only to use.
 docker-build:
 	docker build -t archcompass:local .
 	@docker rm -f archcompass-smoke >/dev/null 2>&1 || true
-	@docker run -d --rm --name archcompass-smoke -p 8088:8080 -e ARCHCOMPASS_PROVIDERS=fake archcompass:local >/dev/null
+	@docker run -d --rm --name archcompass-smoke -p 8088:8080 \
+	  -e ARCHCOMPASS_PROVIDERS=fake \
+	  -e ARCHCOMPASS_EMBEDDING_PROVIDER=openrouter \
+	  -e ARCHCOMPASS_EMBEDDING_MODEL=google/gemini-embedding-2 \
+	  -e ARCHCOMPASS_EMBEDDING_DIMENSIONS=3072 \
+	  -e ARCHCOMPASS_EMBEDDING_API_KEY_ENV=OPENROUTER_API_KEY \
+	  archcompass:local >/dev/null
 	@trap 'docker rm -f archcompass-smoke >/dev/null 2>&1' EXIT; \
 	  headers=$$(mktemp); \
 	  for attempt in $$(seq 1 30); do \

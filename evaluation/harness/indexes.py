@@ -32,15 +32,78 @@ from archcompass.reasoning.adapters.factory import (
 )
 
 __all__ = [
+    "EXPECTED_EMBEDDER_DIGEST",
     "Bm25PolicyIndex",
     "InMemoryDenseIndex",
     "RandomPolicyIndex",
+    "assert_expected_embedder",
     "heading_chunks",
+    "installed_embedder_digest",
     "ollama_config",
     "ollama_embeddings",
     "ollama_identity",
     "whole_document_chunks",
 ]
+
+
+#: The manifest sha256 of the embedding model these numbers were measured against.
+#:
+#: `embeddinggemma:latest` is a moving tag. Ollama can *report* a digest — `GET /api/tags`
+#: carries one per model, and the registry answers `ollama-content-digest` for a manifest —
+#: but it cannot be asked to *serve* one: `POST /api/embed` with `model@sha256:…` answers
+#: `invalid model name`, and `ollama pull` has no digest flag. So a pin here is an assertion
+#: rather than a constraint, which is enough: it turns "the function under evaluation
+#: changed and the committed baseline quietly stopped describing it" into a named failure.
+#:
+#: `:300m` and `:300m-bf16` resolve to this same manifest today, so switching tags buys
+#: nothing — a re-push would move all three together.
+EXPECTED_EMBEDDER_DIGEST = "85462619ee721b466c5927d109d4cb765861907d5417b9109caebc4e614679f1"
+
+
+def installed_embedder_digest(
+    *, model: str = "embeddinggemma", base_url: str = "http://localhost:11434"
+) -> str | None:
+    """The manifest digest Ollama reports for this model, or nothing if it cannot say."""
+
+    import httpx
+
+    try:
+        response = httpx.get(f"{base_url}/api/tags", timeout=5.0)
+        response.raise_for_status()
+        listed = response.json().get("models") or []
+    except Exception:
+        return None
+    for entry in listed:
+        name = str(entry.get("name") or "")
+        if name in {model, f"{model}:latest"} or name.startswith(f"{model}:"):
+            digest = entry.get("digest")
+            return str(digest) if digest else None
+    return None
+
+
+def assert_expected_embedder(
+    *, model: str = "embeddinggemma", base_url: str = "http://localhost:11434"
+) -> str:
+    """Refuse to measure against a different function from the one the baseline describes.
+
+    Called from the notebook's preflight. A mismatch is a `SystemExit` with both digests in
+    it, because the alternative — the run that produced this repository's committed PASS —
+    is a number nobody can attribute afterwards.
+    """
+
+    found = installed_embedder_digest(model=model, base_url=base_url)
+    if found is None:
+        raise SystemExit(
+            f"Ollama at {base_url} does not list {model}; the evaluation cannot say what "
+            "it would be measuring."
+        )
+    if found != EXPECTED_EMBEDDER_DIGEST:
+        raise SystemExit(
+            f"{model} is manifest {found}, and this baseline was measured against "
+            f"{EXPECTED_EMBEDDER_DIGEST}. Those are different functions. Re-baseline "
+            "deliberately, or pull the recorded one — do not compare the numbers."
+        )
+    return found
 
 
 def ollama_config(

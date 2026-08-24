@@ -21,6 +21,27 @@ The split is deliberate: nothing in `harness/` decides anything a reader has to 
 trust, and nothing in the notebook does arithmetic. A metric defined in a cell is one
 nobody can test and one that quietly changes between runs.
 
+## Why this measures a local model, when the shipped index is OpenRouter's
+
+Deliberate, and worth saying because the two now name different providers.
+
+The retriever is what is under test, not the embedder. Measuring it needs the same function
+every time, on demand, without a credit balance or a network — so the harness pins a local
+model explicitly (`indexes.ollama_config`) rather than reading whatever a workspace happens
+to be configured with. That is what makes a number from last month comparable to one from
+today.
+
+The shipped index answers a different question: what a workspace embeds with when nobody has
+configured anything, which is the hosted boundary. Both are correct and they are not required
+to agree.
+
+One thing does have to hold, and did not: the local model must be the same local model.
+`embeddinggemma:latest` is a moving tag, so `indexes.EXPECTED_EMBEDDER_DIGEST` records the
+manifest these numbers were measured against and `assert_expected_embedder()` refuses to
+measure against another. Ollama can report a digest and cannot be asked to serve one, so it
+is an assertion rather than a constraint — enough to turn a silent change of function into a
+named failure.
+
 ## Running it
 
 Needs Ollama on `localhost:11434` holding `embeddinggemma`:
