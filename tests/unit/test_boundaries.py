@@ -255,7 +255,7 @@ def test_langchain_and_provider_sdks_stay_in_reasoning_and_policy_adapters() -> 
     is the orchestration library, already confined by the guard above, not a provider SDK.
     """
 
-    vendors = ("langchain", "langchain_google_genai", "google", "ollama")
+    vendors = ("langchain", "google", "ollama", "openai")
     allowed_roots = (
         SOURCE_ROOT / "reasoning" / "adapters",
         SOURCE_ROOT / "policies" / "adapters",
