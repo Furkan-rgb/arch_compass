@@ -1684,6 +1684,140 @@ describe("the review workbench", () => {
     expect(rows()[1]).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("carries the keyboard to the row it opened, the way the round does", async () => {
+    // The docket's twin of "carries the keyboard to the question it opened". The control
+    // that was pressed unmounts with its row, so focus fell to `<body>` and the next Tab
+    // restarted at "Skip to content" — while the newly opened row was scrolled into view.
+    // The visual cursor and the keyboard cursor were in two different places, on the one
+    // surface `docs/experience.md` says is worked from the keyboard.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    const recorded: Decision[] = [];
+    vi.spyOn(api, "decisions").mockImplementation(async () => ({
+      branch_id: "branch-1",
+      decisions: [...recorded],
+    }));
+    vi.spyOn(api, "decide").mockImplementation(async (_review, candidateId) => {
+      const judged = review.findings.find((item) => item.candidate.id === candidateId)!;
+      const decision: Decision = {
+        id: `decision-${candidateId}`,
+        branch_id: "branch-1",
+        candidate_id: candidateId,
+        disposition: "accept",
+        author: "user",
+        reasoning: null,
+        decided_at: "2026-01-01T00:00:00Z",
+        review_id: "review-1",
+        finding_verdict: judged.verdict,
+        finding_model_identity: "fake:deterministic",
+        finding_prompt_identity: "judge:v1",
+        finding_retrieval_identity: "retrieval-1",
+      };
+      recorded.push(decision);
+      return decision;
+    });
+
+    render(wrap(<ReviewPage />));
+
+    const [first, second] = await docket();
+    expect(first).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Accept and act" }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toHaveAttribute(
+        "data-candidate",
+        second.dataset.candidate!,
+      ),
+    );
+    expect(document.activeElement).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("says what was recorded when a decision is changed rather than taken", async () => {
+    // The docket's live region fires on the transition into settled, which a row that was
+    // already settled never makes. This bar's own region was `{success ? <LiveRegion/> : null}`
+    // — created in the same DOM mutation as its text, which is the shape three other files
+    // in this repository name as the one a screen reader does not read.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+    const existing: Decision = {
+      id: "decision-1",
+      branch_id: "branch-1",
+      candidate_id: "candidate-1",
+      disposition: "accept",
+      author: "user",
+      reasoning: null,
+      decided_at: "2026-01-01T00:00:00Z",
+      review_id: "review-1",
+      finding_verdict: "held",
+      finding_model_identity: "fake:deterministic",
+      finding_prompt_identity: "judge:v1",
+      finding_retrieval_identity: "retrieval-1",
+    };
+    vi.spyOn(api, "decisions").mockResolvedValue({
+      branch_id: "branch-1",
+      decisions: [existing],
+    });
+    vi.spyOn(api, "decide").mockResolvedValue({ ...existing, disposition: "park" });
+
+    const { container } = render(wrap(<ReviewPage />));
+    await docket();
+    fireEvent.click(screen.getByRole("button", { name: /^All/ }));
+    const row = rows().find((item) => item.dataset.candidate === "candidate-1")!;
+    if (row.getAttribute("aria-expanded") === "false") fireEvent.click(row);
+
+    // The region has to be on screen *before* the decision, or it is the shape being fixed.
+    const regions = () => container.querySelectorAll("[aria-live]").length;
+    const before = regions();
+    expect(before).toBeGreaterThan(0);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Park" }));
+    expect(await screen.findByText("Parked recorded.")).toBeInTheDocument();
+    expect(regions()).toBe(before);
+  });
+
+  it("leaves a half-written waiver alone when the docket's keys are pressed beside it", async () => {
+    // Escape from one Tab past the reason box closed the whole row. `DecisionBar` unmounts
+    // with it and the reason is component state, so the sentence went with no warning and
+    // nothing to undo it with — `docs/experience.md`, never navigate away from unsaved input,
+    // broken by the key the shortcut sheet advertises as "close what is open". `j` walks off
+    // the row just as destructively and was never reported.
+    const review = reviewFixture({ status: "completed", questions: [] });
+    vi.spyOn(api, "review").mockResolvedValue(review);
+    vi.spyOn(api, "reviews").mockResolvedValue([review]);
+
+    render(wrap(<ReviewPage />));
+
+    const listed = await docket();
+    expect(listed[0]).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Waive" }));
+    const reason = screen.getByLabelText("Why the team waives this");
+    fireEvent.change(reason, { target: { value: "The team owns this deliberately." } });
+
+    // Focus is on the button after the textarea, which is where the reveal's own handler
+    // stops applying and the document-bound one takes over.
+    screen.getByRole("button", { name: /Record waiver/ }).focus();
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(rows()[0]).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Why the team waives this")).toHaveValue(
+      "The team owns this deliberately.",
+    );
+
+    fireEvent.keyDown(document, { key: "j" });
+    expect(rows()[0]).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Why the team waives this")).toHaveValue(
+      "The team owns this deliberately.",
+    );
+
+    // And `A` does not record an accept out from under it either.
+    const decide = vi.spyOn(api, "decide");
+    fireEvent.keyDown(document, { key: "A" });
+    expect(decide).not.toHaveBeenCalled();
+  });
+
   it("does not teach a keyboard to a screen that has none", async () => {
     // The hints were gated on nothing at all, so a phone got eleven key caps and four verbs
     // as the densest thing above the list, describing keys that are not there. Gated on the

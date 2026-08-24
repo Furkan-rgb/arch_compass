@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { api, type Decision, type DecisionDisposition, type Finding, type Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { absoluteTime, dispositionOf, verdictOf } from "../../lib/format";
-import { hasOpenModal, isTyping } from "../../lib/keyboard";
+import { hasOpenModal, hasOpenReveal, isTyping } from "../../lib/keyboard";
 import { useHasKeyboard } from "../../lib/media";
 import { DispositionBadge } from "../../ui/badge";
 import { buttonClass } from "../../ui/button";
@@ -101,6 +101,8 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
   const hasKeyboard = useHasKeyboard();
   const [waiving, setWaiving] = useState(false);
   const [reason, setReason] = useState("");
+  /** What the always-mounted region below says, written when a decision comes back. */
+  const [recordedSaid, setRecordedSaid] = useState("");
   const waiveRef = useRef<HTMLButtonElement>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   // Set when a waiver is recorded from inside the reveal, so the focus that was in the reveal
@@ -185,6 +187,7 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
       returning.current = variables.disposition === "waive" && waiving;
       setWaiving(false);
       setReason("");
+      setRecordedSaid(`${dispositionOf(recorded.disposition).label} recorded.`);
       client.setQueryData<BranchDecisions>(["decisions", branchId], (current) =>
         withDecision(current ?? { branch_id: branchId, decisions: [] }, recorded),
       );
@@ -239,6 +242,11 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
     function onKeyDown(event: KeyboardEvent) {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTyping(event.target) || hasOpenModal()) return;
+      // And a keystroke while this bar's own reveal is open: `A` there records an accept and
+      // unmounts the reveal, taking a reason somebody had started writing. The reveal is a
+      // deliberate step — `W` opens it precisely because a waiver needs a sentence — so it
+      // owns these three keys until it is finished or cancelled.
+      if (hasOpenReveal()) return;
       const choice = CHOICES.find((item) => item.key.toLowerCase() === event.key.toLowerCase());
       if (!choice || busy) return;
       event.preventDefault();
@@ -375,6 +383,10 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
         {waiving ? (
           <div
             id={panelId}
+            // What `hasOpenReveal` looks for. It says "there is unsaved input open in here"
+            // to any shortcut bound at the document, which is the only way the docket's
+            // Escape can know not to close the row out from under a half-written reason.
+            data-reveal="waiver"
             className="animate-expand mt-2.5 rounded-md border border-rule bg-surface-2 p-3"
           >
             <label
@@ -428,7 +440,14 @@ export function DecisionBar({ review, finding }: { review: Review; finding: Find
           </div>
         ) : null}
 
-        {decide.isSuccess ? <LiveRegion>Standing decision recorded.</LiveRegion> : null}
+        {/* Mounted for as long as the bar is, empty until there is something to say. A
+            region that enters the DOM in the same mutation as its text is a region a screen
+            reader generally does not read — the rule this file's neighbours state three times
+            over, and the one place it was still `{success ? <LiveRegion/> : null}`. It matters
+            on exactly the path the docket's own region does not cover: changing a decision on
+            a row that was already settled never transitions into settled, so nothing else
+            says anything at all. */}
+        <LiveRegion>{recordedSaid}</LiveRegion>
         {decide.error ? (
           <div className="mt-3">
             <ErrorNotice

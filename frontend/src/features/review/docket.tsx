@@ -5,7 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type Decision, type Finding, type Review } from "../../api";
 import { cn } from "../../lib/cn";
 import { dispositionOf, humanise, plural, splitQualified, verdictOf } from "../../lib/format";
-import { isPlainShortcut } from "../../lib/keyboard";
+import { hasOpenReveal, isPlainShortcut } from "../../lib/keyboard";
 import { useHasKeyboard } from "../../lib/media";
 import { Mark } from "../../ui/mark";
 import { TONE_EDGE, TONE_TEXT } from "../../ui/meta";
@@ -292,6 +292,7 @@ function DocketRow({
   delta,
   lineage,
   open,
+  takeFocus,
   hoistedNamespace,
   selected,
   selecting,
@@ -308,6 +309,17 @@ function DocketRow({
   delta: string | null;
   lineage: Review[];
   open: boolean;
+  /**
+   * Whether the keyboard should follow the cursor onto this row.
+   *
+   * Only when the docket moved the cursor itself — deciding advances to the next row that
+   * wants a person, and the control that was pressed unmounts with the row it was on, so
+   * focus falls to `<body>` and the next Tab restarts at "Skip to content". Not on first
+   * paint and not when somebody clicked this row, where focus is already where they put it.
+   * The clarification round has done this since it was written; the docket, which is the
+   * surface `docs/experience.md` says is worked from the keyboard, did not.
+   */
+  takeFocus: boolean;
   hoistedNamespace?: string;
   selected: boolean;
   /** Whether anything at all is selected, which is what puts the boxes on screen. */
@@ -334,9 +346,14 @@ function DocketRow({
   // into view, so the margin below — the whole point of it — sat on an ancestor and never
   // applied; and the button starts below the article's top edge, so even the correct margin
   // would have left the verdict edge and the row's heading above the fold.
+  const button = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (open) ref.current?.scrollIntoView?.({ block: "nearest" });
-  }, [open]);
+    if (!open) return;
+    ref.current?.scrollIntoView?.({ block: "nearest" });
+    // `preventScroll`, because the line above has already decided where this row sits and a
+    // second scroll from the focus call would fight it.
+    if (takeFocus) button.current?.focus({ preventScroll: true });
+  }, [open, takeFocus]);
 
   return (
     <article
@@ -396,6 +413,7 @@ function DocketRow({
 
         <button
           type="button"
+          ref={button}
           data-candidate={finding.candidate.id}
           aria-expanded={open}
           aria-controls={panelId}
@@ -836,12 +854,19 @@ export function Docket({
         )
       : false;
   const cursor = useRef({ id: openId, settled: settledUnderCursor });
+  /** The row the docket moved the cursor to on its own, which is the one that takes focus. */
+  const advanced = useRef<string | null>(null);
+
   useEffect(() => {
     const stayed = cursor.current.id === openId;
     if (stayed && settledUnderCursor && openId && !cursor.current.settled) {
       onSettledHere((kept) => (kept.includes(openId) ? kept : [...kept, openId]));
       const decision = decisions.get(openId);
       const next = advance(openId);
+      // Written before the re-render `advance` triggers, so the row that opens reads it on
+      // the same pass it mounts its panel on.
+      advanced.current = next ? next.candidate.id : null;
+
       // What happened, and what is now under you. From the keyboard, scrolled past the bar,
       // the fade on three buttons was the entire report on a decision — and once the cursor
       // moves on its own, "which row am I on now" is a question the screen answers only by
@@ -872,6 +897,16 @@ export function Docket({
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (!isPlainShortcut(event)) return;
+      // Every key below closes the open row or moves off it, and either one unmounts the
+      // decision bar — where a half-written waiver reason lives as component state, with no
+      // warning and nothing to undo it with. So the reveal owns the keyboard while it is
+      // open, the same way a modal does one level up. This is one guard rather than a check
+      // per key because it is one rule: `docs/experience.md`, never navigate away from
+      // unsaved input. Escape was the reachable one — a single Tab out of the textarea, past
+      // where the reveal's own handler applies — but `j` and `k` walk off the row just as
+      // destructively, and only Escape was ever reported.
+      if (hasOpenReveal()) return;
+
 
       if (event.key === "Escape") {
         if (!openId) return;
@@ -1039,6 +1074,7 @@ export function Docket({
                           lineage={lineage}
                           hoistedNamespace={shared ?? undefined}
                           open={openId === finding.candidate.id}
+                          takeFocus={advanced.current === finding.candidate.id}
                           selected={selected.includes(finding.candidate.id)}
                           selecting={Boolean(checked.length)}
                           link={`${window.location.origin}${pathname}?candidate=${encodeURIComponent(finding.candidate.id)}`}

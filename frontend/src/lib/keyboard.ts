@@ -43,6 +43,24 @@ export function hasOpenModal(): boolean {
 }
 
 /**
+ * Whether something with unsaved input is open inside the page.
+ *
+ * The same layering rule as `hasOpenModal`, one level down. A reveal is not modal — it has no
+ * focus trap and the page around it stays live — but it does own Escape while it is open,
+ * because Escape is how it is cancelled and because what it holds is a sentence somebody is
+ * part-way through typing. Without this the docket's Escape, bound at the document, closed the
+ * whole row from one Tab past the textarea and took the half-written waiver with it, which is
+ * `docs/experience.md`'s "never navigate away from unsaved input" broken by a keystroke the
+ * shortcut sheet advertises as "close what is open".
+ *
+ * A data attribute rather than the panel's id: the id is generated per bar and what this asks
+ * is a property of the kind of thing, not of one instance of it.
+ */
+export function hasOpenReveal(): boolean {
+  return Boolean(document.querySelector("[data-reveal]"));
+}
+
+/**
  * A plain keystroke: no browser command underneath it, nothing being typed into, no modal
  * already holding the keyboard.
  *
