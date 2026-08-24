@@ -196,8 +196,9 @@ by `CachingReviewRecorder`. They are different acts with different callers, and 
 depends on the second staying its own protocol.
 
 **Policy retrieval is strategy-independent.** `PolicyRetriever` returns a `RetrievedPolicySet`
-with provenance; nothing above it knows about dense scores, lanes or vector stores. See
-[policy-retrieval.md](policy-retrieval.md).
+with provenance; nothing above it knows about dense scores, lanes, vector stores — or that
+retrieval now asks two queries and fuses them by rank, which changed nothing above the port.
+See [policy-retrieval.md](policy-retrieval.md).
 
 **Provider SDKs live in two adapter packages** — `reasoning/adapters/` and
 `policies/adapters/` — and a guard fails the build if one appears anywhere else. LangGraph is

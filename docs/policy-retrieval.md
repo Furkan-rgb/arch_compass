@@ -19,15 +19,61 @@ selected policy IDs, optional embedding/model identity, query fingerprint, and o
 metadata. Consumers do not require fields such as `dense_score`, `prior_score`, `lane`, or
 `reranker_score`.
 
-## Initial retriever
+## The shipped retriever
 
-The initial `dense-scoped` implementation:
+`dense-scoped`:
 
 1. includes applicable non-general policies;
 2. includes applicable required policies;
-3. retrieves dense top-K results from Markdown-heading chunks;
-4. deduplicates by policy ID;
-5. orders mandatory/scoped selections first, then dense results deterministically.
+3. ranks the corpus **twice** — once against the candidate alone, once against the
+   candidate and the case — and fuses the two rankings;
+4. takes the top K of the fused order;
+5. deduplicates by policy ID;
+6. orders mandatory/scoped selections first, then fused results deterministically.
+
+### Why two queries
+
+A dense query is one point, and a candidate and its case are two topics. Put a person's
+answers about payment providers and team ownership into the same string as "a constant
+stated in two modules" and the vector lands between them rather than on either.
+
+Measured, on two duplicated-constant candidates in a repository that had answered about PCI
+scope and a payment vendor — `explicit-source-of-truth` is the policy the second of them
+most obviously bears on:
+
+| query | rank |
+|---|---|
+| candidate + case, one query | 23rd and 27th |
+| candidate alone | 5th and 5th |
+| candidate + case, capped to 200 characters | 22nd and 23rd |
+| candidate + case, question stems dropped | 16th and 16th |
+| candidate repeated twice, then the case | 25th and 26th |
+
+Shaping does not recover it. A single embedding has no notion of a dominant section and a
+secondary one, and repetition does not add mass to a normalised vector. So the two topics
+are ranked separately and the rankings are combined.
+
+### The fusion
+
+Reciprocal rank fusion, **equal weight**, damping 60. Each policy scores `1/(60 + rank)` in
+each of the two rankings and the sums are sorted.
+
+Rank rather than score because the two queries are different topics: 0.57 against one and
+0.57 against the other do not mean the same thing, and adding them pretends they do. A rank
+says only "this before that", which is true within a list and comparable across lists.
+
+Equal weight because it was measured. A structural preference of 2:1 and of 3:1 were both
+run against the complete gate, and neither beat equal weighting at the K the gate selects:
+
+| fusion | smallest passing K | macro at that K |
+|---|---|---|
+| one query (before) | none passes | 0.9286 at 16 |
+| **equal 1:1** | **16** | **0.9821** |
+| structural 2:1 | 16 | 0.9643 |
+| structural 3:1 | 16 | 0.9643 |
+
+Both lists are the whole corpus rather than a truncated pool, so there is no depth to pick.
+The only added cost is one more query embedding per candidate.
 
 **Against the corpus that ships, lanes 1 and 2 select nothing.** All 54 bundled policies are
 `scope: general`, and none is `strength: required` (53 are `guidance`, one `preferred`), so
@@ -56,7 +102,9 @@ carries the distinction on the request itself and needs no suffix.
 
 Reasoning and embedding providers are configured independently. A review is refused before
 reasoning expenditure when the configured retriever lacks its embedding provider or index.
-The shipped minimum retriever uses K=20, recorded in its `1-k20` provenance version.
+The shipped retriever uses K=16 — the smallest the gate passes at — recorded together with
+the fusion rule in its `2-rrf-equal-1-k16` provenance version. Both belong in that string
+because both decide which policies a review was judged against.
 
 ## Evaluation gate
 

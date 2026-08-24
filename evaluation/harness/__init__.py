@@ -29,9 +29,12 @@ from evaluation.harness.dataset import (
     load_cases,
 )
 from evaluation.harness.indexes import (
+    EXPECTED_EMBEDDER_DIGEST,
     Bm25PolicyIndex,
     InMemoryDenseIndex,
     RandomPolicyIndex,
+    assert_expected_embedder,
+    fresh_sqlite_index,
     heading_chunks,
     ollama_config,
     ollama_embeddings,
@@ -57,6 +60,7 @@ from evaluation.harness.runner import (
 )
 
 __all__ = [
+    "EXPECTED_EMBEDDER_DIGEST",
     "Bm25PolicyIndex",
     "CaseScores",
     "EvalCase",
@@ -65,11 +69,13 @@ __all__ = [
     "RandomPolicyIndex",
     "RunResult",
     "Summary",
+    "assert_expected_embedder",
     "average_precision",
     "candidate_cases",
     "chunk_report",
     "detected_candidates",
     "evaluation_corpus",
+    "fresh_sqlite_index",
     "gate_examples",
     "heading_chunks",
     "intent_cases",

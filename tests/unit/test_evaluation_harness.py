@@ -91,3 +91,86 @@ def test_the_baseline_names_the_embedding_function_it_was_measured_against() -> 
     from evaluation.harness.indexes import EXPECTED_EMBEDDER_DIGEST
 
     assert re.fullmatch(r"[0-9a-f]{64}", EXPECTED_EMBEDDER_DIGEST)
+
+
+def test_an_index_built_by_a_different_embedder_cannot_be_reused(tmp_path: Path) -> None:
+    """The reproducibility hole, at the seam that actually has one.
+
+    `synchronize` is incremental and keys on chunk content. A changed *corpus* it handles —
+    stale chunks are removed in the same transaction. What it cannot see is the same corpus
+    embedded by a different function under an unchanged identity, which is precisely what a
+    moved `:latest` tag produces: the content hashes match, nothing is re-embedded, and the
+    run reports last month's vectors as this month's measurement.
+
+    Verified before this test existed: two orthogonal embedders over one file both scored
+    1.0, because the second never ran. Fresh construction is what makes the second run
+    measure the second embedder.
+    """
+
+    pytest.importorskip("numpy")
+    from evaluation.harness.indexes import fresh_sqlite_index
+
+    from archcompass.domain import Policy, PolicyScope, PolicyStrength
+
+    corpus = (
+        Policy(
+            id="unchanged",
+            title="unchanged",
+            body="the same text both times",
+            scope=PolicyScope.GENERAL,
+            strength=PolicyStrength.GUIDANCE,
+            content_hash="hash-unchanged",
+        ),
+    )
+
+    class _Fixed:
+        """An embedder whose answer is a constructor argument, not a function of the text."""
+
+        def __init__(self, vector: list[float]) -> None:
+            self._vector = vector
+
+        def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            return [self._vector for _ in texts]
+
+        def embed_query(self, text: str) -> list[float]:
+            return [1.0, 0.0]
+
+    path = tmp_path / "policy-index.sqlite3"
+    before = fresh_sqlite_index(
+        path, _Fixed([1.0, 0.0]), embedding_identity="unchanged:v1", dimensions=2
+    )
+    before.synchronize(corpus)
+    assert before.search("q", limit=1)[0].score > 0.9
+
+    # The same identity, the same corpus, an embedder that now answers orthogonally.
+    after = fresh_sqlite_index(
+        path, _Fixed([0.0, 1.0]), embedding_identity="unchanged:v1", dimensions=2
+    )
+    after.synchronize(corpus)
+
+    assert after.search("q", limit=1)[0].score < 0.1, (
+        "the second run measured the first run's vectors"
+    )
+
+
+def test_building_fresh_does_not_need_the_directory_to_exist(tmp_path: Path) -> None:
+    """`make evaluation` runs on a machine that has never run it before."""
+
+    pytest.importorskip("numpy")
+    from evaluation.harness.indexes import fresh_sqlite_index
+
+    class _Fixed:
+        def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            return [[1.0, 0.0] for _ in texts]
+
+        def embed_query(self, text: str) -> list[float]:
+            return [1.0, 0.0]
+
+    built = fresh_sqlite_index(
+        tmp_path / "never" / "existed" / "index.sqlite3",
+        _Fixed(),
+        embedding_identity="test:v1",
+        dimensions=2,
+    )
+
+    assert built is not None

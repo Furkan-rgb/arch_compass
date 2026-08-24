@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import math
 import re
+import sqlite3
 from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from hashlib import sha256
+from pathlib import Path
 
 import numpy as np
 from langchain_core.embeddings import Embeddings
@@ -23,6 +25,7 @@ from archcompass.domain import Policy
 
 # The production chunker, imported rather than reimplemented. A copy here would let the
 # evaluation keep scoring a chunking the product had stopped using.
+from archcompass.policies.adapters import SQLitePolicyIndex
 from archcompass.policies.adapters.sqlite_index import _chunks as heading_chunks
 from archcompass.policies.ports import DensePolicyMatch
 from archcompass.reasoning.adapters.factory import (
@@ -37,6 +40,7 @@ __all__ = [
     "InMemoryDenseIndex",
     "RandomPolicyIndex",
     "assert_expected_embedder",
+    "fresh_sqlite_index",
     "heading_chunks",
     "installed_embedder_digest",
     "ollama_config",
@@ -104,6 +108,43 @@ def assert_expected_embedder(
             "deliberately, or pull the recorded one — do not compare the numbers."
         )
     return found
+
+
+def fresh_sqlite_index(
+    path: Path,
+    embeddings: Embeddings,
+    *,
+    embedding_identity: str,
+    dimensions: int,
+) -> SQLitePolicyIndex:
+    """A SQLite index at `path`, built from nothing, every time.
+
+    The file is deleted first, and that is the whole point rather than tidiness.
+    `synchronize` is incremental: it embeds the chunks the index does not hold and leaves
+    the ones it does, which is exactly right for a workspace and exactly wrong for a
+    measurement. A file left by an earlier run under a different retriever, a different
+    chunker or a different embedder answers `synchronize` with "already have those" and is
+    then reported as though it came from the code being measured.
+
+    Observed: a run whose index predated a retrieval change reported 34 differing rankings
+    against a freshly built one, and the notebook's parity assertion — comparing the SQLite
+    index with an in-memory one — is what caught it. That assertion was doing its job; the
+    file it was comparing against was the problem.
+
+    Fresh construction rather than checking an identity before reuse, because the corpus is
+    486 chunks and about twenty seconds. Cache invalidation that has to enumerate everything
+    a result depends on — corpus, embedder digest, dimensions, chunker, retriever version —
+    is a larger thing to get right than not caching.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.unlink(missing_ok=True)
+    return SQLitePolicyIndex(
+        lambda: sqlite3.connect(path),
+        embeddings,
+        embedding_identity=embedding_identity,
+        dimensions=dimensions,
+    )
 
 
 def ollama_config(
