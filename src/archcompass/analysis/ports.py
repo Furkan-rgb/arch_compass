@@ -109,6 +109,17 @@ class ResolvedReference:
 class EdgeResolutionResult:
     conformances: tuple[ConformanceVerdict, ...] = ()
     references: tuple[ResolvedReference, ...] = ()
+    #: Whether the backend got far enough to answer at all.
+    #:
+    #: `False` is not "nothing conforms" — it is "nothing was asked", because building the
+    #: repository's types failed. The two used to arrive identically, as an empty result, and
+    #: the caller cannot tell them apart from the outside: a repository with no protocol
+    #: implementations and a repository the type checker could not open both come back with
+    #: no conformances. That mattered because the structural heuristic is skipped whenever a
+    #: resolver is installed, so a failed sweep left the atlas with no `IMPLEMENTS` edges at
+    #: all — fewer than it would have had with no resolver installed, which is the one
+    #: outcome the fallback exists to prevent.
+    answered: bool = True
 
 
 class EdgeResolver(Protocol):
@@ -132,7 +143,23 @@ class EdgeResolver(Protocol):
         """
         ...
 
-    def resolve(self, root: Path, request: EdgeResolutionRequest) -> EdgeResolutionResult: ...
+    def resolve(
+        self,
+        root: Path,
+        request: EdgeResolutionRequest,
+        *,
+        excluded_paths: tuple[str, ...] = (),
+    ) -> EdgeResolutionResult:
+        """Answer the request against `root`, less the subtrees the analysis left out.
+
+        `excluded_paths` is the review's own scope, and a resolver has to honour it for the
+        same reason the parse does — but also for one of its own: a backend that builds a
+        module list from the file system will trip over files the atlas does not contain.
+        Two example repositories vendored side by side, each with a top-level `main.py`, are
+        a duplicate module to a type checker and an ordinary excluded folder to everyone
+        else.
+        """
+        ...
 
 
 class RepositoryIdentityReader(Protocol):

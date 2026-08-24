@@ -39,8 +39,37 @@ class _SilentResolver:
     def fingerprint(self) -> dict[str, str]:
         return {"backend": "silent"}
 
-    def resolve(self, root: Path, request: EdgeResolutionRequest) -> EdgeResolutionResult:
+    def resolve(
+        self,
+        root: Path,
+        request: EdgeResolutionRequest,
+        *,
+        excluded_paths: tuple[str, ...] = (),
+    ) -> EdgeResolutionResult:
+        # Answered, and answered with nothing — which is not the same as never having run,
+        # and is why the heuristic stays suppressed below.
         return EdgeResolutionResult()
+
+
+class _BrokenResolver:
+    """A resolver whose backend could not open the repository at all.
+
+    What mypy does on a `CompileError`, which is far more ordinary than it sounds: two
+    top-level modules sharing a name is enough, and it is raised for the whole repository
+    rather than for the file that caused it.
+    """
+
+    def fingerprint(self) -> dict[str, str]:
+        return {"backend": "broken"}
+
+    def resolve(
+        self,
+        root: Path,
+        request: EdgeResolutionRequest,
+        *,
+        excluded_paths: tuple[str, ...] = (),
+    ) -> EdgeResolutionResult:
+        return EdgeResolutionResult(answered=False)
 
 
 def _implements(atlas: Atlas) -> set[tuple[str, str, str, str | None, float]]:
@@ -71,6 +100,63 @@ def test_the_config_hash_separates_a_resolved_atlas_from_an_unresolved_one() -> 
         plain.current_identity(AUDIOBOOK / "repository").analysis_config_hash
         != resolved.current_identity(AUDIOBOOK / "repository").analysis_config_hash
     )
+
+
+def test_a_resolver_that_could_not_run_leaves_the_heuristic_to_it() -> None:
+    """A backend that failed is not a backend that found nothing.
+
+    Both used to arrive as an empty `EdgeResolutionResult`, and the heuristic was skipped on
+    either — so installing the optional resolver could leave a repository with *fewer*
+    `IMPLEMENTS` edges than not installing it, and take the whole `sole_implementation`
+    detector with them. It is not a rare path: mypy raises `CompileError` for the entire
+    build over two top-level modules sharing a name, which is what two vendored example
+    repositories look like. A review of this project's own source came back with four
+    candidates instead of fifty-four.
+
+    So the result says whether it answered, and a sweep that did not run still owes the
+    atlas the structural pass. Exactly one source of `IMPLEMENTS` edges, and at least one.
+    """
+
+    repository = AUDIOBOOK / "repository"
+    plain = PythonAstRepositoryAnalyzer().analyze(repository)
+    broken = PythonAstRepositoryAnalyzer(edge_resolver=_BrokenResolver()).analyze(repository)
+
+    assert _implements(plain), "the fixture has to have something to lose"
+    assert _implements(broken) == _implements(plain)
+    # And it is the heuristic's own work, not a typed pass reported under another name.
+    assert {edge[2] for edge in _implements(broken)} == {"parse"}
+
+
+def test_the_resolver_is_not_asked_about_folders_the_review_left_out() -> None:
+    """The scope is the review's, and the resolver builds its file list from the disk.
+
+    It walked straight past `excluded_paths`, so a folder somebody deliberately left out was
+    still handed to the type checker — and one that happens to hold two top-level `main.py`
+    files is a duplicate-module `CompileError` over files the atlas does not contain and
+    nobody asked about.
+    """
+
+    seen: list[tuple[str, ...]] = []
+
+    class _Recording:
+        def fingerprint(self) -> dict[str, str]:
+            return {"backend": "recording"}
+
+        def resolve(
+            self,
+            root: Path,
+            request: EdgeResolutionRequest,
+            *,
+            excluded_paths: tuple[str, ...] = (),
+        ) -> EdgeResolutionResult:
+            seen.append(excluded_paths)
+            return EdgeResolutionResult()
+
+    PythonAstRepositoryAnalyzer(edge_resolver=_Recording()).analyze(
+        AUDIOBOOK / "repository", excluded_paths=("tests",)
+    )
+
+    assert seen == [("tests",)]
 
 
 def test_a_resolver_that_answers_nothing_suppresses_the_heuristic() -> None:

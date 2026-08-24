@@ -522,12 +522,28 @@ class PythonAstRepositoryAnalyzer:
         # names and annotations at 0.8; the typed sweep answers the same question from the
         # type checker's own view. Running both would double every agreed pair and leave a
         # reader unable to say which pass believed what.
+        #
+        # But "exactly one" has to mean at least one. A typed sweep that could not run is not
+        # a sweep that found nothing, and treating the two alike cost the atlas every
+        # `IMPLEMENTS` edge it had: mypy raises `CompileError` on things as ordinary as two
+        # top-level modules sharing a name, the resolver returns empty, and this branch had
+        # already skipped the heuristic. Installing the optional resolver could therefore
+        # leave a repository with *fewer* edges than not installing it — and with them went
+        # the whole `sole_implementation` detector, which on this repository is 36 of 54
+        # candidates. A review of it came back with four.
         if self._edge_resolver is None:
             add_structural_protocol_edges(nodes, edges, trees)
         else:
-            unresolved = self._apply_resolution(
-                self._edge_resolver, canonical_root, nodes, edges, unresolved
+            unresolved, answered = self._apply_resolution(
+                self._edge_resolver,
+                canonical_root,
+                nodes,
+                edges,
+                unresolved,
+                excluded_paths,
             )
+            if not answered:
+                add_structural_protocol_edges(nodes, edges, trees)
         signals.extend(self._unresolved_call_signals(unresolved))
         edges = _deduplicate_edges(edges)
         self._add_duplicate_constant_signals(module_facts, signals)
@@ -1270,11 +1286,14 @@ class PythonAstRepositoryAnalyzer:
         nodes: dict[str, AtlasNode],
         edges: list[AtlasEdge],
         unresolved: list[UnresolvedSite],
-    ) -> list[UnresolvedSite]:
+        excluded_paths: tuple[str, ...],
+    ) -> tuple[list[UnresolvedSite], bool]:
         """Ask the type oracle everything at once, and keep the answers that are edges.
 
         Returns the sites still unresolved afterwards, so the signal that reports them says
-        what is genuinely invisible rather than what the cheap pass alone could not see.
+        what is genuinely invisible rather than what the cheap pass alone could not see — and
+        whether the oracle answered at all, which is what decides if the caller still owes
+        the atlas a structural pass.
         """
 
         # Deduplicated for the request and kept whole for the signals: one site is one
@@ -1291,7 +1310,7 @@ class PythonAstRepositoryAnalyzer:
                 for path, line, expression in sorted(sites)
             ),
         )
-        result = resolver.resolve(root, request)
+        result = resolver.resolve(root, request, excluded_paths=excluded_paths)
         by_qualified = _nodes_by_qualified_name(nodes)
         for verdict in result.conformances:
             implementation = by_qualified.get(verdict.question.class_qualified_name)
@@ -1350,7 +1369,10 @@ class PythonAstRepositoryAnalyzer:
                             resolved_by="types",
                         )
                     )
-        return [site for site in unresolved if id(site) not in resolved_sites]
+        return (
+            [site for site in unresolved if id(site) not in resolved_sites],
+            result.answered,
+        )
 
 
 

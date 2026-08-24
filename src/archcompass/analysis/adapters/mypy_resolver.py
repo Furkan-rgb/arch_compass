@@ -106,11 +106,17 @@ class MypyEdgeResolver:
             "conformance_rule": CONFORMANCE_RULE_VERSION,
         }
 
-    def resolve(self, root: Path, request: EdgeResolutionRequest) -> EdgeResolutionResult:
+    def resolve(
+        self,
+        root: Path,
+        request: EdgeResolutionRequest,
+        *,
+        excluded_paths: tuple[str, ...] = (),
+    ) -> EdgeResolutionResult:
         if request.is_empty():
             return EdgeResolutionResult()
         try:
-            view = _RepositoryTypes.build(root, self._excluded_roots)
+            view = _RepositoryTypes.build(root, self._excluded_roots, excluded_paths)
         # `CompileError` is what mypy raises when it cannot get through the code. The rest
         # are what it raises when it cannot get through *itself*: the semantic analyser
         # recurses, and its internal invariants are assertions, so a pathological input
@@ -122,7 +128,10 @@ class MypyEdgeResolver:
         # The parse already produced an atlas, and indexing must not depend on mypy
         # surviving whatever it was pointed at.
         except (CompileError, RecursionError, MemoryError, AssertionError):
-            return EdgeResolutionResult()
+            # `answered=False`, not an empty answer. The caller falls back to the structural
+            # heuristic on this, and cannot without being told: an empty result is also what
+            # a repository with nothing to report looks like.
+            return EdgeResolutionResult(answered=False)
         return EdgeResolutionResult(
             conformances=tuple(
                 verdict
@@ -149,15 +158,27 @@ class _RepositoryTypes:
         self._expressions: dict[str, dict[tuple[int, str], Expression]] = {}
 
     @classmethod
-    def build(cls, root: Path, excluded_roots: tuple[Path, ...] = ()) -> _RepositoryTypes:
+    def build(
+        cls,
+        root: Path,
+        excluded_roots: tuple[Path, ...] = (),
+        excluded_paths: tuple[str, ...] = (),
+    ) -> _RepositoryTypes:
         excluded = excluded_within(root, excluded_roots)
+        # The review's own scope, which this used to walk straight past. It builds its module
+        # list from the file system rather than from the snapshot, so a folder the reader
+        # left out was still type-checked — and `examples/` holding two vendored repositories
+        # that each have a top-level `main.py` is a `CompileError` about duplicate modules,
+        # raised over files the atlas does not contain and nobody asked about.
+        left_out = tuple(f"{item.strip('/')}/" for item in excluded_paths if item.strip("/"))
         relative = [
-            path.relative_to(root).as_posix()
+            candidate
             for path in sorted(root.rglob("*.py"))
             if not any(part in IGNORED_DIRECTORIES for part in path.relative_to(root).parts)
             and not path.is_symlink()
             and path.is_file()
             and not lies_within(path, excluded)
+            and not (candidate := path.relative_to(root).as_posix()).startswith(left_out)
         ]
         # The same import roots the analyzer derives, from the same rule. A resolver that
         # named `src/archcompass/x.py` differently from the atlas would answer every
