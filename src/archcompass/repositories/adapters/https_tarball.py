@@ -199,7 +199,13 @@ class HttpsTarballFetcher:
         enforced again over what the members declare, before any of it is written.
 
         Everything else is `tarfile`'s `data` filter, which refuses absolute paths, `..`
-        components, symlinks, hard links, device nodes and setuid bits. It is the standard
+        components, device nodes and setuid bits, and refuses any link — symbolic or hard —
+        whose target lands outside the destination. It does *not* refuse links as such: one
+        pointing inside the extracted tree is written, which is worth stating because this
+        used to claim otherwise. Verified by extracting each shape: an absolute symlink, a
+        relative escaping symlink, a `..` member and an escaping hardlink are all refused;
+        a member named `/tmp/x` loses its leading slash; `0o4755` arrives as `0o755`.
+        It is the standard
         library's own statement of what is safe to extract from an untrusted archive, and
         re-deriving it here by hand would only be a second, worse copy.
         """

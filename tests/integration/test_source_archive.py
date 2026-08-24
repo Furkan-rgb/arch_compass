@@ -21,6 +21,7 @@ from archcompass.domain.errors import RepositoryCheckoutError
 from archcompass.repositories.adapters.https_tarball import HttpsTarballFetcher
 from archcompass.repositories.sources import SourceArchiveService
 from archcompass.repositories.storage import SourceStorage
+from archcompass.repositories.storage import _size as storage_size
 
 HOSTS = frozenset({"github.com", "gitlab.com", "codeberg.org"})
 
@@ -282,14 +283,17 @@ def test_the_instance_deletes_the_oldest_trees_to_make_room(tmp_path: Path) -> N
     for index, token in enumerate(["oldest", "middle", "newest"]):
         tree = sessions / token / ".archcompass" / "sources" / f"repository-{token}"
         tree.mkdir(parents=True)
-        (tree / "big.py").write_bytes(b"\0" * 400)
+        (tree / "big.py").write_bytes(b"\0" * 8192)
         os.utime(tree, (1_700_000_000 + index, 1_700_000_000 + index))
         trees.append(tree)
 
-    # Three trees of 400 bytes against a ceiling of 1200, reserving 400 for what is coming:
-    # exactly one has to go, and it is the one nobody has touched for longest.
-    SourceStorage(root=sessions, max_total_bytes=1200).make_room(
-        reserve=400, keep=sessions / "mine" / ".archcompass" / "sources" / "repository-mine"
+    # Three trees of 8 KiB against a ceiling of 24 KiB, reserving 8 KiB for what is coming:
+    # exactly one has to go, and it is the one nobody has touched for longest. The sizes are
+    # above `_MINIMUM_ENTRY_BYTES` so that this test measures eviction order rather than the
+    # floor an empty file is charged at.
+    SourceStorage(root=sessions, max_total_bytes=24 * 1024).make_room(
+        reserve=8192,
+        keep=sessions / "mine" / ".archcompass" / "sources" / "repository-mine",
     )
 
     oldest, middle, newest = trees
@@ -446,3 +450,52 @@ def test_a_refused_address_leaves_every_tree_where_it_was(tmp_path: Path) -> Non
 
     assert (mine / "keep.py").exists(), "the caller's own tree was deleted by a refusal"
     assert (theirs / "keep.py").exists(), "another visitor's tree was evicted by a refusal"
+
+
+def test_a_tree_of_empty_files_is_not_free(tmp_path: Path) -> None:
+    """`st_size` is what a file says it is, and an empty one says nothing.
+
+    A repository of two hundred thousand empty files scored zero bytes, so `make_room`
+    never evicted it and the ceiling below it stayed untouched — while the kernel spent
+    real memory on the inodes. Measured on tmpfs: 200,000 empty files moved `Slab` by about
+    206 MB, returned on `rm`. The hosted container budgets roughly 370 MB of headroom, so
+    one such fetch takes it and the accounting sees nothing.
+    """
+
+    tree = tmp_path / "session" / ".archcompass" / "sources" / "empty-repository"
+    (tree / "pkg").mkdir(parents=True)
+    for index in range(64):
+        (tree / "pkg" / f"file-{index}.py").write_text("", encoding="utf-8")
+
+    counted = storage_size(tree)
+
+    assert counted > 0, "a tree of empty files was scored at nothing"
+    # Each entry charged the block a filesystem hands out for a file that exists.
+    assert counted >= 65 * 4096  # 64 files and the one directory below the tree root
+
+
+def test_a_real_file_is_still_counted_at_its_real_size(tmp_path: Path) -> None:
+    """The floor must not become the measurement."""
+
+    tree = tmp_path / "session" / ".archcompass" / "sources" / "big-repository"
+    tree.mkdir(parents=True)
+    (tree / "large.py").write_text("x" * 200_000, encoding="utf-8")
+
+    assert storage_size(tree) >= 200_000
+
+
+def test_an_empty_tree_is_evicted_to_make_room_for_a_fetch(tmp_path: Path) -> None:
+    """The consequence, at the boundary that spends the memory."""
+
+    hungry = tmp_path / "other-session" / ".archcompass" / "sources" / "empty-repository"
+    (hungry / "pkg").mkdir(parents=True)
+    for index in range(200):
+        (hungry / "pkg" / f"file-{index}.py").write_text("", encoding="utf-8")
+    mine = tmp_path / "mine" / ".archcompass" / "sources" / "keep-me"
+    mine.mkdir(parents=True)
+
+    SourceStorage(root=tmp_path, max_total_bytes=64 * 1024).make_room(
+        reserve=1024, keep=mine
+    )
+
+    assert not hungry.exists(), "a tree costing 200 inodes was scored at zero and kept"

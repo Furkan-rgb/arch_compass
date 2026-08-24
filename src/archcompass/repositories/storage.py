@@ -22,6 +22,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 from threading import Lock
+from typing import Final
 
 
 class SourceStorage:
@@ -78,11 +79,39 @@ class SourceStorage:
         ]
 
 
-def _size(tree: Path) -> int:
-    """What this tree costs, counting files and never following a link out of it."""
+#: What one file costs even when it holds nothing.
+#:
+#: `st_size` is what a file *says* it is, and a repository of two hundred thousand empty
+#: files says zero — so a tree that the kernel is really spending memory on scored nothing
+#: here, was never evicted, and left the ceiling below it untouched. Measured on this
+#: machine: 200,000 empty files on tmpfs moved `Slab` by about 206 MB, returned on `rm`.
+#: The hosted container budgets roughly 370 MB of headroom, so one such fetch takes it.
+#:
+#: Four kilobytes because that is the block a filesystem hands out for a file that exists,
+#: and because it is the number that makes the count visible at all: an empty tree at the
+#: extraction cap of 200,000 entries now scores 800 MB rather than 0, which is refused.
+#: Directories are counted the same way, for the same reason — an empty one is not free.
+#:
+#: Deliberately a floor rather than `st_blocks`, which reports what was allocated and is
+#: zero for a sparse or a tail-packed file. This is an accounting ceiling, not a disk
+#: measurement, and it has to be wrong in the safe direction.
+_MINIMUM_ENTRY_BYTES: Final = 4096
 
-    return sum(
-        item.stat().st_size
-        for item in tree.rglob("*")
-        if item.is_file() and not item.is_symlink()
-    )
+
+def _size(tree: Path) -> int:
+    """What this tree costs, counting every entry at least what one entry costs.
+
+    Never follows a link out of the tree: a symlink is the size of its target's name here,
+    and following it would let a tree be charged for something it does not hold.
+    """
+
+    total = 0
+    for item in tree.rglob("*"):
+        if item.is_symlink():
+            continue
+        if item.is_dir():
+            total += _MINIMUM_ENTRY_BYTES
+            continue
+        if item.is_file():
+            total += max(item.stat().st_size, _MINIMUM_ENTRY_BYTES)
+    return total

@@ -218,6 +218,20 @@ five of twenty on one model do not honour a schema. The output ceiling travels a
 `max_tokens` rather than `max_completion_tokens` for the same reason: it is what those
 endpoints declare, and the two together route to nothing.
 
+**A path built from anything a person supplied is checked before it is opened.** Nothing on
+the live path does that today: every workspace join is a constant, and the one place a
+user-supplied name reaches a filename — an authored policy — is protected twice, by
+`policy_slug` reducing a title to `[a-z0-9-]` and by catalogue lookup refusing an id the
+workspace does not already hold.
+
+It is written here because the next feature that writes a user-named file into a workspace
+will have no prior art to copy. Three checks, and the third is the one with no equivalent
+anywhere in this repository: reject an absolute path or a `..` component; **reject a symlink
+at every component of the path, not only at its end**; then resolve and re-assert
+containment. A helper that did this was deleted rather than kept unwired, because dead code
+that looks like a defence is worse than no defence — a reader assumes it is guarding
+something. Reintroduce it at the boundary that needs it, and not before.
+
 **Pydantic validates at the boundary; the domain uses its own types.** Records that cross
 into HTTP, SQLite or a model's structured output are Pydantic; `domain/` is frozen stdlib
 dataclasses with explicit constructors and invariants in `__post_init__`. A model's output is
